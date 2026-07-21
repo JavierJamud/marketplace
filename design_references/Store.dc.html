@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; background:#fbf9fa; font-family:'Inter',sans-serif; }
+    a { color:#0e1a28; text-decoration:none; }
+    a:hover { color:#FE9800; }
+  </style>
+</helmet>
+<div style="width:0;height:0;overflow:hidden;position:absolute;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" hint-size="1,1"></x-import></div>
+
+<div style="min-height:100vh;background:#fbf9fa;">
+  <!-- HEADER -->
+  <header style="position:sticky;top:0;z-index:50;background:#232F3E;box-shadow:0 2px 12px rgba(0,0,0,0.12);">
+    <div style="max-width:1280px;margin:0 auto;padding:0 24px;height:72px;display:flex;align-items:center;gap:20px;">
+      <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;flex-shrink:0;">
+        <div style="width:32px;height:32px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:17px;">Z</div>
+        <span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:19px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span>
+      </a>
+      <nav style="display:flex;align-items:center;gap:24px;flex-shrink:0;">
+        <a href="Shop.dc.html" style="font-size:14px;font-weight:600;color:rgba(255,255,255,0.75);">Catálogo</a>
+        <a href="Stores.dc.html" style="font-size:14px;font-weight:600;color:rgba(255,255,255,0.75);">Tiendas</a>
+      </nav>
+      <div style="flex:1;"></div>
+      <a href="Cart.dc.html" style="position:relative;display:flex;align-items:center;color:rgba(255,255,255,0.9);flex-shrink:0;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+        <span style="position:absolute;top:-8px;right:-9px;background:#FE9800;color:#fff;font-size:10px;font-weight:700;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;">{{ cartCount }}</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- BANNER -->
+  <div style="background:{{ vendor.color }};">
+    <div style="max-width:1280px;margin:0 auto;padding:36px 24px;display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;">
+      <div style="width:88px;height:88px;border-radius:9999px;background:rgba(255,255,255,0.12);border:3px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#fff;font-size:34px;flex-shrink:0;">{{ vendor.initial }}</div>
+      <div style="flex:1;min-width:220px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:26px;color:#fff;margin:0;">{{ vendor.name }}</h1>
+          <sc-if value="{{ vendor.verified }}"><span style="display:inline-flex;width:20px;height:20px;" dangerouslySetInnerHTML="{{ badge20 }}"></span></sc-if>
+          <span style="{{ vendor.openStyle }}">{{ vendor.openLabel }}</span>
+        </div>
+        <p style="font-size:13.5px;color:rgba(255,255,255,0.8);margin:8px 0 0;max-width:560px;">{{ vendor.desc }}</p>
+        <div style="display:flex;align-items:center;gap:18px;margin-top:12px;flex-wrap:wrap;font-size:13px;color:rgba(255,255,255,0.85);">
+          <span style="color:#FE9800;font-weight:700;">★ {{ vendor.rating }}</span>
+          <span>{{ vendor.sales }} ventas</span>
+          <span>📍 {{ vendor.locationLabel }}</span>
+          <span>Desde {{ vendor.joined }}</span>
+        </div>
+      </div>
+      <a href="{{ vendor.waHref }}" target="_blank" style="background:#25D366;color:#fff;font-weight:700;font-size:14px;padding:12px 20px;border-radius:8px;display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.8 7.3L3 20l1.3-4.9A8.5 8.5 0 1 1 21 11.5z"/></svg>
+        Contactar
+      </a>
+    </div>
+  </div>
+
+  <!-- RESTAURANTE: menú QR CTA -->
+  <sc-if value="{{ vendor.restaurant }}">
+    <div style="max-width:1280px;margin:0 auto;padding:20px 24px 0;">
+      <a href="TableOrder.dc.html" style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #eae7e9;border-left:4px solid #FE9800;border-radius:12px;padding:16px 20px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:22px;">🍽️</span>
+          <div><div style="font-weight:700;font-size:14.5px;color:#1b1b1d;">Menú de mesa con QR</div><div style="font-size:12.5px;color:#75777c;">Escaneá el QR de tu mesa o mirá el menú online</div></div>
+        </div>
+        <span style="font-weight:700;font-size:13px;color:#337475;">Ver menú →</span>
+      </a>
+    </div>
+  </sc-if>
+
+  <!-- PRODUCTOS -->
+  <div style="max-width:1280px;margin:0 auto;padding:32px 24px 0;">
+    <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:22px;color:#1b1b1d;margin:0 0 20px;">Productos de {{ vendor.name }}</h2>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;">
+      <sc-for list="{{ products }}" as="p" hint-placeholder-count="4">
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(35,47,62,0.05);">
+          <a href="{{ p.href }}" style="display:block;"><div style="width:100%;height:160px;"><image-slot id="{{ p.slotId }}" shape="rect" placeholder="Foto" style="width:100%;height:100%;"></image-slot></div></a>
+          <div style="padding:14px;">
+            <a href="{{ p.href }}" style="font-weight:600;font-size:13.5px;color:#1b1b1d;display:block;margin-bottom:6px;line-height:18px;">{{ p.name }}</a>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-weight:700;font-size:15px;color:#1b1b1d;">{{ p.priceFmt }}</span>
+              <button onClick="{{ p.addToCart }}" style="width:34px;height:34px;border-radius:8px;background:#FE9800;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0E1A28" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- COMENTARIOS -->
+  <div style="max-width:1280px;margin:0 auto;padding:44px 24px 0;">
+    <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:22px;color:#1b1b1d;margin:0 0 4px;">Comentarios de compradores</h2>
+    <p style="font-size:12.5px;color:#75777c;margin:0 0 20px;">Públicos y visibles para todos. Solo compradores registrados pueden comentar.</p>
+    <div style="display:flex;gap:10px;margin-bottom:24px;max-width:720px;">
+      <input value="{{ commentText }}" onChange="{{ onCommentChange }}" placeholder="Escribí un comentario..." style="flex:1;height:44px;border:1px solid #c5c6cc;border-radius:8px;padding:0 14px;font-size:14px;outline:none;font-family:'Inter',sans-serif;" />
+      <button onClick="{{ addComment }}" style="background:#232F3E;color:#fff;border:none;border-radius:8px;padding:0 22px;font-weight:700;font-size:13.5px;cursor:pointer;">Publicar</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;max-width:720px;">
+      <sc-for list="{{ comments }}" as="c" hint-placeholder-count="2">
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:12px;padding:16px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <div style="width:34px;height:34px;border-radius:9999px;background:#e4e2e3;"></div>
+            <div><div style="font-weight:700;font-size:13px;color:#1b1b1d;">{{ c.name }}</div><div style="font-size:11.5px;color:#75777c;">{{ c.date }}</div></div>
+          </div>
+          <p style="font-size:13.5px;color:#44474c;margin:0;line-height:20px;">{{ c.text }}</p>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="max-width:1280px;margin:0 auto;padding:44px 24px 64px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:22px;color:#1b1b1d;margin:0;">Otras tiendas</h2>
+      <a href="Stores.dc.html" style="font-weight:600;font-size:13.5px;color:#337475;">Ver todas →</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+      <sc-for list="{{ otherStores }}" as="v" hint-placeholder-count="4">
+        <a href="{{ v.href }}" style="background:#fff;border:1px solid #eae7e9;border-radius:14px;padding:16px;display:flex;align-items:center;gap:12px;">
+          <div style="width:44px;height:44px;border-radius:9999px;background:{{ v.color }};display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:16px;flex-shrink:0;">{{ v.initial }}</div>
+          <div><div style="font-weight:700;font-size:13.5px;color:#1b1b1d;">{{ v.name }}</div><div style="font-size:11.5px;color:#75777c;">★ {{ v.rating }}</div></div>
+        </a>
+      </sc-for>
+    </div>
+  </div>
+
+  <footer style="background:#0e1a28;"><div style="max-width:1280px;margin:0 auto;padding:32px 24px;text-align:center;"><span style="font-size:12.5px;color:rgba(255,255,255,0.4);">© 2026 ZeuDin Group LLC · Cuba</span></div></footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { cartCount: 0, badge20: '', data: null, commentText: '', extraComments: [] };
+  componentDidMount() {
+    this.syncCart();
+    window.addEventListener('storage', this.syncCart);
+    import('./badge-icon.js').then(m => this.setState({ badge20: m.verifiedBadgeSvg(20) }));
+    import('./zeudin-data.js').then(m => this.setState({ data: m }));
+  }
+  componentWillUnmount() { window.removeEventListener('storage', this.syncCart); }
+  syncCart = () => { try { const c = JSON.parse(localStorage.getItem('zeudin_cart') || '[]'); this.setState({ cartCount: c.reduce((a, x) => a + x.qty, 0) }); } catch (e) {} };
+  getId() { try { return new URLSearchParams(window.location.search).get('id') || 'tecnohabana'; } catch (e) { return 'tecnohabana'; } }
+  addToCart(id, vendorId) {
+    let cart = []; try { cart = JSON.parse(localStorage.getItem('zeudin_cart') || '[]'); } catch (e) {}
+    if (cart.length && cart[0].vendorId !== vendorId) cart = [{ id, vendorId, qty: 1 }];
+    else { const ex = cart.find(c => c.id === id); if (ex) ex.qty += 1; else cart.push({ id, vendorId, qty: 1 }); }
+    localStorage.setItem('zeudin_cart', JSON.stringify(cart)); this.syncCart();
+  }
+
+  renderVals() {
+    const D = this.state.data; const badge20 = { __html: this.state.badge20 };
+    if (!D) return { cartCount: this.state.cartCount, badge20, vendor: { color: '#232F3E', name: '' }, products: [], comments: [], otherStores: [], commentText: '', onCommentChange: () => {}, addComment: () => {} };
+    const id = this.getId();
+    const v = D.vendorById(id) || D.vendors[0];
+    const prods = D.products.filter(p => p.vendorId === v.id);
+    const baseComments = [
+      { name: 'Yanet P.', date: '04 Jul 2026', text: 'Muy buena atención, respondieron enseguida por WhatsApp.' },
+      { name: 'Osmany R.', date: '01 Jul 2026', text: 'Productos tal cual la descripción. Volveré a comprar.' },
+    ];
+    return {
+      cartCount: this.state.cartCount, badge20,
+      commentText: this.state.commentText,
+      onCommentChange: (e) => this.setState({ commentText: e.target.value }),
+      addComment: () => { if (!this.state.commentText.trim()) return; this.setState(s => ({ extraComments: [{ name: 'Vos', date: 'Ahora', text: s.commentText }, ...s.extraComments], commentText: '' })); },
+      vendor: {
+        name: v.name, initial: v.name[0], color: v.color, verified: v.verified, restaurant: v.restaurant,
+        rating: v.rating, sales: v.sales, joined: v.joined, desc: v.desc,
+        locationLabel: v.municipality + ', ' + D.provinceName(v.province),
+        waHref: D.waLink(v.whatsapp, 'Hola ' + v.name + ', tengo una consulta sobre sus productos.'),
+        openLabel: v.open ? 'Abierto ahora' : 'Cerrado ahora',
+        openStyle: v.open ? 'background:rgba(12,174,83,0.2);color:#fff;font-weight:700;font-size:11px;padding:4px 11px;border-radius:9999px;' : 'background:rgba(0,0,0,0.25);color:rgba(255,255,255,0.85);font-weight:700;font-size:11px;padding:4px 11px;border-radius:9999px;',
+      },
+      products: prods.map(p => ({ name: p.name, priceFmt: D.fmtCUP(p.price), href: 'Product.dc.html?id=' + p.id, slotId: 'store-' + p.id, addToCart: () => this.addToCart(p.id, v.id) })),
+      comments: [...this.state.extraComments, ...baseComments],
+      otherStores: D.vendors.filter(x => x.id !== v.id).slice(0, 4).map(x => ({ name: x.name, initial: x.name[0], color: x.color, rating: x.rating, href: 'Store.dc.html?id=' + x.id })),
+    };
+  }
+}
+</script>
+</body>
+</html>

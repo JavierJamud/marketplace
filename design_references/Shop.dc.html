@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; background:#fbf9fa; font-family:'Inter',sans-serif; }
+    a { color:#0e1a28; text-decoration:none; }
+    a:hover { color:#FE9800; }
+    input, select { font-family:'Inter',sans-serif; }
+  </style>
+</helmet>
+<div style="width:0;height:0;overflow:hidden;position:absolute;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" hint-size="1,1"></x-import></div>
+
+<div style="min-height:100vh;background:#fbf9fa;">
+
+  <!-- HEADER -->
+  <header style="position:sticky;top:0;z-index:50;background:#232F3E;box-shadow:0 2px 12px rgba(0,0,0,0.12);">
+    <div style="max-width:1280px;margin:0 auto;padding:0 24px;height:72px;display:flex;align-items:center;gap:20px;">
+      <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;flex-shrink:0;">
+        <div style="width:32px;height:32px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:17px;">Z</div>
+        <span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:19px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span>
+      </a>
+      <div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.1);border-radius:8px;padding:0 10px;height:38px;flex-shrink:0;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FE9800" stroke-width="2"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        <select value="{{ province }}" onChange="{{ onProvinceChange }}" style="border:none;background:transparent;outline:none;color:#fff;font-size:12.5px;font-weight:600;">
+          <sc-for list="{{ provinceOpts }}" as="p" hint-placeholder-count="16"><option value="{{ p.id }}" style="color:#111;">{{ p.name }}</option></sc-for>
+        </select>
+      </div>
+      <div style="flex:1;display:flex;align-items:center;background:rgba(255,255,255,0.1);border-radius:8px;padding:0 14px;height:38px;gap:8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="Buscar productos..." style="border:none;background:transparent;outline:none;color:#fff;font-size:13px;width:100%;" />
+      </div>
+      <a href="Cart.dc.html" style="position:relative;display:flex;align-items:center;color:rgba(255,255,255,0.9);flex-shrink:0;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+        <span style="position:absolute;top:-8px;right:-9px;background:#FE9800;color:#fff;font-size:10px;font-weight:700;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;">{{ cartCount }}</span>
+      </a>
+      <a href="VendorOnboarding.dc.html" style="background:#FE9800;border-radius:8px;padding:8px 15px;font-size:12.5px;font-weight:700;color:#0E1A28;white-space:nowrap;flex-shrink:0;">Vender gratis</a>
+    </div>
+  </header>
+
+  <!-- PAGE HEADER -->
+  <div style="background:#fff;border-bottom:1px solid #eae7e9;">
+    <div style="max-width:1280px;margin:0 auto;padding:26px 24px;">
+      <div style="font-size:12.5px;color:#75777c;margin-bottom:8px;"><a href="Home.dc.html" style="color:#75777c;">Inicio</a> / <span style="color:#1b1b1d;">Catálogo</span></div>
+      <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:28px;color:#1b1b1d;margin:0;">Catálogo en {{ provinceLabel }}</h1>
+      <p style="font-size:13px;color:#75777c;margin:6px 0 0;">Resultados filtrados por tu provincia · las tiendas verificadas se muestran primero</p>
+    </div>
+  </div>
+
+  <!-- CATEGORY PILLS -->
+  <div style="max-width:1280px;margin:0 auto;padding:20px 24px 0;display:flex;gap:10px;flex-wrap:wrap;">
+    <sc-for list="{{ categoryPills }}" as="cat" hint-placeholder-count="8">
+      <button onClick="{{ cat.onClick }}" style="{{ cat.style }}">{{ cat.label }}</button>
+    </sc-for>
+  </div>
+
+  <!-- MAIN -->
+  <div style="max-width:1280px;margin:0 auto;padding:24px 24px 64px;display:grid;grid-template-columns:250px 1fr;gap:32px;align-items:start;">
+    <!-- SIDEBAR -->
+    <aside style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:22px;position:sticky;top:88px;">
+      <div style="font-weight:700;font-size:14px;color:#1b1b1d;margin-bottom:12px;">Precio máximo</div>
+      <input type="range" min="0" max="10000" step="100" value="{{ maxPrice }}" onChange="{{ onPriceChange }}" style="width:100%;accent-color:#FE9800;margin-bottom:6px;" />
+      <div style="font-size:12.5px;color:#75777c;margin-bottom:22px;">Hasta {{ maxPriceFmt }}</div>
+
+      <div style="font-weight:700;font-size:14px;color:#1b1b1d;margin-bottom:12px;">Método de pago</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:22px;">
+        <sc-for list="{{ payFilters }}" as="pf" hint-placeholder-count="3">
+          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;">
+            <input type="checkbox" checked="{{ pf.checked }}" onChange="{{ pf.onToggle }}" style="accent-color:#337475;width:15px;height:15px;" />
+            <span style="font-size:13.5px;color:#44474c;">{{ pf.label }}</span>
+          </label>
+        </sc-for>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:9px;cursor:pointer;margin-bottom:8px;">
+        <input type="checkbox" checked="{{ onlyVerified }}" onChange="{{ onToggleVerified }}" style="accent-color:#337475;width:15px;height:15px;" />
+        <span style="font-size:13.5px;color:#44474c;font-weight:600;">Solo tiendas verificadas</span>
+      </label>
+      <button onClick="{{ clearFilters }}" style="width:100%;margin-top:14px;background:none;border:1px solid #c5c6cc;border-radius:8px;padding:10px;font-size:13px;font-weight:600;color:#44474c;cursor:pointer;">Limpiar filtros</button>
+    </aside>
+
+    <!-- GRID -->
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+        <span style="font-size:13.5px;color:#75777c;">{{ resultCount }} productos en {{ provinceLabel }}</span>
+        <select onChange="{{ onSortChange }}" style="border:1px solid #c5c6cc;border-radius:8px;padding:8px 12px;font-size:13px;color:#1b1b1d;outline:none;background:#fff;">
+          <option value="relevance">Más relevantes</option>
+          <option value="price-asc">Precio: menor a mayor</option>
+          <option value="price-desc">Precio: mayor a menor</option>
+          <option value="rating">Mejor calificados</option>
+        </select>
+      </div>
+
+      <sc-if value="{{ hasResults }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+          <sc-for list="{{ visibleProducts }}" as="p" hint-placeholder-count="6">
+            <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(35,47,62,0.05);">
+              <a href="{{ p.href }}" style="display:block;position:relative;">
+                <sc-if value="{{ p.badge }}"><div style="position:absolute;top:12px;left:12px;background:{{ p.badgeColor }};color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:9999px;z-index:2;">{{ p.badge }}</div></sc-if>
+                <div style="width:100%;height:180px;"><image-slot id="{{ p.slotId }}" shape="rect" placeholder="Foto" style="width:100%;height:100%;"></image-slot></div>
+              </a>
+              <div style="padding:15px;">
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+                  <span style="font-size:11px;color:#337475;font-weight:700;">{{ p.vendorName }}</span>
+                  <sc-if value="{{ p.vendorVerified }}"><span style="display:inline-flex;width:13px;height:13px;" dangerouslySetInnerHTML="{{ badge14 }}"></span></sc-if>
+                </div>
+                <a href="{{ p.href }}" style="font-weight:600;font-size:14px;color:#1b1b1d;display:block;margin-bottom:5px;line-height:19px;">{{ p.name }}</a>
+                <div style="font-size:11.5px;color:#75777c;margin-bottom:10px;">{{ p.locationLabel }} · {{ p.stockLabel }}</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <div>
+                    <span style="font-weight:700;font-size:16px;color:#1b1b1d;">{{ p.priceFmt }}</span>
+                    <sc-if value="{{ p.oldPriceFmt }}"><span style="font-size:12px;color:#75777c;text-decoration:line-through;margin-left:5px;">{{ p.oldPriceFmt }}</span></sc-if>
+                  </div>
+                  <button onClick="{{ p.addToCart }}" style="width:36px;height:36px;border-radius:8px;background:#FE9800;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0E1A28" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noResults }}">
+        <div style="text-align:center;padding:70px 20px;background:#fff;border:1px solid #eae7e9;border-radius:16px;">
+          <div style="font-size:15px;color:#1b1b1d;font-weight:600;margin-bottom:6px;">Sin stock en {{ provinceLabel }}</div>
+          <p style="font-size:13.5px;color:#75777c;margin:0 0 4px;">Probá en provincias cercanas:</p>
+          <div style="font-size:13.5px;color:#337475;font-weight:600;">{{ nearbyLabel }}</div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer style="background:#0e1a28;">
+    <div style="max-width:1280px;margin:0 auto;padding:32px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+      <span style="font-size:12.5px;color:rgba(255,255,255,0.4);">© 2026 ZeuDin Group LLC · Cuba</span>
+      <div style="display:flex;gap:24px;">
+        <a href="Home.dc.html" style="font-size:13px;color:rgba(255,255,255,0.55);">Inicio</a>
+        <a href="Stores.dc.html" style="font-size:13px;color:rgba(255,255,255,0.55);">Tiendas</a>
+        <a href="VendorOnboarding.dc.html" style="font-size:13px;color:rgba(255,255,255,0.55);">Vender</a>
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    cartCount: 0, badge14: '', data: null, province: 'hab',
+    category: 'all', search: '', maxPrice: 10000, sort: 'relevance',
+    pay: { whatsapp: true, cod: true, prepaid: true }, onlyVerified: false,
+  };
+
+  componentDidMount() {
+    this.syncCart();
+    window.addEventListener('storage', this.syncCart);
+    import('./badge-icon.js').then(m => this.setState({ badge14: m.verifiedBadgeSvg(14) }));
+    import('./zeudin-data.js').then(m => this.setState({ data: m }));
+    try { const loc = JSON.parse(localStorage.getItem('zeudin_loc') || 'null'); if (loc) this.setState({ province: loc.province }); } catch (e) {}
+  }
+  componentWillUnmount() { window.removeEventListener('storage', this.syncCart); }
+  syncCart = () => { try { const c = JSON.parse(localStorage.getItem('zeudin_cart') || '[]'); this.setState({ cartCount: c.reduce((a, x) => a + x.qty, 0) }); } catch (e) {} };
+  addToCart(id, vendorId) {
+    let cart = []; try { cart = JSON.parse(localStorage.getItem('zeudin_cart') || '[]'); } catch (e) {}
+    if (cart.length && cart[0].vendorId !== vendorId) cart = [{ id, vendorId, qty: 1 }];
+    else { const ex = cart.find(c => c.id === id); if (ex) ex.qty += 1; else cart.push({ id, vendorId, qty: 1 }); }
+    localStorage.setItem('zeudin_cart', JSON.stringify(cart)); this.syncCart();
+  }
+
+  renderVals() {
+    const D = this.state.data; const badge14 = { __html: this.state.badge14 }; const st = this.state;
+    if (!D) return { cartCount: st.cartCount, badge14, province: st.province, provinceOpts: [], provinceLabel: '', categoryPills: [], visibleProducts: [], hasResults: false, noResults: false, maxPrice: st.maxPrice, maxPriceFmt: '', payFilters: [], onProvinceChange: () => {}, onSearch: () => {}, onPriceChange: () => {}, onSortChange: () => {}, clearFilters: () => {}, onToggleVerified: () => {}, search: st.search, onlyVerified: st.onlyVerified, resultCount: 0, nearbyLabel: '' };
+    const provinceLabel = D.provinceName(st.province);
+    const cats = [{ id: 'all', name: 'Todos' }, ...D.categories];
+    let list = D.products.filter(p => {
+      const v = D.vendorById(p.vendorId);
+      return (st.category === 'all' || p.category === st.category)
+        && p.price <= st.maxPrice
+        && (!st.search || p.name.toLowerCase().includes(st.search.toLowerCase()))
+        && (!st.onlyVerified || v.verified)
+        && p.payment.some(m => st.pay[m]);
+    });
+    if (st.sort === 'price-asc') list = [...list].sort((a, b) => a.price - b.price);
+    if (st.sort === 'price-desc') list = [...list].sort((a, b) => b.price - a.price);
+    if (st.sort === 'rating') list = [...list].sort((a, b) => b.rating - a.rating);
+    list = [...list].sort((a, b) => (D.vendorById(b.vendorId).verified ? 1 : 0) - (D.vendorById(a.vendorId).verified ? 1 : 0));
+
+    const nearby = (D.adjacency[st.province] || []).map(id => D.provinceName(id)).filter(Boolean);
+
+    return {
+      cartCount: st.cartCount, badge14,
+      province: st.province, provinceOpts: D.provinces, provinceLabel,
+      onProvinceChange: (e) => { this.setState({ province: e.target.value }); try { const loc = JSON.parse(localStorage.getItem('zeudin_loc') || '{}'); localStorage.setItem('zeudin_loc', JSON.stringify({ ...loc, province: e.target.value })); } catch (er) {} },
+      search: st.search, onSearch: (e) => this.setState({ search: e.target.value }),
+      categoryPills: cats.map(c => ({ label: c.name, onClick: () => this.setState({ category: c.id }), style: `padding:9px 18px;border-radius:9999px;font-size:13.5px;font-weight:600;cursor:pointer;border:1px solid ${st.category === c.id ? '#232F3E' : '#c5c6cc'};background:${st.category === c.id ? '#232F3E' : '#fff'};color:${st.category === c.id ? '#fff' : '#44474c'};` })),
+      maxPrice: st.maxPrice, maxPriceFmt: D.fmtCUP(st.maxPrice), onPriceChange: (e) => this.setState({ maxPrice: Number(e.target.value) }),
+      payFilters: [{ id: 'whatsapp', label: 'WhatsApp' }, { id: 'cod', label: 'Contra entrega' }, { id: 'prepaid', label: 'Transferencia CUP' }].map(x => ({ label: x.label, checked: st.pay[x.id], onToggle: () => this.setState(s => ({ pay: { ...s.pay, [x.id]: !s.pay[x.id] } })) })),
+      onlyVerified: st.onlyVerified, onToggleVerified: () => this.setState(s => ({ onlyVerified: !s.onlyVerified })),
+      onSortChange: (e) => this.setState({ sort: e.target.value }),
+      clearFilters: () => this.setState({ category: 'all', maxPrice: 10000, search: '', sort: 'relevance', pay: { whatsapp: true, cod: true, prepaid: true }, onlyVerified: false }),
+      resultCount: list.length, hasResults: list.length > 0, noResults: list.length === 0,
+      nearbyLabel: nearby.length ? nearby.join(' · ') : 'otras provincias',
+      visibleProducts: list.map(p => {
+        const v = D.vendorById(p.vendorId);
+        return { name: p.name, vendorName: v.name, vendorVerified: v.verified, href: 'Product.dc.html?id=' + p.id, slotId: 'shop-' + p.id, priceFmt: D.fmtCUP(p.price), oldPriceFmt: p.oldPrice ? D.fmtCUP(p.oldPrice) : null, badge: p.badge, badgeColor: p.badge && p.badge.startsWith('-') ? '#ba1a1a' : '#337475', locationLabel: D.provinceName(v.province), stockLabel: p.stock > 0 ? 'Disponible' : 'Sin stock', addToCart: () => this.addToCart(p.id, p.vendorId) };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

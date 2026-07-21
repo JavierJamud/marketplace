@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; background:#fbf9fa; font-family:'Inter',sans-serif; }
+    a { color:#0e1a28; text-decoration:none; }
+    a:hover { color:#FE9800; }
+    ::selection { background:#FE9800; color:#fff; }
+    select { font-family:'Inter',sans-serif; }
+  </style>
+</helmet>
+<div style="width:0;height:0;overflow:hidden;position:absolute;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" hint-size="1,1"></x-import></div>
+
+<div style="min-height:100vh;background:#fbf9fa;">
+
+  <!-- HEADER -->
+  <header style="position:sticky;top:0;z-index:50;background:#232F3E;box-shadow:0 2px 12px rgba(0,0,0,0.12);">
+    <div style="max-width:1280px;margin:0 auto;padding:0 24px;height:76px;display:flex;align-items:center;gap:22px;">
+      <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;flex-shrink:0;">
+        <div style="width:34px;height:34px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:18px;">Z</div>
+        <span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:20px;color:#ffffff;letter-spacing:-0.01em;">Zeu<span style="color:#FE9800;">Din</span></span>
+      </a>
+
+      <!-- Selector de ubicación -->
+      <div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.1);border-radius:8px;padding:0 10px;height:40px;flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FE9800" stroke-width="2"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+        <select value="{{ province }}" onChange="{{ onProvinceChange }}" style="border:none;background:transparent;outline:none;color:#fff;font-size:12.5px;font-weight:600;max-width:120px;">
+          <sc-for list="{{ provinceOpts }}" as="p" hint-placeholder-count="16">
+            <option value="{{ p.id }}" style="color:#111;">{{ p.name }}</option>
+          </sc-for>
+        </select>
+        <span style="color:rgba(255,255,255,0.4);">·</span>
+        <select value="{{ municipality }}" onChange="{{ onMuniChange }}" style="border:none;background:transparent;outline:none;color:rgba(255,255,255,0.85);font-size:12.5px;max-width:120px;">
+          <sc-for list="{{ muniOpts }}" as="m" hint-placeholder-count="6">
+            <option value="{{ m }}" style="color:#111;">{{ m }}</option>
+          </sc-for>
+        </select>
+      </div>
+
+      <div style="flex:1;display:flex;align-items:center;background:rgba(255,255,255,0.1);border-radius:8px;padding:0 14px;height:40px;gap:8px;min-width:120px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input placeholder="Buscar productos, tiendas, comida..." style="border:none;background:transparent;outline:none;color:#fff;font-family:'Inter',sans-serif;font-size:13px;width:100%;" />
+      </div>
+
+      <div style="display:flex;align-items:center;gap:16px;flex-shrink:0;">
+        <a href="Cart.dc.html" style="position:relative;display:flex;align-items:center;color:rgba(255,255,255,0.9);">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+          <span style="position:absolute;top:-8px;right:-9px;background:#FE9800;color:#fff;font-size:10px;font-weight:700;width:17px;height:17px;border-radius:50%;display:flex;align-items:center;justify-content:center;">{{ cartCount }}</span>
+        </a>
+        <a href="Account.dc.html" style="display:flex;align-items:center;color:rgba(255,255,255,0.85);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+        </a>
+        <a href="VendorOnboarding.dc.html" style="background:#FE9800;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;color:#0E1A28;white-space:nowrap;">Vender gratis</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section style="background:linear-gradient(180deg,#232F3E 0%,#1a2531 100%);">
+    <div style="max-width:1280px;margin:0 auto;padding:60px 24px 52px;display:grid;grid-template-columns:1.05fr 1fr;gap:52px;align-items:center;">
+      <div>
+        <div style="display:inline-flex;align-items:center;gap:7px;background:rgba(254,152,0,0.15);color:#FE9800;font-size:12px;font-weight:700;letter-spacing:0.03em;padding:6px 14px;border-radius:9999px;margin-bottom:20px;">🇨🇺 HECHO PARA CUBA · 16 PROVINCIAS</div>
+        <h1 style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:46px;line-height:54px;letter-spacing:-0.02em;color:#ffffff;margin:0 0 18px;">Comprá y vendé cerca tuyo,<br/>de <span style="color:#FE9800;">vendedores</span> de tu provincia.</h1>
+        <p style="font-size:17px;line-height:27px;color:rgba(255,255,255,0.7);margin:0 0 30px;max-width:500px;">Productos, comida y servicios de tiendas locales. Pedí directo por WhatsApp, pagá contra entrega o por transferencia. Sin comisiones para el vendedor.</p>
+        <div style="display:flex;gap:14px;margin-bottom:34px;flex-wrap:wrap;">
+          <a href="Shop.dc.html" style="background:#FE9800;color:#0E1A28;font-weight:700;font-size:15px;padding:14px 26px;border-radius:8px;display:flex;align-items:center;gap:8px;">Explorar en {{ provinceLabel }}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0E1A28" stroke-width="2.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a href="Stores.dc.html" style="border:1.5px solid rgba(255,255,255,0.3);color:#ffffff;font-weight:600;font-size:15px;padding:14px 26px;border-radius:8px;">Ver tiendas</a>
+        </div>
+        <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.7);font-size:13px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.8 7.3L3 20l1.3-4.9A8.5 8.5 0 1 1 21 11.5z"/></svg>
+            Pedido por WhatsApp
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;color:rgba(255,255,255,0.7);font-size:13px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FE9800" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Registro gratis para vendedores
+          </div>
+        </div>
+      </div>
+      <div style="position:relative;height:400px;">
+        <image-slot id="zd-hero" shape="rounded" radius="20" placeholder="Foto de tiendas / productos cubanos" style="width:100%;height:100%;"></image-slot>
+        <div style="position:absolute;top:20px;right:-14px;background:#ffffff;border-radius:12px;padding:12px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.18);display:flex;align-items:center;gap:10px;">
+          <div style="width:36px;height:36px;border-radius:8px;background:rgba(37,211,102,0.14);display:flex;align-items:center;justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#128C7E" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.8 7.3L3 20l1.3-4.9A8.5 8.5 0 1 1 21 11.5z"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:12.5px;color:#1b1b1d;">Pedí por WhatsApp</div>
+            <div style="font-size:11px;color:#44474c;">Respuesta directa</div>
+          </div>
+        </div>
+        <div style="position:absolute;bottom:20px;left:-14px;background:#ffffff;border-radius:12px;padding:12px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.18);display:flex;align-items:center;gap:10px;">
+          <div style="width:36px;height:36px;border-radius:8px;background:rgba(254,152,0,0.12);display:flex;align-items:center;justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A5100" stroke-width="2"><path d="M12 21s-7-6.3-7-11a7 7 0 0 1 14 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:12.5px;color:#1b1b1d;">Filtrado por tu zona</div>
+            <div style="font-size:11px;color:#44474c;">Provincia y municipio</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CATEGORIES -->
+  <section style="max-width:1280px;margin:0 auto;padding:44px 24px 0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
+      <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:26px;color:#1b1b1d;margin:0;">Explorá por categoría</h2>
+      <a href="Shop.dc.html" style="font-weight:600;font-size:14px;color:#337475;">Ver todo →</a>
+    </div>
+    <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;">
+      <sc-for list="{{ categoryPills }}" as="c" hint-placeholder-count="7">
+        <a href="Shop.dc.html" style="flex:0 0 auto;padding:9px 18px;border-radius:9999px;font-size:13.5px;font-weight:600;border:1px solid #c5c6cc;background:#ffffff;color:#44474c;white-space:nowrap;">{{ c.name }}</a>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- FEATURED PRODUCTS -->
+  <section style="max-width:1280px;margin:0 auto;padding:44px 24px 0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
+      <div>
+        <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:26px;color:#1b1b1d;margin:0;">Destacados en {{ provinceLabel }}</h2>
+        <p style="font-size:13px;color:#75777c;margin:4px 0 0;">De tiendas verificadas cerca tuyo</p>
+      </div>
+      <a href="Shop.dc.html" style="font-weight:600;font-size:14px;color:#337475;">Ver catálogo →</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;">
+      <sc-for list="{{ featured }}" as="p" hint-placeholder-count="4">
+        <div style="background:#ffffff;border:1px solid #eae7e9;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(35,47,62,0.05);">
+          <a href="{{ p.href }}" style="display:block;position:relative;">
+            <sc-if value="{{ p.badge }}">
+              <div style="position:absolute;top:12px;left:12px;background:{{ p.badgeColor }};color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:9999px;z-index:2;">{{ p.badge }}</div>
+            </sc-if>
+            <div style="width:100%;height:180px;">
+              <image-slot id="{{ p.slotId }}" shape="rect" placeholder="Foto del producto" style="width:100%;height:100%;"></image-slot>
+            </div>
+          </a>
+          <div style="padding:15px;">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+              <span style="font-size:11px;color:#337475;font-weight:700;">{{ p.vendorName }}</span>
+              <sc-if value="{{ p.vendorVerified }}">
+                <span style="display:inline-flex;width:14px;height:14px;flex-shrink:0;" dangerouslySetInnerHTML="{{ badge14 }}"></span>
+              </sc-if>
+            </div>
+            <a href="{{ p.href }}" style="font-weight:600;font-size:14px;color:#1b1b1d;display:block;margin-bottom:6px;line-height:19px;">{{ p.name }}</a>
+            <div style="font-size:11.5px;color:#75777c;margin-bottom:10px;">{{ p.locationLabel }}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div>
+                <span style="font-weight:700;font-size:16px;color:#1b1b1d;">{{ p.priceFmt }}</span>
+                <sc-if value="{{ p.oldPriceFmt }}">
+                  <span style="font-size:12px;color:#75777c;text-decoration:line-through;margin-left:5px;">{{ p.oldPriceFmt }}</span>
+                </sc-if>
+              </div>
+              <button onClick="{{ p.addToCart }}" title="Agregar" style="width:36px;height:36px;border-radius:8px;background:#FE9800;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0E1A28" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- RESTAURANTE DESTACADO -->
+  <section style="max-width:1280px;margin:44px auto 0;padding:0 24px;">
+    <div style="background:linear-gradient(120deg,#0e1a28 0%,#232F3E 100%);border-radius:20px;padding:36px 40px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:24px;">
+      <div style="max-width:560px;">
+        <div style="display:inline-flex;align-items:center;gap:6px;background:rgba(254,152,0,0.15);color:#FE9800;font-weight:700;font-size:12px;padding:5px 12px;border-radius:9999px;margin-bottom:14px;">🍽️ RESTAURANTES CON MENÚ QR</div>
+        <h3 style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:28px;color:#ffffff;margin:0 0 8px;">Pedí desde tu mesa escaneando un QR</h3>
+        <p style="font-size:15px;color:rgba(255,255,255,0.65);margin:0;">Los restaurantes en ZeuDin gestionan mesas, menú y estado de cocina en tiempo real. Mirá cómo se ve el pedido desde la mesa.</p>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <a href="TableOrder.dc.html" style="background:#FE9800;color:#0E1A28;font-weight:700;font-size:14px;padding:13px 22px;border-radius:8px;white-space:nowrap;">Ver menú QR</a>
+        <a href="Store.dc.html?id=sabor-criollo" style="border:1.5px solid rgba(255,255,255,0.3);color:#fff;font-weight:600;font-size:14px;padding:13px 22px;border-radius:8px;white-space:nowrap;">Ir a Sabor Criollo</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIENDAS VERIFICADAS -->
+  <section style="max-width:1280px;margin:0 auto;padding:44px 24px 0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
+      <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:26px;color:#1b1b1d;margin:0;">Tiendas verificadas</h2>
+      <a href="Stores.dc.html" style="font-weight:600;font-size:14px;color:#337475;">Ver todas →</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;">
+      <sc-for list="{{ vendorCards }}" as="v" hint-placeholder-count="4">
+        <a href="{{ v.href }}" style="background:#ffffff;border:1px solid #eae7e9;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(35,47,62,0.05);">
+          <div style="position:relative;width:100%;height:120px;background:{{ v.color }};">
+            <div style="position:absolute;inset:0;background:linear-gradient(to top, rgba(14,26,40,0.8) 0%, rgba(14,26,40,0.1) 60%, transparent);"></div>
+            <div style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.95);border-radius:9999px;padding:4px 9px 4px 7px;display:flex;align-items:center;gap:5px;">
+              <span style="display:inline-flex;width:14px;height:14px;" dangerouslySetInnerHTML="{{ badge14 }}"></span>
+              <span style="font-weight:700;font-size:10px;color:#0e1a28;">VERIFICADA</span>
+            </div>
+            <div style="position:absolute;bottom:12px;left:14px;right:14px;display:flex;align-items:center;gap:11px;">
+              <div style="width:48px;height:48px;border-radius:9999px;background:{{ v.color }};border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,0.25);">{{ v.initial }}</div>
+              <div>
+                <div style="font-weight:700;font-size:14.5px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.4);">{{ v.name }}</div>
+                <div style="font-size:11.5px;color:rgba(255,255,255,0.85);text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ v.locationLabel }}</div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:12.5px;color:#75777c;"><span style="color:#FE9800;font-weight:700;">★ {{ v.rating }}</span> · {{ v.category }}</span>
+            <span style="font-size:12.5px;font-weight:700;color:#337475;">Ver →</span>
+          </div>
+        </a>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- PLANES -->
+  <section style="max-width:1280px;margin:56px auto 0;padding:0 24px;">
+    <div style="text-align:center;margin-bottom:28px;">
+      <h2 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:26px;color:#1b1b1d;margin:0 0 6px;">Vendé en ZeuDin, escalá cuando quieras</h2>
+      <p style="font-size:14px;color:#75777c;margin:0;">Registro gratis. Solo pagás si querés verificarte y crecer.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:840px;margin:0 auto;">
+      <sc-for list="{{ planCards }}" as="pl" hint-placeholder-count="2">
+        <div style="background:#ffffff;border:{{ pl.border }};border-radius:18px;padding:28px;position:relative;">
+          <sc-if value="{{ pl.popular }}">
+            <div style="position:absolute;top:-11px;left:28px;background:#FE9800;color:#0E1A28;font-weight:700;font-size:11px;padding:4px 12px;border-radius:9999px;">RECOMENDADO</div>
+          </sc-if>
+          <div style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:19px;color:#1b1b1d;">{{ pl.name }}</div>
+          <div style="font-size:13px;color:#75777c;margin:4px 0 14px;">{{ pl.tagline }}</div>
+          <div style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:28px;color:#1b1b1d;margin-bottom:18px;">{{ pl.priceLabel }}</div>
+          <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:22px;">
+            <sc-for list="{{ pl.features }}" as="f" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:9px;font-size:13.5px;color:#44474c;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0CAE53" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                {{ f }}
+              </div>
+            </sc-for>
+          </div>
+          <a href="VendorOnboarding.dc.html" style="display:block;text-align:center;padding:12px;border-radius:8px;font-weight:700;font-size:14px;{{ pl.btnStyle }}">{{ pl.btnLabel }}</a>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer style="background:#0e1a28;margin-top:60px;">
+    <div style="max-width:1280px;margin:0 auto;padding:52px 24px 24px;display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:32px;">
+      <div>
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:16px;">
+          <div style="width:34px;height:34px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:18px;">Z</div>
+          <span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:19px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span>
+        </div>
+        <p style="font-size:13.5px;line-height:21px;color:rgba(255,255,255,0.5);max-width:280px;margin:0;">Marketplace multivendedor de Cuba. Comprá local, pedí por WhatsApp, vendé sin comisiones.</p>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:13px;color:#fff;margin-bottom:16px;">Comprar</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <a href="Shop.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Catálogo</a>
+          <a href="Stores.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Tiendas</a>
+          <a href="TableOrder.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Menú QR restaurantes</a>
+        </div>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:13px;color:#fff;margin-bottom:16px;">Vender</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <a href="VendorOnboarding.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Registrarse gratis</a>
+          <a href="VendorDashboard.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Panel de vendedor</a>
+          <a href="VendorOnboarding.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Planes y verificación</a>
+        </div>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:13px;color:#fff;margin-bottom:16px;">ZeuDin</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <a href="AdminDashboard.dc.html" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Panel admin</a>
+          <a href="#" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Ayuda</a>
+          <a href="#" style="font-size:13.5px;color:rgba(255,255,255,0.55);">Contacto</a>
+        </div>
+      </div>
+    </div>
+    <div style="max-width:1280px;margin:0 auto;padding:20px 24px;border-top:1px solid rgba(255,255,255,0.08);">
+      <span style="font-size:12.5px;color:rgba(255,255,255,0.4);">© 2026 ZeuDin Group LLC. Marketplace multivendedor · Cuba.</span>
+    </div>
+  </footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { cartCount: 0, badge14: '', province: 'hab', municipality: 'Playa', data: null };
+
+  componentDidMount() {
+    this.syncCart();
+    window.addEventListener('storage', this.syncCart);
+    import('./badge-icon.js').then(m => this.setState({ badge14: m.verifiedBadgeSvg(14) }));
+    import('./zeudin-data.js').then(m => this.setState({ data: m }));
+    try {
+      const loc = JSON.parse(localStorage.getItem('zeudin_loc') || 'null');
+      if (loc) this.setState({ province: loc.province, municipality: loc.municipality });
+    } catch (e) {}
+  }
+  componentWillUnmount() { window.removeEventListener('storage', this.syncCart); }
+
+  syncCart = () => {
+    try {
+      const cart = JSON.parse(localStorage.getItem('zeudin_cart') || '[]');
+      this.setState({ cartCount: cart.reduce((a, c) => a + c.qty, 0) });
+    } catch (e) {}
+  };
+  saveLoc(province, municipality) {
+    localStorage.setItem('zeudin_loc', JSON.stringify({ province, municipality }));
+  }
+  addToCart(productId, vendorId) {
+    let cart = [];
+    try { cart = JSON.parse(localStorage.getItem('zeudin_cart') || '[]'); } catch (e) {}
+    // Regla: carrito de un solo vendedor
+    if (cart.length && cart[0].vendorId !== vendorId) {
+      cart = [{ id: productId, vendorId, qty: 1 }];
+    } else {
+      const ex = cart.find(c => c.id === productId);
+      if (ex) ex.qty += 1; else cart.push({ id: productId, vendorId, qty: 1 });
+    }
+    localStorage.setItem('zeudin_cart', JSON.stringify(cart));
+    this.syncCart();
+  }
+
+  renderVals() {
+    const D = this.state.data;
+    const badge14 = { __html: this.state.badge14 };
+    if (!D) {
+      return { cartCount: this.state.cartCount, badge14, province: this.state.province, municipality: this.state.municipality,
+        provinceOpts: [], muniOpts: [], provinceLabel: 'tu zona', categoryPills: [], featured: [], vendorCards: [], planCards: [],
+        onProvinceChange: () => {}, onMuniChange: () => {} };
+    }
+    const prov = this.state.province;
+    const provinceLabel = D.provinceName(prov);
+    const muniOpts = D.municipalities[prov] || [D.provinceName(prov)];
+
+    const featured = D.products.slice(0, 4).map(p => {
+      const v = D.vendorById(p.vendorId);
+      return {
+        name: p.name, vendorName: v.name, vendorVerified: v.verified,
+        href: 'Product.dc.html?id=' + p.id, slotId: 'home-' + p.id,
+        priceFmt: D.fmtCUP(p.price), oldPriceFmt: p.oldPrice ? D.fmtCUP(p.oldPrice) : null,
+        badge: p.badge, badgeColor: p.badge && p.badge.startsWith('-') ? '#ba1a1a' : '#337475',
+        locationLabel: v.municipality + ', ' + D.provinceName(v.province),
+        addToCart: () => this.addToCart(p.id, p.vendorId),
+      };
+    });
+
+    const vendorCards = D.vendors.filter(v => v.verified).slice(0, 4).map(v => ({
+      name: v.name, category: v.category, rating: v.rating, color: v.color, initial: v.name[0],
+      href: 'Store.dc.html?id=' + v.id, locationLabel: v.municipality + ', ' + D.provinceName(v.province),
+    }));
+
+    const planCards = [D.plans.regular, D.plans.business].map((pl, i) => ({
+      name: pl.name, tagline: pl.tagline, priceLabel: pl.priceLabel, features: pl.features.slice(0, 4),
+      popular: pl.id === 'business',
+      border: pl.id === 'business' ? '2px solid #FE9800' : '1px solid #eae7e9',
+      btnLabel: pl.id === 'business' ? 'Quiero verificarme' : 'Empezar gratis',
+      btnStyle: pl.id === 'business' ? 'background:#FE9800;color:#0E1A28;' : 'background:#232F3E;color:#fff;',
+    }));
+
+    return {
+      cartCount: this.state.cartCount, badge14,
+      province: prov, municipality: this.state.municipality, provinceLabel,
+      provinceOpts: D.provinces, muniOpts,
+      onProvinceChange: (e) => { const np = e.target.value; const nm = (D.municipalities[np] || [D.provinceName(np)])[0]; this.setState({ province: np, municipality: nm }); this.saveLoc(np, nm); },
+      onMuniChange: (e) => { this.setState({ municipality: e.target.value }); this.saveLoc(prov, e.target.value); },
+      categoryPills: D.categories,
+      featured, vendorCards, planCards,
+    };
+  }
+}
+</script>
+</body>
+</html>

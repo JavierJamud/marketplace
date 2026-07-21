@@ -1,0 +1,286 @@
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { ArrowRight, MapPin, MessageCircle, Store, ShieldCheck, Rocket } from "lucide-react";
+import { api } from "../../lib/api.js";
+import { useZone } from "../../context/LocationContext.jsx";
+import { ProductCard } from "../../components/ProductCard.jsx";
+import { VerifiedStoresSlider } from "../../components/VerifiedStoresSlider.jsx";
+import { EmptyState } from "../../components/ui/EmptyState.jsx";
+import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
+import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.jsx";
+
+const CATEGORY_RESUME_DELAY_MS = 3000;
+
+// Bloque 20: marquee continuo de las categorías (tipo de negocio) — mismo
+// truco de loop infinito sin salto que VerifiedStoresSlider (duplicar el
+// set y animar 0% → -50%), pero con pausa/resume distinto: acá al tocar o
+// clickear se pausa y recién retoma 3s después de soltar/salir, en vez de
+// reanudar apenas se suelta.
+function CategoryMarquee({ categories }) {
+  const [paused, setPaused] = useState(false);
+  const resumeTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(resumeTimer.current), []);
+
+  function pause() {
+    clearTimeout(resumeTimer.current);
+    setPaused(true);
+  }
+
+  function scheduleResume() {
+    clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => setPaused(false), CATEGORY_RESUME_DELAY_MS);
+  }
+
+  // Con 49 categorías activas ya sobra ancho de sobra con 2 copias — solo se
+  // repite más si en algún momento quedan pocas (ej. desactivadas desde el
+  // admin) y el set original no tapa una pantalla ancha.
+  const sets = categories.length < 10 ? 4 : 2;
+  const track = Array.from({ length: sets }, () => categories).flat();
+  const durationS = Math.max(24, categories.length * 2);
+
+  return (
+    <div className="overflow-hidden py-1.5" onMouseEnter={pause} onMouseLeave={scheduleResume} onTouchStart={pause} onTouchEnd={scheduleResume}>
+      <div
+        className="flex w-max animate-marquee gap-3"
+        style={{ animationDuration: `${durationS}s`, animationPlayState: paused ? "paused" : "running" }}
+      >
+        {track.map((c, i) => (
+          <Link
+            key={i}
+            to={`/tiendas?businessCategoryId=${c.id}`}
+            className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-4 py-2.5 hover:border-primary-container"
+          >
+            <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
+              <CategoryIcon name={c.icon} className="h-3.5 w-3.5 text-tertiary-accent" />
+            </span>
+            <span className="text-label-md text-on-surface-variant">{c.name}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Bloque 16: la comparación de planes Regular/Business se sacó del Home —
+// ya no es un gancho de marketing en la home pública. Ahora vive solo dentro
+// del panel de vendedor (ver VendorVerification.jsx), como algo que el
+// vendedor explora si quiere, no como algo que ve un visitante anónimo.
+function SectionHead({ eyebrow, title, subtitle, to, cta = "Ver todo →" }) {
+  return (
+    <div className="mb-6 flex items-end justify-between gap-4">
+      <div>
+        {eyebrow}
+        <h2 className="font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{title}</h2>
+        {subtitle && <p className="mt-1 text-label-sm text-outline">{subtitle}</p>}
+      </div>
+      {to && (
+        <Link to={to} className="flex-shrink-0 text-label-md font-semibold text-tertiary-accent hover:underline">
+          {cta}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+export default function Home() {
+  const { provinceId, provinceName, hasProvinceFilter, loading: zoneLoading } = useZone();
+
+  // Bloque 20: la sección de categorías de PRODUCTO (7 pills fijas) se sacó
+  // del Home — quedó solo esta, la de tipo de negocio de la tienda, ahora
+  // bajo el título "Explorá por categoría".
+  const { data: businessCategories } = useQuery({
+    queryKey: ["business-categories"],
+    queryFn: async () => (await api.get("/business-categories")).data.categories,
+  });
+
+  const { data: featured } = useQuery({
+    queryKey: ["home-featured", provinceId],
+    queryFn: async () => (await api.get("/search", { params: { provinceId: provinceId || undefined } })).data.products,
+    enabled: !zoneLoading,
+  });
+
+  const { data: verifiedVendors } = useQuery({
+    queryKey: ["home-verified-vendors", provinceId],
+    queryFn: async () => (await api.get("/vendors", { params: { isVerified: true, provinceId: provinceId || undefined } })).data.vendors,
+    enabled: !zoneLoading,
+  });
+
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const heroImageUrl = settings?.heroImageUrl ? `${api.defaults.baseURL}${settings.heroImageUrl}` : null;
+
+  return (
+    <>
+    <div>
+      {/* HERO — esquinas inferiores redondeadas (Bloque 20), mismo radio que
+          el footer (rounded-t-[28px] en Footer.jsx) para que la curva de
+          inicio y la de cierre de página usen la misma inclinación. */}
+      <section className="rounded-b-[28px] bg-gradient-to-b from-primary-container to-primary">
+        <div className="container-app grid grid-cols-1 items-center gap-10 py-14 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-16">
+          <div>
+            <span className="mb-5 inline-flex items-center gap-1.5 rounded-full bg-secondary-container/15 px-3.5 py-1.5 text-label-sm font-bold tracking-wide text-secondary-container">
+              🇨🇺 HECHO PARA CUBA · 16 PROVINCIAS
+            </span>
+            <h1 className="mb-4 font-display text-headline-lg text-white md:text-display-lg">
+              Comprá y vendé cerca tuyo, de <span className="text-secondary-container">vendedores</span> de tu provincia.
+            </h1>
+            <p className="mb-7 max-w-[500px] text-body-lg text-white/70">
+              Productos, comida y servicios de tiendas locales. Pedí directo por WhatsApp, pagá contra entrega o por
+              transferencia. Sin comisiones para el vendedor.
+            </p>
+            <div className="mb-8 flex flex-wrap gap-3.5">
+              <Link
+                to="/catalogo"
+                className="flex items-center gap-2 rounded bg-secondary-container px-6 py-3.5 text-label-md text-on-secondary-container hover:brightness-95"
+              >
+                {hasProvinceFilter ? `Explorar en ${provinceName}` : "Explorar todo el catálogo"} <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/tiendas"
+                className="rounded border-[1.5px] border-white/30 px-6 py-3.5 text-label-md text-white hover:bg-white/10"
+              >
+                Ver tiendas
+              </Link>
+            </div>
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex items-center gap-2 text-[13px] text-white/70">
+                <MessageCircle className="h-[18px] w-[18px] text-[#25D366]" />
+                Pedido por WhatsApp
+              </div>
+              <div className="flex items-center gap-2 text-[13px] text-white/70">
+                <Store className="h-[18px] w-[18px] text-secondary-container" />
+                Registro gratis para vendedores
+              </div>
+            </div>
+          </div>
+
+          <div className="relative h-[320px] lg:h-[400px]">
+            {heroImageUrl ? (
+              <img src={heroImageUrl} alt="ZeuDin" className="h-full w-full rounded-xl object-cover" />
+            ) : (
+              <div className="h-full w-full rounded-xl bg-white/10" />
+            )}
+            <div className="absolute right-0 top-5 flex items-center gap-2.5 rounded-md bg-white px-4 py-3 shadow-lg lg:-right-3.5">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded bg-[#128C7E]/15">
+                <MessageCircle className="h-[18px] w-[18px] text-[#128C7E]" />
+              </span>
+              <div>
+                <div className="text-label-sm font-bold text-on-surface">Pedí por WhatsApp</div>
+                <div className="text-[11px] text-on-surface-variant">Respuesta directa</div>
+              </div>
+            </div>
+            <div className="absolute bottom-5 left-0 flex items-center gap-2.5 rounded-md bg-white px-4 py-3 shadow-lg lg:-left-3.5">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded bg-secondary-container/12">
+                <MapPin className="h-[18px] w-[18px] text-secondary" />
+              </span>
+              <div>
+                <div className="text-label-sm font-bold text-on-surface">Filtrado por tu zona</div>
+                <div className="text-[11px] text-on-surface-variant">Provincia y municipio</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CATEGORÍAS (Bloque 18: en realidad es tipo de negocio de la tienda,
+          filtra TIENDAS por rubro — ver Stores.jsx). Bloque 20: se sacó la
+          sección vieja de categorías de PRODUCTO (7 pills fijas) y esta —
+          antes titulada "Explorá por tipo de negocio" — pasó a quedarse con
+          el título "Explorá por categoría" y a mostrarse en marquee continuo
+          (son 49, no entraban cómodas en un scroll horizontal manual). */}
+      {businessCategories?.length > 0 && (
+        <section className="container-app pt-11">
+          <SectionHead title="Explorá por categoría" to="/tiendas" />
+          <CategoryMarquee categories={businessCategories} />
+        </section>
+      )}
+
+      {/* PRODUCTOS DESTACADOS */}
+      <section className="container-app pt-11">
+        <SectionHead
+          title={hasProvinceFilter ? `Destacados en ${provinceName}` : "Destacados en toda Cuba"}
+          subtitle={hasProvinceFilter ? "De tiendas verificadas cerca tuyo" : "De tiendas verificadas en todo el país"}
+          to="/catalogo"
+          cta="Ver catálogo →"
+        />
+        {featured?.length ? (
+          <div className="grid grid-cols-2 gap-5 md:grid-cols-3 lg:grid-cols-4">
+            {featured.slice(0, 4).map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="Todavía no hay productos en tu zona"
+            description="Probá explorando el catálogo completo o cambiá de provincia arriba."
+            action={
+              <Link to="/catalogo" className="text-label-md font-semibold text-tertiary-accent hover:underline">
+                Ver catálogo completo →
+              </Link>
+            }
+          />
+        )}
+      </section>
+
+      {/* PUBLICIDAD DEL MARKETPLACE — recluta vendedores, no promociona una
+          tienda puntual (antes esta sección promocionaba sabor-criollo). */}
+      <section className="container-app pt-11">
+        <div className="flex flex-wrap items-center justify-between gap-6 rounded-xl bg-gradient-to-br from-primary to-primary-container p-9">
+          <div className="max-w-[560px]">
+            <span className="mb-3.5 inline-flex items-center gap-1.5 rounded-full bg-secondary-container/15 px-3 py-1.5 text-label-sm font-bold text-secondary-container">
+              🚀 PARA DUEÑOS DE NEGOCIO
+            </span>
+            <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abrí tu tienda online gratis, hoy mismo</h3>
+            <p className="text-body-md text-white/65">
+              Catálogo propio, pedidos por WhatsApp o desde tu panel, menú con QR si sos restaurante. Sin costo de
+              entrada en el Plan Regular — empezá a vender en minutos.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              to="/cuenta?tab=vendedor"
+              className="whitespace-nowrap rounded bg-secondary-container px-5 py-3.5 text-label-md text-on-secondary-container hover:brightness-95"
+            >
+              Crear mi tienda gratis
+            </Link>
+            <Link
+              to="/tiendas"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded border-[1.5px] border-white/30 px-5 py-3.5 text-label-md text-white hover:bg-white/10"
+            >
+              <Rocket className="h-4 w-4" /> Ver tiendas en ZeuDin
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* TIENDAS VERIFICADAS — slider de 2 bloques, máximo 12 tiendas
+          (Bloque 17). Criterio de selección: mismo orden que ya devuelve
+          GET /vendors?isVerified=true (más recientemente verificadas/creadas
+          primero) — no hay un flag de "destacada por admin" separado en el
+          schema, así que se documenta este como el criterio usado. */}
+      <section className="container-app py-11">
+        <SectionHead title="Tiendas verificadas" to="/tiendas" />
+        {verifiedVendors?.length ? (
+          <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
+        ) : (
+          <EmptyState
+            icon={ShieldCheck}
+            title="Todavía no hay tiendas verificadas en tu zona"
+            description="Sé el primero en verificarte con el Plan Business."
+            action={
+              <Link to="/vender" className="text-label-md font-semibold text-tertiary-accent hover:underline">
+                Crear mi tienda →
+              </Link>
+            }
+          />
+        )}
+      </section>
+    </div>
+    <MarketplaceChatWidget />
+    </>
+  );
+}

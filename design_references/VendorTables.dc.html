@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body { margin:0; background:#f0edee; font-family:'Inter',sans-serif; } a { color:#0e1a28; text-decoration:none; }</style>
+</helmet>
+
+<div style="min-height:100vh;background:#f0edee;display:grid;grid-template-columns:248px 1fr;">
+  <aside style="background:#0e1a28;padding:22px 14px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;box-sizing:border-box;">
+    <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;margin-bottom:8px;padding:0 8px;"><div style="width:32px;height:32px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:17px;">Z</div><span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:18px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span></a>
+    <div style="padding:0 8px 16px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);"><div style="display:flex;align-items:center;gap:8px;margin-top:12px;"><div style="width:34px;height:34px;border-radius:9px;background:#232F3E;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:14px;">S</div><div><div style="display:flex;align-items:center;gap:4px;"><span style="font-weight:700;font-size:13px;color:#fff;">Sabor Criollo</span><span style="display:inline-flex;width:13px;height:13px;" dangerouslySetInnerHTML="{{ badge14 }}"></span></div><div style="font-size:11px;color:#FE9800;font-weight:600;">Restaurante · Business</div></div></div></div>
+    <nav style="display:flex;flex-direction:column;gap:3px;flex:1;"><sc-for list="{{ nav }}" as="n" hint-placeholder-count="6"><a href="{{ n.href }}" style="{{ n.style }}"><span dangerouslySetInnerHTML="{{ n.icon }}" style="display:inline-flex;"></span>{{ n.label }}</a></sc-for></nav>
+    <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;padding:10px 12px;color:rgba(255,255,255,0.55);font-size:13px;font-weight:600;">Volver al sitio</a>
+  </aside>
+
+  <main style="padding:30px 38px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
+      <div><h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:25px;color:#1b1b1d;margin:0 0 4px;">Mesas y códigos QR</h1><p style="font-size:13.5px;color:#75777c;margin:0;">Cada mesa tiene un QR único. El cliente escanea → ve el menú → pide.</p></div>
+      <button onClick="{{ addTable }}" style="background:#FE9800;color:#0E1A28;font-weight:700;font-size:13.5px;padding:11px 18px;border-radius:8px;border:none;cursor:pointer;">+ Agregar mesa</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;">
+      <sc-for list="{{ tables }}" as="t" hint-placeholder-count="6">
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:20px;text-align:center;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:16px;color:#1b1b1d;">Mesa {{ t.num }}</span>
+            <span style="{{ t.statusStyle }}">{{ t.statusLabel }}</span>
+          </div>
+          <div style="width:118px;height:118px;margin:0 auto 12px;padding:8px;background:#fff;border:1px solid #eae7e9;border-radius:12px;" dangerouslySetInnerHTML="{{ t.qr }}"></div>
+          <div style="font-size:11.5px;color:#75777c;margin-bottom:12px;">{{ t.token }}</div>
+          <div style="display:flex;gap:8px;">
+            <a href="TableOrder.dc.html" style="flex:1;background:#232F3E;color:#fff;font-size:12px;font-weight:600;padding:8px;border-radius:7px;">Ver menú</a>
+            <button style="flex:1;background:#f0edee;color:#44474c;font-size:12px;font-weight:600;padding:8px;border-radius:7px;border:none;cursor:pointer;">Imprimir QR</button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const IC = {
+  dash: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
+  box: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/></svg>',
+  cart: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>',
+  table: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4"/><path d="M5 8v12M19 8v12M9 8v5M15 8v5"/></svg>',
+  shield: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/></svg>',
+  cog: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1l-.3-2.5h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>',
+};
+const NAV = [
+  { id: 'dash', label: 'Resumen', href: 'VendorDashboard.dc.html', icon: IC.dash },
+  { id: 'products', label: 'Productos', href: 'VendorProducts.dc.html', icon: IC.box },
+  { id: 'orders', label: 'Pedidos', href: 'VendorOrders.dc.html', icon: IC.cart },
+  { id: 'tables', label: 'Mesas / QR', href: 'VendorTables.dc.html', icon: IC.table },
+  { id: 'verify', label: 'Verificación', href: 'VendorVerification.dc.html', icon: IC.shield },
+  { id: 'settings', label: 'Configuración', href: 'VendorSettings.dc.html', icon: IC.cog },
+];
+// QR decorativo determinístico
+function qrSvg(seed) {
+  let s = 0; for (let i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) & 0xffffffff;
+  function rnd() { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }
+  const n = 11; let cells = '';
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { if (rnd() > 0.5) cells += `<rect x="${x}" y="${y}" width="1" height="1"/>`; }
+  const finder = (fx, fy) => `<rect x="${fx}" y="${fy}" width="3" height="3" fill="#0e1a28"/><rect x="${fx + 1}" y="${fy + 1}" width="1" height="1" fill="#fff"/>`;
+  return `<svg viewBox="0 0 11 11" width="100%" height="100%" shape-rendering="crispEdges"><g fill="#0e1a28">${cells}</g>${finder(0,0)}${finder(8,0)}${finder(0,8)}</svg>`;
+}
+class Component extends DCLogic {
+  state = { badge14: '', data: null, count: 6 };
+  componentDidMount() { import('./badge-icon.js').then(m => this.setState({ badge14: m.verifiedBadgeSvg(14) })); import('./zeudin-data.js').then(m => this.setState({ data: m })); }
+  renderVals() {
+    const navOn = 'display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;font-weight:600;background:#FE9800;color:#0E1A28;';
+    const navOff = 'display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:rgba(255,255,255,0.7);';
+    const occupied = { 2: true, 4: true, 6: true };
+    const tables = Array.from({ length: this.state.count }, (_, i) => i + 1).map(num => ({
+      num,
+      token: 'mesa-' + num + '-' + (1000 + num * 137).toString(16),
+      qr: { __html: qrSvg('sabor-criollo-mesa-' + num) },
+      statusLabel: occupied[num] ? 'Ocupada' : 'Libre',
+      statusStyle: occupied[num] ? 'background:rgba(138,81,0,0.12);color:#8A5100;font-weight:700;font-size:10.5px;padding:3px 9px;border-radius:9999px;' : 'background:rgba(12,174,83,0.12);color:#0A8F42;font-weight:700;font-size:10.5px;padding:3px 9px;border-radius:9999px;',
+    }));
+    return {
+      badge14: { __html: this.state.badge14 },
+      nav: NAV.map(n => ({ label: n.label, href: n.href, icon: { __html: n.icon }, style: n.id === 'tables' ? navOn : navOff })),
+      tables, addTable: () => this.setState(s => ({ count: s.count + 1 })),
+    };
+  }
+}
+</script>
+</body>
+</html>

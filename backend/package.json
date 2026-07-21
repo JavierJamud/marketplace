@@ -1,0 +1,40 @@
+{
+  "name": "zeudin-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "node prisma/seed.js",
+    "prisma:studio": "prisma studio",
+    "db:backup": "node scripts/backup.js",
+    "db:normalize-phones": "node scripts/normalize-phones.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^7.1.0",
+    "image-size": "^2.0.2",
+    "jsonwebtoken": "^9.0.2",
+    "libphonenumber-js": "^1.13.8",
+    "lucide-react": "^1.24.0",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.0",
+    "pdfkit": "^0.19.1",
+    "resend": "^4.0.1",
+    "stripe": "^22.3.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "prisma": "^5.20.0"
+  }
+}

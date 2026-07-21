@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body { margin:0; background:#e4e2e3; font-family:'Inter',sans-serif; } button { font-family:'Inter',sans-serif; }</style>
+</helmet>
+
+<div style="min-height:100vh;background:#e4e2e3;display:flex;justify-content:center;padding:0;">
+  <div style="width:100%;max-width:430px;background:#fbf9fa;min-height:100vh;position:relative;box-shadow:0 0 40px rgba(0,0,0,0.12);">
+
+    <!-- TOP -->
+    <div style="background:#0e1a28;padding:20px 20px 22px;position:sticky;top:0;z-index:20;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:9px;"><div style="width:30px;height:30px;border-radius:7px;background:#8A5100;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:14px;">S</div><div><div style="display:flex;align-items:center;gap:4px;"><span style="font-weight:700;font-size:14px;color:#fff;">Sabor Criollo</span><span style="display:inline-flex;width:13px;height:13px;" dangerouslySetInnerHTML="{{ badge14 }}"></span></div><div style="font-size:11px;color:rgba(255,255,255,0.6);">Comida cubana casera</div></div></div>
+        <div style="background:rgba(254,152,0,0.2);color:#FE9800;font-weight:700;font-size:12px;padding:6px 12px;border-radius:9999px;">🍽️ Mesa 4</div>
+      </div>
+    </div>
+
+    <!-- ESTADO DE COCINA (si ya pidió) -->
+    <sc-if value="{{ ordered }}">
+      <div style="margin:16px;background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:18px;">
+        <div style="font-weight:700;font-size:14px;color:#1b1b1d;margin-bottom:14px;">Estado de tu pedido</div>
+        <div style="display:flex;align-items:center;">
+          <sc-for list="{{ kitchenSteps }}" as="k" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;flex:{{ k.flex }};">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0;width:64px;"><div style="width:34px;height:34px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:15px;{{ k.circle }}">{{ k.icon }}</div><span style="font-size:10.5px;font-weight:600;text-align:center;{{ k.label }}">{{ k.text }}</span></div>
+              <sc-if value="{{ k.line }}"><div style="flex:1;height:2px;background:{{ k.lineColor }};margin-bottom:18px;"></div></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- CATEGORÍAS -->
+    <div style="display:flex;gap:8px;overflow-x:auto;padding:16px 16px 4px;">
+      <sc-for list="{{ catPills }}" as="c" hint-placeholder-count="4"><button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button></sc-for>
+    </div>
+
+    <!-- MENÚ -->
+    <div style="padding:8px 16px 140px;display:flex;flex-direction:column;gap:12px;">
+      <sc-for list="{{ menu }}" as="m" hint-placeholder-count="4">
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:14px;padding:16px;display:flex;gap:14px;">
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14.5px;color:#1b1b1d;">{{ m.name }}</div>
+            <div style="font-size:12px;color:#75777c;line-height:17px;margin:4px 0 8px;">{{ m.desc }}</div>
+            <sc-if value="{{ m.optionLabel }}"><div style="font-size:11px;color:#8A5100;font-weight:600;margin-bottom:8px;">{{ m.optionLabel }}</div></sc-if>
+            <div style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:15px;color:#1b1b1d;">{{ m.priceFmt }}</div>
+          </div>
+          <button onClick="{{ m.add }}" style="align-self:flex-end;background:#FE9800;color:#0E1A28;border:none;border-radius:9px;width:40px;height:40px;font-size:20px;font-weight:700;cursor:pointer;flex-shrink:0;">+</button>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- BARRA PEDIDO -->
+    <sc-if value="{{ hasItems }}">
+      <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:#fff;border-top:1px solid #eae7e9;padding:14px 16px;box-shadow:0 -4px 20px rgba(0,0,0,0.08);box-sizing:border-box;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span style="font-size:13px;color:#75777c;">{{ itemCount }} ítems</span>
+          <span style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:18px;color:#1b1b1d;">{{ totalFmt }}</span>
+        </div>
+        <button onClick="{{ sendOrder }}" style="width:100%;background:#0e1a28;color:#fff;border:none;border-radius:10px;height:50px;font-weight:700;font-size:15px;cursor:pointer;">Enviar pedido a cocina</button>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const KITCHEN = ['Recibido', 'Preparando', 'Listo'];
+class Component extends DCLogic {
+  state = { badge14: '', data: null, cat: 'all', cart: {}, ordered: false, kState: 'Preparando' };
+  componentDidMount() {
+    import('./badge-icon.js').then(m => this.setState({ badge14: m.verifiedBadgeSvg(14) }));
+    import('./zeudin-data.js').then(m => this.setState({ data: m }));
+  }
+  add(id) { this.setState(s => ({ cart: { ...s.cart, [id]: (s.cart[id] || 0) + 1 } })); }
+  renderVals() {
+    const D = this.state.data; const badge14 = { __html: this.state.badge14 };
+    if (!D) return { badge14, ordered: false, catPills: [], menu: [], hasItems: false, itemCount: 0, totalFmt: '', kitchenSteps: [], sendOrder: () => {} };
+    const cats = ['Todos', ...Array.from(new Set(D.restaurantMenu.map(m => m.category)))];
+    const cat = this.state.cat;
+    const menu = D.restaurantMenu.filter(m => cat === 'all' || m.category === cat);
+    const cart = this.state.cart;
+    const entries = Object.entries(cart).filter(([, q]) => q > 0);
+    const total = entries.reduce((a, [id, q]) => { const m = D.restaurantMenu.find(x => x.id === id); return a + (m ? m.price * q : 0); }, 0);
+    const itemCount = entries.reduce((a, [, q]) => a + q, 0);
+    const kIdx = KITCHEN.indexOf(this.state.kState);
+    return {
+      badge14, ordered: this.state.ordered,
+      kitchenSteps: KITCHEN.map((k, i) => ({
+        text: k, icon: i <= kIdx ? '✓' : String(i + 1),
+        flex: i < 2 ? '1' : '0 0 auto', line: i < 2, lineColor: i < kIdx ? '#0CAE53' : '#e4e2e3',
+        circle: i < kIdx ? 'background:#0CAE53;color:#fff;' : i === kIdx ? 'background:#8A5100;color:#fff;' : 'background:#e4e2e3;color:#75777c;',
+        label: i <= kIdx ? 'color:#1b1b1d;' : 'color:#a0a2a8;',
+      })),
+      catPills: cats.map((c, i) => { const id = i === 0 ? 'all' : c; return { label: c, onClick: () => this.setState({ cat: id }), style: `flex:0 0 auto;border:1px solid ${cat === id ? '#0e1a28' : '#c5c6cc'};background:${cat === id ? '#0e1a28' : '#fff'};color:${cat === id ? '#fff' : '#44474c'};border-radius:9999px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;`, }; }),
+      menu: menu.map(m => ({ name: m.name, desc: m.desc, priceFmt: D.fmtCUP(m.price), optionLabel: m.options && m.options[0] ? m.options[0].name + ': ' + m.options[0].values.join(' / ') : null, add: () => this.add(m.id) })),
+      hasItems: itemCount > 0, itemCount, totalFmt: D.fmtCUP(total),
+      sendOrder: () => { this.setState({ ordered: true, cart: {} }); window.scrollTo(0, 0); },
+    };
+  }
+}
+</script>
+</body>
+</html>

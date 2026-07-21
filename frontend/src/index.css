@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-background text-on-background font-body;
+    /* Bloque 23: bloquea el double-tap-zoom de mobile que algunos navegadores
+       (sobre todo WebViews de Android) igual permiten aunque el viewport meta
+       tag ya tenga user-scalable=no — el zoom por pellizco (pinch) lo cubre
+       el meta tag solo. El zoom de escritorio (Ctrl+scroll/Ctrl+/-) es
+       control del navegador, ninguna página web puede desactivarlo. */
+    touch-action: manipulation;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
+  :focus-visible {
+    outline: 2px solid theme("colors.secondary.container");
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .container-app {
+    @apply mx-auto w-full max-w-content px-4 sm:px-gutter;
+  }
+}

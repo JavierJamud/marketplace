@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; background:#fbf9fa; font-family:'Inter',sans-serif; }
+    a { color:#0e1a28; text-decoration:none; }
+    a:hover { color:#FE9800; }
+  </style>
+</helmet>
+<div style="width:0;height:0;overflow:hidden;position:absolute;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" hint-size="1,1"></x-import></div>
+
+<div style="min-height:100vh;background:#fbf9fa;">
+  <header style="background:#232F3E;">
+    <div style="max-width:1080px;margin:0 auto;padding:0 24px;height:68px;display:flex;align-items:center;justify-content:space-between;">
+      <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;"><div style="width:32px;height:32px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:17px;">Z</div><span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:19px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span></a>
+      <a href="Shop.dc.html" style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);">Seguir comprando</a>
+    </div>
+  </header>
+
+  <div style="max-width:1080px;margin:0 auto;padding:36px 24px 64px;">
+    <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:28px;color:#1b1b1d;margin:0 0 24px;">Tu carrito</h1>
+
+    <sc-if value="{{ hasItems }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:1fr 340px;gap:28px;align-items:start;">
+        <div>
+          <!-- vendedor -->
+          <div style="background:#fff;border:1px solid #eae7e9;border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+            <div style="width:38px;height:38px;border-radius:9999px;background:{{ vendorColor }};display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:15px;">{{ vendorInitial }}</div>
+            <div style="flex:1;"><div style="font-weight:700;font-size:14px;color:#1b1b1d;">{{ vendorName }}</div><div style="font-size:12px;color:#75777c;">Pedido a esta tienda · {{ vendorLocation }}</div></div>
+            <sc-if value="{{ vendorVerified }}"><span style="display:inline-flex;width:16px;height:16px;" dangerouslySetInnerHTML="{{ badge14 }}"></span></sc-if>
+          </div>
+          <div style="background:#fff;border:1px solid #eae7e9;border-radius:14px;overflow:hidden;">
+            <sc-for list="{{ items }}" as="it" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:14px;padding:16px 18px;border-bottom:1px solid #f0edee;">
+                <div style="width:64px;height:64px;border-radius:10px;flex-shrink:0;"><image-slot id="{{ it.slotId }}" shape="rounded" radius="10" placeholder="" style="width:100%;height:100%;"></image-slot></div>
+                <div style="flex:1;"><div style="font-weight:600;font-size:14px;color:#1b1b1d;">{{ it.name }}</div><div style="font-size:12.5px;color:#75777c;margin-top:2px;">{{ it.priceFmt }} c/u</div></div>
+                <div style="display:flex;align-items:center;border:1px solid #c5c6cc;border-radius:8px;">
+                  <button onClick="{{ it.dec }}" style="width:32px;height:36px;border:none;background:none;font-size:16px;cursor:pointer;">−</button>
+                  <div style="width:34px;text-align:center;font-weight:600;font-size:14px;">{{ it.qty }}</div>
+                  <button onClick="{{ it.inc }}" style="width:32px;height:36px;border:none;background:none;font-size:16px;cursor:pointer;">+</button>
+                </div>
+                <div style="width:96px;text-align:right;font-weight:700;font-size:14px;color:#1b1b1d;">{{ it.lineFmt }}</div>
+                <button onClick="{{ it.remove }}" style="background:none;border:none;cursor:pointer;color:#ba1a1a;padding:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- RESUMEN -->
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:22px;position:sticky;top:24px;">
+          <div style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:17px;color:#1b1b1d;margin-bottom:16px;">Resumen del pedido</div>
+          <div style="display:flex;justify-content:space-between;font-size:13.5px;color:#44474c;margin-bottom:10px;"><span>Subtotal</span><span>{{ subtotalFmt }}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:13.5px;color:#44474c;margin-bottom:10px;"><span>Envío</span><span style="color:#337475;">A coordinar</span></div>
+          <div style="display:flex;justify-content:space-between;font-weight:700;font-size:16px;color:#1b1b1d;padding-top:12px;border-top:1px solid #eae7e9;margin-bottom:18px;"><span>Total</span><span>{{ subtotalFmt }}</span></div>
+          <a href="{{ waHref }}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:9px;background:#25D366;color:#fff;font-weight:700;font-size:14.5px;height:48px;border-radius:8px;margin-bottom:10px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.8 7.3L3 20l1.3-4.9A8.5 8.5 0 1 1 21 11.5z"/></svg>
+            Pedir por WhatsApp
+          </a>
+          <a href="Checkout.dc.html" style="display:flex;align-items:center;justify-content:center;background:#232F3E;color:#fff;font-weight:700;font-size:14px;height:46px;border-radius:8px;">Checkout con dirección</a>
+          <p style="font-size:11.5px;color:#75777c;text-align:center;margin:14px 0 0;line-height:16px;">El pago se coordina directo con el vendedor (contra entrega o transferencia CUP).</p>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ empty }}">
+      <div style="text-align:center;padding:70px 20px;background:#fff;border:1px solid #eae7e9;border-radius:16px;max-width:480px;margin:0 auto;">
+        <div style="font-size:44px;margin-bottom:14px;">🛒</div>
+        <div style="font-weight:700;font-size:17px;color:#1b1b1d;margin-bottom:6px;">Tu carrito está vacío</div>
+        <p style="font-size:13.5px;color:#75777c;margin:0 0 20px;">Explorá el catálogo de tu provincia y agregá productos.</p>
+        <a href="Shop.dc.html" style="display:inline-block;background:#FE9800;color:#0E1A28;font-weight:700;font-size:14px;padding:12px 24px;border-radius:8px;">Ir al catálogo</a>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { badge14: '', data: null, cart: [] };
+  componentDidMount() {
+    this.load();
+    window.addEventListener('storage', this.load);
+    import('./badge-icon.js').then(m => this.setState({ badge14: m.verifiedBadgeSvg(14) }));
+    import('./zeudin-data.js').then(m => this.setState({ data: m }));
+  }
+  componentWillUnmount() { window.removeEventListener('storage', this.load); }
+  load = () => { try { this.setState({ cart: JSON.parse(localStorage.getItem('zeudin_cart') || '[]') }); } catch (e) {} };
+  save(cart) { localStorage.setItem('zeudin_cart', JSON.stringify(cart)); this.setState({ cart }); }
+  setQty(id, delta) { let cart = this.state.cart.map(c => c.id === id ? { ...c, qty: Math.max(1, c.qty + delta) } : c); this.save(cart); }
+  remove(id) { this.save(this.state.cart.filter(c => c.id !== id)); }
+
+  renderVals() {
+    const D = this.state.data; const badge14 = { __html: this.state.badge14 }; const cart = this.state.cart;
+    if (!D || !cart.length) return { badge14, hasItems: false, empty: !!D && !cart.length, items: [], subtotalFmt: '', waHref: '#', vendorName: '', vendorInitial: '', vendorColor: '#232F3E', vendorLocation: '', vendorVerified: false };
+    const v = D.vendorById(cart[0].vendorId) || D.vendors[0];
+    const items = cart.map(c => { const p = D.productById(c.id) || { name: c.id, price: 0 }; return { id: c.id, name: p.name, qty: c.qty, priceFmt: D.fmtCUP(p.price), lineFmt: D.fmtCUP(p.price * c.qty), line: p.price * c.qty, slotId: 'cart-' + c.id, inc: () => this.setQty(c.id, 1), dec: () => this.setQty(c.id, -1), remove: () => this.remove(c.id) }; });
+    const subtotal = items.reduce((a, x) => a + x.line, 0);
+    const waText = 'Hola ' + v.name + ', quiero pedir:\n' + items.map(x => '• ' + x.qty + '× ' + x.name).join('\n') + '\nTotal aprox: ' + D.fmtCUP(subtotal);
+    return {
+      badge14, hasItems: true, empty: false, items,
+      subtotalFmt: D.fmtCUP(subtotal),
+      waHref: D.waLink(v.whatsapp, waText),
+      vendorName: v.name, vendorInitial: v.name[0], vendorColor: v.color, vendorVerified: v.verified,
+      vendorLocation: v.municipality + ', ' + D.provinceName(v.province),
+    };
+  }
+}
+</script>
+</body>
+</html>

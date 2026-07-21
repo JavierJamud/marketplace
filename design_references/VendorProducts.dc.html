@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body { margin:0; background:#f0edee; font-family:'Inter',sans-serif; } a { color:#0e1a28; text-decoration:none; } input { font-family:'Inter',sans-serif; }</style>
+</helmet>
+<div style="width:0;height:0;overflow:hidden;position:absolute;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" hint-size="1,1"></x-import></div>
+
+<div style="min-height:100vh;background:#f0edee;display:grid;grid-template-columns:248px 1fr;">
+  <aside style="background:#0e1a28;padding:22px 14px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;box-sizing:border-box;">
+    <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;margin-bottom:8px;padding:0 8px;"><div style="width:32px;height:32px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:17px;">Z</div><span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:18px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span></a>
+    <div style="padding:0 8px 16px;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);"><div style="display:flex;align-items:center;gap:8px;margin-top:12px;"><div style="width:34px;height:34px;border-radius:9px;background:#232F3E;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:14px;">T</div><div><div style="display:flex;align-items:center;gap:4px;"><span style="font-weight:700;font-size:13px;color:#fff;">TecnoHabana</span><span style="display:inline-flex;width:13px;height:13px;" dangerouslySetInnerHTML="{{ badge14 }}"></span></div><div style="font-size:11px;color:#FE9800;font-weight:600;">Plan Business</div></div></div></div>
+    <nav style="display:flex;flex-direction:column;gap:3px;flex:1;"><sc-for list="{{ nav }}" as="n" hint-placeholder-count="6"><a href="{{ n.href }}" style="{{ n.style }}"><span dangerouslySetInnerHTML="{{ n.icon }}" style="display:inline-flex;"></span>{{ n.label }}</a></sc-for></nav>
+    <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;padding:10px 12px;color:rgba(255,255,255,0.55);font-size:13px;font-weight:600;">Volver al sitio</a>
+  </aside>
+
+  <main style="padding:30px 38px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;">
+      <div><h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:25px;color:#1b1b1d;margin:0 0 4px;">Productos</h1><p style="font-size:13.5px;color:#75777c;margin:0;">{{ count }} productos publicados</p></div>
+      <div style="display:flex;gap:10px;">
+        <button style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #c5c6cc;color:#44474c;font-weight:600;font-size:13px;padding:10px 16px;border-radius:8px;cursor:pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#44474c" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M11 5v14M15 5v14"/></svg>Escanear código</button>
+        <button style="background:#FE9800;color:#0E1A28;font-weight:700;font-size:13.5px;padding:11px 18px;border-radius:8px;border:none;cursor:pointer;">+ Nuevo producto</button>
+      </div>
+    </div>
+
+    <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:2.4fr 1fr 1fr 1fr 0.8fr;gap:12px;padding:14px 22px;background:#f7f5f6;font-size:11.5px;font-weight:700;color:#75777c;text-transform:uppercase;letter-spacing:0.03em;">
+        <span>Producto</span><span>Precio</span><span>Stock</span><span>Estado</span><span></span>
+      </div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:2.4fr 1fr 1fr 1fr 0.8fr;gap:12px;padding:14px 22px;align-items:center;border-top:1px solid #f0edee;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:44px;height:44px;border-radius:9px;flex-shrink:0;"><image-slot id="{{ r.slotId }}" shape="rounded" radius="9" placeholder="" style="width:100%;height:100%;"></image-slot></div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b1b1d;">{{ r.name }}</div><div style="font-size:11.5px;color:#75777c;">Cód: {{ r.barcode }}</div></div>
+          </div>
+          <span style="font-weight:700;font-size:13.5px;color:#1b1b1d;">{{ r.priceFmt }}</span>
+          <span style="font-size:13.5px;color:#44474c;">{{ r.stock }} u.</span>
+          <span style="{{ r.stateStyle }}">{{ r.stateLabel }}</span>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button style="background:none;border:none;cursor:pointer;color:#337475;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+            <button style="background:none;border:none;cursor:pointer;color:#ba1a1a;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:16px;background:rgba(254,152,0,0.08);border:1px solid rgba(254,152,0,0.25);border-radius:12px;padding:14px 18px;font-size:12.5px;color:#8A5100;display:flex;align-items:center;gap:8px;">
+      💡 En plan Business tenés productos ilimitados. En Regular el límite es 20.
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const IC = {
+  dash: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
+  box: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/></svg>',
+  cart: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>',
+  table: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4"/><path d="M5 8v12M19 8v12M9 8v5M15 8v5"/></svg>',
+  shield: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/></svg>',
+  cog: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1l-.3-2.5h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>',
+};
+const NAV = [
+  { id: 'dash', label: 'Resumen', href: 'VendorDashboard.dc.html', icon: IC.dash },
+  { id: 'products', label: 'Productos', href: 'VendorProducts.dc.html', icon: IC.box },
+  { id: 'orders', label: 'Pedidos', href: 'VendorOrders.dc.html', icon: IC.cart },
+  { id: 'tables', label: 'Mesas / QR', href: 'VendorTables.dc.html', icon: IC.table },
+  { id: 'verify', label: 'Verificación', href: 'VendorVerification.dc.html', icon: IC.shield },
+  { id: 'settings', label: 'Configuración', href: 'VendorSettings.dc.html', icon: IC.cog },
+];
+class Component extends DCLogic {
+  state = { badge14: '', data: null };
+  componentDidMount() {
+    import('./badge-icon.js').then(m => this.setState({ badge14: m.verifiedBadgeSvg(14) }));
+    import('./zeudin-data.js').then(m => this.setState({ data: m }));
+  }
+  renderVals() {
+    const D = this.state.data;
+    const navOn = 'display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;font-weight:600;background:#FE9800;color:#0E1A28;';
+    const navOff = 'display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:rgba(255,255,255,0.7);';
+    const prods = D ? D.products.filter(p => p.vendorId === 'tecnohabana').concat(D.products.slice(0, 2)) : [];
+    return {
+      badge14: { __html: this.state.badge14 },
+      nav: NAV.map(n => ({ label: n.label, href: n.href, icon: { __html: n.icon }, style: n.id === 'products' ? navOn : navOff })),
+      count: prods.length,
+      rows: prods.map((p, i) => ({
+        name: p.name, barcode: p.barcode, priceFmt: D.fmtCUP(p.price), stock: p.stock, slotId: 'vp-' + p.id + '-' + i,
+        stateLabel: p.stock > 0 ? 'Activo' : 'Sin stock',
+        stateStyle: p.stock > 0 ? 'background:rgba(12,174,83,0.12);color:#0A8F42;font-weight:700;font-size:11.5px;padding:4px 10px;border-radius:9999px;width:fit-content;' : 'background:rgba(186,26,26,0.12);color:#ba1a1a;font-weight:700;font-size:11.5px;padding:4px 10px;border-radius:9999px;width:fit-content;',
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

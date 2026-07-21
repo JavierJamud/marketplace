@@ -1,0 +1,121 @@
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ShoppingCart, User, LogOut } from "lucide-react";
+import { useCart } from "../../context/CartContext.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { SearchBar } from "./SearchBar.jsx";
+
+function Logo() {
+  return (
+    <Link to="/" className="flex flex-shrink-0 items-center gap-2.5">
+      <div className="flex h-[34px] w-[34px] items-center justify-center rounded bg-secondary-container font-display text-lg font-extrabold text-primary">
+        Z
+      </div>
+      <span className="hidden font-display text-xl font-bold tracking-tight text-white sm:inline">
+        Zeu<span className="text-secondary-container">Din</span>
+      </span>
+    </Link>
+  );
+}
+
+// Dropdown de cuenta: antes el ícono era un simple <Link>, sin ninguna forma
+// de cerrar sesión visible para clientes (vendedor/admin tenían un link
+// "Salir" que tampoco borraba el token — ver AdminLayout/VendorLayout). Este
+// menú cubre a los 3 roles con logout real (borra accessToken/refreshToken).
+function AccountMenu({ user, accountHref, panelLabel }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  if (!user) {
+    return (
+      <Link to="/cuenta" className="hidden items-center text-white/85 hover:text-white sm:flex">
+        <User className="h-5 w-5" />
+      </Link>
+    );
+  }
+
+  function handleLogout() {
+    logout();
+    setOpen(false);
+    navigate("/", { replace: true });
+  }
+
+  return (
+    <div ref={ref} className="relative hidden sm:block">
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center text-white/85 hover:text-white">
+        <User className="h-5 w-5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+10px)] w-56 rounded-md border border-surface-container-high bg-surface-container-lowest py-1.5 shadow-lg">
+          <div className="border-b border-surface-container px-3.5 py-2.5">
+            <div className="truncate text-[13px] font-semibold text-on-surface">{user.fullName ?? user.email}</div>
+            <div className="truncate text-[11.5px] text-outline">{user.email}</div>
+          </div>
+          <Link
+            to={accountHref}
+            onClick={() => setOpen(false)}
+            className="block px-3.5 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container"
+          >
+            {panelLabel}
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5"
+          >
+            <LogOut className="h-3.5 w-3.5" /> Cerrar sesión
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Header() {
+  const { items, bump } = useCart();
+  const { user } = useAuth();
+  const count = items.reduce((a, i) => a + i.quantity, 0);
+
+  const accountHref = !user ? "/cuenta" : user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
+  const panelLabel = user?.role === "ADMIN" ? "Panel de administración" : user?.role === "VENDOR" ? "Panel de vendedor" : "Mi cuenta";
+
+  return (
+    <header className="sticky top-0 z-50 bg-primary-container shadow-[0_2px_12px_rgba(0,0,0,0.12)]">
+      <div className="container-app flex h-[76px] items-center gap-4 lg:gap-[22px]">
+        <Logo />
+
+        <SearchBar />
+
+        <div className="flex flex-shrink-0 items-center gap-4">
+          <Link to="/carrito" className="relative flex items-center text-white/90 hover:text-white">
+            <ShoppingCart key={bump} className="h-[22px] w-[22px] animate-cart-bump" />
+            {count > 0 && (
+              <span
+                key={`badge-${bump}`}
+                className="absolute -right-2.5 -top-2 flex h-[17px] w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container text-[10px] font-bold text-white"
+              >
+                {count}
+              </span>
+            )}
+          </Link>
+          <AccountMenu user={user} accountHref={accountHref} panelLabel={panelLabel} />
+          <Link
+            to="/vender"
+            className="whitespace-nowrap rounded bg-secondary-container px-4 py-2.5 text-[13px] font-bold text-on-secondary-container hover:brightness-95"
+          >
+            Vender gratis
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}

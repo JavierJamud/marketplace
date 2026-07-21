@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; background:#fbf9fa; font-family:'Inter',sans-serif; }
+    a { color:#0e1a28; text-decoration:none; }
+    a:hover { color:#FE9800; }
+    input { font-family:'Inter',sans-serif; }
+  </style>
+</helmet>
+
+<div style="min-height:100vh;background:#fbf9fa;">
+  <header style="position:sticky;top:0;z-index:50;background:#232F3E;box-shadow:0 2px 12px rgba(0,0,0,0.12);">
+    <div style="max-width:1280px;margin:0 auto;padding:0 24px;height:68px;display:flex;align-items:center;justify-content:space-between;">
+      <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;"><div style="width:32px;height:32px;border-radius:8px;background:#FE9800;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#0E1A28;font-size:17px;">Z</div><span style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:19px;color:#fff;">Zeu<span style="color:#FE9800;">Din</span></span></a>
+      <div style="display:flex;gap:20px;align-items:center;"><a href="Shop.dc.html" style="font-size:13.5px;font-weight:600;color:rgba(255,255,255,0.75);">Catálogo</a><a href="Home.dc.html" style="font-size:13.5px;font-weight:600;color:rgba(255,255,255,0.75);">Cerrar sesión</a></div>
+    </div>
+  </header>
+
+  <div style="max-width:1280px;margin:0 auto;padding:36px 24px 64px;display:grid;grid-template-columns:250px 1fr;gap:32px;align-items:start;">
+    <!-- SIDEBAR -->
+    <aside style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:22px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid #eae7e9;">
+        <div style="width:44px;height:44px;border-radius:9999px;background:#337475;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:700;color:#fff;font-size:17px;">Y</div>
+        <div><div style="font-weight:700;font-size:14px;color:#1b1b1d;">Yanet Pérez</div><div style="font-size:12px;color:#75777c;">La Habana</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+          <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+        </sc-for>
+      </div>
+    </aside>
+
+    <!-- CONTENT -->
+    <div>
+      <sc-if value="{{ isOrders }}" hint-placeholder-val="{{ true }}">
+        <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:24px;color:#1b1b1d;margin:0 0 20px;">Mis pedidos</h1>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <sc-for list="{{ myOrders }}" as="o" hint-placeholder-count="3">
+            <div style="background:#fff;border:1px solid #eae7e9;border-radius:14px;padding:18px 20px;display:flex;align-items:center;gap:18px;">
+              <div style="flex:1;"><div style="font-weight:700;font-size:14px;color:#1b1b1d;">{{ o.id }} · {{ o.vendor }}</div><div style="font-size:12.5px;color:#75777c;margin-top:2px;">{{ o.date }} · {{ o.channel }}</div></div>
+              <div style="font-weight:700;font-size:14px;color:#1b1b1d;">{{ o.total }}</div>
+              <span style="{{ o.badgeStyle }}">{{ o.status }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isFav }}">
+        <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:24px;color:#1b1b1d;margin:0 0 20px;">Favoritos</h1>
+        <div style="text-align:center;padding:70px;background:#fff;border:1px solid #eae7e9;border-radius:16px;color:#75777c;font-size:14px;">Todavía no guardaste productos favoritos.</div>
+      </sc-if>
+
+      <sc-if value="{{ isAddr }}">
+        <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:24px;color:#1b1b1d;margin:0 0 20px;">Mis direcciones</h1>
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:22px;max-width:480px;">
+          <div style="font-weight:700;font-size:14px;color:#1b1b1d;margin-bottom:4px;">Casa</div>
+          <div style="font-size:13.5px;color:#44474c;line-height:20px;">Calle 23 #456, e/ 10 y 12<br/>Playa, La Habana</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isProfile }}">
+        <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:24px;color:#1b1b1d;margin:0 0 20px;">Mi perfil</h1>
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:22px;max-width:480px;display:flex;flex-direction:column;gap:14px;">
+          <input value="Yanet Pérez" style="height:44px;border:1px solid #c5c6cc;border-radius:8px;padding:0 14px;font-size:14px;outline:none;" />
+          <input value="yanet@correo.cu" style="height:44px;border:1px solid #c5c6cc;border-radius:8px;padding:0 14px;font-size:14px;outline:none;" />
+          <input value="+53 5 001 0001" style="height:44px;border:1px solid #c5c6cc;border-radius:8px;padding:0 14px;font-size:14px;outline:none;" />
+          <button style="background:#FE9800;color:#0E1A28;border:none;border-radius:8px;height:46px;font-weight:700;font-size:14px;cursor:pointer;">Guardar cambios</button>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const TABS = [
+  { id: 'orders', label: 'Mis pedidos' },
+  { id: 'wishlist', label: 'Favoritos' },
+  { id: 'addresses', label: 'Direcciones' },
+  { id: 'profile', label: 'Perfil' },
+];
+class Component extends DCLogic {
+  state = { tab: 'orders', data: null };
+  componentDidMount() { import('./zeudin-data.js').then(m => this.setState({ data: m })); }
+  renderVals() {
+    const D = this.state.data; const tab = this.state.tab;
+    const on = 'text-align:left;border:none;border-radius:8px;padding:11px 14px;font-weight:700;font-size:13.5px;cursor:pointer;background:#232F3E;color:#fff;';
+    const off = 'text-align:left;border:none;border-radius:8px;padding:11px 14px;font-weight:600;font-size:13.5px;cursor:pointer;background:none;color:#44474c;';
+    const myOrders = D ? D.orders.slice(0, 4).map(o => ({
+      id: o.id, vendor: o.vendor, date: o.date, channel: o.channel, total: D.fmtCUP(o.total), status: o.status,
+      badgeStyle: `background:${(D.statusColors[o.status] || '#75777c')}1f;color:${D.statusColors[o.status] || '#75777c'};font-weight:700;font-size:11.5px;padding:5px 12px;border-radius:9999px;`,
+    })) : [];
+    return {
+      tabs: TABS.map(t => ({ label: t.label, onClick: () => this.setState({ tab: t.id }), style: tab === t.id ? on : off })),
+      isOrders: tab === 'orders', isFav: tab === 'wishlist', isAddr: tab === 'addresses', isProfile: tab === 'profile',
+      myOrders,
+    };
+  }
+}
+</script>
+</body>
+</html>

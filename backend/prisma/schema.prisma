@@ -1,0 +1,953 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  CUSTOMER
+  VENDOR
+  ADMIN
+}
+
+enum PlanType {
+  REGULAR
+  BUSINESS
+}
+
+// Bloque 14: consolidado de 4 valores a 3 opciones claras en el checkout
+// (antes WHATSAPP/COD/TRANSFER/TABLE). COD y TABLE quedan igual. WHATSAPP
+// (el catch-all viejo "coordinar por WhatsApp") pasa a llamarse CASH
+// ("Efectivo" — en la práctica siempre terminaba siendo pago en efectivo
+// coordinado por chat). TRANSFER (antes específico de CUP/Transfermóvil) se
+// generaliza a ONLINE ("Pago en línea con el vendedor" — cualquier método
+// electrónico que el cliente arregle directo con la tienda: transferencia,
+// Zelle, USDT, etc., ligado a Vendor.acceptedPaymentMethods del Bloque 14).
+// Los pedidos históricos con los valores viejos se migran automáticamente
+// vía ALTER TYPE ... RENAME VALUE (ver migración) — el valor se guarda por
+// OID interno, no por texto, así que ningún pedido existente pierde datos.
+enum OrderChannel {
+  CASH
+  COD
+  ONLINE
+  TABLE
+}
+
+// Preferencia del vendedor: a dónde llegan los pedidos que hace un cliente.
+// WHATSAPP = el catálogo muestra el botón directo de WhatsApp (no crea
+// pedido en el panel). PANEL = se oculta ese atajo y se dirige al checkout
+// completo, cuyo pedido cae en /vendedor/pedidos para gestionar ahí.
+enum OrderDestination {
+  WHATSAPP
+  PANEL
+}
+
+enum OrderStatus {
+  NEW
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum KitchenStatus {
+  RECEIVED
+  PREPARING
+  READY
+}
+
+// Bloque 16: la aprobación final SIEMPRE la hace un humano — ya no existe
+// auto-aprobación al subir documentos (ver verification.controller.js).
+// PENDING_REVIEW = documentos subidos, esperando que un admin los revise.
+// PENDING_PAYMENT = documentos ya aprobados, falta resolver el cobro de la
+// suscripción (ver VerificationPaymentMethod) antes de activar el badge.
+enum VerificationStatus {
+  PENDING_REVIEW
+  PENDING_PAYMENT
+  APPROVED
+  REJECTED
+}
+
+// Cómo eligió pagar el vendedor la suscripción una vez aprobados sus
+// documentos — determina si la activación final es automática (tarjeta, vía
+// link con confirmación real del proveedor) o manual (transferencia CUP,
+// nadie puede confirmarla sola, la aprueba un admin a mano).
+enum VerificationPaymentMethod {
+  CARD
+  CUP_TRANSFER
+}
+
+enum CampaignStatus {
+  DRAFT
+  SENDING
+  SENT
+}
+
+enum EmailType {
+  ORDER_CONFIRMATION
+  STATUS_UPDATE
+  MANUAL
+  PASSWORD_RESET
+  // Bloque 16: un solo tipo genérico para todo el ciclo de verificación
+  // (docs aprobados/rechazados, link de pago, verificado) — mismo patrón que
+  // STATUS_UPDATE ya usa un label map en vez de un enum-value por estado.
+  VERIFICATION_UPDATE
+  TABLE_ORDER_STATUS
+  // Bloque 29: envío de factura/garantía en PDF — tipo propio (no MANUAL)
+  // porque es un documento generado por el sistema, no texto libre del
+  // vendedor, y no debe contar contra su límite mensual de emails manuales
+  // (es una necesidad operativa básica, no un extra de marketing).
+  DOCUMENT
+}
+
+enum EmailStatus {
+  SENT
+  FAILED
+}
+
+// Bloque 33: origen de un ErrorLog — un valor fijo por punto de falla ya
+// cubierto (bots, email, stripe, transcripción) más OTRO para cualquier
+// error no anticipado que llegue al errorHandler central.
+enum ErrorOrigin {
+  BOT_TIENDA
+  BOT_GENERAL
+  EMAIL_RESEND
+  STRIPE
+  TRANSCRIPCION_AUDIO
+  OTRO
+}
+
+// Bloque 37: cuál de los dos bots — mismo criterio que ErrorOrigin (valor
+// fijo por punto conocido, sin mezclar con el resto del sistema).
+enum ChatBotType {
+  TIENDA
+  GENERAL
+}
+
+// ---------------------------------------------------------------------------
+// Ubicación (por ahora solo Cuba: provincias / municipios / adyacencias) —
+// Bloque 18: el admin puede agregar más países/provincias/municipios desde
+// AdminLocations.jsx sin tocar código, aunque el checkout de compra sigue
+// mostrando "Cuba" fijo como único destino de entrega por ahora.
+// ---------------------------------------------------------------------------
+
+model Country {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  provinces Province[]
+  vendorDeliveries VendorDeliveryCountry[]
+}
+
+// Países a los que un vendedor puntual entrega (además/aparte de las
+// provincias de Cuba donde vende — ver VendorLocation). Solo países con
+// Country.isActive:true son elegibles; el admin nunca borra un país con
+// vendedores usándolo directamente, lo desactiva (mismo criterio que
+// BusinessCategory). El límite de cuántos puede tener cada vendedor según
+// su plan vive en SiteSettings (maxDeliveryCountriesRegular/Business),
+// configurable desde AdminLocations.jsx — nunca hardcodeado en el código.
+model VendorDeliveryCountry {
+  id        String   @id @default(cuid())
+  vendorId  String
+  countryId String
+  createdAt DateTime @default(now())
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, countryId])
+}
+
+model Province {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  // Nullable a propósito: las provincias ya sembradas se backfillean a
+  // Cuba, pero no hace falta una migración estricta que rompa si algún día
+  // queda una fila sin país asignado todavía.
+  countryId String?
+  country   Country? @relation(fields: [countryId], references: [id], onDelete: SetNull)
+
+  municipalities Municipality[]
+  vendorLocations VendorLocation[]
+  addresses      Address[]
+  users          User[]
+
+  adjacentTo   ProvinceAdjacency[] @relation("ProvinceA")
+  adjacentFrom ProvinceAdjacency[] @relation("ProvinceB")
+}
+
+model Municipality {
+  id         String   @id @default(cuid())
+  provinceId String
+  name       String
+  province   Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+
+  vendorLocations VendorLocation[]
+  addresses       Address[]
+
+  @@unique([provinceId, name])
+}
+
+// Provincias vecinas, usada para recomendar productos cercanos cuando no hay
+// stock local (ver search.controller). Se guarda en ambos sentidos.
+model ProvinceAdjacency {
+  id          String @id @default(cuid())
+  provinceAId String
+  provinceBId String
+
+  provinceA Province @relation("ProvinceA", fields: [provinceAId], references: [id], onDelete: Cascade)
+  provinceB Province @relation("ProvinceB", fields: [provinceBId], references: [id], onDelete: Cascade)
+
+  @@unique([provinceAId, provinceBId])
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo
+// ---------------------------------------------------------------------------
+
+model Category {
+  id       String     @id @default(cuid())
+  slug     String     @unique
+  name     String
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+
+  products Product[]
+  vendors  Vendor[] @relation("VendorCategory")
+}
+
+// Bloque 18: catálogo de "tipo de negocio" administrable por el admin — NO
+// es lo mismo que Category de arriba (esa es de producto/rubro heredada de
+// bloques anteriores, se deja intacta). Cada tienda elige UNA de estas al
+// registrarse (ver Vendor.businessCategoryId) y puede cambiarla después
+// desde VendorSettings.jsx. "Todos" nunca es una fila acá — es solo la
+// opción de filtro sin filtro real en el frontend.
+model BusinessCategory {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  icon      String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  vendors Vendor[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  vendorId    String
+  categoryId  String?
+  name        String
+  slug        String
+  description String?
+  price       Decimal  @db.Decimal(12, 2)
+  oldPrice    Decimal? @db.Decimal(12, 2)
+  stock       Int      @default(0)
+  barcode     String?
+  images      String[] @default([])
+  badge       String?
+  // Bloque 22: hasta 5, opcionales — el vendedor los escribe a mano en
+  // VendorProducts.jsx. Siempre en minúscula/trim (products.controller.js),
+  // nunca tal cual mayúsculas del vendedor, para que la búsqueda no pierda
+  // matches por diferencia de capitalización. Los usa search.controller.js
+  // (autocompleteSearch) además de nombre/descripción.
+  tags        String[] @default([])
+  paymentMethods String[] @default([]) // whatsapp | cod | prepaid
+  isFeatured  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  // Bloque 16: independiente de isActive/paymentMethods — un producto puede
+  // vender en la tienda normal, en el menú QR de mesa, en ambos o en ninguno.
+  availableForTableMenu Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  vendor   Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  options    ProductOption[]
+  orderItems OrderItem[]
+  reviews    Review[]
+  favorites  Favorite[]
+  requests   ProductRequest[]
+
+  @@unique([vendorId, slug])
+}
+
+// Variantes de producto / ítem de menú (ej. "Guarnición": Congrí, Arroz blanco, Puré (+80))
+model ProductOption {
+  id        String   @id @default(cuid())
+  productId String
+  name      String
+  values    String[] @default([])
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Usuarios y tiendas
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  fullName     String?
+  phone        String?
+  address      String?
+  provinceId   String?
+  country      String? // ISO 3166-1 alpha-2 (ej. "CU"), usado para el código de marcado del teléfono
+  isSuspended  Boolean  @default(false)
+  // Bloque 12: soft-delete — nunca se borra la fila (los pedidos históricos
+  // necesitan customerId intacto). isSuspended:true en simultáneo es lo que
+  // realmente bloquea el login (ver auth.controller.js); deletedAt es solo
+  // el flag de auditoría que distingue "eliminado" de "suspendido a mano".
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  // Reset de contraseña por código (nunca en texto plano, expira ~15 min).
+  resetCodeHash      String?
+  resetCodeExpiresAt DateTime?
+
+  province  Province?  @relation(fields: [provinceId], references: [id], onDelete: SetNull)
+  vendor    Vendor?
+  addresses Address[]
+  orders    Order[]
+  favorites Favorite[]
+  reviews   Review[]
+  reviewedVerifications VerificationRequest[] @relation("ReviewedBy")
+  paymentConfirmedVerifications VerificationRequest[] @relation("PaymentConfirmedBy")
+  marketplaceChatMessages MarketplaceChatMessage[]
+  suggestions Suggestion[]
+  vendorEngagements VendorEngagement[]
+  sentVendorMessages VendorMessage[]
+  productRequests ProductRequest[]
+  chatTrainingExamples ChatTrainingExample[]
+}
+
+model Vendor {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  companyName String
+  // Persona física responsable del negocio (KYC/contacto legal) — privado,
+  // nunca se expone en los endpoints públicos de tienda (ver vendors.controller.js).
+  ownerName   String?
+  slug        String   @unique
+  description String?
+  whatsapp    String
+  email       String?
+  // Bloque 29: datos de facturación — distinto del idNumber de
+  // VerificationRequest (ese es KYC de la persona física para el badge
+  // verificado, gated por isVerified; este es de la EMPRESA/responsable,
+  // necesario para cualquier vendedor que quiera emitir factura/garantía,
+  // esté o no verificado). Nullable a nivel de columna (no forzar backfill
+  // de tiendas ya sembradas) pero obligatorio a nivel de formulario en
+  // VendorSettings.jsx/VendorOnboarding.jsx, y validado de nuevo server-side
+  // como gate duro justo antes de generar un PDF (ver invoices.controller.js)
+  // — ese es el único punto donde su ausencia realmente rompe algo.
+  ownerIdNumber  String?
+  companyAddress String?
+  logoUrl     String?
+  coverUrl    String?
+  color       String?
+  categoryId  String?
+  // Bloque 18: rubro/tipo de negocio elegido en el registro (obligatorio a
+  // nivel de formulario/zod, no a nivel de columna — nullable acá para no
+  // forzar un backfill de las tiendas ya sembradas en bloques anteriores).
+  businessCategoryId String?
+  isRestaurant Boolean @default(false)
+  tableCount  Int?
+  planType    PlanType @default(REGULAR)
+  orderDestination OrderDestination @default(WHATSAPP)
+  isVerified  Boolean  @default(false)
+  isBlocked   Boolean  @default(false)
+  // Bloque 12: soft-delete de tienda — al eliminar se fuerza isBlocked:true
+  // también (así los ~8 puntos del código que ya filtran por isBlocked:false
+  // ocultan la tienda sin tocar cada uno) y se guarda deletedAt como marca
+  // de auditoría/UI ("Eliminada" en vez de "Bloqueada", sin botón de revertir).
+  deletedAt   DateTime?
+  rating      Decimal  @default(0) @db.Decimal(2, 1)
+  salesCount  Int      @default(0)
+  timezone    String   @default("America/Havana")
+  // Bloque 21: aiDocument pasa a ser el nombre generado por el servidor
+  // (igual que kycUpload.js — nunca el original, evita path traversal /
+  // adivinar rutas) que el chatbot lee del disco; aiDocumentName es el
+  // nombre real del archivo, solo para mostrarle al vendedor cuál subió.
+  aiDocument     String?
+  aiDocumentName String?
+  // Bloque 14: puramente informativo — qué métodos de pago acepta la tienda
+  // (Zelle, Visa, USDT, etc. + entradas de texto libre para "otro"). Nunca
+  // se valida ni se procesa nada acá, es solo lo que se muestra en
+  // Store.jsx para que cliente y vendedor coordinen directo entre ellos.
+  acceptedPaymentMethods String[] @default([])
+  createdAt   DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation("VendorCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  businessCategory BusinessCategory? @relation(fields: [businessCategoryId], references: [id], onDelete: SetNull)
+
+  locations     VendorLocation[]
+  schedules     VendorSchedule[]
+  products      Product[]
+  tables        Table[]
+  orders        Order[]
+  reviews       Review[]
+  verification  VerificationRequest?
+  emailLogs     EmailLog[]
+  engagements   VendorEngagement[]
+  messages      VendorMessage[]
+  notifications VendorNotification[]
+  deliveryCountries VendorDeliveryCountry[]
+  favorites     Favorite[]
+  chatMessages  ChatMessage[]
+  productRequests ProductRequest[]
+}
+
+model VendorLocation {
+  id             String  @id @default(cuid())
+  vendorId       String
+  provinceId     String
+  municipalityId String?
+
+  vendor       Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  province     Province      @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  municipality Municipality? @relation(fields: [municipalityId], references: [id], onDelete: SetNull)
+}
+
+model VendorSchedule {
+  id        String  @id @default(cuid())
+  vendorId  String
+  dayOfWeek Int // 0 = domingo .. 6 = sábado
+  opensAt   String // "09:00"
+  closesAt  String // "18:00"
+  isClosed  Boolean @default(false)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, dayOfWeek])
+}
+
+// ---------------------------------------------------------------------------
+// Pedidos (WhatsApp / contra entrega / transferencia CUP — sin Stripe/PayPal)
+// ---------------------------------------------------------------------------
+
+model Order {
+  id                     String       @id @default(cuid())
+  code                   String       @unique
+  vendorId               String
+  customerId             String?
+  customerName           String?
+  customerPhone          String?
+  customerEmail          String?
+  shippingAddress        String?
+  shippingProvinceId     String?
+  shippingMunicipalityId String?
+  total                  Decimal      @db.Decimal(12, 2)
+  status                 OrderStatus  @default(NEW)
+  channel                OrderChannel
+  // Snapshot de Vendor.orderDestination al momento del pedido — distinto del
+  // método de pago (channel): esto es "a dónde le llega el aviso al
+  // vendedor" (WhatsApp o su panel), no "cómo paga el cliente".
+  notificationChannel    OrderDestination @default(WHATSAPP)
+  tableNumber            Int?
+  createdAt              DateTime     @default(now())
+
+  vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  customer User?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    OrderItem[]
+  emailLogs EmailLog[]
+}
+
+// Historial de emails transaccionales (confirmación, cambio de estado,
+// manual). Nunca se registra SENT si Resend devolvió error — ver lib/email.js.
+// El límite mensual de emails manuales del Plan Regular se calcula contando
+// filas MANUAL+SENT del mes calendario en curso (nunca un contador aparte
+// que se pueda desincronizar).
+model EmailLog {
+  id        String      @id @default(cuid())
+  vendorId  String?
+  orderId   String?
+  type      EmailType
+  to        String
+  subject   String
+  status    EmailStatus
+  error     String?
+  createdAt DateTime    @default(now())
+
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  order  Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+}
+
+// Bloque 33: registro centralizado de errores técnicos reales — nunca se
+// muestra fuera de Admin (ver errorHandler.js + AdminErrors.jsx). El
+// try/catch que ya existe en cada punto de falla sigue funcionando igual
+// que antes (esto nunca lo reemplaza), es un registro ADICIONAL para que
+// el admin tenga un solo lugar donde ver qué está fallando de verdad, sin
+// tener que revisar logs de servidor a mano.
+model ErrorLog {
+  id     String      @id @default(cuid())
+  origin ErrorOrigin
+  message String
+  // Datos de diagnóstico flexibles según el origen (ej. vendorId,
+  // sessionId, endpoint, código de estado del proveedor externo) — nunca
+  // contraseñas ni datos sensibles del cliente.
+  context   Json?
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([resolved, createdAt])
+  @@index([origin, createdAt])
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  orderId         String
+  productId       String?
+  name            String
+  quantity        Int
+  price           Decimal @db.Decimal(12, 2)
+  selectedOptions Json?
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+}
+
+// ---------------------------------------------------------------------------
+// Restaurantes: mesas + QR + estado de cocina
+// ---------------------------------------------------------------------------
+
+model Table {
+  id          String @id @default(cuid())
+  vendorId    String
+  tableNumber Int
+  qrToken     String @unique @default(cuid())
+
+  vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tableOrders TableOrder[]
+
+  @@unique([vendorId, tableNumber])
+}
+
+model TableOrder {
+  id            String        @id @default(cuid())
+  tableId       String
+  items         Json
+  total         Decimal       @db.Decimal(12, 2)
+  kitchenStatus KitchenStatus @default(RECEIVED)
+  // Bloque 16: nullable por compatibilidad con pedidos de mesa viejos sin
+  // email — los nuevos siempre lo piden (ver tables.controller.js) para
+  // poder avisar por correo cuando cambia kitchenStatus.
+  customerEmail String?
+  createdAt     DateTime      @default(now())
+
+  table Table @relation(fields: [tableId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// KYC — fotos privadas, nunca públicas (servir por endpoint autenticado)
+// ---------------------------------------------------------------------------
+
+model VerificationRequest {
+  id              String             @id @default(cuid())
+  vendorId        String             @unique
+  status          VerificationStatus @default(PENDING_REVIEW)
+  fullName        String?
+  idNumber        String?
+  idPhotoFrontUrl String?
+  idPhotoBackUrl  String?
+  selfieUrl       String?
+  notes           String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime           @default(now())
+
+  // Bloque 16: fase de cobro, solo relevante una vez que status llega a
+  // PENDING_PAYMENT. paymentConfirmedById nulo + paymentConfirmedAt seteado
+  // = confirmación automática (Stripe, vía webhook); con admin = transferencia
+  // CUP confirmada a mano — mismo patrón que reviewedById nulo = decisión
+  // automática, usado arriba para la fase de documentos.
+  paymentMethod        VerificationPaymentMethod?
+  paymentProofUrl       String?
+  paymentConfirmedAt    DateTime?
+  paymentConfirmedById  String?
+
+  // Bloque 25: reemplaza el link de pago simulado propio (paymentLinkToken)
+  // por un Checkout Session real de Stripe. stripeCheckoutSessionId
+  // identifica la sesión vigente (se compara contra el webhook para no
+  // activar por un evento de una sesión vieja); stripeCheckoutUrl es lo que
+  // el vendedor abre; stripeCheckoutExpiresAt es cuándo Stripe la vence
+  // (Checkout Sessions expiran solas, típicamente a las 24h) — pasado ese
+  // momento el frontend ofrece "generar un link nuevo" en vez de mostrar
+  // uno muerto.
+  stripeCheckoutSessionId String?
+  stripeCheckoutUrl       String?
+  stripeCheckoutExpiresAt DateTime?
+
+  vendor            Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewedBy        User?  @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  paymentConfirmedBy User? @relation("PaymentConfirmedBy", fields: [paymentConfirmedById], references: [id], onDelete: SetNull)
+}
+
+// ---------------------------------------------------------------------------
+// Admin: campañas (Resend) e integraciones (credenciales cifradas en DB)
+// ---------------------------------------------------------------------------
+
+model Campaign {
+  id         String         @id @default(cuid())
+  title      String
+  channel    String         @default("email")
+  segment    String         @default("all_customers") // all_customers | all_vendors | regular_vendors | business_vendors
+  provinceId String? // null = toda Cuba
+  subject    String?
+  content    String?
+  status     CampaignStatus @default(DRAFT)
+  sentCount  Int            @default(0)
+  openCount  Int            @default(0)
+  createdAt  DateTime       @default(now())
+  sentAt     DateTime?
+}
+
+// Credenciales cifradas con AES-256-GCM (ver lib/crypto.js) — nunca en .env.
+model Integration {
+  id                   String   @id @default(cuid())
+  name                 String   @unique
+  credentialsCiphertext String
+  credentialsIv        String
+  credentialsAuthTag   String
+  // Solo usado por "resend" por ahora: dirección verificada del dominio
+  // propio (ej. notificaciones@midominio.cu). No es secreto — va en texto
+  // plano a diferencia de la clave. Si es null, se cae a onboarding@resend.dev.
+  fromEmail            String?
+  isActive             Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Configuración global del sitio (fila única) — hoy solo la imagen del hero
+// de Home.jsx; si no hay fila o heroImageUrl es null, el frontend usa el
+// placeholder actual (nunca rompe el layout).
+// ---------------------------------------------------------------------------
+
+model SiteSettings {
+  id           String   @id @default(cuid())
+  heroImageUrl String?
+  // Límites por plan — cuántos países de entrega y provincias de Cuba puede
+  // tener cargados un vendedor a la vez. Nunca hardcodeados en el código:
+  // el admin los edita desde AdminLocations.jsx. null en el máximo de
+  // provincias Business = sin límite (Plan Business es "ilimitado" por
+  // definición del negocio, pero se deja como campo editable igual, no una
+  // constante, por si el admin algún día quiere ponerle un tope).
+  maxDeliveryCountriesRegular  Int  @default(1)
+  maxDeliveryCountriesBusiness Int  @default(5)
+  maxProvincesRegular          Int  @default(1)
+  maxProvincesBusiness         Int?
+  updatedAt    DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Buzón de sugerencias (vendedor/cliente -> admin)
+// ---------------------------------------------------------------------------
+
+enum SuggestionAuthorType {
+  VENDOR
+  CUSTOMER
+}
+
+enum SuggestionStatus {
+  NEW
+  REVIEWED
+}
+
+model Suggestion {
+  id         String               @id @default(cuid())
+  authorId   String
+  // Se guarda explícito en vez de derivarlo de User.role en cada lectura —
+  // más simple de filtrar/mostrar, y congela el tipo aunque el role del
+  // usuario cambie después (ej. un cliente que después abre una tienda).
+  authorType SuggestionAuthorType
+  message    String
+  status     SuggestionStatus     @default(NEW)
+  createdAt  DateTime             @default(now())
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 15: analíticas de "clientes potenciales" + chat admin↔vendedor
+// ---------------------------------------------------------------------------
+
+// Tracking mínimo (no un sistema de analytics completo): solo lo necesario
+// para armar "clientes potenciales" en VendorDashboard.jsx — clientes
+// logueados que visitaron la tienda o agregaron algo al carrito pero nunca
+// llegaron a pedir. Visitantes/carritos anónimos no se trackean (no hay con
+// quién contactarlos, así que no sirven para esta métrica igual).
+enum EngagementType {
+  VISIT
+  CART_ADD
+}
+
+model VendorEngagement {
+  id         String         @id @default(cuid())
+  vendorId   String
+  customerId String
+  type       EngagementType
+  createdAt  DateTime       @default(now())
+
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  customer User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+// Un solo hilo por tienda (vendedor <-> equipo ZeuDin) — alcanza para el
+// alcance pedido, no hace falta modelar conversaciones múltiples. senderRole
+// identifica quién mandó cada mensaje; readAt es cuándo el OTRO lado
+// (el que no mandó el mensaje) lo vio de verdad, no cuándo llegó al backend.
+enum MessageSenderRole {
+  VENDOR
+  ADMIN
+}
+
+model VendorMessage {
+  id         String            @id @default(cuid())
+  vendorId   String
+  senderRole MessageSenderRole
+  senderId   String
+  body       String
+  readAt     DateTime?
+  createdAt  DateTime          @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  sender User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 16: campanita de notificaciones del panel de vendedor
+// ---------------------------------------------------------------------------
+
+// Historial simple de avisos del sistema al vendedor (por ahora, solo los
+// pasos del ciclo de verificación/cobro) — mismos eventos que ya se mandan
+// por email (ver templates/verificationUpdate.js), duplicados acá para el
+// dropdown de la campanita. readAt nulo = no leída (mismo patrón que
+// VendorMessage.readAt: se marca leída cuando el vendedor abre el dropdown,
+// no cuando se crea la fila).
+enum VendorNotificationType {
+  VERIFICATION_DOCS_APPROVED
+  VERIFICATION_DOCS_REJECTED
+  VERIFICATION_PAYMENT_LINK_SENT
+  VERIFICATION_VERIFIED
+}
+
+model VendorNotification {
+  id        String                 @id @default(cuid())
+  vendorId  String
+  type      VendorNotificationType
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime               @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Reseñas, direcciones, favoritos
+// ---------------------------------------------------------------------------
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String?
+  vendorId  String?
+  // Nullable: no hace falta romper reseñas ya sembradas sin cuenta asociada.
+  // Toda reseña NUEVA (reviews.controller.js) sí la trae siempre — es lo que
+  // permite detectar "compra verificada" y, a futuro, evitar reseñas
+  // duplicadas del mismo cliente.
+  userId    String?
+  authorName String
+  rating    Int?
+  comment   String?
+  createdAt DateTime @default(now())
+
+  // true si el autor tiene al menos un pedido (no cancelado) con esta
+  // tienda al momento de comentar — calculado una sola vez al crear la
+  // reseña, no se recalcula después (igual que un "verified purchase" de
+  // cualquier otro marketplace).
+  isVerifiedPurchase Boolean @default(false)
+  // Bloque 22: el admin puede ocultar un comentario sin borrarlo (o
+  // borrarlo directo) — el vendedor no puede tocar ninguna de las dos cosas,
+  // pero sí responder públicamente (ver vendorReply).
+  isHidden  Boolean  @default(false)
+  vendorReply     String?
+  vendorRepliedAt DateTime?
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Address {
+  id             String   @id @default(cuid())
+  userId         String
+  label          String?
+  provinceId     String
+  municipalityId String?
+  addressLine    String
+  phone          String?
+  isDefault      Boolean  @default(false)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  province     Province      @relation(fields: [provinceId], references: [id])
+  municipality Municipality? @relation(fields: [municipalityId], references: [id])
+}
+
+// Bloque 22: además de favoritear un producto (como ya estaba), ahora
+// también se puede favoritear una tienda entera — mismo modelo, mismo
+// patrón "dual nullable FK" que Review (productId/vendorId), con la
+// diferencia de que acá es obligatorio exactamente uno de los dos
+// (validado en favorites.controller.js, no hay fila "huérfana" de ambos
+// null como sí puede pasar en Review con un comentario general de tienda).
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String?
+  vendorId  String?
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@unique([userId, vendorId])
+}
+
+// Bloque 21: chatbot IA por tienda verificada. Sin login — el cliente se
+// identifica solo por sessionId (uuid generado en el navegador, guardado en
+// localStorage), así que no hay userId acá. role es "user" o "model" (mismos
+// nombres que la API de Gemini, para armar el array de `contents` del
+// próximo turno sin tener que traducir nada).
+model ChatMessage {
+  id        String   @id @default(cuid())
+  vendorId  String
+  sessionId String
+  role      String
+  content   String
+  // Bloque 24: IDs de producto que el bot mencionó/recomendó en este
+  // mensaje (solo role="model" — un mensaje "user" siempre queda en []).
+  // Ya filtrados contra el catálogo real antes de guardarse (nunca un ID
+  // alucinado) — se persisten para que reabrir el chat siga mostrando las
+  // mismas tarjetas de producto sin tener que volver a llamar al modelo.
+  productIds String[] @default([])
+  createdAt DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId, sessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 30: bot general del marketplace (Home) — distinto del chat por
+// tienda de arriba (siempre ligado a un vendorId). Este vive a nivel
+// plataforma: sin vendorId, con userId opcional (solo se completa si el
+// cliente está logueado — hace falta para el límite diario de fotos).
+// ---------------------------------------------------------------------------
+
+model MarketplaceChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  userId    String?
+  role      String
+  content   String
+  // true solo en mensajes "user" que incluyeron una imagen — es lo que
+  // cuenta contra el límite de 5 fotos/día por usuario logueado (ver
+  // assistant.controller.js). Nunca se guarda la imagen en sí, solo la
+  // marca de que hubo una — la imagen se descarta apenas se usa para
+  // describirla, no hay valor en retenerla y sí un costo de storage/privacidad.
+  hasImage   Boolean  @default(false)
+  productIds String[] @default([])
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([userId, hasImage, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 37: aprendizaje por ejemplos curados — Groq no permite fine-tuning
+// propio, así que la mejora continua de ambos bots se hace acá: el admin
+// revisa conversaciones reales (AdminAssistant.jsx), marca una respuesta
+// como "mala" y escribe la ideal (o marca una "buena" para reforzarla tal
+// cual salió) — cada fila es un par entrada->respuesta que se inyecta como
+// few-shot real en el prompt del bot correspondiente (ver
+// buildFewShotExamples en assistant.controller.js/chat.controller.js),
+// nunca inventado por el modelo. "activo" permite desactivar un ejemplo sin
+// borrar el historial de qué se corrigió.
+// ---------------------------------------------------------------------------
+
+model ChatTrainingExample {
+  id             String      @id @default(cuid())
+  botTipo        ChatBotType
+  entradaCliente String
+  respuestaIdeal String
+  activo         Boolean     @default(true)
+  creadoPorId    String?
+  createdAt      DateTime    @default(now())
+
+  creadoPor User? @relation(fields: [creadoPorId], references: [id], onDelete: SetNull)
+
+  @@index([botTipo, activo, createdAt])
+}
+
+// Documentos que el admin sube para entrenar al bot general (info
+// institucional: cómo comprar, cómo vender, verificación, planes, etc.) — a
+// diferencia de Vendor.aiDocument (uno por tienda, se reemplaza), acá se
+// permiten VARIOS documentos a la vez (ej. uno para clientes, otro para
+// vendedores) — todos se leen juntos en cada request del bot general.
+model AssistantDocument {
+  id           String   @id @default(cuid())
+  filename     String
+  originalName String
+  createdAt    DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 23: "Solicitar este producto" — registro de interés en un producto
+// sin stock (no es un pedido, no pasa por carrito/checkout). El vendedor lo
+// usa en VendorProducts.jsx para priorizar qué reponer primero.
+// ---------------------------------------------------------------------------
+
+// Cliente logueado -> customerId. Sin login -> guestId, mismo patrón de
+// identidad anónima que ChatMessage.sessionId (uuid generado en el navegador,
+// persistido en localStorage) — se prefiere sobre pedir un email a mano,
+// que exigiría un formulario y contradice el "un solo click, sin fricción"
+// pedido. Nunca ambos null (products.controller.js lo valida). El par
+// (productId, customerId|guestId) dentro de una ventana de 24h es lo que usa
+// requestProductRestock para no contar de nuevo el mismo click repetido.
+model ProductRequest {
+  id         String   @id @default(cuid())
+  productId  String
+  vendorId   String
+  customerId String?
+  guestId    String?
+  createdAt  DateTime @default(now())
+
+  product  Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  customer User?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([productId])
+  @@index([vendorId, createdAt])
+}

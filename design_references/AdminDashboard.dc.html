@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>body { margin:0; background:#f0edee; font-family:'Inter',sans-serif; } a { color:#0e1a28; text-decoration:none; }</style>
+</helmet>
+
+<div style="min-height:100vh;background:#f0edee;display:grid;grid-template-columns:248px 1fr;">
+  <aside style="background:#001d1e;padding:22px 14px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;box-sizing:border-box;">
+    <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;margin-bottom:6px;padding:0 8px;"><div style="width:32px;height:32px;border-radius:8px;background:#61a0a1;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;font-weight:800;color:#001d1e;font-size:17px;">Z</div><div><div style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:16px;color:#fff;line-height:1;">ZeuDin</div><div style="font-size:10px;color:#61a0a1;font-weight:600;letter-spacing:0.08em;">ADMIN</div></div></a>
+    <nav style="display:flex;flex-direction:column;gap:3px;flex:1;margin-top:18px;"><sc-for list="{{ nav }}" as="n" hint-placeholder-count="6"><a href="{{ n.href }}" style="{{ n.style }}"><span dangerouslySetInnerHTML="{{ n.icon }}" style="display:inline-flex;"></span>{{ n.label }}</a></sc-for></nav>
+    <a href="Home.dc.html" style="display:flex;align-items:center;gap:9px;padding:10px 12px;color:rgba(255,255,255,0.5);font-size:13px;font-weight:600;">Salir del panel</a>
+  </aside>
+
+  <main style="padding:30px 38px;">
+    <h1 style="font-family:'Montserrat',sans-serif;font-weight:700;font-size:25px;color:#1b1b1d;margin:0 0 4px;">Panel de administración</h1>
+    <p style="font-size:13.5px;color:#75777c;margin:0 0 24px;">Métricas globales de la plataforma ZeuDin · Cuba.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:24px;">
+      <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:20px;">
+          <div style="font-size:12.5px;color:#75777c;margin-bottom:8px;">{{ m.label }}</div>
+          <div style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:24px;color:#1b1b1d;">{{ m.value }}</div>
+          <div style="font-size:11.5px;color:#0CAE53;font-weight:600;margin-top:4px;">{{ m.delta }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px;">
+      <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:22px;">
+        <div style="font-weight:700;font-size:15px;color:#1b1b1d;margin-bottom:16px;">Actividad reciente</div>
+        <div style="display:flex;flex-direction:column;">
+          <sc-for list="{{ activity }}" as="a" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #f0edee;">
+              <div style="width:32px;height:32px;border-radius:9999px;background:{{ a.bg }};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;">{{ a.emoji }}</div>
+              <div style="flex:1;"><div style="font-size:13px;color:#1b1b1d;">{{ a.text }}</div><div style="font-size:11.5px;color:#75777c;">{{ a.time }}</div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <a href="AdminVerifications.dc.html" style="background:linear-gradient(135deg,#8A5100,#643900);border-radius:16px;padding:22px;color:#fff;">
+          <div style="font-family:'Montserrat',sans-serif;font-weight:800;font-size:28px;">2</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:2px;">Verificaciones KYC pendientes →</div>
+        </a>
+        <div style="background:#fff;border:1px solid #eae7e9;border-radius:16px;padding:20px;">
+          <div style="font-weight:700;font-size:14px;color:#1b1b1d;margin-bottom:12px;">Tiendas por provincia</div>
+          <div style="display:flex;flex-direction:column;gap:9px;">
+            <sc-for list="{{ byProvince }}" as="p" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="width:96px;font-size:12px;color:#44474c;">{{ p.name }}</span>
+                <div style="flex:1;height:8px;background:#f0edee;border-radius:9999px;overflow:hidden;"><div style="height:100%;width:{{ p.pct }};background:#61a0a1;border-radius:9999px;"></div></div>
+                <span style="font-size:12px;color:#75777c;width:22px;text-align:right;">{{ p.n }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const IC = {
+  dash: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
+  store: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5M4 9v11h16V9M4 9h16"/></svg>',
+  shield: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 3v6c0 5-3.5 8-8 11-4.5-3-8-6-8-11V5z"/></svg>',
+  users: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/><path d="M17 5a3 3 0 0 1 0 6M22 21c0-2.5-1.3-4.7-3.3-6"/></svg>',
+  mega: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11v2a1 1 0 0 0 1 1h3l7 5V5L7 10H4a1 1 0 0 0-1 1z"/><path d="M18 8a5 5 0 0 1 0 8"/></svg>',
+  plug: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2v6M15 2v6M7 8h10v3a5 5 0 0 1-10 0zM12 16v6"/></svg>',
+};
+const NAV = [
+  { id: 'dash', label: 'Resumen', href: 'AdminDashboard.dc.html', icon: IC.dash },
+  { id: 'vendors', label: 'Tiendas', href: 'AdminVendors.dc.html', icon: IC.store },
+  { id: 'verify', label: 'Verificaciones', href: 'AdminVerifications.dc.html', icon: IC.shield },
+  { id: 'customers', label: 'Clientes', href: 'AdminCustomers.dc.html', icon: IC.users },
+  { id: 'campaigns', label: 'Campañas', href: 'AdminCampaigns.dc.html', icon: IC.mega },
+  { id: 'integrations', label: 'Integraciones', href: 'AdminIntegrations.dc.html', icon: IC.plug },
+];
+class Component extends DCLogic {
+  state = { data: null };
+  componentDidMount() { import('./zeudin-data.js').then(m => this.setState({ data: m })); }
+  renderVals() {
+    const D = this.state.data;
+    const navOn = 'display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;font-weight:600;background:#61a0a1;color:#001d1e;';
+    const navOff = 'display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;font-weight:600;color:rgba(255,255,255,0.7);';
+    return {
+      nav: NAV.map(n => ({ label: n.label, href: n.href, icon: { __html: n.icon }, style: n.id === 'dash' ? navOn : navOff })),
+      metrics: [
+        { label: 'Tiendas activas', value: '312', delta: '↑ 18 este mes' },
+        { label: 'Clientes registrados', value: '4 820', delta: '↑ 240 este mes' },
+        { label: 'Pedidos (mes)', value: '9 140', delta: '↑ 11%' },
+        { label: 'Ingresos suscripción', value: D ? D.fmtCUP(285000) : '—', delta: '114 tiendas Business' },
+      ],
+      activity: [
+        { emoji: '🏪', bg: '#e4f0f0', text: 'Nueva tienda: "Moda Caribe" (La Habana)', time: 'Hace 20 min' },
+        { emoji: '🛡️', bg: '#fbeee0', text: 'Solicitud de verificación de "Casa Verde"', time: 'Hace 1 h' },
+        { emoji: '💳', bg: '#e0ecfb', text: 'Pago de plan Business por transferencia CUP', time: 'Hace 3 h' },
+        { emoji: '⚠️', bg: '#fbe0e0', text: 'Reporte sobre un producto en "FitZone"', time: 'Ayer' },
+        { emoji: '🏪', bg: '#e4f0f0', text: 'Nueva tienda: "AgroHolguín" (Holguín)', time: 'Ayer' },
+      ],
+      byProvince: [
+        { name: 'La Habana', n: 142, pct: '100%' },
+        { name: 'Santiago', n: 58, pct: '41%' },
+        { name: 'Villa Clara', n: 39, pct: '27%' },
+        { name: 'Holguín', n: 31, pct: '22%' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
