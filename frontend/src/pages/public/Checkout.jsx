@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { CheckCircle2, MessageCircle, Lock } from "lucide-react";
+import { CheckCircle2, MessageCircle, Globe2, MapPin } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { useCart } from "../../context/CartContext.jsx";
@@ -13,9 +13,6 @@ function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
 }
 
-// Bloque 14: 3 opciones (antes whatsapp/cod/transfer, ver schema.prisma y
-// orders.controller.js para el mapeo/migración de pedidos históricos). Todas
-// se coordinan por WhatsApp con el vendedor — ninguna pasa por ZeuDin.
 const PAY_OPTIONS = [
   { id: "cod", title: "Pago contra entrega", sub: "Coordinado por WhatsApp con el vendedor" },
   { id: "online", title: "Pago en línea con el vendedor", sub: "Transferencia, Zelle, etc. — arreglan método y monto directo por WhatsApp" },
@@ -26,10 +23,9 @@ export default function Checkout() {
   const { items, total, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem } = useCart();
   const { user } = useAuth();
   const [done, setDone] = useState(false);
-  // Se captura antes de clearCart() (que vacía vendorName) para poder
-  // mostrarlo en la pantalla de confirmación.
   const [confirmedInfo, setConfirmedInfo] = useState(null);
   const [pay, setPay] = useState("cod");
+  const [selectedCountryId, setSelectedCountryId] = useState("");
   const [form, setForm] = useState({
     customerName: user?.fullName ?? "",
     customerPhone: user?.phone ?? "",
@@ -38,24 +34,76 @@ export default function Checkout() {
     municipalityName: "",
     address: "",
   });
-  // Todos los campos son obligatorios (Bloque 6): la tienda necesita poder
-  // contactar al cliente sí o sí, sin excepción.
-  const allFieldsFilled =
-    form.customerName.trim() && form.customerPhone.trim() && form.customerEmail.trim() && form.provinceId && form.municipalityName.trim() && form.address.trim();
 
   const { data: provinces } = useQuery({
     queryKey: ["provinces"],
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
 
-  // Fresco (no cacheado en el carrito): necesitamos el canal de aviso que el
-  // vendedor tiene configurado AHORA para decidir la pantalla de confirmación.
   const { data: vendor } = useQuery({
     queryKey: ["vendor", vendorSlug],
     queryFn: async () => (await api.get(`/vendors/${vendorSlug}`)).data.vendor,
     enabled: !!vendorSlug,
   });
+
   const wantsWhatsApp = (vendor?.orderDestination ?? "WHATSAPP") === "WHATSAPP";
+
+  // Derive vendor's delivery countries
+  const vendorCountries = useMemo(() => {
+    if (!vendor) return [];
+    const map = new Map();
+    (vendor.locations ?? []).forEach((l) => {
+      if (l.province?.country) {
+        map.set(l.province.country.id, l.province.country);
+      }
+    });
+    (vendor.deliveryCountries ?? []).forEach((dc) => {
+      if (dc.country) {
+        map.set(dc.country.id, dc.country);
+      }
+    });
+    return Array.from(map.values());
+  }, [vendor]);
+
+  // Default to first country
+  useEffect(() => {
+    if (vendorCountries.length > 0 && !selectedCountryId) {
+      setSelectedCountryId(vendorCountries[0].id);
+    }
+  }, [vendorCountries, selectedCountryId]);
+
+  // Derive vendor's provinces/states for selected country
+  const vendorProvincesForCountry = useMemo(() => {
+    if (!vendor || !selectedCountryId) return [];
+    const provMap = new Map();
+    (vendor.locations ?? []).forEach((l) => {
+      if (l.province && (l.province.countryId === selectedCountryId || l.province.country?.id === selectedCountryId)) {
+        provMap.set(l.province.id, l.province);
+      }
+    });
+    // Fallback: if vendor specified country but no specific locations, allow all active provinces for that country
+    if (provMap.size === 0 && provinces) {
+      provinces
+        .filter((p) => p.countryId === selectedCountryId || p.country?.id === selectedCountryId)
+        .forEach((p) => provMap.set(p.id, p));
+    }
+    return Array.from(provMap.values());
+  }, [vendor, selectedCountryId, provinces]);
+
+  const selectedProvince = useMemo(() => {
+    if (!form.provinceId) return null;
+    return provinces?.find((p) => p.id === form.provinceId) ?? vendorProvincesForCountry.find((p) => p.id === form.provinceId) ?? null;
+  }, [form.provinceId, provinces, vendorProvincesForCountry]);
+
+  const isStateSelected = selectedProvince?.type === "STATE";
+
+  const allFieldsFilled =
+    form.customerName.trim() &&
+    form.customerPhone.trim() &&
+    form.customerEmail.trim() &&
+    form.provinceId &&
+    (isStateSelected || form.municipalityName.trim()) &&
+    form.address.trim();
 
   const placeOrder = useMutation({
     mutationFn: async () =>
@@ -67,14 +115,14 @@ export default function Checkout() {
           customerPhone: form.customerPhone,
           customerEmail: form.customerEmail,
           shippingProvinceId: form.provinceId || undefined,
-          shippingAddress: [form.municipalityName, form.address].filter(Boolean).join(" — ") || undefined,
+          shippingAddress: [isStateSelected ? null : form.municipalityName, form.address].filter(Boolean).join(" — ") || undefined,
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions })),
         })
       ).data,
     onSuccess: ({ order }) => {
       setConfirmedInfo({
         vendorName,
-        provinceName: provinces?.find((p) => p.id === form.provinceId)?.name ?? "tu provincia",
+        provinceName: selectedProvince?.name ?? "tu provincia/estado",
         wantsWhatsApp,
         vendorWhatsapp: vendor?.whatsapp,
         orderCode: order.code,
@@ -84,10 +132,6 @@ export default function Checkout() {
       window.scrollTo(0, 0);
     },
     onError: (err) => {
-      // 409 = el stock cambió entre agregar al carrito y confirmar (otro
-      // cliente compró primero). Se ajusta el carrito al máximo real en vez
-      // de solo mostrar un error genérico, para que el cliente pueda
-      // reintentar sin perder el resto del pedido.
       const insufficientStock = err.response?.data?.details?.insufficientStock;
       if (err.response?.status === 409 && insufficientStock?.length) {
         for (const item of insufficientStock) {
@@ -99,46 +143,59 @@ export default function Checkout() {
             ? `"${insufficientStock[0].name}" ya no tiene suficiente stock. Ajustamos tu carrito a ${insufficientStock[0].available} disponibles.`
             : "Algunos productos ya no tienen suficiente stock. Ajustamos tu carrito a lo disponible."
         );
+      } else {
+        toast.error(err.response?.data?.error ?? "No se pudo realizar el pedido.");
       }
     },
   });
 
-  if (done) {
+  if (done && confirmedInfo) {
+    const waText = `¡Hola! Acabo de hacer el pedido ${confirmedInfo.orderCode} en ${confirmedInfo.vendorName}.`;
+    const href = waLink(confirmedInfo.vendorWhatsapp, waText);
+
     return (
-      <div className="container-app max-w-[1080px] py-9">
-        <div className="mx-auto max-w-[520px] rounded-xl border border-surface-container-high bg-surface-container-lowest p-11 text-center">
-          <div className="mx-auto mb-[18px] flex h-[60px] w-[60px] items-center justify-center rounded-full bg-verified/10">
-            <CheckCircle2 className="h-8 w-8 text-verified" strokeWidth={2.5} />
-          </div>
-          <h2 className="mb-2.5 font-display text-title-lg text-on-surface">¡Pedido enviado!</h2>
-          <p className="mb-6 text-body-md leading-[21px] text-on-surface-variant">
-            {confirmedInfo?.wantsWhatsApp ? (
-              <>
-                Le enviamos tu pedido a <strong>{confirmedInfo?.vendorName}</strong>. Te contactará por WhatsApp para coordinar pago y
-                entrega en {confirmedInfo?.provinceName}.
-              </>
+      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-verified/10 text-verified">
+          <CheckCircle2 className="h-10 w-10" />
+        </div>
+        <h1 className="text-display-sm font-extrabold text-on-surface">¡Pedido realizado!</h1>
+        <p className="mt-2 text-body-md text-on-surface-variant">
+          Tu código es <span className="font-mono font-bold text-on-surface">{confirmedInfo.orderCode}</span>.
+        </p>
+
+        {confirmedInfo.wantsWhatsApp ? (
+          <div className="mt-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6 text-left">
+            <p className="text-body-md text-on-surface-variant">
+              Esta tienda coordina sus entregas por WhatsApp. Escribiles para ultimar el envío a{" "}
+              <span className="font-semibold text-on-surface">{confirmedInfo.provinceName}</span>.
+            </p>
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#25D366] text-label-lg font-bold text-white shadow hover:opacity-90"
+              >
+                <MessageCircle className="h-5 w-5" /> Abrir WhatsApp con la tienda
+              </a>
             ) : (
-              <>
-                Tu pedido quedó registrado en el panel de <strong>{confirmedInfo?.vendorName}</strong>. Te van a contactar para
-                coordinar pago y entrega en {confirmedInfo?.provinceName}.
-              </>
+              <p className="mt-3 text-body-sm text-outline">
+                (La tienda todavía no configuró su número de WhatsApp en el perfil.)
+              </p>
             )}
-          </p>
-          {confirmedInfo?.wantsWhatsApp && confirmedInfo?.vendorWhatsapp && (
-            <a
-              href={waLink(
-                confirmedInfo.vendorWhatsapp,
-                `Hola ${confirmedInfo.vendorName}, acabo de hacer el pedido ${confirmedInfo.orderCode} en ZeuDin. ¿Podemos coordinar?`
-              )}
-              target="_blank"
-              rel="noreferrer"
-              className="mb-3 flex h-12 items-center justify-center gap-2 rounded bg-[#25D366] text-label-md font-bold text-white"
-            >
-              <MessageCircle className="h-[18px] w-[18px]" /> Continuar por WhatsApp
-            </a>
-          )}
-          <Link to="/" className="inline-block rounded bg-secondary-container px-6 py-3 text-label-md font-bold text-on-secondary-container">
-            Volver al inicio
+          </div>
+        ) : (
+          <div className="mt-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6 text-left">
+            <p className="text-body-md text-on-surface-variant">
+              Le avisamos a <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> por correo. Te van a
+              contactar pronto para coordinar la entrega.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-8">
+          <Link to={`/v/${vendorSlug}`} className="text-label-lg font-bold text-tertiary-accent hover:underline">
+            Volver a la tienda
           </Link>
         </div>
       </div>
@@ -147,79 +204,127 @@ export default function Checkout() {
 
   if (items.length === 0) {
     return (
-      <div className="container-app max-w-[1080px] py-9 text-center">
-        <p className="text-body-md text-on-surface-variant">Tu carrito está vacío.</p>
-        <Link to="/catalogo" className="mt-3 inline-block text-label-md font-semibold text-tertiary-accent">Ir al catálogo →</Link>
+      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="text-display-sm font-extrabold text-on-surface">El carrito está vacío</h1>
+        <p className="mt-2 text-body-md text-on-surface-variant">Agregá productos antes de realizar un pedido.</p>
+        <div className="mt-6">
+          <Link to="/stores" className="text-label-lg font-bold text-tertiary-accent hover:underline">
+            Ver tiendas disponibles
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container-app max-w-[1080px] py-9">
-      <h1 className="mb-1.5 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Finalizar pedido</h1>
-      <p className="mb-7 text-[13.5px] text-outline">En Cuba el pago se coordina con el vendedor. ZeuDin no cobra comisión por la venta.</p>
+    <div className="mx-auto max-w-4xl px-4 py-8">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-display-sm font-extrabold text-on-surface">Finalizar compra</h1>
+          <p className="text-body-md text-on-surface-variant">
+            Comprando en{" "}
+            <Link to={`/v/${vendorSlug}`} className="font-bold text-on-surface hover:underline">
+              {vendorName}
+            </Link>
+          </p>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 gap-7 lg:grid-cols-[1fr_340px] lg:items-start">
-        <div className="flex flex-col gap-5">
-          <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-            <div className="mb-4 text-title-lg font-bold text-on-surface">Datos de contacto y entrega</div>
-            <div className="mb-3">
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-12">
+        <div className="md:col-span-7 flex flex-col gap-6">
+          {/* Customer Info Form */}
+          <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-6">
+            <h2 className="mb-1 text-title-lg font-bold text-on-surface">Datos de contacto y entrega</h2>
+            <p className="mb-4 text-[12.5px] text-outline">
+              Completá tu información para que la tienda organice el envío.
+            </p>
+            <div className="mb-3 flex flex-col gap-3">
               <input
-                placeholder="Nombre y apellidos"
+                placeholder="Nombre y apellido completo *"
                 value={form.customerName}
                 onChange={(e) => setForm({ ...form, customerName: e.target.value })}
-                className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+                className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
               />
-            </div>
-            <div className="mb-3">
-              <PhoneInput value={form.customerPhone} onChange={(customerPhone) => setForm({ ...form, customerPhone })} />
-            </div>
-            <div className="mb-3">
+              <PhoneInput
+                value={form.customerPhone}
+                onChange={(val) => setForm({ ...form, customerPhone: val })}
+              />
               <input
                 type="email"
-                placeholder="Correo electrónico"
+                placeholder="Correo electrónico *"
                 value={form.customerEmail}
                 onChange={(e) => setForm({ ...form, customerEmail: e.target.value })}
-                className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+                className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
               />
-              <p className="mt-1 text-[11.5px] text-outline">Te mandamos la confirmación del pedido acá.</p>
             </div>
-            {/* Bloque 18: único país de entrega por ahora — el admin puede
-                cargar más países/provincias desde AdminLocations.jsx, pero
-                el checkout de compra recién los ofrece cuando ZeuDin
-                realmente habilite entregas fuera de Cuba. */}
-            <div className="mb-3">
-              <div className="flex h-11 items-center gap-2 rounded border border-outline-variant bg-surface-container px-3.5 text-body-md text-on-surface-variant">
-                <Lock className="h-3.5 w-3.5 flex-shrink-0 text-outline" />
-                🇨🇺 Cuba
-                <span className="ml-auto text-[11.5px] text-outline">Único país de entrega por ahora</span>
+
+            {/* Dynamic Location Filtering */}
+            <div className="mb-3 flex flex-col gap-3">
+              {/* Country Selector */}
+              {vendorCountries.length > 1 ? (
+                <div>
+                  <label className="mb-1 block text-label-sm text-outline">País de entrega</label>
+                  <select
+                    value={selectedCountryId}
+                    onChange={(e) => {
+                      setSelectedCountryId(e.target.value);
+                      setForm({ ...form, provinceId: "", municipalityName: "" });
+                    }}
+                    className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
+                  >
+                    <option value="">Seleccionar País</option>
+                    {vendorCountries.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="flex h-11 items-center gap-2 rounded border border-outline-variant bg-surface-container px-3.5 text-body-md text-on-surface-variant">
+                  <Globe2 className="h-4 w-4 text-tertiary-accent" />
+                  {vendorCountries[0]?.name ?? "Cuba"}
+                  <span className="ml-auto text-[11.5px] text-outline">País de entrega</span>
+                </div>
+              )}
+
+              {/* State / Province & Municipality inputs */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <select
+                  value={form.provinceId}
+                  onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityName: "" })}
+                  className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
+                >
+                  <option value="">Provincia / Estado *</option>
+                  {vendorProvincesForCountry.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.type === "STATE" ? "(Estado)" : "(Provincia)"}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Show municipality input ONLY if selected subdivision is a PROVINCE */}
+                {!isStateSelected && (
+                  <input
+                    placeholder="Municipio *"
+                    value={form.municipalityName}
+                    onChange={(e) => setForm({ ...form, municipalityName: e.target.value })}
+                    className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
+                  />
+                )}
               </div>
-            </div>
-            <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <select
-                value={form.provinceId}
-                onChange={(e) => setForm({ ...form, provinceId: e.target.value })}
-                className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none"
-              >
-                <option value="">Provincia</option>
-                {provinces?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input
-                placeholder="Municipio"
-                value={form.municipalityName}
-                onChange={(e) => setForm({ ...form, municipalityName: e.target.value })}
-                className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+
+              <textarea
+                placeholder="Dirección exacta de entrega y referencias *"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                className="min-h-[74px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none focus:border-tertiary-accent"
               />
             </div>
-            <textarea
-              placeholder="Dirección y referencias"
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              className="min-h-[74px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
-            />
           </div>
 
-          <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+          {/* Payment Coordination */}
+          <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-6">
             <div className="mb-1.5 text-title-lg font-bold text-on-surface">Cómo vas a coordinar el pago</div>
             <p className="mb-4 text-[12.5px] text-outline">
               No se cobra nada acá — se arregla directo con la tienda. ZeuDin nunca procesa ni recibe pagos.
@@ -229,20 +334,16 @@ export default function Checkout() {
                 <label
                   key={pm.id}
                   onClick={() => setPay(pm.id)}
-                  className={`flex cursor-pointer items-center gap-3 rounded-md p-4 ${
-                    pay === pm.id ? "border-2 border-secondary-container" : "border border-surface-container-high"
+                  className={`flex cursor-pointer items-center gap-3 rounded-lg p-4 transition-all ${
+                    pay === pm.id
+                      ? "border-2 border-secondary-container bg-secondary-container/5"
+                      : "border border-surface-container-high hover:border-outline-variant"
                   }`}
                 >
-                  <span
-                    className={`flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                      pay === pm.id ? "border-secondary-container" : "border-outline-variant"
-                    }`}
-                  >
-                    {pay === pm.id && <span className="h-2 w-2 rounded-full bg-secondary-container" />}
-                  </span>
+                  <input type="radio" name="pay" checked={pay === pm.id} onChange={() => setPay(pm.id)} className="h-4 w-4 accent-tertiary-accent" />
                   <div>
-                    <div className="text-[13.5px] font-bold text-on-surface">{pm.title}</div>
-                    <div className="text-[12px] text-outline">{pm.sub}</div>
+                    <div className="text-body-md font-bold text-on-surface">{pm.title}</div>
+                    <div className="text-body-sm text-outline">{pm.sub}</div>
                   </div>
                 </label>
               ))}
@@ -250,45 +351,41 @@ export default function Checkout() {
           </div>
         </div>
 
-        {/* RESUMEN */}
-        <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-[22px] lg:sticky lg:top-6">
-          <div className="mb-3.5 font-display text-title-lg text-on-surface">Tu pedido</div>
-          <div className="mb-3.5 flex items-center gap-2.5 border-b border-surface-container-high pb-3.5">
-            <span
-              className="flex h-8 w-8 items-center justify-center rounded-full text-label-sm font-bold text-white"
-              style={{ background: vendorColor ?? "#232F3E" }}
+        {/* Order Summary Right Pane */}
+        <div className="md:col-span-5">
+          <div className="sticky top-20 rounded-xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+            <h2 className="mb-4 text-title-lg font-bold text-on-surface">Resumen del pedido</h2>
+            <div className="mb-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
+              {items.map((item) => (
+                <div key={item.productId} className="flex justify-between gap-3 text-body-md border-b border-surface-container-high pb-2.5 last:border-b-0">
+                  <div>
+                    <div className="font-semibold text-on-surface">{item.name}</div>
+                    <div className="text-body-sm text-outline">
+                      {item.quantity} x {fmtCUP(item.price)}
+                    </div>
+                  </div>
+                  <div className="font-bold text-on-surface">{fmtCUP(item.price * item.quantity)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
+              <span>Total estimado</span>
+              <span className="text-title-lg font-extrabold text-tertiary-accent">{fmtCUP(total)}</span>
+            </div>
+
+            <button
+              onClick={() => placeOrder.mutate()}
+              disabled={!allFieldsFilled || placeOrder.isPending}
+              className="w-full h-12 rounded-xl bg-secondary-container text-label-lg font-bold text-on-secondary-container shadow-md hover:bg-secondary-container/90 disabled:opacity-40 transition-all"
             >
-              {vendorName?.[0]}
-            </span>
-            <span className="text-[13.5px] font-bold text-on-surface">{vendorName}</span>
+              {placeOrder.isPending ? "Confirmando pedido..." : "Confirmar Pedido"}
+            </button>
+            {!allFieldsFilled && (
+              <p className="mt-2 text-center text-[11.5px] text-outline">
+                Completá todos los campos requeridos para confirmar.
+              </p>
+            )}
           </div>
-          <div className="mb-3.5 flex flex-col gap-2">
-            {items.map((it) => (
-              <div key={it.productId} className="flex justify-between text-[13px] text-on-surface-variant">
-                <span>{it.quantity}× {it.name}</span>
-                <span>{fmtCUP(it.price * it.quantity)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mb-[18px] flex justify-between border-t border-surface-container-high pt-3 text-title-lg font-bold text-on-surface">
-            <span>Total</span>
-            <span>{fmtCUP(total)}</span>
-          </div>
-          <button
-            onClick={() => placeOrder.mutate()}
-            disabled={placeOrder.isPending || !allFieldsFilled}
-            className="h-12 w-full rounded bg-secondary-container text-label-md font-bold text-on-secondary-container disabled:opacity-50"
-          >
-            {placeOrder.isPending ? "Enviando..." : "Confirmar pedido"}
-          </button>
-          {!allFieldsFilled && (
-            <p className="mt-2 text-label-sm text-outline">Completá todos los campos de contacto y entrega para confirmar.</p>
-          )}
-          {placeOrder.isError && !placeOrder.error?.response?.data?.details?.insufficientStock && (
-            <p className="mt-2 text-label-sm text-error">
-              {placeOrder.error?.response?.data?.error ?? "No se pudo confirmar el pedido."}
-            </p>
-          )}
         </div>
       </div>
     </div>

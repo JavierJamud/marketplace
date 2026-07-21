@@ -4,20 +4,42 @@ import { AppError } from "../utils/AppError.js";
 
 export async function listProvinces(_req, res) {
   const provinces = await prisma.province.findMany({
+    where: { isActive: true },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, code: true },
+    select: { id: true, name: true, code: true, countryId: true, type: true },
   });
   res.json({ provinces });
 }
 
-// Bloque 19: países activos — lo usa el vendedor para elegir a dónde entrega
-// (VendorSettings.jsx) y potencialmente el checkout más adelante. Solo
-// active:true, igual que listBusinessCategories/listProvinces (los
-// inactivos siguen existiendo para no romper asignaciones previas, pero no
-// se ofrecen para elegir de nuevo).
+// Provincias de un país específico — usado por el selector encadenado del
+// vendedor (elige país → ve las provincias de ese país).
+export async function listProvincesByCountry(req, res) {
+  const { countryId } = req.params;
+  const provinces = await prisma.province.findMany({
+    where: {
+      countryId,
+      isActive: true,
+      OR: [{ type: "STATE" }, { municipalities: { some: { isActive: true } } }],
+    },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, code: true, countryId: true, type: true },
+  });
+  res.json({ provinces });
+}
+
+// Bloque 19: países activos — solo muestra países que tengan al menos una
+// subdivisión (Estado o Provincia con municipios) activa.
 export async function listActiveCountries(_req, res) {
   const countries = await prisma.country.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      provinces: {
+        some: {
+          isActive: true,
+          OR: [{ type: "STATE" }, { municipalities: { some: { isActive: true } } }],
+        },
+      },
+    },
     orderBy: { name: "asc" },
     select: { id: true, name: true, code: true },
   });
@@ -27,7 +49,7 @@ export async function listActiveCountries(_req, res) {
 export async function listMunicipalities(req, res) {
   const { provinceId } = req.params;
   const municipalities = await prisma.municipality.findMany({
-    where: { provinceId },
+    where: { provinceId, isActive: true },
     orderBy: { name: "asc" },
   });
   res.json({ municipalities });
@@ -94,6 +116,25 @@ export async function updateCountry(req, res) {
   res.json({ country });
 }
 
+export async function deleteCountry(req, res) {
+  const { id } = req.params;
+  const existing = await prisma.country.findUnique({
+    where: { id },
+    include: { _count: { select: { provinces: true, vendorDeliveries: true } } },
+  });
+  if (!existing) throw new AppError("País no encontrado.", 404);
+
+  if (existing._count.provinces > 0 || existing._count.vendorDeliveries > 0) {
+    throw new AppError(
+      "No podés eliminar este país porque tiene provincias/estados cargados o hay vendedores que lo usan. En su lugar, desactivalo.",
+      409
+    );
+  }
+
+  await prisma.country.delete({ where: { id } });
+  res.status(204).end();
+}
+
 // Bloque 21: activar/desactivar TODOS de un tirón — para cuando el admin
 // carga el catálogo mundial completo y quiere arrancar con todo prendido o
 // apagado en vez de tocar país por país.
@@ -148,7 +189,11 @@ export async function bulkDeleteCountries(req, res) {
 export async function listProvincesForAdmin(_req, res) {
   const provinces = await prisma.province.findMany({
     orderBy: { name: "asc" },
-    include: { country: { select: { id: true, name: true, code: true } }, _count: { select: { municipalities: true } } },
+    include: {
+      country: { select: { id: true, name: true, code: true } },
+      municipalities: { orderBy: { name: "asc" } },
+      _count: { select: { municipalities: true } },
+    },
   });
   res.json({ provinces });
 }
@@ -157,6 +202,7 @@ const createProvinceSchema = z.object({
   code: z.string().trim().min(1).max(10).toLowerCase(),
   name: z.string().trim().min(2),
   countryId: z.string().min(1, "Elegí a qué país pertenece."),
+  type: z.enum(["PROVINCE", "STATE"]).default("PROVINCE"),
 });
 
 export async function createProvince(req, res) {
@@ -165,7 +211,7 @@ export async function createProvince(req, res) {
   if (!country) throw new AppError("País no encontrado.", 404);
 
   const codeTaken = await prisma.province.findUnique({ where: { code: data.code } });
-  if (codeTaken) throw new AppError("Ya existe una provincia con ese código.", 409);
+  if (codeTaken) throw new AppError("Ya existe una provincia/estado con ese código.", 409);
 
   const province = await prisma.province.create({ data });
   res.status(201).json({ province });
@@ -175,6 +221,8 @@ const updateProvinceSchema = z.object({
   code: z.string().trim().min(1).max(10).toLowerCase().optional(),
   name: z.string().trim().min(2).optional(),
   countryId: z.string().min(1).optional(),
+  type: z.enum(["PROVINCE", "STATE"]).optional(),
+  isActive: z.boolean().optional(),
 });
 
 export async function updateProvince(req, res) {
@@ -182,7 +230,7 @@ export async function updateProvince(req, res) {
   const data = updateProvinceSchema.parse(req.body);
 
   const existing = await prisma.province.findUnique({ where: { id } });
-  if (!existing) throw new AppError("Provincia no encontrada.", 404);
+  if (!existing) throw new AppError("Provincia/Estado no encontrado.", 404);
 
   if (data.countryId) {
     const country = await prisma.country.findUnique({ where: { id: data.countryId } });
@@ -190,11 +238,30 @@ export async function updateProvince(req, res) {
   }
   if (data.code) {
     const codeTaken = await prisma.province.findUnique({ where: { code: data.code } });
-    if (codeTaken && codeTaken.id !== id) throw new AppError("Ya existe una provincia con ese código.", 409);
+    if (codeTaken && codeTaken.id !== id) throw new AppError("Ya existe una provincia/estado con ese código.", 409);
   }
 
   const province = await prisma.province.update({ where: { id }, data });
   res.json({ province });
+}
+
+export async function deleteProvince(req, res) {
+  const { id } = req.params;
+  const province = await prisma.province.findUnique({
+    where: { id },
+    include: { _count: { select: { vendorLocations: true, municipalities: true } } },
+  });
+  if (!province) throw new AppError("Provincia/Estado no encontrado.", 404);
+
+  if (province._count.vendorLocations > 0 || province._count.municipalities > 0) {
+    throw new AppError(
+      `No se puede eliminar. Tiene ${province._count.municipalities} municipio(s) y ${province._count.vendorLocations} tienda(s) usándolo. Desactívalo en su lugar.`,
+      409
+    );
+  }
+
+  await prisma.province.delete({ where: { id } });
+  res.status(204).end();
 }
 
 const createMunicipalitySchema = z.object({ name: z.string().trim().min(2) });
@@ -205,10 +272,62 @@ export async function createMunicipality(req, res) {
 
   const province = await prisma.province.findUnique({ where: { id: provinceId } });
   if (!province) throw new AppError("Provincia no encontrada.", 404);
+  if (province.type === "STATE") throw new AppError("Un Estado no lleva municipios.", 400);
 
   const existing = await prisma.municipality.findUnique({ where: { provinceId_name: { provinceId, name } } });
   if (existing) throw new AppError("Esa provincia ya tiene un municipio con ese nombre.", 409);
 
   const municipality = await prisma.municipality.create({ data: { provinceId, name } });
   res.status(201).json({ municipality });
+}
+
+export async function listMunicipalitiesForAdmin(req, res) {
+  const { provinceId } = req.params;
+  const municipalities = await prisma.municipality.findMany({
+    where: { provinceId },
+    orderBy: { name: "asc" },
+  });
+  res.json({ municipalities });
+}
+
+const updateMunicipalitySchema = z.object({
+  name: z.string().trim().min(2).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export async function updateMunicipality(req, res) {
+  const { id } = req.params;
+  const data = updateMunicipalitySchema.parse(req.body);
+
+  const existing = await prisma.municipality.findUnique({ where: { id } });
+  if (!existing) throw new AppError("Municipio no encontrado.", 404);
+
+  if (data.name && data.name !== existing.name) {
+    const nameTaken = await prisma.municipality.findUnique({
+      where: { provinceId_name: { provinceId: existing.provinceId, name: data.name } },
+    });
+    if (nameTaken) throw new AppError("Esa provincia ya tiene un municipio con ese nombre.", 409);
+  }
+
+  const municipality = await prisma.municipality.update({ where: { id }, data });
+  res.json({ municipality });
+}
+
+export async function deleteMunicipality(req, res) {
+  const { id } = req.params;
+  const municipality = await prisma.municipality.findUnique({
+    where: { id },
+    include: { _count: { select: { vendorLocations: true } } },
+  });
+  if (!municipality) throw new AppError("Municipio no encontrado.", 404);
+
+  if (municipality._count.vendorLocations > 0) {
+    throw new AppError(
+      `No se puede eliminar. Tiene ${municipality._count.vendorLocations} tienda(s) usándolo. Desactívalo en su lugar.`,
+      409
+    );
+  }
+
+  await prisma.municipality.delete({ where: { id } });
+  res.status(204).end();
 }

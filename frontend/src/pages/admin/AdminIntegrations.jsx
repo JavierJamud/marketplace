@@ -1,21 +1,29 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Copy } from "lucide-react";
+import { Copy, RefreshCw } from "lucide-react";
 import { api } from "../../lib/api.js";
 
-// Bloque 27: Groq es el proveedor PRINCIPAL de IA cuando está activo (chat
-// + "Mejorar con IA") — Gemini pasa a ser el respaldo: solo responde si
-// Groq está desactivado/sin key, o automático si Groq falla una consulta
-// puntual y Gemini también está activo (con uno solo activo no hay a quién
-// más recurrir, ver lib/ai.js).
+// Bloque 45: Cerebras salió del sistema (su cuenta gratuita devolvía 402
+// Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
+// como tercer proveedor. Orden de fallback fijo: Gemini (principal) →
+// Groq → NVIDIA NIM, cada uno solo entra si el anterior está inactivo o
+// falla una consulta puntual (ver lib/ai.js). Un proveedor desactivado
+// nunca se usa, ni siquiera como respaldo.
 const SERVICE_META = {
-  gemini: { name: "Google AI Studio (Gemini)", desc: "Respaldo de IA — entra si Groq está inactivo o falla", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
-  groq: { name: "Groq", desc: "Proveedor principal de IA (chatbot de tienda y 'Mejorar con IA')", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
+  gemini: { name: "Google AI Studio (Gemini)", desc: "Proveedor PRINCIPAL de IA (chatbot de tienda y 'Mejorar con IA')", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
+  groq: { name: "Groq", desc: "Primer respaldo de IA — entra si Gemini está inactivo o falla. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
+  nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA — entra si Gemini y Groq están inactivos o fallan", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
   stripe: { name: "Stripe", desc: "Cobro de suscripción Business a ZeuDin", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
-const ORDER = ["gemini", "groq", "resend", "stripe"];
+const ORDER = ["gemini", "groq", "nvidia", "resend", "stripe"];
+// Bloque 43/45: estos tres tienen modelo editable (campo nuevo) — Resend/Stripe no.
+const AI_PROVIDERS = ["gemini", "groq", "nvidia"];
+const DEFAULT_MODEL_BY_PROVIDER = { gemini: "gemini-flash-latest", groq: "llama-3.3-70b-versatile", nvidia: "meta/llama-3.3-70b-instruct" };
+// Bloque 45 (pedido explícito): nota extra bajo el campo de modelo de
+// NVIDIA — su Free Endpoint puede cambiar de nombre sin aviso previo.
+const MODEL_NOTE_BY_PROVIDER = { nvidia: "Verificar en build.nvidia.com si falla — el Free Endpoint puede cambiar de nombre." };
 
 // Bloque 25: URL que el admin tiene que pegar en el dashboard de Stripe
 // (Developers → Webhooks → Add endpoint). api.defaults.baseURL ya apunta al
@@ -60,22 +68,53 @@ function CardHeader({ meta, hasIntegration, isActive, saving, onToggle }) {
   );
 }
 
-function ServiceCard({ name, meta, integration, onToggle, onSave, saving }) {
+function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, onSaveModel, saving, savingModel }) {
   const [draft, setDraft] = useState("");
   const [fromDraft, setFromDraft] = useState(integration?.fromEmail ?? "");
+  const showModelField = AI_PROVIDERS.includes(name);
+  const [modelDraft, setModelDraft] = useState(currentModel ?? "");
+
+  // Bloque 44 (pedido explícito — bug real que esto hubiera evitado: un
+  // typo tipeado a mano en el nombre del modelo tumbó Groq con 404): con la
+  // key ya guardada, se consultan los modelos REALES que esa key puede
+  // usar — se muestra como <select> en vez de texto libre. Sin key
+  // guardada (!integration) la consulta ni corre, y se cae al input de
+  // texto de siempre (mismo criterio: nunca romper el flujo existente).
+  const modelsQuery = useQuery({
+    queryKey: ["provider-models", name],
+    queryFn: async () => (await api.get(`/admin/integrations/${name}/models`)).data.models,
+    enabled: showModelField && !!integration,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
 
   useEffect(() => {
     setFromDraft(integration?.fromEmail ?? "");
   }, [integration?.fromEmail]);
 
+  useEffect(() => {
+    setModelDraft(currentModel ?? "");
+  }, [currentModel]);
+
   const isActive = integration?.isActive ?? false;
   const showFromEmail = name === "resend";
   const fromChanged = showFromEmail && fromDraft !== (integration?.fromEmail ?? "");
   const canSave = draft || fromChanged;
+  const modelChanged = showModelField && modelDraft !== (currentModel ?? "");
+  // La key recién guardada puede no reflejar el modelo ELEGIDO todavía en
+  // la lista (ej. currentModel vacío = usa el default) — se agrega siempre
+  // como opción para no perderlo de vista, aunque la API no lo liste.
+  const modelOptions = modelsQuery.data
+    ? [...new Set([...(currentModel ? [currentModel] : []), ...modelsQuery.data])]
+    : null;
 
   function handleSave() {
     onSave(name, draft || undefined, isActive, showFromEmail ? fromDraft : undefined);
     setDraft("");
+  }
+
+  function handleSaveModel() {
+    onSaveModel(name, modelDraft.trim());
   }
 
   return (
@@ -120,6 +159,68 @@ function ServiceCard({ name, meta, integration, onToggle, onSave, saving }) {
             Mientras no cargues un dominio verificado en Resend, los correos salen igual desde{" "}
             <span className="font-mono">onboarding@resend.dev</span>.
           </p>
+        </div>
+      )}
+      {/* Bloque 43/44 (pedido explícito): modelo editable sin tocar código
+          — si el proveedor deprecia/bloquea un modelo (ya pasó dos veces
+          con Groq), el admin lo cambia acá y el próximo request ya lo usa.
+          Con la key guardada, se elige de una lista de modelos REALES
+          (consultados en vivo a la API) en vez de tipear el nombre a mano
+          — evita typos como el que tumbó Groq con 404 model_not_found. */}
+      {showModelField && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between">
+            <label className="block text-[11.5px] font-semibold text-on-surface-variant">Modelo</label>
+            {!!integration && (
+              <button
+                onClick={() => modelsQuery.refetch()}
+                disabled={modelsQuery.isFetching}
+                title="Actualizar lista de modelos"
+                className="flex items-center gap-1 text-[11px] font-semibold text-tertiary-accent disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${modelsQuery.isFetching ? "animate-spin" : ""}`} /> Actualizar lista
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2.5">
+            {modelOptions ? (
+              <select
+                value={modelDraft}
+                onChange={(e) => setModelDraft(e.target.value)}
+                className="h-[38px] flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3.5 font-mono text-[12.5px] outline-none"
+              >
+                <option value="">(default: {DEFAULT_MODEL_BY_PROVIDER[name]})</option>
+                {modelOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={modelDraft}
+                onChange={(e) => setModelDraft(e.target.value)}
+                type="text"
+                placeholder={DEFAULT_MODEL_BY_PROVIDER[name]}
+                className="h-[38px] flex-1 rounded-lg border border-outline-variant px-3.5 font-mono text-[12.5px] outline-none"
+              />
+            )}
+            <button
+              disabled={!modelChanged || savingModel}
+              onClick={handleSaveModel}
+              className="rounded-lg bg-surface-container px-[18px] text-[13px] font-semibold text-on-surface-variant disabled:opacity-50"
+            >
+              Guardar
+            </button>
+          </div>
+          {!integration && <p className="mt-1 text-[11px] text-outline">Guardá la clave primero para elegir de la lista real de modelos.</p>}
+          {integration && modelsQuery.isError && (
+            <p className="mt-1 text-[11px] text-error">No se pudo consultar la lista de modelos — escribí el nombre a mano.</p>
+          )}
+          <p className="mt-1 text-[11px] text-outline">
+            Vacío = usa el default (<span className="font-mono">{DEFAULT_MODEL_BY_PROVIDER[name]}</span>).
+          </p>
+          {MODEL_NOTE_BY_PROVIDER[name] && <p className="mt-1 text-[11px] text-outline">⚠ {MODEL_NOTE_BY_PROVIDER[name]}</p>}
         </div>
       )}
     </div>
@@ -231,6 +332,13 @@ export default function AdminIntegrations() {
     queryFn: async () => (await api.get("/admin/integrations")).data.integrations,
   });
 
+  // Bloque 43: modelo por proveedor — vive aparte (SiteSettings), no en la
+  // fila de Integration (esa es solo credencial + activo/inactivo).
+  const { data: aiModels } = useQuery({
+    queryKey: ["admin-ai-models"],
+    queryFn: async () => (await api.get("/admin/settings/ai-models")).data.aiModels,
+  });
+
   const save = useMutation({
     mutationFn: async ({ name, credential, isActive, fromEmail }) =>
       (await api.post("/admin/integrations", { name, credential, isActive, fromEmail })).data,
@@ -256,6 +364,21 @@ export default function AdminIntegrations() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar la integración."),
   });
 
+  // Bloque 43: un solo campo por vez (PATCH parcial — los otros dos quedan
+  // como estaban, mismo criterio que /admin/integrations con "credential"
+  // opcional).
+  const saveModel = useMutation({
+    mutationFn: async ({ name, value }) => {
+      const field = { gemini: "aiModelGemini", groq: "aiModelGroq", nvidia: "aiModelNvidia" }[name];
+      return (await api.patch("/admin/settings/ai-models", { [field]: value })).data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
+      toast.success("Modelo guardado.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el modelo."),
+  });
+
   const byName = Object.fromEntries((data ?? []).map((i) => [i.name, i]));
 
   return (
@@ -263,10 +386,10 @@ export default function AdminIntegrations() {
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Integraciones</h1>
       <p className="mb-2 text-[13.5px] text-outline">Configurá las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        🔐 Podés activar, desactivar o rotar cada clave sin tocar el servidor. Con Groq activo, es siempre el proveedor
-        principal; Gemini responde en su lugar solo si Groq está desactivado, o como respaldo automático cuando Groq
-        falla una consulta puntual y Gemini también está activo. Un proveedor desactivado nunca se usa, ni siquiera
-        como respaldo.
+        🔐 Podés activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Gemini (principal) → Groq
+        → NVIDIA NIM — cada uno entra solo si el anterior está inactivo o falla una consulta puntual. Un proveedor
+        desactivado nunca se usa, ni siquiera como respaldo. El modelo de cada uno también es editable acá, sin
+        redesplegar.
       </div>
 
       <div className="flex flex-col gap-4">
@@ -285,11 +408,14 @@ export default function AdminIntegrations() {
               name={name}
               meta={SERVICE_META[name]}
               integration={byName[name]}
+              currentModel={aiModels?.[name]}
               saving={save.isPending || toggle.isPending}
+              savingModel={saveModel.isPending}
               onToggle={(integration) => toggle.mutate({ id: integration.id, isActive: !integration.isActive })}
               onSave={(n, credential, currentActive, fromEmail) =>
                 save.mutate({ name: n, credential, isActive: byName[n] ? currentActive : true, fromEmail })
               }
+              onSaveModel={(n, value) => saveModel.mutate({ name: n, value })}
             />
           )
         )}

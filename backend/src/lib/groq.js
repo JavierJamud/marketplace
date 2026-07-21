@@ -24,20 +24,39 @@ import { AppError } from "../utils/AppError.js";
 // el Bloque 32), pero un chat.completions real contra él sigue devolviendo
 // 403 "model_permission_blocked_project" (mismo error que llama-3.1-8b-instant
 // en su momento): lo tiene bloqueado a nivel de PROYECTO en Groq, no algo
-// que este código pueda resolver. Se necesita que un admin del proyecto lo
-// habilite en console.groq.com/settings/project/limits. Mientras siga
-// bloqueado, llama-3.3-70b-versatile sigue siendo el único modelo Groq
-// utilizable, así que no hay un segundo modelo real contra el cual armar
-// fallback interno todavía (no tiene sentido código de respaldo para un
-// modelo que no se puede llamar). Cuando se habilite: cambiar MODEL acá a
-// "openai/gpt-oss-120b" y agregar una constante MODEL_FALLBACK =
-// "llama-3.3-70b-versatile" + un try/catch interno en chatWithGroq que
-// reintente con el fallback antes de propagar el error (mismo patrón que
-// chatWithStoreAssistant en ai.js, pero DENTRO de este archivo ya que acá
-// es un fallback entre dos modelos de UN mismo proveedor/credencial, no
-// entre proveedores distintos).
-const MODEL = "llama-3.3-70b-versatile";
+// que este código pueda resolver.
+// Bloque 43: el nombre del modelo ya NO es fijo — ai.js lo resuelve desde
+// SiteSettings.aiModelGroq (editable en AdminIntegrations.jsx) y lo pasa
+// acá como parámetro; DEFAULT_MODEL es el fallback si ese setting está
+// vacío/no configurado todavía. Con esto, una futura deprecación (ya pasó
+// dos veces) se resuelve cambiando el texto desde la web, sin tocar código
+// ni redesplegar — y aunque el admin ponga un modelo inexistente/deprecado,
+// eso ahora es SOLO un fallo más de Groq (ai.js salta a Gemini/NVIDIA NIM,
+// nunca rompe la petición entera).
+export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
 const API_BASE = "https://api.groq.com/openai/v1/chat/completions";
+const MODELS_API_BASE = "https://api.groq.com/openai/v1/models";
+
+// Bloque 44 (pedido explícito — bug real que esto hubiera evitado: un typo
+// en el campo de texto libre del modelo, "llama-3.3.70b-versatile" en vez
+// de "-70b-", tumbó el proveedor con 404 model_not_found): en vez de que
+// el admin tipee el nombre a mano, se listan los modelos REALES que esta
+// key puede usar — AdminIntegrations.jsx los muestra como lista
+// seleccionable en vez de un input de texto libre.
+export async function listGroqModels({ apiKey }) {
+  let res;
+  try {
+    res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` } });
+  } catch {
+    throw new AppError("No se pudo conectar con Groq para listar modelos.", 500);
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new AppError(`Groq devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
+  }
+  const data = await res.json();
+  return (data?.data ?? []).map((m) => m.id).sort();
+}
 
 // Bloque 32: reemplaza el reconocimiento de imágenes (Bloque 30, derogado)
 // por grabación de audio — Whisper Large v3 Turbo es el modelo de
@@ -47,14 +66,14 @@ const API_BASE = "https://api.groq.com/openai/v1/chat/completions";
 const TRANSCRIBE_MODEL = "whisper-large-v3-turbo";
 const TRANSCRIBE_API_BASE = "https://api.groq.com/openai/v1/audio/transcriptions";
 
-export async function generateWithGroq({ apiKey, prompt }) {
+export async function generateWithGroq({ apiKey, prompt, model }) {
   let res;
   try {
     res = await fetch(API_BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: MODEL,
+        model: model || DEFAULT_MODEL,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.8,
         max_tokens: 400,
@@ -106,7 +125,19 @@ function buildGroqMessages({ systemParts, history, message }) {
   ];
 }
 
-export async function chatWithGroq({ apiKey, systemParts, history, message }) {
+// Bloque 42 (bug real reportado en vivo, mismo tipo en NVIDIA NIM con un
+// modelo alternativo): "response_format: json_object" no garantiza que el
+// modelo arranque la respuesta CON el JSON — nunca confiar en que lo
+// respeta al 100%. Se extrae el objeto real (desde el primer "{" hasta el
+// último "}") antes de parsear, sin importar qué texto haya alrededor.
+function extractJsonObject(raw) {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return raw;
+  return raw.slice(start, end + 1);
+}
+
+export async function chatWithGroq({ apiKey, systemParts, history, message, model }) {
   const messages = buildGroqMessages({ systemParts, history, message });
 
   let res;
@@ -115,7 +146,7 @@ export async function chatWithGroq({ apiKey, systemParts, history, message }) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: MODEL,
+        model: model || DEFAULT_MODEL,
         messages,
         // Bloque 28: bajado de 0.4 a 0.2 — probado en vivo, este modelo
         // (8B) a veces devolvía "productIds"/"addToCart" vacíos pese a que
@@ -157,7 +188,7 @@ export async function chatWithGroq({ apiKey, systemParts, history, message }) {
   if (!raw) throw new AppError("El asistente no devolvió una respuesta. Probá reformular tu pregunta.", 500);
 
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(extractJsonObject(raw));
     return {
       text: String(parsed.text ?? "").trim(),
       productIds: Array.isArray(parsed.productIds) ? parsed.productIds.filter((id) => typeof id === "string") : [],

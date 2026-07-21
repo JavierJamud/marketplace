@@ -100,7 +100,7 @@ export async function getVendorBySlug(req, res) {
   const vendor = await prisma.vendor.findUnique({
     where: { slug },
     include: {
-      locations: { include: { province: true, municipality: true } },
+      locations: { include: { province: { include: { country: true } }, municipality: true } },
       schedules: true,
       category: true,
       businessCategory: true,
@@ -189,7 +189,7 @@ export async function getMyVendor(req, res) {
   const vendor = await prisma.vendor.findUnique({
     where: { userId: req.user.id },
     include: {
-      locations: { include: { province: true, municipality: true } },
+      locations: { include: { province: { include: { country: true } }, municipality: true } },
       schedules: true,
       verification: true,
       tables: true,
@@ -517,7 +517,7 @@ export async function listMyNotifications(req, res) {
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const [notifications, unreadCount] = await Promise.all([
-    prisma.vendorNotification.findMany({ where: { vendorId: vendor.id }, orderBy: { createdAt: "desc" }, take: 30 }),
+    prisma.vendorNotification.findMany({ where: { vendorId: vendor.id }, orderBy: { createdAt: "desc" } }),
     prisma.vendorNotification.count({ where: { vendorId: vendor.id, readAt: null } }),
   ]);
   res.json({ notifications, unreadCount });
@@ -576,16 +576,21 @@ export async function removeMyDeliveryCountry(req, res) {
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const { countryId } = req.params;
+
+  // 1. Quitar el país de entrega
   await prisma.vendorDeliveryCountry.deleteMany({ where: { vendorId: vendor.id, countryId } });
+
+  // 2. Quitar también todas las ubicaciones (provincias/estados) de ese país para este vendedor
+  const countryProvinces = await prisma.province.findMany({ where: { countryId }, select: { id: true } });
+  const provinceIds = countryProvinces.map((p) => p.id);
+  if (provinceIds.length > 0) {
+    await prisma.vendorLocation.deleteMany({ where: { vendorId: vendor.id, provinceId: { in: provinceIds } } });
+  }
+
   res.status(204).end();
 }
 
 // --- Provincias de venta en Cuba (multi, Bloque 19) -------------------------
-// Antes un vendedor tenía exactamente 1 VendorLocation (se seguía editando
-// desde el PATCH general de updateMyVendor). Ahora puede tener varias según
-// su plan — Regular sigue en 1 (mismo comportamiento de siempre), Business
-// puede agregar más. maxProvincesBusiness null = sin límite.
-
 const addLocationSchema = z.object({ provinceId: z.string().min(1), municipalityId: z.string().optional().nullable() });
 
 export async function addMyLocation(req, res) {
@@ -595,7 +600,7 @@ export async function addMyLocation(req, res) {
   const { provinceId, municipalityId } = addLocationSchema.parse(req.body);
 
   const province = await prisma.province.findUnique({ where: { id: provinceId } });
-  if (!province) throw new AppError("Provincia no encontrada.", 404);
+  if (!province || !province.isActive) throw new AppError("Provincia/Estado no disponible.", 404);
 
   const existingLocations = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id } });
   const distinctProvinceCount = new Set(existingLocations.map((l) => l.provinceId)).size;
@@ -617,9 +622,90 @@ export async function addMyLocation(req, res) {
 
   const created = await prisma.vendorLocation.create({
     data: { vendorId: vendor.id, provinceId, municipalityId: municipalityId || null },
-    include: { province: true, municipality: true },
+    include: { province: { include: { country: true } }, municipality: true },
   });
   res.status(201).json({ location: created });
+}
+
+const syncProvinceSchema = z.object({
+  provinceId: z.string().min(1),
+  municipalityIds: z.array(z.string()).nullable(),
+});
+
+export async function syncProvinceLocations(req, res) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+
+  const { provinceId, municipalityIds } = syncProvinceSchema.parse(req.body);
+
+  const province = await prisma.province.findUnique({ where: { id: provinceId } });
+  
+  const isDeletingAll = municipalityIds !== null && municipalityIds.length === 0;
+  if (!isDeletingAll) {
+    if (!province || !province.isActive) throw new AppError("Provincia/Estado no disponible.", 404);
+  }
+
+  const existingLocations = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id } });
+  const distinctProvinceCount = new Set(existingLocations.map((l) => l.provinceId)).size;
+  const isNewProvince = !existingLocations.some((l) => l.provinceId === provinceId);
+
+  if (isNewProvince && (municipalityIds === null || municipalityIds.length > 0)) {
+    const limits = await getPlanLimits();
+    const max = vendor.planType === "BUSINESS" ? limits.maxProvincesBusiness : limits.maxProvincesRegular;
+    if (max !== null && distinctProvinceCount >= max) {
+      throw new AppError(
+        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verificá tu tienda para ampliar el límite.`,
+        403
+      );
+    }
+  }
+
+  // Handle syncing
+  if (municipalityIds === null) {
+    // "Todos los municipios"
+    await prisma.vendorLocation.deleteMany({ where: { vendorId: vendor.id, provinceId } });
+    await prisma.vendorLocation.create({
+      data: { vendorId: vendor.id, provinceId, municipalityId: null },
+    });
+  } else {
+    // Especificar municipios
+    if (municipalityIds.length === 0) {
+      await prisma.vendorLocation.deleteMany({ where: { vendorId: vendor.id, provinceId } });
+      if (province?.countryId) {
+        const remainingInCountry = await prisma.vendorLocation.count({
+          where: { vendorId: vendor.id, province: { countryId: province.countryId } },
+        });
+        if (remainingInCountry === 0) {
+          await prisma.vendorDeliveryCountry.deleteMany({ where: { vendorId: vendor.id, countryId: province.countryId } });
+        }
+      }
+    } else {
+      const validMunicipalities = await prisma.municipality.findMany({
+        where: { id: { in: municipalityIds }, provinceId, isActive: true },
+      });
+      const validIds = new Set(validMunicipalities.map((m) => m.id));
+
+      await prisma.vendorLocation.deleteMany({
+        where: { vendorId: vendor.id, provinceId, OR: [{ municipalityId: null }, { municipalityId: { notIn: [...validIds] } }] },
+      });
+
+      const currentLocs = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id, provinceId } });
+      const currentMunIds = new Set(currentLocs.map((l) => l.municipalityId));
+
+      for (const mId of validIds) {
+        if (!currentMunIds.has(mId)) {
+          await prisma.vendorLocation.create({ data: { vendorId: vendor.id, provinceId, municipalityId: mId } });
+        }
+      }
+    }
+  }
+
+  const updatedLocations = await prisma.vendorLocation.findMany({
+    where: { vendorId: vendor.id },
+    include: { province: { include: { country: true } }, municipality: true },
+  });
+
+  res.json({ locations: updatedLocations });
 }
 
 export async function removeMyLocation(req, res) {
@@ -627,13 +713,22 @@ export async function removeMyLocation(req, res) {
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const { id } = req.params;
-  const location = await prisma.vendorLocation.findUnique({ where: { id } });
+  const location = await prisma.vendorLocation.findUnique({ where: { id }, include: { province: true } });
   if (!location || location.vendorId !== vendor.id) throw new AppError("Ubicación no encontrada.", 404);
 
-  const total = await prisma.vendorLocation.count({ where: { vendorId: vendor.id } });
-  if (total <= 1) throw new AppError("Necesitás al menos una provincia donde prestás servicio.", 400);
-
   await prisma.vendorLocation.delete({ where: { id } });
+
+  // Cleanup country if no more locations exist in that country
+  if (location.province?.countryId) {
+    const countryId = location.province.countryId;
+    const remainingInCountry = await prisma.vendorLocation.count({
+      where: { vendorId: vendor.id, province: { countryId } },
+    });
+    if (remainingInCountry === 0) {
+      await prisma.vendorDeliveryCountry.deleteMany({ where: { vendorId: vendor.id, countryId } });
+    }
+  }
+
   res.status(204).end();
 }
 
@@ -658,4 +753,20 @@ export async function uploadAiDocument(req, res) {
     data: { aiDocument: req.file.filename, aiDocumentName: req.file.originalname },
   });
   res.status(201).json({ aiDocument: updated.aiDocument, aiDocumentName: updated.aiDocumentName });
+}
+
+export async function removeAiDocument(req, res) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
+  if (!vendor) throw new AppError("No tenés una tienda registrada.", 404);
+
+  if (vendor.aiDocument) {
+    await unlink(join(VENDOR_AI_DOC_DIR, vendor.aiDocument)).catch(() => {});
+  }
+
+  await prisma.vendor.update({
+    where: { id: vendor.id },
+    data: { aiDocument: null, aiDocumentName: null },
+  });
+
+  res.status(204).end();
 }

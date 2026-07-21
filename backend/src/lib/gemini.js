@@ -7,7 +7,10 @@ import { AppError } from "../utils/AppError.js";
 // Alias mantenido por Google que siempre apunta al modelo flash recomendado
 // del momento — evita tener que actualizar el nombre a mano cuando retiran
 // una versión puntual (como pasó con gemini-2.0-flash).
-const MODEL = "gemini-flash-latest";
+// Bloque 43: ya no es fijo — ai.js lo resuelve desde SiteSettings.aiModelGemini
+// (editable en AdminIntegrations.jsx) y lo pasa como parámetro; DEFAULT_MODEL
+// es el fallback si ese setting está vacío/no configurado todavía.
+export const DEFAULT_MODEL = "gemini-flash-latest";
 
 // Bloque 25 (latencia del chat): la documentación de Google presenta
 // "flash-lite" como la opción de menor latencia frente a "flash" estándar,
@@ -19,10 +22,33 @@ const MODEL = "gemini-flash-latest";
 // la pena volver a medir en vivo antes de asumir cuál es más rápido.
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-export async function generateWithGemini({ apiKey, prompt }) {
+// Bloque 44 (pedido explícito): lista los modelos REALES que esta key
+// puede usar para chat (filtrados a los que soportan generateContent —
+// Gemini también lista modelos de audio/embeddings que no sirven acá).
+// AdminIntegrations.jsx los muestra como lista seleccionable en vez de un
+// input de texto libre.
+export async function listGeminiModels({ apiKey }) {
   let res;
   try {
-    res = await fetch(`${API_BASE}/${MODEL}:generateContent?key=${apiKey}`, {
+    res = await fetch(`${API_BASE}?key=${apiKey}`);
+  } catch {
+    throw new AppError("No se pudo conectar con Gemini para listar modelos.", 500);
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new AppError(`Gemini devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
+  }
+  const data = await res.json();
+  return (data?.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => m.name.replace(/^models\//, ""))
+    .sort();
+}
+
+export async function generateWithGemini({ apiKey, prompt, model }) {
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/${model || DEFAULT_MODEL}:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -69,12 +95,25 @@ export async function generateWithGemini({ apiKey, prompt }) {
 // sin adivinar parseando texto libre. responseSchema fuerza la FORMA del
 // JSON; el filtro anti-alucinación de los IDs sigue siendo trabajo de
 // chat.controller.js, que es quien conoce el catálogo real de la tienda.
-export async function chatWithGemini({ apiKey, systemParts, history, message }) {
+// Bloque 42 (bug real reportado en vivo, mismo tipo en NVIDIA NIM con un
+// modelo alternativo): "responseSchema" de Gemini es más estricto que
+// json_object de OpenAI, pero igual nunca hay que confiar al 100% en que
+// el modelo arranca la respuesta CON el JSON. Se extrae el objeto real
+// (desde el primer "{" hasta el último "}") antes de parsear, sin importar
+// qué texto haya alrededor.
+function extractJsonObject(raw) {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return raw;
+  return raw.slice(start, end + 1);
+}
+
+export async function chatWithGemini({ apiKey, systemParts, history, message, model }) {
   const contents = [...history.map((m) => ({ role: m.role, parts: [{ text: m.content }] })), { role: "user", parts: [{ text: message }] }];
 
   let res;
   try {
-    res = await fetch(`${API_BASE}/${MODEL}:generateContent?key=${apiKey}`, {
+    res = await fetch(`${API_BASE}/${model || DEFAULT_MODEL}:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -166,7 +205,7 @@ export async function chatWithGemini({ apiKey, systemParts, history, message }) 
   if (!raw) throw new AppError("El asistente no devolvió una respuesta. Probá reformular tu pregunta.", 500);
 
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(extractJsonObject(raw));
     return {
       text: String(parsed.text ?? "").trim(),
       productIds: Array.isArray(parsed.productIds) ? parsed.productIds.filter((id) => typeof id === "string") : [],

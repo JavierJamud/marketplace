@@ -6,14 +6,20 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { chatWithStoreAssistant } from "../lib/ai.js";
-import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
+import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 
-// Cuántos turnos previos se mandan como contexto de conversación — alcanza
-// para que el chat "se acuerde" de lo último sin inflar el request en una
-// charla larga (Gemini no tiene memoria propia entre requests).
-const HISTORY_LIMIT = 20;
+// Bloque 42 (optimización de tokens — bajado de 20 a 6): el modelo no
+// tiene memoria propia entre requests, así que ESTE historial es lo único
+// que evita que "se olvide" de un dato ya filtrado (talla, color) o repita
+// una pregunta — pero mandar 20 turnos completos en CADA mensaje de la
+// charla es lo que más pesaba del prompt (confirmado en vivo: cuota diaria
+// de Groq agotada en ~8-10 mensajes). 6 turnos (~3 idas y vueltas) alcanza
+// para el filtrado progresivo actual sin arrastrar toda la charla — si en
+// pruebas reales resultara corto para algún caso, subir a 8, nunca volver
+// a 20.
+const HISTORY_LIMIT = 6;
 
 // Bloque 39 (Parte 2) — bug real reportado: con más de 60 productos activos,
 // el catálogo volcado al prompt truncaba en silencio a los últimos 60 más
@@ -244,6 +250,17 @@ function paymentMethodsText(ids) {
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 const ORDER_CODE_REGEX = /\bZ-[A-Z0-9]{4,}\b/i;
 
+// Bloque 42 (optimización de tokens): el documento de negocio (.txt/.pdf
+// subido por la tienda) es el ítem más caro del prompt — antes viajaba
+// completo en CADA mensaje, incluso un saludo o "quiero comprar X" que no lo
+// necesita para nada. Ahora solo se carga cuando el mensaje ACTUAL (no el
+// historial) parece una pregunta de política/horario/FAQ real.
+const DOC_RELEVANCE_REGEX =
+  /pol[ií]tica|garant[ií]a|devoluci[oó]n|reembolso|env[ií]o|entrega|horario|atienden|abren|cierran|faq|preguntas frecuentes|reclamo|cambio|factura|t[eé]rminos|condiciones|privacidad/i;
+function messageNeedsDocument(message) {
+  return DOC_RELEVANCE_REGEX.test(message);
+}
+
 // Campos deliberadamente acotados: código, estado, fecha, ítems y total —
 // nunca teléfono ni dirección de envío. El chat de una tienda no requiere
 // login, así que cualquiera puede escribir un email/código ajeno; esto
@@ -362,7 +379,13 @@ function catalogText(products, cartQuantities) {
       else stock = `stock ${p.stock}`;
       const tags = p.tags?.length ? ` · tags: ${p.tags.join(", ")}` : "";
       const options = p.options?.length ? ` · variantes: ${p.options.map((o) => `${o.name}(${o.values.join("/")})`).join("; ")}` : "";
-      const desc = p.description ? ` — ${p.description}` : "";
+      // Bloque 42 (optimización de tokens): el modelo no necesita la
+      // descripción ENTERA para recomendar/responder — 150 chars alcanza
+      // como resumen. Esto solo achica lo que LEE el modelo; la tarjeta de
+      // producto que ve el cliente (toCardProduct) sigue usando p.description
+      // completa, sin cambios.
+      const descText = p.description?.length > 150 ? `${p.description.slice(0, 150)}…` : p.description;
+      const desc = descText ? ` — ${descText}` : "";
       return `[${i + 1}] ${p.name} · ${price} · ${stock}${tags}${options}${desc}`;
     })
     .join("\n");
@@ -381,7 +404,7 @@ function catalogText(products, cartQuantities) {
 // "addToCart" a la salida — la acción real de agregar al carrito la
 // ejecuta el frontend (CartContext), nunca el modelo ni el backend, así
 // que el prompt es explícito: el modelo nunca afirma "ya lo agregué".
-async function buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext) {
+async function buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext, message) {
   const fewShot = await buildFewShotBlock("TIENDA");
   const parts = [
     {
@@ -407,14 +430,14 @@ ${catalogText(vendor.products, cartQuantities)}
 
 REGLAS:
 - Idioma: español latinoamericano neutro (como se habla en Cuba) — NUNCA modismos ni gramática de España (nunca "vosotros"/"vuestro", "vale", "tío/tía", "coger" en el sentido de agarrar/tomar, "ordenador", "móvil" en vez de "celular", "vais", etc.).
-- Alcance: SOLO "${vendor.companyName}" — catálogo, datos de arriba, documento adjunto. Nunca temas generales, otras tiendas, ni ZeuDin en general: si preguntan algo así, decilo breve y amable, sin responder el tema en sí.
+- Alcance: SOLO "${vendor.companyName}" — catálogo y datos de arriba. Nunca temas generales, otras tiendas, ni ZeuDin en general: si preguntan algo así, decilo breve y amable, sin responder el tema en sí.
 - Breve: 1-2 líneas por defecto, directo, simple y profesional — sin relleno, sin repetir la pregunta, sin exclamaciones de más. Más largo solo si el cliente lo pide explícito.
 - NUNCA repitas la misma pregunta, chip o frase (aunque cambies alguna palabra) que ya usaste en un turno anterior de ESTA charla — releé el historial antes de responder. Si el cliente ya dio un dato (talla, color, cantidad), no lo vuelvas a pedir salvo que él mismo lo cambie explícito. Cada pregunta tuya es UNA sola cosa concreta, nunca dos juntas en el mismo mensaje.
 - NUNCA te contradigas dentro de la misma charla: si ya confirmaste algo real (stock, precio, un pedido) en un turno anterior, nunca lo niegues después salvo que el dato de ESTE mensaje (catálogo/CONSULTA DE PEDIDO de arriba) realmente haya cambiado — y si cambió, decilo explícito ("ahora mismo cambió a..."), nunca lo contradigas en silencio como si el turno anterior no hubiera pasado.
 - Preciso: si el pedido es ambiguo (variantes de un producto, cuál de varios similares, cantidad) preguntá para aclarar en vez de asumir. Antes de citar un número de catálogo, releé cuál producto es EXACTAMENTE — nunca cites el número de un producto distinto al que mencionás en el texto.
 - FILTRADO PROGRESIVO: si falta un dato para acotar bien (talla, color, marca, u otra variante real de "variantes:" del catálogo), preguntá de a UN dato por vez, breve — nunca varias preguntas juntas en el mismo mensaje (ej. nunca "¿qué talla, color y cantidad?" todo junto). Usá SIEMPRE las variantes reales del catálogo para preguntar (ej. "¿en qué talla, S, M o L?"), nunca inventes una variante que el producto no tenga. Si con lo que ya dijo el cliente hay un solo producto/variante clara, respondé directo sin seguir preguntando.
-- Nunca inventes productos, precios, stock, variantes, horarios, ubicación, pagos ni políticas (envíos, devoluciones, garantías) fuera de lo de arriba o el documento — ni arreglos/excepciones de tu cosecha para sonar más servicial. Si no lo sabés, decilo y sugerí WhatsApp (${vendor.whatsapp}).
-- Si la pregunta del cliente no tiene respaldo en ningún dato real de arriba (ni catálogo, ni datos del negocio, ni documento) y no hay forma de responderla con algo real: NUNCA inventes una respuesta ni afirmes/niegues algo que no sabés. Decí que no entendiste bien lo que pide y pedile que reformule o explique mejor qué está buscando — nunca un "no sé" seco ni una respuesta a medias sobre algo que no verificaste.
+- Nunca inventes productos, precios, stock, variantes, horarios, ubicación, pagos ni políticas (envíos, devoluciones, garantías) fuera de lo de arriba — ni arreglos/excepciones de tu cosecha para sonar más servicial. Si no lo sabés, decilo y sugerí WhatsApp (${vendor.whatsapp}).
+- Si la pregunta del cliente no tiene respaldo en ningún dato real de arriba (ni catálogo ni datos del negocio) y no hay forma de responderla con algo real: NUNCA inventes una respuesta ni afirmes/niegues algo que no sabés. Decí que no entendiste bien lo que pide y pedile que reformule o explique mejor qué está buscando — nunca un "no sé" seco ni una respuesta a medias sobre algo que no verificaste.
 - DISPONIBILIDAD REAL: antes de responder CUALQUIER pregunta sobre si hay/tienen/les queda un producto, cuánto sale, o "quiero comprar X" (en cualquiera de esas formas — "¿tienen...?", "¿hay...?", "¿les queda...?", "quiero comprar...", "cuánto sale...", con nombre parcial o con errores de tipeo), buscalo en el catálogo de arriba por nombre o tags ANTES de asumir que no existe, y fijate su estado EXACTO:
   · Si el catálogo dice "AGOTADO" para ese producto: SÍ lo vende esta tienda, pero ahora mismo no hay stock — decilo así, explícito ("Sí lo vendemos, pero está agotado ahora mismo") y ofrecé "Solicitar este producto" o avisar cuando reponga. NUNCA digas "sí, tenemos" ni "disponible" para ese producto, y NUNCA des el precio sin aclarar primero que está agotado.
   · Si el producto NO aparece en el catálogo de arriba (ni con stock ni agotado): esta tienda no lo vende — decilo claro y directo, nunca lo confundas con "agotado".
@@ -438,28 +461,29 @@ SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [{"productId": 
 - removeFromCart: números de catálogo que el cliente pidió EXPLÍCITAMENTE sacar del carrito. Vacío si no pidió sacar nada.
 - clearCart: true SOLO si el cliente pidió EXPLÍCITAMENTE vaciar/borrar TODO el carrito. false en cualquier otro caso.
 - suggestedFollowUps: SIEMPRE 2-3 preguntas cortas (3-6 palabras cada una) que el cliente podría preguntar A CONTINUACIÓN de ESTA respuesta puntual — tienen que variar según lo que acabás de responder, nunca las mismas siempre. Basate en lo real (variantes/productos relacionados/categoría del catálogo), nunca inventes algo que no tenga sentido acá. Son solo sugerencias para que el cliente toque en vez de escribir, no una afirmación tuya de nada.
-- Ejemplo de patrón (número inventado solo para mostrar la forma): pedido "agregame el [7] al carrito" y tiene stock disponible → {"text": "Dale, te agrego 1 al carrito.", "productIds": ["7"], "addToCart": [{"productId": "7", "quantity": 1}], "removeFromCart": [], "clearCart": false, "suggestedFollowUps": ["Agregar otra unidad", "Ver el carrito", "Buscar algo más"]}
-- Ejemplo de patrón — vaciar el carrito (bug real ya visto, nunca lo digas sin esta acción): pide "vaciá el carrito" → {"text": "Dale, vacío el carrito.", "productIds": [], "addToCart": [], "removeFromCart": [], "clearCart": true, "suggestedFollowUps": ["Buscar algo nuevo", "Ver el catálogo", "¿Qué me recomiendan?"]}
-- Ejemplo de patrón — sacar un producto puntual del carrito: pide "sacá el [7] del carrito" → {"text": "Listo, lo saco.", "productIds": [], "addToCart": [], "removeFromCart": ["7"], "clearCart": false, "suggestedFollowUps": ["Ver el carrito", "Buscar algo más", "Agregar otra cosa"]}
-- Ejemplo de patrón — producto agotado (número inventado): preguntan "¿tienen el [4]?" y el catálogo dice "[4] ... AGOTADO" → {"text": "Sí lo vendemos, pero ahora mismo está agotado. ¿Querés que te avise cuando repongamos, o preferís solicitarlo?", "productIds": ["4"], "addToCart": [], "suggestedFollowUps": ["Avisame cuando repongan", "Ver algo similar", "¿Cuándo llega stock nuevo?"]}
-- Ejemplo de patrón — precio de un producto agotado (MISMA regla, no es un caso aparte): preguntan "¿cuánto sale el [4]?" y el catálogo dice "[4] ... AGOTADO" → NUNCA respondas solo el precio. Respondé aclarando primero: {"text": "Está agotado ahora mismo, pero cuesta [precio real del catálogo] cuando hay stock. ¿Querés que te avise cuando repongamos?", "productIds": ["4"], "addToCart": [], "suggestedFollowUps": ["Avisame cuando repongan", "Ver otras opciones", "Solicitar este producto"]}
-- Ejemplo de patrón — "quiero comprar" un producto agotado (MISMA regla, "quiero comprar" NO es una excepción): dicen "quiero comprar el [4]" y el catálogo dice "[4] ... AGOTADO" → NUNCA digas "sí, tenemos" ni invites a agregarlo al carrito. Respondé: {"text": "Ese producto está agotado ahora mismo, así que por ahora no lo puedo agregar. ¿Querés que te avise cuando repongamos, o preferís solicitarlo?", "productIds": ["4"], "addToCart": [], "suggestedFollowUps": ["Avisame cuando repongan", "Solicitar este producto", "Ver algo parecido"]}
+- Ejemplo de patrón — agregar al carrito CON acción (número inventado, texto y acción SIEMPRE juntos): pedido "agregame el [7] al carrito" y tiene stock disponible → {"text": "Dale, te agrego 1 al carrito.", "productIds": ["7"], "addToCart": [{"productId": "7", "quantity": 1}], "removeFromCart": [], "clearCart": false, "suggestedFollowUps": ["Agregar otra unidad", "Ver el carrito", "Buscar algo más"]}. Mismo criterio EXACTO para "removeFromCart"/"clearCart" cuando piden sacar algo o vaciar el carrito (ver REGLA de ACCIONES DE CARRITO arriba) — nunca digas la acción sin incluirla en el JSON.
+- Ejemplo de patrón — producto agotado (número inventado, cubre "¿tienen...?", "¿cuánto sale...?" y "quiero comprar..." — MISMA regla en los tres casos, ver DISPONIBILIDAD REAL arriba): preguntan por el [4] (en cualquiera de esas formas) y el catálogo dice "[4] ... AGOTADO" → NUNCA digas "sí, tenemos"/"disponible", ni des el precio sin aclarar primero, ni invites a agregarlo al carrito: {"text": "Sí lo vendemos, pero ahora mismo está agotado. ¿Querés que te avise cuando repongamos, o preferís solicitarlo?", "productIds": ["4"], "addToCart": [], "suggestedFollowUps": ["Avisame cuando repongan", "Ver algo similar", "Solicitar este producto"]}
 - Ejemplo de patrón — filtrado progresivo, UNA variante por vez (número inventado): preguntan "¿tienen la [2]?" y el catálogo dice "[2] ... variantes: Talla(S/M/L); Color(Negro/Blanco)" (2 variantes reales, ninguna aclarada todavía) → NUNCA preguntes las dos juntas ("¿qué talla y qué color?"). Preguntá SOLO la primera: {"text": "Sí, tenemos. ¿En qué talla — S, M o L?", "productIds": ["2"], "addToCart": [], "suggestedFollowUps": ["Talla M", "Talla L", "¿Qué colores hay?"]} — recién cuando conteste la talla, en el siguiente turno preguntás el color.`,
     },
   ];
 
-  if (vendor.aiDocument) {
+  // Bloque 42 (optimización de tokens): el documento de negocio (.txt/.pdf
+  // subido por la tienda) solo viaja cuando el mensaje ACTUAL parece
+  // necesitarlo de verdad (ver messageNeedsDocument) — un saludo o "quiero
+  // comprar X" no lo carga. Corte de 20000 a 5000 chars por el mismo motivo:
+  // era el ítem más caro del prompt y casi nunca hace falta completo.
+  if (vendor.aiDocument && messageNeedsDocument(message)) {
     try {
       const filepath = join(VENDOR_AI_DOC_DIR, vendor.aiDocument);
-      if (vendor.aiDocument.toLowerCase().endsWith(".txt")) {
-        const text = await readFile(filepath, "utf-8");
-        parts.push({ text: `\nDocumento de negocio subido por la tienda (políticas, horarios, preguntas frecuentes, etc.):\n${text.slice(0, 20000)}` });
-      } else if (vendor.aiDocument.toLowerCase().endsWith(".pdf")) {
+      if (vendor.aiDocument.toLowerCase().endsWith(".pdf")) {
         const buffer = await readFile(filepath);
         parts.push({ inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } });
+      } else {
+        const text = await readFile(filepath, "utf-8");
+        parts.push({ text: `\nDocumento de negocio subido por la tienda (políticas, horarios, preguntas frecuentes, etc.):\n${text.slice(0, 5000)}` });
       }
     } catch {
-      // Documento no legible (borrado del disco a mano, etc.) — el chat
+      // Documento no legible (borrado del disco a mano, etc.) — el bot
       // sigue andando solo con el catálogo, no corta la conversación.
     }
   }
@@ -528,7 +552,7 @@ export async function postChatMessage(req, res) {
   try {
     const orderContext = await lookupOrderContext(vendorId, message);
     const purchaseHistoryContext = await buildPurchaseHistoryContext(vendorId, userId);
-    const systemParts = await buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext);
+    const systemParts = await buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext, message);
     ({ text: rawText, productIds, addToCart, removeFromCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
   } catch (err) {
     await logError({

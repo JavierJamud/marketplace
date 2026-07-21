@@ -6,7 +6,7 @@ import { getCountryOptions, toE164, splitE164 } from "../../lib/phone.js";
 // listo para guardar y para armar links wa.me/... sin transformación aparte.
 // onCountryChange (opcional) recibe el ISO del país elegido — es el mismo
 // selector que pide el registro como "país" (Bloque 9), no uno duplicado.
-export function PhoneInput({ label, value, onChange, onCountryChange, required, placeholder }) {
+export function PhoneInput({ label, value, onChange, onCountryChange, required, placeholder, error }) {
   const options = getCountryOptions();
   const initial = splitE164(value);
   const [country, setCountry] = useState(initial.country);
@@ -64,7 +64,7 @@ export function PhoneInput({ label, value, onChange, onCountryChange, required, 
             required={required}
             value={country}
             onChange={(e) => handleCountryChange(e.target.value)}
-            className="w-full rounded border border-outline-variant bg-surface-container-lowest px-2.5 py-2.5 text-body-md text-on-surface outline-none focus:border-primary-container"
+            className={`w-full rounded border bg-surface-container-lowest px-2.5 py-2.5 text-body-md text-on-surface outline-none focus:border-primary-container ${error ? "border-error" : "border-outline-variant"}`}
           >
             {options.map((c) => (
               <option key={c.code} value={c.code}>
@@ -91,7 +91,7 @@ export function PhoneInput({ label, value, onChange, onCountryChange, required, 
             value={national}
             onChange={(e) => handleNationalChange(e.target.value)}
             placeholder={placeholder ?? "5XXXXXXX"}
-            className="w-full rounded border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-body-md text-on-surface outline-none focus:border-primary-container"
+            className={`w-full rounded border bg-surface-container-lowest px-4 py-2.5 text-body-md text-on-surface outline-none focus:border-primary-container ${error ? "border-error" : "border-outline-variant"}`}
           />
         </label>
       </div>

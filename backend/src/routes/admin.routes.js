@@ -47,6 +47,10 @@ router.post("/campaigns", campaignsController.createCampaign);
 router.get("/integrations", integrationsController.listIntegrations);
 router.post("/integrations", integrationsController.upsertIntegration);
 router.post("/integrations/stripe", integrationsController.upsertStripeIntegration);
+// Bloque 44: modelos reales que la key guardada de este proveedor puede
+// usar — lista seleccionable en AdminIntegrations.jsx en vez de texto
+// libre (evita typos como el que tumbó Groq con 404 model_not_found).
+router.get("/integrations/:name/models", integrationsController.listProviderModels);
 router.patch("/integrations/:id", integrationsController.toggleIntegration);
 
 router.get("/locations/countries", locationsController.listCountries);
@@ -57,11 +61,15 @@ router.patch("/locations/countries/activate-all", locationsController.activateAl
 router.patch("/locations/countries/deactivate-all", locationsController.deactivateAllCountries);
 router.delete("/locations/countries/bulk", locationsController.bulkDeleteCountries);
 router.patch("/locations/countries/:id", locationsController.updateCountry);
+router.delete("/locations/countries/:id", locationsController.deleteCountry);
 router.get("/locations/provinces", locationsController.listProvincesForAdmin);
 router.post("/locations/provinces", locationsController.createProvince);
 router.patch("/locations/provinces/:id", locationsController.updateProvince);
+router.delete("/locations/provinces/:id", locationsController.deleteProvince);
+router.get("/locations/provinces/:provinceId/municipalities", locationsController.listMunicipalitiesForAdmin);
 router.post("/locations/provinces/:provinceId/municipalities", locationsController.createMunicipality);
-
+router.patch("/locations/municipalities/:id", locationsController.updateMunicipality);
+router.delete("/locations/municipalities/:id", locationsController.deleteMunicipality);
 router.get("/business-categories", businessCategoriesController.listBusinessCategoriesAdmin);
 router.post("/business-categories", businessCategoriesController.createBusinessCategory);
 router.patch("/business-categories/:id", businessCategoriesController.updateBusinessCategory);
@@ -69,6 +77,10 @@ router.delete("/business-categories/:id", businessCategoriesController.deleteBus
 
 router.post("/settings/hero-image", siteUpload.single("image"), settingsController.updateHeroImage);
 router.patch("/settings/plan-limits", settingsController.updatePlanLimits);
+
+// Bloque 43: modelo editable por proveedor de IA (AdminIntegrations.jsx).
+router.get("/settings/ai-models", settingsController.getAiModelSettings);
+router.patch("/settings/ai-models", settingsController.updateAiModels);
 
 // Bloque 22: moderación de comentarios — el vendedor no tiene acceso a
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar

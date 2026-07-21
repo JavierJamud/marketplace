@@ -169,9 +169,11 @@ model VendorDeliveryCountry {
 }
 
 model Province {
-  id   String @id @default(cuid())
-  code String @unique
-  name String
+  id       String  @id @default(cuid())
+  code     String  @unique
+  name     String
+  type     String  @default("PROVINCE") // "PROVINCE" o "STATE"
+  isActive Boolean @default(true)
 
   // Nullable a propósito: las provincias ya sembradas se backfillean a
   // Cuba, pero no hace falta una migración estricta que rompa si algún día
@@ -192,6 +194,7 @@ model Municipality {
   id         String   @id @default(cuid())
   provinceId String
   name       String
+  isActive   Boolean  @default(true)
   province   Province @relation(fields: [provinceId], references: [id], onDelete: Cascade)
 
   vendorLocations VendorLocation[]
@@ -655,6 +658,17 @@ model SiteSettings {
   maxDeliveryCountriesBusiness Int  @default(5)
   maxProvincesRegular          Int  @default(1)
   maxProvincesBusiness         Int?
+  // Bloque 43/45: nombre de modelo por proveedor de IA, editable desde
+  // AdminIntegrations.jsx — null/vacío = usa el default hardcodeado en el
+  // archivo del proveedor (lib/nvidia.js, groq.js, gemini.js). Antes esto
+  // era una constante MODEL en cada archivo; moverlo acá permite que el
+  // admin reaccione a una deprecación de modelo (ya pasó 2 veces con Groq)
+  // sin tocar código ni redesplegar. Bloque 45: Cerebras salió del sistema
+  // (su cuenta gratuita devolvía 402 Payment Required) — aiModelCerebras
+  // se elimina, aiModelNvidia lo reemplaza como tercer proveedor.
+  aiModelGroq   String?
+  aiModelGemini String?
+  aiModelNvidia String?
   updatedAt    DateTime @updatedAt
 }
 

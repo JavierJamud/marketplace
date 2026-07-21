@@ -12,7 +12,11 @@ import { prisma } from "./prisma.js";
 // para texto en español) para no inflar el prompt sin límite a medida que
 // el admin acumula ejemplos — los más recientes entran primero, se corta
 // apenas se llegaría a pasar el presupuesto.
-const CHAR_BUDGET = 3900;
+// Bloque 42 (optimización de consumo de tokens): bajado de 3900 a 1500 —
+// ~4-6 ejemplos recientes siguen entrando, de sobra como guía de estilo; los
+// ejemplos curados por el admin no dejan de funcionar, solo entran menos a
+// la vez en cada mensaje.
+const CHAR_BUDGET = 1500;
 
 export async function buildFewShotBlock(botTipo) {
   const examples = await prisma.chatTrainingExample.findMany({

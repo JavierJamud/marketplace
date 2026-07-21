@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { X, Plus, Trash2, Globe2, MapPin } from "lucide-react";
+import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2 } from "lucide-react";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { SuggestionBox } from "../../components/SuggestionBox.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const DAY_ROWS = [
   { dayOfWeek: 1, name: "Lunes" },
@@ -21,6 +22,122 @@ const DAY_ROWS = [
   { dayOfWeek: 6, name: "Sábado" },
   { dayOfWeek: 0, name: "Domingo" },
 ];
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+        <h2 className="mb-4 text-title-lg font-bold text-on-surface">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, onSave, isPending }) {
+  const { data: municipalities = [] } = useQuery({
+    queryKey: ["admin-municipalities", province.id],
+    queryFn: async () => (await api.get(`/locations/provinces/${province.id}/municipalities`)).data.municipalities,
+  });
+
+  const currentProvLocs = useMemo(
+    () => (vendorLocations ?? []).filter((l) => l.provinceId === province.id),
+    [vendorLocations, province.id]
+  );
+  const isAllSelected = useMemo(
+    () => currentProvLocs.some((l) => l.municipalityId === null),
+    [currentProvLocs]
+  );
+
+  const [selectedIds, setSelectedIds] = useState(() => {
+    if (isAllSelected) return null;
+    return currentProvLocs.map((l) => l.municipalityId).filter(Boolean);
+  });
+
+  function toggleAll() {
+    if (selectedIds === null) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(null);
+    }
+  }
+
+  function toggleMunicipality(id) {
+    if (selectedIds === null) {
+      const allIds = municipalities.map((m) => m.id).filter((mId) => mId !== id);
+      setSelectedIds(allIds);
+    } else {
+      if (selectedIds.includes(id)) {
+        setSelectedIds(selectedIds.filter((mId) => mId !== id));
+      } else {
+        const next = [...selectedIds, id];
+        if (next.length === municipalities.length) {
+          setSelectedIds(null);
+        } else {
+          setSelectedIds(next);
+        }
+      }
+    }
+  }
+
+  return (
+    <Modal title={`Gestionar Municipios en ${province.name}`} onClose={onClose}>
+      <div className="mb-4 flex flex-col gap-3">
+        <label className="flex items-center gap-2.5 rounded-xl border border-surface-container-high bg-surface-container/30 p-3 text-[13px] font-bold text-on-surface cursor-pointer">
+          <input
+            type="checkbox"
+            checked={selectedIds === null}
+            onChange={toggleAll}
+            className="h-4 w-4 rounded accent-tertiary-accent"
+          />
+          Toda la provincia (todos los municipios)
+        </label>
+
+        <div className="text-[12px] font-bold text-outline uppercase tracking-wider mt-2">
+          Municipios disponibles ({municipalities.length})
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 max-h-[250px] overflow-y-auto pr-1">
+          {municipalities.map((m) => {
+            const isChecked = selectedIds === null || selectedIds.includes(m.id);
+            return (
+              <label
+                key={m.id}
+                className={`flex items-center justify-between rounded-xl border p-3 text-[12.5px] cursor-pointer transition ${
+                  isChecked
+                    ? "border-tertiary-accent bg-tertiary-accent/5 font-semibold text-on-surface"
+                    : "border-surface-container-high bg-surface-container-lowest text-outline"
+                }`}
+              >
+                <span>{m.name}</span>
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggleMunicipality(m.id)}
+                  className="h-4 w-4 rounded accent-tertiary-accent"
+                />
+              </label>
+            );
+          })}
+          {municipalities.length === 0 && (
+            <p className="py-2 text-[12px] text-outline italic">Esta provincia no tiene municipios activos registrados en el catálogo.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose}>Cancelar</Button>
+        <Button
+          className="flex-1 rounded-xl"
+          disabled={isPending}
+          onClick={() => onSave({ provinceId: province.id, municipalityIds: selectedIds })}
+        >
+          {isPending ? "Guardando..." : "Guardar Municipios"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
 
 export default function VendorSettings() {
   const queryClient = useQueryClient();
@@ -37,11 +154,21 @@ export default function VendorSettings() {
   });
   const [days, setDays] = useState(DAY_ROWS.map((d) => ({ ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false })));
   const [customMethod, setCustomMethod] = useState("");
+  const [newCountryForProvince, setNewCountryForProvince] = useState("");
   const [newProvinceId, setNewProvinceId] = useState("");
-  const [newMunicipalityId, setNewMunicipalityId] = useState("");
-  const [newCountryId, setNewCountryId] = useState("");
+  const [selectedMunicipalityIds, setSelectedMunicipalityIds] = useState(null); // null = all
+  const [managingProvince, setManagingProvince] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [confirmModal, setConfirmModal] = useState(null);
 
-  const { data: vendor, isLoading } = useQuery({
+  function openConfirm({ title, message, confirmLabel = "Confirmar", danger = false, onConfirm }) {
+    setConfirmModal({ title, message, confirmLabel, danger, onConfirm });
+  }
+  function closeConfirm() {
+    setConfirmModal(null);
+  }
+
+  const { data: vendor } = useQuery({
     queryKey: ["my-vendor-settings"],
     queryFn: async () => (await api.get("/vendors/me")).data.vendor,
   });
@@ -51,15 +178,13 @@ export default function VendorSettings() {
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
 
-  // Bloque 19: municipios de la provincia elegida en el mini-form de "+
-  // Agregar provincia" — dependiente, mismo patrón que LocationContext.jsx.
-  const { data: newProvinceMunicipalities } = useQuery({
-    queryKey: ["municipalities", newProvinceId],
-    queryFn: async () => (await api.get(`/locations/provinces/${newProvinceId}/municipalities`)).data.municipalities,
-    enabled: !!newProvinceId,
+  const { data: provincesForSelectedCountry } = useQuery({
+    queryKey: ["provinces-for-country", newCountryForProvince],
+    queryFn: async () => (await api.get(`/locations/countries/${newCountryForProvince}/provinces`)).data.provinces,
+    enabled: !!newCountryForProvince,
   });
 
-  const { data: countries } = useQuery({
+  const { data: countries = [] } = useQuery({
     queryKey: ["active-countries"],
     queryFn: async () => (await api.get("/locations/countries")).data.countries,
   });
@@ -69,13 +194,11 @@ export default function VendorSettings() {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
 
-  // Bloque 18: el vendedor puede cambiar su tipo de negocio después del
-  // registro. Trae TODAS las activas + la actual aunque esté desactivada
-  // (para no perderla del selector si el admin la desactivó mientras tanto).
   const { data: businessCategories } = useQuery({
     queryKey: ["business-categories"],
     queryFn: async () => (await api.get("/business-categories")).data.categories,
   });
+
   const currentBusinessCategoryMissing =
     businessCategories && vendor?.businessCategory && !businessCategories.some((c) => c.id === vendor.businessCategory.id);
   const businessCategoryOptions = currentBusinessCategoryMissing
@@ -97,10 +220,12 @@ export default function VendorSettings() {
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
     });
     if (vendor.schedules?.length) {
-      setDays(DAY_ROWS.map((d) => {
-        const s = vendor.schedules.find((x) => x.dayOfWeek === d.dayOfWeek);
-        return s ? { ...d, opensAt: s.opensAt, closesAt: s.closesAt, isClosed: s.isClosed } : { ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false };
-      }));
+      setDays(
+        DAY_ROWS.map((d) => {
+          const s = vendor.schedules.find((x) => x.dayOfWeek === d.dayOfWeek);
+          return s ? { ...d, opensAt: s.opensAt, closesAt: s.closesAt, isClosed: s.isClosed } : { ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false };
+        })
+      );
     }
   }, [vendor]);
 
@@ -108,11 +233,6 @@ export default function VendorSettings() {
     mutationFn: async () => (await api.patch("/vendors/me", form)).data,
   });
 
-  // Bloque 21: antes esto solo guardaba aiFile.name como texto plano en el
-  // PATCH general de arriba — el archivo nunca viajaba, y ese campo ni
-  // siquiera existía en el schema de zod del backend (se descartaba
-  // solo). Ahora es un upload real e inmediato (no espera a "Guardar
-  // cambios") a su propio endpoint multipart.
   const uploadAiDocument = useMutation({
     mutationFn: async (file) => {
       const formData = new FormData();
@@ -120,45 +240,61 @@ export default function VendorSettings() {
       return (await api.post("/vendors/me/ai-document", formData, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: () => {
-      toast.success("Documento cargado — ya lo puede usar el chat de tu tienda.");
+      toast.success("Documento cargado correctamente.");
       queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo subir el documento."),
   });
-  const saveSchedule = useMutation({
-    mutationFn: async () => (await api.patch("/vendors/me/schedule", { days: days.map(({ dayOfWeek, opensAt, closesAt, isClosed }) => ({ dayOfWeek, opensAt, closesAt, isClosed })) })).data,
+
+  const removeAiDocument = useMutation({
+    mutationFn: async () => api.delete("/vendors/me/ai-document"),
+    onSuccess: () => {
+      toast.success("Documento eliminado.");
+      queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar el documento."),
   });
 
-  // Bloque 19: provincias de Cuba donde vende (multi, según plan) y países
-  // de entrega — ambas se guardan al toque (no esperan a "Guardar cambios"),
-  // ya que cada agregado/quitado ya es una llamada propia al backend.
+  const saveSchedule = useMutation({
+    mutationFn: async () =>
+      (await api.patch("/vendors/me/schedule", { days: days.map(({ dayOfWeek, opensAt, closesAt, isClosed }) => ({ dayOfWeek, opensAt, closesAt, isClosed })) })).data,
+  });
+
   const invalidateVendor = () => {
     queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
     queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
+    queryClient.invalidateQueries({ queryKey: ["active-countries"] });
+    queryClient.invalidateQueries({ queryKey: ["provinces"] });
+    queryClient.invalidateQueries({ queryKey: ["provinces-for-country"] });
+    queryClient.invalidateQueries({ queryKey: ["municipalities"] });
   };
 
-  const addLocation = useMutation({
-    mutationFn: async () => (await api.post("/vendors/me/locations", { provinceId: newProvinceId, municipalityId: newMunicipalityId || undefined })).data,
+  const syncProvince = useMutation({
+    mutationFn: async ({ provinceId, municipalityIds }) =>
+      (await api.post("/vendors/me/locations/sync-province", { provinceId, municipalityIds })).data,
     onSuccess: () => {
-      toast.success("Provincia agregada.");
+      toast.success("Zonas de cobertura actualizadas.");
+      setManagingProvince(null);
       setNewProvinceId("");
-      setNewMunicipalityId("");
+      setSelectedMunicipalityIds(null);
       invalidateVendor();
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo agregar la provincia."),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron actualizar las zonas."),
   });
 
   const removeLocation = useMutation({
     mutationFn: async (id) => api.delete(`/vendors/me/locations/${id}`),
-    onSuccess: invalidateVendor,
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo quitar la provincia."),
+    onSuccess: () => {
+      setNewProvinceId("");
+      invalidateVendor();
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo quitar la ubicación."),
   });
 
   const addDeliveryCountry = useMutation({
-    mutationFn: async () => (await api.post("/vendors/me/delivery-countries", { countryId: newCountryId })).data,
+    mutationFn: async (countryId) => (await api.post("/vendors/me/delivery-countries", { countryId })).data,
     onSuccess: () => {
       toast.success("País de entrega agregado.");
-      setNewCountryId("");
       invalidateVendor();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo agregar el país."),
@@ -166,26 +302,28 @@ export default function VendorSettings() {
 
   const removeDeliveryCountry = useMutation({
     mutationFn: async (countryId) => api.delete(`/vendors/me/delivery-countries/${countryId}`),
-    onSuccess: invalidateVendor,
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo quitar el país."),
-  });
-  const cancelPlan = useMutation({
-    mutationFn: async () => (await api.patch("/vendors/me", { planType: "REGULAR" })).data,
     onSuccess: () => {
-      toast.success("Volviste al Plan Regular.");
-      queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
+      setNewCountryForProvince("");
+      setNewProvinceId("");
+      invalidateVendor();
     },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo quitar el país."),
   });
 
   async function handleSaveAll() {
+    setErrors({});
     try {
       await Promise.all([saveProfile.mutateAsync(), saveSchedule.mutateAsync()]);
       toast.success("Cambios guardados.");
-      queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
+      invalidateVendor();
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios.");
+      const fieldErrors = err.response?.data?.details?.fieldErrors ?? {};
+      if (Object.keys(fieldErrors).length > 0) {
+        setErrors(fieldErrors);
+        toast.error("Revisá los campos marcados en rojo.");
+      } else {
+        toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios.");
+      }
     }
   }
 
@@ -193,70 +331,125 @@ export default function VendorSettings() {
     setDays((d) => d.map((row) => (row.dayOfWeek === dayOfWeek ? { ...row, [field]: value } : row)));
   }
 
-  function togglePaymentMethod(id) {
-    setForm((f) => ({
-      ...f,
-      acceptedPaymentMethods: f.acceptedPaymentMethods.includes(id)
-        ? f.acceptedPaymentMethods.filter((m) => m !== id)
-        : [...f.acceptedPaymentMethods, id],
-    }));
-  }
-
-  function addCustomMethod() {
-    const value = customMethod.trim();
-    if (!value || form.acceptedPaymentMethods.includes(value)) return;
-    setForm((f) => ({ ...f, acceptedPaymentMethods: [...f.acceptedPaymentMethods, value] }));
-    setCustomMethod("");
-  }
-
-  const knownIds = new Set(PAYMENT_METHODS.map((m) => m.id));
-  const customMethods = form.acceptedPaymentMethods.filter((m) => !knownIds.has(m));
-
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
-
   const isBusiness = vendor?.planType === "BUSINESS";
-
-  // Bloque 19: límites por plan, admin-configurables (SiteSettings) — nunca
-  // hardcodeados acá.
-  const distinctProvinceCount = new Set((vendor?.locations ?? []).map((l) => l.provinceId)).size;
   const maxProvinces = isBusiness ? settings?.maxProvincesBusiness : settings?.maxProvincesRegular;
-  const atProvinceLimit = maxProvinces !== null && maxProvinces !== undefined && distinctProvinceCount >= maxProvinces;
+  const distinctProvinceCount = new Set((vendor?.locations ?? []).map((l) => l.provinceId)).size;
 
-  const deliveryCountryCount = vendor?.deliveryCountries?.length ?? 0;
   const maxDeliveryCountries = isBusiness ? settings?.maxDeliveryCountriesBusiness : settings?.maxDeliveryCountriesRegular;
-  const atCountryLimit = maxDeliveryCountries !== undefined && deliveryCountryCount >= maxDeliveryCountries;
-  const selectedCountryIds = new Set((vendor?.deliveryCountries ?? []).map((dc) => dc.countryId));
-  const availableCountries = countries?.filter((c) => !selectedCountryIds.has(c.id));
+  const deliveryCountryCount = vendor?.deliveryCountries?.length ?? 0;
+
+  // Group vendor locations by Province
+  const provinceGroups = useMemo(() => {
+    if (!vendor?.locations) return [];
+    const map = new Map();
+    vendor.locations.forEach((loc) => {
+      const pId = loc.provinceId;
+      if (!map.has(pId)) {
+        map.set(pId, {
+          province: loc.province,
+          country: loc.province?.country,
+          locations: [],
+        });
+      }
+      map.get(pId).locations.push(loc);
+    });
+    return Array.from(map.values());
+  }, [vendor?.locations]);
+
+  // Group provinces by Country for unified display
+  const countryCoverageTree = useMemo(() => {
+    const map = new Map();
+    // Include delivery countries
+    (vendor?.deliveryCountries ?? []).forEach((dc) => {
+      if (dc.country) {
+        map.set(dc.country.id, { country: dc.country, provinces: [] });
+      }
+    });
+
+    // Add province groups
+    provinceGroups.forEach((group) => {
+      const cId = group.country?.id;
+      if (cId) {
+        if (!map.has(cId)) {
+          map.set(cId, { country: group.country, provinces: [] });
+        }
+        map.get(cId).provinces.push(group);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [vendor?.deliveryCountries, provinceGroups]);
 
   return (
-    <div className="max-w-[760px]">
-      <h1 className="mb-[22px] font-display text-[25px] font-bold text-on-surface">Configuración de la tienda</h1>
+    <div className="mx-auto max-w-4xl px-4 py-8">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-display-sm font-extrabold text-on-surface">Configuración de la tienda</h1>
+          <p className="text-body-md text-on-surface-variant">
+            Datos públicos, zonas de cobertura y métodos de entrega.
+          </p>
+        </div>
+        <Button onClick={handleSaveAll} disabled={saveProfile.isPending || saveSchedule.isPending} className="rounded-xl font-bold">
+          {saveProfile.isPending || saveSchedule.isPending ? "Guardando..." : "Guardar cambios"}
+        </Button>
+      </div>
 
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-4 text-[15px] font-bold text-on-surface">Datos públicos</div>
-        <div className="flex flex-col gap-3.5">
-          <Input value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
+      {/* Identificación de la Tienda */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-4 text-title-lg font-bold text-on-surface">Información de la marca</div>
+        <div className="flex flex-col gap-4">
           <div>
-            <AiGenerateButton kind="store" currentText={form.description} onGenerated={(text) => setForm((f) => ({ ...f, description: text }))} />
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Escribí unas palabras clave de tu tienda (ej: ropa urbana en La Habana desde 2020) y usá 'Mejorar con IA' arriba."
-              className="min-h-[70px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
+            <Input
+              label="Nombre visible de la tienda"
+              value={form.companyName}
+              onChange={(e) => {
+                setForm({ ...form, companyName: e.target.value });
+                setErrors((prev) => ({ ...prev, companyName: undefined }));
+              }}
+              error={errors.companyName?.[0]}
             />
           </div>
-          <PhoneInput label="WhatsApp" value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
-          <div className="flex items-center gap-2.5">
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-label-md font-semibold text-on-surface-variant">Descripción de la marca</span>
+              <AiGenerateButton
+                context={`Tienda de categoría ${selectedBusinessCategory?.name ?? "general"} llamada ${form.companyName}`}
+                onGenerated={(text) => setForm((f) => ({ ...f, description: text }))}
+              />
+            </div>
+            <textarea
+              rows={3}
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+              placeholder="Describe lo que vendés y tu propuesta de valor..."
+            />
+          </div>
+          <div>
+            <Input
+              label="WhatsApp de atención al cliente"
+              value={form.whatsapp}
+              onChange={(e) => {
+                setForm({ ...form, whatsapp: e.target.value });
+                setErrors((prev) => ({ ...prev, whatsapp: undefined }));
+              }}
+              error={errors.whatsapp?.[0]}
+              placeholder="+5350000000"
+            />
+          </div>
+          <div className="flex items-center gap-3">
             <Select
-              label="Tipo de negocio"
+              label="Categoría principal de negocio"
               value={form.businessCategoryId}
               onChange={(e) => setForm({ ...form, businessCategoryId: e.target.value })}
               className="flex-1"
             >
-              {businessCategoryOptions?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {businessCategoryOptions?.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </Select>
             {selectedBusinessCategory && (
-              <div className="mt-6 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-tertiary-accent/10">
+              <div className="mt-6 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-tertiary-accent/10">
                 <CategoryIcon name={selectedBusinessCategory.icon} className="h-5 w-5 text-tertiary-accent" />
               </div>
             )}
@@ -264,331 +457,329 @@ export default function VendorSettings() {
         </div>
       </div>
 
-      {/* PROVINCIAS DE CUBA (Bloque 19) — Regular sigue en 1, Business hasta
-          el límite que fije el admin (o ilimitado). Reemplaza el viejo
-          selector único de "Provincia". */}
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
-          <MapPin className="h-4 w-4 text-tertiary-accent" /> Provincias donde vendés
-        </div>
-        <p className="mb-3.5 text-[12.5px] text-outline">
-          {maxProvinces === null || maxProvinces === undefined
-            ? `${distinctProvinceCount} provincia(s) · Plan ${isBusiness ? "Business" : "Regular"} sin límite`
-            : `${distinctProvinceCount}/${maxProvinces} provincia(s) de tu Plan ${isBusiness ? "Business" : "Regular"}`}
-          {!isBusiness && atProvinceLimit && " · verificate para agregar más"}
-        </p>
-
-        <div className="mb-3.5 flex flex-col gap-2">
-          {vendor?.locations?.map((l) => (
-            <div key={l.id} className="flex items-center justify-between rounded-md border border-surface-container-high px-3.5 py-2.5">
-              <span className="text-[13px] font-semibold text-on-surface">
-                {l.province?.name}
-                {l.municipality && <span className="text-outline"> · {l.municipality.name}</span>}
-              </span>
-              <button
-                onClick={() => removeLocation.mutate(l.id)}
-                disabled={removeLocation.isPending || vendor.locations.length <= 1}
-                title={vendor.locations.length <= 1 ? "Necesitás al menos una provincia" : "Quitar"}
-                className="text-error disabled:opacity-30"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+      {/* UNIFIED COBERTURA & ZONAS DE ENTREGA */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-surface-container-high pb-4">
+          <div>
+            <div className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
+              <Globe2 className="h-5 w-5 text-tertiary-accent" /> Cobertura y Países de Entrega
             </div>
-          ))}
+            <p className="text-[12.5px] text-outline mt-0.5">
+              Gestioná los países y estados/provincias donde tu tienda ofrece productos y servicio de entrega.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11.5px]">
+            <span className="rounded-full bg-surface-container px-3 py-1 font-bold text-on-surface-variant">
+              Países: {deliveryCountryCount}/{maxDeliveryCountries ?? "∞"}
+            </span>
+            <span className="rounded-full bg-surface-container px-3 py-1 font-bold text-on-surface-variant">
+              Provincias: {distinctProvinceCount}/{maxProvinces ?? "∞"}
+            </span>
+          </div>
         </div>
 
-        {atProvinceLimit ? (
-          <p className="text-[12.5px] text-outline">
-            {isBusiness
-              ? "Alcanzaste el límite de provincias configurado para tu plan."
-              : "El Plan Regular permite vender en 1 provincia. Verificate para vender en más."}
-          </p>
-        ) : (
-          <div className="flex flex-wrap items-end gap-2.5">
-            <Select label="Provincia" value={newProvinceId} onChange={(e) => { setNewProvinceId(e.target.value); setNewMunicipalityId(""); }} className="min-w-[160px] flex-1">
-              <option value="">Elegí una provincia</option>
-              {provinces?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        {/* Compact Add Coverage Bar (Moved to top) */}
+        <div className="mb-6 rounded-xl border border-surface-container-high bg-surface-container/30 p-4">
+          <div className="mb-3 text-[13px] font-bold text-on-surface">Agregar nueva zona de cobertura</div>
+          <div className="flex flex-wrap items-end gap-3">
+            {/* 1. Country Select */}
+            <Select
+              label="País"
+              value={newCountryForProvince}
+              onChange={(e) => {
+                setNewCountryForProvince(e.target.value);
+                setNewProvinceId("");
+                setSelectedMunicipalityIds(null);
+              }}
+              className="min-w-[160px] flex-1"
+            >
+              <option value="">Elegí un país activo</option>
+              {countries.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </Select>
-            {newProvinceId && newProvinceMunicipalities?.length > 0 && (
-              <Select label="Municipio (opcional)" value={newMunicipalityId} onChange={(e) => setNewMunicipalityId(e.target.value)} className="min-w-[160px] flex-1">
-                <option value="">Todos los municipios</option>
-                {newProvinceMunicipalities.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+
+            {/* 2. Province Select */}
+            {newCountryForProvince && (
+              <Select
+                label="Provincia / Estado"
+                value={newProvinceId}
+                onChange={(e) => {
+                  setNewProvinceId(e.target.value);
+                  setSelectedMunicipalityIds(null);
+                }}
+                className="min-w-[160px] flex-1"
+              >
+                <option value="">Elegí subdivisión activa</option>
+                {provincesForSelectedCountry?.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name} ({p.type === "STATE" ? "Estado" : "Provincia"})</option>
+                ))}
               </Select>
             )}
-            <button
-              onClick={() => addLocation.mutate()}
-              disabled={!newProvinceId || addLocation.isPending}
-              className="flex h-11 items-center gap-1.5 rounded-md bg-secondary-container px-4 text-[13px] font-bold text-on-secondary-container disabled:opacity-50"
+
+            <Button
+              disabled={!newProvinceId || syncProvince.isPending}
+              onClick={async () => {
+                if (newCountryForProvince) {
+                  const hasCountry = vendor?.deliveryCountries?.some((dc) => dc.countryId === newCountryForProvince);
+                  if (!hasCountry) {
+                    await addDeliveryCountry.mutateAsync(newCountryForProvince);
+                  }
+                }
+                syncProvince.mutate({
+                  provinceId: newProvinceId,
+                  municipalityIds: selectedMunicipalityIds,
+                });
+              }}
+              className="rounded-xl font-bold h-11 px-5"
             >
-              <Plus className="h-3.5 w-3.5" /> Agregar
-            </button>
+              <Plus className="h-4 w-4 mr-1" /> Guardar Cobertura
+            </Button>
           </div>
-        )}
-      </div>
-
-      {/* PAÍSES DE ENTREGA (Bloque 19) — además de Cuba, a qué otros países
-          declara que entrega esta tienda. Solo países activos por el admin. */}
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
-          <Globe2 className="h-4 w-4 text-tertiary-accent" /> Países de entrega
         </div>
-        <p className="mb-3.5 text-[12.5px] text-outline">
-          {deliveryCountryCount}/{maxDeliveryCountries ?? "—"} país(es) de tu Plan {isBusiness ? "Business" : "Regular"}
-          {!isBusiness && atCountryLimit && " · verificate para agregar más"}
-        </p>
 
-        {vendor?.deliveryCountries?.length > 0 && (
-          <div className="mb-3.5 flex flex-wrap gap-2">
-            {vendor.deliveryCountries.map((dc) => (
-              <span
-                key={dc.id}
-                className="flex items-center gap-1.5 rounded-full border border-tertiary-accent bg-tertiary-accent/10 px-3.5 py-2 text-[12.5px] font-semibold text-tertiary-accent"
-              >
-                {dc.country?.name}
+        {/* Existing Coverage Matrix grouped by Country */}
+        <div className="flex flex-col gap-4">
+          {countryCoverageTree.map(({ country, provinces: countryProvs }) => (
+            <div key={country.id} className="rounded-xl border border-surface-container-high bg-surface-container/20 p-4">
+              <div className="mb-3 flex items-center justify-between border-b border-surface-container-high pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[12px] font-bold bg-tertiary-accent text-on-tertiary px-2 py-0.5 rounded">
+                    {country.code}
+                  </span>
+                  <span className="text-[14px] font-bold text-on-surface">{country.name}</span>
+                  <span className="text-[11.5px] text-outline">({countryProvs.length} subdivisiones)</span>
+                </div>
                 <button
-                  onClick={() => removeDeliveryCountry.mutate(dc.countryId)}
-                  disabled={removeDeliveryCountry.isPending}
-                  className="hover:text-error"
+                  onClick={() => {
+                    openConfirm({
+                      title: `¿Quitar ${country.name}?`,
+                      message: `¿Estás seguro de quitar ${country.name} de tus países de entrega?`,
+                      confirmLabel: "Sí, quitar país",
+                      danger: true,
+                      onConfirm: () => {
+                        closeConfirm();
+                        removeDeliveryCountry.mutate(country.id);
+                      },
+                    });
+                  }}
+                  className="text-[12px] font-semibold text-error hover:underline flex items-center gap-1"
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-3.5 w-3.5" /> Quitar País
                 </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {atCountryLimit ? (
-          <p className="text-[12.5px] text-outline">
-            {isBusiness
-              ? "Alcanzaste el límite de países configurado para tu plan."
-              : "El Plan Regular permite un país de entrega. Verificate para agregar más."}
-          </p>
-        ) : (
-          <div className="flex items-end gap-2.5">
-            <Select label="País" value={newCountryId} onChange={(e) => setNewCountryId(e.target.value)} className="flex-1">
-              <option value="">Elegí un país</option>
-              {availableCountries?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-            <button
-              onClick={() => addDeliveryCountry.mutate()}
-              disabled={!newCountryId || addDeliveryCountry.isPending}
-              className="flex h-11 items-center gap-1.5 rounded-md bg-secondary-container px-4 text-[13px] font-bold text-on-secondary-container disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" /> Agregar
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 text-[15px] font-bold text-on-surface">Responsable del negocio</div>
-        <p className="mb-3.5 text-[12.5px] text-outline">Privado — solo lo ven admin y vos. Nunca se muestra en tu tienda pública.</p>
-        <Input value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
-      </div>
-
-      {/* Bloque 29: datos de facturación — privados, se autocompletan en
-          cualquier factura/garantía que generés desde Pedidos. Sin esto
-          completo, la generación de esos documentos se bloquea con un aviso
-          claro (ver invoices.controller.js). */}
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 text-[15px] font-bold text-on-surface">Datos de facturación</div>
-        <p className="mb-3.5 text-[12.5px] text-outline">
-          Privado — se usa para autocompletar las facturas y certificados de garantía que generés desde Pedidos. Necesario para poder
-          generar esos documentos.
-        </p>
-        <div className="flex flex-col gap-3.5">
-          <Input
-            label="Identificación del responsable"
-            placeholder="Carnet de identidad / RIF / NIT"
-            value={form.ownerIdNumber}
-            onChange={(e) => setForm({ ...form, ownerIdNumber: e.target.value })}
-          />
-          <Input
-            label="Dirección de la empresa"
-            placeholder="Calle, número, municipio, provincia"
-            value={form.companyAddress}
-            onChange={(e) => setForm({ ...form, companyAddress: e.target.value })}
-          />
-        </div>
-      </div>
-
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 text-[15px] font-bold text-on-surface">¿Dónde querés recibir tus pedidos?</div>
-        <p className="mb-4 text-[12.5px] text-outline">Elegí un solo destino: así sabés siempre dónde mirar cuando un cliente pide.</p>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          {[
-            { id: "WHATSAPP", title: "WhatsApp directo", sub: "El catálogo muestra el botón de WhatsApp; coordinás ahí mismo." },
-            { id: "PANEL", title: "Panel de vendedor", sub: "El cliente completa sus datos y el pedido cae en Pedidos para gestionar." },
-          ].map((opt) => (
-            <label
-              key={opt.id}
-              onClick={() => setForm({ ...form, orderDestination: opt.id })}
-              className={`flex flex-1 cursor-pointer items-start gap-3 rounded-md p-4 ${
-                form.orderDestination === opt.id ? "border-2 border-tertiary-accent" : "border border-surface-container-high"
-              }`}
-            >
-              <span
-                className={`mt-0.5 flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                  form.orderDestination === opt.id ? "border-tertiary-accent" : "border-outline-variant"
-                }`}
-              >
-                {form.orderDestination === opt.id && <span className="h-2 w-2 rounded-full bg-tertiary-accent" />}
-              </span>
-              <div>
-                <div className="text-[13.5px] font-bold text-on-surface">{opt.title}</div>
-                <div className="text-[12px] text-outline">{opt.sub}</div>
               </div>
-            </label>
-          ))}
-        </div>
-      </div>
 
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 text-[15px] font-bold text-on-surface">Métodos de pago que aceptás</div>
-        <p className="mb-4 text-[12.5px] text-outline">
-          Informativo — se muestra en tu perfil público para que el cliente sepa qué opciones tenés. ZeuDin nunca procesa ni cobra
-          nada acá, el pago siempre se coordina directo con vos.
-        </p>
-        <div className="mb-4 flex flex-wrap gap-2">
-          {PAYMENT_METHODS.map((m) => {
-            const active = form.acceptedPaymentMethods.includes(m.id);
-            const Icon = m.icon;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => togglePaymentMethod(m.id)}
-                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[12.5px] font-semibold ${
-                  active ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" /> {m.label}
-              </button>
-            );
-          })}
-        </div>
+              {/* Provinces Grid */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {countryProvs.map(({ province, locations }) => {
+                  const isAllMun = locations.some((l) => l.municipalityId === null);
+                  return (
+                    <div
+                      key={province.id}
+                      className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-3.5 flex flex-col justify-between shadow-2xs"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13.5px] font-bold text-on-surface">{province.name}</span>
+                            <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider ${
+                              province.type === "STATE" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                            }`}>
+                              {province.type === "STATE" ? "Estado" : "Provincia"}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              openConfirm({
+                                title: `¿Quitar ${province.name}?`,
+                                message: `¿Estás seguro de quitar ${province.name} de tus zonas de servicio?`,
+                                confirmLabel: "Sí, quitar",
+                                danger: true,
+                                onConfirm: () => {
+                                  closeConfirm();
+                                  syncProvince.mutate({ provinceId: province.id, municipalityIds: [] });
+                                },
+                              });
+                            }}
+                            className="text-outline hover:text-error transition"
+                            title="Quitar subdivisión"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
 
-        {customMethods.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {customMethods.map((m) => (
-              <span key={m} className="flex items-center gap-1.5 rounded-full border border-tertiary-accent bg-tertiary-accent/10 px-3.5 py-2 text-[12.5px] font-semibold text-tertiary-accent">
-                {m}
-                <button type="button" onClick={() => togglePaymentMethod(m)} className="hover:text-error">
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+                        {/* Municipality Pills for PROVINCE */}
+                        {province.type !== "STATE" ? (
+                          <div className="flex flex-wrap gap-1.5 my-2">
+                            {isAllMun ? (
+                              <span className="rounded-md bg-verified/15 text-verified-dark px-2.5 py-1 text-[11.5px] font-bold flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" /> Toda la provincia
+                              </span>
+                            ) : (
+                              locations.map((l) => (
+                                <span
+                                  key={l.id}
+                                  className="rounded-md bg-surface-container-high px-2.5 py-1 text-[11.5px] font-semibold text-on-surface flex items-center gap-1.5"
+                                >
+                                  {l.municipality?.name ?? "Municipio"}
+                                  <button
+                                    onClick={() => {
+                                      openConfirm({
+                                        title: `¿Quitar ${l.municipality?.name}?`,
+                                        message: `¿Quitar ${l.municipality?.name} de tus zonas de entrega?`,
+                                        confirmLabel: "Sí, quitar",
+                                        danger: true,
+                                        onConfirm: () => {
+                                          closeConfirm();
+                                          removeLocation.mutate(l.id);
+                                        },
+                                      });
+                                    }}
+                                    className="text-outline hover:text-error"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-[11.5px] text-outline my-2 italic">Toda la extensión del estado</p>
+                        )}
+                      </div>
 
-        <div className="flex gap-2">
-          <input
-            value={customMethod}
-            onChange={(e) => setCustomMethod(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addCustomMethod())}
-            placeholder="¿Otro método? Escribilo acá..."
-            className="h-10 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-[13px] outline-none focus:border-primary-container"
-          />
-          <button
-            type="button"
-            onClick={addCustomMethod}
-            disabled={!customMethod.trim()}
-            className="rounded-md border border-outline-variant px-3.5 text-[12.5px] font-semibold text-on-surface-variant disabled:opacity-50"
-          >
-            Agregar
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-1 text-[15px] font-bold text-on-surface">Horarios de atención</div>
-        <p className="mb-4 text-[12.5px] text-outline">Zona horaria America/Havana. Se muestra "Abierto/Cerrado ahora" según esto.</p>
-        <div className="flex flex-col gap-2.5">
-          {days.map((d) => (
-            <div key={d.dayOfWeek} className="flex items-center gap-3.5">
-              <span className="w-[90px] text-[13px] text-on-surface-variant">{d.name}</span>
-              <label className="flex items-center gap-1.5 text-[12px] text-outline">
-                <input type="checkbox" checked={!d.isClosed} onChange={(e) => updateDay(d.dayOfWeek, "isClosed", !e.target.checked)} />
-                Abierto
-              </label>
-              {!d.isClosed && (
-                <>
-                  <input
-                    type="time"
-                    value={d.opensAt}
-                    onChange={(e) => updateDay(d.dayOfWeek, "opensAt", e.target.value)}
-                    className="h-[38px] w-[110px] rounded border border-outline-variant px-2.5 text-center text-[13px] outline-none"
-                  />
-                  <span className="text-outline">—</span>
-                  <input
-                    type="time"
-                    value={d.closesAt}
-                    onChange={(e) => updateDay(d.dayOfWeek, "closesAt", e.target.value)}
-                    className="h-[38px] w-[110px] rounded border border-outline-variant px-2.5 text-center text-[13px] outline-none"
-                  />
-                </>
-              )}
+                      {/* Manage Municipalities Button for PROVINCE */}
+                      {province.type !== "STATE" && (
+                        <button
+                          onClick={() => setManagingProvince(province)}
+                          className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container/40 py-1.5 text-[11.5px] font-bold text-on-surface-variant hover:bg-surface-container transition"
+                        >
+                          <Settings2 className="h-3.5 w-3.5" /> Gestionar municipios
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {countryProvs.length === 0 && (
+                  <p className="col-span-2 text-[12.5px] text-outline italic py-2">
+                    Aún no tenés estados o provincias agregados para este país. Usa el formulario de arriba para agregar.
+                  </p>
+                )}
+              </div>
             </div>
           ))}
+
+          {countryCoverageTree.length === 0 && (
+            <div className="rounded-xl border border-dashed border-outline-variant p-6 text-center">
+              <MapPin className="mx-auto h-8 w-8 text-outline/40 mb-2" />
+              <p className="text-[13.5px] font-bold text-on-surface">Sin zonas de cobertura configuradas</p>
+              <p className="text-[12px] text-outline">Agregá los países y provincias/estados donde vendés arriba.</p>
+            </div>
+          )}
         </div>
       </div>
 
-      {isBusiness && (
-        <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-          <div className="mb-1 text-[15px] font-bold text-on-surface">Documento de IA (chatbot de tu tienda)</div>
-          <p className="mb-3.5 text-[12.5px] text-outline">
-            Función Business. Subí un documento privado (horarios, políticas de cambio, preguntas frecuentes, lo que quieras) — es lo que usa
-            el chatbot con IA de tu tienda pública para responder a tus clientes, además de tu catálogo de productos en vivo. El chatbot
-            aparece solo si tu tienda está verificada. Nunca se muestra el documento tal cual, solo lo usa como contexto.
-          </p>
-          <label className={`block rounded-md border-2 border-dashed border-outline-variant p-[22px] text-center ${uploadAiDocument.isPending ? "cursor-wait opacity-70" : "cursor-pointer"}`}>
-            <span className="text-[13px] text-outline">
-              {uploadAiDocument.isPending
-                ? "Subiendo..."
-                : vendor?.aiDocumentName
-                  ? `Documento actual: ${vendor.aiDocumentName} · `
-                  : "Arrastrá un .pdf o .txt · o "}
-              {!uploadAiDocument.isPending && <span className="font-semibold text-tertiary-accent">{vendor?.aiDocumentName ? "reemplazar archivo" : "elegí un archivo"}</span>}
-            </span>
+      {/* Responsable Legal */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 text-title-lg font-bold text-on-surface">Responsable del negocio</div>
+        <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y vos. Nunca se muestra en tu tienda pública.</p>
+        <div>
+          <Input
+            label="Nombre del responsable"
+            value={form.ownerName}
+            onChange={(e) => {
+              setForm({ ...form, ownerName: e.target.value });
+              setErrors((prev) => ({ ...prev, ownerName: undefined }));
+            }}
+            error={errors.ownerName?.[0]}
+          />
+        </div>
+      </div>
+
+      {/* Documento AI / KYC */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <FileText className="h-5 w-5 text-tertiary-accent" /> Documento de la tienda para la IA
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Cargá un documento PDF o de texto con información detallada sobre tus servicios o políticas. El asistente IA usará esta información únicamente para responder a tus clientes.
+        </p>
+
+        {vendor?.aiDocumentUrl ? (
+          <div className="flex items-center justify-between rounded-xl border border-surface-container-high bg-surface-container/30 p-4">
+            <div className="flex items-center gap-3">
+              <FileText className="h-6 w-6 text-tertiary-accent" />
+              <div>
+                <div className="text-[13.5px] font-bold text-on-surface">Documento cargado</div>
+                <div className="text-[11.5px] text-outline">Disponible para el Asistente IA de tu tienda</div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => {
+                openConfirm({
+                  title: "¿Eliminar documento para la IA?",
+                  message: "El documento ya no estará disponible para las respuestas automáticas a tus clientes.",
+                  confirmLabel: "Sí, eliminar",
+                  danger: true,
+                  onConfirm: () => {
+                    closeConfirm();
+                    removeAiDocument.mutate();
+                  },
+                });
+              }}
+              disabled={removeAiDocument.isPending}
+              className="rounded-xl text-error border-error/30 hover:bg-error/10"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Eliminar
+            </Button>
+          </div>
+        ) : (
+          <div>
             <input
               type="file"
-              accept=".pdf,.txt"
-              className="hidden"
-              disabled={uploadAiDocument.isPending}
+              accept=".pdf,.txt,.doc,.docx"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                e.target.value = "";
                 if (file) uploadAiDocument.mutate(file);
               }}
+              className="block w-full text-[13px] text-outline file:mr-4 file:rounded-xl file:border-0 file:bg-tertiary-accent/10 file:px-4 file:py-2.5 file:text-[12.5px] file:font-bold file:text-tertiary-accent hover:file:bg-tertiary-accent/20 cursor-pointer"
             />
-          </label>
-        </div>
-      )}
-
-      <div className="mb-5 flex items-center justify-between rounded-lg border border-error/30 bg-surface-container-lowest px-6 py-5">
-        <div>
-          <div className="text-[14px] font-bold text-on-surface">Plan {isBusiness ? "Business" : "Regular"}</div>
-          <div className="text-[12.5px] text-outline">
-            {isBusiness ? "2 500 CUP/mes · si vence, baja a Regular automáticamente" : "Gratis · hasta 20 productos, solo WhatsApp"}
           </div>
-        </div>
-        {isBusiness && (
-          <button
-            onClick={() => window.confirm("¿Cancelar el Plan Business? Volverás al Plan Regular (máx. 20 productos, solo WhatsApp).") && cancelPlan.mutate()}
-            className="rounded-md border border-error px-4 py-2.5 text-[13px] font-semibold text-error"
-          >
-            Cancelar plan
-          </button>
         )}
       </div>
 
-      <div className="mb-5 flex justify-end">
-        <Button size="lg" onClick={handleSaveAll} disabled={saveProfile.isPending || saveSchedule.isPending}>
-          {saveProfile.isPending || saveSchedule.isPending ? "Guardando..." : "Guardar cambios"}
-        </Button>
-      </div>
+      {/* Modals */}
+      {managingProvince && (
+        <ManageVendorMunicipalitiesModal
+          province={managingProvince}
+          vendorLocations={vendor?.locations}
+          onClose={() => setManagingProvince(null)}
+          isPending={syncProvince.isPending}
+          onSave={({ provinceId, municipalityIds }) => {
+            openConfirm({
+              title: `¿Guardar municipios en ${managingProvince.name}?`,
+              message: `Se actualizarán las zonas de entrega configuradas para ${managingProvince.name}.`,
+              confirmLabel: "Sí, guardar municipios",
+              onConfirm: () => {
+                closeConfirm();
+                syncProvince.mutate({ provinceId, municipalityIds });
+              },
+            });
+          }}
+        />
+      )}
 
-      <SuggestionBox />
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          danger={confirmModal.danger}
+          onConfirm={confirmModal.onConfirm}
+          onClose={closeConfirm}
+        />
+      )}
     </div>
   );
 }

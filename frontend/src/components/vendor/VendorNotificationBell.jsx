@@ -69,9 +69,14 @@ export function VendorNotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-[calc(100%+10px)] z-20 w-80 rounded-md border border-surface-container-high bg-surface-container-lowest py-1.5 shadow-lg">
-          <div className="border-b border-surface-container px-3.5 py-2.5 text-[13px] font-bold text-on-surface">Notificaciones</div>
-          <div className="max-h-80 overflow-y-auto">
+        <div className="absolute right-0 top-[calc(100%+10px)] z-20 w-80 rounded-xl border border-surface-container-high bg-surface-container-lowest shadow-xl">
+          <div className="flex items-center justify-between border-b border-surface-container px-3.5 py-2.5">
+            <span className="text-[13px] font-bold text-on-surface">Notificaciones</span>
+            {data?.notifications?.length > 0 && (
+              <span className="text-[11px] text-outline">{data.notifications.length} total</span>
+            )}
+          </div>
+          <div className="max-h-[420px] overflow-y-auto">
             {data?.notifications?.length ? (
               data.notifications.map((n) => (
                 <div key={n.id} className={`border-b border-surface-container px-3.5 py-3 last:border-b-0 ${!n.readAt ? "bg-secondary/5" : ""}`}>
@@ -81,7 +86,7 @@ export function VendorNotificationBell() {
                 </div>
               ))
             ) : (
-              <p className="px-3.5 py-4 text-center text-[12.5px] text-on-surface-variant">No tenés notificaciones todavía.</p>
+              <p className="px-3.5 py-6 text-center text-[12.5px] text-on-surface-variant">No tenés notificaciones todavía.</p>
             )}
           </div>
         </div>

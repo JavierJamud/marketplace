@@ -22,10 +22,12 @@ router.patch("/me/notifications/read", authenticate, requireRole("VENDOR"), vend
 router.post("/me/delivery-countries", authenticate, requireRole("VENDOR"), vendorsController.addMyDeliveryCountry);
 router.delete("/me/delivery-countries/:countryId", authenticate, requireRole("VENDOR"), vendorsController.removeMyDeliveryCountry);
 router.post("/me/locations", authenticate, requireRole("VENDOR"), vendorsController.addMyLocation);
+router.post("/me/locations/sync-province", authenticate, requireRole("VENDOR"), vendorsController.syncProvinceLocations);
 router.delete("/me/locations/:id", authenticate, requireRole("VENDOR"), vendorsController.removeMyLocation);
 router.get("/me/reviews", authenticate, requireRole("VENDOR"), reviewsController.listMyReviews);
 router.patch("/me/reviews/:id/reply", authenticate, requireRole("VENDOR"), reviewsController.replyToReview);
 router.post("/me/ai-document", authenticate, requireRole("VENDOR"), vendorAiDocUpload.single("document"), vendorsController.uploadAiDocument);
+router.delete("/me/ai-document", authenticate, requireRole("VENDOR"), vendorsController.removeAiDocument);
 router.post("/", authenticate, vendorsController.createVendor);
 router.post("/:id/engagement", authenticate, requireRole("CUSTOMER"), vendorsController.trackEngagement);
 // Bloque 21: sin login (el widget de chat es público) — rutas literales

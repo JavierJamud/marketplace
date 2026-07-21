@@ -22,7 +22,16 @@ export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assista
 // reemplazado por audio (transcripción, ver /ai/transcribe + lib/ai.js),
 // que llega acá como texto plano normal, sin ninguna rama especial.
 
-const HISTORY_LIMIT = 20;
+// Bloque 42 (optimización de tokens — bajado de 20 a 6): el modelo no
+// tiene memoria propia entre requests, así que ESTE historial es lo único
+// que evita que "se olvide" de un dato ya filtrado (zona, precio) o
+// repita una pregunta — pero mandar 20 turnos completos en CADA mensaje
+// de la charla es lo que más pesaba del prompt (confirmado en vivo: cuota
+// diaria de Groq agotada en ~8-10 mensajes). 6 turnos (~3 idas y vueltas)
+// alcanza para el filtrado progresivo actual sin arrastrar toda la charla
+// — si en pruebas reales resultara corto para algún caso, subir a 8, nunca
+// volver a 20.
+const HISTORY_LIMIT = 6;
 const CANDIDATE_LIMIT = 10;
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
@@ -684,6 +693,21 @@ const ORDER_STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido/Confirmado", 
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 const ORDER_CODE_REGEX = /\bZ-[A-Z0-9]{4,}\b/i;
 
+// Bloque 42 (optimización de tokens): los documentos que sube el admin
+// (AdminAssistant.jsx) son lo más caro del prompt y la mayoría de los
+// mensajes ("hola", "busco audífonos") no los necesitan para nada. Se
+// mandan SOLO cuando el mensaje ACTUAL toca un tema probable de esos
+// documentos (políticas/planes/verificación/horarios/FAQ) — detección
+// simple por palabras clave, mismo estilo que extractSearchTerms de
+// arriba. Duplicado a propósito respecto a chat.controller.js (mismo
+// criterio de siempre: los dos bots son hermanos independientes).
+const DOC_RELEVANCE_REGEX =
+  /pol[ií]tica|garant[ií]a|devoluci[oó]n|reembolso|env[ií]o|entrega|horario|atienden|abren|cierran|faq|preguntas frecuentes|reclamo|cambio|factura|t[eé]rminos|condiciones|privacidad|plan|verificaci[oó]n|verificad|suscripci[oó]n|vender|registr/i;
+
+function messageNeedsDocument(message) {
+  return DOC_RELEVANCE_REGEX.test(message);
+}
+
 async function resolveSessionEmail(userId) {
   if (!userId) return null;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
@@ -751,7 +775,14 @@ const ZEUDIN_REFERENCE = `CÓMO FUNCIONA ZEUDIN (referencia fija real — citá 
 - Verificación (badge): desde el panel del vendedor, sección "Verificación", subís una foto tuya y de tu documento de identidad. Un admin de ZeuDin revisa la documentación manualmente; si la aprueba, elegís cómo pagar la suscripción Business (tarjeta o transferencia CUP) y al confirmarse el pago la tienda queda verificada. El badge de "verificada" significa eso — una revisión de identidad real y suscripción activa, no una calificación de calidad de sus productos.
 - Medios de pago entre comprador y vendedor: cada tienda define los suyos (efectivo, transferencia, Zelle, USDT, tarjeta, etc. — ver DATOS DEL NEGOCIO/TIENDAS de cada una); ZeuDin no procesa esos pagos, solo cobra la suscripción Business al vendedor.`;
 
-async function loadAdminDocsParts() {
+// Bloque 42: los documentos admin (igual que el .txt/PDF de cada tienda en
+// chat.controller.js) solo viajan en el prompt cuando el mensaje ACTUAL
+// parece necesitarlos (preguntas de política/plan/verificación/etc. — ver
+// messageNeedsDocument) — un saludo o "quiero comprar X" no los carga. Corte
+// de 20000 a 5000 chars por el mismo motivo: son el ítem más caro del
+// prompt y casi nunca hace falta el documento completo para responder.
+async function loadAdminDocsParts(message) {
+  if (!messageNeedsDocument(message)) return [];
   const documents = await prisma.assistantDocument.findMany({ orderBy: { createdAt: "desc" } });
   const parts = [];
   for (const doc of documents) {
@@ -759,7 +790,7 @@ async function loadAdminDocsParts() {
       const filepath = join(ASSISTANT_DOC_DIR, doc.filename);
       if (doc.filename.toLowerCase().endsWith(".txt")) {
         const text = await readFile(filepath, "utf-8");
-        parts.push({ text: `\nDocumento "${doc.originalName}" (info de la plataforma):\n${text.slice(0, 20000)}` });
+        parts.push({ text: `\nDocumento "${doc.originalName}" (info de la plataforma):\n${text.slice(0, 5000)}` });
       } else if (doc.filename.toLowerCase().endsWith(".pdf")) {
         const buffer = await readFile(filepath);
         parts.push({ inlineData: { mimeType: "application/pdf", data: buffer.toString("base64") } });
@@ -782,7 +813,7 @@ async function loadAdminDocsParts() {
 // data real la resuelve el backend con consultas reales, el modelo solo
 // decide QUÉ PREGUNTAR o mostrar en base a eso, nunca inventa una zona o
 // stock que no esté en ese bloque.
-async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext) {
+async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext, message) {
   const fewShot = await buildFewShotBlock("GENERAL");
   const parts = [
     {
@@ -850,7 +881,7 @@ SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [], "removeFrom
 - Ejemplo — pregunta por UNA tienda puntual (la nombra o queda una sola clara): preguntan "¿tienen la tienda TecnoHabana?" y "TIENDAS" lista esa tienda como [1] → {"text": "Sí, tenemos TecnoHabana — mirá su ficha.", "productIds": [], "vendorIds": ["1"], "showAllStoresButton": false, "suggestedFollowUps": ["Ver sus productos", "¿Está verificada?", "Buscar otra tienda"]}`,
     },
   ];
-  parts.push(...(await loadAdminDocsParts()));
+  parts.push(...(await loadAdminDocsParts(message)));
   return parts;
 }
 
@@ -924,7 +955,7 @@ export async function postMarketplaceChatMessage(req, res) {
       onlyVerified: wantsVerifiedOnly(message),
     });
 
-    const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches));
+    const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message);
     ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
   } catch (err) {
     await logError({

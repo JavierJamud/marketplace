@@ -2,6 +2,9 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
+import { listNvidiaModels } from "../lib/nvidia.js";
+import { listGroqModels } from "../lib/groq.js";
+import { listGeminiModels } from "../lib/gemini.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
 // Stripe, lo que se agregue después) — primeros 4 + últimos 4 caracteres a
@@ -160,6 +163,28 @@ export async function toggleIntegration(req, res) {
 
   const updated = await prisma.integration.update({ where: { id }, data: { isActive } });
   res.json({ integration: { id: updated.id, name: updated.name, isActive: updated.isActive } });
+}
+
+// Bloque 44 (pedido explícito — bug real que esto hubiera evitado: un
+// typo en el nombre de modelo tipeado a mano tumbó Groq con 404): en vez
+// de que el admin escriba el nombre del modelo a mano, se listan los
+// modelos REALES que la key ya guardada puede usar — AdminIntegrations.jsx
+// los muestra como <select>. Lee la key aunque el proveedor esté
+// "Inactivo" (a diferencia de getDecryptedCredential): el admin puede
+// querer ver qué modelos hay ANTES de activarlo.
+const MODEL_LISTERS = { nvidia: listNvidiaModels, groq: listGroqModels, gemini: listGeminiModels };
+
+export async function listProviderModels(req, res) {
+  const { name } = req.params;
+  const lister = MODEL_LISTERS[name];
+  if (!lister) throw new AppError("Este proveedor no tiene modelos listables.", 400);
+
+  const integration = await prisma.integration.findUnique({ where: { name } });
+  const apiKey = integration ? decryptIntegration(integration) : null;
+  if (!apiKey) throw new AppError("Guardá la clave de este proveedor primero.", 400);
+
+  const models = await lister({ apiKey });
+  res.json({ models });
 }
 
 // Uso interno (otros servicios, ej. campaigns.controller.js) — nunca expuesto
