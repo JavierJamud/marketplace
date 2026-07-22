@@ -1,3 +1,5 @@
+import { useStaticPage } from "../../lib/useStaticPage.js";
+
 const SECTIONS = [
   {
     title: "1. Qué datos recopilamos",
@@ -30,6 +32,16 @@ const SECTIONS = [
 ];
 
 export default function Privacy() {
+  const { htmlContent } = useStaticPage("privacidad");
+
+  if (htmlContent) {
+    return (
+      <div className="container-app max-w-[820px] py-14">
+        <div className="prose-static" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+      </div>
+    );
+  }
+
   return (
     <div className="container-app max-w-[820px] py-14">
       <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Legal</p>

@@ -2,11 +2,12 @@ import { z } from "zod";
 import { generateDescription, transcribeAudio } from "../lib/ai.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { AppError } from "../utils/AppError.js";
+import { prisma } from "../lib/prisma.js";
 
 const generateSchema = z.object({
-  kind: z.enum(["product", "store"]),
+  kind: z.enum(["product", "store", "warranty"]),
   // Obligatorio: la IA "mejora" lo que el vendedor ya escribió, nunca
-  // inventa un producto/tienda desde cero (regla de negocio del bloque).
+  // inventa un producto/tienda/garantía desde cero (regla de negocio del bloque).
   currentText: z.string().min(5, "Escribí primero una breve descripción para que la IA la pueda mejorar."),
   productName: z.string().optional(),
 });
@@ -19,7 +20,16 @@ export async function generateProductOrStoreDescription(req, res) {
   const { kind, currentText, productName } = generateSchema.parse(req.body);
   const vendor = await resolveMyVendor(req.user.id);
 
-  const description = await generateDescription(kind, { currentText, vendorName: vendor.companyName, productName });
+  // Solo el prompt de garantía usa el rubro — resolveMyVendor() se llama
+  // desde ~28 puntos del backend sin include, así que se resuelve acá con
+  // una consulta chica en vez de agregar el join a todos esos call sites.
+  let businessCategoryName;
+  if (kind === "warranty" && vendor.businessCategoryId) {
+    const category = await prisma.businessCategory.findUnique({ where: { id: vendor.businessCategoryId }, select: { name: true } });
+    businessCategoryName = category?.name;
+  }
+
+  const description = await generateDescription(kind, { currentText, vendorName: vendor.companyName, productName, businessCategoryName });
   res.json({ description });
 }
 

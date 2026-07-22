@@ -29,3 +29,159 @@
     @apply mx-auto w-full max-w-content px-4 sm:px-gutter;
   }
 }
+
+/* Bloque 48: estilos por defecto para el HTML libre que guarda el admin en
+   AdminPages.jsx (Términos/Privacidad/FAQ/Ayuda/Contacto) — sin esto, el
+   reset base de Tailwind deja h1/p/ul sin ningún estilo visual. Colores
+   tomados de los mismos tokens que el resto del sitio. */
+.prose-static h1,
+.prose-static h2,
+.prose-static h3 {
+  font-family: theme("fontFamily.display");
+  font-weight: 800;
+  color: theme("colors.on-surface.DEFAULT");
+  margin: 1.4em 0 0.5em;
+}
+.prose-static h1 {
+  font-size: 1.75rem;
+}
+.prose-static h2 {
+  font-size: 1.35rem;
+}
+.prose-static h3 {
+  font-size: 1.1rem;
+}
+.prose-static p {
+  margin: 0.75em 0;
+  line-height: 1.6;
+  color: theme("colors.on-surface.variant");
+}
+.prose-static ul,
+.prose-static ol {
+  margin: 0.75em 0;
+  padding-left: 1.4em;
+  color: theme("colors.on-surface.variant");
+}
+.prose-static li {
+  margin: 0.35em 0;
+}
+.prose-static a {
+  color: theme("colors.tertiary.accent");
+  text-decoration: underline;
+}
+.prose-static strong {
+  color: theme("colors.on-surface.DEFAULT");
+}
+
+/* Bloque 48 (ajustado a pedido explícito post-entrega): botón flotante del
+   chatbot — 3 divs (left-eye/right-eye/mouth) que por defecto forman 3
+   puntos en fila, y se reacomodan con CSS puro en hover/click para armar
+   una cara. Más chico que la primera versión (60px, no 80px), navy de
+   marca (primary-container #232f3e, el mismo del header — el dueño del
+   negocio pidió cambiarlo del teal original) y una transición más rápida
+   (0.2s, no 0.3s) para que se sienta más "responsivo" al touch/click. La
+   entrada (animate-fade-up, ver ChatFaceButton.jsx) es la misma animación
+   que ya usa la burbuja de notificación de al lado, para que combinen.
+   Vive fuera de cualquier @layer: no hay ninguna clase de Tailwind con
+   estos nombres, así que no hace falta pelear el orden de capas. */
+.chat-face-btn {
+  box-sizing: border-box;
+  width: 60px;
+  height: 60px;
+  background-color: #232f3e;
+  box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.24);
+  border-radius: 100px 100px 0 100px;
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  transition: all ease-in-out 0.2s;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+.chat-face-btn > div {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+.chat-face-btn div div {
+  width: 9px;
+  height: 9px;
+  background-color: #fff;
+  border-radius: 100px;
+  transition: all ease-in-out 0.2s;
+  position: absolute;
+}
+.chat-face-btn .chat-face-left-eye {
+  top: 50%;
+  left: 11px;
+  transform: translateY(-50%);
+}
+.chat-face-btn .chat-face-right-eye {
+  top: 50%;
+  right: 11px;
+  transform: translateY(-50%);
+}
+.chat-face-btn .chat-face-mouth {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotateZ(0.001deg);
+}
+
+/* Hover — solo tablet/desktop, chat cerrado (el botón deja de renderizarse
+   en mobile mientras el panel está abierto, ver el widget). */
+@media screen and (min-width: 1000px) {
+  .chat-face-btn:hover {
+    transform: translateY(-10px);
+    box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.45);
+  }
+  .chat-face-btn:hover .chat-face-left-eye {
+    top: 35%;
+    left: 15px;
+  }
+  .chat-face-btn:hover .chat-face-right-eye {
+    top: 35%;
+    right: 15px;
+  }
+  .chat-face-btn:hover .chat-face-mouth {
+    width: 30px;
+    height: 15px;
+    border-radius: 0 0 100px 100px;
+    top: 65%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* Abierto — clase .active cuando el chat está abierto (isOpen === true). */
+.chat-face-btn.active .chat-face-left-eye {
+  top: 28%;
+  left: 11px;
+}
+.chat-face-btn.active .chat-face-right-eye {
+  top: 35%;
+  right: 21px;
+}
+.chat-face-btn.active .chat-face-mouth {
+  width: 26px;
+  height: 14px;
+  border-radius: 0 0 100px 100px;
+  top: 60%;
+  left: 35%;
+  transform: translate(-50%, -50%) rotateZ(15deg);
+}
+
+@media screen and (max-width: 450px) {
+  .chat-face-btn {
+    width: 52px;
+    height: 52px;
+  }
+  .chat-face-btn > div {
+    width: 52px;
+    height: 52px;
+  }
+  .chat-face-btn > div div {
+    width: 7px;
+    height: 7px;
+  }
+}

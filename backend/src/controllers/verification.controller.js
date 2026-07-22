@@ -261,7 +261,19 @@ export async function getVerificationFile(req, res) {
     type === "selfie" ? vendor.verification.selfieUrl : type === "proof" ? vendor.verification.paymentProofUrl : vendor.verification.idPhotoFrontUrl;
   if (!filename) throw new AppError("Documento no encontrado.", 404);
 
-  const buffer = await readFile(join(KYC_UPLOAD_DIR, filename));
+  // Encontrado durante verificación en vivo del Bloque 49 (VendorProfile.jsx
+  // pasó a ser el segundo consumidor de este endpoint, no solo
+  // AdminVerifications.jsx): algunas tiendas sembradas tienen filenames de
+  // placeholder en la DB (ej. "seed-placeholder-selfie.jpg") que nunca
+  // existieron de verdad en disco — sin este catch, ENOENT quedaba sin
+  // capturar y Express lo convertía en un 500 genérico en vez de un 404 con
+  // mensaje claro (que el frontend (PrivateDocument.jsx) ya maneja bien).
+  let buffer;
+  try {
+    buffer = await readFile(join(KYC_UPLOAD_DIR, filename));
+  } catch {
+    throw new AppError("Documento no encontrado.", 404);
+  }
   const ext = filename.split(".").pop()?.toLowerCase();
   const contentType = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", pdf: "application/pdf" }[ext] ?? "application/octet-stream";
   res.setHeader("Content-Type", contentType);

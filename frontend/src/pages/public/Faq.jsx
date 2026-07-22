@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
+import { useStaticPage } from "../../lib/useStaticPage.js";
 
 const CUSTOMER_FAQS = [
   {
@@ -64,8 +66,20 @@ function FaqItem({ q, a }) {
 }
 
 export default function Faq() {
-  const [tab, setTab] = useState("customer");
+  const [searchParams] = useSearchParams();
+  // Bloque 48: Ayuda.jsx linkea acá con ?tab=vendor para las categorías de
+  // vendedor — cualquier otro valor (o ninguno) cae en "customer".
+  const [tab, setTab] = useState(searchParams.get("tab") === "vendor" ? "vendor" : "customer");
   const faqs = tab === "customer" ? CUSTOMER_FAQS : VENDOR_FAQS;
+  const { htmlContent } = useStaticPage("faq");
+
+  if (htmlContent) {
+    return (
+      <div className="container-app max-w-[820px] py-14">
+        <div className="prose-static" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+      </div>
+    );
+  }
 
   return (
     <div className="container-app max-w-[820px] py-14">

@@ -24,6 +24,7 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^7.1.0",
     "image-size": "^2.0.2",
+    "isomorphic-dompurify": "^3.19.0",
     "jsonwebtoken": "^9.0.2",
     "libphonenumber-js": "^1.13.8",
     "lucide-react": "^1.24.0",

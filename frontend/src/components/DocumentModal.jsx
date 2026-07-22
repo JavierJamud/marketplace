@@ -25,14 +25,16 @@ function downloadBlob(blob, filename) {
 // cliente + acciones de descargar/enviar — kind="warranty" suma selección
 // de productos del pedido y días de vigencia. Se genera sobre un pedido ya
 // Vendido (confirmOrderSale ya corrió), nunca sobre uno Pendiente.
-export function DocumentModal({ kind, order, onClose }) {
+export function DocumentModal({ kind, order, vendor, onClose }) {
   const isWarranty = kind === "warranty";
   const [customerName, setCustomerName] = useState(order.customerName ?? "");
   const [customerIdNumber, setCustomerIdNumber] = useState("");
   const [customerPhone, setCustomerPhone] = useState(order.customerPhone ?? "");
   const [sendTo, setSendTo] = useState(order.customerEmail ?? "");
   const [selectedItemIds, setSelectedItemIds] = useState(order.items.map((i) => i.id));
-  const [warrantyDays, setWarrantyDays] = useState(90);
+  // Precargado desde la sección "Garantías" de VendorSettings.jsx — sigue
+  // siendo editable por certificado, esto es solo el punto de partida.
+  const [warrantyDays, setWarrantyDays] = useState(vendor?.warrantyDefaultDays ?? 90);
 
   const docLabel = isWarranty ? "garantía" : "factura";
   const endpoint = isWarranty ? "warranty" : "invoice";

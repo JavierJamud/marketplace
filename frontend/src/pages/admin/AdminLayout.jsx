@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { api } from "../../lib/api.js";
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount" },
   { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2 },
   { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags },
+  { to: "/admin/paginas", label: "Páginas", icon: FileText },
   { to: "/admin/perfil", label: "Mi perfil", icon: UserCog },
 ];
 

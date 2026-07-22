@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { CreditCard, Landmark, Bot, Clock } from "lucide-react";
+import { CreditCard, Landmark, Bot, Clock, X, Plus, ListChecks } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { Button } from "../../components/ui/Button.jsx";
 
 const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark };
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP" };
@@ -20,6 +21,111 @@ function fmtUsd(n) {
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Lista de chips de texto libre — mismo patrón que "Métodos de pago" en
+// VendorSettings.jsx (~línea 405-443), acá sin la mitad de catálogo fijo
+// porque no hay un set predefinido de features de plan.
+function FeatureChipList({ items, onChange }) {
+  const [draft, setDraft] = useState("");
+
+  function addItem() {
+    const value = draft.trim();
+    if (!value || items.includes(value)) return;
+    onChange([...items, value]);
+    setDraft("");
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap gap-2">
+        {items.map((item) => (
+          <span
+            key={item}
+            className="flex items-center gap-1.5 rounded-full border border-tertiary-accent bg-tertiary-accent/10 px-3.5 py-2 text-[12.5px] font-semibold text-tertiary-accent"
+          >
+            {item}
+            <button type="button" onClick={() => onChange(items.filter((x) => x !== item))}>
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        {items.length === 0 && <span className="text-[12px] italic text-outline">Sin puntos todavía.</span>}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addItem();
+            }
+          }}
+          placeholder="Ej.: Productos ilimitados..."
+          className="h-10 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+        />
+        <Button variant="outline" className="rounded-lg" size="sm" disabled={!draft.trim()} onClick={addItem}>
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Qué incluye cada plan (Regular/Business) — se refleja en
+// VendorVerification.jsx/VendorSubscription.jsx vía GET /settings. Antes
+// era un array hardcodeado en frontend/src/lib/verificationMeta.js; ahora
+// vive en SiteSettings y el admin lo edita acá.
+function PlanFeaturesCard() {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const [regular, setRegular] = useState([]);
+  const [business, setBusiness] = useState([]);
+
+  useEffect(() => {
+    if (!settings) return;
+    setRegular(settings.planFeaturesRegular ?? []);
+    setBusiness(settings.planFeaturesBusiness ?? []);
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (await api.patch("/admin/settings/plan-features", { planFeaturesRegular: regular, planFeaturesBusiness: business })).data,
+    onSuccess: () => {
+      toast.success("Contenido de los planes actualizado.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  return (
+    <div className="mb-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <ListChecks className="h-5 w-5 text-tertiary-accent" /> Qué incluye cada plan
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">
+        Estos puntos son los que ven los vendedores en Verificación y Suscripción de su panel — se actualizan ahí apenas
+        los guardás acá.
+      </p>
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div>
+          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Plan Regular</div>
+          <FeatureChipList items={regular} onChange={setRegular} />
+        </div>
+        <div>
+          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Plan Business</div>
+          <FeatureChipList items={business} onChange={setBusiness} />
+        </div>
+      </div>
+      <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
+        {save.isPending ? "Guardando..." : "Guardar cambios"}
+      </Button>
+    </div>
+  );
 }
 
 export default function AdminSubscriptions() {
@@ -72,6 +178,8 @@ export default function AdminSubscriptions() {
       <div className="mb-6 rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
         💡 Todavía no hay cobro recurrente automático (Stripe cobra una vez, al verificarse) — "Activa"/"Pago pendiente"/"Rechazada" reflejan el estado real de cada tienda, y "Revocar" es una decisión manual del admin, nunca un vencimiento solo.
       </div>
+
+      <PlanFeaturesCard />
 
       <div className="mb-6 grid grid-cols-2 gap-[18px] lg:grid-cols-4">
         {metrics.map((m) => (

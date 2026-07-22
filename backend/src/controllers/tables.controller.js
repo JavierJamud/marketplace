@@ -18,9 +18,13 @@ export async function listMyTables(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   if (!vendor.isRestaurant) throw new AppError("Esta función es solo para tiendas tipo restaurante.", 403);
 
+  // "Ocupada" ya no es "todavía no llegó a Listo" — el cliente puede seguir
+  // en la mesa después de que el pedido está Listo (comiendo, esperando la
+  // cuenta). La mesa recién se libera cuando el vendedor marca a mano que
+  // el cliente pagó y se fue (ver clearTableOrder).
   const tables = await prisma.table.findMany({
     where: { vendorId: vendor.id },
-    include: { tableOrders: { where: { kitchenStatus: { not: "READY" } }, orderBy: { createdAt: "desc" } } },
+    include: { tableOrders: { where: { clearedAt: null }, orderBy: { createdAt: "desc" } } },
     orderBy: { tableNumber: "asc" },
   });
   res.json({ tables });
@@ -88,6 +92,25 @@ export async function updateKitchenStatus(req, res) {
     kitchenStatus: status,
   });
 
+  res.json({ tableOrder: updated });
+}
+
+// El cliente ya pagó y se retiró de la mesa — recién acá se libera de
+// verdad (ver listMyTables). Solo se puede marcar sobre un pedido que ya
+// llegó a Listo (no tiene sentido "liberar" una mesa con comida sin
+// terminar de preparar).
+export async function clearTableOrder(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  const { tableOrderId } = req.params;
+
+  const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
+  if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
+  if (tableOrder.kitchenStatus !== "READY") {
+    throw new AppError("Solo se puede liberar una mesa con el pedido en estado Listo.", 400);
+  }
+  if (tableOrder.clearedAt) throw new AppError("Esta mesa ya fue liberada.", 409);
+
+  const updated = await prisma.tableOrder.update({ where: { id: tableOrderId }, data: { clearedAt: new Date() } });
   res.json({ tableOrder: updated });
 }
 

@@ -232,6 +232,11 @@ const updateVendorSchema = z.object({
   // Bloque 18: el vendedor puede cambiar su tipo de negocio después del
   // registro desde VendorSettings.jsx.
   businessCategoryId: z.string().optional(),
+  // Sección "Garantías" — ver nota en schema.prisma. Opcionales acá (mismo
+  // criterio que ownerIdNumber/companyAddress) porque el gate real que
+  // importa es invoices.controller.js justo antes de generar el PDF.
+  warrantyTerms: z.string().trim().min(1).optional().nullable(),
+  warrantyDefaultDays: z.number().int().positive().optional().nullable(),
 });
 
 export async function updateMyVendor(req, res) {
@@ -279,6 +284,8 @@ export async function updateMyVendor(req, res) {
       acceptedPaymentMethods: data.acceptedPaymentMethods,
       acceptedCurrencies: data.acceptedCurrencies,
       businessCategoryId: data.businessCategoryId,
+      warrantyTerms: data.warrantyTerms,
+      warrantyDefaultDays: data.warrantyDefaultDays,
     },
   });
 

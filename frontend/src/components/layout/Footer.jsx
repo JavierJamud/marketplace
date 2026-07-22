@@ -29,27 +29,27 @@ export function Footer() {
           <div className="mb-4 text-label-md font-bold text-white">Vender</div>
           <div className="flex flex-col gap-2.5 text-[13.5px] text-white/55">
             <Link to="/vender" className="hover:text-white">Registrarse gratis</Link>
-            <Link to="/vendedor" className="hover:text-white">Panel de vendedor</Link>
             <Link to="/vender" className="hover:text-white">Planes y verificación</Link>
           </div>
         </div>
+        {/* Bloque 48 (pedido explícito): sin ningún link a /admin ni /vendedor
+            — un footer público de cara al cliente no lleva accesos a
+            paneles internos. Pasa a ser "Ayuda y legal" con las 5 páginas
+            (las 3 de siempre + Centro de ayuda/Contacto, nuevas). */}
         <div>
-          <div className="mb-4 text-label-md font-bold text-white">ZeuDin</div>
+          <div className="mb-4 text-label-md font-bold text-white">Ayuda y legal</div>
           <div className="flex flex-col gap-2.5 text-[13.5px] text-white/55">
-            <Link to="/admin" className="hover:text-white">Panel admin</Link>
-            <Link to="/cuenta" className="hover:text-white">Ayuda</Link>
-            <Link to="/cuenta" className="hover:text-white">Contacto</Link>
+            <Link to="/faq" className="hover:text-white">Preguntas frecuentes</Link>
+            <Link to="/ayuda" className="hover:text-white">Centro de ayuda</Link>
+            <Link to="/contacto" className="hover:text-white">Contacto</Link>
+            <Link to="/terminos" className="hover:text-white">Términos y condiciones</Link>
+            <Link to="/privacidad" className="hover:text-white">Política de privacidad</Link>
           </div>
         </div>
       </div>
       <div className="border-t border-white/10">
-        <div className="container-app flex flex-col gap-3 py-5 text-[12.5px] text-white/40 sm:flex-row sm:items-center sm:justify-between">
-          <span>© {new Date().getFullYear()} ZeuDin Group LLC. Marketplace multivendedor · Cuba.</span>
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-            <Link to="/terminos" className="hover:text-white/70">Términos y condiciones</Link>
-            <Link to="/privacidad" className="hover:text-white/70">Política de privacidad</Link>
-            <Link to="/faq" className="hover:text-white/70">Preguntas frecuentes</Link>
-          </div>
+        <div className="container-app py-5 text-[12.5px] text-white/40">
+          © {new Date().getFullYear()} ZeuDin Group LLC. Marketplace multivendedor · Cuba.
         </div>
       </div>
     </footer>

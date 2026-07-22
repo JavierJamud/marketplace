@@ -147,12 +147,14 @@ export default {
           "60%": { transform: "scale(1.15)", opacity: "1" },
           "100%": { transform: "scale(1)", opacity: "1" },
         },
-        // Bloque 40 (pedido explícito): botón flotante del asistente
-        // "animado pero no tan sobresaliente" — una respiración lenta y
-        // chica (3s, solo hasta 1.05), nada llamativo como un rebote o giro.
-        "assistant-breathe": {
-          "0%, 100%": { transform: "scale(1)" },
-          "50%": { transform: "scale(1.05)" },
+        // Bloque 48: marquee continuo de categorías del Home — la lista se
+        // duplica una vez ([...cats, ...cats]) y el track anima de 0% a
+        // -50%; como la segunda mitad es idéntica a la primera, el reinicio
+        // del keyframe cae sobre contenido visualmente igual → loop
+        // perfectamente continuo, nunca "vuelve atrás" ni salta.
+        marquee: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
         },
       },
       animation: {
@@ -164,7 +166,7 @@ export default {
         "overlay-in": "overlay-in 0.2s ease-out",
         "check-pop": "check-pop 0.5s cubic-bezier(0.34,1.56,0.64,1)",
         "fade-up": "fade-up 0.45s ease-out",
-        "assistant-breathe": "assistant-breathe 3s ease-in-out infinite",
+        marquee: "marquee 28s linear infinite",
       },
     },
   },

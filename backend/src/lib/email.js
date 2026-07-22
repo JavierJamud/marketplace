@@ -10,6 +10,7 @@ import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
 import { tableOrderStatusEmail } from "../templates/tableOrderStatus.js";
 import { twoFactorCodeEmail } from "../templates/twoFactorCode.js";
 import { adminDirectEmail } from "../templates/adminDirectEmail.js";
+import { contactMessageEmail } from "../templates/contactMessage.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -156,5 +157,18 @@ export async function sendAdminDirectEmail({ to, subject, message, recipientName
   const { html } = adminDirectEmail({ subject, message, recipientName });
   const result = await sendViaResend({ to, subject, html });
   await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "MANUAL", to, subject, result });
+  return result;
+}
+
+// Bloque 48: formulario público de /contacto — el resultado SÍ importa (el
+// controller responde error al visitante si Resend falla, mismo criterio
+// que sendManualOrderEmail), porque a diferencia de un email best-effort
+// disparado después de una acción ya completada, acá el envío ES la acción
+// completa: si falla, el mensaje del visitante se pierde sin que nadie del
+// equipo se entere.
+export async function sendContactMessageEmail({ to, name, email, message }) {
+  const { subject, html } = contactMessageEmail({ name, email, message });
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "CONTACT_MESSAGE", to, subject, result });
   return result;
 }

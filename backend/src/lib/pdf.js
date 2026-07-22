@@ -232,12 +232,21 @@ export function generateWarrantyPdf({ vendor, order, items, warrantyDays, custom
       .text(
         `${vendor.companyName} garantiza el/los producto(s) detallados arriba por un período de ${warrantyDays} día(s) corridos ` +
           `a partir de la fecha de emisión de este certificado.\n\n` +
-          `Vigencia: desde el ${fmtDate(startDate)} hasta el ${fmtDate(endDate)}.\n\n` +
-          `Esta garantía cubre defectos de fabricación bajo uso normal del producto. No cubre daños por mal uso, ` +
-          `modificaciones no autorizadas, ni desgaste natural. Para hacer válida la garantía, presentar este certificado ` +
-          `junto con el producto ante ${vendor.companyName} (WhatsApp: ${vendor.whatsapp}).`,
+          `Vigencia: desde el ${fmtDate(startDate)} hasta el ${fmtDate(endDate)}.`,
         { width: doc.page.width - PAGE_MARGIN * 2, lineGap: 3 }
       );
+
+    // Términos y condiciones propios del negocio (sección "Garantías" de
+    // VendorSettings.jsx) — invoices.controller.js ya exige que esto exista
+    // antes de generar el certificado, así que acá siempre viene con texto
+    // real, nunca el hueco que antes quedaba con un párrafo genérico igual
+    // para todas las tiendas.
+    doc.moveDown(0.6);
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .fillColor("#333333")
+      .text(vendor.warrantyTerms, { width: doc.page.width - PAGE_MARGIN * 2, lineGap: 3 });
 
     drawFooter(doc);
   });

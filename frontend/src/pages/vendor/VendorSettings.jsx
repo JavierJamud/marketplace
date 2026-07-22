@@ -5,10 +5,11 @@ import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet } from "lucide-react";
+import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck } from "lucide-react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { CURRENCIES } from "../../lib/currencies.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 
 const DAY_ROWS = [
   { dayOfWeek: 1, name: "Lunes" },
@@ -139,12 +140,13 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
 export default function VendorSettings() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
-    ownerName: "",
     ownerIdNumber: "",
     companyAddress: "",
     orderDestination: "WHATSAPP",
     acceptedPaymentMethods: [],
     acceptedCurrencies: ["CUP"],
+    warrantyTerms: "",
+    warrantyDefaultDays: "",
   });
   const [days, setDays] = useState(DAY_ROWS.map((d) => ({ ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false })));
   const [customMethod, setCustomMethod] = useState("");
@@ -191,12 +193,13 @@ export default function VendorSettings() {
   useEffect(() => {
     if (!vendor) return;
     setForm({
-      ownerName: vendor.ownerName ?? "",
       ownerIdNumber: vendor.ownerIdNumber ?? "",
       companyAddress: vendor.companyAddress ?? "",
       orderDestination: vendor.orderDestination ?? "WHATSAPP",
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
       acceptedCurrencies: vendor.acceptedCurrencies ?? ["CUP"],
+      warrantyTerms: vendor.warrantyTerms ?? "",
+      warrantyDefaultDays: vendor.warrantyDefaultDays != null ? String(vendor.warrantyDefaultDays) : "",
     });
     if (vendor.schedules?.length) {
       setDays(
@@ -209,7 +212,17 @@ export default function VendorSettings() {
   }, [vendor]);
 
   const saveProfile = useMutation({
-    mutationFn: async () => (await api.patch("/vendors/me", form)).data,
+    mutationFn: async () =>
+      (
+        await api.patch("/vendors/me", {
+          ...form,
+          // "" es el estado inicial de un input controlado sin valor todavía
+          // — mandarlo tal cual rompe el zod .min(1) del backend (a
+          // diferencia de no mandar la clave). null sí es válido (.nullable()).
+          warrantyTerms: form.warrantyTerms.trim() || null,
+          warrantyDefaultDays: form.warrantyDefaultDays === "" ? null : Number(form.warrantyDefaultDays),
+        })
+      ).data,
   });
 
   const uploadAiDocument = useMutation({
@@ -702,20 +715,39 @@ export default function VendorSettings() {
         </div>
       </div>
 
-      {/* Responsable Legal */}
+      {/* Garantías */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 text-title-lg font-bold text-on-surface">Responsable del negocio</div>
-        <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y vos. Nunca se muestra en tu tienda pública.</p>
-        <div>
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Garantías
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Se muestran a tus clientes en cada certificado de garantía que generes desde Pedidos. Mientras esta sección no
+          esté completa, no vas a poder generar ni enviar garantías.
+        </p>
+        <div className="flex flex-col gap-3">
           <Input
-            label="Nombre del responsable"
-            value={form.ownerName}
-            onChange={(e) => {
-              setForm({ ...form, ownerName: e.target.value });
-              setErrors((prev) => ({ ...prev, ownerName: undefined }));
-            }}
-            error={errors.ownerName?.[0]}
+            label="Días de garantía por defecto"
+            type="number"
+            min={1}
+            value={form.warrantyDefaultDays}
+            onChange={(e) => setForm({ ...form, warrantyDefaultDays: e.target.value })}
+            placeholder="90"
           />
+          <div>
+            <span className="mb-1.5 block text-label-md text-on-surface-variant">Términos y condiciones de garantía</span>
+            <AiGenerateButton
+              kind="warranty"
+              currentText={form.warrantyTerms}
+              onGenerated={(text) => setForm((f) => ({ ...f, warrantyTerms: text }))}
+            />
+            <textarea
+              value={form.warrantyTerms}
+              onChange={(e) => setForm({ ...form, warrantyTerms: e.target.value })}
+              rows={5}
+              placeholder="Ej.: la garantía cubre defectos de fabricación bajo uso normal. No cubre daños por mal uso, modificaciones no autorizadas ni desgaste natural. Para hacerla válida, presentar este certificado junto con el producto..."
+              className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-3.5 text-[13px] outline-none focus:border-tertiary-accent"
+            />
+          </div>
         </div>
       </div>
 

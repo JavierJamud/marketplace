@@ -27,6 +27,17 @@ export default function VendorSubscription() {
     queryFn: async () => (await api.get("/verification/me")).data.verification,
   });
 
+  // Qué incluye cada plan — editable por el admin desde AdminSubscriptions.jsx
+  // (ver PlanFeaturesCard), ya no un array hardcodeado en verificationMeta.js.
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const mergedPlans = PLANS.map((p) => ({
+    ...p,
+    features: settings ? (p.id === "regular" ? settings.planFeaturesRegular : settings.planFeaturesBusiness) : p.features,
+  }));
+
   const cancelPlan = useMutation({
     mutationFn: async () => (await api.patch("/vendors/me", { planType: "REGULAR" })).data,
     onSuccess: () => {
@@ -104,7 +115,7 @@ export default function VendorSubscription() {
           </div>
 
           <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {PLANS.map((pl) => (
+            {mergedPlans.map((pl) => (
               <div key={pl.id} className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5">
                 <div className="font-display text-title-lg text-on-surface">{pl.name}</div>
                 <div className="mb-3 mt-1 font-display text-xl font-extrabold text-on-surface">{pl.priceLabel}</div>

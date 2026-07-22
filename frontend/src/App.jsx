@@ -17,6 +17,8 @@ import TableOrder from "./pages/public/TableOrder.jsx";
 import Terms from "./pages/public/Terms.jsx";
 import Privacy from "./pages/public/Privacy.jsx";
 import Faq from "./pages/public/Faq.jsx";
+import Ayuda from "./pages/public/Ayuda.jsx";
+import Contacto from "./pages/public/Contacto.jsx";
 import NotFound from "./pages/public/NotFound.jsx";
 
 // Cliente
@@ -53,6 +55,7 @@ import AdminChat from "./pages/admin/AdminChat.jsx";
 import AdminLocations from "./pages/admin/AdminLocations.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminProfile from "./pages/admin/AdminProfile.jsx";
+import AdminPages from "./pages/admin/AdminPages.jsx";
 
 export default function App() {
   return (
@@ -74,6 +77,8 @@ export default function App() {
         <Route path="/terminos" element={<Terms />} />
         <Route path="/privacidad" element={<Privacy />} />
         <Route path="/faq" element={<Faq />} />
+        <Route path="/ayuda" element={<Ayuda />} />
+        <Route path="/contacto" element={<Contacto />} />
       </Route>
 
       {/* Bloque 20: /cuenta pasa a ser una pantalla propia de viewport
@@ -113,6 +118,7 @@ export default function App() {
         <Route path="errores" element={<AdminErrors />} />
         <Route path="ubicaciones" element={<AdminLocations />} />
         <Route path="categorias" element={<AdminCategories />} />
+        <Route path="paginas" element={<AdminPages />} />
         <Route path="perfil" element={<AdminProfile />} />
       </Route>
 

@@ -10,6 +10,7 @@ import * as businessCategoriesController from "../controllers/businessCategories
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as errorLogsController from "../controllers/errorLogs.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
+import * as staticPagesController from "../controllers/staticPages.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { siteUpload } from "../middleware/siteUpload.js";
@@ -90,6 +91,7 @@ router.delete("/business-categories/:id", businessCategoriesController.deleteBus
 
 router.post("/settings/hero-image", siteUpload.single("image"), settingsController.updateHeroImage);
 router.patch("/settings/plan-limits", settingsController.updatePlanLimits);
+router.patch("/settings/plan-features", settingsController.updatePlanFeatures);
 
 // Bloque 46: anuncios programados (banners públicos) — mismo mecanismo de
 // subida que hero-image arriba (siteUpload), imagen opcional.
@@ -101,6 +103,10 @@ router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 // Bloque 43: modelo editable por proveedor de IA (AdminIntegrations.jsx).
 router.get("/settings/ai-models", settingsController.getAiModelSettings);
 router.patch("/settings/ai-models", settingsController.updateAiModels);
+
+// Bloque 48: páginas legales/ayuda editables (AdminPages.jsx).
+router.get("/static-pages", staticPagesController.listStaticPagesAdmin);
+router.put("/static-pages/:slug", staticPagesController.updateStaticPage);
 
 // Bloque 22: moderación de comentarios — el vendedor no tiene acceso a
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar

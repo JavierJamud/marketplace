@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Check, CreditCard, Landmark, Upload, ExternalLink } from "lucide-react";
+import { Check, CreditCard, Landmark, Upload, ExternalLink, Sparkles } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -34,6 +34,7 @@ function Step({ text, stepNumber, state }) {
 
 export default function VendorVerification() {
   const queryClient = useQueryClient();
+  const { vendor } = useOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const [fullName, setFullName] = useState("");
   const [idNumber, setIdNumber] = useState("");
@@ -45,6 +46,20 @@ export default function VendorVerification() {
     queryKey: ["my-verification"],
     queryFn: async () => (await api.get("/verification/me")).data.verification,
   });
+
+  // Qué incluye cada plan (Regular/Business) — editable por el admin desde
+  // AdminSubscriptions.jsx (ver PlanFeaturesCard), ya no un array hardcodeado.
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  // id/nombre/priceLabel de PLANS siguen estáticos — solo el array de
+  // features viene ahora del backend.
+  const mergedPlans = PLANS.map((p) => ({
+    ...p,
+    features: settings ? (p.id === "regular" ? settings.planFeaturesRegular : settings.planFeaturesBusiness) : p.features,
+  }));
+  const currentPlanFeatures = settings && (vendor?.planType === "BUSINESS" ? settings.planFeaturesBusiness : settings.planFeaturesRegular);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["my-verification"] });
 
@@ -137,14 +152,22 @@ export default function VendorVerification() {
         hace el equipo de ZeuDin.
       </p>
 
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
-        <div className="mb-[18px] flex items-center gap-3.5">
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md" style={{ background: meta.bg }}>
-            <meta.Icon className="h-6 w-6" style={{ color: meta.color }} />
+      <div className="mb-5 overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest shadow-sm">
+        <div
+          className="flex items-center gap-4 p-6"
+          style={{ background: `linear-gradient(135deg, ${meta.bg}, rgba(255,255,255,0))` }}
+        >
+          <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl shadow-sm" style={{ background: meta.color }}>
+            <meta.Icon className="h-7 w-7 text-white" />
           </div>
           <div>
-            <div className="text-[16px] font-bold text-on-surface">{meta.label}</div>
-            <div className="text-[13px] text-outline">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <span className="text-[16.5px] font-bold text-on-surface">{meta.label}</span>
+              <span className="rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
+                Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"}
+              </span>
+            </div>
+            <div className="text-[13px] text-on-surface-variant">
               {stage === "REGULAR" && "Subí tus documentos para empezar el trámite."}
               {stage === "PENDIENTE_DOCS" && "Un admin de ZeuDin los está revisando a mano · respuesta en ~24h."}
               {stage === "PENDIENTE_PAGO" && "Elegí cómo pagar la suscripción para activar el badge y el Plan Business."}
@@ -153,7 +176,7 @@ export default function VendorVerification() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-0">
+        <div className="flex items-center gap-0 border-t border-surface-container-high px-6 py-5">
           {STEPS.map((text, i) => (
             <div key={text} className={`flex items-center ${i < STEPS.length - 1 ? "flex-1" : ""}`}>
               <Step text={text} stepNumber={String(i + 1)} state={stepStates[i]} />
@@ -164,6 +187,25 @@ export default function VendorVerification() {
           ))}
         </div>
       </div>
+
+      {currentPlanFeatures && (
+        <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+          <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+            <Sparkles className="h-4 w-4 text-tertiary-accent" /> Tu plan incluye
+          </div>
+          <p className="mb-3 text-[12.5px] text-outline">
+            Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"} — esto es lo que tenés disponible hoy.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {currentPlanFeatures.map((f) => (
+              <div key={f} className="flex items-center gap-2 text-[12.5px] text-on-surface-variant">
+                <Check className="h-3.5 w-3.5 flex-shrink-0 text-verified" strokeWidth={2.5} />
+                {f}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {canSubmitDocs && (
         <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
@@ -318,7 +360,7 @@ export default function VendorVerification() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {PLANS.map((pl) => (
+            {mergedPlans.map((pl) => (
               <div key={pl.id} className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5">
                 <div className="font-display text-title-lg text-on-surface">{pl.name}</div>
                 <div className="mb-3 mt-1 font-display text-xl font-extrabold text-on-surface">{pl.priceLabel}</div>

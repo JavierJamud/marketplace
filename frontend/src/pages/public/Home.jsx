@@ -1,9 +1,6 @@
-import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import useEmblaCarousel from "embla-carousel-react";
-import Autoplay from "embla-carousel-autoplay";
-import { ArrowRight, MapPin, MessageCircle, Store, ShieldCheck, Rocket, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, MapPin, MessageCircle, Store, ShieldCheck, Rocket } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
@@ -12,59 +9,39 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.jsx";
 
-const CATEGORY_AUTOPLAY_DELAY_MS = 4500;
+// Bloque 48 (reemplaza el Embla-con-flechas del Bloque 47 — pedido
+// explícito del dueño del negocio: puramente decorativo, sin ningún
+// control manual): marquee continuo de una sola dirección. La lista se
+// duplica una vez — con la animación en loop yendo de 0% a -50% del ancho
+// del track duplicado, el frame final es visualmente idéntico al inicial,
+// así que el reinicio del keyframe nunca se nota (nunca "vuelve atrás").
+// El fade en los bordes es un mask-image — no hay utilidad de Tailwind
+// para esto, así que va como estilo inline en vez de forzarlo a una clase.
+const EDGE_FADE_MASK =
+  "linear-gradient(to right, transparent 0, black 40px, black calc(100% - 40px), transparent 100%)";
 
-// Bloque 47: reemplaza el marquee continuo del Bloque 20 (pedido explícito:
-// nunca más scroll rápido/continuo) — mismo Embla que VerifiedStoresSlider,
-// pero acá avanza de a un GRUPO visible por vez (slidesToScroll: "auto") en
-// vez de transicionar una sola tarjeta, con flechas para controlarlo a mano
-// además del autoplay lento. Pills más chicas (texto/padding reducido) para
-// que entren más por fila, como pide el bloque.
 function CategoryMarquee({ categories }) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "start", dragFree: false, slidesToScroll: "auto" }, [
-    Autoplay({ delay: CATEGORY_AUTOPLAY_DELAY_MS, stopOnMouseEnter: true, stopOnInteraction: false }),
-  ]);
-
-  const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
-  const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
+  const track = [...categories, ...categories];
 
   return (
-    <div className="relative">
-      <div className="overflow-hidden" ref={emblaRef}>
-        <div className="flex gap-2.5">
-          {categories.map((c) => (
-            <Link
-              key={c.id}
-              to={`/tiendas?businessCategoryId=${c.id}`}
-              className="flex min-w-0 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-3 py-1.5 hover:border-primary-container"
-            >
-              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
-                <CategoryIcon name={c.icon} className="h-3 w-3 text-tertiary-accent" />
-              </span>
-              <span className="text-label-sm text-on-surface-variant">{c.name}</span>
-            </Link>
-          ))}
-        </div>
+    <div
+      className="overflow-hidden"
+      style={{ WebkitMaskImage: EDGE_FADE_MASK, maskImage: EDGE_FADE_MASK }}
+    >
+      <div className="flex w-max animate-marquee gap-2.5">
+        {track.map((c, i) => (
+          <Link
+            key={`${c.id}-${i}`}
+            to={`/tiendas?businessCategoryId=${c.id}`}
+            className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-3 py-1.5 hover:border-primary-container"
+          >
+            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
+              <CategoryIcon name={c.icon} className="h-3 w-3 text-tertiary-accent" />
+            </span>
+            <span className="text-label-sm text-on-surface-variant">{c.name}</span>
+          </Link>
+        ))}
       </div>
-
-      {categories.length > 1 && (
-        <>
-          <button
-            onClick={scrollPrev}
-            aria-label="Categorías anteriores"
-            className="absolute -left-3 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-md hover:scale-105 sm:flex"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            onClick={scrollNext}
-            aria-label="Más categorías"
-            className="absolute -right-3 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-md hover:scale-105 sm:flex"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </>
-      )}
     </div>
   );
 }
@@ -214,8 +191,12 @@ export default function Home() {
           cta="Ver catálogo →"
         />
         {featured?.length ? (
-          <div className="grid grid-cols-2 gap-5 md:grid-cols-3 lg:grid-cols-4">
-            {featured.slice(0, 4).map((p) => (
+          // Bloque 48 (reemplaza el grid de 4 hasta lg:grid-cols-4 de antes):
+          // siempre 2 columnas, hasta 10 productos si hay esa cantidad
+          // disponible para la zona/filtro actual — nunca se rellena con
+          // nada inventado si hay menos.
+          <div className="grid grid-cols-2 gap-5">
+            {featured.slice(0, 10).map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
           </div>

@@ -41,4 +41,22 @@ Reglas de contenido:
 - Nunca inventes datos (rubro, ubicación, años de experiencia) que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
+  // Sección "Garantías" de VendorSettings.jsx — a diferencia de product/store,
+  // el resultado no es marketing sino un texto legal/operativo real que se va
+  // a imprimir tal cual en el certificado de garantía (ver generateWarrantyPdf
+  // en lib/pdf.js) y que además gatea si el vendedor puede emitir garantías
+  // (invoices.controller.js) — por eso la regla extra de "nunca inventes
+  // plazos ni cobertura" es más estricta acá que en los otros dos prompts.
+  warranty: ({ currentText, vendorName, businessCategoryName }) => `Sos un asistente que redacta términos y condiciones de garantía para tiendas de un marketplace cubano, ZeuDin.
+La tienda "${vendorName}"${businessCategoryName ? ` (rubro: ${businessCategoryName})` : ""} escribió este borrador de condiciones de garantía:
+"${currentText}"
+
+Tu tarea: reescribí y mejorá ese borrador para convertirlo en el texto final de "Términos y condiciones de garantía" que se imprime en el certificado que reciben los clientes.
+
+Reglas de contenido:
+- Español neutro/cubano, tono claro y formal (es un documento legal/comercial).
+- 2 a 4 oraciones.
+- Nunca inventes plazos, porcentajes ni cobertura específica (qué cubre/no cubre) que no estén ya sugeridos en el borrador del vendedor — si el borrador es vago, quedate en generalidades (defectos de fabricación bajo uso normal, exclusión de mal uso/desgaste natural) en vez de inventar detalles concretos.
+
+${OUTPUT_RULES}`,
 };

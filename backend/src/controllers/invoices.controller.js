@@ -104,10 +104,29 @@ function selectWarrantyItems(order, orderItemIds) {
   return selected;
 }
 
+// Gate específico de garantía, aparte del de facturación que ya corrió
+// dentro de loadConfirmedOrderForVendor (ownerName/ownerIdNumber/
+// companyAddress). La sección "Garantías" de VendorSettings.jsx es la que
+// completa warrantyTerms/warrantyDefaultDays — sin esto el certificado
+// saldría sin condiciones reales, así que se bloquea acá con un mensaje que
+// apunta puntualmente a esa sección (no a "Configuración" en general).
+function assertWarrantySectionComplete(vendor) {
+  const missing = [];
+  if (!vendor.warrantyTerms) missing.push("términos y condiciones de garantía");
+  if (!vendor.warrantyDefaultDays) missing.push("días de garantía por defecto");
+  if (missing.length > 0) {
+    throw new AppError(
+      `Completá primero la sección de Garantías en Configuración antes de generar o enviar una garantía (falta: ${missing.join(", ")}).`,
+      400
+    );
+  }
+}
+
 export async function downloadWarranty(req, res) {
   const { id } = req.params;
   const data = warrantySchema.parse(req.body);
   const { vendor, order } = await loadConfirmedOrderForVendor(req.user.id, id);
+  assertWarrantySectionComplete(vendor);
   const items = selectWarrantyItems(order, data.orderItemIds);
 
   const pdfBuffer = await generateWarrantyPdf({ vendor, order, items: pdfItemsFrom(items), warrantyDays: data.warrantyDays, customer: resolveCustomer(data, order) });
@@ -121,6 +140,7 @@ export async function emailWarranty(req, res) {
   const { id } = req.params;
   const data = warrantyEmailSchema.parse(req.body);
   const { vendor, order } = await loadConfirmedOrderForVendor(req.user.id, id);
+  assertWarrantySectionComplete(vendor);
   const items = selectWarrantyItems(order, data.orderItemIds);
   const customer = resolveCustomer(data, order);
 

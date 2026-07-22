@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, X, Send, RotateCcw, Mic, Square, Store as StoreIcon, AlertTriangle, Volume2, VolumeX } from "lucide-react";
+import { X, Send, RotateCcw, Mic, Square, Store as StoreIcon, AlertTriangle, Volume2, VolumeX } from "lucide-react";
 import toast from "react-hot-toast";
 import { api } from "../lib/api.js";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
 import { VoiceWaveform } from "./VoiceWaveform.jsx";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
+import { ChatFaceButton } from "./ChatFaceButton.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -484,23 +485,25 @@ export function MarketplaceChatWidget() {
         </div>
       )}
 
-      {/* Bloque 47 (pedido explícito): botón flotante estándar — sin el
-          navy llamativo ni la respiración de idle del Bloque 40, un botón
-          de chat normal (fondo claro de la paleta + ícono en el acento
-          teal ya usado en el resto del sitio), solo hover:scale-105. */}
-      {!open && (
-        <button
-          onClick={() => {
-            setOpen(true);
-            setShowBubble(false);
-            scheduleIdleReset();
-          }}
-          aria-label="Abrir asistente de compras de ZeuDin"
-          className="fixed bottom-5 right-5 z-[60] flex h-14 w-14 items-center justify-center rounded-full border border-surface-container-high bg-surface-container-lowest shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6"
-        >
-          <Bot className="h-7 w-7 text-tertiary-accent" />
-        </button>
-      )}
+      {/* Bloque 48 (pedido explícito, reemplaza el diseño del Bloque 47):
+          botón de 3 estados (cerrado/hover/abierto, ver ChatFaceButton.jsx +
+          .chat-face-btn en index.css) — se mantiene montado incluso con el
+          panel abierto (a diferencia del Bloque 47) para que el estado
+          "abierto" sea de verdad visible: en desktop el panel deja un hueco
+          debajo (sm:bottom-24) donde el botón sigue viéndose y sirve de
+          cierre alternativo; en mobile el panel de pantalla completa lo tapa
+          solo (mismo z-index, el panel pinta después en el DOM), sin hacer
+          falta ningún condicional aparte para ese caso. */}
+      <ChatFaceButton
+        isOpen={open}
+        onClick={() => {
+          setOpen((v) => !v);
+          setShowBubble(false);
+          scheduleIdleReset();
+        }}
+        ariaLabel={open ? "Cerrar asistente de compras de ZeuDin" : "Abrir asistente de compras de ZeuDin"}
+        className="fixed bottom-5 right-5 z-[60] sm:bottom-6 sm:right-6"
+      />
 
       {open && (
         <div

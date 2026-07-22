@@ -99,6 +99,9 @@ enum EmailType {
   // (tipo propio, no genérico), nunca el mismo enum value pese a compartir
   // la forma "código de 6 dígitos por correo".
   TWO_FACTOR_CODE
+  // Bloque 48: mensaje del formulario de /contacto — va al correo del
+  // primer admin (no hay multi-admin todavía, ver Bloque 47 decisión D).
+  CONTACT_MESSAGE
   // Bloque 16: un solo tipo genérico para todo el ciclo de verificación
   // (docs aprobados/rechazados, link de pago, verificado) — mismo patrón que
   // STATUS_UPDATE ya usa un label map en vez de un enum-value por estado.
@@ -411,6 +414,15 @@ model Vendor {
   // arriba — qué monedas coordina la tienda con el cliente, sin conversión
   // real ni tasa de cambio (Product.price sigue siendo siempre CUP).
   acceptedCurrencies String[] @default(["CUP"])
+  // Sección "Garantías" (VendorSettings.jsx): condiciones propias de cada
+  // negocio que se imprimen en el certificado de garantía (ver
+  // generateWarrantyPdf en lib/pdf.js). Ambos campos son obligatorios para
+  // poder GENERAR o ENVIAR una garantía (gate en invoices.controller.js,
+  // separado del gate de facturación que ya exige ownerName/ownerIdNumber/
+  // companyAddress) — nullable a nivel de columna para no forzar backfill de
+  // tiendas ya sembradas, igual criterio que companyAddress arriba.
+  warrantyTerms       String? @db.Text
+  warrantyDefaultDays Int?
   createdAt   DateTime @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -570,8 +582,16 @@ model TableOrder {
   // poder avisar por correo cuando cambia kitchenStatus.
   customerEmail String?
   createdAt     DateTime      @default(now())
+  // "Ocupada"/"Libre" en VendorTables.jsx pasa de depender de kitchenStatus
+  // (llegar a READY ya liberaba la mesa) a depender de esto: el vendedor
+  // marca a mano que el cliente pagó y se retiró (ver clearTableOrder en
+  // tables.controller.js). null = la mesa sigue ocupada aunque el pedido ya
+  // esté en READY/"Listo".
+  clearedAt DateTime?
 
   table Table @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId, clearedAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +734,15 @@ model SiteSettings {
   aiModelGroq   String?
   aiModelGemini String?
   aiModelNvidia String?
+  // Listas de qué incluye cada plan (Regular/Business), mostradas en
+  // VendorVerification.jsx/VendorSubscription.jsx — editable desde
+  // AdminSubscriptions.jsx. Antes era el array hardcodeado PLANS[].features
+  // en frontend/src/lib/verificationMeta.js; el default de acá es
+  // exactamente ese mismo array, para no cambiar el comportamiento al
+  // desplegar. Solo la lista de features es dinámica — id/nombre/priceLabel
+  // del plan siguen siendo estáticos (no forman parte de este pedido).
+  planFeaturesRegular  String[] @default(["Hasta 20 productos", "Pedidos por WhatsApp", "Perfil de tienda público", "Sin comisiones por venta"])
+  planFeaturesBusiness String[] @default(["Productos ilimitados", "Sello de tienda verificada", "Destacada en la home", "Recomendaciones con IA", "Horarios de atención"])
   updatedAt    DateTime @updatedAt
 }
 
@@ -1012,4 +1041,17 @@ model ProductRequest {
 
   @@index([productId])
   @@index([vendorId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 48: páginas legales/ayuda editables desde el admin — sin fila =
+// copy fijo del componente React (nunca se pierde el contenido original);
+// con htmlContent = el admin pisó ese texto con HTML propio (sanitizado
+// server-side antes de guardar, ver static_pages.controller.js).
+// ---------------------------------------------------------------------------
+
+model StaticPage {
+  slug        String    @id // "terminos" | "privacidad" | "faq" | "ayuda" | "contacto"
+  htmlContent String?
+  updatedAt   DateTime  @updatedAt
 }

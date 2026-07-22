@@ -41,3 +41,14 @@ export const chatRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Demasiados mensajes seguidos. Esperá un minuto y probá de nuevo." },
 });
+
+// Bloque 48: /contacto es público sin login y manda un correo real por
+// cada envío (cuota de Resend + bandeja del admin) — evita que un script
+// la sature, sin entorpecer a alguien escribiendo el formulario a mano.
+export const contactRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados mensajes seguidos. Probá de nuevo en unos minutos." },
+});

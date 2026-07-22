@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Mail, KeyRound, ShieldCheck, Store as StoreIcon, ArrowRight } from "lucide-react";
+import { Mail, KeyRound, ShieldCheck, Store as StoreIcon, ArrowRight, UserRound, FileText, User as UserIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -11,6 +11,7 @@ import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
+import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 
 function EmailModal({ currentEmail, onClose }) {
   const { refetch } = useAuth();
@@ -123,6 +124,66 @@ function TwoFactorCard() {
   );
 }
 
+// Movido acá desde VendorSettings.jsx (antes vivía en una tarjeta "Responsable
+// Legal" junto a datos de facturación/entrega) — es un dato de la persona/
+// cuenta, no de la operación de la tienda, así que pertenece a Perfil.
+// Mutación propia (no comparte form con StoreInfoCard) para poder guardarse
+// sola sin tocar el resto de los datos de la tienda.
+function OwnerNameCard() {
+  const queryClient = useQueryClient();
+  const { vendor } = useOutletContext();
+  const [ownerName, setOwnerName] = useState("");
+
+  useEffect(() => {
+    setOwnerName(vendor?.ownerName ?? "");
+  }, [vendor]);
+
+  const save = useMutation({
+    mutationFn: async () => (await api.patch("/vendors/me", { ownerName })).data,
+    onSuccess: () => {
+      toast.success("Responsable del negocio actualizado.");
+      queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
+      queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  return (
+    <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <UserRound className="h-5 w-5 text-tertiary-accent" /> Responsable del negocio
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y vos. Nunca se muestra en tu tienda pública.</p>
+      <Input label="Nombre del responsable" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+      <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
+        {save.isPending ? "Guardando..." : "Guardar"}
+      </Button>
+    </div>
+  );
+}
+
+// Solo lectura — el vendedor ve sus propias fotos de verificación (mismo
+// endpoint/patrón que AdminVerifications.jsx, ver PrivateDocument.jsx: blob
+// autenticado, la ownership la valida getVerificationFile en el backend
+// porque acá vendor.userId === req.user.id).
+function KycDocumentsCard() {
+  const { vendor } = useOutletContext();
+  if (!vendor?.verification) return null;
+
+  return (
+    <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <FileText className="h-5 w-5 text-tertiary-accent" /> Documentos de verificación
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">Las fotos que enviaste para verificar tu tienda.</p>
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <PrivateDocument vendorId={vendor.id} type="selfie" label="Foto del responsable" Icon={UserIcon} available={!!vendor.verification.selfieUrl} />
+        <PrivateDocument vendorId={vendor.id} type="id" label="Documento de identidad" Icon={FileText} available={!!vendor.verification.idPhotoFrontUrl} />
+      </div>
+    </div>
+  );
+}
+
 function StoreInfoCard() {
   const queryClient = useQueryClient();
   const { vendor } = useOutletContext();
@@ -170,7 +231,8 @@ function StoreInfoCard() {
           <div className="mb-1 flex items-center justify-between">
             <span className="text-label-md font-semibold text-on-surface-variant">Descripción de la marca</span>
             <AiGenerateButton
-              context={`Tienda de categoría ${selectedBusinessCategory?.name ?? "general"} llamada ${form.companyName}`}
+              kind="store"
+              currentText={form.description}
               onGenerated={(text) => setForm((f) => ({ ...f, description: text }))}
             />
           </div>
@@ -222,7 +284,9 @@ export default function VendorProfile() {
 
       <PasswordCard />
       <TwoFactorCard />
+      <OwnerNameCard />
       <StoreInfoCard />
+      <KycDocumentsCard />
 
       <Link
         to="/vendedor/verificacion"

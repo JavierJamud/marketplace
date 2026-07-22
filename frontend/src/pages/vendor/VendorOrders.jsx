@@ -125,6 +125,13 @@ export default function VendorOrders() {
     queryFn: async () => (await api.get("/orders/me")).data,
   });
 
+  // Solo se usa para precargar warrantyDefaultDays en DocumentModal — mismo
+  // queryKey que VendorSettings.jsx así React Query comparte el cache.
+  const { data: vendor } = useQuery({
+    queryKey: ["my-vendor-settings"],
+    queryFn: async () => (await api.get("/vendors/me")).data.vendor,
+  });
+
   const { data: emailUsage } = useQuery({
     queryKey: ["email-usage"],
     queryFn: async () => (await api.get("/orders/me/email-usage")).data,
@@ -142,6 +149,19 @@ export default function VendorOrders() {
     mutationFn: async ({ id, status }) => (await api.patch(`/tables/orders/${id}/status`, { status })).data,
     onSuccess: invalidateOrders,
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar el pedido."),
+  });
+
+  // El cliente ya pagó y se retiró — recién acá se libera la mesa de
+  // verdad en VendorTables.jsx (antes se liberaba sola al llegar a Listo).
+  // Invalida también "my-tables", no solo "my-orders" — es la query que
+  // usa esa otra página.
+  const clearTable = useMutation({
+    mutationFn: async (id) => (await api.patch(`/tables/orders/${id}/clear`)).data,
+    onSuccess: () => {
+      invalidateOrders();
+      queryClient.invalidateQueries({ queryKey: ["my-tables"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo liberar la mesa."),
   });
 
   // Bloque 29: única forma de pasar un pedido de Pendiente a Vendido — acá,
@@ -211,6 +231,7 @@ export default function VendorOrders() {
       total: t.total,
       isTable: true,
       status: t.kitchenStatus,
+      clearedAt: t.clearedAt,
       rawId: t.id,
     })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -326,7 +347,7 @@ export default function VendorOrders() {
               )}
 
               {o.isTable ? (
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {KITCHEN_STEPS.map((step, i) => {
                     const isCurrent = i === kIndex;
                     const isNext = i === kIndex + 1;
@@ -343,6 +364,19 @@ export default function VendorOrders() {
                       </button>
                     );
                   })}
+                  {o.status === "READY" && !o.clearedAt && (
+                    <button
+                      onClick={() => clearTable.mutate(o.rawId)}
+                      disabled={clearTable.isPending}
+                      title="El cliente ya pagó y se retiró — libera la mesa"
+                      className="rounded-[7px] bg-verified/10 px-2.5 py-1.5 text-[11.5px] font-bold text-verified-dark disabled:opacity-50"
+                    >
+                      Marcar pagado y liberar mesa
+                    </button>
+                  )}
+                  {o.clearedAt && (
+                    <span className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[11.5px] font-bold text-outline">Mesa liberada</span>
+                  )}
                 </div>
               ) : o.status === "NEW" ? (
                 <div className="flex flex-wrap gap-1.5">
@@ -439,7 +473,9 @@ export default function VendorOrders() {
         />
       )}
 
-      {docTarget && <DocumentModal kind={docTarget.kind} order={docTarget.order} onClose={() => setDocTarget(null)} />}
+      {docTarget && (
+        <DocumentModal kind={docTarget.kind} order={docTarget.order} vendor={vendor} onClose={() => setDocTarget(null)} />
+      )}
 
       {stockRisk && <StockRiskModal atRiskOrders={stockRisk} onNotify={handleNotifyFromRisk} onClose={() => setStockRisk(null)} />}
     </div>

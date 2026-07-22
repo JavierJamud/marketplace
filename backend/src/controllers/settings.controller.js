@@ -27,6 +27,8 @@ export async function getSettings(_req, res) {
       maxDeliveryCountriesBusiness: settings.maxDeliveryCountriesBusiness,
       maxProvincesRegular: settings.maxProvincesRegular,
       maxProvincesBusiness: settings.maxProvincesBusiness,
+      planFeaturesRegular: settings.planFeaturesRegular,
+      planFeaturesBusiness: settings.planFeaturesBusiness,
     },
   });
 }
@@ -50,6 +52,28 @@ export async function updatePlanLimits(req, res) {
       maxDeliveryCountriesBusiness: updated.maxDeliveryCountriesBusiness,
       maxProvincesRegular: updated.maxProvincesRegular,
       maxProvincesBusiness: updated.maxProvincesBusiness,
+    },
+  });
+}
+
+const planFeaturesSchema = z.object({
+  planFeaturesRegular: z.array(z.string().trim().min(1)).optional(),
+  planFeaturesBusiness: z.array(z.string().trim().min(1)).optional(),
+});
+
+// Admin (AdminSubscriptions.jsx) — qué incluye cada plan, mostrado en
+// VendorVerification.jsx/VendorSubscription.jsx. Endpoint propio en vez de
+// sumarse a updatePlanLimits: ese schema es específicamente sobre topes
+// numéricos (países/provincias), mezclar listas de texto ahí le resta
+// claridad al nombre y al schema.
+export async function updatePlanFeatures(req, res) {
+  const data = planFeaturesSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({
+    settings: {
+      planFeaturesRegular: updated.planFeaturesRegular,
+      planFeaturesBusiness: updated.planFeaturesBusiness,
     },
   });
 }

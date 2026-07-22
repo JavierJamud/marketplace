@@ -1,3 +1,5 @@
+import { useStaticPage } from "../../lib/useStaticPage.js";
+
 const SECTIONS = [
   {
     title: "1. Qué es ZeuDin",
@@ -33,7 +35,21 @@ const SECTIONS = [
   },
 ];
 
+// Bloque 48: si el admin guardó su propio HTML desde AdminPages.jsx, se
+// muestra eso (ya sanitizado server-side) en vez del copy fijo de abajo —
+// nunca se pierde este copy original, solo se reemplaza en pantalla cuando
+// hay algo guardado.
 export default function Terms() {
+  const { htmlContent } = useStaticPage("terminos");
+
+  if (htmlContent) {
+    return (
+      <div className="container-app max-w-[820px] py-14">
+        <div className="prose-static" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+      </div>
+    );
+  }
+
   return (
     <div className="container-app max-w-[820px] py-14">
       <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Legal</p>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { MessageCircle, X, Send, RotateCcw, ShoppingCart, Mic, Square, AlertTriangle, Volume2, VolumeX } from "lucide-react";
+import { X, Send, RotateCcw, ShoppingCart, Mic, Square, AlertTriangle, Volume2, VolumeX } from "lucide-react";
 import toast from "react-hot-toast";
 import { api } from "../lib/api.js";
 import { useCart } from "../context/CartContext.jsx";
@@ -9,6 +9,7 @@ import { RequestProductButton } from "./RequestProductButton.jsx";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
 import { VoiceWaveform } from "./VoiceWaveform.jsx";
+import { ChatFaceButton } from "./ChatFaceButton.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -568,29 +569,24 @@ export function StoreChatWidget({ vendor }) {
         </div>
       )}
 
-      {/* Bloque 28: botón flotante rediseñado — color de marca de la tienda
-          (mismo criterio que el banner de Store.jsx: v.color con el navy de
-          siempre como default) + sombra más suave y un anillo blanco sutil
-          en vez del círculo plano genérico de antes. En mobile el panel es
-          un bottom-sheet a lo ancho completo — mientras está abierto tapa
-          este mismo botón (mismo rincón), así que en vez de dejarlo
-          invisible-pero-enfocable atrás (mal para teclado/lectores de
-          pantalla), directamente no se renderiza: el cierre queda solo en
-          la X del propio panel, que siempre es visible. */}
-      {!open && (
-        <button
-          onClick={() => {
-            setOpen(true);
-            setShowBubble(false);
-            scheduleIdleReset();
-          }}
-          style={{ background: vendor.color ?? "#232F3E" }}
-          aria-label="Abrir chat con IA de la tienda"
-          className="fixed bottom-5 right-5 z-[60] flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-white/25 text-white shadow-[0_8px_28px_rgba(0,0,0,0.22)] transition-transform hover:scale-105 sm:bottom-6 sm:right-6"
-        >
-          <MessageCircle className="h-6 w-6" />
-        </button>
-      )}
+      {/* Bloque 48 (pedido explícito, reemplaza el diseño del Bloque 28/47):
+          mismo botón de 3 estados que el bot general — ya no usa el color
+          de marca de la tienda para este botón puntual (instrucción directa
+          del bloque: "aplica igual a ambos widgets", el mismo tertiary-accent
+          para los dos). Se mantiene montado con el panel abierto por el
+          mismo motivo que MarketplaceChatWidget.jsx: en desktop el panel
+          deja hueco debajo, en mobile el panel de pantalla completa lo tapa
+          solo (mismo z-index, pinta después en el DOM). */}
+      <ChatFaceButton
+        isOpen={open}
+        onClick={() => {
+          setOpen((v) => !v);
+          setShowBubble(false);
+          scheduleIdleReset();
+        }}
+        ariaLabel={open ? "Cerrar chat con IA de la tienda" : "Abrir chat con IA de la tienda"}
+        className="fixed bottom-5 right-5 z-[60] sm:bottom-6 sm:right-6"
+      />
 
       {open && (
         <div
