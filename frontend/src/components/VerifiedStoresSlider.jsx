@@ -1,50 +1,79 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import useEmblaCarousel from "embla-carousel-react";
+import Autoplay from "embla-carousel-autoplay";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { StoreCard } from "./StoreCard.jsx";
 
-// Cuántas copias completas del set original hacen falta para que el track
-// nunca se quede corto de ancho en pantallas grandes — de ahí para arriba,
-// cualquier cantidad par sirve (ver nota de "loop sin salto" más abajo).
-const MIN_SETS_WIDTH = 6;
+const AUTOPLAY_DELAY_MS = 3500;
 
-// Bloque 20: reemplaza el carrusel por-página del Bloque 17 (saltos de a 4,
-// dos velocidades) por un marquee continuo de una sola dirección — derecha a
-// izquierda, tarjeta por tarjeta, sin flechas ni dots (no hay "página"
-// discreta que resaltar en un scroll continuo). Loop infinito sin salto:
-// técnica estándar de duplicar el set de tarjetas y animar el track de 0% a
-// -50% (keyframe "marquee" en tailwind.config.js). Como la mitad duplicada
-// es idéntica a la original, el frame en -50% es visualmente indistinguible
-// del frame en 0% — ahí engancha el loop sin salto ni pausa. Se usa una
-// cantidad PAR de copias (no solo 2) para que el track sea más ancho que la
-// pantalla más grande esperada; -50% sigue cayendo justo en la mitad exacta
-// del track sin importar cuántas copias sean, así que el loop sigue siendo
-// perfecto.
+// Bloque 47: reemplaza el marquee continuo (translateX sin parar) del
+// Bloque 20 — pedido explícito de que el movimiento sea "sale una tarjeta,
+// entra la siguiente" en vez de scroll continuo. Embla ya resuelve esto:
+// por defecto transiciona (snap) de a un slide, loop infinito real (no el
+// truco de duplicar el set a mano que usaba el marquee). Mismo criterio de
+// pausa en hover/touch que antes, ahora vía las opciones nativas del plugin
+// de autoplay (stopOnMouseEnter) en vez de un listener manual.
+// "align: center" + basis responsive = mobile ve la tarjeta activa grande
+// con un pedacito de la anterior/siguiente a los costados (carrusel "peek"),
+// y en desktop se ven ~3 con la del medio destacada (scale/opacity según
+// selectedIndex) — una sola implementación cubre los dos casos del bloque.
 export function VerifiedStoresSlider({ stores }) {
-  const [paused, setPaused] = useState(false);
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "center" }, [
+    Autoplay({ delay: AUTOPLAY_DELAY_MS, stopOnMouseEnter: true, stopOnInteraction: false }),
+  ]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const onSelect = useCallback(() => {
+    if (!emblaApi) return;
+    setSelectedIndex(emblaApi.selectedScrollSnap());
+  }, [emblaApi]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    onSelect();
+    emblaApi.on("select", onSelect);
+    return () => emblaApi.off("select", onSelect);
+  }, [emblaApi, onSelect]);
 
   if (!stores.length) return null;
 
-  let sets = Math.max(2, Math.ceil(MIN_SETS_WIDTH / stores.length));
-  if (sets % 2 !== 0) sets += 1;
-  const track = Array.from({ length: sets }, () => stores).flat();
-
   return (
-    <div
-      className="overflow-hidden py-2"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onTouchStart={() => setPaused(true)}
-      onTouchEnd={() => setPaused(false)}
-    >
-      <div className="flex w-max animate-marquee gap-5" style={{ animationPlayState: paused ? "paused" : "running" }}>
-        {track.map((v, i) => (
-          // Bloque 20 punto 4: en mobile la tarjeta mide ~46% del viewport
-          // (tope 220px) para que se vean 2 a la vez mientras se desplaza,
-          // en vez de 1 tarjeta ancha ocupando casi toda la pantalla.
-          <div key={i} className="w-[46vw] max-w-[220px] flex-shrink-0 sm:w-[280px] lg:w-[300px]">
-            <StoreCard vendor={v} />
-          </div>
-        ))}
+    <div className="relative">
+      <div className="overflow-hidden" ref={emblaRef}>
+        <div className="flex touch-pan-y">
+          {stores.map((v, i) => (
+            <div
+              key={v.id}
+              className="min-w-0 flex-shrink-0 basis-[82%] px-2.5 transition-[transform,opacity] duration-300 sm:basis-[52%] lg:basis-[34%]"
+              style={{
+                transform: i === selectedIndex ? "scale(1)" : "scale(0.92)",
+                opacity: i === selectedIndex ? 1 : 0.6,
+              }}
+            >
+              <StoreCard vendor={v} />
+            </div>
+          ))}
+        </div>
       </div>
+
+      {stores.length > 1 && (
+        <>
+          <button
+            onClick={() => emblaApi?.scrollPrev()}
+            aria-label="Tienda anterior"
+            className="absolute left-0 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-lg hover:scale-105 sm:flex"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => emblaApi?.scrollNext()}
+            aria-label="Tienda siguiente"
+            className="absolute right-0 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-lg hover:scale-105 sm:flex"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        </>
+      )}
     </div>
   );
 }

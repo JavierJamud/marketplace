@@ -5,12 +5,9 @@ import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2 } from "lucide-react";
-import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
-import { SuggestionBox } from "../../components/SuggestionBox.jsx";
-import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
+import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet } from "lucide-react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
-import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
+import { CURRENCIES } from "../../lib/currencies.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const DAY_ROWS = [
@@ -142,15 +139,12 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
 export default function VendorSettings() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
-    companyName: "",
     ownerName: "",
     ownerIdNumber: "",
     companyAddress: "",
-    description: "",
-    whatsapp: "",
-    businessCategoryId: "",
     orderDestination: "WHATSAPP",
     acceptedPaymentMethods: [],
+    acceptedCurrencies: ["CUP"],
   });
   const [days, setDays] = useState(DAY_ROWS.map((d) => ({ ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false })));
   const [customMethod, setCustomMethod] = useState("");
@@ -194,30 +188,15 @@ export default function VendorSettings() {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
 
-  const { data: businessCategories } = useQuery({
-    queryKey: ["business-categories"],
-    queryFn: async () => (await api.get("/business-categories")).data.categories,
-  });
-
-  const currentBusinessCategoryMissing =
-    businessCategories && vendor?.businessCategory && !businessCategories.some((c) => c.id === vendor.businessCategory.id);
-  const businessCategoryOptions = currentBusinessCategoryMissing
-    ? [...businessCategories, vendor.businessCategory]
-    : businessCategories;
-  const selectedBusinessCategory = businessCategoryOptions?.find((c) => c.id === form.businessCategoryId);
-
   useEffect(() => {
     if (!vendor) return;
     setForm({
-      companyName: vendor.companyName,
       ownerName: vendor.ownerName ?? "",
       ownerIdNumber: vendor.ownerIdNumber ?? "",
       companyAddress: vendor.companyAddress ?? "",
-      description: vendor.description ?? "",
-      whatsapp: vendor.whatsapp,
-      businessCategoryId: vendor.businessCategory?.id ?? "",
       orderDestination: vendor.orderDestination ?? "WHATSAPP",
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
+      acceptedCurrencies: vendor.acceptedCurrencies ?? ["CUP"],
     });
     if (vendor.schedules?.length) {
       setDays(
@@ -394,65 +373,109 @@ export default function VendorSettings() {
         </Button>
       </div>
 
-      {/* Identificación de la Tienda */}
+      {/* Bloque 47: "Información de la marca" se mudó a Mi perfil
+          (VendorProfile.jsx, tarjeta "Datos de la tienda") — Configuración
+          ya no edita esos campos. */}
+
+      {/* Bloque 47: Métodos de pago (chips — el selector nunca se había
+          terminado de conectar: el estado/endpoint ya existían pero no
+          había ninguna forma de tocarlo desde acá) + Monedas (nuevo). */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-4 text-title-lg font-bold text-on-surface">Información de la marca</div>
-        <div className="flex flex-col gap-4">
-          <div>
-            <Input
-              label="Nombre visible de la tienda"
-              value={form.companyName}
-              onChange={(e) => {
-                setForm({ ...form, companyName: e.target.value });
-                setErrors((prev) => ({ ...prev, companyName: undefined }));
-              }}
-              error={errors.companyName?.[0]}
-            />
-          </div>
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-label-md font-semibold text-on-surface-variant">Descripción de la marca</span>
-              <AiGenerateButton
-                context={`Tienda de categoría ${selectedBusinessCategory?.name ?? "general"} llamada ${form.companyName}`}
-                onGenerated={(text) => setForm((f) => ({ ...f, description: text }))}
-              />
-            </div>
-            <textarea
-              rows={3}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
-              placeholder="Describe lo que vendés y tu propuesta de valor..."
-            />
-          </div>
-          <div>
-            <Input
-              label="WhatsApp de atención al cliente"
-              value={form.whatsapp}
-              onChange={(e) => {
-                setForm({ ...form, whatsapp: e.target.value });
-                setErrors((prev) => ({ ...prev, whatsapp: undefined }));
-              }}
-              error={errors.whatsapp?.[0]}
-              placeholder="+5350000000"
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <Select
-              label="Categoría principal de negocio"
-              value={form.businessCategoryId}
-              onChange={(e) => setForm({ ...form, businessCategoryId: e.target.value })}
-              className="flex-1"
-            >
-              {businessCategoryOptions?.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <Wallet className="h-5 w-5 text-tertiary-accent" /> Métodos de pago y monedas
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Puramente informativo — se muestra en tu tienda pública para que el cliente sepa qué coordinar con vos.
+          ZeuDin no procesa ni convierte nada de esto.
+        </p>
+
+        <div className="mb-5">
+          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Métodos de pago que aceptás</div>
+          <div className="flex flex-wrap gap-2">
+            {PAYMENT_METHODS.map((m) => {
+              const active = form.acceptedPaymentMethods.includes(m.id);
+              const Icon = m.icon;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      acceptedPaymentMethods: active
+                        ? f.acceptedPaymentMethods.filter((x) => x !== m.id)
+                        : [...f.acceptedPaymentMethods, m.id],
+                    }))
+                  }
+                  className={`flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition ${
+                    active ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" /> {m.label}
+                </button>
+              );
+            })}
+            {form.acceptedPaymentMethods
+              .filter((id) => !PAYMENT_METHODS.some((m) => m.id === id))
+              .map((custom) => (
+                <button
+                  key={custom}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, acceptedPaymentMethods: f.acceptedPaymentMethods.filter((x) => x !== custom) }))}
+                  className="flex items-center gap-1.5 rounded-full border border-tertiary-accent bg-tertiary-accent/10 px-3.5 py-2 text-[12.5px] font-semibold text-tertiary-accent"
+                >
+                  {custom} <X className="h-3 w-3" />
+                </button>
               ))}
-            </Select>
-            {selectedBusinessCategory && (
-              <div className="mt-6 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-tertiary-accent/10">
-                <CategoryIcon name={selectedBusinessCategory.icon} className="h-5 w-5 text-tertiary-accent" />
-              </div>
-            )}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <input
+              value={customMethod}
+              onChange={(e) => setCustomMethod(e.target.value)}
+              placeholder="Otro método (texto libre)..."
+              className="h-10 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+            />
+            <Button
+              variant="outline"
+              className="rounded-lg"
+              size="sm"
+              disabled={!customMethod.trim()}
+              onClick={() => {
+                const value = customMethod.trim();
+                if (!value || form.acceptedPaymentMethods.includes(value)) return;
+                setForm((f) => ({ ...f, acceptedPaymentMethods: [...f.acceptedPaymentMethods, value] }));
+                setCustomMethod("");
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Monedas que aceptás</div>
+          <div className="flex flex-wrap gap-2">
+            {CURRENCIES.map((c) => {
+              const active = form.acceptedCurrencies.includes(c.id);
+              const Icon = c.icon;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      acceptedCurrencies: active ? f.acceptedCurrencies.filter((x) => x !== c.id) : [...f.acceptedCurrencies, c.id],
+                    }))
+                  }
+                  className={`flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition ${
+                    active ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" /> {c.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -772,12 +795,13 @@ export default function VendorSettings() {
 
       {confirmModal && (
         <ConfirmModal
+          open={!!confirmModal}
           title={confirmModal.title}
           message={confirmModal.message}
           confirmLabel={confirmModal.confirmLabel}
           danger={confirmModal.danger}
           onConfirm={confirmModal.onConfirm}
-          onClose={closeConfirm}
+          onCancel={closeConfirm}
         />
       )}
     </div>

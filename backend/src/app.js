@@ -24,6 +24,7 @@ import settingsRoutes from "./routes/settings.routes.js";
 import suggestionsRoutes from "./routes/suggestions.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import assistantRoutes from "./routes/assistant.routes.js";
+import announcementsRoutes from "./routes/announcements.routes.js";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
 import { PRODUCT_UPLOAD_DIR } from "./controllers/products.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
@@ -69,6 +70,7 @@ app.use("/settings", settingsRoutes);
 app.use("/suggestions", suggestionsRoutes);
 app.use("/ai", aiRoutes);
 app.use("/assistant", assistantRoutes);
+app.use("/announcements", announcementsRoutes);
 
 app.use((req, res) => res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` }));
 

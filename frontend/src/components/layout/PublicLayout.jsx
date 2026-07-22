@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { Header } from "./Header.jsx";
 import { Footer } from "./Footer.jsx";
 import { CartConflictModal } from "../CartConflictModal.jsx";
+import { AnnouncementPopup } from "../AnnouncementPopup.jsx";
 
 export function PublicLayout() {
   return (
@@ -12,6 +13,7 @@ export function PublicLayout() {
       </main>
       <Footer />
       <CartConflictModal />
+      <AnnouncementPopup />
     </div>
   );
 }

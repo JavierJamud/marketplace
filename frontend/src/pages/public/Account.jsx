@@ -106,12 +106,14 @@ const emptyStoreForm = {
 };
 
 export default function Account() {
-  const { login, register, refreshRole } = useAuth();
+  const { login, verifyTwoFactor, register, refreshRole } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // "login" | "register" | "forgot-email" | "forgot-code" | "forgot-newpass"
+  // "login" | "register" | "forgot-email" | "forgot-code" | "forgot-newpass" | "two-factor"
   const [view, setView] = useState(searchParams.get("tab") === "vendedor" ? "register" : "login");
+  const [twoFactorEmail, setTwoFactorEmail] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const [accountType, setAccountType] = useState(searchParams.get("tab") === "vendedor" ? "vendor" : "customer");
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -163,13 +165,39 @@ export default function Account() {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const user = await login(loginForm.email, loginForm.password);
+        const result = await login(loginForm.email, loginForm.password);
+        // Bloque 47: 2FA opt-in — en vez de navegar, muestra el paso de
+        // "ingresá el código" (mismo patrón visual que forgot-code).
+        if (result?.requiresTwoFactor) {
+          setTwoFactorEmail(result.email);
+          setTwoFactorCode("");
+          setView("two-factor");
+          toast.success("Te mandamos un código a tu correo.");
+          return;
+        }
+        toast.success("¡Bienvenido de vuelta!");
+        const destination = result.role === "ADMIN" ? "/admin" : result.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
+        navigate(destination);
+      });
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "Algo salió mal. Intentá de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyTwoFactor(e) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await withMinDelay(async () => {
+        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode);
         toast.success("¡Bienvenido de vuelta!");
         const destination = user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
         navigate(destination);
       });
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "Algo salió mal. Intentá de nuevo.");
+      toast.error(err.response?.data?.error ?? "Código inválido o vencido.");
     } finally {
       setLoading(false);
     }
@@ -294,6 +322,37 @@ export default function Account() {
 
   if (showPlanModal) {
     return <PlanComparisonModal onContinueRegular={closePlanModal} />;
+  }
+
+  // Bloque 47: segundo paso del login cuando la cuenta tiene 2FA activo —
+  // mismo patrón visual que el paso "forgot-code" de abajo.
+  if (view === "two-factor") {
+    return (
+      <AccountShell provinceCount={provinces?.length}>
+        <div key={view} className="animate-step-in">
+          <h1 className="mb-2 text-headline-md text-on-surface">Verificación en dos pasos</h1>
+          <p className="mb-6 text-body-md text-on-surface-variant">
+            Te mandamos un código de 6 dígitos a <strong>{twoFactorEmail}</strong>. Vence en 10 minutos.
+          </p>
+          <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
+            <Input
+              label="Código de verificación"
+              required
+              maxLength={6}
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
+              className="text-center text-title-lg tracking-[0.4em]"
+            />
+            <Button type="submit" size="lg" className="w-full" disabled={loading || twoFactorCode.length !== 6}>
+              {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
+            </Button>
+          </form>
+          <button onClick={() => switchView("login")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
+            ← Volver al login
+          </button>
+        </div>
+      </AccountShell>
+    );
   }
 
   if (view.startsWith("forgot-")) {

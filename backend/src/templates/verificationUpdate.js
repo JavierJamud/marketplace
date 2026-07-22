@@ -8,6 +8,7 @@ const META = {
   VERIFICATION_DOCS_REJECTED: { label: "Documentos rechazados", color: "#ba1a1a" },
   VERIFICATION_PAYMENT_LINK_SENT: { label: "Link de pago enviado", color: "#8A5100" },
   VERIFICATION_VERIFIED: { label: "Tienda verificada", color: "#0CAE53" },
+  VERIFICATION_BUSINESS_REVOKED: { label: "Plan Business revocado", color: "#ba1a1a" },
 };
 
 export function verificationUpdateEmail({ type, vendorName, title, message, ctaHref }) {

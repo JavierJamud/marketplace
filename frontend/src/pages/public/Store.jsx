@@ -12,6 +12,7 @@ import { AddToCartControl } from "../../components/AddToCartControl.jsx";
 import { PageLoader } from "../../components/ui/PageLoader.jsx";
 import { Store as StoreIcon } from "lucide-react";
 import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
+import { resolveCurrency } from "../../lib/currencies.js";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
@@ -365,6 +366,23 @@ export default function Store() {
               );
             })}
           </div>
+          {/* Bloque 47 (ver decisión B): informativo, mismo criterio que
+              acceptedPaymentMethods de arriba — sin conversión real, los
+              precios de catálogo siguen siempre en CUP. Solo se muestra si
+              hay más de una moneda cargada (CUP solo es el caso trivial). */}
+          {v.acceptedCurrencies?.length > 1 && (
+            <p className="mt-3 flex flex-wrap items-center gap-1.5 text-[12.5px] text-on-surface-variant">
+              Acepta pagos en:
+              {v.acceptedCurrencies.map((code) => {
+                const currency = resolveCurrency(code);
+                return (
+                  <span key={code} className="inline-flex items-center gap-1 font-semibold text-on-surface">
+                    <currency.icon className="h-3 w-3 text-tertiary-accent" /> {currency.label}
+                  </span>
+                );
+              })}
+            </p>
+          )}
         </div>
       )}
 

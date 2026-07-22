@@ -16,4 +16,14 @@ router.post("/forgot-password", passwordResetRateLimit, authController.forgotPas
 router.post("/verify-reset-code", passwordResetRateLimit, authController.verifyResetCode);
 router.post("/reset-password", passwordResetRateLimit, authController.resetPassword);
 
+// Bloque 47: segundo paso del login cuando el usuario activó 2FA — mismo
+// rate limit que el resto de los endpoints de "código de 6 dígitos".
+router.post("/2fa/verify", passwordResetRateLimit, authController.verifyTwoFactorLogin);
+
+// Perfil propio — genéricos por rol (AdminProfile.jsx y VendorProfile.jsx
+// pegan a los mismos dos endpoints, ver auth.controller.js).
+router.patch("/me/email", authenticate, authController.updateMyEmail);
+router.patch("/me/password", authenticate, authController.updateMyPassword);
+router.patch("/me/2fa", authenticate, authController.updateMyTwoFactor);
+
 export default router;

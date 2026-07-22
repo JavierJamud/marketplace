@@ -224,6 +224,9 @@ const updateVendorSchema = z.object({
   planType: z.enum(["REGULAR", "BUSINESS"]).optional(),
   orderDestination: z.enum(["WHATSAPP", "PANEL"]).optional(),
   acceptedPaymentMethods: z.array(z.string().trim().min(1)).optional(),
+  // Bloque 47: informativo, mismo criterio que acceptedPaymentMethods (ver
+  // decisión B del bloque) — nunca valida ni convierte nada.
+  acceptedCurrencies: z.array(z.string().trim().min(1)).optional(),
   provinceId: z.string().optional(),
   municipalityId: z.string().optional().nullable(),
   // Bloque 18: el vendedor puede cambiar su tipo de negocio después del
@@ -249,6 +252,14 @@ export async function updateMyVendor(req, res) {
   // El upgrade a Business solo lo otorga una verificación KYC aprobada (ver
   // verification.controller.js) — acá solo se permite bajar a Regular.
   const planType = data.planType === "REGULAR" ? "REGULAR" : undefined;
+  // Bloque 47 (bug real encontrado al cablear "Cancelar suscripción" en
+  // VendorSubscription.jsx — mismo criterio ya aplicado en Bloque 46 al
+  // revoke-business del admin): el badge/IA para clientes/destacado en home
+  // SIEMPRE leen Vendor.isVerified (ver Store.jsx/getVendorBySlug), nunca
+  // planType directo. Bajar a Regular sin tocar isVerified dejaría la tienda
+  // "cancelada" pero igual mostrándose verificada — se sincronizan los dos
+  // campos acá, igual que en el revoke-business del admin.
+  const isVerified = data.planType === "REGULAR" ? false : undefined;
 
   const updated = await prisma.vendor.update({
     where: { id: vendor.id },
@@ -263,8 +274,10 @@ export async function updateMyVendor(req, res) {
       logoUrl: data.logoUrl,
       coverUrl: data.coverUrl,
       planType,
+      isVerified,
       orderDestination: data.orderDestination,
       acceptedPaymentMethods: data.acceptedPaymentMethods,
+      acceptedCurrencies: data.acceptedCurrencies,
       businessCategoryId: data.businessCategoryId,
     },
   });

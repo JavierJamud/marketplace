@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { api } from "../../lib/api.js";
@@ -15,6 +15,8 @@ const NAV = [
   { to: "/admin/comentarios", label: "Comentarios", icon: Star },
   { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle },
   { to: "/admin/campanas", label: "Campañas", icon: Megaphone },
+  { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard },
+  { to: "/admin/anuncios", label: "Anuncios", icon: Image },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
@@ -22,7 +24,162 @@ const NAV = [
   { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount" },
   { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2 },
   { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags },
+  { to: "/admin/perfil", label: "Mi perfil", icon: UserCog },
 ];
+
+// Bloque 47: barra fija de búsqueda + notificaciones — visible en desktop y
+// mobile por igual (reemplaza el header que antes solo existía en mobile).
+function SearchAndNotifications({ onOpenSidebar }) {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const searchRef = useRef(null);
+  const notifRef = useRef(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const { data: results } = useQuery({
+    queryKey: ["admin-search", debouncedQ],
+    queryFn: async () => (await api.get("/admin/search", { params: { q: debouncedQ } })).data,
+    enabled: debouncedQ.length >= 2,
+  });
+
+  const { data: notifications } = useQuery({
+    queryKey: ["admin-notifications"],
+    queryFn: async () => (await api.get("/admin/notifications")).data,
+    refetchInterval: 20000,
+  });
+
+  useEffect(() => {
+    function onClickOutside(e) {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  function goTo(to) {
+    setSearchOpen(false);
+    setQ("");
+    navigate(to);
+  }
+
+  const hasResults = results && (results.vendors.length || results.customers.length || results.orders.length);
+  const notifTotal = notifications?.total ?? 0;
+
+  return (
+    <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-surface-container-high bg-surface-container-lowest px-4 py-3 lg:px-[38px]">
+      <button
+        onClick={onOpenSidebar}
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container lg:hidden"
+        aria-label="Abrir menú"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      <div ref={searchRef} className="relative flex-1 max-w-[420px]">
+        <div className="flex h-10 items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3.5">
+          <Search className="h-4 w-4 flex-shrink-0 text-outline" />
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            placeholder="Buscar tienda, cliente o pedido..."
+            className="w-full border-none bg-transparent text-[13px] outline-none"
+          />
+          {q && (
+            <button onClick={() => setQ("")} className="flex-shrink-0 text-outline hover:text-on-surface">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {searchOpen && debouncedQ.length >= 2 && (
+          <div className="absolute z-10 mt-1.5 w-full overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
+            {!hasResults && <p className="p-3.5 text-[12.5px] text-outline">Sin resultados para "{debouncedQ}".</p>}
+            {results?.vendors.length > 0 && (
+              <div className="border-b border-surface-container py-1.5">
+                <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Tiendas</div>
+                {results.vendors.map((r) => (
+                  <button key={r.id} onClick={() => goTo(r.to)} className="block w-full px-3.5 py-2 text-left text-[13px] hover:bg-surface-container">
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {results?.customers.length > 0 && (
+              <div className="border-b border-surface-container py-1.5">
+                <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Clientes</div>
+                {results.customers.map((r) => (
+                  <button key={r.id} onClick={() => goTo(r.to)} className="block w-full px-3.5 py-2 text-left text-[13px] hover:bg-surface-container">
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {results?.orders.length > 0 && (
+              <div className="py-1.5">
+                <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Pedidos</div>
+                {results.orders.map((r) => (
+                  <button key={r.id} onClick={() => goTo(r.to)} className="block w-full px-3.5 py-2 text-left text-[13px] hover:bg-surface-container">
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1" />
+
+      <div ref={notifRef} className="relative flex-shrink-0">
+        <button
+          onClick={() => setNotifOpen((o) => !o)}
+          className="relative flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container"
+          aria-label="Notificaciones"
+        >
+          <Bell className="h-[18px] w-[18px]" />
+          {notifTotal > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-error px-1 text-[9.5px] font-bold text-white">
+              {notifTotal > 99 ? "99+" : notifTotal}
+            </span>
+          )}
+        </button>
+
+        {notifOpen && (
+          <div className="absolute right-0 z-10 mt-1.5 w-[300px] overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
+            <div className="border-b border-surface-container-high px-3.5 py-2.5 text-[12.5px] font-bold text-on-surface">Notificaciones</div>
+            <div className="max-h-[360px] overflow-y-auto">
+              {!notifications?.items?.length && <p className="p-3.5 text-[12.5px] text-outline">No hay nada pendiente.</p>}
+              {notifications?.items?.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => {
+                    setNotifOpen(false);
+                    navigate(n.to);
+                  }}
+                  className="block w-full border-b border-surface-container px-3.5 py-2.5 text-left text-[12.5px] last:border-b-0 hover:bg-surface-container"
+                >
+                  {n.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function AdminLayout() {
   const { user, loading, logout } = useAuth();
@@ -114,20 +271,12 @@ export default function AdminLayout() {
         </button>
       </aside>
 
-      <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-surface-container-high bg-surface-container-lowest px-4 py-3 lg:hidden">
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container"
-          aria-label="Abrir menú"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        <span className="font-display text-sm font-bold text-on-surface">Panel admin</span>
+      <div className="flex min-h-screen flex-1 flex-col">
+        <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} />
+        <main className="flex-1 bg-surface-container px-4 py-6 lg:px-[38px] lg:py-[30px]">
+          <Outlet />
+        </main>
       </div>
-
-      <main className="bg-surface-container px-4 py-6 lg:px-[38px] lg:py-[30px]">
-        <Outlet />
-      </main>
     </div>
   );
 }

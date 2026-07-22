@@ -32,6 +32,8 @@ import VendorVerification from "./pages/vendor/VendorVerification.jsx";
 import VendorChat from "./pages/vendor/VendorChat.jsx";
 import VendorReviews from "./pages/vendor/VendorReviews.jsx";
 import VendorSettings from "./pages/vendor/VendorSettings.jsx";
+import VendorProfile from "./pages/vendor/VendorProfile.jsx";
+import VendorSubscription from "./pages/vendor/VendorSubscription.jsx";
 
 // Admin
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
@@ -42,12 +44,15 @@ import AdminCustomers from "./pages/admin/AdminCustomers.jsx";
 import AdminSuggestions from "./pages/admin/AdminSuggestions.jsx";
 import AdminReviews from "./pages/admin/AdminReviews.jsx";
 import AdminCampaigns from "./pages/admin/AdminCampaigns.jsx";
+import AdminSubscriptions from "./pages/admin/AdminSubscriptions.jsx";
+import AdminAnnouncements from "./pages/admin/AdminAnnouncements.jsx";
 import AdminIntegrations from "./pages/admin/AdminIntegrations.jsx";
 import AdminAssistant from "./pages/admin/AdminAssistant.jsx";
 import AdminErrors from "./pages/admin/AdminErrors.jsx";
 import AdminChat from "./pages/admin/AdminChat.jsx";
 import AdminLocations from "./pages/admin/AdminLocations.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
+import AdminProfile from "./pages/admin/AdminProfile.jsx";
 
 export default function App() {
   return (
@@ -86,6 +91,8 @@ export default function App() {
         <Route path="mensajes" element={<VendorChat />} />
         <Route path="resenas" element={<VendorReviews />} />
         <Route path="configuracion" element={<VendorSettings />} />
+        <Route path="suscripcion" element={<VendorSubscription />} />
+        <Route path="perfil" element={<VendorProfile />} />
       </Route>
 
       {/* Panel de administración ZeuDin */}
@@ -97,12 +104,16 @@ export default function App() {
         <Route path="sugerencias" element={<AdminSuggestions />} />
         <Route path="comentarios" element={<AdminReviews />} />
         <Route path="mensajes" element={<AdminChat />} />
+        <Route path="mensajes/:vendorId" element={<AdminChat />} />
         <Route path="campanas" element={<AdminCampaigns />} />
+        <Route path="suscripciones" element={<AdminSubscriptions />} />
+        <Route path="anuncios" element={<AdminAnnouncements />} />
         <Route path="integraciones" element={<AdminIntegrations />} />
         <Route path="asistente" element={<AdminAssistant />} />
         <Route path="errores" element={<AdminErrors />} />
         <Route path="ubicaciones" element={<AdminLocations />} />
         <Route path="categorias" element={<AdminCategories />} />
+        <Route path="perfil" element={<AdminProfile />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

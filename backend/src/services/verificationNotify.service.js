@@ -23,6 +23,14 @@ const EVENTS = {
     title: "¡Tu tienda está verificada!",
     body: () => "Ya tenés el badge de verificación y el Plan Business activo.",
   },
+  // Bloque 46: el admin revoca el Plan Business desde Suscripciones — nunca
+  // es un vencimiento automático (ver nota de "Opción A" del bloque), así
+  // que siempre hay un motivo humano detrás de este evento.
+  VERIFICATION_BUSINESS_REVOKED: {
+    title: "Plan Business revocado",
+    body: () =>
+      "Tu tienda volvió al Plan Regular — perdiste el badge de verificación y las funciones Business (IA para clientes, destacado en home, productos ilimitados). Podés volver a verificarte cuando quieras desde tu panel.",
+  },
 };
 
 export async function notifyVerificationEvent(vendor, type, { notes, ctaHref } = {}) {

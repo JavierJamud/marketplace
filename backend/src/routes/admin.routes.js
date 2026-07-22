@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as adminController from "../controllers/admin.controller.js";
+import * as announcementsController from "../controllers/announcements.controller.js";
 import * as campaignsController from "../controllers/campaigns.controller.js";
 import * as integrationsController from "../controllers/integrations.controller.js";
 import * as settingsController from "../controllers/settings.controller.js";
@@ -29,9 +30,21 @@ router.get("/verifications", adminController.listVerifications);
 router.patch("/verifications/:id", adminController.updateVerification);
 router.patch("/verifications/:id/confirm-payment", adminController.confirmCupPayment);
 
+// Bloque 46: Suscripciones Business — solo lectura + revocar, nunca genera
+// un link de pago nuevo (eso lo sigue haciendo únicamente el propio
+// vendedor, ver retryMyStripeCheckout en verification.routes.js).
+router.get("/subscriptions", adminController.listSubscriptions);
+router.post("/vendors/:id/revoke-business", adminController.revokeBusinessPlan);
+
 router.get("/customers", adminController.listCustomers);
 router.patch("/customers/:id", adminController.updateCustomer);
 router.delete("/customers/:id", adminController.deleteCustomer);
+
+// Bloque 47: barra de búsqueda + campana del panel admin, y correo directo
+// puntual (distinto del envío masivo de /campaigns).
+router.get("/search", adminController.adminSearch);
+router.get("/notifications", adminController.listAdminNotifications);
+router.post("/emails", adminController.sendAdminEmail);
 
 router.get("/suggestions", suggestionsController.listSuggestions);
 router.patch("/suggestions/:id", suggestionsController.updateSuggestion);
@@ -77,6 +90,13 @@ router.delete("/business-categories/:id", businessCategoriesController.deleteBus
 
 router.post("/settings/hero-image", siteUpload.single("image"), settingsController.updateHeroImage);
 router.patch("/settings/plan-limits", settingsController.updatePlanLimits);
+
+// Bloque 46: anuncios programados (banners públicos) — mismo mecanismo de
+// subida que hero-image arriba (siteUpload), imagen opcional.
+router.get("/announcements", announcementsController.listAnnouncementsAdmin);
+router.post("/announcements", siteUpload.single("image"), announcementsController.createAnnouncement);
+router.patch("/announcements/:id", siteUpload.single("image"), announcementsController.updateAnnouncement);
+router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 
 // Bloque 43: modelo editable por proveedor de IA (AdminIntegrations.jsx).
 router.get("/settings/ai-models", settingsController.getAiModelSettings);

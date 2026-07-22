@@ -95,6 +95,10 @@ enum EmailType {
   STATUS_UPDATE
   MANUAL
   PASSWORD_RESET
+  // Bloque 47: código de 2FA del login — mismo criterio que PASSWORD_RESET
+  // (tipo propio, no genérico), nunca el mismo enum value pese a compartir
+  // la forma "código de 6 dígitos por correo".
+  TWO_FACTOR_CODE
   // Bloque 16: un solo tipo genérico para todo el ciclo de verificación
   // (docs aprobados/rechazados, link de pago, verificado) — mismo patrón que
   // STATUS_UPDATE ya usa un label map en vez de un enum-value por estado.
@@ -325,6 +329,13 @@ model User {
   resetCodeHash      String?
   resetCodeExpiresAt DateTime?
 
+  // Bloque 47: 2FA opt-in por correo — campos propios, separados de
+  // resetCodeHash/resetCodeExpiresAt (un reset de contraseña en curso no
+  // debe pisar un código de 2FA en curso, ni viceversa).
+  twoFactorEnabled       Boolean   @default(false)
+  twoFactorCodeHash      String?
+  twoFactorCodeExpiresAt DateTime?
+
   province  Province?  @relation(fields: [provinceId], references: [id], onDelete: SetNull)
   vendor    Vendor?
   addresses Address[]
@@ -396,6 +407,10 @@ model Vendor {
   // se valida ni se procesa nada acá, es solo lo que se muestra en
   // Store.jsx para que cliente y vendedor coordinen directo entre ellos.
   acceptedPaymentMethods String[] @default([])
+  // Bloque 47: informativo, mismo criterio que acceptedPaymentMethods de
+  // arriba — qué monedas coordina la tienda con el cliente, sin conversión
+  // real ni tasa de cambio (Product.price sigue siendo siempre CUP).
+  acceptedCurrencies String[] @default(["CUP"])
   createdAt   DateTime @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -605,6 +620,36 @@ model VerificationRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Bloque 46: anuncios programados (banners públicos del marketplace, no de
+// una tienda puntual) — page: ALL aparece en todas las páginas públicas que
+// consulten GET /announcements/active, HOME/STORES restringen a una sola.
+// ---------------------------------------------------------------------------
+
+enum AnnouncementPage {
+  HOME
+  STORES
+  ALL
+}
+
+enum AnnouncementPosition {
+  HERO
+  TOP_BAR
+}
+
+model Announcement {
+  id        String               @id @default(cuid())
+  title     String
+  body      String?
+  page      AnnouncementPage
+  position  AnnouncementPosition
+  imageUrl  String?
+  startAt   DateTime
+  endAt     DateTime
+  isActive  Boolean              @default(true)
+  createdAt DateTime             @default(now())
+}
+
+// ---------------------------------------------------------------------------
 // Admin: campañas (Resend) e integraciones (credenciales cifradas en DB)
 // ---------------------------------------------------------------------------
 
@@ -762,6 +807,9 @@ enum VendorNotificationType {
   VERIFICATION_DOCS_REJECTED
   VERIFICATION_PAYMENT_LINK_SENT
   VERIFICATION_VERIFIED
+  // Bloque 46: el admin revoca el Plan Business desde Suscripciones — mismo
+  // canal (email + campanita) que el resto del ciclo de verificación/cobro.
+  VERIFICATION_BUSINESS_REVOKED
 }
 
 model VendorNotification {

@@ -30,6 +30,20 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
+    // Bloque 47: 2FA opt-in — el backend NUNCA emite tokens acá si la cuenta
+    // lo tiene activo, solo avisa que mandó un código. Account.jsx detecta
+    // esta forma (sin accessToken) y muestra el paso de "ingresá el código".
+    if (data.requiresTwoFactor) return { requiresTwoFactor: true, email: data.email };
+    localStorage.setItem("accessToken", data.accessToken);
+    localStorage.setItem("refreshToken", data.refreshToken);
+    setUser(data.user);
+    return data.user;
+  };
+
+  // Segundo paso del login cuando 2FA está activo — mismo resultado final
+  // que login() (tokens + user), pero validando el código de 6 dígitos.
+  const verifyTwoFactor = async (email, code) => {
+    const { data } = await api.post("/auth/2fa/verify", { email, code });
     localStorage.setItem("accessToken", data.accessToken);
     localStorage.setItem("refreshToken", data.refreshToken);
     setUser(data.user);
@@ -64,7 +78,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshRole, refetch: loadMe }}>
+    <AuthContext.Provider value={{ user, loading, login, verifyTwoFactor, register, logout, refreshRole, refetch: loadMe }}>
       {children}
     </AuthContext.Provider>
   );

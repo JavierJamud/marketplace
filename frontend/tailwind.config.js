@@ -138,10 +138,6 @@ export default {
           "0%": { opacity: "0", transform: "translateY(10px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
-        marquee: {
-          "0%": { transform: "translateX(0)" },
-          "100%": { transform: "translateX(-50%)" },
-        },
         "overlay-in": {
           "0%": { opacity: "0" },
           "100%": { opacity: "1" },
@@ -168,7 +164,6 @@ export default {
         "overlay-in": "overlay-in 0.2s ease-out",
         "check-pop": "check-pop 0.5s cubic-bezier(0.34,1.56,0.64,1)",
         "fade-up": "fade-up 0.45s ease-out",
-        marquee: "marquee 32s linear infinite",
         "assistant-breathe": "assistant-breathe 3s ease-in-out infinite",
       },
     },

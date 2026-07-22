@@ -37,6 +37,12 @@ function ZeuDinAvatar({ className }) {
 const SESSION_KEY = "zeudin_marketplace_chat_session";
 const ACTIVITY_KEY = "zeudin_marketplace_chat_lastActivity";
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+// Bloque 47: distinto de SESSION_EXPIRY_MS (eso es "¿la sesión guardada
+// sigue viva?", solo se chequea al abrir/crear sesión) — esto es un timer
+// EN VIVO mientras el widget está montado: 30 min reales sin actividad
+// (mensaje enviado o panel abierto) reinician la charla solos, sin pedir
+// confirmación (a diferencia del botón manual "Nuevo chat").
+const IDLE_RESET_MS = 30 * 60 * 1000;
 
 function touchActivity() {
   localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
@@ -226,7 +232,23 @@ export function MarketplaceChatWidget() {
   // "Reintentar" en la tarjeta de error, como si el cliente lo acabara de
   // mandar de nuevo.
   const lastMessageRef = useRef("");
+  // Bloque 47: timer de auto-reset por inactividad (ver IDLE_RESET_MS).
+  const idleTimerRef = useRef(null);
   if (!sessionIdRef.current) sessionIdRef.current = getOrCreateSessionId();
+
+  function scheduleIdleReset() {
+    clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => reallyResetChat(), IDLE_RESET_MS);
+  }
+
+  // El widget vive montado toda la sesión de Home (es el único lugar donde
+  // se monta) — este timer corre desde el montaje, sin importar si el panel
+  // está abierto o cerrado en ese momento.
+  useEffect(() => {
+    scheduleIdleReset();
+    return () => clearTimeout(idleTimerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Bloque 34: mismo queryKey que Home.jsx (CategoryMarquee) — si este
   // widget se monta ahí (que es el único lugar donde vive, Home.jsx), el
@@ -308,6 +330,7 @@ export function MarketplaceChatWidget() {
       const { data } = await api.post("/assistant/chat", { sessionId: sessionIdRef.current, message });
       setMessages((m) => [...m, data.message]);
       touchActivity();
+      scheduleIdleReset();
       // Bloque 38: sonido corto al recibir la respuesta — solo puede pasar
       // acá (el panel está abierto, es la única forma de llegar a este
       // código) y solo si el cliente no lo silenció.
@@ -439,6 +462,9 @@ export function MarketplaceChatWidget() {
     setErrorMsg(null);
     setHistoryLoaded(true);
     setConfirmingReset(false);
+    // Re-arma la ventana de 30 min — si el visitante sigue sin usar el chat,
+    // vuelve a reiniciarse solo cada vez que se cumpla, no una única vez.
+    scheduleIdleReset();
   }
 
   const recording = recordingState === "recording";
@@ -458,20 +484,21 @@ export function MarketplaceChatWidget() {
         </div>
       )}
 
-      {/* Bloque 40 (pedido explícito): sin la letra "Z" — un ícono genérico
-          de asistente, en los colores de marca ya usados en todo el sitio
-          (fondo primary, ícono en secondary-container), con una respiración
-          suave (assistant-breathe) en vez de algo llamativo. */}
+      {/* Bloque 47 (pedido explícito): botón flotante estándar — sin el
+          navy llamativo ni la respiración de idle del Bloque 40, un botón
+          de chat normal (fondo claro de la paleta + ícono en el acento
+          teal ya usado en el resto del sitio), solo hover:scale-105. */}
       {!open && (
         <button
           onClick={() => {
             setOpen(true);
             setShowBubble(false);
+            scheduleIdleReset();
           }}
           aria-label="Abrir asistente de compras de ZeuDin"
-          className="fixed bottom-5 right-5 z-[60] flex h-14 w-14 animate-assistant-breathe items-center justify-center rounded-full border-[3px] border-white/25 bg-primary shadow-[0_8px_28px_rgba(0,0,0,0.22)] transition-transform hover:scale-105 sm:bottom-6 sm:right-6"
+          className="fixed bottom-5 right-5 z-[60] flex h-14 w-14 items-center justify-center rounded-full border border-surface-container-high bg-surface-container-lowest shadow-lg transition-transform hover:scale-105 sm:bottom-6 sm:right-6"
         >
-          <Bot className="h-7 w-7 text-secondary-container" />
+          <Bot className="h-7 w-7 text-tertiary-accent" />
         </button>
       )}
 

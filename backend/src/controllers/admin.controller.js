@@ -2,6 +2,8 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { notifyVerificationEvent } from "../services/verificationNotify.service.js";
+import { SUBSCRIPTION_PRICE_USD } from "../lib/stripe.js";
+import { sendAdminDirectEmail } from "../lib/email.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -166,7 +168,22 @@ export async function updateVendor(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
 
-  const updated = await prisma.vendor.update({ where: { id }, data });
+  // Bloque 46 (auditoría de conexión — bug real encontrado): "Bloquear" solo
+  // ocultaba la tienda del sitio público (isBlocked ya se filtraba en
+  // listVendors/getVendorBySlug), pero la cuenta del dueño podía seguir
+  // entrando a su panel de vendedor sin ningún problema — login() únicamente
+  // chequea User.isSuspended, nunca Vendor.isBlocked. Mismo criterio que ya
+  // usa deleteVendor (soft-delete) para el caso permanente: sincronizar
+  // isSuspended con isBlocked acá también, para el caso reversible.
+  const updated =
+    data.isBlocked === undefined
+      ? await prisma.vendor.update({ where: { id }, data })
+      : (
+          await prisma.$transaction([
+            prisma.vendor.update({ where: { id }, data }),
+            prisma.user.update({ where: { id: vendor.userId }, data: { isSuspended: data.isBlocked } }),
+          ])
+        )[0];
   res.json({ vendor: updated });
 }
 
@@ -298,6 +315,78 @@ export async function confirmCupPayment(req, res) {
   res.json({ verification: updatedVerification });
 }
 
+// --- Suscripciones Business (Bloque 46) -------------------------------------
+// ⚠ Sobre datos YA existentes (Vendor.planType + VerificationRequest), no un
+// modelo de cobro recurrente nuevo — ver la nota de "Opción A" del bloque:
+// no hay stripe subscriptions.create ni webhook de renovación mensual, así
+// que no hay vencimiento automático. "active"/"pending_payment"/"rejected"
+// es un estado CALCULADO en cada request, nunca guardado aparte (nada que
+// pueda desincronizarse de Tiendas/Verificaciones).
+export async function listSubscriptions(_req, res) {
+  const vendors = await prisma.vendor.findMany({
+    where: { planType: "BUSINESS", deletedAt: null },
+    include: {
+      verification: true,
+      locations: { include: { province: true }, take: 1 },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const subscriptions = vendors.map((v) => {
+    const ver = v.verification;
+    // isVerified es la fuente real de "está activa" (mismo campo que
+    // gatea el badge/IA/destacado en el resto del sitio, ver Store.jsx) —
+    // nunca un estado aparte que se pueda desincronizar de eso. Cualquier
+    // Business no verificado (ej. plan forzado a mano desde Tiendas sin
+    // pasar por el ciclo de verificación) cae en "pendiente" salvo que su
+    // solicitud haya sido rechazada explícitamente.
+    const status = v.isVerified ? "active" : ver?.status === "REJECTED" ? "rejected" : "pending_payment";
+    return {
+      vendorId: v.id,
+      companyName: v.companyName,
+      slug: v.slug,
+      color: v.color,
+      province: v.locations?.[0]?.province?.name ?? null,
+      status,
+      paymentMethod: ver?.paymentMethod ?? null,
+      paymentConfirmedAt: ver?.paymentConfirmedAt ?? null,
+      stripeCheckoutUrl: ver?.stripeCheckoutUrl ?? null,
+      stripeCheckoutExpired: ver?.stripeCheckoutExpiresAt ? ver.stripeCheckoutExpiresAt < new Date() : false,
+    };
+  });
+
+  const active = subscriptions.filter((s) => s.status === "active").length;
+  const pendingPayment = subscriptions.filter((s) => s.status === "pending_payment").length;
+  const rejected = subscriptions.filter((s) => s.status === "rejected").length;
+
+  res.json({
+    subscriptions,
+    metrics: { active, pendingPayment, rejected, mrrUsd: active * SUBSCRIPTION_PRICE_USD },
+  });
+}
+
+// Manual, no un vencimiento automático (ver nota de "Opción A" arriba) — el
+// admin decide revocar (impago, incumplimiento, pedido del vendedor, etc.).
+// Baja isVerified junto con planType a propósito, aunque no sea 100% literal
+// del pedido original: el badge/IA/destacado del resto del sitio SIEMPRE
+// leen isVerified (ver Store.jsx), así que dejarlo en true acá haría que la
+// tienda "revocada" siguiera mostrándose verificada — contradiría la propia
+// verificación esperada del bloque ("pierde el badge verificado").
+export async function revokeBusinessPlan(req, res) {
+  const { id } = req.params;
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (vendor.planType !== "BUSINESS") throw new AppError("Esta tienda no tiene el Plan Business activo.", 409);
+
+  const updated = await prisma.vendor.update({
+    where: { id },
+    data: { planType: "REGULAR", isVerified: false },
+  });
+
+  await notifyVerificationEvent(updated, "VERIFICATION_BUSINESS_REVOKED");
+  res.json({ vendor: updated });
+}
+
 // --- Clientes ------------------------------------------------------------
 
 export async function listCustomers(req, res) {
@@ -425,4 +514,125 @@ export async function markConversationRead(req, res) {
     data: { readAt: new Date() },
   });
   res.status(204).end();
+}
+
+// --- Correo directo (Bloque 47) --------------------------------------------
+// Distinto de AdminCampaigns.jsx (envío masivo segmentado, no se toca): esto
+// es un correo puntual a UN destinatario elegido a mano.
+
+const sendEmailSchema = z.object({
+  recipientType: z.enum(["customer", "vendor"]),
+  recipientId: z.string().min(1),
+  subject: z.string().trim().min(2),
+  message: z.string().trim().min(2),
+});
+
+export async function sendAdminEmail(req, res) {
+  const { recipientType, recipientId, subject, message } = sendEmailSchema.parse(req.body);
+
+  let to, recipientName, vendorId;
+  if (recipientType === "customer") {
+    const user = await prisma.user.findUnique({ where: { id: recipientId } });
+    if (!user || user.role !== "CUSTOMER") throw new AppError("Cliente no encontrado.", 404);
+    if (!user.email) throw new AppError("Este cliente no tiene un correo cargado.", 400);
+    to = user.email;
+    recipientName = user.fullName ?? null;
+  } else {
+    const vendor = await prisma.vendor.findUnique({ where: { id: recipientId } });
+    if (!vendor) throw new AppError("Tienda no encontrada.", 404);
+    if (!vendor.email) throw new AppError("Esta tienda no tiene un correo cargado.", 400);
+    to = vendor.email;
+    recipientName = vendor.companyName;
+    vendorId = vendor.id;
+  }
+
+  const result = await sendAdminDirectEmail({ to, subject, message, recipientName, vendorId });
+  if (!result.ok) throw new AppError("No se pudo enviar el correo. Revisá la integración de Resend.", 502, { detail: result.error });
+
+  res.json({ ok: true });
+}
+
+// --- Búsqueda + notificaciones (Bloque 47) ----------------------------------
+
+export async function adminSearch(req, res) {
+  const q = String(req.query.q ?? "").trim();
+  if (q.length < 2) return res.json({ vendors: [], customers: [], orders: [] });
+
+  const [vendors, customers, orders] = await Promise.all([
+    prisma.vendor.findMany({
+      where: { deletedAt: null, companyName: { contains: q, mode: "insensitive" } },
+      select: { id: true, companyName: true },
+      take: 8,
+    }),
+    prisma.user.findMany({
+      where: {
+        role: "CUSTOMER",
+        deletedAt: null,
+        OR: [{ fullName: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }],
+      },
+      select: { id: true, fullName: true, email: true },
+      take: 8,
+    }),
+    prisma.order.findMany({
+      where: { code: { startsWith: q.toUpperCase() } },
+      select: { id: true, code: true, vendor: { select: { companyName: true } } },
+      take: 8,
+    }),
+  ]);
+
+  res.json({
+    vendors: vendors.map((v) => ({ id: v.id, label: v.companyName, to: "/admin/tiendas" })),
+    customers: customers.map((c) => ({ id: c.id, label: c.fullName ?? c.email, to: "/admin/clientes" })),
+    // No hay una pantalla de detalle de pedido en el admin todavía — el link
+    // más útil que existe hoy es la ficha de la tienda dueña del pedido.
+    orders: orders.map((o) => ({ id: o.id, label: `${o.code} · ${o.vendor.companyName}`, to: "/admin/tiendas" })),
+  });
+}
+
+// Agregación en vivo (ver decisión D del bloque) — sin tabla de
+// notificaciones propia ni estado de "leído" persistente: reusa las mismas
+// queries que ya alimentan cada sección (Verificaciones/Sugerencias/Errores/
+// Mensajes), solo junta el conteo y los últimos items acá.
+export async function listAdminNotifications(_req, res) {
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread] = await Promise.all([
+    prisma.verificationRequest.findMany({
+      where: { status: "PENDING_REVIEW" },
+      include: { vendor: { select: { companyName: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    prisma.suggestion.count({ where: { status: "NEW" } }),
+    prisma.errorLog.count({ where: { resolved: false } }),
+    prisma.vendor.findMany({
+      where: { messages: { some: { senderRole: "VENDOR", readAt: null } } },
+      select: { id: true, companyName: true, _count: { select: { messages: { where: { senderRole: "VENDOR", readAt: null } } } } },
+      take: 5,
+    }),
+  ]);
+
+  const items = [
+    ...pendingVerifications.map((v) => ({
+      id: `verification-${v.id}`,
+      text: `Verificación pendiente: ${v.vendor.companyName}`,
+      to: "/admin/verificaciones",
+      createdAt: v.createdAt,
+    })),
+    ...vendorsWithUnread.map((v) => ({
+      id: `message-${v.id}`,
+      text: `${v._count.messages} mensaje(s) sin leer de ${v.companyName}`,
+      to: `/admin/mensajes/${v.id}`,
+      createdAt: null,
+    })),
+  ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
+
+  if (newSuggestions > 0) {
+    items.push({ id: "suggestions", text: `${newSuggestions} sugerencia(s) nueva(s)`, to: "/admin/sugerencias", createdAt: null });
+  }
+  if (unresolvedErrors > 0) {
+    items.push({ id: "errors", text: `${unresolvedErrors} error(es) sin resolver`, to: "/admin/errores", createdAt: null });
+  }
+
+  const total = pendingVerifications.length + newSuggestions + unresolvedErrors + vendorsWithUnread.reduce((sum, v) => sum + v._count.messages, 0);
+
+  res.json({ items: items.slice(0, 12), total });
 }

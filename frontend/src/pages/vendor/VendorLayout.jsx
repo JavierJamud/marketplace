@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, CreditCard } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -17,6 +17,8 @@ const NAV = [
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star },
   { to: "/vendedor/configuracion", label: "Configuración", icon: Settings },
+  { to: "/vendedor/suscripcion", label: "Suscripción", icon: CreditCard },
+  { to: "/vendedor/perfil", label: "Mi perfil", icon: UserCog },
 ];
 
 export default function VendorLayout() {

@@ -45,6 +45,11 @@ function VendorAvatar({ vendor, className }) {
 // ni siquiera pedir el historial viejo si ya se sabe que venció).
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
+// Bloque 47: mismo criterio que MarketplaceChatWidget.jsx — timer EN VIVO
+// mientras el widget está montado, distinto de SESSION_EXPIRY_MS (que solo
+// se chequea al abrir/crear sesión).
+const IDLE_RESET_MS = 30 * 60 * 1000;
+
 function sessionKey(vendorId) {
   return `zeudin_chat_session_${vendorId}`;
 }
@@ -256,7 +261,22 @@ export function StoreChatWidget({ vendor }) {
   // tal cual, como si el cliente lo acabara de mandar de nuevo, sin
   // pedirle que lo reescriba.
   const lastMessageRef = useRef("");
+  // Bloque 47: timer de auto-reset por inactividad (ver IDLE_RESET_MS).
+  const idleTimerRef = useRef(null);
   if (!sessionIdRef.current) sessionIdRef.current = getOrCreateSessionId(vendor.id);
+
+  function scheduleIdleReset() {
+    clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => reallyResetChat(), IDLE_RESET_MS);
+  }
+
+  // El widget vive montado toda la visita a la tienda — corre desde el
+  // montaje, sin importar si el panel está abierto o cerrado.
+  useEffect(() => {
+    scheduleIdleReset();
+    return () => clearTimeout(idleTimerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Bloque 28: cuántos ítems/cuánto total mostrar en la franja de carrito
   // del panel — mismo cálculo que el contador del header (Header.jsx), leído
@@ -343,6 +363,7 @@ export function StoreChatWidget({ vendor }) {
       const { data } = await api.post(`/vendors/${vendor.id}/chat`, { sessionId: sessionIdRef.current, message, cartQuantities });
       setMessages((m) => [...m, data.message]);
       touchActivity(vendor.id);
+      scheduleIdleReset();
       // Bloque 38: sonido corto al recibir la respuesta — solo puede pasar
       // acá (el panel está abierto, es la única forma de llegar a este
       // código) y solo si el cliente no lo silenció.
@@ -521,6 +542,9 @@ export function StoreChatWidget({ vendor }) {
     setErrorMsg(false);
     setHistoryLoaded(true);
     setConfirmingReset(false);
+    // Re-arma la ventana de 30 min — sigue reiniciándose solo si el
+    // visitante nunca vuelve a usar el chat, no una única vez.
+    scheduleIdleReset();
   }
 
   return (
@@ -558,6 +582,7 @@ export function StoreChatWidget({ vendor }) {
           onClick={() => {
             setOpen(true);
             setShowBubble(false);
+            scheduleIdleReset();
           }}
           style={{ background: vendor.color ?? "#232F3E" }}
           aria-label="Abrir chat con IA de la tienda"

@@ -9,7 +9,9 @@ import { getStripeConfig } from "../controllers/integrations.controller.js";
 // mismo precio de referencia que ya se mostraba en la pantalla simulada
 // anterior; el "2 500 CUP/mes" sigue siendo el precio informativo que ve el
 // vendedor en VendorVerification.jsx.
-const SUBSCRIPTION_PRICE_USD = 25;
+// Bloque 46: exportado — AdminSubscriptions.jsx (MRR estimado) usa este
+// mismo valor real en vez de inventar un precio de lista aparte.
+export const SUBSCRIPTION_PRICE_USD = 25;
 
 export async function getStripeClient() {
   const config = await getStripeConfig();

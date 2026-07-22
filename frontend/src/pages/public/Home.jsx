@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowRight, MapPin, MessageCircle, Store, ShieldCheck, Rocket } from "lucide-react";
+import useEmblaCarousel from "embla-carousel-react";
+import Autoplay from "embla-carousel-autoplay";
+import { ArrowRight, MapPin, MessageCircle, Store, ShieldCheck, Rocket, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
@@ -10,55 +12,59 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.jsx";
 
-const CATEGORY_RESUME_DELAY_MS = 3000;
+const CATEGORY_AUTOPLAY_DELAY_MS = 4500;
 
-// Bloque 20: marquee continuo de las categorías (tipo de negocio) — mismo
-// truco de loop infinito sin salto que VerifiedStoresSlider (duplicar el
-// set y animar 0% → -50%), pero con pausa/resume distinto: acá al tocar o
-// clickear se pausa y recién retoma 3s después de soltar/salir, en vez de
-// reanudar apenas se suelta.
+// Bloque 47: reemplaza el marquee continuo del Bloque 20 (pedido explícito:
+// nunca más scroll rápido/continuo) — mismo Embla que VerifiedStoresSlider,
+// pero acá avanza de a un GRUPO visible por vez (slidesToScroll: "auto") en
+// vez de transicionar una sola tarjeta, con flechas para controlarlo a mano
+// además del autoplay lento. Pills más chicas (texto/padding reducido) para
+// que entren más por fila, como pide el bloque.
 function CategoryMarquee({ categories }) {
-  const [paused, setPaused] = useState(false);
-  const resumeTimer = useRef(null);
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, align: "start", dragFree: false, slidesToScroll: "auto" }, [
+    Autoplay({ delay: CATEGORY_AUTOPLAY_DELAY_MS, stopOnMouseEnter: true, stopOnInteraction: false }),
+  ]);
 
-  useEffect(() => () => clearTimeout(resumeTimer.current), []);
-
-  function pause() {
-    clearTimeout(resumeTimer.current);
-    setPaused(true);
-  }
-
-  function scheduleResume() {
-    clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => setPaused(false), CATEGORY_RESUME_DELAY_MS);
-  }
-
-  // Con 49 categorías activas ya sobra ancho de sobra con 2 copias — solo se
-  // repite más si en algún momento quedan pocas (ej. desactivadas desde el
-  // admin) y el set original no tapa una pantalla ancha.
-  const sets = categories.length < 10 ? 4 : 2;
-  const track = Array.from({ length: sets }, () => categories).flat();
-  const durationS = Math.max(24, categories.length * 2);
+  const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
+  const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
 
   return (
-    <div className="overflow-hidden py-1.5" onMouseEnter={pause} onMouseLeave={scheduleResume} onTouchStart={pause} onTouchEnd={scheduleResume}>
-      <div
-        className="flex w-max animate-marquee gap-3"
-        style={{ animationDuration: `${durationS}s`, animationPlayState: paused ? "paused" : "running" }}
-      >
-        {track.map((c, i) => (
-          <Link
-            key={i}
-            to={`/tiendas?businessCategoryId=${c.id}`}
-            className="flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-4 py-2.5 hover:border-primary-container"
-          >
-            <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
-              <CategoryIcon name={c.icon} className="h-3.5 w-3.5 text-tertiary-accent" />
-            </span>
-            <span className="text-label-md text-on-surface-variant">{c.name}</span>
-          </Link>
-        ))}
+    <div className="relative">
+      <div className="overflow-hidden" ref={emblaRef}>
+        <div className="flex gap-2.5">
+          {categories.map((c) => (
+            <Link
+              key={c.id}
+              to={`/tiendas?businessCategoryId=${c.id}`}
+              className="flex min-w-0 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-3 py-1.5 hover:border-primary-container"
+            >
+              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
+                <CategoryIcon name={c.icon} className="h-3 w-3 text-tertiary-accent" />
+              </span>
+              <span className="text-label-sm text-on-surface-variant">{c.name}</span>
+            </Link>
+          ))}
+        </div>
       </div>
+
+      {categories.length > 1 && (
+        <>
+          <button
+            onClick={scrollPrev}
+            aria-label="Categorías anteriores"
+            className="absolute -left-3 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-md hover:scale-105 sm:flex"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            onClick={scrollNext}
+            aria-label="Más categorías"
+            className="absolute -right-3 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface-container-lowest text-on-surface shadow-md hover:scale-105 sm:flex"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </>
+      )}
     </div>
   );
 }

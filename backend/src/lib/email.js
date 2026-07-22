@@ -8,6 +8,8 @@ import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
 import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
 import { tableOrderStatusEmail } from "../templates/tableOrderStatus.js";
+import { twoFactorCodeEmail } from "../templates/twoFactorCode.js";
+import { adminDirectEmail } from "../templates/adminDirectEmail.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -135,5 +137,24 @@ export async function sendTableOrderStatusEmail({ to, vendorId, vendorName, tabl
   const { subject, html } = tableOrderStatusEmail({ vendorName, tableNumber, kitchenStatus });
   const result = await sendViaResend({ to, subject, html, fromName: vendorName });
   await logEmail({ vendorId, orderId: null, type: "TABLE_ORDER_STATUS", to, subject, result });
+  return result;
+}
+
+// El resultado SÍ importa (mismo criterio que sendPasswordResetEmail): sin
+// el código en el correo, el segundo paso del login queda trabado.
+export async function sendTwoFactorCodeEmail(user, code) {
+  const { subject, html } = twoFactorCodeEmail({ fullName: user.fullName, code });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "TWO_FACTOR_CODE", to: user.email, subject, result });
+  return result;
+}
+
+// Bloque 47: correo puntual admin -> cliente/tienda (AdminChat.jsx, pestaña
+// "Correo directo") — vendorId solo si el destinatario es una tienda, mismo
+// EmailLog type MANUAL que sendManualOrderEmail (pedido explícito del bloque).
+export async function sendAdminDirectEmail({ to, subject, message, recipientName, vendorId }) {
+  const { html } = adminDirectEmail({ subject, message, recipientName });
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "MANUAL", to, subject, result });
   return result;
 }
