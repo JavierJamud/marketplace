@@ -462,6 +462,8 @@ model Vendor {
   chatMessages  ChatMessage[]
   productRequests ProductRequest[]
   offers        Offer[]
+  discountCodes DiscountCode[]
+  storeOffers   StoreOffer[]
 }
 
 model VendorLocation {
@@ -513,8 +515,19 @@ model Order {
   tableNumber            Int?
   createdAt              DateTime     @default(now())
 
+  // Bloque 52: código de descuento del vendedor aplicado a este pedido, si
+  // hubo uno — SetNull en vez de Cascade porque borrar/desactivar un código
+  // después no debe borrar el historial de pedidos que ya lo usaron.
+  // discountAmount es el monto ya restado del total de arriba (total =
+  // subtotal - discountAmount), guardado aparte para poder mostrarlo en el
+  // detalle del pedido sin tener que recalcularlo contra un código que puede
+  // haber cambiado de valor/estado después.
+  discountCodeId String?
+  discountAmount Decimal? @db.Decimal(12, 2)
+
   vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   customer User?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  discountCode DiscountCode? @relation(fields: [discountCodeId], references: [id], onDelete: SetNull)
   items    OrderItem[]
   emailLogs EmailLog[]
 }
@@ -933,6 +946,13 @@ model Review {
   // reseña, no se recalcula después (igual que un "verified purchase" de
   // cualquier otro marketplace).
   isVerifiedPurchase Boolean @default(false)
+  // Bloque 52: fotos reales del cliente adjuntas a la reseña — solo
+  // disponibles en tiendas verificadas (ver reviews.controller.js), nunca un
+  // link externo (a diferencia de las imágenes de producto/oferta, acá
+  // siempre son archivos subidos al propio servidor). Ocultar/eliminar la
+  // reseña (isHidden/delete de abajo) oculta/elimina estas imágenes también,
+  // porque viven en la misma fila — no hace falta lógica aparte.
+  images    String[] @default([])
   // Bloque 22: el admin puede ocultar un comentario sin borrarlo (o
   // borrarlo directo) — el vendedor no puede tocar ninguna de las dos cosas,
   // pero sí responder públicamente (ver vendorReply).
@@ -1197,4 +1217,82 @@ model Offer {
 
   @@index([vendorId, createdAt])
   @@index([status, expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 52: códigos de descuento del vendedor, aplicables en el carrito
+// (ver orders.controller.js: resolveDiscountForOrder/createOrder), y ofertas
+// de tienda (StoreOffer, más abajo) — distintas de Offer de arriba (esas son
+// la sección "Ofertas" del Home; StoreOffer vive dentro de la página pública
+// de cada tienda, ver Store.jsx). Sin gate de isVerified: a diferencia de
+// Offer, cualquier vendedor (Regular o Business) puede usar ambas funciones.
+// ---------------------------------------------------------------------------
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model DiscountCode {
+  id       String       @id @default(cuid())
+  vendorId String
+  // Siempre en mayúsculas (normalizado en discountCodes.controller.js) — el
+  // vendedor lo escribe o se genera automático si lo deja vacío. Único por
+  // TIENDA, no global: dos vendedores distintos pueden tener el mismo texto.
+  code     String
+  type     DiscountType
+  // Porcentaje (0-100) si type es PERCENTAGE, monto en CUP si FIXED_AMOUNT —
+  // nunca ambos a la vez, mismo criterio que un radio button en el form.
+  value    Decimal      @db.Decimal(12, 2)
+  // Mínimo/máximo de SUBTOTAL del carrito (de los productos de ESTA tienda)
+  // para que el código aplique — ambos opcionales, validados en el
+  // formulario (max > min si los dos están presentes).
+  minPurchase Decimal?  @db.Decimal(12, 2)
+  maxPurchase Decimal?  @db.Decimal(12, 2)
+  // null = usos ilimitados. usesCount se incrementa atómicamente (updateMany
+  // con condición usesCount < maxUses) al confirmar un pedido que lo usa —
+  // ver createOrder — para que dos clientes usando el último cupo casi al
+  // mismo tiempo no dejen el contador por encima del límite.
+  maxUses   Int?
+  usesCount Int      @default(0)
+  startsAt  DateTime @default(now())
+  // null = nunca vence (el vendedor lo desactiva manualmente con `active`).
+  expiresAt DateTime?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  vendor Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  offers StoreOffer[]
+  orders Order[]
+
+  @@unique([vendorId, code])
+}
+
+model StoreOffer {
+  id             String   @id @default(cuid())
+  vendorId       String
+  title          String
+  // Puede escribirse a mano o mejorarse con IA (kind "offer" de
+  // ai.controller.js/aiPrompts.js, ya usado por las ofertas del Home).
+  description    String?  @db.Text
+  // Archivo subido o link externo (respeta SiteSettings.allowProductImageLinks,
+  // mismo criterio que las imágenes de producto del Bloque 49) — nunca null,
+  // a diferencia de Offer.imageUrl que puede serlo para el caso HTML.
+  imageUrl       String
+  discountCodeId String
+  isLimitedTime  Boolean  @default(false)
+  // Obligatorio si isLimitedTime es true (validado en storeOffers.controller.js).
+  expiresAt      DateTime?
+  // Bloque 52: true cuando el código se creó desde "Crear código nuevo para
+  // esta oferta" en vez de reusar uno ya existente — al vencer esta oferta
+  // (ver expireStaleStoreOffers), el código exclusivo se desactiva junto con
+  // ella; uno reusado de otras ofertas/promos nunca se toca automáticamente.
+  discountCodeExclusive Boolean @default(false)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  discountCode DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Restrict)
+
+  @@index([vendorId, active])
 }
