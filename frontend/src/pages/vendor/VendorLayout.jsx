@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, Tag } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, Tag, Percent, Gift } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -14,6 +14,8 @@ const NAV = [
   { to: "/vendedor", label: "Resumen", icon: LayoutDashboard, end: true },
   { to: "/vendedor/productos", label: "Productos", icon: Package },
   { to: "/vendedor/ofertas", label: "Ofertas", icon: Tag },
+  { to: "/vendedor/codigos-descuento", label: "Códigos de descuento", icon: Percent },
+  { to: "/vendedor/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
   { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart },
   { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true },
   { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck },

@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { Header } from "./Header.jsx";
 import { Footer } from "./Footer.jsx";
+import { CartDrawer } from "./CartDrawer.jsx";
 import { CartConflictModal } from "../CartConflictModal.jsx";
 import { AnnouncementPopup } from "../AnnouncementPopup.jsx";
 
@@ -12,6 +13,7 @@ export function PublicLayout() {
         <Outlet />
       </main>
       <Footer />
+      <CartDrawer />
       <CartConflictModal />
       <AnnouncementPopup />
     </div>

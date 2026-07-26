@@ -19,7 +19,7 @@ const PAY_OPTIONS = [
 
 export default function Checkout() {
   const { siteName } = usePlatformSettings();
-  const { items, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem } = useCart();
+  const { items, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem, discount } = useCart();
   const { user } = useAuth();
   const [done, setDone] = useState(false);
   const [confirmedInfo, setConfirmedInfo] = useState(null);
@@ -116,6 +116,7 @@ export default function Checkout() {
           shippingProvinceId: form.provinceId || undefined,
           shippingAddress: [isStateSelected ? null : form.municipalityName, form.address].filter(Boolean).join(" — ") || undefined,
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions, size: i.size ?? undefined })),
+          discountCode: discount?.code ?? undefined,
         })
       ).data,
     onSuccess: ({ order }) => {
@@ -370,9 +371,18 @@ export default function Checkout() {
                 </div>
               ))}
             </div>
+            {discount && (
+              <div className="mb-2.5 flex items-center justify-between text-body-sm font-semibold text-verified-dark">
+                <span>Descuento ({discount.code})</span>
+                <span>-{formatPrice(discount.amount)}</span>
+              </div>
+            )}
+
             <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
               <span>Total estimado</span>
-              <span className="text-title-lg font-extrabold text-tertiary-accent">{formatMixedTotal(items)}</span>
+              <span className="text-title-lg font-extrabold text-tertiary-accent">
+                {discount ? formatPrice(Math.max(0, items.reduce((s, i) => s + Number(i.price) * i.quantity, 0) - discount.amount)) : formatMixedTotal(items)}
+              </span>
             </div>
 
             <button

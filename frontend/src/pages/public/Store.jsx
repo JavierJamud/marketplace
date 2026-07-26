@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { MessageCircle, ShieldAlert, Share2, Heart, Check, ShieldCheck, Star } from "lucide-react";
+import { MessageCircle, ShieldAlert, Share2, Heart, Check, ShieldCheck, Star, Tag, Clock, Camera, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -18,6 +18,77 @@ import { resolveCurrency } from "../../lib/currencies.js";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
+import { Lightbox } from "../../components/ui/Lightbox.jsx";
+
+const MAX_REVIEW_IMAGES = 4;
+
+function discountBadgeLabel(discountCode) {
+  if (!discountCode) return "";
+  return discountCode.type === "PERCENTAGE" ? `-${Number(discountCode.value)}%` : `-${Number(discountCode.value).toLocaleString("es-CU")} CUP`;
+}
+
+// Bloque 52: cuenta regresiva en vivo para ofertas de tienda por tiempo
+// limitado — mismo criterio de "reloj que corre solo" que remainingLabel en
+// VendorOffers.jsx/OffersSlider.jsx, recalculado 1 vez por minuto.
+function useLiveCountdown(expiresAt) {
+  const [label, setLabel] = useState(null);
+  useEffect(() => {
+    if (!expiresAt) {
+      setLabel(null);
+      return;
+    }
+    function compute() {
+      const ms = new Date(expiresAt).getTime() - Date.now();
+      if (ms <= 0) return "Vencida";
+      const days = Math.floor(ms / 86400000);
+      const hours = Math.floor((ms % 86400000) / 3600000);
+      if (days >= 1) return `Vence en ${days}d ${hours}h`;
+      const minutes = Math.floor((ms % 3600000) / 60000);
+      return `Vence en ${hours}h ${minutes}m`;
+    }
+    setLabel(compute());
+    const id = setInterval(() => setLabel(compute()), 60000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return label;
+}
+
+function StoreOfferCard({ offer, vendorName }) {
+  const countdown = useLiveCountdown(offer.isLimitedTime ? offer.expiresAt : null);
+
+  function handleCopyCode() {
+    navigator.clipboard
+      .writeText(offer.discountCode.code)
+      .then(() => toast.success(`¡Código "${offer.discountCode.code}" copiado!`))
+      .catch(() => toast.error("No se pudo copiar el código."));
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg">
+      <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-container">
+        <img src={imgUrl(offer.imageUrl)} alt={offer.title} className="h-full w-full object-cover" />
+        <span className="absolute right-2.5 top-2.5 rounded-full bg-error px-2.5 py-1 text-[11px] font-bold text-white shadow">
+          {discountBadgeLabel(offer.discountCode)}
+        </span>
+        {offer.isLimitedTime && countdown && (
+          <span className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[10.5px] font-bold text-white">
+            <Clock className="h-3 w-3" /> {countdown}
+          </span>
+        )}
+      </div>
+      <div className="p-4">
+        <div className="mb-1 text-[14.5px] font-bold text-on-surface">{offer.title}</div>
+        {offer.description && <p className="mb-3 text-[12.5px] leading-5 text-on-surface-variant">{offer.description}</p>}
+        <button
+          onClick={handleCopyCode}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-tertiary-accent/50 bg-tertiary-accent/[0.06] py-2.5 text-[13px] font-bold text-tertiary-accent hover:bg-tertiary-accent/10"
+        >
+          <Tag className="h-3.5 w-3.5" /> Código: {offer.discountCode.code} · {discountBadgeLabel(offer.discountCode)}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // Bloque 51: mismo criterio "...leer más" que ProductCard.jsx — acá no se
 // reusa ese componente directamente porque estas dos grillas (disponibles /
@@ -115,13 +186,19 @@ const LOW_STOCK_THRESHOLD = 3;
 
 export default function Store() {
   const { slug } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState("");
   const [commentRating, setCommentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
+  // Bloque 52: fotos adjuntas al comentario — solo tiendas verificadas
+  // (el selector ni se renderiza si no lo está, ver más abajo).
+  const [reviewImages, setReviewImages] = useState([]); // File[]
+  const [lightboxSrc, setLightboxSrc] = useState(null);
   const trackedVisitRef = useRef(null);
+  const reviewsRef = useRef(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor", slug],
@@ -167,22 +244,47 @@ export default function Store() {
   });
 
   const postComment = useMutation({
-    mutationFn: async () =>
-      (
-        await api.post("/reviews", {
-          vendorId: data.id,
-          comment: commentText.trim(),
-          rating: commentRating || undefined,
-        })
-      ).data,
+    mutationFn: async () => {
+      const form = new FormData();
+      form.append("vendorId", data.id);
+      form.append("comment", commentText.trim());
+      if (commentRating) form.append("rating", String(commentRating));
+      reviewImages.forEach((file) => form.append("images", file));
+      return (await api.post("/reviews", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
+    },
     onSuccess: () => {
       setCommentText("");
       setCommentRating(0);
+      setReviewImages([]);
       toast.success("¡Comentario publicado!");
       queryClient.invalidateQueries({ queryKey: ["vendor", slug] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo publicar el comentario."),
   });
+
+  // Bloque 52: dejar una reseña (con o sin imagen) requiere estar logueado
+  // como cliente — antes el input solo se deshabilitaba, ahora redirige a
+  // /cuenta con retorno automático a esta misma tienda.
+  function goToReviewLogin() {
+    navigate(`/cuenta?next=${encodeURIComponent(`/tienda/${slug}#resenas`)}`);
+  }
+
+  function handleReviewImageSelect(e) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setReviewImages((prev) => {
+      const next = [...prev, ...files].slice(0, MAX_REVIEW_IMAGES);
+      if (prev.length + files.length > MAX_REVIEW_IMAGES) {
+        toast.error(`Hasta ${MAX_REVIEW_IMAGES} fotos por reseña.`);
+      }
+      return next;
+    });
+  }
+
+  function removeReviewImage(index) {
+    setReviewImages((prev) => prev.filter((_, i) => i !== index));
+  }
 
   function handleShare() {
     navigator.clipboard
@@ -190,6 +292,14 @@ export default function Store() {
       .then(showLinkCopiedToast)
       .catch(() => toast.error("No se pudo copiar el enlace."));
   }
+
+  // Si venimos de /cuenta?next=...#resenas tras loguearnos, llevar la vista
+  // directo a la sección de comentarios.
+  useEffect(() => {
+    if (window.location.hash === "#resenas" && reviewsRef.current) {
+      reviewsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [data]);
 
   if (isLoading) return <PageLoader label="Cargando tienda..." />;
   if (!data) {
@@ -224,28 +334,38 @@ export default function Store() {
     <div>
       {/* BANNER */}
       <div style={{ background: v.color ?? "#232F3E" }}>
-        <div className="container-app flex flex-wrap items-end gap-5 py-9">
-          <div className="flex h-[88px] w-[88px] flex-shrink-0 items-center justify-center rounded-full border-[3px] border-white/50 bg-white/10 font-display text-4xl font-extrabold text-white">
-            {v.companyName[0]}
-          </div>
-          <div className="min-w-[220px] flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-display text-headline-md text-white">{v.companyName}</h1>
-              {v.isVerified && <VerifiedBadge />}
-              <span
-                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                  v.isOpenNow ? "bg-verified/20 text-white" : "bg-black/25 text-white/85"
-                }`}
-              >
-                {v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
-              </span>
+        {/* Bloque 52 (fix de alineación): antes `items-end` alineaba el
+            avatar contra el borde INFERIOR del bloque de texto entero — en
+            mobile, donde la descripción + stats ocupan varias líneas, el
+            avatar quedaba flotando lejos del título, con un hueco arriba que
+            se veía "desagrupado". Ahora el avatar y el título van siempre
+            juntos (items-center en su propia fila) sin importar cuánto texto
+            haya debajo; los botones de acción pasan a su propia fila,
+            apilados en mobile y alineados a la derecha desde `sm:`. */}
+        <div className="container-app flex flex-col gap-5 py-8 sm:flex-row sm:items-start sm:justify-between sm:py-9">
+          <div className="flex items-center gap-4">
+            <div className="flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center rounded-full border-[3px] border-white/50 bg-white/10 font-display text-3xl font-extrabold text-white sm:h-[88px] sm:w-[88px] sm:text-4xl">
+              {v.companyName[0]}
             </div>
-            {v.description && <p className="mt-2 max-w-[560px] text-[13.5px] text-white/80">{v.description}</p>}
-            <div className="mt-3 flex flex-wrap items-center gap-x-[18px] gap-y-2 text-[13px] text-white/85">
-              <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue />
-              <span>{v.salesCount} ventas</span>
-              <span>📍 {locationLabel}</span>
-              <span>Desde {joinedYear}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-display text-headline-lg-mobile text-white sm:text-headline-md">{v.companyName}</h1>
+                {v.isVerified && <VerifiedBadge />}
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                    v.isOpenNow ? "bg-verified/20 text-white" : "bg-black/25 text-white/85"
+                  }`}
+                >
+                  {v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
+                </span>
+              </div>
+              {v.description && <p className="mt-2 max-w-[560px] text-[13.5px] text-white/80">{v.description}</p>}
+              <div className="mt-3 flex flex-wrap items-center gap-x-[18px] gap-y-2 text-[13px] text-white/85">
+                <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue />
+                <span>{v.salesCount} ventas</span>
+                <span>📍 {locationLabel}</span>
+                <span>Desde {joinedYear}</span>
+              </div>
             </div>
           </div>
           <div className="flex flex-shrink-0 items-center gap-2.5">
@@ -253,7 +373,7 @@ export default function Store() {
               onClick={handleShare}
               aria-label="Compartir tienda"
               title="Compartir tienda"
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
             >
               <Share2 className="h-[18px] w-[18px]" />
             </button>
@@ -263,7 +383,7 @@ export default function Store() {
                 disabled={toggleFavorite.isPending}
                 aria-label={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
                 title={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 disabled:opacity-60"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 disabled:opacity-60"
               >
                 <Heart className={`h-[18px] w-[18px] ${myFavorite ? "fill-white" : "fill-none"}`} />
               </button>
@@ -272,7 +392,7 @@ export default function Store() {
               href={waLink(v.whatsapp, `Hola ${v.companyName}, tengo una consulta sobre sus productos.`)}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 rounded bg-[#25D366] px-5 py-3 text-label-md font-bold text-white"
+              className="flex flex-1 items-center justify-center gap-2 rounded bg-[#25D366] px-5 py-3 text-label-md font-bold text-white sm:flex-initial"
             >
               <MessageCircle className="h-[18px] w-[18px]" /> Contactar
             </a>
@@ -446,8 +566,23 @@ export default function Store() {
         </div>
       )}
 
+      {/* OFERTAS DE TIENDA (Bloque 52) — distinta de la sección "Ofertas" del
+          Home: esta vive DENTRO de cada tienda, solo visible si tiene al
+          menos una StoreOffer activa. */}
+      {v.storeOffers?.length > 0 && (
+        <div className="container-app pt-11">
+          <h2 className="mb-1 font-display text-title-lg text-on-surface">Ofertas</h2>
+          <p className="mb-5 text-label-sm text-outline">Descuentos exclusivos de {v.companyName} — aplica el código en el carrito.</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {v.storeOffers.map((offer) => (
+              <StoreOfferCard key={offer.id} offer={offer} vendorName={v.companyName} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* COMENTARIOS */}
-      <div className="container-app pt-11">
+      <div ref={reviewsRef} id="resenas" className="container-app pt-11">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Comentarios de compradores</h2>
         <p className="mb-5 text-label-sm text-outline">Públicos y visibles para todos. Solo compradores registrados pueden comentar.</p>
 
@@ -474,18 +609,53 @@ export default function Store() {
             <input
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
+              onFocus={() => {
+                if (!user) goToReviewLogin();
+              }}
               placeholder={user ? "Escribe un comentario..." : "Inicia sesión para comentar"}
-              disabled={!user}
-              className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none disabled:opacity-60"
+              className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
             />
             <button
-              onClick={() => commentText.trim() && postComment.mutate()}
-              disabled={!user || !commentText.trim() || postComment.isPending}
+              onClick={() => {
+                if (!user) return goToReviewLogin();
+                if (commentText.trim()) postComment.mutate();
+              }}
+              disabled={(user && !commentText.trim()) || postComment.isPending}
               className="rounded bg-primary-container px-5 text-label-md font-bold text-white disabled:opacity-50"
             >
               Publicar
             </button>
           </div>
+
+          {/* Bloque 52: fotos en la reseña — solo tiendas VERIFICADAS. En
+              tiendas no verificadas el formulario sigue igual que antes, sin
+              esta opción. */}
+          {user && v.isVerified && (
+            <div className="mt-3 border-t border-surface-container-high pt-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {reviewImages.map((file, i) => (
+                  <div key={i} className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-outline-variant">
+                    <img src={URL.createObjectURL(file)} alt="" className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeReviewImage(i)}
+                      className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                    >
+                      <XIcon className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {reviewImages.length < MAX_REVIEW_IMAGES && (
+                  <label className="flex h-14 w-14 flex-shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-outline-variant text-outline hover:bg-surface-container">
+                    <Camera className="h-4 w-4" />
+                    <span className="text-[9px] font-semibold">Foto</span>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleReviewImageSelect} />
+                  </label>
+                )}
+              </div>
+              <p className="mt-1.5 text-[11px] text-outline">Hasta {MAX_REVIEW_IMAGES} fotos reales tuyas del producto/pedido (opcional).</p>
+            </div>
+          )}
         </div>
 
         <div className="flex max-w-[720px] flex-col gap-3.5">
@@ -508,6 +678,21 @@ export default function Store() {
                   {c.rating && <StarRating value={c.rating} size="h-3.5 w-3.5" />}
                 </div>
                 <p className="text-[13.5px] leading-5 text-on-surface-variant">{c.comment}</p>
+
+                {c.images?.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-2">
+                    {c.images.map((img, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setLightboxSrc(imgUrl(img))}
+                        className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-surface-container-high"
+                      >
+                        <img src={imgUrl(img)} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {c.vendorReply && (
                   <div className="mt-3 rounded-md bg-surface-container p-3">
@@ -554,6 +739,8 @@ export default function Store() {
           AdminIntegrations — sin ninguno de los dos, el widget ni se monta
           (en vez de mostrar un botón que solo lleva a un error). */}
       {v.isVerified && v.aiAvailable && <StoreChatWidget vendor={v} />}
+
+      <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
     </div>
   );
 }

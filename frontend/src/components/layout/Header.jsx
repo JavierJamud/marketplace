@@ -85,7 +85,7 @@ function AccountMenu({ user, accountHref, panelLabel }) {
 }
 
 export function Header() {
-  const { items, bump } = useCart();
+  const { items, bump, openCart } = useCart();
   const { user } = useAuth();
   const count = items.reduce((a, i) => a + i.quantity, 0);
 
@@ -100,7 +100,12 @@ export function Header() {
         <SearchBar />
 
         <div className="flex flex-shrink-0 items-center gap-4">
-          <Link to="/carrito" className="relative flex items-center text-white/90 hover:text-white">
+          <button
+            type="button"
+            onClick={openCart}
+            aria-label="Ver carrito"
+            className="relative flex items-center text-white/90 hover:text-white"
+          >
             <ShoppingCart key={bump} className="h-[22px] w-[22px] animate-cart-bump" />
             {count > 0 && (
               <span
@@ -110,7 +115,7 @@ export function Header() {
                 {count}
               </span>
             )}
-          </Link>
+          </button>
           <AccountMenu user={user} accountHref={accountHref} panelLabel={panelLabel} />
           <Link
             to="/vender"

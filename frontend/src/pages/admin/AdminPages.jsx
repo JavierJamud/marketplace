@@ -6,12 +6,13 @@ import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
+// Bloque 53: esta sección quedó SOLO para Términos/Privacidad — FAQ pasó a
+// tener su propia sección con CRUD real (ver AdminFaq.jsx), y Contacto/Ayuda
+// a sus propias páginas de edición (AdminContacto.jsx/AdminAyuda.jsx),
+// aunque sigan usando el mismo mecanismo de StaticPage por debajo.
 const PAGE_META = {
   terminos: { label: "Términos y condiciones", path: "/terminos" },
   privacidad: { label: "Política de privacidad", path: "/privacidad" },
-  faq: { label: "Preguntas frecuentes", path: "/faq" },
-  ayuda: { label: "Centro de ayuda", path: "/ayuda" },
-  contacto: { label: "Contacto", path: "/contacto" },
 };
 
 function fmtDate(iso) {
@@ -103,16 +104,21 @@ function EditPageModal({ page, onClose }) {
 export default function AdminPages() {
   const [editing, setEditing] = useState(null);
 
-  const { data, isLoading } = useQuery({
+  const { data: allPages, isLoading } = useQuery({
     queryKey: ["admin-static-pages"],
     queryFn: async () => (await api.get("/admin/static-pages")).data.pages,
   });
+  // El backend todavía devuelve "ayuda"/"contacto" en esta misma lista (own
+  // StaticPage por debajo) — pero esta pantalla ahora solo gestiona las
+  // slugs de PAGE_META (Términos/Privacidad); las otras dos tienen su
+  // propia sección de menú (AdminContacto.jsx/AdminAyuda.jsx).
+  const data = allPages?.filter((p) => p.slug in PAGE_META);
 
   return (
     <div className="max-w-[720px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Páginas</h1>
+      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Términos y privacidad</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        Términos, privacidad, FAQ, ayuda y contacto — edita el HTML libre o déjalas con su contenido predeterminado.
+        Edita el HTML libre de estas dos páginas legales, o déjalas con su contenido predeterminado.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}

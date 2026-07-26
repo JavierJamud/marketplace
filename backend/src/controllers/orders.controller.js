@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { sendOrderConfirmationEmail, sendOrderStatusEmail, sendManualOrderEmail } from "../lib/email.js";
+import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -52,6 +53,10 @@ const createOrderSchema = z.object({
       })
     )
     .min(1, "El pedido necesita al menos un producto"),
+  // Bloque 52: código de descuento del vendedor aplicado en el carrito —
+  // opcional, se revalida por completo acá (nunca se confía en el monto que
+  // pudo haber mostrado el preview de /discount-codes/validate).
+  discountCode: z.string().trim().optional(),
 });
 
 const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: "TABLE" };
@@ -119,7 +124,7 @@ export async function createOrder(req, res) {
     selectedOptions: i.selectedOptions ?? null,
     size: i.size ?? null,
   }));
-  const total = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+  const subtotal = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
   // Autenticación opcional: si viene un token válido, asocia el pedido al cliente.
   let customerId;
@@ -142,26 +147,59 @@ export async function createOrder(req, res) {
   // último ítem casi a la vez ya no compiten por decrementar la misma fila
   // al crear el pedido — ambos pedidos se crean igual, y es el vendedor
   // quien decide cuál confirmar cuando efectivamente le queda stock.
-  const order = await prisma.order.create({
-    data: {
-      code: `Z-${Date.now().toString(36).toUpperCase()}`,
-      vendorId: data.vendorId,
-      customerId,
-      customerName: data.customerName,
-      customerPhone: data.customerPhone,
-      customerEmail: data.customerEmail,
-      shippingAddress: data.shippingAddress,
-      shippingProvinceId: data.shippingProvinceId,
-      shippingMunicipalityId: data.shippingMunicipalityId,
-      channel: CHANNEL_MAP[data.channel],
-      // Se toma del vendedor server-side (nunca del body del cliente) para
-      // que no se pueda falsear qué canal de aviso usó el pedido.
-      notificationChannel: vendor.orderDestination,
-      tableNumber: data.tableNumber,
-      total,
-      items: { create: orderItems },
-    },
-    include: { items: true, vendor: { select: { companyName: true, whatsapp: true, orderDestination: true } } },
+  //
+  // Bloque 52: si viene un código de descuento, se revalida acá adentro
+  // (nunca se confía en el preview de /discount-codes/validate) y se
+  // reclama un uso de forma atómica (updateMany con WHERE usesCount<maxUses)
+  // dentro de la MISMA transacción que crea el pedido — si el reclamo falla
+  // (otro cliente agotó el cupo justo antes), toda la transacción se aborta
+  // y el pedido no llega a crearse, en vez de quedar "confirmado" sin
+  // descuento aplicado de verdad.
+  const order = await prisma.$transaction(async (tx) => {
+    let discountCodeId = null;
+    let discountAmount = null;
+    let total = subtotal;
+
+    if (data.discountCode) {
+      const resolved = await resolveDiscountForOrder(tx, { vendorId: data.vendorId, code: data.discountCode, subtotal });
+      const claim = await tx.discountCode.updateMany({
+        where: {
+          id: resolved.discountCode.id,
+          active: true,
+          ...(resolved.discountCode.maxUses != null ? { usesCount: { lt: resolved.discountCode.maxUses } } : {}),
+        },
+        data: { usesCount: { increment: 1 } },
+      });
+      if (claim.count === 0) throw new AppError("Este código de descuento ya alcanzó su límite de usos.", 409);
+
+      discountCodeId = resolved.discountCode.id;
+      discountAmount = resolved.discountAmount;
+      total = subtotal - discountAmount;
+    }
+
+    return tx.order.create({
+      data: {
+        code: `Z-${Date.now().toString(36).toUpperCase()}`,
+        vendorId: data.vendorId,
+        customerId,
+        customerName: data.customerName,
+        customerPhone: data.customerPhone,
+        customerEmail: data.customerEmail,
+        shippingAddress: data.shippingAddress,
+        shippingProvinceId: data.shippingProvinceId,
+        shippingMunicipalityId: data.shippingMunicipalityId,
+        channel: CHANNEL_MAP[data.channel],
+        // Se toma del vendedor server-side (nunca del body del cliente) para
+        // que no se pueda falsear qué canal de aviso usó el pedido.
+        notificationChannel: vendor.orderDestination,
+        tableNumber: data.tableNumber,
+        total,
+        discountCodeId,
+        discountAmount,
+        items: { create: orderItems },
+      },
+      include: { items: true, vendor: { select: { companyName: true, whatsapp: true, orderDestination: true } } },
+    });
   });
 
   // Confirmación al cliente — best-effort, nunca bloquea ni revierte el pedido.

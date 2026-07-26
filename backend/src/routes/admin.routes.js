@@ -11,6 +11,7 @@ import * as reviewsController from "../controllers/reviews.controller.js";
 import * as errorLogsController from "../controllers/errorLogs.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
 import * as staticPagesController from "../controllers/staticPages.controller.js";
+import * as faqController from "../controllers/faq.controller.js";
 import * as adminOffersController from "../controllers/adminOffers.controller.js";
 import * as adminProductsController from "../controllers/adminProducts.controller.js";
 import { authenticate } from "../middleware/auth.js";
@@ -118,9 +119,15 @@ router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 router.get("/settings/ai-models", settingsController.getAiModelSettings);
 router.patch("/settings/ai-models", settingsController.updateAiModels);
 
-// Bloque 48: páginas legales/ayuda editables (AdminPages.jsx).
+// Bloque 48: páginas legales/ayuda editables (AdminPages.jsx, AdminContacto.jsx, AdminAyuda.jsx).
 router.get("/static-pages", staticPagesController.listStaticPagesAdmin);
 router.put("/static-pages/:slug", staticPagesController.updateStaticPage);
+
+// Bloque 53: preguntas frecuentes — sección propia, separada de "Páginas".
+router.get("/faq", faqController.listAdminFaqs);
+router.post("/faq", faqController.createFaq);
+router.patch("/faq/:id", faqController.updateFaq);
+router.delete("/faq/:id", faqController.deleteFaq);
 
 // Bloque 22: moderación de comentarios — el vendedor no tiene acceso a
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar

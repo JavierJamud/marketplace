@@ -28,9 +28,16 @@ import announcementsRoutes from "./routes/announcements.routes.js";
 import staticPagesRoutes from "./routes/staticPages.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
 import offersRoutes from "./routes/offers.routes.js";
+import discountCodesRoutes from "./routes/discountCodes.routes.js";
+import storeOffersRoutes from "./routes/storeOffers.routes.js";
+import faqRoutes from "./routes/faq.routes.js";
+import cartRoutes from "./routes/cart.routes.js";
+import sharedCartsRoutes from "./routes/sharedCarts.routes.js";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
 import { PRODUCT_UPLOAD_DIR } from "./controllers/products.controller.js";
 import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
+import { STORE_OFFER_UPLOAD_DIR } from "./controllers/storeOffers.controller.js";
+import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
 
 export const app = express();
@@ -58,6 +65,10 @@ app.use("/uploads/site", express.static(SITE_UPLOAD_DIR));
 app.use("/uploads/products", express.static(PRODUCT_UPLOAD_DIR));
 // Imágenes de ofertas personalizadas (Bloque 51) — públicas, mismo criterio.
 app.use("/uploads/offers", express.static(OFFER_UPLOAD_DIR));
+// Imágenes de ofertas de tienda (Bloque 52) — públicas, mismo criterio.
+app.use("/uploads/store-offers", express.static(STORE_OFFER_UPLOAD_DIR));
+// Fotos de reseñas (Bloque 52) — públicas, son parte del comentario visible.
+app.use("/uploads/reviews", express.static(REVIEW_UPLOAD_DIR));
 
 app.use("/auth", authRoutes);
 app.use("/vendors", vendorsRoutes);
@@ -80,6 +91,11 @@ app.use("/announcements", announcementsRoutes);
 app.use("/static-pages", staticPagesRoutes);
 app.use("/contact", contactRoutes);
 app.use("/offers", offersRoutes);
+app.use("/discount-codes", discountCodesRoutes);
+app.use("/store-offers", storeOffersRoutes);
+app.use("/faq", faqRoutes);
+app.use("/cart", cartRoutes);
+app.use("/shared-carts", sharedCartsRoutes);
 
 app.use((req, res) => res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` }));
 

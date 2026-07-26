@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { Minus, Plus, Trash2, MessageCircle } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { Minus, Plus, Trash2, MessageCircle, Tag, X } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -9,11 +10,36 @@ import { useCart } from "../../context/CartContext.jsx";
 import { waLink } from "../../lib/whatsapp.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ShareCartButton } from "../../components/ShareCartButton.jsx";
+
+// Bloque 52: solo tiene sentido si TODOS los ítems del carrito están en la
+// misma moneda (el carrito ya es de un solo vendedor, pero un vendedor puede
+// cargar productos en distintas monedas — ver Product.currency) — con
+// monedas mezcladas no hay forma honesta de aplicar un descuento en CUP
+// sobre un total que no es un número único, así que el campo se oculta.
+function singleCurrencySubtotal(items) {
+  const currencies = new Set(items.map((i) => i.currency ?? "CUP"));
+  if (currencies.size > 1) return null;
+  return items.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+}
 
 export default function Cart() {
   const { siteName } = usePlatformSettings();
-  const { items, vendorName, vendorSlug, vendorColor, vendorVerified, vendorWhatsapp, updateQuantity, removeItem } = useCart();
+  const { items, vendorId, vendorName, vendorSlug, vendorColor, vendorVerified, vendorWhatsapp, updateQuantity, removeItem, discount, setDiscount, clearDiscount } = useCart();
   const [itemToRemove, setItemToRemove] = useState(null);
+  const [codeInput, setCodeInput] = useState("");
+  const subtotal = singleCurrencySubtotal(items);
+
+  const applyDiscount = useMutation({
+    mutationFn: async () =>
+      (await api.post("/discount-codes/validate", { vendorId, code: codeInput.trim(), subtotal })).data,
+    onSuccess: ({ discount: applied }) => {
+      setDiscount(applied);
+      setCodeInput("");
+      toast.success(`Código "${applied.code}" aplicado — descuento de ${formatPrice(applied.amount)}.`);
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo aplicar el código."),
+  });
 
   const { data: vendor } = useQuery({
     queryKey: ["vendor", vendorSlug],
@@ -52,7 +78,10 @@ export default function Cart() {
 
   return (
     <div className="container-app max-w-[1080px] py-9">
-      <h1 className="mb-6 font-display text-headline-lg text-on-surface">Tu carrito</h1>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-headline-lg text-on-surface">Tu carrito</h1>
+        <ShareCartButton className="flex items-center gap-1.5 rounded-md border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50" />
+      </div>
 
       <div className="grid grid-cols-1 gap-7 lg:grid-cols-[1fr_340px] lg:items-start">
         <div>
@@ -113,9 +142,54 @@ export default function Cart() {
             <span>Envío</span>
             <span className="text-tertiary-accent">A coordinar</span>
           </div>
+
+          {/* Bloque 52: código de descuento — solo con un subtotal de una
+              sola moneda (ver singleCurrencySubtotal), aplica solo a los
+              productos de esta tienda (el carrito ya es de un solo vendedor). */}
+          {subtotal != null &&
+            (discount ? (
+              <div className="mb-2.5 flex items-center justify-between rounded-md bg-verified/10 px-3 py-2 text-[12.5px] font-semibold text-verified-dark">
+                <span className="flex items-center gap-1.5">
+                  <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount)})
+                </span>
+                <button onClick={clearDiscount} className="rounded-full p-1 hover:bg-verified/15" title="Quitar código">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="mb-2.5 flex gap-2">
+                <input
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (codeInput.trim()) applyDiscount.mutate();
+                    }
+                  }}
+                  placeholder="Código de descuento"
+                  className="h-10 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+                />
+                <button
+                  onClick={() => applyDiscount.mutate()}
+                  disabled={!codeInput.trim() || applyDiscount.isPending}
+                  className="flex-shrink-0 rounded-md border border-outline-variant px-3.5 text-[12.5px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                >
+                  {applyDiscount.isPending ? "..." : "Aplicar"}
+                </button>
+              </div>
+            ))}
+
+          {discount && (
+            <div className="mb-2.5 flex justify-between text-[13.5px] font-semibold text-verified-dark">
+              <span>Descuento ({vendorName})</span>
+              <span>-{formatPrice(discount.amount)}</span>
+            </div>
+          )}
+
           <div className="mb-[18px] flex justify-between border-t border-surface-container-high pt-3 text-title-lg font-bold text-on-surface">
             <span>Total</span>
-            <span>{formatMixedTotal(items)}</span>
+            <span>{discount && subtotal != null ? formatPrice(Math.max(0, subtotal - discount.amount)) : formatMixedTotal(items)}</span>
           </div>
           {wantsPanel ? (
             <>

@@ -87,6 +87,16 @@ export default function AdminReviews() {
 
             <p className="mb-3 text-[13.5px] leading-5 text-on-surface-variant">{r.comment}</p>
 
+            {r.images?.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {r.images.map((img, i) => (
+                  <a key={i} href={`${api.defaults.baseURL}${img}`} target="_blank" rel="noreferrer" className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-surface-container-high">
+                    <img src={`${api.defaults.baseURL}${img}`} alt="" className="h-full w-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            )}
+
             {r.vendorReply && (
               <div className="mb-3 rounded-md bg-surface-container p-3">
                 <div className="mb-1 text-[12px] font-bold text-tertiary-accent">Respuesta de {r.vendor?.companyName}</div>

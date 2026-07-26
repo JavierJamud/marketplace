@@ -8,6 +8,7 @@ import { slugify } from "../utils/slugify.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { getBrandSettings } from "./settings.controller.js";
+import { expireStaleStoreOffers, storeOfferSummarySelect } from "./storeOffers.controller.js";
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
@@ -98,6 +99,10 @@ export async function createVendor(req, res) {
 
 export async function getVendorBySlug(req, res) {
   const { slug } = req.params;
+  // Bloque 52: chequeo perezoso ANTES de leer — mismo criterio que
+  // expireStaleOffers en offers.controller.js, así la sección "Ofertas" de
+  // Store.jsx nunca muestra una vencida que todavía no pasó por este check.
+  await expireStaleStoreOffers();
   const vendor = await prisma.vendor.findUnique({
     where: { slug },
     include: {
@@ -116,6 +121,9 @@ export async function getVendorBySlug(req, res) {
       // comentario oculto por el admin (isHidden) nunca llega acá.
       reviews: { where: { productId: null, isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
       tables: { orderBy: { tableNumber: "asc" }, take: 1 },
+      // Bloque 52: ofertas de ESTA tienda (distintas de Offer/Home) — Store.jsx
+      // solo renderiza la sección si esta lista no viene vacía.
+      storeOffers: { where: { active: true }, orderBy: { createdAt: "desc" }, select: storeOfferSummarySelect },
     },
   });
   if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);

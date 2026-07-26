@@ -167,6 +167,19 @@ export default function Account() {
     setStep(1);
   }
 
+  // Bloque 52: "?next=/tienda/:slug" — usado por el flujo de "inicia sesión
+  // para reseñar" (Store.jsx redirige acá y vuelve exactamente a donde
+  // estaba). Solo se respeta para clientes (rutas propias de vendedor/admin
+  // siempre van a su panel, sin importar `next`) y solo un path relativo
+  // propio del sitio — nunca una URL externa.
+  const nextPath = searchParams.get("next");
+  const isSafeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//");
+
+  function destinationAfterLogin(role) {
+    if (role === "CUSTOMER" && isSafeNextPath) return nextPath;
+    return role === "ADMIN" ? "/admin" : role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
+  }
+
   async function handleLogin(e) {
     e.preventDefault();
     setLoading(true);
@@ -183,8 +196,7 @@ export default function Account() {
           return;
         }
         toast.success("¡Bienvenido de vuelta!");
-        const destination = result.role === "ADMIN" ? "/admin" : result.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
-        navigate(destination);
+        navigate(destinationAfterLogin(result.role));
       });
     } catch (err) {
       toast.error(err.response?.data?.error ?? "Algo salió mal. Intenta de nuevo.");
@@ -200,8 +212,7 @@ export default function Account() {
       await withMinDelay(async () => {
         const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode);
         toast.success("¡Bienvenido de vuelta!");
-        const destination = user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
-        navigate(destination);
+        navigate(destinationAfterLogin(user.role));
       });
     } catch (err) {
       toast.error(err.response?.data?.error ?? "Código inválido o vencido.");
@@ -256,7 +267,7 @@ export default function Account() {
           setShowPlanModal(true);
         } else {
           toast.success("¡Cuenta creada!");
-          navigate("/cuenta/panel");
+          navigate(isSafeNextPath ? nextPath : "/cuenta/panel");
         }
       });
     } catch (err) {

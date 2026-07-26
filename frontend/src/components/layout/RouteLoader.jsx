@@ -16,6 +16,15 @@ export function RouteLoader() {
     timeoutsRef.current.forEach(clearTimeout);
     timeoutsRef.current = [];
 
+    // Bloque 52 (pedido explícito): React Router no resetea el scroll al
+    // navegar (a diferencia de una navegación de página completa normal) —
+    // sin esto, entrar a una página nueva desde el final de una lista larga
+    // (ej. "También te puede interesar") la mostraba a mitad de scroll en
+    // vez de arriba del todo. Solo depende de pathname (no de location
+    // completa) para no pisar un scroll-a-sección por hash dentro de la
+    // MISMA página (ver Store.jsx `#resenas`).
+    window.scrollTo(0, 0);
+
     setVisible(true);
     setProgress(20);
 

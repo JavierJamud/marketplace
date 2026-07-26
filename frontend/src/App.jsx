@@ -10,6 +10,7 @@ import Product from "./pages/public/Product.jsx";
 import Store from "./pages/public/Store.jsx";
 import Stores from "./pages/public/Stores.jsx";
 import Cart from "./pages/public/Cart.jsx";
+import SharedCart from "./pages/public/SharedCart.jsx";
 import Checkout from "./pages/public/Checkout.jsx";
 import Account from "./pages/public/Account.jsx";
 import VendorOnboarding from "./pages/public/VendorOnboarding.jsx";
@@ -29,6 +30,8 @@ import VendorLayout from "./pages/vendor/VendorLayout.jsx";
 import VendorDashboard from "./pages/vendor/VendorDashboard.jsx";
 import VendorProducts from "./pages/vendor/VendorProducts.jsx";
 import VendorOffers from "./pages/vendor/VendorOffers.jsx";
+import VendorDiscountCodes from "./pages/vendor/VendorDiscountCodes.jsx";
+import VendorStoreOffers from "./pages/vendor/VendorStoreOffers.jsx";
 import VendorOrders from "./pages/vendor/VendorOrders.jsx";
 import VendorTables from "./pages/vendor/VendorTables.jsx";
 import VendorVerification from "./pages/vendor/VendorVerification.jsx";
@@ -56,6 +59,9 @@ import AdminLocations from "./pages/admin/AdminLocations.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminProfile from "./pages/admin/AdminProfile.jsx";
 import AdminPages from "./pages/admin/AdminPages.jsx";
+import AdminFaq from "./pages/admin/AdminFaq.jsx";
+import AdminContacto from "./pages/admin/AdminContacto.jsx";
+import AdminAyuda from "./pages/admin/AdminAyuda.jsx";
 import AdminBranding from "./pages/admin/AdminBranding.jsx";
 import AdminOffers from "./pages/admin/AdminOffers.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
@@ -73,6 +79,7 @@ export default function App() {
         <Route path="/tienda/:slug" element={<Store />} />
         <Route path="/tiendas" element={<Stores />} />
         <Route path="/carrito" element={<Cart />} />
+        <Route path="/carrito-compartido/:id" element={<SharedCart />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/cuenta/panel" element={<CustomerPanel />} />
         <Route path="/vender" element={<VendorOnboarding />} />
@@ -94,6 +101,8 @@ export default function App() {
         <Route index element={<VendorDashboard />} />
         <Route path="productos" element={<VendorProducts />} />
         <Route path="ofertas" element={<VendorOffers />} />
+        <Route path="codigos-descuento" element={<VendorDiscountCodes />} />
+        <Route path="ofertas-tienda" element={<VendorStoreOffers />} />
         <Route path="pedidos" element={<VendorOrders />} />
         <Route path="mesas" element={<VendorTables />} />
         <Route path="verificacion" element={<VendorVerification />} />
@@ -129,6 +138,9 @@ export default function App() {
         <Route path="ubicaciones" element={<AdminLocations />} />
         <Route path="categorias" element={<AdminCategories />} />
         <Route path="paginas" element={<AdminPages />} />
+        <Route path="preguntas-frecuentes" element={<AdminFaq />} />
+        <Route path="contacto" element={<AdminContacto />} />
+        <Route path="centro-ayuda" element={<AdminAyuda />} />
         <Route path="perfil" element={<AdminProfile />} />
       </Route>
 

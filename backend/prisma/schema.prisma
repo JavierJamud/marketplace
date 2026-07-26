@@ -370,6 +370,7 @@ model User {
   sentVendorMessages VendorMessage[]
   productRequests ProductRequest[]
   chatTrainingExamples ChatTrainingExample[]
+  cartSnapshot CartSnapshot?
 }
 
 model Vendor {
@@ -464,6 +465,7 @@ model Vendor {
   offers        Offer[]
   discountCodes DiscountCode[]
   storeOffers   StoreOffer[]
+  sharedCarts   SharedCart[]
 }
 
 model VendorLocation {
@@ -1128,9 +1130,33 @@ model ProductRequest {
 // ---------------------------------------------------------------------------
 
 model StaticPage {
-  slug        String    @id // "terminos" | "privacidad" | "faq" | "ayuda" | "contacto"
+  slug        String    @id // "terminos" | "privacidad" | "ayuda" | "contacto"
   htmlContent String?
   updatedAt   DateTime  @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 53: preguntas frecuentes reales (antes eran copy hardcodeado en
+// Faq.jsx, sin fila propia en DB) — sección aparte del admin, separada de
+// "Páginas" (que ahora solo sirve para Términos/Privacidad). Cada pregunta
+// pertenece a UN público (cliente o vendedor), nunca a ambos a la vez — el
+// FAQ público muestra una lista distinta según la pestaña activa.
+// ---------------------------------------------------------------------------
+
+enum FaqAudience {
+  CUSTOMER
+  VENDOR
+}
+
+model FaqItem {
+  id        String      @id @default(cuid())
+  audience  FaqAudience
+  question  String
+  answer    String      @db.Text
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([audience, createdAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,4 +1321,46 @@ model StoreOffer {
   discountCode DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Restrict)
 
   @@index([vendorId, active])
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 54: carrito persistente por cuenta (cliente logueado) + carritos
+// compartibles por enlace. Distintos conceptos: CartSnapshot es SIEMPRE del
+// dueño de la cuenta (una fila por usuario, se sobrescribe en cada cambio,
+// se lee al iniciar sesión en otro dispositivo — ver cart.controller.js);
+// SharedCart es un snapshot de UN SOLO USO público (cualquiera con el link,
+// logueado o no, ver sharedCart.controller.js) que se resuelve contra el
+// catálogo REAL al leerse (precio/stock vigentes, nunca los del momento en
+// que se compartió).
+// ---------------------------------------------------------------------------
+
+model CartSnapshot {
+  id       String @id @default(cuid())
+  userId   String @unique
+  // Metadata de la tienda (id/nombre/slug/color/verificado/whatsapp) tal
+  // cual la guarda CartContext.jsx — evita otra consulta a /vendors/:slug
+  // solo para pintar el carrito apenas se restaura en un dispositivo nuevo.
+  vendorMeta Json?
+  // [{ productId, name, price, currency, size, quantity, stock, selectedOptions }]
+  items    Json
+  // { code, type, value, amount } tal cual lo devuelve /discount-codes/validate
+  // — se vuelve a revalidar igual al confirmar el pedido, esto es solo lo
+  // que se muestra mientras tanto.
+  discount Json?
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SharedCart {
+  id        String   @id @default(cuid())
+  vendorId  String
+  // [{ productId, quantity, size }] — SIN precio/nombre a propósito: se
+  // resuelven contra el Product real recién al abrir el link (ver
+  // getSharedCart), así un link viejo nunca muestra un precio vencido ni
+  // deja comprar más de lo que hay de stock hoy.
+  items     Json
+  createdAt DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 }

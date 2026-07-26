@@ -6,7 +6,12 @@ import { AppError } from "../utils/AppError.js";
 // Bloque 48: whitelist fija — nunca se acepta un slug arbitrario ni en el
 // endpoint público ni en el de admin, así el modelo StaticPage nunca
 // termina con filas huérfanas de páginas que no existen de verdad.
-export const STATIC_PAGE_SLUGS = ["terminos", "privacidad", "faq", "ayuda", "contacto"];
+// Bloque 53: "faq" se sacó de esta lista — las preguntas frecuentes pasaron
+// a tener su propia tabla con CRUD real (ver faq.controller.js), ya no son
+// un bloque de HTML libre editable desde acá. Una fila vieja con slug "faq"
+// que haya quedado en la tabla no se borra (no hace falta), simplemente
+// queda inalcanzable por este endpoint.
+export const STATIC_PAGE_SLUGS = ["terminos", "privacidad", "ayuda", "contacto"];
 
 function assertKnownSlug(slug) {
   if (!STATIC_PAGE_SLUGS.includes(slug)) throw new AppError("Esa página no existe.", 404);

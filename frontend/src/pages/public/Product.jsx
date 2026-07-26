@@ -115,10 +115,20 @@ export default function Product() {
         </div>
       </div>
 
-      <section className="container-app grid grid-cols-1 gap-11 pt-6 lg:grid-cols-2">
+      {/* Bloque 54 (fix de tamaño): antes `lg:grid-cols-2` partía la sección
+          50/50 — en pantallas grandes eso hacía que la foto (aspect-square)
+          creciera hasta ~650px, dominando la mitad de la pantalla. Un
+          marketplace prolijo (Amazon, Etsy, etc.) mantiene la galería en un
+          ancho moderado y fijo, dándole el espacio sobrante al panel de
+          compra — acá se tapea en 420px en vez de escalar con el viewport. */}
+      <section className="container-app grid grid-cols-1 gap-8 pt-6 lg:grid-cols-[420px_1fr] lg:gap-11">
         {/* GALERÍA */}
-        <div>
-          <div className="mb-3 h-[420px] w-full overflow-hidden rounded-lg bg-surface-container">
+        <div className="mx-auto w-full max-w-[420px] lg:mx-0">
+          {/* aspect-square en vez de una altura fija (antes h-[420px] fijo
+              en px): mantiene la proporción sea cual sea el ancho, sin
+              volverse gigante en pantallas anchas (ver el max-w del
+              contenedor padre, arriba). */}
+          <div className="mb-3 aspect-square w-full overflow-hidden rounded-lg bg-surface-container">
             {product.images?.length ? (
               <img src={imgUrl(product.images[selectedImage] ?? product.images[0])} alt={product.name} className="h-full w-full object-cover" />
             ) : (
@@ -131,7 +141,7 @@ export default function Product() {
                 <button
                   key={url}
                   onClick={() => setSelectedImage(i)}
-                  className={`h-[76px] w-full overflow-hidden rounded-md border-2 ${i === selectedImage ? "border-tertiary-accent" : "border-transparent"}`}
+                  className={`aspect-square w-full overflow-hidden rounded-md border-2 ${i === selectedImage ? "border-tertiary-accent" : "border-transparent"}`}
                 >
                   <img src={imgUrl(url)} alt="" className="h-full w-full object-cover" />
                 </button>
@@ -299,7 +309,7 @@ export default function Product() {
                 to={`/producto/${p.vendor.slug}/${p.slug}`}
                 className="block overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm"
               >
-                <div className="h-40 w-full overflow-hidden bg-surface-container">
+                <div className="aspect-[12/7] w-full overflow-hidden bg-surface-container">
                   {p.images?.[0] ? (
                     <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
                   ) : (

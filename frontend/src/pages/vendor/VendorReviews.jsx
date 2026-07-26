@@ -105,6 +105,16 @@ export default function VendorReviews() {
             </div>
             <p className="text-[13.5px] leading-5 text-on-surface-variant">{r.comment}</p>
 
+            {r.images?.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {r.images.map((img, i) => (
+                  <a key={i} href={`${api.defaults.baseURL}${img}`} target="_blank" rel="noreferrer" className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-surface-container-high">
+                    <img src={`${api.defaults.baseURL}${img}`} alt="" className="h-full w-full object-cover" />
+                  </a>
+                ))}
+              </div>
+            )}
+
             <ReviewReplyForm
               review={r}
               pending={reply.isPending}

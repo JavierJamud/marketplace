@@ -1,86 +1,53 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronDown } from "lucide-react";
-import { useStaticPage } from "../../lib/useStaticPage.js";
-import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, HelpCircle } from "lucide-react";
+import { api } from "../../lib/api.js";
+import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
-const buildCustomerFaqs = (siteName) => [
-  {
-    q: "¿Cómo hago un pedido?",
-    a: "Elige los productos que quieres, agrégalos al carrito y confirma el pedido desde el checkout. Según cómo tenga configurada su tienda el vendedor, vas a coordinar el pago por WhatsApp, contra entrega o transferencia.",
-  },
-  {
-    q: `¿${siteName} cobra el pedido?`,
-    a: `No. ${siteName} no procesa pagos entre compradores y vendedores — coordinas el pago directo con la tienda por el medio que tenga habilitado.`,
-  },
-  {
-    q: "¿Qué significa el badge de tienda verificada?",
-    a: `Que esa tienda pasó una revisión de identidad y activó su suscripción con el equipo de ${siteName}. No es una garantía sobre la calidad de sus productos, pero sí que hay una persona real detrás del negocio.`,
-  },
-  {
-    q: "¿Puedo pedir sin crear una cuenta?",
-    a: "Puedes navegar el catálogo libremente. Para hacer pedidos con seguimiento de estado necesitas una cuenta de cliente; el menú QR de mesa en restaurantes es la excepción — se pide sin cuenta.",
-  },
-  {
-    q: "¿Cómo sigo el estado de mi pedido?",
-    a: "Desde tu panel de cliente vas a ver el estado (nuevo, preparando, listo, entregado) y también te llega un correo cada vez que cambia.",
-  },
-];
-
-const buildVendorFaqs = (siteName) => [
-  {
-    q: `¿Cuánto cuesta vender en ${siteName}?`,
-    a: "El Plan Regular es gratis y permite publicar hasta 20 productos con pedidos por WhatsApp. El Plan Business (2 500 CUP/mes) desbloquea productos ilimitados, badge de verificación y más visibilidad — se activa después de verificar tu tienda.",
-  },
-  {
-    q: "¿Cómo verifico mi tienda?",
-    a: `Desde tu panel, en 'Verificación', subes una foto tuya y de tu documento de identidad. Un admin de ${siteName} revisa los documentos; si los aprueba, eliges cómo pagar la suscripción (tarjeta o transferencia CUP) y al confirmarse el pago tu tienda queda verificada.`,
-  },
-  {
-    q: "¿Cómo recibo mis pedidos?",
-    a: "Puedes elegir recibir el aviso por WhatsApp o directamente en tu panel de vendedor, según lo que configures en Ajustes.",
-  },
-  {
-    q: "¿Puedo tener un restaurante con menú QR?",
-    a: "Sí — al registrar tu tienda marca que eres restaurante y elige cuántas mesas tienes. Cada mesa recibe un QR único; marca qué productos aparecen en ese menú desde la edición de cada producto.",
-  },
-  {
-    q: "¿Qué pasa si rechazan mis documentos?",
-    a: "Vas a ver el motivo del rechazo en tu panel y vas a poder volver a enviarlos las veces que necesites.",
-  },
-];
-
-function FaqItem({ q, a }) {
-  const [open, setOpen] = useState(false);
+// Bloque 53: antes esto era copy hardcodeado (buildCustomerFaqs/
+// buildVendorFaqs) que además podía reemplazarse entero por un bloque de
+// HTML libre desde el admin — ahora las preguntas viven en su propia tabla
+// (FaqItem, con CRUD real en AdminFaq.jsx), así que esta página siempre
+// muestra datos reales y ya no tiene una versión "HTML libre" alternativa.
+//
+// `openId` vive en el padre (Faq), no en cada FaqItem — es lo que permite
+// una sola pregunta abierta a la vez: abrir una nueva pisa el `openId`
+// anterior, así que la que estaba abierta se cierra sola.
+function FaqItem({ id, q, a, isOpen, onToggle }) {
   return (
     <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => onToggle(id)}
         className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
       >
         <span className="text-[14px] font-bold text-on-surface">{q}</span>
-        <ChevronDown className={`h-4 w-4 flex-shrink-0 text-outline transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-4 w-4 flex-shrink-0 text-outline transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
-      {open && <p className="px-5 pb-4 text-[13.5px] leading-5 text-on-surface-variant">{a}</p>}
+      {isOpen && <p className="px-5 pb-4 text-[13.5px] leading-5 text-on-surface-variant">{a}</p>}
     </div>
   );
 }
 
 export default function Faq() {
-  const { siteName } = usePlatformSettings();
   const [searchParams] = useSearchParams();
   // Bloque 48: Ayuda.jsx linkea acá con ?tab=vendor para las categorías de
   // vendedor — cualquier otro valor (o ninguno) cae en "customer".
   const [tab, setTab] = useState(searchParams.get("tab") === "vendor" ? "vendor" : "customer");
-  const faqs = tab === "customer" ? buildCustomerFaqs(siteName) : buildVendorFaqs(siteName);
-  const { htmlContent } = useStaticPage("faq");
+  const [openId, setOpenId] = useState(null);
 
-  if (htmlContent) {
-    return (
-      <div className="container-app max-w-[820px] py-14">
-        <div className="prose-static" dangerouslySetInnerHTML={{ __html: htmlContent }} />
-      </div>
-    );
+  const audience = tab === "vendor" ? "VENDOR" : "CUSTOMER";
+  const { data: faqs, isLoading } = useQuery({
+    queryKey: ["public-faq", audience],
+    queryFn: async () => (await api.get("/faq", { params: { audience } })).data.items,
+  });
+
+  // Cambiar de pestaña cierra cualquier pregunta abierta de la pestaña
+  // anterior — no tendría sentido dejarla "abierta" para una lista distinta.
+  useEffect(() => setOpenId(null), [tab]);
+
+  function toggle(id) {
+    setOpenId((current) => (current === id ? null : id));
   }
 
   return (
@@ -108,9 +75,15 @@ export default function Faq() {
         </button>
       </div>
 
+      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+
+      {!isLoading && faqs?.length === 0 && (
+        <EmptyState icon={HelpCircle} title="Todavía no hay preguntas en esta sección" description="Vuelve a intentarlo más adelante." />
+      )}
+
       <div className="flex flex-col gap-3">
-        {faqs.map((f) => (
-          <FaqItem key={f.q} {...f} />
+        {faqs?.map((f) => (
+          <FaqItem key={f.id} id={f.id} q={f.question} a={f.answer} isOpen={openId === f.id} onToggle={toggle} />
         ))}
       </div>
     </div>
