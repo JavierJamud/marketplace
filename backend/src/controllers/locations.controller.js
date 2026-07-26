@@ -126,7 +126,7 @@ export async function deleteCountry(req, res) {
 
   if (existing._count.provinces > 0 || existing._count.vendorDeliveries > 0) {
     throw new AppError(
-      "No podés eliminar este país porque tiene provincias/estados cargados o hay vendedores que lo usan. En su lugar, desactivalo.",
+      "No puedes eliminar este país porque tiene provincias/estados cargados o hay vendedores que lo usan. En su lugar, desactívalo.",
       409
     );
   }
@@ -148,7 +148,7 @@ export async function deactivateAllCountries(_req, res) {
   res.json({ count });
 }
 
-const bulkDeleteCountriesSchema = z.object({ ids: z.array(z.string().min(1)).min(1, "Elegí al menos un país.") });
+const bulkDeleteCountriesSchema = z.object({ ids: z.array(z.string().min(1)).min(1, "Elige al menos un país.") });
 
 // Mismo criterio que BusinessCategory.delete (Bloque 18) y el comentario de
 // arriba: un país en uso (con provincias cargadas o algún vendedor
@@ -201,7 +201,7 @@ export async function listProvincesForAdmin(_req, res) {
 const createProvinceSchema = z.object({
   code: z.string().trim().min(1).max(10).toLowerCase(),
   name: z.string().trim().min(2),
-  countryId: z.string().min(1, "Elegí a qué país pertenece."),
+  countryId: z.string().min(1, "Elige a qué país pertenece."),
   type: z.enum(["PROVINCE", "STATE"]).default("PROVINCE"),
 });
 

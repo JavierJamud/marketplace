@@ -1,8 +1,9 @@
 import { Clock, CheckCircle2, XCircle } from "lucide-react";
 
-// Bloque 47: extraído de VendorVerification.jsx para que VendorSubscription.jsx
-// reuse los mismos arrays en vez de duplicarlos — mismo criterio del bloque
-// ("no duplicar el array").
+// Verificación y Suscripción se unificaron en una sola página
+// (VendorVerification.jsx) por mostrar prácticamente lo mismo — este array
+// ya no se comparte entre dos archivos, pero se deja acá separado del
+// componente porque BENEFITS/PLANS son datos, no UI.
 export const BENEFITS = ["Badge de verificación", "Productos ilimitados", "Aparición en la home", "IA de empresa (chatbot)"];
 
 // Bloque 16: la comparación Regular/Business se movió acá desde Home.jsx —

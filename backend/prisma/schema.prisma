@@ -266,10 +266,26 @@ model Product {
   description String?
   price       Decimal  @db.Decimal(12, 2)
   oldPrice    Decimal? @db.Decimal(12, 2)
+  // Bloque 52: en qué moneda están price/oldPrice — puramente informativo
+  // (no hay conversión/tipo de cambio en el sistema), el vendedor elige una
+  // sola por producto al cargarlo. Default CUP para no alterar el
+  // comportamiento de los productos ya cargados al desplegar la migración.
+  currency    ProductCurrency @default(CUP)
   stock       Int      @default(0)
   barcode     String?
   images      String[] @default([])
   badge       String?
+  // Bloque 52: tallas (pedido explícito) — letras (XS/S/M/L...) o números
+  // (calzado), tag libre igual que `tags`. sizeStock mapea cada talla a su
+  // stock individual ({"S": 5, "M": 10}); cuando sizes no está vacío, `stock`
+  // de arriba se recalcula SIEMPRE como la suma de sizeStock (ver
+  // reconcileStock en products.controller.js) para que todo el código
+  // existente que ya lee Product.stock (carrito, dashboard, bajo stock,
+  // límite de plan, etc.) siga funcionando sin tener que volverse
+  // "size-aware" en todos lados — solo el flujo de compra puntual necesita
+  // saber de tallas.
+  sizes       String[] @default([])
+  sizeStock   Json?
   // Bloque 22: hasta 5, opcionales — el vendedor los escribe a mano en
   // VendorProducts.jsx. Siempre en minúscula/trim (products.controller.js),
   // nunca tal cual mayúsculas del vendedor, para que la búsqueda no pierda
@@ -292,6 +308,7 @@ model Product {
   reviews    Review[]
   favorites  Favorite[]
   requests   ProductRequest[]
+  offers     Offer[]
 
   @@unique([vendorId, slug])
 }
@@ -444,6 +461,7 @@ model Vendor {
   favorites     Favorite[]
   chatMessages  ChatMessage[]
   productRequests ProductRequest[]
+  offers        Offer[]
 }
 
 model VendorLocation {
@@ -550,6 +568,11 @@ model OrderItem {
   quantity        Int
   price           Decimal @db.Decimal(12, 2)
   selectedOptions Json?
+  // Bloque 52: talla elegida, si el producto tiene Product.sizes cargadas —
+  // campo propio (no reusar selectedOptions, que ya es de ProductOption/menú)
+  // para poder decrementar sizeStock[size] puntualmente al confirmar la venta.
+  size            String?
+  currency        ProductCurrency @default(CUP)
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -713,6 +736,13 @@ model Integration {
 model SiteSettings {
   id           String   @id @default(cuid())
   heroImageUrl String?
+  // Bloque 49: nombre y logo de la plataforma, editables desde "Marca de la
+  // plataforma" en el admin — consumidos en todo el sitio (header, footer,
+  // <title>, emails, PDFs, WhatsApp) vía usePlatformSettings() en vez de un
+  // string "ZeuDin" hardcodeado. siteName con default "ZeuDin" para no
+  // cambiar el comportamiento visible al desplegar esta migración.
+  siteName String  @default("ZeuDin")
+  logoUrl  String?
   // Límites por plan — cuántos países de entrega y provincias de Cuba puede
   // tener cargados un vendedor a la vez. Nunca hardcodeados en el código:
   // el admin los edita desde AdminLocations.jsx. null en el máximo de
@@ -743,6 +773,33 @@ model SiteSettings {
   // del plan siguen siendo estáticos (no forman parte de este pedido).
   planFeaturesRegular  String[] @default(["Hasta 20 productos", "Pedidos por WhatsApp", "Perfil de tienda público", "Sin comisiones por venta"])
   planFeaturesBusiness String[] @default(["Productos ilimitados", "Sello de tienda verificada", "Destacada en la home", "Recomendaciones con IA", "Horarios de atención"])
+  // Bloque 49: si el vendedor puede agregar imágenes de producto pegando un
+  // link externo, además de subir el archivo. Apagable desde el admin porque
+  // un link roto o de mala calidad es más difícil de moderar que un archivo
+  // subido directamente al servidor.
+  allowProductImageLinks Boolean @default(true)
+  // Bloque 51: política de ofertas de vendedores, editable desde la sección
+  // "Ofertas" del admin — antes eran constantes hardcodeadas en
+  // offers.controller.js (OFFER_COOLDOWN_DAYS/OFFER_DEFAULT_DURATION_DAYS).
+  // offerCooldownDays: cada cuántos días un vendedor verificado puede
+  // publicar/republicar una oferta nueva. offerDefaultDurationDays: cuánto
+  // dura activa una oferta cuando el vendedor no pide una duración custom.
+  // Los defaults son los mismos valores que ya estaban hardcodeados, para no
+  // cambiar el comportamiento visible al desplegar esta migración.
+  offerCooldownDays        Int @default(7)
+  offerDefaultDurationDays Int @default(30)
+  // Bloque 52: mostrar/ocultar el botón flotante del chatbot general
+  // (MarketplaceChatWidget) en el Home público — antes montado sin
+  // condición ninguna. Default true = mismo comportamiento visible de
+  // siempre al desplegar esta migración.
+  showChatWidget Boolean @default(true)
+  // Bloque 52: de qué canales de pedido puede elegir un vendedor al cargar
+  // un producto (VendorProducts.jsx) — antes las 3 opciones (whatsapp/cod/
+  // prepaid) estaban hardcodeadas en el formulario sin que el admin pudiera
+  // apagar ninguna. "whatsapp" es el canal universal (siempre disponible,
+  // no aparece en esta lista porque no se puede desactivar — ver
+  // products.controller.js) — acá solo viven los OPCIONALES.
+  productPaymentMethods String[] @default(["cod", "prepaid"])
   updatedAt    DateTime @updatedAt
 }
 
@@ -1054,4 +1111,90 @@ model StaticPage {
   slug        String    @id // "terminos" | "privacidad" | "faq" | "ayuda" | "contacto"
   htmlContent String?
   updatedAt   DateTime  @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Bloque 50: ofertas de vendedor — se arman sobre un producto YA existente
+// de esa tienda (nunca un producto nuevo desde cero), solo tiendas
+// verificadas, una oferta nueva por vendedor cada 7 días (validado contra
+// createdAt de la última Offer del vendedor, sin importar su status —
+// retirarla antes de tiempo no libera el límite semanal, ver pedido
+// explícito del bloque), vigentes 30 días desde startsAt. ACTIVE -> EXPIRED
+// lo decide un chequeo perezoso al leer (nunca un cron aparte todavía) — ver
+// offers.controller.js.
+// ---------------------------------------------------------------------------
+
+// Bloque 51: SUSPENDED se suma a los 3 originales — es el admin ocultando
+// una oferta (propia o de un vendedor) por incumplimiento de políticas, sin
+// borrarla (el vendedor la sigue viendo en su historial, marcada como tal).
+// Distinto de REMOVED (el propio vendedor la retira) y de EXPIRED (venció
+// sola) — los tres dejan de mostrarse en el Home, pero solo un admin puede
+// poner/sacar SUSPENDED.
+enum OfferStatus {
+  ACTIVE
+  EXPIRED
+  REMOVED
+  SUSPENDED
+}
+
+// PRODUCT: sobre un producto ya cargado (imageUrl = una de su galería).
+// CUSTOM: imagen propia subida por el vendedor/admin, sin producto asociado.
+// HTML: bloque HTML insertado tal cual — EXCLUSIVO del admin (nunca
+// disponible para vendedores, ver offers.controller.js/adminOffers.controller.js).
+enum OfferContentType {
+  PRODUCT
+  CUSTOM
+  HTML
+}
+
+enum OfferOrientation {
+  VERTICAL
+  HORIZONTAL
+}
+
+enum ProductCurrency {
+  CUP
+  USD
+  EUR
+}
+
+model Offer {
+  id             String           @id @default(cuid())
+  // Bloque 51: null = oferta creada por el admin desde la nueva sección
+  // "Ofertas" del panel admin — no pertenece a ninguna tienda.
+  vendorId       String?
+  // Bloque 51: null cuando contentType es CUSTOM o HTML (no hay producto
+  // asociado) — antes era obligatorio, solo existía el caso PRODUCT.
+  productId      String?
+  contentType    OfferContentType @default(PRODUCT)
+  orientation    OfferOrientation @default(HORIZONTAL)
+  title          String
+  // Bloque 51: antes no existía — solo tenía sentido para ofertas PRODUCT
+  // (mostraban el nombre del producto). Ahora las CUSTOM/HTML necesitan su
+  // propio texto libre.
+  description    String?          @db.Text
+  tagline        String?
+  discountLabel  String?
+  // Requerido si contentType es PRODUCT o CUSTOM (archivo subido o, para
+  // PRODUCT, una de las imágenes ya cargadas del producto). Null si
+  // contentType es HTML — ahí el contenido entero vive en htmlContent.
+  imageUrl       String?
+  // Bloque 51: EXCLUSIVO de ofertas creadas por el admin (contentType
+  // HTML) — nunca aceptado desde el endpoint de vendedor.
+  htmlContent    String?          @db.Text
+  createdByAdmin Boolean          @default(false)
+  status         OfferStatus      @default(ACTIVE)
+  startsAt       DateTime         @default(now())
+  // Bloque 51: null = nunca vence (SOLO permitido si createdByAdmin —
+  // las ofertas de vendedor siempre tienen que traer una fecha real, para
+  // que la sección "Ofertas" del Home nunca dependa de una limpieza manual).
+  expiresAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId, createdAt])
+  @@index([status, expiresAt])
 }

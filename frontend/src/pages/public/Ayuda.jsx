@@ -59,7 +59,7 @@ export default function Ayuda() {
     <div className="container-app max-w-[960px] py-14">
       <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Ayuda</p>
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Centro de ayuda</h1>
-      <p className="mb-10 text-body-md text-on-surface-variant">Elegí el tema que te interesa.</p>
+      <p className="mb-10 text-body-md text-on-surface-variant">Elige el tema que te interesa.</p>
 
       <div className="mb-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {CATEGORIES.map((c) => (

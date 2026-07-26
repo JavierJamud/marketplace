@@ -5,6 +5,7 @@ import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { VerifiedStoresSlider } from "../../components/VerifiedStoresSlider.jsx";
+import { OffersSlider } from "../../components/OffersSlider.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.jsx";
@@ -28,7 +29,7 @@ function CategoryMarquee({ categories }) {
       className="overflow-hidden"
       style={{ WebkitMaskImage: EDGE_FADE_MASK, maskImage: EDGE_FADE_MASK }}
     >
-      <div className="flex w-max animate-marquee gap-2.5">
+      <div className="category-marquee-track flex w-max animate-marquee gap-2.5">
         {track.map((c, i) => (
           <Link
             key={`${c.id}-${i}`}
@@ -90,6 +91,14 @@ export default function Home() {
     enabled: !zoneLoading,
   });
 
+  // Bloque 50: sin fallback de "no hay ofertas" — si vuelve vacío, la
+  // sección entera no se monta (ver el render condicional más abajo), a
+  // diferencia de Destacados/Tiendas verificadas que sí muestran un EmptyState.
+  const { data: offers } = useQuery({
+    queryKey: ["home-active-offers"],
+    queryFn: async () => (await api.get("/offers/active")).data.offers,
+  });
+
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
@@ -109,10 +118,10 @@ export default function Home() {
               🇨🇺 HECHO PARA CUBA · 16 PROVINCIAS
             </span>
             <h1 className="mb-4 font-display text-headline-lg text-white md:text-display-lg">
-              Comprá y vendé cerca tuyo, de <span className="text-secondary-container">vendedores</span> de tu provincia.
+              Compra y vende cerca tuyo, de <span className="text-secondary-container">vendedores</span> de tu provincia.
             </h1>
             <p className="mb-7 max-w-[500px] text-body-lg text-white/70">
-              Productos, comida y servicios de tiendas locales. Pedí directo por WhatsApp, pagá contra entrega o por
+              Productos, comida y servicios de tiendas locales. Pide directo por WhatsApp, paga contra entrega o por
               transferencia. Sin comisiones para el vendedor.
             </p>
             <div className="mb-8 flex flex-wrap gap-3.5">
@@ -143,7 +152,7 @@ export default function Home() {
 
           <div className="relative h-[320px] lg:h-[400px]">
             {heroImageUrl ? (
-              <img src={heroImageUrl} alt="ZeuDin" className="h-full w-full rounded-xl object-cover" />
+              <img src={heroImageUrl} alt={settings?.siteName || "ZeuDin"} className="h-full w-full rounded-xl object-cover" />
             ) : (
               <div className="h-full w-full rounded-xl bg-white/10" />
             )}
@@ -152,7 +161,7 @@ export default function Home() {
                 <MessageCircle className="h-[18px] w-[18px] text-[#128C7E]" />
               </span>
               <div>
-                <div className="text-label-sm font-bold text-on-surface">Pedí por WhatsApp</div>
+                <div className="text-label-sm font-bold text-on-surface">Pide por WhatsApp</div>
                 <div className="text-[11px] text-on-surface-variant">Respuesta directa</div>
               </div>
             </div>
@@ -182,6 +191,16 @@ export default function Home() {
         </section>
       )}
 
+      {/* OFERTAS (Bloque 50) — render condicional total: sin ofertas
+          activas, la sección ni se monta (nada de placeholder/skeleton
+          permanente, pedido explícito del bloque). */}
+      {offers?.length > 0 && (
+        <section className="container-app pt-11">
+          <SectionHead title="Ofertas de la semana" subtitle="De tiendas verificadas y de la casa" />
+          <OffersSlider offers={offers} />
+        </section>
+      )}
+
       {/* PRODUCTOS DESTACADOS */}
       <section className="container-app pt-11">
         <SectionHead
@@ -191,19 +210,21 @@ export default function Home() {
           cta="Ver catálogo →"
         />
         {featured?.length ? (
-          // Bloque 48 (reemplaza el grid de 4 hasta lg:grid-cols-4 de antes):
-          // siempre 2 columnas, hasta 10 productos si hay esa cantidad
-          // disponible para la zona/filtro actual — nunca se rellena con
-          // nada inventado si hay menos.
-          <div className="grid grid-cols-2 gap-5">
-            {featured.slice(0, 10).map((p) => (
+          // Bloque 50 (pedido explícito: el grid fijo de 2 columnas del
+          // Bloque 48 se veía igual de "vacío" en pantalla grande que en
+          // mobile — acá se agregan más columnas a medida que crece el
+          // viewport, con tarjetas más chicas y un grid más moderno/denso,
+          // sin tocar mobile (sigue en 2). Tope sube de 10 a 20 — nunca se
+          // rellena con nada inventado si hay menos disponibles.
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 lg:grid-cols-5">
+            {featured.slice(0, 20).map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
           </div>
         ) : (
           <EmptyState
             title="Todavía no hay productos en tu zona"
-            description="Probá explorando el catálogo completo o cambiá de provincia arriba."
+            description="Prueba explorando el catálogo completo o cambia de provincia arriba."
             action={
               <Link to="/catalogo" className="text-label-md font-semibold text-tertiary-accent hover:underline">
                 Ver catálogo completo →
@@ -221,10 +242,10 @@ export default function Home() {
             <span className="mb-3.5 inline-flex items-center gap-1.5 rounded-full bg-secondary-container/15 px-3 py-1.5 text-label-sm font-bold text-secondary-container">
               🚀 PARA DUEÑOS DE NEGOCIO
             </span>
-            <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abrí tu tienda online gratis, hoy mismo</h3>
+            <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abre tu tienda online gratis, hoy mismo</h3>
             <p className="text-body-md text-white/65">
-              Catálogo propio, pedidos por WhatsApp o desde tu panel, menú con QR si sos restaurante. Sin costo de
-              entrada en el Plan Regular — empezá a vender en minutos.
+              Catálogo propio, pedidos por WhatsApp o desde tu panel, menú con QR si eres restaurante. Sin costo de
+              entrada en el Plan Regular — empieza a vender en minutos.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -238,7 +259,7 @@ export default function Home() {
               to="/tiendas"
               className="flex items-center gap-1.5 whitespace-nowrap rounded border-[1.5px] border-white/30 px-5 py-3.5 text-label-md text-white hover:bg-white/10"
             >
-              <Rocket className="h-4 w-4" /> Ver tiendas en ZeuDin
+              <Rocket className="h-4 w-4" /> Ver tiendas en {settings?.siteName || "ZeuDin"}
             </Link>
           </div>
         </div>
@@ -267,7 +288,10 @@ export default function Home() {
         )}
       </section>
     </div>
-    <MarketplaceChatWidget />
+    {/* Bloque 52: apagable desde el admin (Marca de la plataforma) — antes
+        se montaba siempre, sin condición. Default true si el settings
+        todavía no cargó, para no hacerlo parpadear apagado un instante. */}
+    {(settings?.showChatWidget ?? true) && <MarketplaceChatWidget />}
     </>
   );
 }

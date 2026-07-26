@@ -86,7 +86,7 @@ export function VendorNotificationBell() {
                 </div>
               ))
             ) : (
-              <p className="px-3.5 py-6 text-center text-[12.5px] text-on-surface-variant">No tenés notificaciones todavía.</p>
+              <p className="px-3.5 py-6 text-center text-[12.5px] text-on-surface-variant">No tienes notificaciones todavía.</p>
             )}
           </div>
         </div>

@@ -93,7 +93,7 @@ export default function VendorOnboarding() {
   if (!user) {
     return (
       <div className="container-app py-14 text-center">
-        <p className="text-body-lg text-on-surface-variant">Necesitás una cuenta para crear tu tienda.</p>
+        <p className="text-body-lg text-on-surface-variant">Necesitas una cuenta para crear tu tienda.</p>
         <Button className="mt-4" onClick={() => navigate("/cuenta")}>Crear cuenta o entrar</Button>
       </div>
     );
@@ -102,16 +102,16 @@ export default function VendorOnboarding() {
   return (
     <div className="container-app flex justify-center py-14">
       <Card className="w-full max-w-xl p-8">
-        <h1 className="mb-2 text-headline-md text-on-surface">Creá tu tienda gratis</h1>
+        <h1 className="mb-2 text-headline-md text-on-surface">Crea tu tienda gratis</h1>
         <p className="mb-6 text-body-md text-on-surface-variant">
-          Empezás en el Plan Regular: hasta 20 productos y ventas por WhatsApp. Podés escalar a Business cuando quieras.
+          Empiezas en el Plan Regular: hasta 20 productos y ventas por WhatsApp. Puedes escalar a Business cuando quieras.
         </p>
 
         <form onSubmit={(e) => { e.preventDefault(); createVendor.mutate(); }} className="space-y-4">
           <Input label="Nombre de la tienda (público)" required value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
           <div>
             <Input label="Nombre del responsable del negocio" required value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
-            <p className="mt-1 text-label-sm text-outline">Privado — solo lo ven admin y vos. No se muestra en tu tienda pública.</p>
+            <p className="mt-1 text-label-sm text-outline">Privado — solo lo ven admin y tú. No se muestra en tu tienda pública.</p>
           </div>
           <div>
             <Input
@@ -136,11 +136,11 @@ export default function VendorOnboarding() {
           <PhoneInput label="WhatsApp de la tienda" required value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
           <div>
             <Input label="Correo de la tienda" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <p className="mt-1 text-label-sm text-outline">Podés usar el mismo correo de tu cuenta o uno distinto.</p>
+            <p className="mt-1 text-label-sm text-outline">Puedes usar el mismo correo de tu cuenta o uno distinto.</p>
           </div>
 
-          <Select label="Provincia donde prestás servicio" required value={form.provinceId} onChange={(e) => setForm({ ...form, provinceId: e.target.value })}>
-            <option value="">Seleccioná una provincia</option>
+          <Select label="Provincia donde prestas servicio" required value={form.provinceId} onChange={(e) => setForm({ ...form, provinceId: e.target.value })}>
+            <option value="">Selecciona una provincia</option>
             {provinces?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </Select>
 
@@ -153,7 +153,7 @@ export default function VendorOnboarding() {
                 onChange={(e) => setForm({ ...form, businessCategoryId: e.target.value })}
                 className="flex-1"
               >
-                <option value="">Seleccioná el rubro de tu tienda</option>
+                <option value="">Selecciona el rubro de tu tienda</option>
                 {businessCategories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
               {selectedBusinessCategory && (
@@ -162,7 +162,7 @@ export default function VendorOnboarding() {
                 </div>
               )}
             </div>
-            <p className="mt-1 text-label-sm text-outline">Podés cambiarlo después desde tu panel.</p>
+            <p className="mt-1 text-label-sm text-outline">Puedes cambiarlo después desde tu panel.</p>
           </div>
 
           <label className="flex items-center gap-2 text-body-md text-on-surface">
@@ -181,7 +181,7 @@ export default function VendorOnboarding() {
                 onChange={(e) => setForm({ ...form, tableCount: e.target.value })}
               />
               <p className="mt-1 text-label-sm text-outline">
-                Generamos un código QR por cada mesa apenas creás la tienda. Los pedidos te van a llegar al panel de vendedor.
+                Generamos un código QR por cada mesa apenas creas la tienda. Los pedidos te van a llegar al panel de vendedor.
               </p>
             </div>
           )}

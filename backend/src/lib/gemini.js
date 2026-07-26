@@ -64,21 +64,30 @@ export async function generateWithGemini({ apiKey, prompt, model }) {
         // dejar margen real a la respuesta visible sin cortarla a mitad de
         // camino. Si "gemini-flash-latest" vuelve a cambiar de versión,
         // repetir esta medición en vivo antes de asumir que sigue igual.
-        generationConfig: { temperature: 0.8, maxOutputTokens: 600, thinkingConfig: { thinkingBudget: 1 } },
+        // Bloque 49 (medido en vivo con el debugger de la API): thinkingBudget:1
+        // NO limita de verdad cuánto "piensa" este modelo — con el prompt de
+        // warranty (más largo/estructurado que product/store) el response
+        // real trajo finishReason: "MAX_TOKENS" con thoughtsTokenCount: 838
+        // y solo 58 tokens visibles, con maxOutputTokens en 900 (¡900 se
+        // gasta CASI TODO en pensar, no en la respuesta!). thinkingBudget
+        // es más una preferencia que un techo duro acá — la única forma
+        // real de no cortar la respuesta es dejar mucho más margen en
+        // maxOutputTokens (pensar + visible comparten el mismo pool).
+        generationConfig: { temperature: 0.8, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 1 } },
       }),
     });
   } catch {
-    throw new AppError("No se pudo conectar con el servicio de IA. Intentá de nuevo.", 500);
+    throw new AppError("No se pudo conectar con el servicio de IA. Intenta de nuevo.", 500);
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intentá de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
+    throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intenta de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("").trim();
-  if (!text) throw new AppError("La IA no devolvió una descripción. Intentá con un texto más específico.", 500);
+  if (!text) throw new AppError("La IA no devolvió una descripción. Intenta con un texto más específico.", 500);
 
   return text;
 }
@@ -192,17 +201,17 @@ export async function chatWithGemini({ apiKey, systemParts, history, message, mo
       }),
     });
   } catch {
-    throw new AppError("No se pudo conectar con el asistente. Probá de nuevo.", 500);
+    throw new AppError("No se pudo conectar con el asistente. Prueba de nuevo.", 500);
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new AppError(`El asistente no pudo responder (${res.status}). Probá de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
+    throw new AppError(`El asistente no pudo responder (${res.status}). Prueba de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
   const raw = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("").trim();
-  if (!raw) throw new AppError("El asistente no devolvió una respuesta. Probá reformular tu pregunta.", 500);
+  if (!raw) throw new AppError("El asistente no devolvió una respuesta. Prueba reformular tu pregunta.", 500);
 
   try {
     const parsed = JSON.parse(extractJsonObject(raw));

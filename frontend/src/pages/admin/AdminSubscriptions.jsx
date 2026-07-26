@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { CreditCard, Landmark, Bot, Clock, X, Plus, ListChecks } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark };
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP" };
@@ -74,9 +75,10 @@ function FeatureChipList({ items, onChange }) {
 }
 
 // Qué incluye cada plan (Regular/Business) — se refleja en
-// VendorVerification.jsx/VendorSubscription.jsx vía GET /settings. Antes
-// era un array hardcodeado en frontend/src/lib/verificationMeta.js; ahora
-// vive en SiteSettings y el admin lo edita acá.
+// VendorVerification.jsx (Verificación y Suscripción se unificaron ahí) vía
+// GET /settings. Antes era un array hardcodeado en
+// frontend/src/lib/verificationMeta.js; ahora vive en SiteSettings y el
+// admin lo edita acá.
 function PlanFeaturesCard() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
@@ -109,7 +111,7 @@ function PlanFeaturesCard() {
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
         Estos puntos son los que ven los vendedores en Verificación y Suscripción de su panel — se actualizan ahí apenas
-        los guardás acá.
+        los guardas acá.
       </p>
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <div>
@@ -131,6 +133,7 @@ function PlanFeaturesCard() {
 export default function AdminSubscriptions() {
   const queryClient = useQueryClient();
   const [revoking, setRevoking] = useState(null);
+  const [confirmRevoke, setConfirmRevoke] = useState(null); // sub a revocar, para el modal de confirmación
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-subscriptions"],
@@ -144,19 +147,17 @@ export default function AdminSubscriptions() {
       queryClient.invalidateQueries({ queryKey: ["admin-subscriptions"] });
       queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
       setRevoking(null);
+      setConfirmRevoke(null);
     },
     onError: (err) => {
       toast.error(err.response?.data?.error ?? "No se pudo revocar el Plan Business.");
       setRevoking(null);
+      setConfirmRevoke(null);
     },
   });
 
   function handleRevoke(sub) {
-    if (!window.confirm(`¿Revocar el Plan Business de "${sub.companyName}"? Vuelve a Regular, pierde el badge verificado y las funciones Business — se le avisa por correo. Podés volver a verificarla más adelante.`)) {
-      return;
-    }
-    setRevoking(sub.vendorId);
-    revoke.mutate(sub.vendorId);
+    setConfirmRevoke(sub);
   }
 
   const subscriptions = data?.subscriptions ?? [];
@@ -255,6 +256,19 @@ export default function AdminSubscriptions() {
           );
         })}
       </div>
+
+      <ConfirmModal
+        open={!!confirmRevoke}
+        title={`¿Revocar el Plan Business de "${confirmRevoke?.companyName}"?`}
+        message="Vuelve a Regular, pierde el badge verificado y las funciones Business — se le avisa por correo. Puedes volver a verificarla más adelante."
+        confirmLabel={revoke.isPending ? "Revocando..." : "Sí, revocar"}
+        danger
+        onConfirm={() => {
+          setRevoking(confirmRevoke.vendorId);
+          revoke.mutate(confirmRevoke.vendorId);
+        }}
+        onCancel={() => setConfirmRevoke(null)}
+      />
     </div>
   );
 }

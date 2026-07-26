@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { ShieldCheck, MessageSquare } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 
 function fmtDate(iso) {
@@ -34,7 +35,7 @@ function ReviewReplyForm({ review, onReply, pending }) {
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Escribí una respuesta pública..."
+        placeholder="Escribe una respuesta pública..."
         className="h-10 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
       />
       <button
@@ -49,6 +50,7 @@ function ReviewReplyForm({ review, onReply, pending }) {
 }
 
 export default function VendorReviews() {
+  const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
 
   const { data: reviews, isLoading } = useQuery({
@@ -70,8 +72,8 @@ export default function VendorReviews() {
     <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Reseñas</h1>
       <p className="mb-[26px] text-[13.5px] text-outline">
-        Comentarios y calificaciones que dejaron tus clientes. Podés responder públicamente — no podés ocultarlos ni borrarlos (eso lo maneja
-        el equipo de ZeuDin si hace falta).
+        Comentarios y calificaciones que dejaron tus clientes. Puedes responder públicamente — no puedes ocultarlos ni borrarlos (eso lo maneja
+        el equipo de {siteName} si hace falta).
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando reseñas...</p>}
@@ -79,7 +81,7 @@ export default function VendorReviews() {
       {!isLoading && !reviews?.length && (
         <div className="max-w-[640px] rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
           <MessageSquare className="mx-auto mb-3 h-8 w-8 text-outline-variant" />
-          Todavía no tenés reseñas.
+          Todavía no tienes reseñas.
         </div>
       )}
 

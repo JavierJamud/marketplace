@@ -63,7 +63,7 @@ function PasswordCard() {
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
         <KeyRound className="h-5 w-5 text-tertiary-accent" /> Cambiar contraseña
       </div>
-      <p className="mb-4 text-[12.5px] text-outline">Necesitás tu contraseña actual para cambiarla.</p>
+      <p className="mb-4 text-[12.5px] text-outline">Necesitas tu contraseña actual para cambiarla.</p>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <PasswordInput label="Contraseña actual" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
         <PasswordInput label="Contraseña nueva" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />

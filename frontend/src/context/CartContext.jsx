@@ -42,6 +42,10 @@ export function CartProvider({ children }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ vendor, items }));
   }, [vendor, items]);
 
+  // Bloque 52: con tallas, un mismo producto puede tener varias líneas en el
+  // carrito (una por talla) — la identidad de un ítem pasa a ser
+  // productId+size (size null para productos sin tallas, que siguen
+  // comportándose exactamente igual que antes).
   const addItem = useCallback(
     (product, quantity = 1, selectedOptions = {}) => {
       if (vendor.vendorId && vendor.vendorId !== product.vendorId) {
@@ -56,16 +60,27 @@ export function CartProvider({ children }) {
       // agregado); Math.max(1, ...) lo hace matemáticamente imposible sin
       // importar qué valor traiga stock/quantity.
       const stock = product.stock ?? Infinity;
+      const size = product.size ?? null;
+      const currency = product.currency ?? "CUP";
       setVendor(vendorMeta(product));
       setItems((prev) => {
-        const existing = prev.find((i) => i.productId === product.id);
+        const existing = prev.find((i) => i.productId === product.id && i.size === size);
         if (existing) {
           const nextQty = Math.max(1, Math.min(existing.quantity + quantity, stock));
-          return prev.map((i) => (i.productId === product.id ? { ...i, quantity: nextQty, stock } : i));
+          return prev.map((i) => (i.productId === product.id && i.size === size ? { ...i, quantity: nextQty, stock } : i));
         }
         return [
           ...prev,
-          { productId: product.id, name: product.name, price: product.price, quantity: Math.max(1, Math.min(quantity, stock)), stock, selectedOptions },
+          {
+            productId: product.id,
+            name: product.name,
+            price: product.price,
+            currency,
+            size,
+            quantity: Math.max(1, Math.min(quantity, stock)),
+            stock,
+            selectedOptions,
+          },
         ];
       });
       setBump((b) => b + 1);
@@ -80,8 +95,12 @@ export function CartProvider({ children }) {
       if (keepNewVendor) {
         const { product, quantity, selectedOptions } = pendingConflict;
         const stock = product.stock ?? Infinity;
+        const size = product.size ?? null;
+        const currency = product.currency ?? "CUP";
         setVendor(vendorMeta(product));
-        setItems([{ productId: product.id, name: product.name, price: product.price, quantity: Math.max(1, Math.min(quantity, stock)), stock, selectedOptions }]);
+        setItems([
+          { productId: product.id, name: product.name, price: product.price, currency, size, quantity: Math.max(1, Math.min(quantity, stock)), stock, selectedOptions },
+        ]);
         setBump((b) => b + 1);
       }
       setPendingConflict(null);
@@ -89,20 +108,20 @@ export function CartProvider({ children }) {
     [pendingConflict]
   );
 
-  const removeItem = (productId) => {
-    setItems((prev) => prev.filter((i) => i.productId !== productId));
+  const removeItem = (productId, size = null) => {
+    setItems((prev) => prev.filter((i) => !(i.productId === productId && i.size === size)));
     toast.success("Producto eliminado del carrito");
   };
 
-  const updateQuantity = (productId, quantity) => {
+  const updateQuantity = (productId, quantity, size = null) => {
     setItems((prev) => {
-      const existing = prev.find((i) => i.productId === productId);
+      const existing = prev.find((i) => i.productId === productId && i.size === size);
       if (!existing) return prev;
       const clamped = Math.max(1, Math.min(quantity, existing.stock ?? Infinity));
       // Sube el número de a poco desde el stepper (+) también cuenta como
       // "agregar" a efectos visuales: reinicia la animación del ícono.
       if (clamped > existing.quantity) setBump((b) => b + 1);
-      return prev.map((i) => (i.productId === productId ? { ...i, quantity: clamped } : i));
+      return prev.map((i) => (i.productId === productId && i.size === size ? { ...i, quantity: clamped } : i));
     });
   };
 

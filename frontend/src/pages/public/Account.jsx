@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { Store, User as UserIcon } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
@@ -28,23 +29,26 @@ function BrandStat({ value, label }) {
 // stepper de registro, recuperar contraseña) se pasa como children sin
 // tocarse — esto solo cambia lo que lo envuelve.
 function AccountShell({ provinceCount, children }) {
+  const { siteName, logoUrl } = usePlatformSettings();
   return (
     <div className="min-h-screen animate-fade-up bg-background lg:grid lg:grid-cols-2">
       {/* Panel izquierdo — marca completa en desktop */}
       <div className="hidden flex-col justify-center overflow-hidden bg-gradient-to-br from-primary-container to-primary px-14 py-14 lg:flex">
         <Link to="/" className="mb-9 flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary-container font-display text-base font-extrabold text-primary">
-            Z
-          </div>
-          <span className="font-display text-lg font-bold text-white">
-            Zeu<span className="text-secondary-container">Din</span>
-          </span>
+          {logoUrl ? (
+            <img src={logoUrl} alt={siteName} className="h-8 w-8 flex-shrink-0 rounded-md object-cover" />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary-container font-display text-base font-extrabold text-primary">
+              {siteName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <span className="font-display text-lg font-bold text-white">{siteName}</span>
         </Link>
         <h1 className="mb-4 max-w-md font-display text-headline-lg font-extrabold leading-tight text-white">
           El marketplace de Cuba, cerca tuyo.
         </h1>
         <p className="mb-8 max-w-sm text-body-md text-white/60">
-          Comprá a tiendas locales por WhatsApp o abrí tu propia tienda gratis. Pagás solo si querés verificarte.
+          Compra a tiendas locales por WhatsApp o abre tu propia tienda gratis. Pagas solo si quieres verificarte.
         </p>
         <div className="flex gap-8">
           <BrandStat value={provinceCount ?? "…"} label="provincias" />
@@ -58,12 +62,14 @@ function AccountShell({ provinceCount, children }) {
       {/* Barra de marca compacta — mobile únicamente */}
       <div className="bg-gradient-to-br from-primary-container to-primary px-5 py-5 lg:hidden">
         <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary-container font-display text-sm font-extrabold text-primary">
-            Z
-          </div>
-          <span className="font-display text-base font-bold text-white">
-            Zeu<span className="text-secondary-container">Din</span>
-          </span>
+          {logoUrl ? (
+            <img src={logoUrl} alt={siteName} className="h-7 w-7 flex-shrink-0 rounded-md object-cover" />
+          ) : (
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary-container font-display text-sm font-extrabold text-primary">
+              {siteName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <span className="font-display text-base font-bold text-white">{siteName}</span>
         </Link>
         <p className="mt-1.5 text-label-sm text-white/70">El marketplace de Cuba, cerca tuyo.</p>
       </div>
@@ -107,6 +113,7 @@ const emptyStoreForm = {
 
 export default function Account() {
   const { login, verifyTwoFactor, register, refreshRole } = useAuth();
+  const { siteName } = usePlatformSettings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -167,7 +174,7 @@ export default function Account() {
       await withMinDelay(async () => {
         const result = await login(loginForm.email, loginForm.password);
         // Bloque 47: 2FA opt-in — en vez de navegar, muestra el paso de
-        // "ingresá el código" (mismo patrón visual que forgot-code).
+        // "ingresa el código" (mismo patrón visual que forgot-code).
         if (result?.requiresTwoFactor) {
           setTwoFactorEmail(result.email);
           setTwoFactorCode("");
@@ -180,7 +187,7 @@ export default function Account() {
         navigate(destination);
       });
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "Algo salió mal. Intentá de nuevo.");
+      toast.error(err.response?.data?.error ?? "Algo salió mal. Intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -218,11 +225,11 @@ export default function Account() {
 
   async function handleFinalSubmit() {
     if (accountType === "vendor" && storeForm.isRestaurant && !storeForm.tableCount) {
-      toast.error("Indicá la cantidad de mesas de tu restaurante.");
+      toast.error("Indica la cantidad de mesas de tu restaurante.");
       return;
     }
     if (accountType === "vendor" && !storeForm.businessCategoryId) {
-      toast.error("Elegí el tipo de negocio de tu tienda.");
+      toast.error("Elige el tipo de negocio de tu tienda.");
       return;
     }
     setLoading(true);
@@ -253,7 +260,7 @@ export default function Account() {
         }
       });
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "Algo salió mal. Intentá de nuevo.");
+      toast.error(err.response?.data?.error ?? "Algo salió mal. Intenta de nuevo.");
     } finally {
       setLoading(false);
     }
@@ -265,7 +272,7 @@ export default function Account() {
     try {
       await withMinDelay(async () => {
         const { data } = await api.post("/auth/forgot-password", { email: resetEmail });
-        toast.success(data.message ?? "Revisá tu correo.");
+        toast.success(data.message ?? "Revisa tu correo.");
         setView("forgot-code");
       });
     } catch (err) {
@@ -300,7 +307,7 @@ export default function Account() {
     try {
       await withMinDelay(async () => {
         await api.post("/auth/reset-password", { email: resetEmail, code: resetCode, newPassword, confirmPassword });
-        toast.success("Contraseña actualizada. Ya podés entrar.");
+        toast.success("Contraseña actualizada. Ya puedes entrar.");
         setLoginForm({ email: resetEmail, password: "" });
         setResetEmail("");
         setResetCode("");
@@ -362,7 +369,7 @@ export default function Account() {
           {view === "forgot-email" && (
             <>
               <h1 className="mb-2 text-headline-md text-on-surface">¿Olvidaste tu contraseña?</h1>
-              <p className="mb-6 text-body-md text-on-surface-variant">Ingresá tu correo y te mandamos un código de verificación.</p>
+              <p className="mb-6 text-body-md text-on-surface-variant">Ingresa tu correo y te mandamos un código de verificación.</p>
               <form onSubmit={handleForgotEmail} className="space-y-4">
                 <Input label="Correo" type="email" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} />
                 <Button type="submit" size="lg" className="w-full" disabled={loading}>
@@ -374,7 +381,7 @@ export default function Account() {
 
           {view === "forgot-code" && (
             <>
-              <h1 className="mb-2 text-headline-md text-on-surface">Ingresá el código</h1>
+              <h1 className="mb-2 text-headline-md text-on-surface">Ingresa el código</h1>
               <p className="mb-6 text-body-md text-on-surface-variant">
                 Te mandamos un código de 6 dígitos a <strong>{resetEmail}</strong>. Vence en 15 minutos.
               </p>
@@ -440,7 +447,7 @@ export default function Account() {
         {isLogin ? (
           <>
             <h1 className="mb-1 text-headline-md text-on-surface">Bienvenido de nuevo</h1>
-            <p className="mb-6 text-body-md text-on-surface-variant">Ingresá para comprar o gestionar tu tienda.</p>
+            <p className="mb-6 text-body-md text-on-surface-variant">Ingresa para comprar o gestionar tu tienda.</p>
             <form onSubmit={handleLogin} className="space-y-4">
               <Input label="Correo" type="email" required value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} />
               <PasswordInput
@@ -459,7 +466,7 @@ export default function Account() {
           </>
         ) : (
           <>
-            <h1 className="mb-1 text-headline-md text-on-surface">Creá tu cuenta ZeuDin</h1>
+            <h1 className="mb-1 text-headline-md text-on-surface">Creá tu cuenta {siteName}</h1>
             <p className="mb-4 text-label-sm text-outline">
               Paso {step} de {totalSteps}
             </p>
@@ -536,7 +543,7 @@ export default function Account() {
                       value={storeForm.ownerName}
                       onChange={(e) => setStoreForm({ ...storeForm, ownerName: e.target.value })}
                     />
-                    <p className="mt-1 text-label-sm text-outline">Privado — solo lo ven admin y vos.</p>
+                    <p className="mt-1 text-label-sm text-outline">Privado — solo lo ven admin y tú.</p>
                   </div>
                   <Input
                     label="Correo de la tienda"
@@ -545,7 +552,7 @@ export default function Account() {
                     value={storeForm.storeEmail}
                     onChange={(e) => setStoreForm({ ...storeForm, storeEmail: e.target.value })}
                   />
-                  <p className="-mt-3 text-label-sm text-outline">Podés usar el mismo correo de tu cuenta o uno distinto.</p>
+                  <p className="-mt-3 text-label-sm text-outline">Puedes usar el mismo correo de tu cuenta o uno distinto.</p>
                   <PhoneInput
                     label="WhatsApp de la tienda"
                     required
@@ -553,12 +560,12 @@ export default function Account() {
                     onChange={(whatsapp) => setStoreForm({ ...storeForm, whatsapp })}
                   />
                   <Select
-                    label="Provincia donde prestás servicio"
+                    label="Provincia donde prestas servicio"
                     required
                     value={storeForm.provinceId}
                     onChange={(e) => setStoreForm({ ...storeForm, provinceId: e.target.value })}
                   >
-                    <option value="">Seleccioná una provincia</option>
+                    <option value="">Selecciona una provincia</option>
                     {provinces?.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -575,7 +582,7 @@ export default function Account() {
                         onChange={(e) => setStoreForm({ ...storeForm, businessCategoryId: e.target.value })}
                         className="flex-1"
                       >
-                        <option value="">Seleccioná el rubro de tu tienda</option>
+                        <option value="">Selecciona el rubro de tu tienda</option>
                         {businessCategories?.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
@@ -588,7 +595,7 @@ export default function Account() {
                         </div>
                       )}
                     </div>
-                    <p className="mt-1 text-label-sm text-outline">Podés cambiarlo después desde tu panel.</p>
+                    <p className="mt-1 text-label-sm text-outline">Puedes cambiarlo después desde tu panel.</p>
                   </div>
 
                   <label className="flex items-center gap-2 text-body-md text-on-surface">
@@ -611,7 +618,7 @@ export default function Account() {
                         onChange={(e) => setStoreForm({ ...storeForm, tableCount: e.target.value })}
                       />
                       <p className="mt-1 text-label-sm text-outline">
-                        Generamos un código QR por cada mesa apenas creás la tienda. Los pedidos te van a llegar al panel de vendedor.
+                        Generamos un código QR por cada mesa apenas creas la tienda. Los pedidos te van a llegar al panel de vendedor.
                       </p>
                     </div>
                   )}

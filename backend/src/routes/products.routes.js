@@ -20,6 +20,8 @@ router.post(
   productsController.addProductImages
 );
 router.delete("/:id/images", authenticate, requireRole("VENDOR", "ADMIN"), productsController.removeProductImage);
+router.post("/:id/images/link", authenticate, requireRole("VENDOR", "ADMIN"), productsController.addProductImageLink);
+router.patch("/:id/images/reorder", authenticate, requireRole("VENDOR", "ADMIN"), productsController.reorderProductImages);
 
 // Públicas
 router.get("/barcode/:barcode", productsController.lookupByBarcode);

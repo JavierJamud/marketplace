@@ -8,7 +8,8 @@ function fmtCUP(n) {
 }
 
 function imgUrl(path) {
-  return `${api.defaults.baseURL}${path}`;
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
 const STATUS_LABEL = {
@@ -106,7 +107,7 @@ export default function VendorDashboard() {
                 <span className="text-[14px] font-bold">Tienda verificada</span>
               </div>
               <p className="text-[12.5px] leading-[18px] text-white/85">
-                Tu badge está activo. Aparecés destacada en la home de tu provincia.
+                Tu badge está activo. Apareces destacada en la home de tu provincia.
               </p>
             </div>
           ) : (
@@ -126,7 +127,7 @@ export default function VendorDashboard() {
             <p className="mb-3 text-[12.5px] text-outline">
               {data?.planType === "BUSINESS" ? "2 500 CUP/mes · badge activo" : "Gratis · hasta 20 productos, solo WhatsApp"}
             </p>
-            <Link to="/vendedor/configuracion" className="block rounded border border-outline-variant py-2.5 text-center text-[13px] font-semibold text-on-surface-variant">
+            <Link to="/vendedor/verificacion" className="block rounded border border-outline-variant py-2.5 text-center text-[13px] font-semibold text-on-surface-variant">
               Gestionar plan
             </Link>
           </div>

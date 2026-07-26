@@ -166,7 +166,13 @@ export default {
         "overlay-in": "overlay-in 0.2s ease-out",
         "check-pop": "check-pop 0.5s cubic-bezier(0.34,1.56,0.64,1)",
         "fade-up": "fade-up 0.45s ease-out",
-        marquee: "marquee 28s linear infinite",
+        // Bloque 50 (pedido explícito: "muy rápido" → más suave, y después
+        // "un poco más lento" todavía): 28s → 70s → 100s. linear se mantiene
+        // (constante, sin aceleración/frenado) a propósito: es lo que hace
+        // que pausar/reanudar en hover (ver .category-marquee-track en
+        // index.css) nunca se sienta como un salto — la animación siempre
+        // retoma exactamente donde se quedó.
+        marquee: "marquee 100s linear infinite",
       },
     },
   },

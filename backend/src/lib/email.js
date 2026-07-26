@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { prisma } from "./prisma.js";
 import { getIntegrationConfig } from "../controllers/integrations.controller.js";
+import { getBrandSettings } from "../controllers/settings.controller.js";
 import { logError } from "./errorLog.js";
 import { orderConfirmationEmail } from "../templates/orderConfirmation.js";
 import { statusUpdateEmail } from "../templates/statusUpdate.js";
@@ -29,7 +30,8 @@ async function sendViaResend({ to, subject, html, fromName, attachments }) {
   if (!config) return { ok: false, error: "No hay una integración de Resend activa." };
 
   const fromAddress = config.fromEmail || RESEND_SANDBOX_FROM;
-  const displayName = fromName ? `${fromName} vía ZeuDin` : "ZeuDin";
+  const { siteName } = await getBrandSettings();
+  const displayName = fromName ? `${fromName} vía ${siteName}` : siteName;
 
   try {
     const resend = new Resend(config.apiKey);
@@ -75,7 +77,7 @@ async function logEmail({ vendorId, orderId, type, to, subject, result }) {
 // respuesta al cliente ni revierte el pedido si el email falla.
 export async function sendOrderConfirmationEmail(order) {
   if (!order.customerEmail) return;
-  const { subject, html } = orderConfirmationEmail(order);
+  const { subject, html } = await orderConfirmationEmail(order);
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_CONFIRMATION", to: order.customerEmail, subject, result });
   return result;
@@ -84,7 +86,7 @@ export async function sendOrderConfirmationEmail(order) {
 // Best-effort: disparado inmediatamente al cambiar el estado (no batch/cron).
 export async function sendOrderStatusEmail(order) {
   if (!order.customerEmail) return;
-  const { subject, html } = statusUpdateEmail(order);
+  const { subject, html } = await statusUpdateEmail(order);
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
   return result;
@@ -93,16 +95,16 @@ export async function sendOrderStatusEmail(order) {
 // Envío manual: acá SÍ importa el resultado — el caller (controller) decide
 // si contarlo contra el límite mensual y qué responder al vendedor.
 export async function sendManualOrderEmail({ order, vendorName, subject, message }) {
-  const { html } = vendorMessageEmail({ order, subject, message });
-  const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: vendorName });
-  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "MANUAL", to: order.customerEmail, subject, result });
+  const { subject: finalSubject, html } = await vendorMessageEmail({ order, subject, message });
+  const result = await sendViaResend({ to: order.customerEmail, subject: finalSubject, html, fromName: vendorName });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "MANUAL", to: order.customerEmail, subject: finalSubject, result });
   return result;
 }
 
 // El resultado SÍ importa acá: forgot-password no debe fingir éxito si el
 // código nunca pudo salir (el usuario quedaría trabado sin poder resetear).
 export async function sendPasswordResetEmail(user, code) {
-  const { subject, html } = passwordResetEmail({ fullName: user.fullName, code });
+  const { subject, html } = await passwordResetEmail({ fullName: user.fullName, code });
   const result = await sendViaResend({ to: user.email, subject, html });
   await logEmail({ vendorId: null, orderId: null, type: "PASSWORD_RESET", to: user.email, subject, result });
   return result;
@@ -113,7 +115,7 @@ export async function sendPasswordResetEmail(user, code) {
 // confirmar pago) si Resend falla; el estado en DB ya cambió igual.
 export async function sendVerificationUpdateEmail({ vendor, type, title, message, ctaHref }) {
   if (!vendor.email) return;
-  const { subject, html } = verificationUpdateEmail({ type, vendorName: vendor.companyName, title, message, ctaHref });
+  const { subject, html } = await verificationUpdateEmail({ type, vendorName: vendor.companyName, title, message, ctaHref });
   const result = await sendViaResend({ to: vendor.email, subject, html });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VERIFICATION_UPDATE", to: vendor.email, subject, result });
   return result;
@@ -135,7 +137,7 @@ export async function sendDocumentEmail({ to, vendorId, orderId, vendorName, sub
 // respuesta al mesero/cocina si el email falla.
 export async function sendTableOrderStatusEmail({ to, vendorId, vendorName, tableNumber, kitchenStatus }) {
   if (!to) return;
-  const { subject, html } = tableOrderStatusEmail({ vendorName, tableNumber, kitchenStatus });
+  const { subject, html } = await tableOrderStatusEmail({ vendorName, tableNumber, kitchenStatus });
   const result = await sendViaResend({ to, subject, html, fromName: vendorName });
   await logEmail({ vendorId, orderId: null, type: "TABLE_ORDER_STATUS", to, subject, result });
   return result;
@@ -144,7 +146,7 @@ export async function sendTableOrderStatusEmail({ to, vendorId, vendorName, tabl
 // El resultado SÍ importa (mismo criterio que sendPasswordResetEmail): sin
 // el código en el correo, el segundo paso del login queda trabado.
 export async function sendTwoFactorCodeEmail(user, code) {
-  const { subject, html } = twoFactorCodeEmail({ fullName: user.fullName, code });
+  const { subject, html } = await twoFactorCodeEmail({ fullName: user.fullName, code });
   const result = await sendViaResend({ to: user.email, subject, html });
   await logEmail({ vendorId: null, orderId: null, type: "TWO_FACTOR_CODE", to: user.email, subject, result });
   return result;
@@ -154,9 +156,9 @@ export async function sendTwoFactorCodeEmail(user, code) {
 // "Correo directo") — vendorId solo si el destinatario es una tienda, mismo
 // EmailLog type MANUAL que sendManualOrderEmail (pedido explícito del bloque).
 export async function sendAdminDirectEmail({ to, subject, message, recipientName, vendorId }) {
-  const { html } = adminDirectEmail({ subject, message, recipientName });
-  const result = await sendViaResend({ to, subject, html });
-  await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "MANUAL", to, subject, result });
+  const { subject: finalSubject, html } = await adminDirectEmail({ subject, message, recipientName });
+  const result = await sendViaResend({ to, subject: finalSubject, html });
+  await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "MANUAL", to, subject: finalSubject, result });
   return result;
 }
 
@@ -167,7 +169,7 @@ export async function sendAdminDirectEmail({ to, subject, message, recipientName
 // completa: si falla, el mensaje del visitante se pierde sin que nadie del
 // equipo se entere.
 export async function sendContactMessageEmail({ to, name, email, message }) {
-  const { subject, html } = contactMessageEmail({ name, email, message });
+  const { subject, html } = await contactMessageEmail({ name, email, message });
   const result = await sendViaResend({ to, subject, html });
   await logEmail({ vendorId: null, orderId: null, type: "CONTACT_MESSAGE", to, subject, result });
   return result;

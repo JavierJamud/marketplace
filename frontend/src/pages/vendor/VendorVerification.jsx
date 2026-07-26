@@ -7,7 +7,12 @@ import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { CameraCapture } from "../../components/CameraCapture.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { BENEFITS, PLANS, STAGE_META } from "../../lib/verificationMeta.js";
+
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "long", year: "numeric" });
+}
 
 const STEPS = ["Documentos", "Revisión", "Pago", "Verificado"];
 const STAGE_STEP_STATES = {
@@ -41,6 +46,7 @@ export default function VendorVerification() {
   const [selfieBlob, setSelfieBlob] = useState(null);
   const [idBlob, setIdBlob] = useState(null);
   const [proofFile, setProofFile] = useState(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["my-verification"],
@@ -75,7 +81,7 @@ export default function VendorVerification() {
       toast.success("¡Pago recibido! Confirmando con Stripe — tu cuenta se activa en un momento.");
       invalidate();
     } else if (stripeResult === "cancel") {
-      toast("Pago cancelado — podés reintentar cuando quieras.", { icon: "ℹ️" });
+      toast("Pago cancelado — puedes reintentar cuando quieras.", { icon: "ℹ️" });
     }
     setSearchParams((prev) => {
       prev.delete("stripe");
@@ -94,7 +100,7 @@ export default function VendorVerification() {
       return (await api.post("/verification/me", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: () => {
-      toast.success("Solicitud enviada. Un admin de ZeuDin va a revisar tus documentos pronto.");
+      toast.success(`Solicitud enviada. Un admin de ${settings?.siteName || "ZeuDin"} va a revisar tus documentos pronto.`);
       setSelfieBlob(null);
       setIdBlob(null);
       invalidate();
@@ -130,11 +136,26 @@ export default function VendorVerification() {
       return (await api.post("/verification/me/payment-proof", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: () => {
-      toast.success("Comprobante enviado. El equipo de ZeuDin va a confirmar el pago pronto.");
+      toast.success(`Comprobante enviado. El equipo de ${settings?.siteName || "ZeuDin"} va a confirmar el pago pronto.`);
       setProofFile(null);
       invalidate();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo subir el comprobante."),
+  });
+
+  // Movido acá desde VendorSubscription.jsx (unificación: verificación y
+  // plan eran dos páginas mostrando prácticamente lo mismo — ver nota de
+  // borrado en ese archivo). Vuelve a Regular de inmediato; el vendedor
+  // puede volver a verificarse cuando quiera.
+  const cancelPlan = useMutation({
+    mutationFn: async () => (await api.patch("/vendors/me", { planType: "REGULAR" })).data,
+    onSuccess: () => {
+      toast.success("Volviste al Plan Regular.");
+      setConfirmingCancel(false);
+      queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
+      invalidate();
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cancelar la suscripción."),
   });
 
   if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
@@ -143,13 +164,15 @@ export default function VendorVerification() {
   const meta = STAGE_META[stage];
   const stepStates = STAGE_STEP_STATES[stage];
   const canSubmitDocs = stage === "REGULAR" || stage === "RECHAZADO";
+  const isBusiness = vendor?.planType === "BUSINESS";
 
   return (
     <div className="max-w-[820px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Verificar mi empresa</h1>
+      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Verificación y plan</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        Obtené el badge verde de tienda verificada y desbloqueá las funciones Business. La aprobación final siempre la
-        hace el equipo de ZeuDin.
+        {stage === "VERIFICADO"
+          ? "Estado de tu verificación y de tu plan actual."
+          : `Obtén el badge verde de tienda verificada y desbloquea las funciones Business. La aprobación final siempre la hace el equipo de ${settings?.siteName || "ZeuDin"}.`}
       </p>
 
       <div className="mb-5 overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest shadow-sm">
@@ -168,11 +191,11 @@ export default function VendorVerification() {
               </span>
             </div>
             <div className="text-[13px] text-on-surface-variant">
-              {stage === "REGULAR" && "Subí tus documentos para empezar el trámite."}
-              {stage === "PENDIENTE_DOCS" && "Un admin de ZeuDin los está revisando a mano · respuesta en ~24h."}
-              {stage === "PENDIENTE_PAGO" && "Elegí cómo pagar la suscripción para activar el badge y el Plan Business."}
+              {stage === "REGULAR" && "Sube tus documentos para empezar el trámite."}
+              {stage === "PENDIENTE_DOCS" && `Un admin de ${settings?.siteName || "ZeuDin"} los está revisando a mano · respuesta en ~24h.`}
+              {stage === "PENDIENTE_PAGO" && "Elige cómo pagar la suscripción para activar el badge y el Plan Business."}
               {stage === "VERIFICADO" && "Tu tienda tiene el badge verde y el Plan Business activo."}
-              {stage === "RECHAZADO" && (data?.notes || "Tu solicitud fue rechazada. Volvé a capturar los documentos e intentá de nuevo.")}
+              {stage === "RECHAZADO" && (data?.notes || "Tu solicitud fue rechazada. Vuelve a capturar los documentos e intenta de nuevo.")}
             </div>
           </div>
         </div>
@@ -186,6 +209,24 @@ export default function VendorVerification() {
             </div>
           ))}
         </div>
+
+        {(stage === "VERIFICADO" && data?.paymentConfirmedAt) || (isBusiness && stage === "VERIFICADO") ? (
+          <div className="border-t border-surface-container-high px-6 py-5">
+            {data?.paymentConfirmedAt && (
+              <p className="text-[13px] text-on-surface-variant">
+                Business activo desde el <strong className="text-on-surface">{fmtDate(data.paymentConfirmedAt)}</strong>.
+              </p>
+            )}
+            {isBusiness && (
+              <button
+                onClick={() => setConfirmingCancel(true)}
+                className="mt-3 rounded-xl border border-error px-4 py-2.5 text-[13px] font-bold text-error hover:bg-error/5"
+              >
+                Cancelar suscripción
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {currentPlanFeatures && (
@@ -194,7 +235,7 @@ export default function VendorVerification() {
             <Sparkles className="h-4 w-4 text-tertiary-accent" /> Tu plan incluye
           </div>
           <p className="mb-3 text-[12.5px] text-outline">
-            Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"} — esto es lo que tenés disponible hoy.
+            Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"} — esto es lo que tienes disponible hoy.
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {currentPlanFeatures.map((f) => (
@@ -204,6 +245,16 @@ export default function VendorVerification() {
               </div>
             ))}
           </div>
+          {/* Bloque 51: política de ofertas configurable por el admin (ver
+              AdminOffers.jsx) — se muestra acá para que el vendedor sepa,
+              desde su plan/suscripción, cada cuánto puede publicar y cuánto
+              dura activa una oferta por default. */}
+          {isBusiness && settings?.offerCooldownDays && (
+            <div className="mt-3 border-t border-surface-container-high pt-3 text-[12px] text-outline">
+              📢 Ofertas: puedes publicar/republicar una nueva cada <strong className="text-on-surface">{settings.offerCooldownDays} días</strong>,
+              activa hasta <strong className="text-on-surface">{settings.offerDefaultDurationDays} días</strong> por default.
+            </div>
+          )}
         </div>
       )}
 
@@ -223,14 +274,14 @@ export default function VendorVerification() {
             <CameraCapture
               shape="oval"
               label="Foto del responsable"
-              instructions="Centrá tu cara dentro del óvalo"
+              instructions="Centra tu cara dentro del óvalo"
               facingMode="user"
               onCaptured={setSelfieBlob}
             />
             <CameraCapture
               shape="rect"
               label="Documento de identidad"
-              instructions="Alineá el documento dentro del marco"
+              instructions="Alinea el documento dentro del marco"
               facingMode="environment"
               onCaptured={setIdBlob}
             />
@@ -240,7 +291,7 @@ export default function VendorVerification() {
             {submit.isPending ? "Enviando..." : "Enviar solicitud"}
           </Button>
           {(!selfieBlob || !idBlob) && (
-            <p className="mt-2 text-label-sm text-outline">Capturá la selfie y el documento con la cámara para poder enviar.</p>
+            <p className="mt-2 text-label-sm text-outline">Captura la selfie y el documento con la cámara para poder enviar.</p>
           )}
         </div>
       )}
@@ -248,7 +299,7 @@ export default function VendorVerification() {
       {stage === "PENDIENTE_PAGO" && !data?.paymentMethod && (
         <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
           <div className="mb-1 text-[15px] font-bold text-on-surface">¿Cómo vas a pagar la suscripción?</div>
-          <p className="mb-4 text-[12.5px] text-outline">2 500 CUP/mes — elegí el medio que te resulte más fácil.</p>
+          <p className="mb-4 text-[12.5px] text-outline">2 500 CUP/mes — elige el medio que te resulte más fácil.</p>
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <button
               onClick={() => choosePaymentMethod.mutate("CARD")}
@@ -266,7 +317,7 @@ export default function VendorVerification() {
             >
               <Landmark className="h-5 w-5 text-tertiary-accent" />
               <div className="text-[13.5px] font-bold text-on-surface">Transferencia CUP</div>
-              <p className="text-[12px] text-outline">Transferís en moneda nacional y subís el comprobante. Un admin confirma el pago a mano.</p>
+              <p className="text-[12px] text-outline">Transfieres en moneda nacional y subes el comprobante. Un admin confirma el pago a mano.</p>
             </button>
           </div>
         </div>
@@ -278,7 +329,7 @@ export default function VendorVerification() {
           {data?.stripeCheckoutUrl && !data?.stripeCheckoutExpired ? (
             <>
               <p className="mb-3 text-[12.5px] text-outline">
-                Te mandamos el link de pago a tu correo. También podés abrirlo directo desde acá — se activa solo apenas Stripe confirme el pago:
+                Te mandamos el link de pago a tu correo. También puedes abrirlo directo desde acá — se activa solo apenas Stripe confirme el pago:
               </p>
               <div className="flex flex-wrap items-center gap-2.5">
                 <a
@@ -294,7 +345,7 @@ export default function VendorVerification() {
                   disabled={retryStripeCheckout.isPending}
                   className="rounded border border-outline-variant px-3.5 py-2.5 text-[12.5px] font-semibold text-on-surface-variant disabled:opacity-50"
                 >
-                  {retryStripeCheckout.isPending ? "Generando..." : "¿No te funcionó? Generá un link nuevo"}
+                  {retryStripeCheckout.isPending ? "Generando..." : "¿No te funcionó? Genera un link nuevo"}
                 </button>
               </div>
             </>
@@ -304,7 +355,7 @@ export default function VendorVerification() {
                 {data?.stripeCheckoutExpired
                   ? "Tu link de pago anterior venció (los links de Stripe expiran solos después de un tiempo)."
                   : "Todavía no se generó tu link de pago."}{" "}
-                Generá uno nuevo para continuar:
+                Genera uno nuevo para continuar:
               </p>
               <button
                 onClick={() => retryStripeCheckout.mutate()}
@@ -322,13 +373,13 @@ export default function VendorVerification() {
         <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
           <div className="mb-1 text-[15px] font-bold text-on-surface">Transferencia bancaria en CUP</div>
           <p className="mb-3 text-[12.5px] leading-5 text-outline">
-            Transferí <strong className="text-on-surface">2 500 CUP</strong> a la cuenta de ZeuDin (CI: 9205-XXXX-XXXX,
-            a nombre de ZeuDin Marketplace) y subí el comprobante. La activación final la confirma un admin a mano —
+            Transferí <strong className="text-on-surface">2 500 CUP</strong> a la cuenta de {settings?.siteName || "ZeuDin"} (CI: 9205-XXXX-XXXX,
+            a nombre de {settings?.siteName || "ZeuDin"} Marketplace) y sube el comprobante. La activación final la confirma un admin a mano —
             no es automática.
           </p>
           {data?.paymentProofReceived ? (
             <p className="flex items-center gap-2 text-[13px] font-semibold text-verified-dark">
-              <Check className="h-4 w-4" /> Comprobante recibido — esperando confirmación del equipo de ZeuDin.
+              <Check className="h-4 w-4" /> Comprobante recibido — esperando confirmación del equipo de {settings?.siteName || "ZeuDin"}.
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
@@ -348,7 +399,7 @@ export default function VendorVerification() {
       {stage !== "VERIFICADO" && (
         <>
           <div className="mb-5 rounded-lg bg-gradient-to-br from-primary to-primary-container p-6 text-white">
-            <div className="mb-3.5 text-[15px] font-bold">Al verificarte obtenés</div>
+            <div className="mb-3.5 text-[15px] font-bold">Al verificarte obtienes</div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {BENEFITS.map((b) => (
                 <div key={b} className="flex items-center gap-2.5 text-[13px] text-white/85">
@@ -377,6 +428,16 @@ export default function VendorVerification() {
           </div>
         </>
       )}
+
+      <ConfirmModal
+        open={confirmingCancel}
+        title="¿Cancelar la suscripción Business?"
+        message="Vuelves al Plan Regular de inmediato: pierdes el badge de verificación, la IA para clientes, el destacado en la home y el límite de productos vuelve a 20. Puedes volver a verificarte cuando quieras."
+        confirmLabel={cancelPlan.isPending ? "Cancelando..." : "Sí, cancelar"}
+        danger
+        onConfirm={() => cancelPlan.mutate()}
+        onCancel={() => setConfirmingCancel(false)}
+      />
     </div>
   );
 }

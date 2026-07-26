@@ -8,6 +8,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
     plugins: [react(), ogMetaPlugin(env)],
-    server: { port: 5173 },
+    server: { port: 5173, allowedHosts: true },
   };
 });

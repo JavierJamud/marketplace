@@ -9,11 +9,11 @@ import { env } from "../config/env.js";
 const EVENTS = {
   VERIFICATION_DOCS_APPROVED: {
     title: "Documentos aprobados",
-    body: () => "Tus documentos de verificación fueron aprobados. Elegí cómo pagar tu suscripción para activar el badge y el Plan Business.",
+    body: () => "Tus documentos de verificación fueron aprobados. Elige cómo pagar tu suscripción para activar el badge y el Plan Business.",
   },
   VERIFICATION_DOCS_REJECTED: {
     title: "Documentos rechazados",
-    body: (notes) => `Tus documentos fueron rechazados. Motivo: ${notes?.trim() || "sin especificar"}. Podés volver a enviarlos desde tu panel.`,
+    body: (notes) => `Tus documentos fueron rechazados. Motivo: ${notes?.trim() || "sin especificar"}. Puedes volver a enviarlos desde tu panel.`,
   },
   VERIFICATION_PAYMENT_LINK_SENT: {
     title: "Link de pago enviado",
@@ -21,7 +21,7 @@ const EVENTS = {
   },
   VERIFICATION_VERIFIED: {
     title: "¡Tu tienda está verificada!",
-    body: () => "Ya tenés el badge de verificación y el Plan Business activo.",
+    body: () => "Ya tienes el badge de verificación y el Plan Business activo.",
   },
   // Bloque 46: el admin revoca el Plan Business desde Suscripciones — nunca
   // es un vencimiento automático (ver nota de "Opción A" del bloque), así
@@ -29,7 +29,7 @@ const EVENTS = {
   VERIFICATION_BUSINESS_REVOKED: {
     title: "Plan Business revocado",
     body: () =>
-      "Tu tienda volvió al Plan Regular — perdiste el badge de verificación y las funciones Business (IA para clientes, destacado en home, productos ilimitados). Podés volver a verificarte cuando quieras desde tu panel.",
+      "Tu tienda volvió al Plan Regular — perdiste el badge de verificación y las funciones Business (IA para clientes, destacado en home, productos ilimitados). Puedes volver a verificarte cuando quieras desde tu panel.",
   },
 };
 

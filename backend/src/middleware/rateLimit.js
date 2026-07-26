@@ -8,7 +8,7 @@ export const loginRateLimit = rateLimit({
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Demasiados intentos de inicio de sesión. Probá de nuevo en unos minutos." },
+  message: { error: "Demasiados intentos de inicio de sesión. Prueba de nuevo en unos minutos." },
 });
 
 export const ordersRateLimit = rateLimit({
@@ -16,7 +16,7 @@ export const ordersRateLimit = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Demasiados pedidos en poco tiempo. Probá de nuevo en unos minutos." },
+  message: { error: "Demasiados pedidos en poco tiempo. Prueba de nuevo en unos minutos." },
 });
 
 // Cubre forgot-password / verify-reset-code / reset-password — generoso para
@@ -27,7 +27,7 @@ export const passwordResetRateLimit = rateLimit({
   limit: 40,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Demasiados intentos. Probá de nuevo en unos minutos." },
+  message: { error: "Demasiados intentos. Prueba de nuevo en unos minutos." },
 });
 
 // Bloque 21: el chat pega contra la API de Gemini (paga, key del admin) en
@@ -39,7 +39,7 @@ export const chatRateLimit = rateLimit({
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Demasiados mensajes seguidos. Esperá un minuto y probá de nuevo." },
+  message: { error: "Demasiados mensajes seguidos. Espera un minuto y prueba de nuevo." },
 });
 
 // Bloque 48: /contacto es público sin login y manda un correo real por
@@ -50,5 +50,5 @@ export const contactRateLimit = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Demasiados mensajes seguidos. Probá de nuevo en unos minutos." },
+  message: { error: "Demasiados mensajes seguidos. Prueba de nuevo en unos minutos." },
 });

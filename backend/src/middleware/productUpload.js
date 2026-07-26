@@ -6,7 +6,11 @@ import { PRODUCT_UPLOAD_DIR } from "../controllers/products.controller.js";
 
 mkdirSync(PRODUCT_UPLOAD_DIR, { recursive: true });
 
-const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+// Bloque 52 (pedido explícito): solo JPG/WebP para fotos de producto — ya no
+// se acepta PNG acá (sí sigue aceptándose en ofertas/sitio, esto es
+// específico del catálogo, donde el admin pidió un formato único y
+// predecible: 1200×900px, JPG o WebP).
+const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".webp"]);
 
 // A diferencia de kycUpload/siteUpload (una sola carpeta fija conocida al
 // cargar el módulo), acá la carpeta depende de la tienda de cada request —

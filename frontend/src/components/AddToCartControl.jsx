@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Minus, Plus, ShoppingCart } from "lucide-react";
 import toast from "react-hot-toast";
 import { useCart } from "../context/CartContext.jsx";
@@ -9,6 +10,7 @@ function toCartProduct(product) {
     id: product.id,
     name: product.name,
     price: Number(product.price),
+    currency: product.currency,
     stock: product.stock,
     vendorId: product.vendorId ?? product.vendor?.id,
     vendorName: product.vendor?.companyName,
@@ -30,10 +32,28 @@ function toCartProduct(product) {
 export function AddToCartControl({ product, size = "md", variant = "square" }) {
   const { items, addItem, updateQuantity, removeItem } = useCart();
   const { user } = useAuth();
-  const existing = items.find((i) => i.productId === product.id);
+  // Bloque 52: un producto con tallas no puede ir directo al carrito desde
+  // esta tarjeta chica — no hay dónde elegir la talla acá. En vez de "+" que
+  // agrega sin saber cuál, este control se vuelve un link a la ficha del
+  // producto, que sí tiene el selector de tallas.
+  const hasSizes = product.sizes?.length > 0;
+  const existing = items.find((i) => i.productId === product.id && !i.size);
   const dim = size === "sm" ? "h-[34px] w-[34px]" : "h-9 w-9";
   const iconDim = size === "sm" ? "h-[15px] w-[15px]" : "h-4 w-4";
   const shape = variant === "circle" ? "rounded-full" : "rounded";
+
+  if (hasSizes) {
+    return (
+      <Link
+        to={`/producto/${product.vendor?.slug}/${product.slug}`}
+        onClick={(e) => e.stopPropagation()}
+        title="Elige una talla en la ficha del producto"
+        className={`flex ${dim} flex-shrink-0 items-center justify-center ${shape} bg-secondary-container text-on-secondary-container hover:brightness-95`}
+      >
+        {variant === "circle" ? <Plus className={iconDim} /> : <ShoppingCart className={iconDim} />}
+      </Link>
+    );
+  }
 
   if (!existing) {
     return (

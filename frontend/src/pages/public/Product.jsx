@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Minus, Plus, MessageCircle, ShoppingCart, MapPin, ShieldCheck, ScanBarcode, CheckCircle2 } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { formatPrice } from "../../lib/format.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -14,12 +15,9 @@ import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
 function imgUrl(path) {
-  return `${api.defaults.baseURL}${path}`;
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
 const PAY_LABELS = { whatsapp: "WhatsApp", cod: "Contra entrega", prepaid: "Transferencia CUP" };
@@ -30,6 +28,7 @@ export default function Product() {
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [selectedSize, setSelectedSize] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["product", vendorSlug, productSlug],
@@ -38,9 +37,12 @@ export default function Product() {
 
   // Reinicia la miniatura seleccionada al navegar a otro producto (ej. desde
   // "También te puede interesar") — la ruta cambia pero el componente no se
-  // remonta, así que el índice viejo podía apuntar a otra foto.
+  // remonta, así que el índice viejo podía apuntar a otra foto. La talla
+  // seleccionada también se reinicia — no tiene sentido arrastrarla de un
+  // producto a otro.
   useEffect(() => {
     setSelectedImage(0);
+    setSelectedSize(null);
   }, [data?.product?.id]);
 
   if (isLoading) return <PageLoader label="Cargando producto..." />;
@@ -55,26 +57,40 @@ export default function Product() {
 
   const { product, related } = data;
   const v = product.vendor;
-  const cartQuantity = items.find((i) => i.productId === product.id)?.quantity ?? 0;
-  // Techo real: lo que ya tenés en el carrito cuenta contra el stock total,
+  const hasSizes = product.sizes?.length > 0;
+  // Bloque 52: con tallas, el stock real es el de la talla elegida (0 antes
+  // de elegir ninguna) — sin tallas, sigue siendo Product.stock tal cual.
+  const stockForSelection = hasSizes ? Number(product.sizeStock?.[selectedSize] ?? 0) : product.stock;
+  const cartQuantity = items.find((i) => i.productId === product.id && i.size === (hasSizes ? selectedSize : null))?.quantity ?? 0;
+  // Techo real: lo que ya tienes en el carrito cuenta contra el stock total,
   // así no se puede acumular más de lo disponible entre pantallas distintas.
-  const remainingStock = Math.max(0, (product.stock ?? Infinity) - cartQuantity);
+  const remainingStock = Math.max(0, (stockForSelection ?? Infinity) - cartQuantity);
   const location = v.locations?.[0];
   const locationLabel = location ? `${location.municipality?.name ?? location.province?.name}` : "Cuba";
   const discount = product.oldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : null;
-  const stockLabel = product.stock > 0 ? (product.stock < 12 ? `Últimas ${product.stock} unidades` : "Disponible") : "Sin stock";
-  const waText = `Hola ${v.companyName}, quiero pedir: ${qty}× ${product.name} (${fmtCUP(product.price)} c/u). ¿Disponible?`;
+  const stockLabel = hasSizes
+    ? (selectedSize ? (stockForSelection > 0 ? (stockForSelection < 12 ? `Últimas ${stockForSelection} unidades` : "Disponible") : "Sin stock") : "Elige una talla")
+    : product.stock > 0
+    ? (product.stock < 12 ? `Últimas ${product.stock} unidades` : "Disponible")
+    : "Sin stock";
+  const waText = `Hola ${v.companyName}, quiero pedir: ${qty}× ${product.name}${selectedSize ? ` (talla ${selectedSize})` : ""} (${formatPrice(product.price, product.currency)} c/u). ¿Disponible?`;
   // Si el vendedor eligió recibir pedidos por su panel, no se ofrece el atajo
   // directo de WhatsApp — el cliente pasa por "Agregar al carrito" + checkout.
   const wantsPanel = v.orderDestination === "PANEL";
 
   function handleAddToCart() {
+    if (hasSizes && !selectedSize) {
+      toast.error("Elige una talla primero.");
+      return;
+    }
     addItem(
       {
         id: product.id,
         name: product.name,
         price: Number(product.price),
-        stock: product.stock,
+        currency: product.currency,
+        stock: stockForSelection,
+        size: hasSizes ? selectedSize : null,
         vendorId: product.vendorId,
         vendorName: v.companyName,
         vendorSlug: v.slug,
@@ -138,15 +154,43 @@ export default function Product() {
             <span className="text-[12px] text-outline">· {locationLabel}</span>
           </div>
           <div className="mb-5 flex items-baseline gap-3">
-            <span className="font-display text-3xl font-extrabold text-on-surface">{fmtCUP(product.price)}</span>
+            <span className="font-display text-3xl font-extrabold text-on-surface">{formatPrice(product.price, product.currency)}</span>
             {product.oldPrice && (
               <>
-                <span className="text-[17px] text-outline line-through">{fmtCUP(product.oldPrice)}</span>
+                <span className="text-[17px] text-outline line-through">{formatPrice(product.oldPrice, product.currency)}</span>
                 <span className="rounded-full bg-error/10 px-2.5 py-1 text-[12px] font-bold text-error">-{discount}%</span>
               </>
             )}
           </div>
           {product.description && <p className="mb-5 text-[14.5px] leading-[23px] text-on-surface-variant">{product.description}</p>}
+
+          {hasSizes && (
+            <div className="mb-5">
+              <span className="mb-1.5 block text-label-md font-semibold text-on-surface">Talla</span>
+              <div className="flex flex-wrap gap-2">
+                {product.sizes.map((s) => {
+                  const stockForSize = Number(product.sizeStock?.[s] ?? 0);
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      disabled={stockForSize === 0}
+                      onClick={() => setSelectedSize(s)}
+                      className={`rounded-full border-2 px-4 py-1.5 text-[13px] font-bold transition-colors ${
+                        selectedSize === s
+                          ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent"
+                          : stockForSize === 0
+                          ? "cursor-not-allowed border-outline-variant text-outline/40 line-through"
+                          : "border-outline-variant text-on-surface-variant"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="mb-5 flex flex-wrap gap-2">
             {(product.paymentMethods ?? []).map((m) => (
@@ -186,15 +230,16 @@ export default function Product() {
           ) : (
             <button
               onClick={handleAddToCart}
-              disabled={remainingStock === 0}
+              disabled={hasSizes ? !selectedSize || remainingStock === 0 : remainingStock === 0}
               className="mb-2 flex h-12 w-full items-center justify-center gap-2 rounded bg-secondary-container text-label-md font-bold text-on-secondary-container hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <ShoppingCart className="h-[18px] w-[18px]" /> {remainingStock === 0 ? "Sin stock disponible" : "Agregar al carrito"}
+              <ShoppingCart className="h-[18px] w-[18px]" />{" "}
+              {hasSizes && !selectedSize ? "Elige una talla" : remainingStock === 0 ? "Sin stock disponible" : "Agregar al carrito"}
             </button>
           )}
           {cartQuantity > 0 && (
             <p className="mb-2 text-center text-[12.5px] font-semibold text-tertiary-accent">
-              🛒 Ya tenés {cartQuantity} en tu carrito
+              🛒 Ya tienes {cartQuantity} en tu carrito
               {remainingStock === 0 && product.stock > 0 && " · alcanzaste el máximo disponible"}
             </p>
           )}
@@ -209,7 +254,7 @@ export default function Product() {
               <MapPin className="h-[17px] w-[17px] text-tertiary-accent" /> Entrega en {locationLabel}
             </div>
             <div className="flex items-center gap-2.5 text-[13px] text-on-surface-variant">
-              <ShieldCheck className="h-[17px] w-[17px] text-tertiary-accent" /> Coordinás pago con el vendedor
+              <ShieldCheck className="h-[17px] w-[17px] text-tertiary-accent" /> Coordinas pago con el vendedor
             </div>
             {product.barcode && (
               <div className="flex items-center gap-2.5 text-[13px] text-on-surface-variant">
@@ -263,7 +308,7 @@ export default function Product() {
                 </div>
                 <div className="p-3.5">
                   <div className="mb-1.5 text-[13.5px] font-semibold text-on-surface">{p.name}</div>
-                  <div className="text-[15px] font-bold text-on-surface">{fmtCUP(p.price)}</div>
+                  <div className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</div>
                 </div>
               </Link>
             ))}

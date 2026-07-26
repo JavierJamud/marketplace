@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
 import { getStripeConfig } from "../controllers/integrations.controller.js";
+import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 25: reemplaza el checkout simulado (PaymentLink.jsx) por un
 // Checkout Session real de Stripe. CUP no es una moneda soportada por
@@ -28,7 +29,8 @@ export async function isStripeConfigured() {
 // lado del cliente (ver stripeWebhook.controller.js).
 export async function createVerificationCheckoutSession({ verification, vendor }) {
   const stripe = await getStripeClient();
-  if (!stripe) throw new AppError("El pago con tarjeta no está disponible en este momento — contactá al equipo de ZeuDin.", 503);
+  const { siteName } = await getBrandSettings();
+  if (!stripe) throw new AppError(`El pago con tarjeta no está disponible en este momento — contacta al equipo de ${siteName}.`, 503);
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -39,7 +41,7 @@ export async function createVerificationCheckoutSession({ verification, vendor }
           price_data: {
             currency: "usd",
             product_data: {
-              name: "Suscripción ZeuDin — Plan Business",
+              name: `Suscripción ${siteName} — Plan Business`,
               description: `Verificación y Plan Business para ${vendor.companyName}`,
             },
             unit_amount: SUBSCRIPTION_PRICE_USD * 100,
@@ -59,7 +61,7 @@ export async function createVerificationCheckoutSession({ verification, vendor }
     // se traduce a un error claro para el vendedor, y el detalle real queda
     // solo en el log del servidor para que el admin lo pueda diagnosticar.
     console.error("Error creando Checkout Session de Stripe:", err.message);
-    throw new AppError("No se pudo generar el link de pago con Stripe. Probá de nuevo en un momento.", 502, { detail: err.message });
+    throw new AppError("No se pudo generar el link de pago con Stripe. Prueba de nuevo en un momento.", 502, { detail: err.message });
   }
 }
 

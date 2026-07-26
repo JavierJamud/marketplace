@@ -30,7 +30,7 @@ export async function listMyFavorites(req, res) {
 
 const addFavoriteSchema = z
   .object({ productId: z.string().min(1).optional(), vendorId: z.string().min(1).optional() })
-  .refine((d) => !!d.productId !== !!d.vendorId, { message: "Mandá productId o vendorId, exactamente uno de los dos." });
+  .refine((d) => !!d.productId !== !!d.vendorId, { message: "Manda productId o vendorId, exactamente uno de los dos." });
 
 export async function addFavorite(req, res) {
   const data = addFavoriteSchema.parse(req.body);
@@ -39,12 +39,12 @@ export async function addFavorite(req, res) {
     const product = await prisma.product.findUnique({ where: { id: data.productId } });
     if (!product) throw new AppError("Producto no encontrado.", 404);
     const existing = await prisma.favorite.findUnique({ where: { userId_productId: { userId: req.user.id, productId: data.productId } } });
-    if (existing) throw new AppError("Ya tenés este producto en favoritos.", 409);
+    if (existing) throw new AppError("Ya tienes este producto en favoritos.", 409);
   } else {
     const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
     if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
     const existing = await prisma.favorite.findUnique({ where: { userId_vendorId: { userId: req.user.id, vendorId: data.vendorId } } });
-    if (existing) throw new AppError("Ya tenés esta tienda en favoritos.", 409);
+    if (existing) throw new AppError("Ya tienes esta tienda en favoritos.", 409);
   }
 
   const favorite = await prisma.favorite.create({

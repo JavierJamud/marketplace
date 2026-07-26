@@ -1,9 +1,10 @@
 import { useStaticPage } from "../../lib/useStaticPage.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
-const SECTIONS = [
+const buildSections = (siteName) => [
   {
-    title: "1. Qué es ZeuDin",
-    body: "ZeuDin es un marketplace multivendedor que conecta compradores con tiendas y restaurantes independientes en Cuba. ZeuDin no vende productos propios ni es parte de las transacciones entre comprador y vendedor — actúa únicamente como vitrina y canal de contacto (WhatsApp, panel de pedidos o menú QR de mesa).",
+    title: `1. Qué es ${siteName}`,
+    body: `${siteName} es un marketplace multivendedor que conecta compradores con tiendas y restaurantes independientes en Cuba. ${siteName} no vende productos propios ni es parte de las transacciones entre comprador y vendedor — actúa únicamente como vitrina y canal de contacto (WhatsApp, panel de pedidos o menú QR de mesa).`,
   },
   {
     title: "2. Cuentas de usuario",
@@ -11,27 +12,27 @@ const SECTIONS = [
   },
   {
     title: "3. Responsabilidad de los vendedores",
-    body: "Cada tienda es responsable de la exactitud de sus publicaciones (precios, stock, descripciones, fotos), del cumplimiento de sus pedidos y de coordinar el pago y la entrega directamente con el comprador. ZeuDin no garantiza la calidad, legalidad ni disponibilidad de los productos publicados por terceros.",
+    body: `Cada tienda es responsable de la exactitud de sus publicaciones (precios, stock, descripciones, fotos), del cumplimiento de sus pedidos y de coordinar el pago y la entrega directamente con el comprador. ${siteName} no garantiza la calidad, legalidad ni disponibilidad de los productos publicados por terceros.`,
   },
   {
     title: "4. Pagos",
-    body: "ZeuDin no procesa pagos entre compradores y vendedores — el pago se coordina directamente entre ambas partes por el medio que la tienda tenga habilitado (efectivo, transferencia, pago contra entrega, etc.). La única excepción es la suscripción del Plan Business, que ZeuDin sí cobra directamente al vendedor para activar la verificación de su tienda.",
+    body: `${siteName} no procesa pagos entre compradores y vendedores — el pago se coordina directamente entre ambas partes por el medio que la tienda tenga habilitado (efectivo, transferencia, pago contra entrega, etc.). La única excepción es la suscripción del Plan Business, que ${siteName} sí cobra directamente al vendedor para activar la verificación de su tienda.`,
   },
   {
     title: "5. Verificación de tiendas",
-    body: "El badge de tienda verificada se otorga después de una revisión manual de documentación por parte del equipo de ZeuDin y la confirmación del pago de la suscripción correspondiente. ZeuDin puede revocar la verificación de una tienda ante incumplimientos de estos términos.",
+    body: `El badge de tienda verificada se otorga después de una revisión manual de documentación por parte del equipo de ${siteName} y la confirmación del pago de la suscripción correspondiente. ${siteName} puede revocar la verificación de una tienda ante incumplimientos de estos términos.`,
   },
   {
     title: "6. Contenido prohibido",
-    body: "Está prohibido publicar productos o servicios ilegales, falsificados, peligrosos o que infrinjan derechos de terceros. ZeuDin puede remover publicaciones o suspender cuentas que incumplan esta política, sin previo aviso.",
+    body: `Está prohibido publicar productos o servicios ilegales, falsificados, peligrosos o que infrinjan derechos de terceros. ${siteName} puede remover publicaciones o suspender cuentas que incumplan esta política, sin previo aviso.`,
   },
   {
     title: "7. Modificaciones",
-    body: "Estos términos pueden actualizarse periódicamente. Los cambios relevantes se anunciarán dentro de la plataforma. El uso continuado de ZeuDin después de una actualización implica la aceptación de los nuevos términos.",
+    body: `Estos términos pueden actualizarse periódicamente. Los cambios relevantes se anunciarán dentro de la plataforma. El uso continuado de ${siteName} después de una actualización implica la aceptación de los nuevos términos.`,
   },
   {
     title: "8. Contacto",
-    body: "Ante dudas sobre estos términos, podés escribirnos desde tu panel de cuenta o por los canales de contacto publicados en el sitio.",
+    body: "Ante dudas sobre estos términos, puedes escribirnos desde tu panel de cuenta o por los canales de contacto publicados en el sitio.",
   },
 ];
 
@@ -40,7 +41,9 @@ const SECTIONS = [
 // nunca se pierde este copy original, solo se reemplaza en pantalla cuando
 // hay algo guardado.
 export default function Terms() {
+  const { siteName } = usePlatformSettings();
   const { htmlContent } = useStaticPage("terminos");
+  const sections = buildSections(siteName);
 
   if (htmlContent) {
     return (
@@ -56,11 +59,11 @@ export default function Terms() {
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Términos y condiciones</h1>
       <p className="mb-10 text-body-md text-on-surface-variant">
         Última actualización: {new Date().toLocaleDateString("es-CU", { year: "numeric", month: "long" })}. Este texto es una
-        estructura genérica de referencia — la versión legal definitiva puede ser revisada por el equipo de ZeuDin.
+        estructura genérica de referencia — la versión legal definitiva puede ser revisada por el equipo de {siteName}.
       </p>
 
       <div className="flex flex-col gap-8">
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <section key={s.title}>
             <h2 className="mb-2 font-display text-title-lg text-on-surface">{s.title}</h2>
             <p className="text-[14.5px] leading-[23px] text-on-surface-variant">{s.body}</p>

@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { User, FileText, Receipt, Check, Bot, UserCheck, CreditCard, Landmark, Clock } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const TABS = [
   { key: "pending_review", label: "Documentos pendientes" },
@@ -17,6 +18,8 @@ const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta", CUP_TRANSFER: "Transferencia CUP
 export default function AdminVerifications() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("pending_review");
+  const [rejectTarget, setRejectTarget] = useState(null); // id de la verificación a rechazar
+  const [rejectReason, setRejectReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-verifications", tab],
@@ -47,7 +50,7 @@ export default function AdminVerifications() {
     <div className="max-w-[900px]">
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Verificaciones y cobro de suscripción</h1>
       <p className="mb-2 text-[13.5px] text-outline">
-        Fase 1: revisá la identidad del responsable y aprobá o rechazá los documentos. Fase 2: resolvé el cobro de la
+        Fase 1: revisa la identidad del responsable y aprueba o rechaza los documentos. Fase 2: resuelve el cobro de la
         suscripción para activar el badge.
       </p>
       <div className="mb-4 rounded-md border border-error/20 bg-error/[0.06] px-3.5 py-2.5 text-[12px] text-on-error-container">
@@ -141,8 +144,8 @@ export default function AdminVerifications() {
                   </button>
                   <button
                     onClick={() => {
-                      const reason = window.prompt("Motivo del rechazo (se envía al vendedor):");
-                      if (reason) decide.mutate({ id: v.id, decision: "reject", notes: reason });
+                      setRejectTarget(v.id);
+                      setRejectReason("");
                     }}
                     disabled={decide.isPending}
                     className="flex-1 rounded-md border border-error py-3 text-[14px] font-bold text-error disabled:opacity-50"
@@ -209,6 +212,30 @@ export default function AdminVerifications() {
           );
         })}
       </div>
+
+      <ConfirmModal
+        open={!!rejectTarget}
+        title="¿Rechazar esta solicitud de verificación?"
+        message="Se le avisa al vendedor por correo con el motivo que escribas abajo. Va a poder volver a enviar sus documentos, pero esta revisión queda marcada como rechazada."
+        confirmLabel={decide.isPending ? "Rechazando..." : "Sí, rechazar"}
+        danger
+        confirmDisabled={!rejectReason.trim() || decide.isPending}
+        onConfirm={() =>
+          decide.mutate(
+            { id: rejectTarget, decision: "reject", notes: rejectReason.trim() },
+            { onSuccess: () => setRejectTarget(null) }
+          )
+        }
+        onCancel={() => setRejectTarget(null)}
+      >
+        <textarea
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          placeholder="Motivo del rechazo (obligatorio, se envía al vendedor)..."
+          rows={3}
+          className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+        />
+      </ConfirmModal>
     </div>
   );
 }

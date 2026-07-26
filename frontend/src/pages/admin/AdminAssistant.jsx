@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 
 // Bloque 30: entrenar al bot general del marketplace (Home) — a diferencia
 // del "Documento de IA" por tienda (VendorSettings.jsx, un solo archivo que
@@ -11,7 +13,9 @@ import { api } from "../../lib/api.js";
 // convenir separar en archivos propios. Mismo mecanismo de extracción de
 // texto que ya usa el chat por tienda (nunca se duplica esa lógica).
 export default function AdminAssistant() {
+  const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
+  const [deleteTarget, setDeleteTarget] = useState(null); // documento a eliminar
 
   const { data, isLoading } = useQuery({
     queryKey: ["assistant-documents"],
@@ -35,9 +39,13 @@ export default function AdminAssistant() {
     mutationFn: async (id) => api.delete(`/assistant/documents/${id}`),
     onSuccess: () => {
       toast.success("Documento eliminado.");
+      setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["assistant-documents"] });
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar el documento."),
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo eliminar el documento.");
+      setDeleteTarget(null);
+    },
   });
 
   return (
@@ -47,7 +55,7 @@ export default function AdminAssistant() {
         <h1 className="font-display text-[25px] font-bold text-on-surface">Asistente del marketplace</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        El bot general de ZeuDin (botón flotante en el Home) usa estos documentos como fuente de verdad para preguntas institucionales —
+        El bot general de {siteName} (botón flotante en el Home) usa estos documentos como fuente de verdad para preguntas institucionales —
         cómo comprar, cómo vender, verificación, planes, medios de pago, etc. — además del catálogo completo de productos. Sin documentos
         cargados, el asistente sigue funcionando solo con el catálogo.
       </p>
@@ -55,13 +63,13 @@ export default function AdminAssistant() {
       <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
         <div className="mb-1 text-[15px] font-bold text-on-surface">Subir documento</div>
         <p className="mb-3.5 text-[12.5px] text-outline">
-          Subí uno para clientes (cómo comprar, políticas generales) y otro para vendedores (cómo vender, verificación, planes) — o los que
+          Sube uno para clientes (cómo comprar, políticas generales) y otro para vendedores (cómo vender, verificación, planes) — o los que
           necesites, todos se leen juntos.
         </p>
         <label className={`block rounded-md border-2 border-dashed border-outline-variant p-[22px] text-center ${upload.isPending ? "cursor-wait opacity-70" : "cursor-pointer"}`}>
           <span className="text-[13px] text-outline">
-            {upload.isPending ? "Subiendo..." : "Arrastrá un .pdf o .txt · o "}
-            {!upload.isPending && <span className="font-semibold text-tertiary-accent">elegí un archivo</span>}
+            {upload.isPending ? "Subiendo..." : "Arrastra un .pdf o .txt · o "}
+            {!upload.isPending && <span className="font-semibold text-tertiary-accent">elige un archivo</span>}
           </span>
           <input
             type="file"
@@ -91,7 +99,7 @@ export default function AdminAssistant() {
                   <div className="text-[11.5px] text-outline">{new Date(doc.createdAt).toLocaleDateString("es-CU")}</div>
                 </div>
                 <button
-                  onClick={() => remove.mutate(doc.id)}
+                  onClick={() => setDeleteTarget(doc)}
                   disabled={remove.isPending}
                   className="flex-shrink-0 text-error disabled:opacity-50"
                   title="Eliminar documento"
@@ -107,6 +115,16 @@ export default function AdminAssistant() {
       </div>
 
       <ChatReviewSection />
+
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          title={`¿Eliminar "${deleteTarget.originalName}"?`}
+          description="El asistente del marketplace deja de usar este documento como fuente."
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate(deleteTarget.id)}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
@@ -121,6 +139,7 @@ function ChatReviewSection() {
   const [bot, setBot] = useState("general"); // "general" | "tienda"
   const [correctingId, setCorrectingId] = useState(null);
   const [draft, setDraft] = useState("");
+  const [deleteExampleTarget, setDeleteExampleTarget] = useState(null);
 
   const botTipo = bot === "general" ? "GENERAL" : "TIENDA";
 
@@ -157,9 +176,13 @@ function ChatReviewSection() {
     mutationFn: async (id) => api.delete(`/admin/chat-review/examples/${id}`),
     onSuccess: () => {
       toast.success("Ejemplo eliminado.");
+      setDeleteExampleTarget(null);
       invalidateExamples();
     },
-    onError: () => toast.error("No se pudo eliminar el ejemplo."),
+    onError: () => {
+      toast.error("No se pudo eliminar el ejemplo.");
+      setDeleteExampleTarget(null);
+    },
   });
 
   function markGood(conv) {
@@ -169,7 +192,7 @@ function ChatReviewSection() {
 
   function submitCorrection(conv) {
     if (!conv.clienteMensaje) return toast.error("Esta respuesta no tiene un mensaje de cliente asociado.");
-    if (!draft.trim()) return toast.error("Escribí la respuesta ideal.");
+    if (!draft.trim()) return toast.error("Escribe la respuesta ideal.");
     createExample.mutate({ botTipo, entradaCliente: conv.clienteMensaje, respuestaIdeal: draft.trim() });
   }
 
@@ -180,7 +203,7 @@ function ChatReviewSection() {
         <div className="text-[15px] font-bold text-on-surface">Aprendizaje por ejemplos</div>
       </div>
       <p className="mb-3.5 text-[12.5px] text-outline">
-        Revisá respuestas reales del bot. Marcá una como buena para reforzarla tal cual, o como mala para escribir la respuesta ideal — en
+        Revisa respuestas reales del bot. Marca una como buena para reforzarla tal cual, o como mala para escribir la respuesta ideal — en
         ambos casos queda como ejemplo activo que el bot va a tener en cuenta en charlas futuras.
       </p>
 
@@ -225,7 +248,7 @@ function ChatReviewSection() {
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                       rows={3}
-                      placeholder="Escribí la respuesta ideal para este mensaje del cliente..."
+                      placeholder="Escribe la respuesta ideal para este mensaje del cliente..."
                       className="w-full rounded-md border border-outline-variant p-2.5 text-[12.5px] text-on-surface"
                     />
                     <div className="flex gap-2">
@@ -302,7 +325,7 @@ function ChatReviewSection() {
                     >
                       <Power className="h-3.5 w-3.5" /> {ex.activo ? "Desactivar" : "Activar"}
                     </button>
-                    <button onClick={() => deleteExample.mutate(ex.id)} title="Eliminar" className="text-error">
+                    <button onClick={() => setDeleteExampleTarget(ex)} title="Eliminar" className="text-error">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -314,6 +337,16 @@ function ChatReviewSection() {
           <p className="text-[13px] text-outline">Todavía no marcaste ninguna respuesta como buena o mala.</p>
         )}
       </div>
+
+      {deleteExampleTarget && (
+        <ConfirmDeleteModal
+          title="¿Eliminar este ejemplo?"
+          description="El bot deja de tener en cuenta esta respuesta ideal en charlas futuras."
+          pending={deleteExample.isPending}
+          onConfirm={() => deleteExample.mutate(deleteExampleTarget.id)}
+          onCancel={() => setDeleteExampleTarget(null)}
+        />
+      )}
     </div>
   );
 }

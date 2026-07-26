@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
     const { data } = await api.post("/auth/login", { email, password });
     // Bloque 47: 2FA opt-in — el backend NUNCA emite tokens acá si la cuenta
     // lo tiene activo, solo avisa que mandó un código. Account.jsx detecta
-    // esta forma (sin accessToken) y muestra el paso de "ingresá el código".
+    // esta forma (sin accessToken) y muestra el paso de "ingresa el código".
     if (data.requiresTwoFactor) return { requiresTwoFactor: true, email: data.email };
     localStorage.setItem("accessToken", data.accessToken);
     localStorage.setItem("refreshToken", data.refreshToken);

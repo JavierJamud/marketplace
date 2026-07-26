@@ -1,10 +1,10 @@
 import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
-import { getAiModelOverrides } from "../controllers/settings.controller.js";
+import { getAiModelOverrides, getBrandSettings } from "../controllers/settings.controller.js";
 import { generateWithGemini, chatWithGemini } from "./gemini.js";
 import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq } from "./groq.js";
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
-import { PROMPTS } from "./aiPrompts.js";
+import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
 
 // Bloque 45: Cerebras sale del sistema (su cuenta gratuita devolvía 402
 // Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
@@ -105,8 +105,30 @@ export async function generateDescription(kind, context) {
   if (!providers.length) {
     throw new AppError("La integración de IA no está configurada. Pedile al admin que active un proveedor en Integraciones.", 503);
   }
-  const prompt = (PROMPTS[kind] ?? PROMPTS.product)(context);
-  return callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "La IA no pudo generar el texto — probá de nuevo en un momento.");
+  const { siteName } = await getBrandSettings();
+  const prompt = (PROMPTS[kind] ?? PROMPTS.product)({ ...context, siteName });
+  return callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "La IA no pudo generar el texto — prueba de nuevo en un momento.");
+}
+
+// Bloque 52 (bug real reportado en vivo): último recurso de la barra de
+// búsqueda cuando ni unaccent()+ILIKE (tildes/mayúsculas) encontró nada —
+// probablemente un typo real (ver search.controller.js). A diferencia de
+// generateDescription/chatWithStoreAssistant de arriba, ESTO NUNCA TIRA: sin
+// proveedor activo o si la IA falla, la búsqueda tiene que seguir andando
+// igual (cae al fallback de similarity()/pg_trgm en la DB, sin IA) — nunca
+// tiene sentido romper una búsqueda porque el "autocorrector" no estaba
+// disponible. Devuelve null en cualquiera de los dos casos (nunca "").
+export async function correctSearchQuery(rawQuery) {
+  const providers = await getActiveProviders();
+  if (!providers.length) return null;
+  try {
+    const { siteName } = await getBrandSettings();
+    const prompt = searchQueryCorrectionPrompt(rawQuery, siteName);
+    const corrected = await callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "");
+    return corrected?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 // Bloque 26/27: fallback real en vivo — si el proveedor principal falla
@@ -121,7 +143,7 @@ export async function chatWithStoreAssistant({ systemParts, history, message }) 
   return callWithFallbackChain(
     providers,
     (provider) => callChat(provider, { systemParts, history, message }),
-    "El asistente no pudo responder — probá de nuevo en un momento."
+    "El asistente no pudo responder — prueba de nuevo en un momento."
   );
 }
 
@@ -135,6 +157,6 @@ export async function chatWithStoreAssistant({ systemParts, history, message }) 
 export async function transcribeAudio({ audioBuffer, mimeType, filename }) {
   const providers = await getActiveProviders();
   const groqProvider = providers.find((p) => p.name === "groq");
-  if (!groqProvider) throw new AppError("La transcripción de audio no está disponible en este momento — escribí tu mensaje.", 503);
+  if (!groqProvider) throw new AppError("La transcripción de audio no está disponible en este momento — escribe tu mensaje.", 503);
   return transcribeAudioWithGroq({ apiKey: groqProvider.apiKey, audioBuffer, mimeType, filename });
 }

@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { MessageCircle, ShieldAlert, Share2, Heart, Check, ShieldCheck, Star } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { formatPrice } from "../../lib/format.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -16,6 +18,31 @@ import { resolveCurrency } from "../../lib/currencies.js";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
+
+// Bloque 51: mismo criterio "...leer más" que ProductCard.jsx — acá no se
+// reusa ese componente directamente porque estas dos grillas (disponibles /
+// agotados) usan botones de acción distintos (AddToCartControl vs.
+// RequestProductButton) y un tratamiento de imagen distinto (grayscale en
+// agotados), así que se repite solo este pedacito. Estado propio por
+// tarjeta: no se puede usar useState directo dentro de un .map().
+function ExpandableDescription({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+  return (
+    <div className="mb-1.5">
+      <p className={`text-[12px] leading-4 text-outline ${expanded ? "" : "line-clamp-1"}`}>{text}</p>
+      {text.length > 45 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[11px] font-bold text-tertiary-accent hover:underline"
+        >
+          {expanded ? "leer menos" : "...leer más"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 // Bloque 22: confirmación de "Compartir" más elaborada que un toast.success
 // de una línea — ícono propio + título + instrucción, con cierre manual.
@@ -74,21 +101,22 @@ function RatingBreakdown({ rating, stats }) {
   );
 }
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
 function imgUrl(path) {
-  return `${api.defaults.baseURL}${path}`;
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// Mismo umbral que LOW_STOCK_THRESHOLD en ProductCard.jsx/VendorProducts.jsx.
+const LOW_STOCK_THRESHOLD = 3;
+
 export default function Store() {
   const { slug } = useParams();
   const { user } = useAuth();
+  const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState("");
   const [commentRating, setCommentRating] = useState(0);
@@ -263,7 +291,7 @@ export default function Store() {
               <span className="text-xl">🍽️</span>
               <div>
                 <div className="text-[14.5px] font-bold text-on-surface">Menú de mesa con QR</div>
-                <div className="text-[12.5px] text-outline">Escaneá el QR de tu mesa o mirá el menú online</div>
+                <div className="text-[12.5px] text-outline">Escanea el QR de tu mesa o mira el menú online</div>
               </div>
             </div>
             <span className="text-label-md font-bold text-tertiary-accent">Ver menú →</span>
@@ -277,22 +305,31 @@ export default function Store() {
         {availableProducts.length ? (
           <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
             {availableProducts.map((p) => (
-              <div key={p.id} className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm">
-                <Link to={`/producto/${v.slug}/${p.slug}`} className="block">
-                  <div className="h-40 w-full overflow-hidden bg-surface-container">
+              <div
+                key={p.id}
+                className="group overflow-hidden rounded-[26px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
+              >
+                <Link to={`/producto/${v.slug}/${p.slug}`} className="block p-2.5 pb-0">
+                  <div className="aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
                     {p.images?.[0] ? (
-                      <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
+                      <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
                     )}
                   </div>
                 </Link>
-                <div className="p-3.5">
-                  <Link to={`/producto/${v.slug}/${p.slug}`} className="mb-1.5 block text-[13.5px] font-semibold leading-[18px] text-on-surface">
+                <div className="p-3.5 pt-2.5">
+                  <Link to={`/producto/${v.slug}/${p.slug}`} className="mb-1 block text-[13.5px] font-bold leading-[18px] text-on-surface">
                     {p.name}
                   </Link>
+                  <ExpandableDescription text={p.description} />
+                  {p.stock <= LOW_STOCK_THRESHOLD && (
+                    <span className="mb-1.5 inline-block w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
+                      ¡Últimas {p.stock} unidades!
+                    </span>
+                  )}
                   <div className="flex items-center justify-between">
-                    <span className="text-[15px] font-bold text-on-surface">{fmtCUP(p.price)}</span>
+                    <span className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
                     <AddToCartControl product={{ ...p, vendorId: v.id, vendor: v }} size="sm" />
                   </div>
                 </div>
@@ -302,7 +339,7 @@ export default function Store() {
         ) : (
           <p className="text-body-md text-on-surface-variant">
             {outOfStockProducts.length
-              ? "Todos los productos de esta tienda están agotados por ahora — mirá “Próximamente disponibles” más abajo."
+              ? "Todos los productos de esta tienda están agotados por ahora — mira “Próximamente disponibles” más abajo."
               : "Esta tienda todavía no publicó productos."}
           </p>
         )}
@@ -316,25 +353,29 @@ export default function Store() {
           <p className="mb-5 text-label-sm text-outline">Sin stock por ahora — solicitalos y le avisamos a la tienda que te interesan.</p>
           <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
             {outOfStockProducts.map((p) => (
-              <div key={p.id} className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm">
-                <Link to={`/producto/${v.slug}/${p.slug}`} className="relative block">
-                  <div className="h-40 w-full overflow-hidden bg-surface-container">
+              <div
+                key={p.id}
+                className="overflow-hidden rounded-[26px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)]"
+              >
+                <Link to={`/producto/${v.slug}/${p.slug}`} className="block p-2.5 pb-0">
+                  <div className="relative aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
                     {p.images?.[0] ? (
                       <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover grayscale" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
                     )}
+                    <span className="absolute left-2 top-2 rounded-full bg-[#ba1a1a] px-2.5 py-1 text-[10.5px] font-bold text-white shadow">
+                      Sin stock
+                    </span>
                   </div>
-                  <span className="absolute left-2 top-2 rounded-full bg-[#ba1a1a] px-2.5 py-1 text-[10.5px] font-bold text-white shadow">
-                    Sin stock
-                  </span>
                 </Link>
-                <div className="p-3.5">
-                  <Link to={`/producto/${v.slug}/${p.slug}`} className="mb-1.5 block text-[13.5px] font-semibold leading-[18px] text-on-surface">
+                <div className="p-3.5 pt-2.5">
+                  <Link to={`/producto/${v.slug}/${p.slug}`} className="mb-1.5 block text-[13.5px] font-bold leading-[18px] text-on-surface">
                     {p.name}
                   </Link>
+                  <ExpandableDescription text={p.description} />
                   <div className="flex items-center justify-between">
-                    <span className="text-[15px] font-bold text-on-surface">{fmtCUP(p.price)}</span>
+                    <span className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
                     <RequestProductButton productId={p.id} size="sm" />
                   </div>
                 </div>
@@ -350,7 +391,7 @@ export default function Store() {
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Formas de pago que acepta esta tienda</h2>
           <p className="mb-4 flex items-start gap-1.5 text-label-sm text-outline">
             <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-tertiary-accent" />
-            Coordinás el pago directo con {v.companyName} — ZeuDin no cobra ni interviene en la transacción.
+            Coordinas el pago directo con {v.companyName} — {siteName} no cobra ni interviene en la transacción.
           </p>
           <div className="flex flex-wrap gap-2.5">
             {v.acceptedPaymentMethods.map((methodId) => {
@@ -433,7 +474,7 @@ export default function Store() {
             <input
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
-              placeholder={user ? "Escribí un comentario..." : "Iniciá sesión para comentar"}
+              placeholder={user ? "Escribe un comentario..." : "Inicia sesión para comentar"}
               disabled={!user}
               className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none disabled:opacity-60"
             />

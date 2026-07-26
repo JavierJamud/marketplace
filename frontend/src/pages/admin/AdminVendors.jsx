@@ -8,6 +8,7 @@ import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const FILTERS = [
   { id: "all", label: "Todas" },
@@ -88,6 +89,7 @@ export default function AdminVendors() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [viewingStats, setViewingStats] = useState(null);
+  const [blocking, setBlocking] = useState(null); // tienda a bloquear, para el modal de confirmación
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-vendors", filter],
@@ -99,8 +101,12 @@ export default function AdminVendors() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
       setEditing(null);
+      setBlocking(null);
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar la tienda."),
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo actualizar la tienda.");
+      setBlocking(null);
+    },
   });
 
   const remove = useMutation({
@@ -118,7 +124,7 @@ export default function AdminVendors() {
   return (
     <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Tiendas</h1>
-      <p className="mb-4 text-[13.5px] text-outline">Gestioná, verificá a dedo, editá o eliminá tiendas. El bloqueo oculta, no borra.</p>
+      <p className="mb-4 text-[13.5px] text-outline">Gestiona, verifica a dedo, edita o elimina tiendas. El bloqueo oculta, no borra.</p>
 
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex h-[42px] max-w-[340px] flex-1 items-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-3">
@@ -197,7 +203,7 @@ export default function AdminVendors() {
                 Editar
               </button>
               <button
-                onClick={() => update.mutate({ id: v.id, payload: { isBlocked: !v.isBlocked } })}
+                onClick={() => (v.isBlocked ? update.mutate({ id: v.id, payload: { isBlocked: false } }) : setBlocking(v))}
                 className={`rounded-[7px] px-2.5 py-1.5 text-[12px] font-semibold ${
                   v.isBlocked ? "bg-verified-dark text-white" : "border border-error text-error"
                 }`}
@@ -232,6 +238,16 @@ export default function AdminVendors() {
       )}
 
       {viewingStats && <StatsModal vendorName={viewingStats} onClose={() => setViewingStats(null)} />}
+
+      <ConfirmModal
+        open={!!blocking}
+        title={`¿Bloquear "${blocking?.companyName}"?`}
+        message="La tienda se oculta de todo el sitio y el dueño no va a poder volver a entrar hasta que la desbloquees."
+        confirmLabel={update.isPending ? "Bloqueando..." : "Sí, bloquear"}
+        danger
+        onConfirm={() => update.mutate({ id: blocking.id, payload: { isBlocked: true } })}
+        onCancel={() => setBlocking(null)}
+      />
     </div>
   );
 }

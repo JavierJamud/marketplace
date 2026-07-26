@@ -1,4 +1,5 @@
-import { emailShell } from "./_shared.js";
+import { emailShell, paragraph } from "./_shared.js";
+import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 48: a diferencia de vendorMessage.js (texto de un vendedor ya
 // logueado) o adminDirectEmail.js (lo escribe el propio admin), acá los 3
@@ -12,14 +13,17 @@ function escapeHtml(str) {
 
 // Bloque 48: mensaje del formulario público de /contacto — va al correo del
 // admin, nunca al revés (esto no es una respuesta automática al visitante).
-export function contactMessageEmail({ name, email, message }) {
+export async function contactMessageEmail({ name, email, message }) {
+  const { siteName } = await getBrandSettings();
   const subject = `Nuevo mensaje de contacto — ${name}`;
-  const html = emailShell({
+  const safeMessage = escapeHtml(message).replace(/\n/g, "<br/>");
+  const html = await emailShell({
+    preview: message.slice(0, 120),
     title: "Mensaje de contacto",
-    storeName: "ZeuDin",
-    bodyHtml: `
-      <p style="color:#75777c;font-size:12.5px;margin:0 0 14px;">De <strong style="color:#1b1b1d;">${escapeHtml(name)}</strong> (${escapeHtml(email)}), vía el formulario de /contacto.</p>
-      <p style="color:#44474c;font-size:14px;line-height:22px;white-space:pre-wrap;">${escapeHtml(message)}</p>
+    storeName: siteName,
+    bodyMjml: `
+      ${paragraph(`De <strong style="color:#1b1b1d;">${escapeHtml(name)}</strong> (${escapeHtml(email)}), vía el formulario de /contacto.`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
+      ${paragraph(safeMessage, { color: "#44474c", size: "14px", lineHeight: "22px" })}
     `,
   });
   return { subject, html };

@@ -2,17 +2,21 @@
 import { X, AlertTriangle, Trash2 } from "lucide-react";
 
 /**
- * ConfirmModal — reemplaza window.confirm() con un modal moderno y responsivo.
+ * ConfirmModal — reemplaza window.confirm()/window.prompt() con un modal moderno y responsivo.
  *
  * Props:
- *   open         {boolean}  — si el modal esta visible
- *   title        {string}   — titulo del modal
- *   message      {string}   — descripcion
- *   confirmLabel {string}   — texto del boton de confirmar (default: "Confirmar")
- *   cancelLabel  {string}   — texto del boton cancelar (default: "Cancelar")
- *   danger       {boolean}  — si true, boton de confirmar en rojo
- *   onConfirm    {function} — callback al confirmar
- *   onCancel     {function} — callback al cancelar
+ *   open            {boolean}  — si el modal esta visible
+ *   title           {string}   — titulo del modal
+ *   message         {string}   — descripcion
+ *   confirmLabel    {string}   — texto del boton de confirmar (default: "Confirmar")
+ *   cancelLabel     {string}   — texto del boton cancelar (default: "Cancelar")
+ *   danger          {boolean}  — si true, boton de confirmar en rojo
+ *   confirmDisabled {boolean}  — si true, deshabilita el boton de confirmar (ej. reemplaza
+ *                                 el `if (reason)` que hacía window.prompt() antes de aceptar "")
+ *   children        {node}     — contenido extra entre el mensaje y los botones (ej. un
+ *                                 textarea para pedir un motivo, ver AdminVerifications.jsx)
+ *   onConfirm       {function} — callback al confirmar
+ *   onCancel        {function} — callback al cancelar
  */
 export function ConfirmModal({
   open,
@@ -21,6 +25,8 @@ export function ConfirmModal({
   confirmLabel = "Confirmar",
   cancelLabel = "Cancelar",
   danger = false,
+  confirmDisabled = false,
+  children,
   onConfirm,
   onCancel,
 }) {
@@ -73,7 +79,9 @@ export function ConfirmModal({
 
         <h2 className="mb-2 text-[16px] font-bold text-on-surface">{title}</h2>
 
-        <p className="mb-6 text-[13.5px] leading-relaxed text-on-surface-variant">{message}</p>
+        <p className="mb-4 text-[13.5px] leading-relaxed text-on-surface-variant">{message}</p>
+
+        {children && <div className="mb-4">{children}</div>}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button
@@ -84,7 +92,8 @@ export function ConfirmModal({
           </button>
           <button
             onClick={onConfirm}
-            className={`order-1 rounded-xl px-5 py-2.5 text-[13px] font-semibold text-white transition sm:order-2 ${
+            disabled={confirmDisabled}
+            className={`order-1 rounded-xl px-5 py-2.5 text-[13px] font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 sm:order-2 ${
               danger
                 ? "bg-error hover:bg-error/90 active:bg-error/80"
                 : "bg-primary hover:bg-primary/90 active:bg-primary/80"

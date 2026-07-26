@@ -276,7 +276,7 @@ export async function updateVerification(req, res) {
   if (verification.status !== "PENDING_REVIEW") {
     throw new AppError("Esta solicitud ya no está en revisión de documentos.", 409);
   }
-  if (decision === "reject" && !notes?.trim()) throw new AppError("Indicá el motivo del rechazo.", 400);
+  if (decision === "reject" && !notes?.trim()) throw new AppError("Indica el motivo del rechazo.", 400);
 
   const status = decision === "approve" ? "PENDING_PAYMENT" : "REJECTED";
 
@@ -547,7 +547,7 @@ export async function sendAdminEmail(req, res) {
   }
 
   const result = await sendAdminDirectEmail({ to, subject, message, recipientName, vendorId });
-  if (!result.ok) throw new AppError("No se pudo enviar el correo. Revisá la integración de Resend.", 502, { detail: result.error });
+  if (!result.ok) throw new AppError("No se pudo enviar el correo. Revisa la integración de Resend.", 502, { detail: result.error });
 
   res.json({ ok: true });
 }

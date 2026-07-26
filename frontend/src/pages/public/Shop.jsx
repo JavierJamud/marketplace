@@ -3,15 +3,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
-import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
-import { AddToCartControl } from "../../components/AddToCartControl.jsx";
+import { ProductCard } from "../../components/ProductCard.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
-function imgUrl(path) {
-  return `${api.defaults.baseURL}${path}`;
 }
 
 const PAY_OPTIONS = [
@@ -26,53 +21,6 @@ const SORT_OPTIONS = [
   { value: "price-desc", label: "Precio: mayor a menor" },
   { value: "rating", label: "Mejor calificados" },
 ];
-
-function ProductTile({ product }) {
-  const discount = product.oldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : null;
-  const location = product.vendor?.locations?.[0];
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm">
-      <Link to={`/producto/${product.vendor?.slug}/${product.slug}`} className="relative block">
-        {(product.badge || discount) && (
-          <span
-            className={`absolute left-3 top-3 z-10 rounded-full px-2.5 py-1 text-[11px] font-bold text-white ${
-              discount ? "bg-error" : "bg-tertiary-accent"
-            }`}
-          >
-            {product.badge ?? `-${discount}%`}
-          </span>
-        )}
-        <div className="h-[180px] w-full overflow-hidden bg-surface-container">
-          {product.images?.[0] ? (
-            <img src={imgUrl(product.images[0])} alt={product.name} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
-          )}
-        </div>
-      </Link>
-      <div className="p-4">
-        <div className="mb-1 flex items-center gap-1">
-          <span className="text-[11px] font-bold text-tertiary-accent">{product.vendor?.companyName}</span>
-          {product.vendor?.isVerified && <VerifiedBadge size="sm" />}
-        </div>
-        <Link to={`/producto/${product.vendor?.slug}/${product.slug}`} className="mb-1.5 block text-body-md font-semibold leading-tight text-on-surface">
-          {product.name}
-        </Link>
-        <div className="mb-2.5 text-[11.5px] text-outline">
-          {location?.municipality?.name ?? location?.province?.name ?? "Cuba"} · {product.stock > 0 ? "Disponible" : "Sin stock"}
-        </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-base font-bold text-on-surface">{fmtCUP(product.price)}</span>
-            {product.oldPrice && <span className="ml-1.5 text-label-sm text-outline line-through">{fmtCUP(product.oldPrice)}</span>}
-          </div>
-          <AddToCartControl product={product} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -238,9 +186,9 @@ export default function Shop() {
           {isLoading && <p className="text-body-md text-on-surface-variant">Cargando productos...</p>}
 
           {!isLoading && products.length > 0 && (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {products.map((p) => (
-                <ProductTile key={p.id} product={p} />
+                <ProductCard key={p.id} product={p} />
               ))}
             </div>
           )}
@@ -252,7 +200,7 @@ export default function Shop() {
               </div>
               {hasProvinceFilter && (
                 <>
-                  <p className="mb-1 text-[13.5px] text-outline">Probá en provincias cercanas:</p>
+                  <p className="mb-1 text-[13.5px] text-outline">Prueba en provincias cercanas:</p>
                   <div className="text-[13.5px] font-semibold text-tertiary-accent">
                     {nearbyProvinces.length ? nearbyProvinces.map((p) => p.name).join(" · ") : "otras provincias"}
                   </div>

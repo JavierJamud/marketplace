@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getIntegrationConfig } from "./integrations.controller.js";
+import { getBrandSettings } from "./settings.controller.js";
 import { emailShell } from "../templates/_shared.js";
 
 const RESEND_SANDBOX_FROM = "onboarding@resend.dev";
@@ -67,17 +68,18 @@ export async function createCampaign(req, res) {
   });
 
   try {
+    const { siteName } = await getBrandSettings();
     const resend = new Resend(config.apiKey);
-    const html = emailShell({
+    const html = await emailShell({
       title: data.subject,
-      storeName: "ZeuDin",
-      bodyHtml: `<p style="color:#44474c;font-size:14px;line-height:22px;white-space:pre-wrap;">${data.content}</p>`,
+      storeName: siteName,
+      bodyMjml: `<mj-text color="#44474c" font-size="14px" line-height="22px">${data.content.replace(/\n/g, "<br/>")}</mj-text>`,
     });
     // El SDK de Resend NUNCA lanza excepción por errores a nivel de API (ej.
     // API key inválida) — siempre resuelve { data, error }. Hay que chequear
     // "error" a mano o una key falsa quedaría registrada como "enviada".
     const result = await resend.emails.send({
-      from: `ZeuDin <${config.fromEmail || RESEND_SANDBOX_FROM}>`,
+      from: `${siteName} <${config.fromEmail || RESEND_SANDBOX_FROM}>`,
       to: recipients,
       subject: data.subject,
       html,

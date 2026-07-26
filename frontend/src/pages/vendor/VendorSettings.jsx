@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -138,6 +139,7 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
 }
 
 export default function VendorSettings() {
+  const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     ownerIdNumber: "",
@@ -312,7 +314,7 @@ export default function VendorSettings() {
       const fieldErrors = err.response?.data?.details?.fieldErrors ?? {};
       if (Object.keys(fieldErrors).length > 0) {
         setErrors(fieldErrors);
-        toast.error("Revisá los campos marcados en rojo.");
+        toast.error("Revisa los campos marcados en rojo.");
       } else {
         toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios.");
       }
@@ -398,12 +400,12 @@ export default function VendorSettings() {
           <Wallet className="h-5 w-5 text-tertiary-accent" /> Métodos de pago y monedas
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Puramente informativo — se muestra en tu tienda pública para que el cliente sepa qué coordinar con vos.
-          ZeuDin no procesa ni convierte nada de esto.
+          Puramente informativo — se muestra en tu tienda pública para que el cliente sepa qué coordinar contigo.
+          {siteName} no procesa ni convierte nada de esto.
         </p>
 
         <div className="mb-5">
-          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Métodos de pago que aceptás</div>
+          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Métodos de pago que aceptas</div>
           <div className="flex flex-wrap gap-2">
             {PAYMENT_METHODS.map((m) => {
               const active = form.acceptedPaymentMethods.includes(m.id);
@@ -466,7 +468,7 @@ export default function VendorSettings() {
         </div>
 
         <div>
-          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Monedas que aceptás</div>
+          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Monedas que aceptas</div>
           <div className="flex flex-wrap gap-2">
             {CURRENCIES.map((c) => {
               const active = form.acceptedCurrencies.includes(c.id);
@@ -501,7 +503,7 @@ export default function VendorSettings() {
               <Globe2 className="h-5 w-5 text-tertiary-accent" /> Cobertura y Países de Entrega
             </div>
             <p className="text-[12.5px] text-outline mt-0.5">
-              Gestioná los países y estados/provincias donde tu tienda ofrece productos y servicio de entrega.
+              Gestiona los países y estados/provincias donde tu tienda ofrece productos y servicio de entrega.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-[11.5px]">
@@ -529,7 +531,7 @@ export default function VendorSettings() {
               }}
               className="min-w-[160px] flex-1"
             >
-              <option value="">Elegí un país activo</option>
+              <option value="">Elige un país activo</option>
               {countries.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -546,7 +548,7 @@ export default function VendorSettings() {
                 }}
                 className="min-w-[160px] flex-1"
               >
-                <option value="">Elegí subdivisión activa</option>
+                <option value="">Elige subdivisión activa</option>
                 {provincesForSelectedCountry?.map((p) => (
                   <option key={p.id} value={p.id}>{p.name} ({p.type === "STATE" ? "Estado" : "Provincia"})</option>
                 ))}
@@ -698,7 +700,7 @@ export default function VendorSettings() {
                 })}
                 {countryProvs.length === 0 && (
                   <p className="col-span-2 text-[12.5px] text-outline italic py-2">
-                    Aún no tenés estados o provincias agregados para este país. Usa el formulario de arriba para agregar.
+                    Aún no tienes estados o provincias agregados para este país. Usa el formulario de arriba para agregar.
                   </p>
                 )}
               </div>
@@ -709,7 +711,7 @@ export default function VendorSettings() {
             <div className="rounded-xl border border-dashed border-outline-variant p-6 text-center">
               <MapPin className="mx-auto h-8 w-8 text-outline/40 mb-2" />
               <p className="text-[13.5px] font-bold text-on-surface">Sin zonas de cobertura configuradas</p>
-              <p className="text-[12px] text-outline">Agregá los países y provincias/estados donde vendés arriba.</p>
+              <p className="text-[12px] text-outline">Agrega los países y provincias/estados donde vendes arriba.</p>
             </div>
           )}
         </div>
@@ -757,7 +759,7 @@ export default function VendorSettings() {
           <FileText className="h-5 w-5 text-tertiary-accent" /> Documento de la tienda para la IA
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Cargá un documento PDF o de texto con información detallada sobre tus servicios o políticas. El asistente IA usará esta información únicamente para responder a tus clientes.
+          Carga un documento PDF o de texto con información detallada sobre tus servicios o políticas. El asistente IA usará esta información únicamente para responder a tus clientes.
         </p>
 
         {vendor?.aiDocumentUrl ? (

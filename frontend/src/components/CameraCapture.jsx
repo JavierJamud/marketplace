@@ -130,7 +130,7 @@ export function CameraCapture({ shape, label, instructions, facingMode = "user",
           <div className="flex max-w-[240px] flex-col items-center gap-2 text-center">
             <AlertTriangle className="h-7 w-7 text-secondary-container" />
             <p className="text-[12.5px] text-white/85">
-              No pudimos acceder a tu cámara. Habilitá el permiso de cámara en tu navegador para continuar — el KYC no acepta fotos
+              No pudimos acceder a tu cámara. Habilita el permiso de cámara en tu navegador para continuar — el KYC no acepta fotos
               de galería.
             </p>
             <button type="button" onClick={startCamera} className="mt-1 text-[12.5px] font-bold text-secondary-container">

@@ -3,9 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { MessageCircle, Mail, CheckCircle2, XCircle, Pencil, Trash2, FileText, ShieldCheck } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { EditOrderModal } from "../../components/EditOrderModal.jsx";
 import { StockRiskModal } from "../../components/StockRiskModal.jsx";
 import { DocumentModal } from "../../components/DocumentModal.jsx";
@@ -94,7 +96,7 @@ function EmailModal({ order, onClose, onSent }) {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Escribí el mensaje para tu cliente..."
+              placeholder="Escribe el mensaje para tu cliente..."
               className="min-h-[110px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
             />
           </div>
@@ -111,12 +113,14 @@ function EmailModal({ order, onClose, onSent }) {
 }
 
 export default function VendorOrders() {
+  const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [emailTarget, setEmailTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [rejectTarget, setRejectTarget] = useState(null);
   const [docTarget, setDocTarget] = useState(null);
   const [stockRisk, setStockRisk] = useState(null);
 
@@ -200,7 +204,7 @@ export default function VendorOrders() {
       customer: riskOrder.customerName ?? "Cliente",
       customerEmail: riskOrder.customerEmail,
       defaultSubject: `Sobre tu pedido ${riskOrder.code}`,
-      defaultMessage: `Hola${riskOrder.customerName ? ` ${riskOrder.customerName}` : ""}, te escribimos porque ${productNames} se agotó y por ahora no podemos completar tu pedido ${riskOrder.code}. Te avisamos apenas repongamos stock — si preferís, contanos y vemos una alternativa.`,
+      defaultMessage: `Hola${riskOrder.customerName ? ` ${riskOrder.customerName}` : ""}, te escribimos porque ${productNames} se agotó y por ahora no podemos completar tu pedido ${riskOrder.code}. Te avisamos apenas repongamos stock — si prefieres, cuéntanos y vemos una alternativa.`,
     });
   }
 
@@ -246,7 +250,7 @@ export default function VendorOrders() {
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Pedidos</h1>
-          <p className="text-[13.5px] text-outline">Gestioná pedidos de WhatsApp, contra entrega y de mesa (cocina).</p>
+          <p className="text-[13.5px] text-outline">Gestiona pedidos de WhatsApp, contra entrega y de mesa (cocina).</p>
         </div>
         {emailUsage && (
           <div
@@ -326,7 +330,7 @@ export default function VendorOrders() {
 
               {!o.isTable && o.customerPhone && (
                 <a
-                  href={waLink(o.customerPhone, `Hola ${o.customer}, te escribo por tu pedido ${o.id} en ZeuDin.`)}
+                  href={waLink(o.customerPhone, `Hola ${o.customer}, te escribo por tu pedido ${o.id} en ${siteName}.`)}
                   target="_blank"
                   rel="noreferrer"
                   title="Contactar cliente por WhatsApp"
@@ -388,7 +392,7 @@ export default function VendorOrders() {
                     <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar venta
                   </button>
                   <button
-                    onClick={() => updateStatus.mutate({ id: o.rawId, status: "CANCELLED" })}
+                    onClick={() => setRejectTarget(o)}
                     disabled={updateStatus.isPending}
                     className="flex items-center gap-1.5 rounded-[7px] bg-error/10 px-2.5 py-1.5 text-[11.5px] font-bold text-error disabled:opacity-50"
                   >
@@ -478,6 +482,18 @@ export default function VendorOrders() {
       )}
 
       {stockRisk && <StockRiskModal atRiskOrders={stockRisk} onNotify={handleNotifyFromRisk} onClose={() => setStockRisk(null)} />}
+
+      <ConfirmModal
+        open={!!rejectTarget}
+        title={`¿Rechazar el pedido ${rejectTarget?.id}?`}
+        message="El pedido pasa a Rechazado. Esta acción no se puede deshacer."
+        confirmLabel={updateStatus.isPending ? "Rechazando..." : "Sí, rechazar"}
+        danger
+        onConfirm={() =>
+          updateStatus.mutate({ id: rejectTarget.rawId, status: "CANCELLED" }, { onSuccess: () => setRejectTarget(null) })
+        }
+        onCancel={() => setRejectTarget(null)}
+      />
     </div>
   );
 }

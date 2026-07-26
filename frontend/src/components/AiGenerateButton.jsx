@@ -16,12 +16,12 @@ export function AiGenerateButton({ kind, currentText, productName, onGenerated }
   const generate = useMutation({
     mutationFn: async () => (await api.post("/ai/generate-description", { kind, currentText, productName })).data,
     onSuccess: (data) => onGenerated(data.description),
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo mejorar la descripción. Intentá de nuevo."),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo mejorar la descripción. Intenta de nuevo."),
   });
 
   function handleClick() {
     if (!hasEnoughText) {
-      toast.error("Escribí primero una breve descripción para que la IA la pueda mejorar.");
+      toast.error("Escribe primero una breve descripción para que la IA la pueda mejorar.");
       return;
     }
     generate.mutate();
@@ -32,7 +32,7 @@ export function AiGenerateButton({ kind, currentText, productName, onGenerated }
       type="button"
       onClick={handleClick}
       disabled={generate.isPending}
-      title={!hasEnoughText ? "Escribí primero una breve descripción" : undefined}
+      title={!hasEnoughText ? "Escribe primero una breve descripción" : undefined}
       className={`mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold hover:underline disabled:cursor-not-allowed disabled:opacity-60 ${
         hasEnoughText ? "text-tertiary-accent" : "text-outline"
       }`}

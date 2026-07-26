@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { getBrandSettings } from "./settings.controller.js";
 
 const createReviewSchema = z.object({
   vendorId: z.string(),
@@ -17,6 +18,7 @@ export async function createReview(req, res) {
   if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
 
   const author = await prisma.user.findUnique({ where: { id: req.user.id } });
+  const { siteName } = await getBrandSettings();
 
   // Bloque 22: "compra verificada" = el autor tiene al menos un pedido no
   // cancelado con esta tienda al momento de comentar. Se calcula una sola
@@ -33,7 +35,7 @@ export async function createReview(req, res) {
       vendorId: data.vendorId,
       productId: data.productId,
       userId: req.user.id,
-      authorName: author?.fullName ?? "Cliente ZeuDin",
+      authorName: author?.fullName ?? `Cliente ${siteName}`,
       rating: data.rating,
       comment: data.comment,
       isVerifiedPurchase: !!hasOrder,
@@ -64,7 +66,7 @@ export async function createReview(req, res) {
 
 export async function listMyReviews(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-  if (!vendor) throw new AppError("No tenés una tienda registrada.", 404);
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const reviews = await prisma.review.findMany({
     where: { vendorId: vendor.id, isHidden: false },
@@ -74,14 +76,14 @@ export async function listMyReviews(req, res) {
   res.json({ reviews });
 }
 
-const replySchema = z.object({ reply: z.string().trim().min(1, "Escribí una respuesta.").max(1000) });
+const replySchema = z.object({ reply: z.string().trim().min(1, "Escribe una respuesta.").max(1000) });
 
 export async function replyToReview(req, res) {
   const { id } = req.params;
   const { reply } = replySchema.parse(req.body);
 
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-  if (!vendor) throw new AppError("No tenés una tienda registrada.", 404);
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const review = await prisma.review.findUnique({ where: { id } });
   if (!review || review.vendorId !== vendor.id) throw new AppError("Comentario no encontrado.", 404);

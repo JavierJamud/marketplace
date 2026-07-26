@@ -1,4 +1,97 @@
 import { prisma } from "../lib/prisma.js";
+import { correctSearchQuery } from "../lib/ai.js";
+
+// Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
+// "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
+// Postgres, que ignora mayúsculas pero NUNCA pliega acentos (compara byte a
+// byte). El mismo bug ya se había diagnosticado y arreglado en el buscador
+// interno del asistente de IA (Bloque 40, ver assistant.controller.js) con
+// unaccent() — acá se aplica el mismo fix al buscador real (SearchBar.jsx),
+// que nunca lo había tenido. IDs por raw SQL (unaccent() no es algo que
+// Prisma sepa generar), el resto de los filtros (categoría/precio/ubicación)
+// se aplican después con el query builder normal de Prisma sobre esos IDs.
+const NAME_MATCH_LIMIT = 500;
+
+async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
+  const pattern = `%${q}%`;
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM "Product"
+    WHERE "isActive" = true AND unaccent(name) ILIKE unaccent(${pattern})
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+async function findProductIdsByNameOrDescription(q, limit) {
+  const pattern = `%${q}%`;
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM "Product"
+    WHERE "isActive" = true
+      AND (unaccent(name) ILIKE unaccent(${pattern}) OR unaccent(description) ILIKE unaccent(${pattern}))
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+async function findProductIdsByTag(q, limit) {
+  const pattern = `%${q}%`;
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM "Product"
+    WHERE "isActive" = true AND EXISTS (
+      SELECT 1 FROM unnest(tags) AS t WHERE unaccent(t) ILIKE unaccent(${pattern})
+    )
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+async function findVendorIdsByCompanyName(q, limit) {
+  const pattern = `%${q}%`;
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM "Vendor"
+    WHERE "isBlocked" = false AND unaccent("companyName") ILIKE unaccent(${pattern})
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+// Bloque 52: ÚLTIMO recurso — "resultados más cercanos a lo que el cliente
+// buscó sin importar cómo lo escribió" (pedido explícito), para el caso de
+// un typo real (no solo tilde/mayúscula, que unaccent()+ILIKE de arriba ya
+// resuelve). pg_trgm (extensión habilitada en la migración
+// 20260727020000) mide similitud entre trigramas de caracteres — tolera
+// una letra de más/menos/cambiada sin que el cliente escriba el nombre
+// exacto. Umbral bajo (0.15) a propósito: mejor mostrar algo aproximado que
+// nada, el cliente decide si le sirve.
+const TRIGRAM_THRESHOLD = 0.15;
+
+async function findProductIdsByTrigram(q, limit) {
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM "Product"
+    WHERE "isActive" = true AND similarity(unaccent(name), unaccent(${q})) > ${TRIGRAM_THRESHOLD}
+    ORDER BY similarity(unaccent(name), unaccent(${q})) DESC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+async function findVendorIdsByTrigram(q, limit) {
+  const rows = await prisma.$queryRaw`
+    SELECT id FROM "Vendor"
+    WHERE "isBlocked" = false AND similarity(unaccent("companyName"), unaccent(${q})) > ${TRIGRAM_THRESHOLD}
+    ORDER BY similarity(unaccent("companyName"), unaccent(${q})) DESC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => r.id);
+}
+
+// findMany({ where: { id: { in: ids } } }) NO conserva el orden de ids — hace
+// falta reordenar a mano para que el ranking de similarity()/relevancia
+// sobreviva al fetch completo (con includes) vía Prisma normal.
+function reorderByIds(rows, ids) {
+  const order = new Map(ids.map((id, i) => [id, i]));
+  return [...rows].sort((a, b) => order.get(a.id) - order.get(b.id));
+}
 
 // Búsqueda estructurada (pills de categoría, selector de provincia/municipio,
 // sidebar de filtros de Shop, buscador de texto): la que consume el catálogo
@@ -18,9 +111,11 @@ export async function structuredSearch(req, res) {
 
   const paymentMethods = payment ? String(payment).split(",").filter(Boolean) : undefined;
 
-  const where = {
+  // Todo lo que NO es el texto libre de búsqueda — se reusa igual en los 3
+  // intentos (literal → corregido por IA → aproximado por trigramas), el id
+  // filter se agrega aparte en cada intento.
+  const baseWhere = {
     isActive: true,
-    name: q ? { contains: String(q), mode: "insensitive" } : undefined,
     categoryId: categoryIds ? { in: categoryIds } : undefined,
     price: minPrice || maxPrice ? { gte: minPrice ? Number(minPrice) : undefined, lte: maxPrice ? Number(maxPrice) : undefined } : undefined,
     paymentMethods: paymentMethods?.length ? { hasSome: paymentMethods } : undefined,
@@ -32,25 +127,57 @@ export async function structuredSearch(req, res) {
         : undefined,
     },
   };
-
-  let products = await prisma.product.findMany({
-    where,
-    include: {
-      vendor: {
-        select: {
-          companyName: true,
-          slug: true,
-          isVerified: true,
-          isBlocked: true,
-          color: true,
-          whatsapp: true,
-          locations: { include: { province: true, municipality: true }, take: 1 },
-        },
+  const includeOpts = {
+    vendor: {
+      select: {
+        companyName: true,
+        slug: true,
+        isVerified: true,
+        isBlocked: true,
+        color: true,
+        whatsapp: true,
+        locations: { include: { province: true, municipality: true }, take: 1 },
       },
     },
-    take: 60,
-    orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
-  });
+    // Bloque 49: ProductCard.jsx muestra el rubro como chip — antes no
+    // viajaba en esta consulta (solo el vendedor).
+    category: { select: { name: true } },
+  };
+
+  async function fetchByIds(ids) {
+    if (ids.length === 0) return [];
+    return prisma.product.findMany({ where: { ...baseWhere, id: { in: ids } }, include: includeOpts, take: 60 });
+  }
+
+  let products;
+  const cleanQ = q ? String(q).trim() : "";
+  if (!cleanQ) {
+    products = await prisma.product.findMany({ where: baseWhere, include: includeOpts, take: 60, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }] });
+  } else {
+    // Intento 1: literal, sin importar mayúsculas/tildes.
+    products = await fetchByIds(await findProductIdsByName(cleanQ));
+
+    // Intento 2: si no hubo nada Y hay un proveedor de IA activo, le
+    // pedimos que interprete/corrija el término (probable typo) y
+    // reintentamos la búsqueda literal con esa corrección.
+    if (products.length === 0) {
+      const corrected = await correctSearchQuery(cleanQ);
+      if (corrected && corrected.trim().toLowerCase() !== cleanQ.toLowerCase()) {
+        products = await fetchByIds(await findProductIdsByName(corrected));
+      }
+    }
+
+    // Intento 3: sin IA disponible o sin resultado igual — última red de
+    // contención, resultados aproximados por similitud de trigramas
+    // directo contra la base, sin importar cómo lo escribió el cliente.
+    if (products.length === 0) {
+      const fuzzyIds = await findProductIdsByTrigram(cleanQ, 60);
+      if (fuzzyIds.length) {
+        const fuzzyProducts = await prisma.product.findMany({ where: { ...baseWhere, id: { in: fuzzyIds } }, include: includeOpts });
+        products = reorderByIds(fuzzyProducts, fuzzyIds);
+      }
+    }
+  }
 
   if (sort === "price-asc") products = [...products].sort((a, b) => Number(a.price) - Number(b.price));
   if (sort === "price-desc") products = [...products].sort((a, b) => Number(b.price) - Number(a.price));
@@ -122,47 +249,52 @@ export async function autocompleteSearch(req, res) {
   const lowerQ = q.toLowerCase();
 
   const vendorSelect = { companyName: true, slug: true, isVerified: true };
-  // Bloque 30: onlyVerified filtra qué TIENDAS pueden aparecer (ni sus
-  // productos ni la tienda misma) — antes isVerified solo desempataba
-  // orden, nunca excluía nada.
   const vendorWhere = { isBlocked: false, ...(onlyVerified ? { isVerified: true } : {}) };
 
-  const nameOrDescMatches = await prisma.product.findMany({
-    where: {
-      isActive: true,
-      vendor: vendorWhere,
-      OR: [{ name: { contains: q, mode: "insensitive" } }, { description: { contains: q, mode: "insensitive" } }],
-    },
-    include: { vendor: { select: vendorSelect } },
-    take: 40,
-  });
+  // Bloque 52: unaccent() de los dos lados (antes Prisma "contains" +
+  // mode:"insensitive", que ignora mayúsculas pero nunca tildes — mismo bug
+  // que structuredSearch de arriba, mismo fix). Este es el dropdown en vivo
+  // (280ms de debounce en SearchBar.jsx) — sin llamada a IA acá a propósito,
+  // tiene que sentirse instantáneo mientras el cliente todavía está
+  // escribiendo; la corrección con IA queda para /search (Enter/resultados).
+  const nameOrDescIds = await findProductIdsByNameOrDescription(q, 40);
+  const nameOrDescMatches = nameOrDescIds.length
+    ? await prisma.product.findMany({ where: { id: { in: nameOrDescIds }, vendor: vendorWhere }, include: { vendor: { select: vendorSelect } } })
+    : [];
 
-  const tagMatchRows = await prisma.$queryRaw`
-    SELECT id FROM "Product"
-    WHERE "isActive" = true AND EXISTS (
-      SELECT 1 FROM unnest(tags) AS t WHERE t ILIKE ${`%${lowerQ}%`}
-    )
-    LIMIT 40
-  `;
+  const tagIds = await findProductIdsByTag(q, 40);
   const alreadyHaveIds = new Set(nameOrDescMatches.map((p) => p.id));
-  const tagOnlyIds = tagMatchRows.map((r) => r.id).filter((id) => !alreadyHaveIds.has(id));
+  const tagOnlyIds = tagIds.filter((id) => !alreadyHaveIds.has(id));
   const tagOnlyMatches = tagOnlyIds.length
     ? await prisma.product.findMany({ where: { id: { in: tagOnlyIds }, vendor: vendorWhere }, include: { vendor: { select: vendorSelect } } })
     : [];
 
-  const candidates = [...nameOrDescMatches, ...tagOnlyMatches].filter((p) => !p.vendor.isBlocked);
+  let candidates = [...nameOrDescMatches, ...tagOnlyMatches].filter((p) => !p.vendor.isBlocked);
 
-  // "Destacados aparecen primero, siempre" (Bloque 22) se interpreta como
-  // desempate DENTRO de cada nivel de calidad de match, no por encima de él
-  // — si no, un producto destacado pero irrelevante ganaría a una
-  // coincidencia exacta de nombre, que es justo lo que la búsqueda no
-  // debería hacer. isFeatured es el mismo flag "destacado" que ya usa
-  // structuredSearch arriba; isVerified de la tienda es el fallback (mismo
-  // criterio que el resto del sitio) cuando el producto no está marcado.
-  const ranked = candidates
-    .map((p) => ({ p, tier: matchTier(p, lowerQ), featured: p.isFeatured || p.vendor.isVerified }))
-    .sort((a, b) => a.tier - b.tier || Number(b.featured) - Number(a.featured))
-    .map((x) => x.p);
+  // Fallback de trigramas — mismo criterio que structuredSearch: si ni
+  // siquiera unaccent()+ILIKE encontró nada (probable typo), mostrar lo más
+  // parecido directo de la base en vez de un dropdown vacío.
+  let fuzzy = false;
+  if (candidates.length === 0) {
+    const fuzzyIds = await findProductIdsByTrigram(q, 40);
+    if (fuzzyIds.length) {
+      const fuzzyProducts = await prisma.product.findMany({ where: { id: { in: fuzzyIds }, vendor: vendorWhere }, include: { vendor: { select: vendorSelect } } });
+      candidates = reorderByIds(fuzzyProducts.filter((p) => !p.vendor.isBlocked), fuzzyIds);
+      fuzzy = true;
+    }
+  }
+
+  // El ranking por tier de calidad de match (matchTier) solo tiene sentido
+  // sobre coincidencias literales — los resultados de trigramas ya vienen
+  // ordenados por similitud real, reordenarlos por tier de substring los
+  // arruinaría (casi ninguno va a "incluir" literalmente lo que escribió el
+  // cliente, es justo por eso que llegaron por este camino).
+  const ranked = fuzzy
+    ? candidates
+    : candidates
+        .map((p) => ({ p, tier: matchTier(p, lowerQ), featured: p.isFeatured || p.vendor.isVerified }))
+        .sort((a, b) => a.tier - b.tier || Number(b.featured) - Number(a.featured))
+        .map((x) => x.p);
 
   const products = ranked.slice(0, AUTOCOMPLETE_LIMIT).map((p) => ({
     id: p.id,
@@ -173,14 +305,20 @@ export async function autocompleteSearch(req, res) {
     vendor: { companyName: p.vendor.companyName, slug: p.vendor.slug },
   }));
 
-  const vendorMatches = await prisma.vendor.findMany({
-    where: { ...vendorWhere, companyName: { contains: q, mode: "insensitive" } },
-    select: { id: true, companyName: true, slug: true, isVerified: true, color: true },
-    take: 20,
-  });
-  const vendors = vendorMatches
-    .sort((a, b) => vendorMatchTier(a, lowerQ) - vendorMatchTier(b, lowerQ))
-    .slice(0, AUTOCOMPLETE_VENDOR_LIMIT);
+  const vendorIds = await findVendorIdsByCompanyName(q, 20);
+  let vendorMatches = vendorIds.length
+    ? await prisma.vendor.findMany({ where: { ...vendorWhere, id: { in: vendorIds } }, select: { id: true, companyName: true, slug: true, isVerified: true, color: true }, take: 20 })
+    : [];
+  let vendors;
+  if (vendorMatches.length > 0) {
+    vendors = vendorMatches.sort((a, b) => vendorMatchTier(a, lowerQ) - vendorMatchTier(b, lowerQ)).slice(0, AUTOCOMPLETE_VENDOR_LIMIT);
+  } else {
+    const fuzzyVendorIds = await findVendorIdsByTrigram(q, 20);
+    const fuzzyVendors = fuzzyVendorIds.length
+      ? await prisma.vendor.findMany({ where: { ...vendorWhere, id: { in: fuzzyVendorIds } }, select: { id: true, companyName: true, slug: true, isVerified: true, color: true } })
+      : [];
+    vendors = reorderByIds(fuzzyVendors, fuzzyVendorIds).slice(0, AUTOCOMPLETE_VENDOR_LIMIT);
+  }
 
   res.json({ products, vendors, hasMore: ranked.length > AUTOCOMPLETE_LIMIT });
 }

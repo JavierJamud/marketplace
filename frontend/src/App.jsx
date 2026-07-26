@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
@@ -28,6 +28,7 @@ import CustomerPanel from "./pages/customer/CustomerPanel.jsx";
 import VendorLayout from "./pages/vendor/VendorLayout.jsx";
 import VendorDashboard from "./pages/vendor/VendorDashboard.jsx";
 import VendorProducts from "./pages/vendor/VendorProducts.jsx";
+import VendorOffers from "./pages/vendor/VendorOffers.jsx";
 import VendorOrders from "./pages/vendor/VendorOrders.jsx";
 import VendorTables from "./pages/vendor/VendorTables.jsx";
 import VendorVerification from "./pages/vendor/VendorVerification.jsx";
@@ -35,7 +36,6 @@ import VendorChat from "./pages/vendor/VendorChat.jsx";
 import VendorReviews from "./pages/vendor/VendorReviews.jsx";
 import VendorSettings from "./pages/vendor/VendorSettings.jsx";
 import VendorProfile from "./pages/vendor/VendorProfile.jsx";
-import VendorSubscription from "./pages/vendor/VendorSubscription.jsx";
 
 // Admin
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
@@ -56,6 +56,9 @@ import AdminLocations from "./pages/admin/AdminLocations.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminProfile from "./pages/admin/AdminProfile.jsx";
 import AdminPages from "./pages/admin/AdminPages.jsx";
+import AdminBranding from "./pages/admin/AdminBranding.jsx";
+import AdminOffers from "./pages/admin/AdminOffers.jsx";
+import AdminProducts from "./pages/admin/AdminProducts.jsx";
 
 export default function App() {
   return (
@@ -90,13 +93,17 @@ export default function App() {
       <Route path="/vendedor" element={<VendorLayout />}>
         <Route index element={<VendorDashboard />} />
         <Route path="productos" element={<VendorProducts />} />
+        <Route path="ofertas" element={<VendorOffers />} />
         <Route path="pedidos" element={<VendorOrders />} />
         <Route path="mesas" element={<VendorTables />} />
         <Route path="verificacion" element={<VendorVerification />} />
         <Route path="mensajes" element={<VendorChat />} />
         <Route path="resenas" element={<VendorReviews />} />
         <Route path="configuracion" element={<VendorSettings />} />
-        <Route path="suscripcion" element={<VendorSubscription />} />
+        {/* Unificado en "verificacion" (verificación y plan eran dos páginas
+            mostrando casi lo mismo) — se deja el redirect por si alguien
+            tiene esta URL guardada. */}
+        <Route path="suscripcion" element={<Navigate to="/vendedor/verificacion" replace />} />
         <Route path="perfil" element={<VendorProfile />} />
       </Route>
 
@@ -104,6 +111,7 @@ export default function App() {
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="tiendas" element={<AdminVendors />} />
+        <Route path="productos" element={<AdminProducts />} />
         <Route path="verificaciones" element={<AdminVerifications />} />
         <Route path="clientes" element={<AdminCustomers />} />
         <Route path="sugerencias" element={<AdminSuggestions />} />
@@ -112,8 +120,10 @@ export default function App() {
         <Route path="mensajes/:vendorId" element={<AdminChat />} />
         <Route path="campanas" element={<AdminCampaigns />} />
         <Route path="suscripciones" element={<AdminSubscriptions />} />
+        <Route path="ofertas" element={<AdminOffers />} />
         <Route path="anuncios" element={<AdminAnnouncements />} />
         <Route path="integraciones" element={<AdminIntegrations />} />
+        <Route path="marca" element={<AdminBranding />} />
         <Route path="asistente" element={<AdminAssistant />} />
         <Route path="errores" element={<AdminErrors />} />
         <Route path="ubicaciones" element={<AdminLocations />} />

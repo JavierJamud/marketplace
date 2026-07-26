@@ -1,28 +1,31 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, CreditCard } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, Tag } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { VendorNotificationBell } from "../../components/vendor/VendorNotificationBell.jsx";
+import { OffersAnnouncementPopup } from "../../components/vendor/OffersAnnouncementPopup.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 const NAV = [
   { to: "/vendedor", label: "Resumen", icon: LayoutDashboard, end: true },
   { to: "/vendedor/productos", label: "Productos", icon: Package },
+  { to: "/vendedor/ofertas", label: "Ofertas", icon: Tag },
   { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart },
   { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true },
-  { to: "/vendedor/verificacion", label: "Verificación", icon: ShieldCheck },
+  { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star },
   { to: "/vendedor/configuracion", label: "Configuración", icon: Settings },
-  { to: "/vendedor/suscripcion", label: "Suscripción", icon: CreditCard },
   { to: "/vendedor/perfil", label: "Mi perfil", icon: UserCog },
 ];
 
 export default function VendorLayout() {
   const { user, loading: authLoading, logout } = useAuth();
+  const { siteName, logoUrl } = usePlatformSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -72,10 +75,14 @@ export default function VendorLayout() {
         }`}
       >
         <Link to="/" className="mb-2 flex items-center gap-2.5 px-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary-container font-display text-base font-extrabold text-primary">Z</div>
-          <span className="font-display text-lg font-bold text-white">
-            Zeu<span className="text-secondary-container">Din</span>
-          </span>
+          {logoUrl ? (
+            <img src={logoUrl} alt={siteName} className="h-8 w-8 flex-shrink-0 rounded object-cover" />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary-container font-display text-base font-extrabold text-primary">
+              {siteName.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <span className="font-display text-lg font-bold text-white">{siteName}</span>
         </Link>
 
         <div className="mb-3 border-b border-white/10 px-2 pb-4">
@@ -131,6 +138,7 @@ export default function VendorLayout() {
         </div>
         <Outlet context={{ vendor }} />
       </main>
+      <OffersAnnouncementPopup vendor={vendor} />
     </div>
   );
 }

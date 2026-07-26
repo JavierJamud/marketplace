@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 29: generador de factura/garantía en PDF — pdfkit dibuja el
 // documento a mano (rectángulos, texto, líneas) en vez de renderizar HTML,
@@ -32,7 +33,7 @@ function renderToBuffer(draw) {
   return done;
 }
 
-function drawHeader(doc, { vendor, title, code, date }) {
+function drawHeader(doc, { vendor, title, code, date, siteName }) {
   const color = vendor.color || "#232F3E";
   const pageWidth = doc.page.width;
 
@@ -55,7 +56,7 @@ function drawHeader(doc, { vendor, title, code, date }) {
   doc
     .font("Helvetica")
     .fontSize(9)
-    .text("Tienda verificada en ZeuDin.com · Cuba", PAGE_MARGIN + 52, 50);
+    .text(`Tienda verificada en ${siteName} · Cuba`, PAGE_MARGIN + 52, 50);
 
   doc
     .font("Helvetica-Bold")
@@ -148,7 +149,7 @@ function drawItemsTable(doc, items) {
   return total;
 }
 
-function drawFooter(doc) {
+function drawFooter(doc, siteName) {
   const pageWidth = doc.page.width;
   // Bloque 29: tiene que quedar DENTRO de la caja de márgenes de pdfkit
   // (page.height - margins.bottom) — probado en vivo: una coordenada apenas
@@ -166,7 +167,7 @@ function drawFooter(doc) {
     .font("Helvetica")
     .fontSize(8)
     .fillColor("#999999")
-    .text(`Documento generado por ZeuDin.com el ${fmtDate(new Date())} · zeudin.com`, PAGE_MARGIN, bottomBoundary - 14, {
+    .text(`Documento generado por ${siteName} el ${fmtDate(new Date())}`, PAGE_MARGIN, bottomBoundary - 14, {
       width: pageWidth - PAGE_MARGIN * 2,
       align: "center",
       lineBreak: false,
@@ -174,9 +175,10 @@ function drawFooter(doc) {
 }
 
 // customer: { name, idNumber, phone, email }
-export function generateInvoicePdf({ vendor, order, items, customer }) {
+export async function generateInvoicePdf({ vendor, order, items, customer }) {
+  const { siteName } = await getBrandSettings();
   return renderToBuffer((doc) => {
-    drawHeader(doc, { vendor, title: "FACTURA DE COMPRA", code: order.code, date: order.createdAt });
+    drawHeader(doc, { vendor, title: "FACTURA DE COMPRA", code: order.code, date: order.createdAt, siteName });
 
     drawTwoColumnInfo(doc, {
       leftTitle: "Datos de la empresa",
@@ -193,7 +195,7 @@ export function generateInvoicePdf({ vendor, order, items, customer }) {
 
     drawItemsTable(doc, items);
 
-    drawFooter(doc);
+    drawFooter(doc, siteName);
   });
 }
 
@@ -201,9 +203,10 @@ export function generateInvoicePdf({ vendor, order, items, customer }) {
 // pedido (no necesariamente todos) — warrantyDays define la vigencia desde
 // HOY (fecha de emisión del certificado, no la fecha del pedido: la garantía
 // cubre desde que el cliente efectivamente recibe/retira el producto).
-export function generateWarrantyPdf({ vendor, order, items, warrantyDays, customer }) {
+export async function generateWarrantyPdf({ vendor, order, items, warrantyDays, customer }) {
+  const { siteName } = await getBrandSettings();
   return renderToBuffer((doc) => {
-    drawHeader(doc, { vendor, title: "CERTIFICADO DE GARANTÍA", code: order.code, date: new Date() });
+    drawHeader(doc, { vendor, title: "CERTIFICADO DE GARANTÍA", code: order.code, date: new Date(), siteName });
 
     drawTwoColumnInfo(doc, {
       leftTitle: "Datos de la empresa",
@@ -248,6 +251,6 @@ export function generateWarrantyPdf({ vendor, order, items, warrantyDays, custom
       .fillColor("#333333")
       .text(vendor.warrantyTerms, { width: doc.page.width - PAGE_MARGIN * 2, lineGap: 3 });
 
-    drawFooter(doc);
+    drawFooter(doc, siteName);
   });
 }

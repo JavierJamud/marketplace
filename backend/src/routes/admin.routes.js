@@ -11,9 +11,12 @@ import * as reviewsController from "../controllers/reviews.controller.js";
 import * as errorLogsController from "../controllers/errorLogs.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
 import * as staticPagesController from "../controllers/staticPages.controller.js";
+import * as adminOffersController from "../controllers/adminOffers.controller.js";
+import * as adminProductsController from "../controllers/adminProducts.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { siteUpload } from "../middleware/siteUpload.js";
+import { offerUpload } from "../middleware/offerUpload.js";
 
 const router = Router();
 
@@ -26,6 +29,11 @@ router.get("/vendors", adminController.listVendors);
 router.patch("/vendors/:id", adminController.updateVendor);
 router.delete("/vendors/:id", adminController.deleteVendor);
 router.get("/vendors/:id/stats", adminController.getVendorStats);
+
+// Bloque 52: supervisión/edición de productos de cualquier vendedor.
+router.get("/products", adminProductsController.listAllProducts);
+router.patch("/products/:id", adminProductsController.updateAdminProduct);
+router.delete("/products/:id", adminProductsController.deleteAdminProduct);
 
 router.get("/verifications", adminController.listVerifications);
 router.patch("/verifications/:id", adminController.updateVerification);
@@ -92,6 +100,12 @@ router.delete("/business-categories/:id", businessCategoriesController.deleteBus
 router.post("/settings/hero-image", siteUpload.single("image"), settingsController.updateHeroImage);
 router.patch("/settings/plan-limits", settingsController.updatePlanLimits);
 router.patch("/settings/plan-features", settingsController.updatePlanFeatures);
+router.patch("/settings/product-settings", settingsController.updateProductSettings);
+router.patch("/settings/offer-policy", settingsController.updateOfferPolicy);
+router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
+router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);
+router.patch("/settings/branding", settingsController.updateBranding);
+router.post("/settings/branding/logo", siteUpload.single("logo"), settingsController.updateBrandingLogo);
 
 // Bloque 46: anuncios programados (banners públicos) — mismo mecanismo de
 // subida que hero-image arriba (siteUpload), imagen opcional.
@@ -120,6 +134,14 @@ router.delete("/reviews/:id", reviewsController.deleteReview);
 router.get("/errors", errorLogsController.listErrorLogs);
 router.get("/errors/unresolved-count", errorLogsController.getUnresolvedErrorCount);
 router.patch("/errors/:id/resolve", errorLogsController.resolveErrorLog);
+
+// Bloque 51: sección "Ofertas" del panel admin — a diferencia de
+// offers.routes.js (vendedor), acá se permite contentType HTML y moderar
+// cualquier oferta (propia o de un vendedor).
+router.get("/offers", adminOffersController.listAllOffers);
+router.post("/offers", offerUpload.single("image"), adminOffersController.createAdminOffer);
+router.patch("/offers/:id", offerUpload.single("image"), adminOffersController.updateAdminOffer);
+router.delete("/offers/:id", adminOffersController.deleteAdminOffer);
 
 // Bloque 37: revisión de conversaciones reales + ejemplos curados de
 // entrenamiento (ver chatTraining.controller.js).

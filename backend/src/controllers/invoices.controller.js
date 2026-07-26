@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { generateInvoicePdf, generateWarrantyPdf } from "../lib/pdf.js";
 import { sendDocumentEmail } from "../lib/email.js";
+import { invoiceEmail, warrantyEmail } from "../templates/documentEmail.js";
 
 // Bloque 29: factura/garantía solo tienen sentido sobre un pedido que
 // realmente se vendió (stock ya descontado en confirmOrderSale) — un
@@ -17,7 +18,7 @@ async function loadConfirmedOrderForVendor(userId, orderId) {
   const vendor = await resolveMyVendor(userId);
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
-  if (order.status === "NEW") throw new AppError("Este pedido todavía no fue confirmado — confirmá la venta antes de generar la factura o garantía.", 400);
+  if (order.status === "NEW") throw new AppError("Este pedido todavía no fue confirmado — confirma la venta antes de generar la factura o garantía.", 400);
   if (order.status === "CANCELLED") throw new AppError("Este pedido fue rechazado/cancelado, no se puede facturar.", 400);
 
   const missing = [];
@@ -25,7 +26,7 @@ async function loadConfirmedOrderForVendor(userId, orderId) {
   if (!vendor.ownerIdNumber) missing.push("identificación del responsable");
   if (!vendor.companyAddress) missing.push("dirección de la empresa");
   if (missing.length > 0) {
-    throw new AppError(`Completá los datos de facturación de tu tienda antes de generar documentos (falta: ${missing.join(", ")}). Podés cargarlos en Configuración.`, 400);
+    throw new AppError(`Completa los datos de facturación de tu tienda antes de generar documentos (falta: ${missing.join(", ")}). Puedes cargarlos en Configuración.`, 400);
   }
 
   return { vendor, order };
@@ -47,17 +48,17 @@ const customerFields = {
 };
 
 const invoiceSchema = z.object(customerFields);
-const invoiceEmailSchema = invoiceSchema.extend({ sendTo: z.string().email("Ingresá un correo válido.") });
+const invoiceEmailSchema = invoiceSchema.extend({ sendTo: z.string().email("Ingresa un correo válido.") });
 
 const warrantyBaseFields = {
   ...customerFields,
   // Se identifica por OrderItem.id (no productId): sigue siendo válido aunque
   // el producto original se haya borrado/desactivado después del pedido.
-  orderItemIds: z.array(z.string()).min(1, "Elegí al menos un producto para la garantía."),
+  orderItemIds: z.array(z.string()).min(1, "Elige al menos un producto para la garantía."),
   warrantyDays: z.number().int().positive("Los días de garantía deben ser un número positivo."),
 };
 const warrantySchema = z.object(warrantyBaseFields);
-const warrantyEmailSchema = z.object({ ...warrantyBaseFields, sendTo: z.string().email("Ingresá un correo válido.") });
+const warrantyEmailSchema = z.object({ ...warrantyBaseFields, sendTo: z.string().email("Ingresa un correo válido.") });
 
 function pdfItemsFrom(orderItems) {
   return orderItems.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price }));
@@ -82,14 +83,15 @@ export async function emailInvoice(req, res) {
   const customer = resolveCustomer(data, order);
 
   const pdfBuffer = await generateInvoicePdf({ vendor, order, items: pdfItemsFrom(order.items), customer });
+  const { subject, html } = await invoiceEmail({ vendor, order, customerName: customer.name });
 
   const result = await sendDocumentEmail({
     to: data.sendTo,
     vendorId: vendor.id,
     orderId: order.id,
     vendorName: vendor.companyName,
-    subject: `Factura de tu compra en ${vendor.companyName} — pedido ${order.code}`,
-    html: `<p>Hola${customer.name ? ` ${customer.name}` : ""},</p><p>Adjuntamos la factura de tu compra en <strong>${vendor.companyName}</strong> (pedido ${order.code}).</p><p>¡Gracias por tu compra!</p>`,
+    subject,
+    html,
     filename: `factura-${order.code}.pdf`,
     pdfBuffer,
   });
@@ -116,7 +118,7 @@ function assertWarrantySectionComplete(vendor) {
   if (!vendor.warrantyDefaultDays) missing.push("días de garantía por defecto");
   if (missing.length > 0) {
     throw new AppError(
-      `Completá primero la sección de Garantías en Configuración antes de generar o enviar una garantía (falta: ${missing.join(", ")}).`,
+      `Completa primero la sección de Garantías en Configuración antes de generar o enviar una garantía (falta: ${missing.join(", ")}).`,
       400
     );
   }
@@ -145,14 +147,15 @@ export async function emailWarranty(req, res) {
   const customer = resolveCustomer(data, order);
 
   const pdfBuffer = await generateWarrantyPdf({ vendor, order, items: pdfItemsFrom(items), warrantyDays: data.warrantyDays, customer });
+  const { subject, html } = await warrantyEmail({ vendor, order, customerName: customer.name, warrantyDays: data.warrantyDays });
 
   const result = await sendDocumentEmail({
     to: data.sendTo,
     vendorId: vendor.id,
     orderId: order.id,
     vendorName: vendor.companyName,
-    subject: `Certificado de garantía — ${vendor.companyName} — pedido ${order.code}`,
-    html: `<p>Hola${customer.name ? ` ${customer.name}` : ""},</p><p>Adjuntamos el certificado de garantía de tu compra en <strong>${vendor.companyName}</strong> (pedido ${order.code}), válido por ${data.warrantyDays} día(s).</p>`,
+    subject,
+    html,
     filename: `garantia-${order.code}.pdf`,
     pdfBuffer,
   });

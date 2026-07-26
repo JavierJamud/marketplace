@@ -140,7 +140,7 @@ export async function upsertStripeIntegration(req, res) {
   };
 
   if (!merged.publishableKey && !merged.secretKey && !merged.webhookSecret) {
-    throw new AppError("Cargá al menos una credencial de Stripe.", 400);
+    throw new AppError("Carga al menos una credencial de Stripe.", 400);
   }
 
   const { ciphertext, iv, authTag } = encryptSecret(JSON.stringify(merged));
@@ -181,7 +181,7 @@ export async function listProviderModels(req, res) {
 
   const integration = await prisma.integration.findUnique({ where: { name } });
   const apiKey = integration ? decryptIntegration(integration) : null;
-  if (!apiKey) throw new AppError("Guardá la clave de este proveedor primero.", 400);
+  if (!apiKey) throw new AppError("Guarda la clave de este proveedor primero.", 400);
 
   const models = await lister({ apiKey });
   res.json({ models });

@@ -3,17 +3,21 @@ import { Link, useNavigate } from "react-router-dom";
 import { ShoppingCart, User, LogOut } from "lucide-react";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { SearchBar } from "./SearchBar.jsx";
 
 function Logo() {
+  const { siteName, logoUrl } = usePlatformSettings();
   return (
     <Link to="/" className="flex flex-shrink-0 items-center gap-2.5">
-      <div className="flex h-[34px] w-[34px] items-center justify-center rounded bg-secondary-container font-display text-lg font-extrabold text-primary">
-        Z
-      </div>
-      <span className="hidden font-display text-xl font-bold tracking-tight text-white sm:inline">
-        Zeu<span className="text-secondary-container">Din</span>
-      </span>
+      {logoUrl ? (
+        <img src={logoUrl} alt={siteName} className="h-[34px] w-[34px] flex-shrink-0 rounded object-cover" />
+      ) : (
+        <div className="flex h-[34px] w-[34px] items-center justify-center rounded bg-secondary-container font-display text-lg font-extrabold text-primary">
+          {siteName.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <span className="hidden font-display text-xl font-bold tracking-tight text-white sm:inline">{siteName}</span>
     </Link>
   );
 }

@@ -42,7 +42,7 @@ export default function AdminReviews() {
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Comentarios</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Todos los comentarios y reseñas del sitio. Ocultar es reversible (deja de verse en la tienda y en el panel del vendedor, pero
-        podés volver a mostrarlo); eliminar es definitivo.
+        puedes volver a mostrarlo); eliminar es definitivo.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}

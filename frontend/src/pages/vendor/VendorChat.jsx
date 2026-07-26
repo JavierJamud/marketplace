@@ -3,12 +3,14 @@ import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Lock, Send, ShieldCheck } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 function fmtTime(iso) {
   return new Date(iso).toLocaleString("es-CU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function VendorChat() {
+  const { siteName } = usePlatformSettings();
   const { vendor } = useOutletContext();
   const isApproved = vendor?.verification?.status === "APPROVED";
   const queryClient = useQueryClient();
@@ -51,14 +53,14 @@ export default function VendorChat() {
     return (
       <div>
         <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Mensajes</h1>
-        <p className="mb-[26px] text-[13.5px] text-outline">Chat directo con el equipo de ZeuDin.</p>
+        <p className="mb-[26px] text-[13.5px] text-outline">Chat directo con el equipo de {siteName}.</p>
         <div className="max-w-[520px] rounded-lg bg-gradient-to-br from-primary to-primary-container p-[22px] text-white">
           <div className="mb-2 flex items-center gap-2">
             <Lock className="h-5 w-5" />
             <span className="text-[14px] font-bold">Función exclusiva para tiendas verificadas</span>
           </div>
           <p className="mb-3 text-[12.5px] leading-[18px] text-white/80">
-            El chat con el equipo de ZeuDin se habilita automáticamente cuando tu tienda pasa la verificación KYC.
+            El chat con el equipo de {siteName} se habilita automáticamente cuando tu tienda pasa la verificación KYC.
           </p>
           <Link to="/vendedor/verificacion" className="text-[12.5px] font-bold text-secondary-container">Verificar mi tienda →</Link>
         </div>
@@ -71,7 +73,7 @@ export default function VendorChat() {
       <div className="mb-[18px]">
         <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Mensajes</h1>
         <p className="flex items-center gap-1.5 text-[13.5px] text-outline">
-          <ShieldCheck className="h-3.5 w-3.5 text-verified-dark" /> Chat directo con el equipo de ZeuDin
+          <ShieldCheck className="h-3.5 w-3.5 text-verified-dark" /> Chat directo con el equipo de {siteName}
         </p>
       </div>
 
@@ -94,7 +96,7 @@ export default function VendorChat() {
             ))
           ) : (
             <p className="py-6 text-center text-body-md text-on-surface-variant">
-              Todavía no hay mensajes. Escribile al equipo de ZeuDin lo que necesites.
+              Todavía no hay mensajes. Escribile al equipo de {siteName} lo que necesites.
             </p>
           )}
           <div ref={bottomRef} />
@@ -110,7 +112,7 @@ export default function VendorChat() {
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Escribí un mensaje..."
+            placeholder="Escribe un mensaje..."
             className="h-11 flex-1 rounded border border-outline-variant bg-surface px-3.5 text-body-md outline-none"
           />
           <button

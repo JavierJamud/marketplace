@@ -3,17 +3,16 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Minus, Plus, Trash2, MessageCircle } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { formatPrice, formatMixedTotal } from "../../lib/format.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { waLink } from "../../lib/whatsapp.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
 export default function Cart() {
-  const { items, total, vendorName, vendorSlug, vendorColor, vendorVerified, vendorWhatsapp, updateQuantity, removeItem } = useCart();
+  const { siteName } = usePlatformSettings();
+  const { items, vendorName, vendorSlug, vendorColor, vendorVerified, vendorWhatsapp, updateQuantity, removeItem } = useCart();
   const [itemToRemove, setItemToRemove] = useState(null);
 
   const { data: vendor } = useQuery({
@@ -38,7 +37,7 @@ export default function Cart() {
         <div className="mx-auto max-w-[480px] rounded-lg border border-surface-container-high bg-surface-container-lowest py-16 text-center">
           <div className="mb-3.5 text-4xl">🛒</div>
           <div className="mb-1.5 text-title-lg font-bold text-on-surface">Tu carrito está vacío</div>
-          <p className="mb-5 text-[13.5px] text-outline">Explorá el catálogo de tu provincia y agregá productos.</p>
+          <p className="mb-5 text-[13.5px] text-outline">Explora el catálogo de tu provincia y agrega productos.</p>
           <Link to="/catalogo" className="inline-block rounded bg-secondary-container px-6 py-3 text-label-md font-bold text-on-secondary-container">
             Ir al catálogo
           </Link>
@@ -47,7 +46,9 @@ export default function Cart() {
     );
   }
 
-  const waText = `Hola ${vendorName}, quiero pedir:\n${items.map((i) => `• ${i.quantity}× ${i.name}`).join("\n")}\nTotal aprox: ${fmtCUP(total)}`;
+  const waText = `Hola ${vendorName}, quiero pedir:\n${items
+    .map((i) => `• ${i.quantity}× ${i.name}${i.size ? ` (talla ${i.size})` : ""}`)
+    .join("\n")}\nTotal aprox: ${formatMixedTotal(items)}`;
 
   return (
     <div className="container-app max-w-[1080px] py-9">
@@ -72,22 +73,27 @@ export default function Cart() {
 
           <div className="overflow-hidden rounded-md border border-surface-container-high bg-surface-container-lowest">
             {items.map((it) => (
-              <div key={it.productId} className="flex items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
+              <div key={`${it.productId}-${it.size ?? ""}`} className="flex items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
                 <div className="h-16 w-16 flex-shrink-0 rounded-md bg-surface-container" />
                 <div className="flex-1">
-                  <div className="text-body-md font-semibold text-on-surface">{it.name}</div>
-                  <div className="mt-0.5 text-[12.5px] text-outline">{fmtCUP(it.price)} c/u</div>
+                  <div className="flex items-center gap-1.5 text-body-md font-semibold text-on-surface">
+                    {it.name}
+                    {it.size && (
+                      <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">Talla {it.size}</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[12.5px] text-outline">{formatPrice(it.price, it.currency)} c/u</div>
                 </div>
                 <div className="flex items-center rounded border border-outline-variant">
-                  <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1))} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                  <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
                     <Minus className="h-3.5 w-3.5" />
                   </button>
                   <div className="w-[34px] text-center text-body-md font-semibold">{it.quantity}</div>
-                  <button onClick={() => updateQuantity(it.productId, it.quantity + 1)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                  <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <div className="w-24 flex-shrink-0 text-right text-body-md font-bold text-on-surface">{fmtCUP(it.price * it.quantity)}</div>
+                <div className="w-24 flex-shrink-0 text-right text-body-md font-bold text-on-surface">{formatPrice(it.price * it.quantity, it.currency)}</div>
                 <button onClick={() => setItemToRemove(it)} className="p-1.5 text-error">
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -101,7 +107,7 @@ export default function Cart() {
           <div className="mb-4 font-display text-title-lg text-on-surface">Resumen del pedido</div>
           <div className="mb-2.5 flex justify-between text-[13.5px] text-on-surface-variant">
             <span>Subtotal</span>
-            <span>{fmtCUP(total)}</span>
+            <span>{formatMixedTotal(items)}</span>
           </div>
           <div className="mb-2.5 flex justify-between text-[13.5px] text-on-surface-variant">
             <span>Envío</span>
@@ -109,7 +115,7 @@ export default function Cart() {
           </div>
           <div className="mb-[18px] flex justify-between border-t border-surface-container-high pt-3 text-title-lg font-bold text-on-surface">
             <span>Total</span>
-            <span>{fmtCUP(total)}</span>
+            <span>{formatMixedTotal(items)}</span>
           </div>
           {wantsPanel ? (
             <>
@@ -117,7 +123,7 @@ export default function Cart() {
                 Completar pedido
               </Link>
               <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
-                Esta tienda gestiona sus pedidos desde su panel. Completá tus datos y te contactarán para coordinar.
+                Esta tienda gestiona sus pedidos desde su panel. Completa tus datos y te contactarán para coordinar.
               </p>
             </>
           ) : (
@@ -136,7 +142,7 @@ export default function Cart() {
                 Checkout con dirección
               </Link>
               <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
-                No se cobra nada en ZeuDin — coordinás el pago directo con el vendedor (contra entrega, en línea o efectivo).
+                No se cobra nada en {siteName} — coordinas el pago directo con el vendedor (contra entrega, en línea o efectivo).
               </p>
             </>
           )}
@@ -149,7 +155,7 @@ export default function Cart() {
           description="Se va a sacar por completo del carrito."
           confirmLabel="Eliminar"
           onConfirm={() => {
-            removeItem(itemToRemove.productId);
+            removeItem(itemToRemove.productId, itemToRemove.size);
             setItemToRemove(null);
           }}
           onCancel={() => setItemToRemove(null)}

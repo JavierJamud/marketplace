@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const PALETTE = ["#337475", "#8A5100", "#003435", "#643900", "#232F3E", "#2c5b2e"];
 function colorFor(id) {
@@ -44,6 +45,7 @@ export default function AdminCustomers() {
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [suspending, setSuspending] = useState(null); // cliente a suspender, para el modal de confirmación
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-customers"],
@@ -52,8 +54,14 @@ export default function AdminCustomers() {
 
   const toggle = useMutation({
     mutationFn: async ({ id, isSuspended }) => (await api.patch(`/admin/customers/${id}`, { isSuspended })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-customers"] }),
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar el cliente."),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-customers"] });
+      setSuspending(null);
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo actualizar el cliente.");
+      setSuspending(null);
+    },
   });
 
   const update = useMutation({
@@ -80,7 +88,7 @@ export default function AdminCustomers() {
   return (
     <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Clientes</h1>
-      <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Podés editar datos, suspender o eliminar cuentas.</p>
+      <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Puedes editar datos, suspender o eliminar cuentas.</p>
 
       <div className="mb-4 flex h-[42px] max-w-[340px] items-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-3">
         <Search className="h-4 w-4 text-outline" />
@@ -124,7 +132,7 @@ export default function AdminCustomers() {
                 Editar
               </button>
               <button
-                onClick={() => toggle.mutate({ id: c.id, isSuspended: !c.isSuspended })}
+                onClick={() => (c.isSuspended ? toggle.mutate({ id: c.id, isSuspended: false }) : setSuspending(c))}
                 className={`rounded-[7px] px-3 py-1.5 text-[12px] font-semibold ${
                   c.isSuspended ? "bg-verified-dark text-white" : "border border-outline-variant text-on-surface-variant"
                 }`}
@@ -157,6 +165,16 @@ export default function AdminCustomers() {
           onConfirm={() => remove.mutate(deleting.id)}
         />
       )}
+
+      <ConfirmModal
+        open={!!suspending}
+        title={`¿Suspender a "${suspending?.fullName ?? suspending?.email}"?`}
+        message="La cuenta no va a poder iniciar sesión hasta que la reactives."
+        confirmLabel={toggle.isPending ? "Suspendiendo..." : "Sí, suspender"}
+        danger
+        onConfirm={() => toggle.mutate({ id: suspending.id, isSuspended: true })}
+        onCancel={() => setSuspending(null)}
+      />
     </div>
   );
 }

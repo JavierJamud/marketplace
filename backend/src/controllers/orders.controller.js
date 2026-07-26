@@ -40,7 +40,17 @@ const createOrderSchema = z.object({
   shippingMunicipalityId: z.string().optional(),
   tableNumber: z.number().int().positive().optional(),
   items: z
-    .array(z.object({ productId: z.string(), quantity: z.number().int().positive(), selectedOptions: z.record(z.any()).optional() }))
+    .array(
+      z.object({
+        productId: z.string(),
+        quantity: z.number().int().positive(),
+        selectedOptions: z.record(z.any()).optional(),
+        // Bloque 52: talla elegida, solo si el producto tiene Product.sizes
+        // cargadas — validado contra esa lista más abajo (nunca se confía en
+        // que el string que manda el cliente sea una talla real del producto).
+        size: z.string().optional(),
+      })
+    )
     .min(1, "El pedido necesita al menos un producto"),
 });
 
@@ -68,15 +78,32 @@ export async function createOrder(req, res) {
 
   const productById = Object.fromEntries(products.map((p) => [p.id, p]));
 
+  // Bloque 52: si el producto tiene tallas cargadas, el cliente TIENE que
+  // elegir una de las reales (nunca se confía en el string que manda el
+  // body) — si no tiene tallas, cualquier `size` que haya mandado se ignora.
+  for (const i of data.items) {
+    const product = productById[i.productId];
+    if (product.sizes.length > 0 && !product.sizes.includes(i.size)) {
+      throw new AppError(`Elige una talla válida para "${product.name}".`, 400);
+    }
+    if (product.sizes.length === 0) i.size = undefined;
+  }
+
   // Bloque 29: chequeo puramente informativo — NUNCA reserva ni descuenta
   // nada (el stock del producto no se toca hasta que el vendedor confirme
   // la venta, ver confirmOrderSale). Solo evita que un pedido obviamente
   // imposible (pide más de lo que hay en este instante) se registre igual;
   // como no reserva nada, dos clientes pidiendo el último ítem casi al
   // mismo tiempo pueden AMBOS pasar este chequeo y quedar como pedidos
-  // Pendiente — es intencional, el vendedor decide cuál confirmar.
+  // Pendiente — es intencional, el vendedor decide cuál confirmar. Bloque
+  // 52: si el ítem lleva talla, el disponible es el de ESA talla, no el
+  // total del producto.
   const quickCheck = data.items
-    .map((i) => ({ productId: i.productId, requested: i.quantity, available: productById[i.productId].stock, name: productById[i.productId].name }))
+    .map((i) => {
+      const product = productById[i.productId];
+      const available = i.size ? Number(product.sizeStock?.[i.size] ?? 0) : product.stock;
+      return { productId: i.productId, requested: i.quantity, available, name: product.name, size: i.size ?? null };
+    })
     .filter((i) => i.requested > i.available);
   if (quickCheck.length > 0) {
     throw new AppError("Algunos productos ya no tienen suficiente stock.", 409, { insufficientStock: quickCheck });
@@ -87,8 +114,10 @@ export async function createOrder(req, res) {
     productId: i.productId,
     name: productById[i.productId].name,
     price: productById[i.productId].price,
+    currency: productById[i.productId].currency,
     quantity: i.quantity,
     selectedOptions: i.selectedOptions ?? null,
+    size: i.size ?? null,
   }));
   const total = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
@@ -169,6 +198,34 @@ export async function listMyOrders(req, res) {
   res.json({ orders, tableOrders });
 }
 
+// Bloque 52: decremento/incremento atómico de stock POR TALLA. `sizeStock`
+// es JSON, y Prisma no da un `updateMany({ where: { stock: { gte } } })`
+// para un valor DENTRO de un JSON — en vez de armar SQL crudo con
+// jsonb_set/to_jsonb a mano (frágil, fácil de romper con un paréntesis de
+// más), se usa `SELECT ... FOR UPDATE` dentro de la misma transacción: eso
+// bloquea la fila hasta que la transacción termina, así que dos
+// confirmaciones concurrentes sobre el mismo producto quedan serializadas
+// (la segunda espera a que la primera termine y lee el valor YA actualizado)
+// — misma garantía atómica que el updateMany+WHERE que protege el stock
+// general, solo que con lock explícito en vez de un WHERE condicional.
+async function decrementSizeStock(tx, productId, size, quantity) {
+  const rows = await tx.$queryRaw`SELECT "sizeStock" FROM "Product" WHERE id = ${productId} FOR UPDATE`;
+  const current = Number(rows[0]?.sizeStock?.[size] ?? 0);
+  if (current < quantity) return false;
+  const nextSizeStock = { ...rows[0].sizeStock, [size]: current - quantity };
+  const nextTotal = Object.values(nextSizeStock).reduce((sum, n) => sum + Number(n), 0);
+  await tx.product.update({ where: { id: productId }, data: { sizeStock: nextSizeStock, stock: nextTotal } });
+  return true;
+}
+
+async function incrementSizeStock(tx, productId, size, quantity) {
+  const rows = await tx.$queryRaw`SELECT "sizeStock" FROM "Product" WHERE id = ${productId} FOR UPDATE`;
+  const current = Number(rows[0]?.sizeStock?.[size] ?? 0);
+  const nextSizeStock = { ...(rows[0]?.sizeStock ?? {}), [size]: current + quantity };
+  const nextTotal = Object.values(nextSizeStock).reduce((sum, n) => sum + Number(n), 0);
+  await tx.product.update({ where: { id: productId }, data: { sizeStock: nextSizeStock, stock: nextTotal } });
+}
+
 export async function updateOrderStatus(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
@@ -192,7 +249,8 @@ export async function updateOrderStatus(req, res) {
     if (shouldRestock) {
       for (const item of order.items) {
         if (!item.productId) continue;
-        await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
+        if (item.size) await incrementSizeStock(tx, item.productId, item.size, item.quantity);
+        else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
     }
     return tx.order.update({ where: { id }, data: { status }, include: { vendor: { select: { companyName: true } } } });
@@ -220,15 +278,21 @@ export async function confirmOrderSale(req, res) {
   const updated = await prisma.$transaction(async (tx) => {
     for (const item of order.items) {
       if (!item.productId) continue; // producto borrado después del pedido — nada que descontar
-      const result = await tx.product.updateMany({
-        where: { id: item.productId, stock: { gte: item.quantity } },
-        data: { stock: { decrement: item.quantity } },
-      });
-      if (result.count === 0) {
+
+      // Bloque 52: si el ítem lleva talla, decrementar ESA talla (con lock de
+      // fila, ver decrementSizeStock) en vez del stock general del producto.
+      const ok = item.size
+        ? await decrementSizeStock(tx, item.productId, item.size, item.quantity)
+        : (await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } })).count > 0;
+
+      if (!ok) {
         const fresh = await tx.product.findUnique({ where: { id: item.productId } });
-        throw new AppError(`Stock insuficiente para confirmar "${item.name}" — pedido ${item.quantity}, disponible ${fresh?.stock ?? 0}.`, 409, {
-          insufficientStock: [{ productId: item.productId, name: item.name, requested: item.quantity, available: fresh?.stock ?? 0 }],
-        });
+        const available = item.size ? Number(fresh?.sizeStock?.[item.size] ?? 0) : fresh?.stock ?? 0;
+        throw new AppError(
+          `Stock insuficiente para confirmar "${item.name}"${item.size ? ` (talla ${item.size})` : ""} — pedido ${item.quantity}, disponible ${available}.`,
+          409,
+          { insufficientStock: [{ productId: item.productId, name: item.name, size: item.size ?? null, requested: item.quantity, available }] }
+        );
       }
     }
     return tx.order.update({ where: { id }, data: { status: "PREPARING" }, include: { items: true, vendor: { select: { companyName: true } } } });
@@ -255,14 +319,22 @@ async function findAtRiskSiblingOrders({ vendorId, excludeOrderId, productIds })
   });
   if (siblingOrders.length === 0) return [];
 
-  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, stock: true } });
-  const stockById = new Map(products.map((p) => [p.id, p.stock]));
+  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, stock: true, sizeStock: true } });
+  const productById = new Map(products.map((p) => [p.id, p]));
+
+  // Bloque 52: si el ítem lleva talla, lo que importa es el stock de ESA
+  // talla, no el total del producto (puede sobrar en otras tallas).
+  function availableFor(item) {
+    const product = productById.get(item.productId);
+    if (!product) return 0;
+    return item.size ? Number(product.sizeStock?.[item.size] ?? 0) : product.stock;
+  }
 
   const atRisk = [];
   for (const o of siblingOrders) {
     const shortItems = o.items
-      .filter((i) => i.productId && i.quantity > (stockById.get(i.productId) ?? 0))
-      .map((i) => ({ name: i.name, requested: i.quantity, available: stockById.get(i.productId) ?? 0 }));
+      .filter((i) => i.productId && i.quantity > availableFor(i))
+      .map((i) => ({ name: i.name, requested: i.quantity, available: availableFor(i) }));
     if (shortItems.length > 0) {
       atRisk.push({ orderId: o.id, code: o.code, customerName: o.customerName, customerEmail: o.customerEmail, items: shortItems });
     }
@@ -287,7 +359,9 @@ export async function deleteOrder(req, res) {
 }
 
 const updateOrderItemsSchema = z.object({
-  items: z.array(z.object({ productId: z.string(), quantity: z.number().int().positive() })).min(1, "El pedido necesita al menos un producto"),
+  items: z
+    .array(z.object({ productId: z.string(), quantity: z.number().int().positive(), size: z.string().optional() }))
+    .min(1, "El pedido necesita al menos un producto"),
 });
 
 // Reemplaza la lista completa de ítems de un pedido pendiente (el vendedor
@@ -312,7 +386,9 @@ export async function updateOrderItems(req, res) {
     productId: i.productId,
     name: productById[i.productId].name,
     price: productById[i.productId].price,
+    currency: productById[i.productId].currency,
     quantity: i.quantity,
+    size: i.size ?? null,
   }));
   const total = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 

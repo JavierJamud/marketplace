@@ -94,7 +94,7 @@ export default function Contacto() {
               rows={5}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Contanos en qué te podemos ayudar..."
+              placeholder="Cuéntanos en qué te podemos ayudar..."
               className="w-full rounded border border-outline-variant bg-surface-container-lowest p-3.5 text-[14px] outline-none focus:border-tertiary-accent"
             />
           </div>

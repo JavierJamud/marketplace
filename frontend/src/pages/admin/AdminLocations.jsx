@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Globe2, MapPin, Plus, Pencil, SlidersHorizontal, Trash2, ChevronRight, Search } from "lucide-react";
+import { Globe2, MapPin, Plus, Pencil, SlidersHorizontal, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
@@ -104,6 +104,47 @@ function PlanLimitsPanel() {
       <Button className="mt-5 rounded-xl px-5" onClick={() => save.mutate()} disabled={save.isPending}>
         {save.isPending ? "Guardando..." : "Guardar cambios de límites"}
       </Button>
+    </div>
+  );
+}
+
+function ProductImageLinksPanel() {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+
+  const toggle = useMutation({
+    mutationFn: async (allowProductImageLinks) => (await api.patch("/admin/settings/product-settings", { allowProductImageLinks })).data,
+    onSuccess: () => {
+      toast.success("Configuración actualizada.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  if (!settings) return null;
+
+  return (
+    <div className="mb-8 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+        <ImageIcon className="h-4 w-4 text-tertiary-accent" /> Imágenes de producto por link
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">
+        Permite que los vendedores agreguen fotos de producto pegando un link externo, además de subir el archivo. Desactivalo
+        si prefieres que todas las imágenes pasen únicamente por la subida de archivos del servidor.
+      </p>
+      <label className="flex w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-surface-container-high bg-surface-container/30 p-3.5 text-[13.5px] font-semibold text-on-surface">
+        <input
+          type="checkbox"
+          checked={settings.allowProductImageLinks}
+          onChange={(e) => toggle.mutate(e.target.checked)}
+          disabled={toggle.isPending}
+          className="h-4 w-4 rounded accent-tertiary-accent"
+        />
+        Permitir agregar imágenes por link externo
+      </label>
     </div>
   );
 }
@@ -350,6 +391,7 @@ export default function AdminLocations() {
 
       {/* Plan Limits Card */}
       <PlanLimitsPanel />
+      <ProductImageLinksPanel />
 
       {/* Modern Master-Detail Layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -602,7 +644,7 @@ export default function AdminLocations() {
                   <div className="rounded-xl border border-dashed border-outline-variant p-8 text-center">
                     <MapPin className="mx-auto h-8 w-8 text-outline/50 mb-2" />
                     <p className="text-[13.5px] font-semibold text-on-surface">Sin subdivisiones para {selectedCountry.name}</p>
-                    <p className="text-[12px] text-outline mb-4">Agregá los estados o provincias donde operarán los vendedores en este país.</p>
+                    <p className="text-[12px] text-outline mb-4">Agrega los estados o provincias donde operarán los vendedores en este país.</p>
                     <Button
                       className="rounded-xl text-[12.5px]"
                       onClick={() => setProvinceModal({ countryId: selectedCountry.id })}
@@ -643,7 +685,7 @@ export default function AdminLocations() {
       {itemToDelete && (
         <ConfirmDeleteModal
           title={`¿Eliminar ${itemToDelete.name}?`}
-          description="Si está en uso por alguna tienda no se va a poder eliminar. Para esos casos, podés marcarlo como inactivo en su lugar."
+          description="Si está en uso por alguna tienda no se va a poder eliminar. Para esos casos, puedes marcarlo como inactivo en su lugar."
           pending={itemToDelete.type === "COUNTRY" ? deleteCountry.isPending : deleteSubdivision.isPending}
           onConfirm={() => {
             if (itemToDelete.type === "COUNTRY") {

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 
-const createSchema = z.object({ message: z.string().min(5, "Contanos un poco más.") });
+const createSchema = z.object({ message: z.string().min(5, "Cuéntanos un poco más.") });
 
 // authorType nunca viene del body — se deriva del role real del JWT, así no
 // se puede falsear "mandé esto como vendedor" siendo cliente (o viceversa).

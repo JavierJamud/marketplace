@@ -1,19 +1,24 @@
-import { emailShell, statusBadge } from "./_shared.js";
+import { emailShell, statusBadge, paragraph } from "./_shared.js";
 
 // Mismos 3 estados de KitchenStatus (schema.prisma), no una paleta paralela.
 const STATUS_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo para retirar" };
 const STATUS_COLOR = { RECEIVED: "#337475", PREPARING: "#8A5100", READY: "#0A8F42" };
 
-export function tableOrderStatusEmail({ vendorName, tableNumber, kitchenStatus }) {
+export async function tableOrderStatusEmail({ vendorName, tableNumber, kitchenStatus }) {
   const label = STATUS_LABEL[kitchenStatus] ?? kitchenStatus;
   const color = STATUS_COLOR[kitchenStatus] ?? "#75777c";
-  const subject = `Tu pedido de mesa en ${vendorName}: ${label}`;
-  const html = emailShell({
+  // Bloque 49: se agrega el número de mesa — junto con vendorName ya
+  // distingue cada envío (varias mesas de la misma tienda no comparten
+  // asunto idéntico).
+  const subject = `Mesa ${tableNumber} en ${vendorName}: ${label}`;
+  const html = await emailShell({
+    preview: `Tu pedido de la mesa ${tableNumber} en ${vendorName} ahora está: ${label}`,
     title: `Mesa ${tableNumber} — ${vendorName}`,
     storeName: vendorName,
-    bodyHtml: `
-      <p style="color:#44474c;font-size:14px;line-height:21px;">Tu pedido cambió de estado:</p>
-      <div style="margin:16px 0;">${statusBadge(label, color)}</div>
+    accentColor: color,
+    bodyMjml: `
+      ${paragraph("Tu pedido cambió de estado:")}
+      ${statusBadge(label, color)}
     `,
   });
   return { subject, html };

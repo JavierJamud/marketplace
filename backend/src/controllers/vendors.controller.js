@@ -7,6 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { slugify } from "../utils/slugify.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { isAIAvailable } from "../lib/ai.js";
+import { getBrandSettings } from "./settings.controller.js";
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
@@ -36,7 +37,7 @@ const createVendorSchema = z.object({
   tableCount: z.number().int().positive().optional(),
   // Bloque 18: obligatorio — el rubro/tipo de negocio se elige una sola vez
   // al registrar la tienda (se puede cambiar después desde VendorSettings.jsx).
-  businessCategoryId: z.string().min(1, "Elegí el tipo de negocio de tu tienda."),
+  businessCategoryId: z.string().min(1, "Elige el tipo de negocio de tu tienda."),
   locations: z
     .array(z.object({ provinceId: z.string(), municipalityId: z.string().optional() }))
     .min(1, "Selecciona al menos una provincia donde prestas servicio"),
@@ -495,7 +496,8 @@ async function requireApprovedVendor(userId) {
   const vendor = await prisma.vendor.findUnique({ where: { userId }, include: { verification: true } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
   if (vendor.verification?.status !== "APPROVED") {
-    throw new AppError("El chat con el equipo de ZeuDin se habilita al verificar tu tienda.", 403);
+    const { siteName } = await getBrandSettings();
+    throw new AppError(`El chat con el equipo de ${siteName} se habilita al verificar tu tienda.`, 403);
   }
   return vendor;
 }
@@ -582,7 +584,7 @@ export async function addMyDeliveryCountry(req, res) {
   const currentCount = await prisma.vendorDeliveryCountry.count({ where: { vendorId: vendor.id } });
   if (currentCount >= max) {
     throw new AppError(
-      `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite hasta ${max} país(es) de entrega. Quitá uno o verificá tu tienda para ampliar el límite.`,
+      `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite hasta ${max} país(es) de entrega. Quita uno o verifica tu tienda para ampliar el límite.`,
       403
     );
   }
@@ -631,14 +633,14 @@ export async function addMyLocation(req, res) {
     const max = vendor.planType === "BUSINESS" ? limits.maxProvincesBusiness : limits.maxProvincesRegular;
     if (max !== null && distinctProvinceCount >= max) {
       throw new AppError(
-        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verificá tu tienda para ampliar el límite.`,
+        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
         403
       );
     }
   }
 
   const duplicate = existingLocations.some((l) => l.provinceId === provinceId && l.municipalityId === (municipalityId ?? null));
-  if (duplicate) throw new AppError("Ya tenés esa provincia/municipio agregado.", 409);
+  if (duplicate) throw new AppError("Ya tienes esa provincia/municipio agregado.", 409);
 
   const created = await prisma.vendorLocation.create({
     data: { vendorId: vendor.id, provinceId, municipalityId: municipalityId || null },
@@ -674,7 +676,7 @@ export async function syncProvinceLocations(req, res) {
     const max = vendor.planType === "BUSINESS" ? limits.maxProvincesBusiness : limits.maxProvincesRegular;
     if (max !== null && distinctProvinceCount >= max) {
       throw new AppError(
-        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verificá tu tienda para ampliar el límite.`,
+        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
         403
       );
     }
@@ -758,8 +760,8 @@ export async function removeMyLocation(req, res) {
 // que después lee chat.controller.js para armar el contexto del chatbot.
 export async function uploadAiDocument(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-  if (!vendor) throw new AppError("No tenés una tienda registrada.", 404);
-  if (!req.file) throw new AppError("Subí un archivo .pdf o .txt.", 400);
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  if (!req.file) throw new AppError("Sube un archivo .pdf o .txt.", 400);
 
   // Reemplazo, no acumulación — un solo documento por tienda a la vez. Si
   // falla el borrado del anterior (ya no existe, permisos, etc.) no bloquea
@@ -777,7 +779,7 @@ export async function uploadAiDocument(req, res) {
 
 export async function removeAiDocument(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-  if (!vendor) throw new AppError("No tenés una tienda registrada.", 404);
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   if (vendor.aiDocument) {
     await unlink(join(VENDOR_AI_DOC_DIR, vendor.aiDocument)).catch(() => {});

@@ -5,10 +5,10 @@ import { AppError } from "../utils/AppError.js";
 import { prisma } from "../lib/prisma.js";
 
 const generateSchema = z.object({
-  kind: z.enum(["product", "store", "warranty"]),
+  kind: z.enum(["product", "store", "warranty", "offer"]),
   // Obligatorio: la IA "mejora" lo que el vendedor ya escribió, nunca
   // inventa un producto/tienda/garantía desde cero (regla de negocio del bloque).
-  currentText: z.string().min(5, "Escribí primero una breve descripción para que la IA la pueda mejorar."),
+  currentText: z.string().min(5, "Escribe primero una breve descripción para que la IA la pueda mejorar."),
   productName: z.string().optional(),
 });
 
@@ -39,7 +39,7 @@ export async function generateProductOrStoreDescription(req, res) {
 // resolveMyVendor) a propósito: ninguno de los dos bots exige login para
 // usar audio, mismo acceso que escribir texto.
 export async function transcribeChatAudio(req, res) {
-  if (!req.file) throw new AppError("Mandá un audio para transcribir.", 400);
+  if (!req.file) throw new AppError("Manda un audio para transcribir.", 400);
   const text = await transcribeAudio({ audioBuffer: req.file.buffer, mimeType: req.file.mimetype, filename: req.file.originalname });
   res.json({ text });
 }

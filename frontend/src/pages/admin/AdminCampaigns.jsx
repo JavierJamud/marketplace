@@ -67,7 +67,7 @@ export default function AdminCampaigns() {
   return (
     <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Campañas</h1>
-      <p className="mb-[22px] text-[13.5px] text-outline">Enviá correos masivos (Resend) a clientes o vendedores segmentados.</p>
+      <p className="mb-[22px] text-[13.5px] text-outline">Envía correos masivos (Resend) a clientes o vendedores segmentados.</p>
 
       <div className="grid grid-cols-1 items-start gap-[22px] lg:grid-cols-[1fr_340px]">
         <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6">
@@ -114,7 +114,7 @@ export default function AdminCampaigns() {
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="Escribí el contenido del correo..."
+                placeholder="Escribe el contenido del correo..."
                 className="min-h-[130px] w-full resize-y rounded-lg border border-outline-variant p-3.5 text-[14px] outline-none"
               />
             </div>

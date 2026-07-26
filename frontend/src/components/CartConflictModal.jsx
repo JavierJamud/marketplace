@@ -1,10 +1,12 @@
 import { useCart } from "../context/CartContext.jsx";
+import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { Button } from "./ui/Button.jsx";
 import { AlertTriangle } from "lucide-react";
 
 // Cuando el cliente intenta agregar un producto de otra tienda mientras ya
 // tiene un carrito activo. Regla de negocio: un solo vendedor a la vez.
 export function CartConflictModal() {
+  const { siteName } = usePlatformSettings();
   const { pendingConflict, resolveConflict, vendorName } = useCart();
 
   if (!pendingConflict) return null;
@@ -15,7 +17,7 @@ export function CartConflictModal() {
         <AlertTriangle className="mb-3 h-8 w-8 text-secondary-container" />
         <h3 className="mb-2 text-title-lg text-on-surface">Tu carrito tiene otra tienda</h3>
         <p className="mb-6 text-body-md text-on-surface-variant">
-          Tienes productos de <strong>{vendorName}</strong>. En ZeuDin solo puedes comprar a un vendedor a la vez.
+          Tienes productos de <strong>{vendorName}</strong>. En {siteName} solo puedes comprar a un vendedor a la vez.
           ¿Quieres vaciar tu carrito y empezar un pedido nuevo con esta tienda?
         </p>
         <div className="flex gap-3">

@@ -30,6 +30,15 @@
   }
 }
 
+/* Bloque 50 (pedido explícito): el marquee de categorías del Home se
+   detiene al pasar el mouse por encima y retoma solo al sacarlo — como la
+   animación es `linear infinite` (ver tailwind.config.js), pausarla con
+   animation-play-state nunca "salta": retoma exactamente en el mismo punto
+   donde se quedó, así que el reinicio siempre se siente suave. */
+.category-marquee-track:hover {
+  animation-play-state: paused;
+}
+
 /* Bloque 48: estilos por defecto para el HTML libre que guarda el admin en
    AdminPages.jsx (Términos/Privacidad/FAQ/Ayuda/Contacto) — sin esto, el
    reset base de Tailwind deja h1/p/ul sin ningún estilo visual. Colores

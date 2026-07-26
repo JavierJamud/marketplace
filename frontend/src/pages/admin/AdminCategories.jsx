@@ -63,7 +63,7 @@ function CategoryModal({ category, onClose }) {
               {icon && (iconValid ? <Check className="h-4 w-4 flex-shrink-0 text-verified" /> : <X className="h-4 w-4 flex-shrink-0 text-error" />)}
             </div>
             <p className="mt-1 text-[11px] text-outline">
-              Buscá el nombre exacto en{" "}
+              Busca el nombre exacto en{" "}
               <span className="font-mono">lucide.dev/icons</span> (ej. "ShoppingBag", "Utensils", "Scissors").
             </p>
             {icon && !iconValid && <p className="mt-1 text-[11px] font-semibold text-error">Ese nombre no existe en lucide-react.</p>}

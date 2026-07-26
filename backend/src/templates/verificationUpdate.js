@@ -1,4 +1,5 @@
-import { emailShell, ctaButton, statusBadge } from "./_shared.js";
+import { emailShell, ctaButton, statusBadge, paragraph } from "./_shared.js";
+import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Un solo template genérico para todo el ciclo de verificación/cobro — mismo
 // patrón que statusUpdate.js ya usa un label/color map en vez de un template
@@ -11,19 +12,22 @@ const META = {
   VERIFICATION_BUSINESS_REVOKED: { label: "Plan Business revocado", color: "#ba1a1a" },
 };
 
-export function verificationUpdateEmail({ type, vendorName, title, message, ctaHref }) {
+export async function verificationUpdateEmail({ type, vendorName, title, message, ctaHref }) {
+  const { siteName } = await getBrandSettings();
   const meta = META[type] ?? { label: "Actualización", color: "#337475" };
   const subject = `${meta.label} — ${vendorName}`;
-  const html = emailShell({
+  const html = await emailShell({
+    preview: `${vendorName}: ${meta.label.toLowerCase()}`,
     title,
     // storeName acá es "quién firma el correo" (footer) — este es un email
     // de la plataforma al vendedor, no un mensaje de una tienda a su
-    // cliente, así que firma ZeuDin, no el propio vendedor.
-    storeName: "ZeuDin",
-    bodyHtml: `
-      <p style="color:#44474c;font-size:14px;line-height:21px;">Hola equipo de <strong>${vendorName}</strong>,</p>
-      <div style="margin:14px 0;">${statusBadge(meta.label, meta.color)}</div>
-      <p style="color:#44474c;font-size:14px;line-height:21px;">${message}</p>
+    // cliente, así que firma la plataforma, no el propio vendedor.
+    storeName: siteName,
+    accentColor: meta.color,
+    bodyMjml: `
+      ${paragraph(`Hola equipo de <strong>${vendorName}</strong>,`)}
+      ${statusBadge(meta.label, meta.color)}
+      ${paragraph(message)}
       ${ctaHref ? ctaButton("Ver en mi panel", ctaHref) : ""}
     `,
   });

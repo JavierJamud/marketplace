@@ -177,7 +177,7 @@ export default function AdminChat() {
 
   // Bloque 47: deep-link desde la campana de notificaciones
   // (/admin/mensajes/:vendorId) — si llega con un vendorId en la URL, abre
-  // ESE hilo directo en vez de la pantalla vacía de "elegí una tienda".
+  // ESE hilo directo en vez de la pantalla vacía de "elige una tienda".
   useEffect(() => {
     if (vendorIdParam) {
       setActiveVendorId(vendorIdParam);
@@ -292,7 +292,7 @@ export default function AdminChat() {
       <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
         {!activeVendorId ? (
           <div className="flex flex-1 items-center justify-center text-body-md text-on-surface-variant">
-            Elegí una tienda para ver la conversación.
+            Elige una tienda para ver la conversación.
           </div>
         ) : (
           <>
@@ -330,7 +330,7 @@ export default function AdminChat() {
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="Escribí un mensaje..."
+                placeholder="Escribe un mensaje..."
                 className="h-11 flex-1 rounded border border-outline-variant bg-surface px-3.5 text-body-md outline-none"
               />
               <button

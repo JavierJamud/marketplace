@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { ExternalLink, FileText, RotateCcw } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const PAGE_META = {
   terminos: { label: "Términos y condiciones", path: "/terminos" },
@@ -20,6 +21,7 @@ function fmtDate(iso) {
 function EditPageModal({ page, onClose }) {
   const queryClient = useQueryClient();
   const [html, setHtml] = useState(page.htmlContent ?? "");
+  const [confirmingRestore, setConfirmingRestore] = useState(false);
 
   const save = useMutation({
     mutationFn: async () => (await api.put(`/admin/static-pages/${page.slug}`, { htmlContent: html })).data,
@@ -38,7 +40,10 @@ function EditPageModal({ page, onClose }) {
       queryClient.invalidateQueries({ queryKey: ["admin-static-pages"] });
       onClose();
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo restaurar."),
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo restaurar.");
+      setConfirmingRestore(false);
+    },
   });
 
   return (
@@ -56,7 +61,7 @@ function EditPageModal({ page, onClose }) {
           </a>
         </div>
         <p className="mb-3 text-[12.5px] text-outline">
-          HTML libre — se sanitiza al guardar (se sacan scripts y atributos de evento). Dejalo vacío y guardá para volver
+          HTML libre — se sanitiza al guardar (se sacan scripts y atributos de evento). Déjalo vacío y guarda para volver
           al contenido predeterminado.
         </p>
         <textarea
@@ -67,7 +72,7 @@ function EditPageModal({ page, onClose }) {
         />
         <div className="mt-4 flex items-center justify-between gap-3">
           <button
-            onClick={() => restore.mutate()}
+            onClick={() => setConfirmingRestore(true)}
             disabled={restore.isPending || save.isPending || !page.htmlContent}
             className="flex items-center gap-1.5 rounded-md border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant disabled:opacity-40"
           >
@@ -81,6 +86,16 @@ function EditPageModal({ page, onClose }) {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmingRestore}
+        title={`¿Restaurar "${PAGE_META[page.slug].label}" al contenido predeterminado?`}
+        message="Se pierde el HTML editado de esta página. Esta acción no se puede deshacer."
+        confirmLabel={restore.isPending ? "Restaurando..." : "Sí, restaurar"}
+        danger
+        onConfirm={() => restore.mutate()}
+        onCancel={() => setConfirmingRestore(false)}
+      />
     </div>
   );
 }
@@ -97,7 +112,7 @@ export default function AdminPages() {
     <div className="max-w-[720px]">
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Páginas</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        Términos, privacidad, FAQ, ayuda y contacto — editá el HTML libre o dejalas con su contenido predeterminado.
+        Términos, privacidad, FAQ, ayuda y contacto — edita el HTML libre o déjalas con su contenido predeterminado.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}

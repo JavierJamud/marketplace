@@ -39,7 +39,7 @@ export function RequestProductButton({ productId, size = "md", className = "" })
       toast.success("Listo, le avisamos a la tienda que te interesa este producto.");
       setState("done");
     } catch {
-      toast.error("No se pudo enviar tu solicitud. Probá de nuevo.");
+      toast.error("No se pudo enviar tu solicitud. Prueba de nuevo.");
       setState("idle");
     }
   }

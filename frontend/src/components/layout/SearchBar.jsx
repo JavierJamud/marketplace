@@ -12,7 +12,8 @@ function fmtCUP(n) {
 }
 
 function imgUrl(path) {
-  return path ? `${api.defaults.baseURL}${path}` : null;
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
 // Bloque 22: reemplaza el <form> simple que vivía inline en Header.jsx —

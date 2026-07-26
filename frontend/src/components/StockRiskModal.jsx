@@ -14,8 +14,8 @@ export function StockRiskModal({ atRiskOrders, onNotify, onClose }) {
           <h3 className="text-title-lg text-on-surface">Otros pedidos se quedaron sin stock</h3>
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Al confirmar esa venta, el stock restante ya no alcanza para estos pedidos Pendientes del mismo producto. Podés avisarle al
-          cliente o dejarlo tal cual — no se tocan solos, vos decidís qué hacer con cada uno.
+          Al confirmar esa venta, el stock restante ya no alcanza para estos pedidos Pendientes del mismo producto. Puedes avisarle al
+          cliente o dejarlo tal cual — no se tocan solos, tú decides qué hacer con cada uno.
         </p>
 
         <div className="flex flex-col gap-2.5">

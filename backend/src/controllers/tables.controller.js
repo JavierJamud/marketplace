@@ -145,7 +145,7 @@ const createTableOrderSchema = z.object({
   items: z
     .array(z.object({ productId: z.string(), name: z.string(), quantity: z.number().int().positive(), price: z.number().positive() }))
     .min(1, "El pedido necesita al menos un producto"),
-  customerEmail: z.string().email("Ingresá un correo válido para avisarte del estado del pedido."),
+  customerEmail: z.string().email("Ingresa un correo válido para avisarte del estado del pedido."),
 });
 
 export async function createTableOrder(req, res) {

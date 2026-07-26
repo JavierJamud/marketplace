@@ -27,9 +27,9 @@ export function PlanComparisonModal({ onContinueRegular, businessHref = "/vended
         <div className="mb-1 text-center font-display text-[13px] font-bold uppercase tracking-wide text-secondary">
           ¡Tu tienda ya existe!
         </div>
-        <h2 className="mb-2 text-center font-display text-headline-md text-on-surface">Elegí cómo empezar</h2>
+        <h2 className="mb-2 text-center font-display text-headline-md text-on-surface">Elige cómo empezar</h2>
         <p className="mb-6 text-center text-[13px] text-outline">
-          Arrancás en el Plan Regular, gratis. Podés pasar a Business cuando quieras desde tu panel.
+          Arrancas en el Plan Regular, gratis. Puedes pasar a Business cuando quieras desde tu panel.
         </p>
 
         <div className="mb-6 overflow-hidden rounded-lg border border-surface-container-high">

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Copy, RefreshCw } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Bloque 45: Cerebras salió del sistema (su cuenta gratuita devolvía 402
 // Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
@@ -15,7 +16,7 @@ const SERVICE_META = {
   groq: { name: "Groq", desc: "Primer respaldo de IA — entra si Gemini está inactivo o falla. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
   nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA — entra si Gemini y Groq están inactivos o fallan", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
-  stripe: { name: "Stripe", desc: "Cobro de suscripción Business a ZeuDin", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
+  stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
 const ORDER = ["gemini", "groq", "nvidia", "resend", "stripe"];
 // Bloque 43/45: estos tres tienen modelo editable (campo nuevo) — Resend/Stripe no.
@@ -125,7 +126,7 @@ function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, 
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           type="password"
-          placeholder={integration ? integration.keyMask : "Pegá la clave aquí..."}
+          placeholder={integration ? integration.keyMask : "Pega la clave aquí..."}
           className="h-[42px] flex-1 rounded-lg border border-outline-variant px-3.5 font-mono text-[13px] outline-none"
         />
         <button
@@ -213,9 +214,9 @@ function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, 
               Guardar
             </button>
           </div>
-          {!integration && <p className="mt-1 text-[11px] text-outline">Guardá la clave primero para elegir de la lista real de modelos.</p>}
+          {!integration && <p className="mt-1 text-[11px] text-outline">Guarda la clave primero para elegir de la lista real de modelos.</p>}
           {integration && modelsQuery.isError && (
-            <p className="mt-1 text-[11px] text-error">No se pudo consultar la lista de modelos — escribí el nombre a mano.</p>
+            <p className="mt-1 text-[11px] text-error">No se pudo consultar la lista de modelos — escribe el nombre a mano.</p>
           )}
           <p className="mt-1 text-[11px] text-outline">
             Vacío = usa el default (<span className="font-mono">{DEFAULT_MODEL_BY_PROVIDER[name]}</span>).
@@ -308,7 +309,7 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
           </div>
           <p className="mt-1 text-[11px] text-outline">
             Cargalo en Stripe → Developers → Webhooks → Add endpoint, escuchando el evento <span className="font-mono">checkout.session.completed</span>.
-            {WEBHOOK_URL.includes("localhost") && " En desarrollo local usá Stripe CLI (stripe listen) para reenviar los eventos hasta acá."}
+            {WEBHOOK_URL.includes("localhost") && " En desarrollo local usa Stripe CLI (stripe listen) para reenviar los eventos hasta acá."}
           </p>
         </div>
 
@@ -325,6 +326,7 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
 }
 
 export default function AdminIntegrations() {
+  const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
 
   const { data } = useQuery({
@@ -384,9 +386,9 @@ export default function AdminIntegrations() {
   return (
     <div className="max-w-[820px]">
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Integraciones</h1>
-      <p className="mb-2 text-[13.5px] text-outline">Configurá las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
+      <p className="mb-2 text-[13.5px] text-outline">Configura las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        🔐 Podés activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Gemini (principal) → Groq
+        🔐 Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Gemini (principal) → Groq
         → NVIDIA NIM — cada uno entra solo si el anterior está inactivo o falla una consulta puntual. Un proveedor
         desactivado nunca se usa, ni siquiera como respaldo. El modelo de cada uno también es editable acá, sin
         redesplegar.
@@ -421,7 +423,7 @@ export default function AdminIntegrations() {
         )}
       </div>
       <p className="mt-[18px] text-[12px] text-outline">
-        Nota: Stripe se usa <strong>solo</strong> para cobrar la suscripción Business a ZeuDin — nunca en las ventas entre vendedor y cliente.
+        Nota: Stripe se usa <strong>solo</strong> para cobrar la suscripción Business a {siteName} — nunca en las ventas entre vendedor y cliente.
       </p>
     </div>
   );

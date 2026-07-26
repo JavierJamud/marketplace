@@ -78,7 +78,7 @@ export default function AdminDashboard() {
   return (
     <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Panel de administración</h1>
-      <p className="mb-6 text-[13.5px] text-outline">Métricas globales de la plataforma ZeuDin · Cuba.</p>
+      <p className="mb-6 text-[13.5px] text-outline">Métricas globales de la plataforma {settings?.siteName || "ZeuDin"} · Cuba.</p>
 
       <div className="mb-6 grid grid-cols-2 gap-[18px] lg:grid-cols-4">
         {metrics.map((m) => (
@@ -192,7 +192,7 @@ export default function AdminDashboard() {
       <div className="mt-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-[22px]">
         <div className="mb-1 text-[15px] font-bold text-on-surface">Imagen principal del sitio</div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Se muestra en la primera sección (hero) de la Home para todos los visitantes. Si no subís ninguna, se usa un
+          Se muestra en la primera sección (hero) de la Home para todos los visitantes. Si no subes ninguna, se usa un
           placeholder.
         </p>
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">

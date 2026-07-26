@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { X, Send, RotateCcw, Mic, Square, Store as StoreIcon, AlertTriangle, Volume2, VolumeX } from "lucide-react";
 import toast from "react-hot-toast";
 import { api } from "../lib/api.js";
+import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
 import { VoiceWaveform } from "./VoiceWaveform.jsx";
@@ -18,19 +19,21 @@ function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
 }
 function imgUrl(path) {
-  return `${api.defaults.baseURL}${path}`;
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
 // Bloque 30: bot GENERAL del marketplace — distinto del bot por tienda
 // (StoreChatWidget.jsx). No representa a ninguna tienda puntual, así que
-// usa la marca de ZeuDin (mismo círculo/letra que Logo() en Header.jsx) en
-// vez de un color de vendedor. Bloque 38: ya NO se usa junto a los mensajes
-// del chat (pedido explícito de sacar el avatar de ahí) — queda solo como
-// branding del header del panel y de la burbuja proactiva.
-function ZeuDinAvatar({ className }) {
+// usa la marca de la plataforma (mismo círculo/letra que Logo() en
+// Header.jsx) en vez de un color de vendedor. Bloque 38: ya NO se usa junto
+// a los mensajes del chat (pedido explícito de sacar el avatar de ahí) —
+// queda solo como branding del header del panel y de la burbuja proactiva.
+function PlatformAvatar({ className }) {
+  const { siteName } = usePlatformSettings();
   return (
     <div className={`flex flex-shrink-0 items-center justify-center rounded-full bg-secondary-container font-display font-extrabold text-primary ${className}`}>
-      Z
+      {siteName.charAt(0).toUpperCase()}
     </div>
   );
 }
@@ -198,6 +201,7 @@ function ShowAllStoresButton() {
 }
 
 export function MarketplaceChatWidget() {
+  const { siteName } = usePlatformSettings();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState([]);
@@ -365,7 +369,7 @@ export function MarketplaceChatWidget() {
   // escrito. Sin login (a diferencia del límite de fotos que reemplaza).
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia) {
-      toast.error("Tu navegador no soporta grabación de audio — escribí tu mensaje.");
+      toast.error("Tu navegador no soporta grabación de audio — escribe tu mensaje.");
       return;
     }
     let stream;
@@ -375,7 +379,7 @@ export function MarketplaceChatWidget() {
       // El mensaje/prompt de permiso ya lo mostró el navegador — acá solo
       // se informa que el micrófono no quedó disponible, el input de texto
       // sigue funcionando igual.
-      toast.error("No se pudo acceder al micrófono — revisá los permisos del navegador o escribí tu mensaje.");
+      toast.error("No se pudo acceder al micrófono — revisa los permisos del navegador o escribe tu mensaje.");
       return;
     }
     streamRef.current = stream;
@@ -426,7 +430,7 @@ export function MarketplaceChatWidget() {
     });
     stopStream();
     if (durationMs < MIN_RECORDING_MS) {
-      toast.error("No se detectó audio — mantené presionado y hablá.");
+      toast.error("No se detectó audio — mantén presionado y habla.");
       setRecordingState("idle");
       return;
     }
@@ -439,12 +443,12 @@ export function MarketplaceChatWidget() {
         // Bloque 39 (pedido explícito): audio real pero sin habla detectable
         // (silencio, ruido de fondo) — nunca se manda nada al chat ni se le
         // pide a la IA que "invente" una pregunta a partir de esto.
-        toast.error("No pude entender el audio — probá de nuevo o escribí tu mensaje.");
+        toast.error("No pude entender el audio — prueba de nuevo o escribe tu mensaje.");
         return;
       }
       await handleSend(transcribed);
     } catch {
-      toast.error("No pude entender el audio — probá de nuevo o escribí tu mensaje.");
+      toast.error("No pude entender el audio — prueba de nuevo o escribe tu mensaje.");
     } finally {
       setRecordingState("idle");
     }
@@ -475,9 +479,9 @@ export function MarketplaceChatWidget() {
     <>
       {!open && showBubble && (
         <div className="fixed bottom-[84px] right-5 z-[60] flex max-w-[260px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:bottom-[100px] sm:right-6">
-          <ZeuDinAvatar className="h-8 w-8 text-[13px]" />
+          <PlatformAvatar className="h-8 w-8 text-[13px]" />
           <p className="flex-1 text-[12.5px] leading-[17px] text-on-surface-variant">
-            ¡Hola! Soy el asistente de compras de <span className="font-bold text-on-surface">ZeuDin</span> — contame qué buscás, por texto o por audio.
+            ¡Hola! Soy el asistente de compras de <span className="font-bold text-on-surface">{siteName}</span> — cuéntame qué buscas, por texto o por audio.
           </p>
           <button onClick={() => setShowBubble(false)} aria-label="Cerrar aviso" className="flex-shrink-0 text-outline hover:text-on-surface-variant">
             <X className="h-3.5 w-3.5" />
@@ -501,21 +505,34 @@ export function MarketplaceChatWidget() {
           setShowBubble(false);
           scheduleIdleReset();
         }}
-        ariaLabel={open ? "Cerrar asistente de compras de ZeuDin" : "Abrir asistente de compras de ZeuDin"}
+        ariaLabel={open ? `Cerrar asistente de compras de ${siteName}` : `Abrir asistente de compras de ${siteName}`}
         className="fixed bottom-5 right-5 z-[60] sm:bottom-6 sm:right-6"
       />
 
       {open && (
         <div
           className={
-            "fixed inset-x-0 bottom-0 z-[60] flex h-[75dvh] max-h-[560px] flex-col rounded-t-2xl bg-surface-container-lowest shadow-2xl animate-fade-up " +
-            "sm:inset-x-auto sm:inset-y-auto sm:top-6 sm:bottom-24 sm:right-6 sm:h-auto sm:w-[368px] sm:rounded-2xl sm:border sm:border-surface-container-high"
+            // Bloque 51 (pedido explícito): antes el panel de mobile arrancaba
+            // en bottom-0, pintando justo encima del botón (mismo z-[60],
+            // el panel va después en el DOM) — lo tapaba por completo. Ahora
+            // deja el mismo hueco que ya existía en desktop (sm:bottom-24
+            // contra el bottom-6 del botón): bottom-[86px] contra el
+            // bottom-5 del botón (20px) + su alto (52-60px según el ancho,
+            // ver .chat-face-btn en index.css) siempre deja unos px libres
+            // arriba del botón, así queda visible debajo del panel en vez
+            // de tapado.
+            // rounded-2xl en las 4 esquinas (antes rounded-t-2xl, solo
+            // arriba) — con el panel ya despegado del borde inferior de la
+            // pantalla, una esquina inferior recta se vería como un corte,
+            // no como una tarjeta flotante a propósito.
+            "fixed inset-x-0 bottom-[86px] z-[60] mx-2.5 flex h-[75dvh] max-h-[560px] flex-col rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up " +
+            "sm:inset-x-auto sm:inset-y-auto sm:mx-0 sm:top-6 sm:bottom-24 sm:right-6 sm:h-auto sm:w-[368px] sm:border sm:border-surface-container-high"
           }
         >
           <div className="flex items-center gap-2.5 rounded-t-2xl bg-primary px-4 py-3.5 text-white">
-            <ZeuDinAvatar className="h-8 w-8 text-[13px]" />
+            <PlatformAvatar className="h-8 w-8 text-[13px]" />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-label-md font-bold">ZeuDin</div>
+              <div className="truncate text-label-md font-bold">{siteName}</div>
               <div className="text-[11px] text-white/70">Asistente de compras</div>
             </div>
             {/* Bloque 38: mute toggle — clave compartida con el chat de
@@ -571,7 +588,7 @@ export function MarketplaceChatWidget() {
           <div className="flex-1 overflow-y-auto p-4">
             <BotRow>
               <div className="rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
-                ¡Hola! Contame qué producto buscás, por texto o grabando un audio — te ayudo a encontrarlo en cualquier tienda de ZeuDin.
+                ¡Hola! Cuéntame qué producto buscas, por texto o grabando un audio — te ayudo a encontrarlo en cualquier tienda de {siteName}.
               </div>
             </BotRow>
 
@@ -661,7 +678,7 @@ export function MarketplaceChatWidget() {
                 </div>
                 <div className="flex-1 rounded-lg rounded-tl-none border border-error/20 bg-error/5 px-3.5 py-2.5">
                   <p className="text-[12.5px] leading-5 text-on-surface-variant">
-                    Estamos teniendo problemas técnicos en este chat. Probá de nuevo en un momento.
+                    Estamos teniendo problemas técnicos en este chat. Prueba de nuevo en un momento.
                   </p>
                   <button
                     onClick={handleRetry}
@@ -698,7 +715,7 @@ export function MarketplaceChatWidget() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder="Preguntá algo o grabá un audio"
+                placeholder="Pregunta algo o graba un audio"
                 disabled={sending}
                 className="h-10 flex-1 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[13px] outline-none disabled:opacity-60"
               />
@@ -728,7 +745,7 @@ export function MarketplaceChatWidget() {
             )}
           </div>
 
-          <p className="flex-shrink-0 py-1.5 text-center text-[10px] text-outline">Desarrollado por ZeuDin.com</p>
+          <p className="flex-shrink-0 py-1.5 text-center text-[10px] text-outline">Desarrollado por {siteName}</p>
         </div>
       )}
     </>

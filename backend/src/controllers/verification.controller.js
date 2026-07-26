@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { notifyVerificationEvent } from "../services/verificationNotify.service.js";
 import { createVerificationCheckoutSession } from "../lib/stripe.js";
+import { getBrandSettings } from "./settings.controller.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const KYC_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "kyc");
@@ -105,20 +106,21 @@ export async function submitVerification(req, res) {
 
   const stage = computeStage(vendor.verification);
   if (stage !== "REGULAR" && stage !== "RECHAZADO") {
-    throw new AppError("Ya tenés una solicitud en curso — esperá la resolución del equipo de ZeuDin.", 409);
+    const { siteName } = await getBrandSettings();
+    throw new AppError(`Ya tienes una solicitud en curso — espera la resolución del equipo de ${siteName}.`, 409);
   }
 
   const data = submitSchema.parse(req.body);
   const selfieFile = req.files?.selfie?.[0];
   const idFile = req.files?.idDocument?.[0];
   if (!selfieFile || !idFile) {
-    throw new AppError("Necesitás capturar la selfie y el documento con la cámara antes de enviar.", 400);
+    throw new AppError("Necesitas capturar la selfie y el documento con la cámara antes de enviar.", 400);
   }
 
   const [selfieCheck, idCheck] = await Promise.all([validateKycImage(selfieFile.filename), validateKycImage(idFile.filename)]);
   if (!selfieCheck.ok || !idCheck.ok) {
     const reasons = [!selfieCheck.ok && `selfie (${selfieCheck.reason})`, !idCheck.ok && `documento (${idCheck.reason})`].filter(Boolean).join("; ");
-    throw new AppError(`No se pudo procesar la captura: ${reasons}. Volvé a intentarlo.`, 400);
+    throw new AppError(`No se pudo procesar la captura: ${reasons}. Vuelve a intentarlo.`, 400);
   }
 
   const update = {
@@ -210,7 +212,7 @@ export async function retryMyStripeCheckout(req, res) {
 
   const v = vendor.verification;
   if (v?.status !== "PENDING_PAYMENT" || v.paymentMethod !== "CARD") {
-    throw new AppError("Elegí tarjeta como método de pago antes de generar un link de Stripe.", 409);
+    throw new AppError("Elige tarjeta como método de pago antes de generar un link de Stripe.", 409);
   }
 
   const verification = await createAndSaveCheckoutSession(vendor, v);
@@ -232,9 +234,9 @@ export async function uploadMyPaymentProof(req, res) {
 
   const v = vendor.verification;
   if (v?.status !== "PENDING_PAYMENT" || v.paymentMethod !== "CUP_TRANSFER") {
-    throw new AppError("Elegí transferencia CUP como método de pago antes de subir el comprobante.", 409);
+    throw new AppError("Elige transferencia CUP como método de pago antes de subir el comprobante.", 409);
   }
-  if (!req.file) throw new AppError("Subí una foto o PDF del comprobante.", 400);
+  if (!req.file) throw new AppError("Sube una foto o PDF del comprobante.", 400);
 
   const verification = await prisma.verificationRequest.update({
     where: { vendorId: vendor.id },

@@ -9,7 +9,7 @@ export const api = axios.create({ baseURL: API_URL });
 // Blob en err.response.data — el patrón de siempre (err.response?.data?.error)
 // no lo lee, hay que abrir el blob como texto primero. Fuera de ese caso, se
 // comporta igual que antes.
-export async function getErrorMessage(err, fallback = "Ocurrió un error. Intentá de nuevo.") {
+export async function getErrorMessage(err, fallback = "Ocurrió un error. Intenta de nuevo.") {
   const data = err?.response?.data;
   if (data instanceof Blob) {
     try {

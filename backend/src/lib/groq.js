@@ -76,21 +76,27 @@ export async function generateWithGroq({ apiKey, prompt, model }) {
         model: model || DEFAULT_MODEL,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.8,
-        max_tokens: 400,
+        // Bloque 49 (bug real en vivo): 400 alcanzaba para 2-4 oraciones
+        // (product/store) pero el prompt de warranty ahora pide 5 cláusulas
+        // numeradas — con 400 la respuesta se cortaba a mitad de la
+        // cláusula 1. Mismo síntoma ya diagnosticado una vez en gemini.js
+        // (ver ese archivo); acá se sube el techo, no cambia cuánto escriben
+        // product/store porque eso lo sigue limitando el prompt (OUTPUT_RULES).
+        max_tokens: 900,
       }),
     });
   } catch {
-    throw new AppError("No se pudo conectar con el servicio de IA. Intentá de nuevo.", 500);
+    throw new AppError("No se pudo conectar con el servicio de IA. Intenta de nuevo.", 500);
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intentá de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
+    throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intenta de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
   const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new AppError("La IA no devolvió una descripción. Intentá con un texto más específico.", 500);
+  if (!text) throw new AppError("La IA no devolvió una descripción. Intenta con un texto más específico.", 500);
 
   return text;
 }
@@ -119,7 +125,7 @@ function buildGroqMessages({ systemParts, history, message }) {
     // agrega acá explícito — este bug quedó tapado en el bloque anterior
     // por el error de permisos de la cuenta de Groq, que fallaba ANTES de
     // llegar a esta validación.
-    { role: "system", content: `${systemText}\n\nRespondé siempre en formato JSON, con el objeto exacto descripto arriba.` },
+    { role: "system", content: `${systemText}\n\nResponde siempre en formato JSON, con el objeto exacto descripto arriba.` },
     ...history.map((m) => ({ role: m.role === "model" ? "assistant" : "user", content: m.content })),
     { role: "user", content: message },
   ];
@@ -175,17 +181,17 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
       }),
     });
   } catch {
-    throw new AppError("No se pudo conectar con el asistente. Probá de nuevo.", 500);
+    throw new AppError("No se pudo conectar con el asistente. Prueba de nuevo.", 500);
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new AppError(`El asistente no pudo responder (${res.status}). Probá de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
+    throw new AppError(`El asistente no pudo responder (${res.status}). Prueba de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
   const raw = data?.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new AppError("El asistente no devolvió una respuesta. Probá reformular tu pregunta.", 500);
+  if (!raw) throw new AppError("El asistente no devolvió una respuesta. Prueba reformular tu pregunta.", 500);
 
   try {
     const parsed = JSON.parse(extractJsonObject(raw));
@@ -241,7 +247,7 @@ export async function transcribeAudioWithGroq({ apiKey, audioBuffer, mimeType, f
       body: form,
     });
   } catch {
-    throw new AppError("No se pudo conectar con el servicio de transcripción. Probá de nuevo.", 500);
+    throw new AppError("No se pudo conectar con el servicio de transcripción. Prueba de nuevo.", 500);
   }
 
   if (!res.ok) {

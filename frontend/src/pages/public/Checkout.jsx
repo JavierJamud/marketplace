@@ -4,23 +4,22 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { CheckCircle2, MessageCircle, Globe2, MapPin } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { formatPrice, formatMixedTotal } from "../../lib/format.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
 const PAY_OPTIONS = [
   { id: "cod", title: "Pago contra entrega", sub: "Coordinado por WhatsApp con el vendedor" },
   { id: "online", title: "Pago en línea con el vendedor", sub: "Transferencia, Zelle, etc. — arreglan método y monto directo por WhatsApp" },
-  { id: "cash", title: "Efectivo", sub: "Coordinás el lugar y momento por WhatsApp" },
+  { id: "cash", title: "Efectivo", sub: "Coordinas el lugar y momento por WhatsApp" },
 ];
 
 export default function Checkout() {
-  const { items, total, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem } = useCart();
+  const { siteName } = usePlatformSettings();
+  const { items, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem } = useCart();
   const { user } = useAuth();
   const [done, setDone] = useState(false);
   const [confirmedInfo, setConfirmedInfo] = useState(null);
@@ -116,7 +115,7 @@ export default function Checkout() {
           customerEmail: form.customerEmail,
           shippingProvinceId: form.provinceId || undefined,
           shippingAddress: [isStateSelected ? null : form.municipalityName, form.address].filter(Boolean).join(" — ") || undefined,
-          items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions })),
+          items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions, size: i.size ?? undefined })),
         })
       ).data,
     onSuccess: ({ order }) => {
@@ -135,8 +134,8 @@ export default function Checkout() {
       const insufficientStock = err.response?.data?.details?.insufficientStock;
       if (err.response?.status === 409 && insufficientStock?.length) {
         for (const item of insufficientStock) {
-          if (item.available > 0) updateQuantity(item.productId, item.available);
-          else removeItem(item.productId);
+          if (item.available > 0) updateQuantity(item.productId, item.available, item.size ?? null);
+          else removeItem(item.productId, item.size ?? null);
         }
         toast.error(
           insufficientStock.length === 1
@@ -206,7 +205,7 @@ export default function Checkout() {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <h1 className="text-display-sm font-extrabold text-on-surface">El carrito está vacío</h1>
-        <p className="mt-2 text-body-md text-on-surface-variant">Agregá productos antes de realizar un pedido.</p>
+        <p className="mt-2 text-body-md text-on-surface-variant">Agrega productos antes de realizar un pedido.</p>
         <div className="mt-6">
           <Link to="/stores" className="text-label-lg font-bold text-tertiary-accent hover:underline">
             Ver tiendas disponibles
@@ -236,7 +235,7 @@ export default function Checkout() {
           <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-6">
             <h2 className="mb-1 text-title-lg font-bold text-on-surface">Datos de contacto y entrega</h2>
             <p className="mb-4 text-[12.5px] text-outline">
-              Completá tu información para que la tienda organice el envío.
+              Completa tu información para que la tienda organice el envío.
             </p>
             <div className="mb-3 flex flex-col gap-3">
               <input
@@ -327,7 +326,7 @@ export default function Checkout() {
           <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-6">
             <div className="mb-1.5 text-title-lg font-bold text-on-surface">Cómo vas a coordinar el pago</div>
             <p className="mb-4 text-[12.5px] text-outline">
-              No se cobra nada acá — se arregla directo con la tienda. ZeuDin nunca procesa ni recibe pagos.
+              No se cobra nada acá — se arregla directo con la tienda. {siteName} nunca procesa ni recibe pagos.
             </p>
             <div className="flex flex-col gap-3">
               {PAY_OPTIONS.map((pm) => (
@@ -357,20 +356,23 @@ export default function Checkout() {
             <h2 className="mb-4 text-title-lg font-bold text-on-surface">Resumen del pedido</h2>
             <div className="mb-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
               {items.map((item) => (
-                <div key={item.productId} className="flex justify-between gap-3 text-body-md border-b border-surface-container-high pb-2.5 last:border-b-0">
+                <div key={`${item.productId}-${item.size ?? ""}`} className="flex justify-between gap-3 text-body-md border-b border-surface-container-high pb-2.5 last:border-b-0">
                   <div>
-                    <div className="font-semibold text-on-surface">{item.name}</div>
+                    <div className="font-semibold text-on-surface">
+                      {item.name}
+                      {item.size && <span className="ml-1.5 text-body-sm text-outline">(talla {item.size})</span>}
+                    </div>
                     <div className="text-body-sm text-outline">
-                      {item.quantity} x {fmtCUP(item.price)}
+                      {item.quantity} x {formatPrice(item.price, item.currency)}
                     </div>
                   </div>
-                  <div className="font-bold text-on-surface">{fmtCUP(item.price * item.quantity)}</div>
+                  <div className="font-bold text-on-surface">{formatPrice(item.price * item.quantity, item.currency)}</div>
                 </div>
               ))}
             </div>
             <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
               <span>Total estimado</span>
-              <span className="text-title-lg font-extrabold text-tertiary-accent">{fmtCUP(total)}</span>
+              <span className="text-title-lg font-extrabold text-tertiary-accent">{formatMixedTotal(items)}</span>
             </div>
 
             <button
@@ -382,7 +384,7 @@ export default function Checkout() {
             </button>
             {!allFieldsFilled && (
               <p className="mt-2 text-center text-[11.5px] text-outline">
-                Completá todos los campos requeridos para confirmar.
+                Completa todos los campos requeridos para confirmar.
               </p>
             )}
           </div>

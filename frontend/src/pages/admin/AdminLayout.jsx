@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Sparkles, Tag, Package } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 const NAV = [
   { to: "/admin", label: "Resumen", icon: LayoutDashboard, end: true },
   { to: "/admin/tiendas", label: "Tiendas", icon: Store },
+  { to: "/admin/productos", label: "Productos", icon: Package },
   { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck },
   { to: "/admin/clientes", label: "Clientes", icon: Users },
   { to: "/admin/sugerencias", label: "Sugerencias", icon: MessageSquare },
@@ -16,8 +18,10 @@ const NAV = [
   { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle },
   { to: "/admin/campanas", label: "Campañas", icon: Megaphone },
   { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard },
+  { to: "/admin/ofertas", label: "Ofertas", icon: Tag },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
+  { to: "/admin/marca", label: "Marca de la plataforma", icon: Sparkles },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
   // el useQuery de abajo y el render del badge en el map de NAV.
@@ -199,6 +203,7 @@ export default function AdminLayout() {
     refetchInterval: 20000,
   });
   const errorCount = errorCountData?.count ?? 0;
+  const { siteName, logoUrl } = usePlatformSettings();
 
   // Bloque 20: el drawer mobile se cierra solo al navegar a otra sección —
   // sin esto quedaba abierto tapando la pantalla nueva.
@@ -237,11 +242,15 @@ export default function AdminLayout() {
         }`}
       >
         <Link to="/" className="mb-1.5 flex items-center gap-2.5 px-2">
-          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded bg-tertiary-accent-light font-display text-base font-extrabold text-tertiary">
-            Z
-          </div>
+          {logoUrl ? (
+            <img src={logoUrl} alt={siteName} className="h-8 w-8 flex-shrink-0 rounded object-cover" />
+          ) : (
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded bg-tertiary-accent-light font-display text-base font-extrabold text-tertiary">
+              {siteName.charAt(0).toUpperCase()}
+            </div>
+          )}
           <div>
-            <div className="font-display text-base font-bold leading-none text-white">ZeuDin</div>
+            <div className="font-display text-base font-bold leading-none text-white">{siteName}</div>
             <div className="text-[10px] font-semibold tracking-widest text-tertiary-accent-light">ADMIN</div>
           </div>
         </Link>

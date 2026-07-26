@@ -68,7 +68,7 @@ function PasswordCard() {
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
         <KeyRound className="h-5 w-5 text-tertiary-accent" /> Cambiar contraseña
       </div>
-      <p className="mb-4 text-[12.5px] text-outline">Necesitás tu contraseña actual para cambiarla.</p>
+      <p className="mb-4 text-[12.5px] text-outline">Necesitas tu contraseña actual para cambiarla.</p>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <PasswordInput label="Contraseña actual" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
         <PasswordInput label="Contraseña nueva" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
@@ -153,7 +153,7 @@ function OwnerNameCard() {
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
         <UserRound className="h-5 w-5 text-tertiary-accent" /> Responsable del negocio
       </div>
-      <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y vos. Nunca se muestra en tu tienda pública.</p>
+      <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y tú. Nunca se muestra en tu tienda pública.</p>
       <Input label="Nombre del responsable" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
       <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
         {save.isPending ? "Guardando..." : "Guardar"}
@@ -241,7 +241,7 @@ function StoreInfoCard() {
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
-            placeholder="Describe lo que vendés y tu propuesta de valor..."
+            placeholder="Describe lo que vendes y tu propuesta de valor..."
           />
         </div>
         <Input label="WhatsApp de atención al cliente" value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} placeholder="+5350000000" />

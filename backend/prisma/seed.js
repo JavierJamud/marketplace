@@ -84,12 +84,14 @@ async function main() {
 
   // --- Categorías de tipo de negocio (Bloque 18) -----------------------------
   console.log("Sembrando categorías de tipo de negocio...");
+  const businessCategoryIdBySlug = {};
   for (const [i, c] of seedData.businessCategories.entries()) {
-    await prisma.businessCategory.upsert({
+    const businessCategory = await prisma.businessCategory.upsert({
       where: { slug: c.slug },
       update: { name: c.name, icon: c.icon, sortOrder: i },
       create: { slug: c.slug, name: c.name, icon: c.icon, sortOrder: i },
     });
+    businessCategoryIdBySlug[c.slug] = businessCategory.id;
   }
 
   // Subcategorías de menú de restaurante (hijas de "restaurante"), derivadas
@@ -142,6 +144,10 @@ async function main() {
         isBlocked: v.blocked ?? false,
         timezone: v.timezone,
         categoryId: categoryIdBySlug[v.categorySlug] ?? null,
+        // Bloque 53 (gap real encontrado al ampliar el seed): businessCategoryId
+        // nunca se sembraba — sin esto, ninguna tienda de prueba aparecía al
+        // filtrar por el marquee "Explorá por categoría" del Home.
+        businessCategoryId: businessCategoryIdBySlug[v.businessCategorySlug] ?? null,
         color: v.color ?? null,
         salesCount: v.salesCount ?? 0,
         orderDestination: v.orderDestination === "panel" ? "PANEL" : "WHATSAPP",
@@ -161,6 +167,7 @@ async function main() {
         isBlocked: v.blocked ?? false,
         timezone: v.timezone,
         categoryId: categoryIdBySlug[v.categorySlug] ?? null,
+        businessCategoryId: businessCategoryIdBySlug[v.businessCategorySlug] ?? null,
         color: v.color ?? null,
         salesCount: v.salesCount ?? 0,
         orderDestination: v.orderDestination === "panel" ? "PANEL" : "WHATSAPP",
@@ -183,8 +190,12 @@ async function main() {
       }
     }
 
-    // Horario semanal (para calcular "abierto ahora" en Store.jsx)
-    for (const day of seedData.defaultWeeklySchedule) {
+    // Horario semanal (para calcular "abierto ahora" en Store.jsx). Bloque 53:
+    // closedAllWeek (boutique-guantanamo) usa closedWeeklySchedule en vez del
+    // horario normal — para probar el estado "cerrado ahora" sin depender de
+    // en qué día/hora corra el seed.
+    const schedule = v.closedAllWeek ? seedData.closedWeeklySchedule : seedData.defaultWeeklySchedule;
+    for (const day of schedule) {
       await prisma.vendorSchedule.upsert({
         where: { vendorId_dayOfWeek: { vendorId: vendor.id, dayOfWeek: day.dayOfWeek } },
         update: { opensAt: day.opensAt, closesAt: day.closesAt, isClosed: day.isClosed },
@@ -198,6 +209,12 @@ async function main() {
   for (const p of seedData.products) {
     const vendorId = vendorIdBySlug[p.vendorSlug];
     if (!vendorId) continue;
+    // Bloque 53 (pedido explícito): imágenes SOLO referenciales — picsum con
+    // semilla estable por slug de producto, nunca la foto real del artículo.
+    // Solo se sacan al reseedear si el producto no tiene ya imágenes reales
+    // subidas/enlazadas por el vendedor (ver "update" abajo).
+    const images = seedData.imgSeed(p.slug);
+    const existingProduct = await prisma.product.findUnique({ where: { vendorId_slug: { vendorId, slug: p.slug } }, select: { images: true } });
     await prisma.product.upsert({
       where: { vendorId_slug: { vendorId, slug: p.slug } },
       update: {
@@ -210,6 +227,10 @@ async function main() {
         categoryId: categoryIdBySlug[p.categorySlug] ?? null,
         isFeatured: p.isFeatured ?? false,
         badge: p.badge ?? null,
+        // Re-seedear nunca pisa imágenes reales que un vendedor ya haya
+        // subido/enlazado a mano — solo rellena si el producto sigue sin
+        // ninguna (recién creado, o nunca se le cargó nada).
+        images: existingProduct?.images?.length ? undefined : images,
       },
       create: {
         vendorId,
@@ -223,6 +244,7 @@ async function main() {
         paymentMethods: p.paymentMethods,
         isFeatured: p.isFeatured ?? false,
         badge: p.badge ?? null,
+        images,
       },
     });
   }
@@ -297,7 +319,7 @@ async function main() {
 
   // --- Pedidos ---------------------------------------------------------------
   console.log("Sembrando pedidos...");
-  const statusMap = { new: "NEW", preparing: "PREPARING", delivered: "DELIVERED", cancelled: "CANCELLED" };
+  const statusMap = { new: "NEW", preparing: "PREPARING", ready: "READY", delivered: "DELIVERED", cancelled: "CANCELLED" };
   // Bloque 14: mismo mapeo que aplicó la migración de datos sobre pedidos ya
   // existentes (whatsapp->CASH, transfer->ONLINE) — así un reseed desde cero
   // en una DB nueva llega al mismo estado final que "datos viejos + migración".
