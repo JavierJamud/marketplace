@@ -24,7 +24,17 @@ export async function listBusinessCategories(_req, res) {
   const categories = await prisma.businessCategory.findMany({
     where: { active: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, slug: true, icon: true, _count: { select: { vendors: { where: { isBlocked: false } } } } },
+    // Bloque 64: cuenta solo tiendas con al menos 1 producto publicado —
+    // mismo criterio de visibilidad que listVendors/getVendorBySlug, para
+    // que el número no incluya tiendas que el cliente no puede ver de
+    // todas formas.
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      icon: true,
+      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", products: { some: { isActive: true } } } } } },
+    },
   });
   res.json({ categories: categories.map(({ _count, ...c }) => ({ ...c, vendorCount: _count.vendors })) });
 }

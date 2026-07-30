@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ShoppingCart, User, LogOut } from "lucide-react";
 import { useCart } from "../../context/CartContext.jsx";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { SearchBar } from "./SearchBar.jsx";
 
@@ -29,6 +29,7 @@ function Logo() {
 function AccountMenu({ user, accountHref, panelLabel }) {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -48,10 +49,12 @@ function AccountMenu({ user, accountHref, panelLabel }) {
     );
   }
 
-  function handleLogout() {
-    logout();
+  // Bloque 60: logout() ahora avisa al backend para revocar la sesión de
+  // verdad (antes solo borraba el token del lado del cliente).
+  async function handleLogout() {
+    await logout();
     setOpen(false);
-    navigate("/", { replace: true });
+    navigate(loginPathFor(location.pathname), { replace: true });
   }
 
   return (

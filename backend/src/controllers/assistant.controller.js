@@ -10,6 +10,7 @@ import { chatWithStoreAssistant } from "../lib/ai.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { getBrandSettings } from "./settings.controller.js";
+import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assistant-docs");
@@ -91,7 +92,7 @@ const CANDIDATE_VENDOR_SELECT = {
   companyName: true,
   slug: true,
   color: true,
-  isVerified: true,
+  verificationStatus: true,
   locations: { include: { province: true, municipality: true }, take: 1 },
 };
 const CANDIDATE_INCLUDE = { vendor: { select: CANDIDATE_VENDOR_SELECT }, options: { select: { name: true, values: true } } };
@@ -243,7 +244,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
   if (!terms?.length) {
     if (!broadListing) return [];
     return prisma.product.findMany({
-      where: { isActive: true, vendor: { isBlocked: false }, price: priceFilter },
+      where: { isActive: true, vendor: { isBlocked: false, status: "ACTIVE" }, price: priceFilter },
       include: CANDIDATE_INCLUDE,
       take: ZONE_POOL_LIMIT,
       orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -253,7 +254,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
   const matchedIds = await searchProductIdsByTerms(terms);
   const nameOrDescMatches = matchedIds.length
     ? await prisma.product.findMany({
-        where: { id: { in: matchedIds }, vendor: { isBlocked: false }, price: priceFilter },
+        where: { id: { in: matchedIds }, vendor: { isBlocked: false, status: "ACTIVE" }, price: priceFilter },
         include: CANDIDATE_INCLUDE,
         take: ZONE_POOL_LIMIT,
         orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -275,7 +276,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
     const tagIds = (await searchTagMatches(terms)).filter((id) => !haveIds.has(id));
     const extra = tagIds.length
       ? await prisma.product.findMany({
-          where: { id: { in: tagIds }, vendor: { isBlocked: false }, price: priceFilter },
+          where: { id: { in: tagIds }, vendor: { isBlocked: false, status: "ACTIVE" }, price: priceFilter },
           include: CANDIDATE_INCLUDE,
           take: ZONE_POOL_LIMIT - ranked.length,
         })
@@ -301,7 +302,7 @@ const VENDOR_SEARCH_SELECT = {
   id: true,
   companyName: true,
   slug: true,
-  isVerified: true,
+  verificationStatus: true,
   description: true,
   category: { select: { name: true } },
   businessCategory: { select: { name: true } },
@@ -340,7 +341,7 @@ async function searchVendorIdsByTerms(terms) {
       SELECT v.id FROM "Vendor" v
       LEFT JOIN "Category" c ON c.id = v."categoryId"
       LEFT JOIN "BusinessCategory" bc ON bc.id = v."businessCategoryId"
-      WHERE v."isBlocked" = false
+      WHERE v."isBlocked" = false AND v."status" = 'ACTIVE'
         AND (
           unaccent(v."companyName") ILIKE unaccent(${pattern})
           OR unaccent(c.name) ILIKE unaccent(${pattern})
@@ -362,16 +363,23 @@ async function searchVendors({ terms, provinceId, municipalityId, onlyVerified }
   const idFilter = nameOrCategoryTerms.length ? { in: await searchVendorIdsByTerms(nameOrCategoryTerms) } : undefined;
   const where = {
     isBlocked: false,
-    isVerified: onlyVerified ? true : undefined,
+    status: "ACTIVE",
+    // Bloque 64: regla de visibilidad, independiente de verificationStatus
+    // de abajo — el bot no debe ofrecer una tienda sin catálogo.
+    products: { some: { isActive: true } },
+    verificationStatus: onlyVerified ? "VERIFIED" : undefined,
     locations: locationFilter,
     id: idFilter,
   };
-  return prisma.vendor.findMany({
+  const vendors = await prisma.vendor.findMany({
     where,
     select: VENDOR_SEARCH_SELECT,
     take: 20,
-    orderBy: [{ isVerified: "desc" }, { companyName: "asc" }],
+    orderBy: { companyName: "asc" },
   });
+  // Bloque 64: verificadas primero — ya no se puede ordenar por isVerified
+  // en la propia query (es un enum de 8 valores, no un booleano).
+  return vendors.sort((a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0));
 }
 
 // Texto de contexto — mismo criterio que candidatesText/zoneContext: única
@@ -388,7 +396,7 @@ function vendorsText(vendors) {
       const loc = v.locations?.[0];
       const zone = loc?.province ? ` · zona: ${loc.municipality?.name ? `${loc.municipality.name}, ` : ""}${loc.province.name}` : "";
       const rubro = v.category?.name || v.businessCategory?.name;
-      return `[${i + 1}] ${v.companyName}${v.isVerified ? " (verificada)" : " (no verificada)"}${rubro ? ` · rubro: ${rubro}` : ""}${zone} · /tienda/${v.slug}`;
+      return `[${i + 1}] ${v.companyName}${v.verificationStatus === "VERIFIED" ? " (verificada)" : " (no verificada)"}${rubro ? ` · rubro: ${rubro}` : ""}${zone} · /tienda/${v.slug}`;
     })
     .join("\n");
 }
@@ -543,7 +551,7 @@ async function resolveZoneFromContext(message, history) {
 function summarizeZones(products) {
   const byProvince = new Map();
   for (const p of products) {
-    if (p.stock <= 0) continue;
+    if (!p.unlimitedStock && p.stock <= 0) continue;
     const loc = p.vendor.locations?.[0];
     if (!loc?.province) continue;
     if (!byProvince.has(loc.province.id)) {
@@ -638,8 +646,8 @@ function candidatesText(products) {
   return products
     .map((p, i) => {
       const price = fmtCUP(p.price) + (p.oldPrice ? ` (antes ${fmtCUP(p.oldPrice)})` : "");
-      const stock = p.stock > 0 ? `stock ${p.stock}` : "AGOTADO";
-      const verified = p.vendor.isVerified ? " · tienda verificada" : "";
+      const stock = p.unlimitedStock ? "disponible siempre (sin límite de stock)" : p.stock > 0 ? `stock ${p.stock}` : "AGOTADO";
+      const verified = p.vendor.verificationStatus === "VERIFIED" ? " · tienda verificada" : "";
       const loc = p.vendor.locations?.[0];
       const zone = loc?.province ? ` · zona: ${loc.municipality?.name ? `${loc.municipality.name}, ` : ""}${loc.province.name}` : "";
       const options = p.options?.length ? ` · variantes: ${p.options.map((o) => `${o.name}(${o.values.join("/")})`).join("; ")}` : "";
@@ -663,7 +671,8 @@ function toCardProduct(p) {
     description: p.description,
     images: p.images,
     stock: p.stock,
-    vendor: { companyName: p.vendor.companyName, slug: p.vendor.slug, color: p.vendor.color, isVerified: p.vendor.isVerified },
+    unlimitedStock: p.unlimitedStock ?? false,
+    vendor: withComputedVendorFields({ companyName: p.vendor.companyName, slug: p.vendor.slug, color: p.vendor.color, verificationStatus: p.vendor.verificationStatus }),
   };
 }
 
@@ -677,7 +686,7 @@ function toVendorCard(v) {
     id: v.id,
     companyName: v.companyName,
     slug: v.slug,
-    isVerified: v.isVerified,
+    isVerified: v.verificationStatus === "VERIFIED",
     rubro: v.category?.name || v.businessCategory?.name || null,
     zone: loc?.province ? `${loc.municipality?.name ? `${loc.municipality.name}, ` : ""}${loc.province.name}` : null,
   };
@@ -1030,7 +1039,7 @@ export async function getMarketplaceChatHistory(req, res) {
   const products = allProductIds.length
     ? await prisma.product.findMany({
         where: { id: { in: allProductIds } },
-        select: { id: true, name: true, slug: true, price: true, images: true, stock: true, vendor: { select: CANDIDATE_VENDOR_SELECT } },
+        select: { id: true, name: true, slug: true, price: true, images: true, stock: true, unlimitedStock: true, vendor: { select: CANDIDATE_VENDOR_SELECT } },
       })
     : [];
   const productById = new Map(products.map((p) => [p.id, p]));

@@ -53,6 +53,15 @@ export default function VendorOnboarding() {
   });
   const selectedBusinessCategory = businessCategories?.find((c) => c.id === form.businessCategoryId);
 
+  // Bloque 65 (pedido explícito): moneda operativa ÚNICA de la tienda — de
+  // qué conjunto elegir depende de lo que el admin dejó activo ("Marca de
+  // la plataforma"), nunca un enum fijo hardcodeado acá.
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const availableCurrencies = settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"];
+
   const createVendor = useMutation({
     mutationFn: async () =>
       (

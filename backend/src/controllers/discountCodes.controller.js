@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { logActivity } from "../lib/activityLog.js";
 
 // Bloque 52: códigos de descuento del vendedor, aplicables por el cliente en
 // el carrito (ver resolveDiscountForOrder/createOrder en orders.controller.js).
@@ -104,6 +105,14 @@ export async function createDiscountCode(req, res) {
       active: true,
     },
     select: discountCodeSummarySelect,
+  });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "VENDOR",
+    vendorId: vendor.id,
+    action: "discount_code_created",
+    description: `Creó el código de descuento "${discountCode.code}"`,
+    meta: { discountCodeId: discountCode.id },
   });
   res.status(201).json({ discountCode });
 }
@@ -239,4 +248,44 @@ export async function validateDiscountCode(req, res) {
       amount: discountAmount,
     },
   });
+}
+
+// --- Admin (auditoría de seguridad) -----------------------------------------
+// Antes no existía ninguna supervisión de admin sobre códigos de descuento —
+// el único recurso para desactivar uno abusivo era entrar a Prisma Studio a
+// mano. Mismas reglas que el vendedor (activar/desactivar siempre permitido;
+// eliminar solo si nunca se usó), solo que sobre CUALQUIER vendedor.
+
+export async function listAllDiscountCodesAdmin(_req, res) {
+  const codes = await prisma.discountCode.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { ...discountCodeSummarySelect, vendor: { select: { id: true, companyName: true, slug: true } } },
+  });
+  res.json({ discountCodes: codes });
+}
+
+const adminSetActiveSchema = z.object({ active: z.boolean() });
+
+export async function setDiscountCodeActiveAdmin(req, res) {
+  const { id } = req.params;
+  const { active } = adminSetActiveSchema.parse(req.body);
+
+  const existing = await prisma.discountCode.findUnique({ where: { id } });
+  if (!existing) throw new AppError("Código de descuento no encontrado.", 404);
+
+  const discountCode = await prisma.discountCode.update({ where: { id }, data: { active }, select: discountCodeSummarySelect });
+  res.json({ discountCode });
+}
+
+export async function deleteDiscountCodeAdmin(req, res) {
+  const { id } = req.params;
+  const existing = await prisma.discountCode.findUnique({ where: { id } });
+  if (!existing) throw new AppError("Código de descuento no encontrado.", 404);
+  if (existing.usesCount > 0) throw new AppError("Este código ya fue usado y no se puede eliminar — solo desactivarlo.", 409);
+
+  const linkedOffer = await prisma.storeOffer.findFirst({ where: { discountCodeId: id } });
+  if (linkedOffer) throw new AppError("Este código está asignado a una oferta de tienda — el vendedor debe quitar la oferta primero.", 409);
+
+  await prisma.discountCode.delete({ where: { id } });
+  res.status(204).send();
 }

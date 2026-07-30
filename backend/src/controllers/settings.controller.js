@@ -41,10 +41,28 @@ export async function getSettings(_req, res) {
       allowProductImageLinks: settings.allowProductImageLinks,
       siteName: settings.siteName,
       logoUrl: formatLogoUrl(settings.logoUrl),
+      whatsappUrl: settings.whatsappUrl,
+      instagramUrl: settings.instagramUrl,
+      facebookUrl: settings.facebookUrl,
       offerCooldownDays: settings.offerCooldownDays,
       offerDefaultDurationDays: settings.offerDefaultDurationDays,
       showChatWidget: settings.showChatWidget,
       productPaymentMethods: settings.productPaymentMethods,
+      // Bloque 65: de qué conjunto puede elegir una tienda su moneda
+      // operativa única al registrarse o cambiarla después.
+      availableCurrencies: settings.availableCurrencies,
+      // Bloque 64: datos de la transferencia CUP para la suscripción del
+      // Plan Business — VendorVerification.jsx/PagoManual.jsx los muestran
+      // tal cual, nunca un dato inventado (null = "contacta al equipo").
+      cupBankAccountNumber: settings.cupBankAccountNumber,
+      cupBankAccountHolder: settings.cupBankAccountHolder,
+      cupBankInstructions: settings.cupBankInstructions,
+      cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup,
+      // Bloque 66: catálogo de etiquetas que un vendedor puede elegir para
+      // un producto — "Nuevo" es fijo del sistema, no viaja en esta lista
+      // (ver assertBadgeAllowed en products.controller.js).
+      availableProductBadges: settings.availableProductBadges,
+      newBadgeDurationDays: settings.newBadgeDurationDays,
     },
   });
 }
@@ -144,6 +162,21 @@ export async function updateProductPaymentMethods(req, res) {
   res.json({ settings: { productPaymentMethods: updated.productPaymentMethods } });
 }
 
+// Bloque 65: de qué conjunto fijo (CUP/USD/EUR/MXN) puede elegir una tienda
+// su moneda operativa única, en el registro o al cambiarla después (ver
+// assertCurrencyAllowed en vendors.controller.js) — nunca puede quedar
+// vacío, dejaría el registro de tiendas nuevas sin ninguna opción.
+const availableCurrenciesSchema = z.object({
+  availableCurrencies: z.array(z.enum(["CUP", "USD", "EUR", "MXN"])).min(1, "Deja al menos una moneda disponible."),
+});
+
+export async function updateAvailableCurrencies(req, res) {
+  const data = availableCurrenciesSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({ settings: { availableCurrencies: updated.availableCurrencies } });
+}
+
 const offerPolicySchema = z.object({
   offerCooldownDays: z.number().int().min(1).max(365),
   offerDefaultDurationDays: z.number().int().min(1).max(365),
@@ -165,6 +198,13 @@ const brandingSchema = z.object({
   // "" borra el logo (vuelve a mostrar solo el nombre) — distinto de
   // `undefined`, que significa "no tocar este campo".
   logoUrl: z.string().trim().optional().nullable(),
+  // Bloque 61: mismo criterio ("" borra, undefined no toca) para las 3 redes
+  // — nunca se valida el formato estricto de URL acá (mismo criterio laxo
+  // que logoUrl) porque un link de WhatsApp puede ser wa.me/... o
+  // api.whatsapp.com/..., no hay un único formato "correcto" que validar.
+  whatsappUrl: z.string().trim().optional().nullable(),
+  instagramUrl: z.string().trim().optional().nullable(),
+  facebookUrl: z.string().trim().optional().nullable(),
 });
 
 // Admin ("Marca de la plataforma") — nombre de la plataforma y logo por
@@ -176,8 +216,68 @@ export async function updateBranding(req, res) {
   const update = {};
   if (data.siteName !== undefined) update.siteName = data.siteName;
   if (data.logoUrl !== undefined) update.logoUrl = data.logoUrl || null;
+  if (data.whatsappUrl !== undefined) update.whatsappUrl = data.whatsappUrl || null;
+  if (data.instagramUrl !== undefined) update.instagramUrl = data.instagramUrl || null;
+  if (data.facebookUrl !== undefined) update.facebookUrl = data.facebookUrl || null;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
-  res.json({ settings: { siteName: updated.siteName, logoUrl: formatLogoUrl(updated.logoUrl) } });
+  res.json({
+    settings: {
+      siteName: updated.siteName,
+      logoUrl: formatLogoUrl(updated.logoUrl),
+      whatsappUrl: updated.whatsappUrl,
+      instagramUrl: updated.instagramUrl,
+      facebookUrl: updated.facebookUrl,
+    },
+  });
+}
+
+const cupPaymentSettingsSchema = z.object({
+  cupBankAccountNumber: z.string().trim().optional().nullable(),
+  cupBankAccountHolder: z.string().trim().optional().nullable(),
+  cupBankInstructions: z.string().trim().optional().nullable(),
+  cupSubscriptionPriceCup: z.number().int().positive().optional(),
+});
+
+// Admin — datos bancarios de la transferencia CUP + precio de la
+// suscripción, editables sin redeploy (Bloque 64, reemplaza el "CI: 9205-
+// XXXX-XXXX" que estaba a mano en VendorVerification.jsx).
+export async function updateCupPaymentSettings(req, res) {
+  const data = cupPaymentSettingsSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const update = {};
+  if (data.cupBankAccountNumber !== undefined) update.cupBankAccountNumber = data.cupBankAccountNumber || null;
+  if (data.cupBankAccountHolder !== undefined) update.cupBankAccountHolder = data.cupBankAccountHolder || null;
+  if (data.cupBankInstructions !== undefined) update.cupBankInstructions = data.cupBankInstructions || null;
+  if (data.cupSubscriptionPriceCup !== undefined) update.cupSubscriptionPriceCup = data.cupSubscriptionPriceCup;
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
+  res.json({
+    settings: {
+      cupBankAccountNumber: updated.cupBankAccountNumber,
+      cupBankAccountHolder: updated.cupBankAccountHolder,
+      cupBankInstructions: updated.cupBankInstructions,
+      cupSubscriptionPriceCup: updated.cupSubscriptionPriceCup,
+    },
+  });
+}
+
+// "Nuevo" no se incluye acá — es fijo del sistema, siempre disponible,
+// nunca desactivable (ver assertBadgeAllowed en products.controller.js).
+// Nunca puede quedar sin al menos 1 entrada además de "Nuevo" — no es un
+// requisito duro (a diferencia de availableCurrencies), un vendedor
+// simplemente se queda solo con "Nuevo"/"Sin etiqueta" si el admin las
+// borra todas.
+const productBadgeSettingsSchema = z.object({
+  availableProductBadges: z.array(z.string().trim().min(1)).max(20, "Máximo 20 etiquetas."),
+  newBadgeDurationDays: z.number().int().min(1).max(365),
+});
+
+// Admin ("Marca de la plataforma") — catálogo administrable de etiquetas de
+// producto + cuántos días dura "Nuevo" antes de desaparecer sola.
+export async function updateProductBadgeSettings(req, res) {
+  const data = productBadgeSettingsSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({ settings: { availableProductBadges: updated.availableProductBadges, newBadgeDurationDays: updated.newBadgeDurationDays } });
 }
 
 // Admin — subir el logo como archivo, alternativa a pegar link. Mismo patrón
@@ -219,7 +319,15 @@ export async function getBrandSettings() {
   // PDF se abre fuera del navegador, sin ningún origin propio, así que acá
   // la ruta local sí necesita el host de este backend antepuesto a mano.
   const logoUrl = relativeOrAbsolute && !/^https?:\/\//.test(relativeOrAbsolute) ? `${env.backendUrl}${relativeOrAbsolute}` : relativeOrAbsolute;
-  return { siteName: settings.siteName || "ZeuDin", logoUrl };
+  // Bloque 61: consumido por emailShell() para la fila de íconos del footer
+  // — null si el admin nunca lo cargó, nunca un link inventado.
+  return {
+    siteName: settings.siteName || "ZeuDin",
+    logoUrl,
+    whatsappUrl: settings.whatsappUrl || null,
+    instagramUrl: settings.instagramUrl || null,
+    facebookUrl: settings.facebookUrl || null,
+  };
 }
 
 // Bloque 43/45: uso INTERNO (ai.js) — nunca una ruta HTTP directa, mismo

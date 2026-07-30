@@ -27,6 +27,13 @@ export async function isStripeConfigured() {
 // metadata.verificationId es lo que el webhook usa para saber qué
 // solicitud activar — nunca se confía en "el vendedor dice que pagó" del
 // lado del cliente (ver stripeWebhook.controller.js).
+// Bloque 64: pasa de `mode:"payment"` (cobro único, nunca vencía) a
+// `mode:"subscription"` — Stripe crea el Customer + la Subscription solos al
+// completar el checkout, y desde ahí cobra cada mes de verdad, disparando
+// invoice.payment_succeeded/payment_failed sin que este backend tenga que
+// llevar la cuenta de fechas (ver handleStripeWebhookEvent). `price_data`
+// inline con `recurring` evita depender de un Price pre-creado a mano en el
+// dashboard de Stripe.
 export async function createVerificationCheckoutSession({ verification, vendor }) {
   const stripe = await getStripeClient();
   const { siteName } = await getBrandSettings();
@@ -34,7 +41,7 @@ export async function createVerificationCheckoutSession({ verification, vendor }
 
   try {
     const session = await stripe.checkout.sessions.create({
-      mode: "payment",
+      mode: "subscription",
       payment_method_types: ["card"],
       line_items: [
         {
@@ -45,6 +52,7 @@ export async function createVerificationCheckoutSession({ verification, vendor }
               description: `Verificación y Plan Business para ${vendor.companyName}`,
             },
             unit_amount: SUBSCRIPTION_PRICE_USD * 100,
+            recurring: { interval: "month" },
           },
           quantity: 1,
         },
@@ -62,6 +70,42 @@ export async function createVerificationCheckoutSession({ verification, vendor }
     // solo en el log del servidor para que el admin lo pueda diagnosticar.
     console.error("Error creando Checkout Session de Stripe:", err.message);
     throw new AppError("No se pudo generar el link de pago con Stripe. Prueba de nuevo en un momento.", 502, { detail: err.message });
+  }
+}
+
+// Bloque 64: cuando un admin revoca el Plan Business a mano (revokeBusinessPlan
+// en admin.controller.js), si la tienda pagaba por Stripe hay que cancelar la
+// suscripción DE VERDAD ahí también — sin esto, Stripe seguiría cobrándole al
+// vendedor cada mes por un plan que ya no tiene acá. Best-effort: si Stripe
+// falla (secret key rotada, suscripción ya cancelada del otro lado, etc.) no
+// bloquea la revocación local, solo se loguea.
+export async function cancelStripeSubscription(subscriptionId) {
+  if (!subscriptionId) return;
+  try {
+    const stripe = await getStripeClient();
+    if (!stripe) return;
+    await stripe.subscriptions.cancel(subscriptionId);
+  } catch (err) {
+    console.error("Error cancelando suscripción de Stripe:", err.message);
+  }
+}
+
+// Bloque 66 (pedido explícito): cancelar desde el panel del vendedor
+// (updateMyVendor) NO revoca el acceso de inmediato — a diferencia de
+// cancelStripeSubscription (cancelación INMEDIATA, usada cuando un admin
+// revoca el plan a mano), esto usa el flag nativo de Stripe
+// `cancel_at_period_end`: la suscripción sigue facturando/vigente hasta el
+// final del ciclo YA pagado, y Stripe dispara `customer.subscription.deleted`
+// recién en ese momento (ver handleSubscriptionDeleted en
+// verification.controller.js) — ahí es cuando de verdad se revoca el badge.
+export async function scheduleStripeSubscriptionCancellation(subscriptionId) {
+  if (!subscriptionId) return;
+  try {
+    const stripe = await getStripeClient();
+    if (!stripe) return;
+    await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+  } catch (err) {
+    console.error("Error agendando la cancelación de Stripe:", err.message);
   }
 }
 

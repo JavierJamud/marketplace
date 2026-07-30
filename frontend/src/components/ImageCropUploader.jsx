@@ -16,7 +16,7 @@ export function ImageCropUploader({
   recommendedLabel,
   onFileReady,
   accept = "image/png,image/jpeg,image/webp",
-  boxClassName = "aspect-[4/3] w-full max-w-[280px]",
+  boxClassName = "aspect-[7/4] w-full max-w-[280px]",
   compact = false,
 }) {
   const [rawSrc, setRawSrc] = useState(null);

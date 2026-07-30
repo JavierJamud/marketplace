@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Gift, Plus, X, Pencil, Power, Clock, Sparkles } from "lucide-react";
+import { Gift, Plus, X, Pencil, Power, Clock, Sparkles, ShieldAlert } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -201,12 +202,14 @@ function StoreOfferFormModal({ offer, discountCodes, siteSettings, onClose, onSa
 }
 
 export default function VendorStoreOffers() {
+  const { vendor } = useOutletContext();
   const queryClient = useQueryClient();
   const [formTarget, setFormTarget] = useState(null); // null cerrado, {} crear, offer editar
 
   const { data: storeOffers, isLoading } = useQuery({
     queryKey: ["my-store-offers"],
     queryFn: async () => (await api.get("/store-offers/me/list")).data.storeOffers,
+    enabled: !!vendor?.isVerified,
   });
   const { data: discountCodes } = useQuery({
     queryKey: ["my-discount-codes"],
@@ -239,18 +242,28 @@ export default function VendorStoreOffers() {
           <h1 className="font-display text-[25px] font-bold text-on-surface">Ofertas de tienda</h1>
           <p className="text-[12px] text-outline">Ofertas dentro de tu tienda — distintas de la sección "Ofertas" del Home.</p>
         </div>
-        <Button className="rounded-xl font-bold" onClick={() => setFormTarget({})}>
-          <Plus className="mr-1 h-4 w-4" /> Agregar oferta
-        </Button>
+        <div title={!vendor?.isVerified ? "Disponible solo para tiendas verificadas" : undefined}>
+          <Button className="rounded-xl font-bold" disabled={!vendor?.isVerified} onClick={() => setFormTarget({})}>
+            <Plus className="mr-1 h-4 w-4" /> Agregar oferta
+          </Button>
+        </div>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Se muestran en la página pública de tu tienda mientras estén activas. Cada una lleva un código de descuento
         asignado — puedes reusar uno ya existente o crear uno nuevo exclusivo para la oferta.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {!vendor?.isVerified && (
+        <EmptyState
+          icon={ShieldAlert}
+          title="Disponible solo para tiendas verificadas"
+          description="Verifica tu tienda para poder publicar ofertas dentro de tu propia página."
+        />
+      )}
 
-      {!isLoading && !storeOffers?.length && (
+      {vendor?.isVerified && isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+
+      {vendor?.isVerified && !isLoading && !storeOffers?.length && (
         <EmptyState
           icon={Gift}
           title="Todavía no publicaste ninguna oferta de tienda"
@@ -258,7 +271,7 @@ export default function VendorStoreOffers() {
         />
       )}
 
-      {storeOffers?.length > 0 && (
+      {vendor?.isVerified && storeOffers?.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {storeOffers.map((o) => (
             <div key={o.id} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest shadow-sm">

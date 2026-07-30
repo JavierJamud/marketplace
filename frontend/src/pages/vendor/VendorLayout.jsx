@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, Tag, Percent, Gift } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, Tag, Percent, Gift, Ban } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { VendorNotificationBell } from "../../components/vendor/VendorNotificationBell.jsx";
@@ -25,8 +25,58 @@ const NAV = [
   { to: "/vendedor/perfil", label: "Mi perfil", icon: UserCog },
 ];
 
+function fmtSuspendedDate(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+// Bloque 62: tienda suspendida automáticamente por 90 días sin acceso (ver
+// vendorLifecycle.job.js) — a diferencia de isBlocked (el admin puede
+// desbloquear con un clic desde AdminVendors.jsx), acá SOLO un admin puede
+// reactivarla a mano con un motivo (AdminSuspendedVendors.jsx). El vendedor
+// sigue pudiendo entrar a esta pantalla (no un 403 genérico) para enterarse
+// de por qué y saber qué hacer, pero no ve ningún dato del panel real.
+function VendorSuspendedGate({ vendor, onLogout }) {
+  const suspendedOn = fmtSuspendedDate(vendor.suspendedAt);
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-surface-container p-4">
+      <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-7 text-center shadow-lg">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-error/10">
+          <Ban className="h-7 w-7 text-error" />
+        </div>
+        <h1 className="mb-2 text-title-lg font-bold text-on-surface">Tu tienda está pausada</h1>
+        <p className="mb-1 text-[13.5px] leading-relaxed text-on-surface-variant">
+          {vendor.suspensionReason || "Se pausó automáticamente por inactividad prolongada en el panel de vendedor."}
+        </p>
+        {suspendedOn && <p className="mb-4 text-[12px] text-outline">Pausada el {suspendedOn}.</p>}
+        <p className="mb-6 text-[13px] leading-relaxed text-on-surface-variant">
+          Tu tienda y tus productos no son visibles en el sitio mientras esté pausada. Contáctanos para reactivarla — tus
+          datos, pedidos y reseñas siguen intactos.
+        </p>
+        <div className="flex flex-col gap-2.5">
+          <Link
+            to="/contacto"
+            className="rounded-xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-primary/90"
+          >
+            Contactar soporte
+          </Link>
+          <button
+            onClick={onLogout}
+            className="rounded-xl border border-outline-variant px-5 py-2.5 text-[13px] font-semibold text-on-surface transition hover:bg-surface-variant"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function VendorLayout() {
-  const { user, loading: authLoading, logout } = useAuth();
+  // Bloque 60: la sesión/rol ya se validó un nivel arriba (ver
+  // ProtectedRoute en App.jsx) — acá solo hace falta `user` para pedir la
+  // tienda propia, nunca hay que volver a chequear si hay sesión.
+  const { user, logout } = useAuth();
   const { siteName, logoUrl } = usePlatformSettings();
   const navigate = useNavigate();
   const location = useLocation();
@@ -38,11 +88,12 @@ export default function VendorLayout() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
-  function handleLogout() {
-    // Antes este link ("Volver al sitio") solo navegaba sin borrar el token
-    // — la sesión anterior quedaba viva y volvía a entrar sola.
-    logout();
-    navigate("/", { replace: true });
+  // Bloque 60: logout() ahora avisa al backend para revocar la sesión de
+  // verdad (antes solo borraba el token del lado del cliente). El destino
+  // pasa a ser el login de vendedor (antes iba siempre a "/", incluso acá).
+  async function handleLogout() {
+    await logout();
+    navigate(loginPathFor(location.pathname), { replace: true });
   }
 
   const { data: vendor, isLoading: vendorLoading, isError } = useQuery({
@@ -52,7 +103,7 @@ export default function VendorLayout() {
     retry: false,
   });
 
-  if (authLoading || (user && vendorLoading)) {
+  if (vendorLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface-container">
         <Spinner />
@@ -60,8 +111,13 @@ export default function VendorLayout() {
     );
   }
 
-  // Guard: solo vendedores autenticados con tienda propia entran al panel.
-  if (!user || isError) return <Navigate to="/cuenta" replace />;
+  // Un VENDOR autenticado sin tienda propia (o con error al cargarla) no
+  // tiene nada que hacer acá — mismo destino que ProtectedRoute usaría.
+  if (isError) return <Navigate to="/vendedor/ingresar" replace />;
+
+  if (vendor?.status === "SUSPENDED") {
+    return <VendorSuspendedGate vendor={vendor} onLogout={handleLogout} />;
+  }
 
   const nav = NAV.filter((n) => !n.restaurantOnly || vendor?.isRestaurant);
 

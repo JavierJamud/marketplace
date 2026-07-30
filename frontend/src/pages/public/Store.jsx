@@ -17,8 +17,10 @@ import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
 import { resolveCurrency } from "../../lib/currencies.js";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
+import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const MAX_REVIEW_IMAGES = 4;
 
@@ -63,29 +65,35 @@ function StoreOfferCard({ offer, vendorName }) {
       .catch(() => toast.error("No se pudo copiar el código."));
   }
 
+  // Bloque 68 (pedido explícito): mismo lenguaje visual que OfferCard del
+  // Home (OffersSlider.jsx) — imagen a sangre completa con degradado desde
+  // abajo y título/descripción superpuestos en vez de un panel blanco
+  // separado debajo. El botón de copiar código queda aparte (no puede ir
+  // superpuesto a la imagen, necesita su propio área táctil clara).
   return (
-    <div className="overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg">
+    <div className="flex h-full flex-col overflow-hidden rounded-3xl bg-surface-container-lowest shadow-lg transition-shadow hover:shadow-xl">
       <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-container">
         <img src={imgUrl(offer.imageUrl)} alt={offer.title} className="h-full w-full object-cover" />
-        <span className="absolute right-2.5 top-2.5 rounded-full bg-error px-2.5 py-1 text-[11px] font-bold text-white shadow">
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+        <span className="absolute right-3 top-3 rounded-full bg-error px-2.5 py-1 text-[11px] font-bold text-white shadow">
           {discountBadgeLabel(offer.discountCode)}
         </span>
         {offer.isLimitedTime && countdown && (
-          <span className="absolute left-2.5 top-2.5 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[10.5px] font-bold text-white">
+          <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[10.5px] font-bold text-white backdrop-blur-sm">
             <Clock className="h-3 w-3" /> {countdown}
           </span>
         )}
+        <div className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
+          <div className="font-display text-lg font-extrabold leading-tight text-white sm:text-xl">{offer.title}</div>
+          {offer.description && <p className="line-clamp-2 text-[12px] text-white/85">{offer.description}</p>}
+        </div>
       </div>
-      <div className="p-4">
-        <div className="mb-1 text-[14.5px] font-bold text-on-surface">{offer.title}</div>
-        {offer.description && <p className="mb-3 text-[12.5px] leading-5 text-on-surface-variant">{offer.description}</p>}
-        <button
-          onClick={handleCopyCode}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-tertiary-accent/50 bg-tertiary-accent/[0.06] py-2.5 text-[13px] font-bold text-tertiary-accent hover:bg-tertiary-accent/10"
-        >
-          <Tag className="h-3.5 w-3.5" /> Código: {offer.discountCode.code} · {discountBadgeLabel(offer.discountCode)}
-        </button>
-      </div>
+      <button
+        onClick={handleCopyCode}
+        className="flex items-center justify-center gap-2 border-t border-surface-container-high py-2.5 text-[12.5px] font-bold text-tertiary-accent hover:bg-tertiary-accent/[0.06]"
+      >
+        <Tag className="h-3.5 w-3.5" /> Código: {offer.discountCode.code} · {discountBadgeLabel(offer.discountCode)}
+      </button>
     </div>
   );
 }
@@ -197,6 +205,10 @@ export default function Store() {
   // (el selector ni se renderiza si no lo está, ver más abajo).
   const [reviewImages, setReviewImages] = useState([]); // File[]
   const [lightboxSrc, setLightboxSrc] = useState(null);
+  // Bloque 69 (pedido explícito): reportar un comentario — desde la cuenta
+  // de cualquier cliente logueado (nunca el propio, ver ReviewsMarquee.jsx).
+  const [reportTarget, setReportTarget] = useState(null);
+  const [reportReason, setReportReason] = useState("");
   const trackedVisitRef = useRef(null);
   const reviewsRef = useRef(null);
 
@@ -262,6 +274,23 @@ export default function Store() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo publicar el comentario."),
   });
 
+  // Bloque 69 (pedido explícito): reportar oculta la reseña de inmediato
+  // server-side — el refetch de "vendor" hace que ya no vuelva a aparecer.
+  const reportReview = useMutation({
+    mutationFn: async () => (await api.post(`/reviews/${reportTarget.id}/report`, { reason: reportReason.trim() || undefined })).data,
+    onSuccess: () => {
+      toast.success("Comentario reportado — el equipo lo va a revisar.");
+      setReportTarget(null);
+      setReportReason("");
+      queryClient.invalidateQueries({ queryKey: ["vendor", slug] });
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo reportar el comentario.");
+      setReportTarget(null);
+      setReportReason("");
+    },
+  });
+
   // Bloque 52: dejar una reseña (con o sin imagen) requiere estar logueado
   // como cliente — antes el input solo se deshabilitaba, ahora redirige a
   // /cuenta con retorno automático a esta misma tienda.
@@ -318,17 +347,37 @@ export default function Store() {
       </div>
     );
   }
+  // Bloque 64 (regla de visibilidad, independiente de si está verificada):
+  // la tienda existe pero no tiene ningún producto publicado — ni perfil
+  // completo ni catálogo vacío con apariencia normal, un estado dedicado.
+  if (data.hasPublishedProducts === false) {
+    return (
+      <div className="container-app py-14">
+        <EmptyState
+          icon={StoreIcon}
+          title={`${data.companyName} aún no está disponible`}
+          description="Esta tienda todavía no publicó ningún producto — vuelve a visitarla más adelante."
+          action={
+            <Link to="/tiendas" className="rounded bg-primary-container px-5 py-2.5 text-label-md font-bold text-white hover:brightness-95">
+              Ver todas las tiendas →
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
 
   const v = data;
   const location = v.locations?.[0];
   const locationLabel = location ? `${location.municipality?.name ?? ""}, ${location.province?.name}` : "Cuba";
   const joinedYear = new Date(v.createdAt).getFullYear();
-  const firstTable = v.tables?.[0];
   // Bloque 23: la grilla principal solo muestra lo que se puede comprar ya
   // mismo — lo agotado se separa en "Próximamente disponibles" más abajo,
   // con botón "Solicitar" en vez de "Agregar al carrito".
-  const availableProducts = v.products?.filter((p) => p.stock > 0) ?? [];
-  const outOfStockProducts = v.products?.filter((p) => p.stock <= 0) ?? [];
+  // Bloque 56: "disponible siempre" siempre cae en "disponibles", sin
+  // importar lo que tenga guardado en `stock` (no se le lleva seguimiento).
+  const availableProducts = v.products?.filter((p) => p.unlimitedStock || p.stock > 0) ?? [];
+  const outOfStockProducts = v.products?.filter((p) => !p.unlimitedStock && p.stock <= 0) ?? [];
 
   return (
     <div>
@@ -400,22 +449,27 @@ export default function Store() {
         </div>
       </div>
 
-      {/* RESTAURANTE: menú QR */}
-      {v.isRestaurant && firstTable && (
-        <div className="container-app pt-5">
-          <Link
-            to={`/mesa/${firstTable.qrToken}`}
-            className="flex items-center justify-between rounded-md border border-l-4 border-surface-container-high border-l-secondary-container bg-surface-container-lowest px-5 py-4"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xl">🍽️</span>
-              <div>
-                <div className="text-[14.5px] font-bold text-on-surface">Menú de mesa con QR</div>
-                <div className="text-[12.5px] text-outline">Escanea el QR de tu mesa o mira el menú online</div>
-              </div>
-            </div>
-            <span className="text-label-md font-bold text-tertiary-accent">Ver menú →</span>
-          </Link>
+      {/* Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes
+          acá había un link directo a `/mesa/:qrToken` ("Menú de mesa con
+          QR") — cualquier visitante de la tienda pública llegaba al pedido
+          de mesa sin escanear ningún QR físico. Se quita del todo: el menú
+          de mesa solo se alcanza escaneando el QR real o desde el panel del
+          vendedor (VendorTables.jsx). El backend tampoco expone más
+          `tables`/`qrToken` en este endpoint (ver getVendorBySlug). */}
+
+      {/* OFERTAS DE TIENDA (Bloque 52, reubicada en Bloque 68 — pedido
+          explícito: van ARRIBA de los productos, no abajo del todo) —
+          distinta de la sección "Ofertas" del Home: esta vive DENTRO de
+          cada tienda, solo visible si tiene al menos una StoreOffer activa. */}
+      {v.storeOffers?.length > 0 && (
+        <div className="container-app pt-8">
+          <h2 className="mb-1 font-display text-title-lg text-on-surface">Ofertas</h2>
+          <p className="mb-5 text-label-sm text-outline">Descuentos exclusivos de {v.companyName} — aplica el código en el carrito.</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {v.storeOffers.map((offer) => (
+              <StoreOfferCard key={offer.id} offer={offer} vendorName={v.companyName} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -432,7 +486,7 @@ export default function Store() {
                 <Link to={`/producto/${v.slug}/${p.slug}`} className="block p-2.5 pb-0">
                   <div className="aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
                     {p.images?.[0] ? (
-                      <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                      <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
                     )}
@@ -443,7 +497,7 @@ export default function Store() {
                     {p.name}
                   </Link>
                   <ExpandableDescription text={p.description} />
-                  {p.stock <= LOW_STOCK_THRESHOLD && (
+                  {!p.unlimitedStock && p.stock <= LOW_STOCK_THRESHOLD && (
                     <span className="mb-1.5 inline-block w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
                       ¡Últimas {p.stock} unidades!
                     </span>
@@ -566,21 +620,6 @@ export default function Store() {
         </div>
       )}
 
-      {/* OFERTAS DE TIENDA (Bloque 52) — distinta de la sección "Ofertas" del
-          Home: esta vive DENTRO de cada tienda, solo visible si tiene al
-          menos una StoreOffer activa. */}
-      {v.storeOffers?.length > 0 && (
-        <div className="container-app pt-11">
-          <h2 className="mb-1 font-display text-title-lg text-on-surface">Ofertas</h2>
-          <p className="mb-5 text-label-sm text-outline">Descuentos exclusivos de {v.companyName} — aplica el código en el carrito.</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {v.storeOffers.map((offer) => (
-              <StoreOfferCard key={offer.id} offer={offer} vendorName={v.companyName} />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* COMENTARIOS */}
       <div ref={reviewsRef} id="resenas" className="container-app pt-11">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Comentarios de compradores</h2>
@@ -658,54 +697,13 @@ export default function Store() {
           )}
         </div>
 
-        <div className="flex max-w-[720px] flex-col gap-3.5">
-          {v.reviews?.length ? (
-            v.reviews.map((c) => (
-              <div key={c.id} className="rounded-md border border-surface-container-high bg-surface-container-lowest p-4">
-                <div className="mb-2 flex flex-wrap items-center gap-2.5">
-                  <div className="h-[34px] w-[34px] rounded-full bg-surface-container-highest" />
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-label-md font-bold text-on-surface">{c.authorName}</span>
-                      {c.isVerifiedPurchase && (
-                        <span className="flex items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[10.5px] font-bold text-verified-dark">
-                          <ShieldCheck className="h-3 w-3" /> Compra verificada
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11.5px] text-outline">{formatDate(c.createdAt)}</div>
-                  </div>
-                  {c.rating && <StarRating value={c.rating} size="h-3.5 w-3.5" />}
-                </div>
-                <p className="text-[13.5px] leading-5 text-on-surface-variant">{c.comment}</p>
-
-                {c.images?.length > 0 && (
-                  <div className="mt-2.5 flex flex-wrap gap-2">
-                    {c.images.map((img, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setLightboxSrc(imgUrl(img))}
-                        className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-surface-container-high"
-                      >
-                        <img src={imgUrl(img)} alt="" className="h-full w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {c.vendorReply && (
-                  <div className="mt-3 rounded-md bg-surface-container p-3">
-                    <div className="mb-1 text-[12px] font-bold text-tertiary-accent">Respuesta de {v.companyName}</div>
-                    <p className="text-[13px] leading-5 text-on-surface-variant">{c.vendorReply}</p>
-                  </div>
-                )}
-              </div>
-            ))
-          ) : (
-            <p className="text-body-md text-on-surface-variant">Todavía no hay comentarios.</p>
-          )}
-        </div>
+        <ReviewsMarquee
+          reviews={v.reviews}
+          vendorName={v.companyName}
+          onImageClick={(src) => setLightboxSrc(src)}
+          currentUserId={user?.id}
+          onReportClick={(review) => setReportTarget(review)}
+        />
       </div>
 
       {/* OTRAS TIENDAS */}
@@ -741,6 +739,27 @@ export default function Store() {
       {v.isVerified && v.aiAvailable && <StoreChatWidget vendor={v} />}
 
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+
+      <ConfirmModal
+        open={!!reportTarget}
+        title="¿Reportar este comentario?"
+        message={`El equipo de ${siteName} lo revisa antes de decidir — mientras tanto deja de mostrarse.`}
+        confirmLabel={reportReview.isPending ? "Reportando..." : "Reportar"}
+        danger
+        onConfirm={() => reportReview.mutate()}
+        onCancel={() => {
+          setReportTarget(null);
+          setReportReason("");
+        }}
+      >
+        <textarea
+          value={reportReason}
+          onChange={(e) => setReportReason(e.target.value)}
+          placeholder="Motivo (opcional)..."
+          rows={3}
+          className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+        />
+      </ConfirmModal>
     </div>
   );
 }

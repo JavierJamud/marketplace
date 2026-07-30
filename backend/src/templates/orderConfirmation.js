@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, itemsTable, totalRow, metaList, paragraph, fmtCUP } from "./_shared.js";
+import { emailShell, ctaButton, itemsTable, totalRow, metaList, paragraph, fmtCUP, resolveAssetUrl } from "./_shared.js";
 
 // Bloque 14: valores de OrderChannel consolidados (COD/TABLE sin cambios,
 // antes WHATSAPP/TRANSFER — ver comentario en schema.prisma).
@@ -12,6 +12,7 @@ export async function orderConfirmationEmail(order) {
     preview: `Recibimos tu pedido ${order.code} — ${fmtCUP(order.total)} en ${order.vendor.companyName}`,
     title: `¡Gracias por tu pedido en ${order.vendor.companyName}!`,
     storeName: order.vendor.companyName,
+    storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     bodyMjml: `
       ${paragraph(`Hola ${order.customerName ?? ""}, recibimos tu pedido y ya está registrado.`)}
       ${itemsTable(order.items)}

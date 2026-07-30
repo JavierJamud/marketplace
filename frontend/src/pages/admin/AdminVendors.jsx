@@ -45,15 +45,31 @@ function EditVendorModal({ vendor, onSave, onCancel, saving }) {
   );
 }
 
+function fmtDateTime(iso) {
+  return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const KITCHEN_STATUS_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo" };
+
 function StatsModal({ vendorName, onClose }) {
   const { data, isLoading } = useQuery({
     queryKey: ["vendor-stats", vendorName.id],
     queryFn: async () => (await api.get(`/admin/vendors/${vendorName.id}/stats`)).data.stats,
   });
 
+  // Auditoría de seguridad: antes el admin solo veía si la tienda "tuvo o
+  // no" pedidos de mesa (contado dentro de `data.orderCount` arriba), sin
+  // poder ver el contenido real de ninguno — acá se lista el detalle real,
+  // de solo lectura, para poder investigar un reclamo puntual.
+  const { data: tableOrders } = useQuery({
+    queryKey: ["vendor-table-orders", vendorName.id],
+    queryFn: async () => (await api.get(`/admin/vendors/${vendorName.id}/table-orders`)).data.tableOrders,
+    enabled: !!vendorName.isRestaurant,
+  });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
+      <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-title-lg font-bold text-on-surface">{vendorName.companyName}</h2>
           <button onClick={onClose} className="text-outline hover:text-on-surface">
@@ -75,6 +91,25 @@ function StatsModal({ vendorName, onClose }) {
                 <span className="text-[13.5px] font-bold text-on-surface">{value}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {vendorName.isRestaurant && (
+          <div className="mt-5 border-t border-surface-container pt-4">
+            <h3 className="mb-2.5 text-[12.5px] font-bold uppercase tracking-wide text-outline">Pedidos de mesa recientes</h3>
+            {!tableOrders?.length && <p className="text-[12.5px] text-on-surface-variant">Todavía no hay pedidos de mesa.</p>}
+            <div className="flex flex-col gap-2">
+              {tableOrders?.slice(0, 15).map((o) => (
+                <div key={o.id} className="rounded-md bg-surface-container p-2.5 text-[12px]">
+                  <div className="mb-1 flex items-center justify-between font-semibold text-on-surface">
+                    <span>Mesa {o.table.tableNumber} · {fmtCUP(o.total)}</span>
+                    <span className="text-outline">{KITCHEN_STATUS_LABEL[o.kitchenStatus]}</span>
+                  </div>
+                  <div className="text-outline">{o.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</div>
+                  <div className="mt-1 text-[11px] text-outline">{fmtDateTime(o.createdAt)}</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

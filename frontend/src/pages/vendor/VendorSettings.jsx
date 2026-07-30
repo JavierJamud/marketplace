@@ -6,11 +6,36 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck } from "lucide-react";
+import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers } from "lucide-react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
-import { CURRENCIES } from "../../lib/currencies.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
+
+// Bloque 68 (pedido explícito): 3 opciones reales de Vendor.orderDestination
+// — el checkout con formulario completo SIEMPRE crea el pedido de verdad
+// (queda en /vendedor/pedidos pase lo que pase), así que esto ya no decide
+// si el pedido existe, solo qué le mostramos al cliente después de que lo
+// confirma.
+const ORDER_DESTINATIONS = [
+  {
+    id: "WHATSAPP",
+    icon: MessageCircle,
+    label: "Solo WhatsApp",
+    description: "Al cliente le mostramos un botón para mandarte el pedido por WhatsApp apenas lo confirma.",
+  },
+  {
+    id: "PANEL",
+    icon: LayoutDashboard,
+    label: "Solo mi panel",
+    description: "No le mostramos al cliente ninguna opción de WhatsApp — gestionas el pedido directo desde tu panel.",
+  },
+  {
+    id: "BOTH",
+    icon: Layers,
+    label: "WhatsApp y panel",
+    description: "Le mostramos el botón de WhatsApp y también le avisamos que ya quedó guardado en tu panel.",
+  },
+];
 
 const DAY_ROWS = [
   { dayOfWeek: 1, name: "Lunes" },
@@ -146,7 +171,7 @@ export default function VendorSettings() {
     companyAddress: "",
     orderDestination: "WHATSAPP",
     acceptedPaymentMethods: [],
-    acceptedCurrencies: ["CUP"],
+    currency: "CUP",
     warrantyTerms: "",
     warrantyDefaultDays: "",
   });
@@ -199,7 +224,7 @@ export default function VendorSettings() {
       companyAddress: vendor.companyAddress ?? "",
       orderDestination: vendor.orderDestination ?? "WHATSAPP",
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
-      acceptedCurrencies: vendor.acceptedCurrencies ?? ["CUP"],
+      currency: vendor.currency ?? "CUP",
       warrantyTerms: vendor.warrantyTerms ?? "",
       warrantyDefaultDays: vendor.warrantyDefaultDays != null ? String(vendor.warrantyDefaultDays) : "",
     });
@@ -392,16 +417,53 @@ export default function VendorSettings() {
           (VendorProfile.jsx, tarjeta "Datos de la tienda") — Configuración
           ya no edita esos campos. */}
 
-      {/* Bloque 47: Métodos de pago (chips — el selector nunca se había
-          terminado de conectar: el estado/endpoint ya existían pero no
-          había ninguna forma de tocarlo desde acá) + Monedas (nuevo). */}
+      {/* Bloque 65 (pedido explícito): moneda operativa ÚNICA de la tienda —
+          distinta a propósito de "Monedas que aceptas" de la tarjeta de
+          abajo (esa es informal/múltiple, "qué coordinás con el cliente";
+          esta es la moneda real en la que están expresados TODOS los
+          precios). Cambiarla NO convierte los precios ya cargados. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
-          <Wallet className="h-5 w-5 text-tertiary-accent" /> Métodos de pago y monedas
+          <Wallet className="h-5 w-5 text-tertiary-accent" /> Moneda oficial de tu tienda
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          En qué moneda están expresados los precios de tus productos — una tienda opera en una sola.
+        </p>
+        <Select
+          label="Moneda"
+          value={form.currency}
+          onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+          className="max-w-xs"
+        >
+          {(settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"]).map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </Select>
+        {form.currency !== (vendor?.currency ?? "CUP") && (
+          <p className="mt-2.5 text-label-sm font-semibold text-error">
+            ⚠ Cambiar esto NO convierte los precios de tus productos ya cargados — solo cambia la etiqueta. Revísalos y
+            ajústalos a mano después de guardar.
+          </p>
+        )}
+      </div>
+
+      {/* Bloque 47: Métodos de pago (chips — el selector nunca se había
+          terminado de conectar: el estado/endpoint ya existían pero no
+          había ninguna forma de tocarlo desde acá). */}
+      {/* Bloque 66 (pedido explícito): se quitó "Monedas que aceptas" de
+          acá — ya redundante con "Moneda oficial de tu tienda" de arriba
+          (Bloque 65, moneda única real de los precios). El cliente sigue
+          pudiendo coordinar otra moneda manualmente por WhatsApp si hace
+          falta, no necesita configurarse acá. La columna
+          Vendor.acceptedCurrencies queda intacta en la base — solo deja de
+          editarse desde este formulario. */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <Wallet className="h-5 w-5 text-tertiary-accent" /> Métodos de pago
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
           Puramente informativo — se muestra en tu tienda pública para que el cliente sepa qué coordinar contigo.
-          {siteName} no procesa ni convierte nada de esto.
+          {siteName} no procesa nada de esto.
         </p>
 
         <div className="mb-5">
@@ -466,32 +528,39 @@ export default function VendorSettings() {
             </Button>
           </div>
         </div>
+      </div>
 
-        <div>
-          <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Monedas que aceptas</div>
-          <div className="flex flex-wrap gap-2">
-            {CURRENCIES.map((c) => {
-              const active = form.acceptedCurrencies.includes(c.id);
-              const Icon = c.icon;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() =>
-                    setForm((f) => ({
-                      ...f,
-                      acceptedCurrencies: active ? f.acceptedCurrencies.filter((x) => x !== c.id) : [...f.acceptedCurrencies, c.id],
-                    }))
-                  }
-                  className={`flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[12.5px] font-semibold transition ${
-                    active ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" /> {c.label}
-                </button>
-              );
-            })}
-          </div>
+      {/* Bloque 68 (pedido explícito): este control no existía en el
+          frontend — Vendor.orderDestination ya vivía en el backend/DB pero
+          quedaba fijo en lo que decidió el registro (WhatsApp para tiendas
+          normales, Panel para restaurantes), sin forma de cambiarlo. */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <MessageCircle className="h-5 w-5 text-tertiary-accent" /> Cómo quieres recibir tus pedidos
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Todo pedido queda siempre disponible en "Mis pedidos" — el cliente completa sus datos antes de enviarlo, sin importar
+          la opción que elijas acá. Esto solo decide qué le mostramos después de que lo confirma.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {ORDER_DESTINATIONS.map((opt) => {
+            const active = form.orderDestination === opt.id;
+            const Icon = opt.icon;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, orderDestination: opt.id }))}
+                className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition ${
+                  active ? "border-tertiary-accent bg-tertiary-accent/[0.06]" : "border-outline-variant hover:border-tertiary-accent/50"
+                }`}
+              >
+                <Icon className={`h-5 w-5 ${active ? "text-tertiary-accent" : "text-outline"}`} />
+                <div className={`text-[13px] font-bold ${active ? "text-tertiary-accent" : "text-on-surface"}`}>{opt.label}</div>
+                <p className="text-[11.5px] leading-4 text-outline">{opt.description}</p>
+              </button>
+            );
+          })}
         </div>
       </div>
 

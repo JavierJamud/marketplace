@@ -5,7 +5,7 @@ import { AppError } from "../utils/AppError.js";
 import { prisma } from "../lib/prisma.js";
 
 const generateSchema = z.object({
-  kind: z.enum(["product", "store", "warranty", "offer"]),
+  kind: z.enum(["product", "store", "warranty", "offer", "campaign"]),
   // Obligatorio: la IA "mejora" lo que el vendedor ya escribió, nunca
   // inventa un producto/tienda/garantía desde cero (regla de negocio del bloque).
   currentText: z.string().min(5, "Escribe primero una breve descripción para que la IA la pueda mejorar."),
@@ -18,6 +18,16 @@ const generateSchema = z.object({
 // confiada del body) además del texto/nombre que ya trae el form.
 export async function generateProductOrStoreDescription(req, res) {
   const { kind, currentText, productName } = generateSchema.parse(req.body);
+
+  // Bloque 66: "campaign" lo pide un ADMIN desde AdminCampaigns.jsx, sin
+  // ninguna tienda de por medio (el correo es de la plataforma, no de un
+  // vendedor) — a diferencia de los otros 4 kinds, nunca hay que resolver
+  // un Vendor acá (un admin no tiene fila propia en esa tabla).
+  if (kind === "campaign") {
+    const description = await generateDescription(kind, { currentText });
+    return res.json({ description });
+  }
+
   const vendor = await resolveMyVendor(req.user.id);
 
   // Solo el prompt de garantía usa el rubro — resolveMyVendor() se llama

@@ -6,6 +6,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getOfferPolicy } from "./settings.controller.js";
+import { withComputedVendorFields } from "../services/vendorVerification.service.js";
+import { logActivity } from "../lib/activityLog.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Igual criterio que PRODUCT_UPLOAD_DIR (products.controller.js): imágenes
@@ -103,10 +105,12 @@ export async function listActiveOffers(_req, res) {
     orderBy: { createdAt: "desc" },
     select: {
       ...offerSummarySelect,
-      vendor: { select: { companyName: true, slug: true, isVerified: true } },
+      vendor: { select: { companyName: true, slug: true, verificationStatus: true } },
     },
   });
-  res.json({ offers });
+  // vendor es null en ofertas creadas por el admin (createdByAdmin) — el
+  // helper ya maneja ese caso (no hay nada que computar sobre null).
+  res.json({ offers: offers.map((o) => ({ ...o, vendor: withComputedVendorFields(o.vendor) })) });
 }
 
 // Panel de vendedor — todas las suyas (activas, expiradas, retiradas,
@@ -149,7 +153,7 @@ const createOfferSchema = z.object({
 export async function createOffer(req, res) {
   try {
     const vendor = await resolveMyVendor(req.user.id);
-    if (!vendor.isVerified) {
+    if (vendor.verificationStatus !== "VERIFIED") {
       throw new AppError("Disponible solo para tiendas verificadas.", 403);
     }
 
@@ -193,6 +197,14 @@ export async function createOffer(req, res) {
         expiresAt,
       },
       select: offerSummarySelect,
+    });
+    logActivity({
+      actorId: req.user.id,
+      actorRole: "VENDOR",
+      vendorId: vendor.id,
+      action: "offer_created",
+      description: `Creó la oferta "${offer.title}"`,
+      meta: { offerId: offer.id },
     });
     res.status(201).json({ offer });
   } catch (err) {

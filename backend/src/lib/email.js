@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { prisma } from "./prisma.js";
+import { env } from "../config/env.js";
 import { getIntegrationConfig } from "../controllers/integrations.controller.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { logError } from "./errorLog.js";
@@ -10,8 +11,14 @@ import { passwordResetEmail } from "../templates/passwordReset.js";
 import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
 import { tableOrderStatusEmail } from "../templates/tableOrderStatus.js";
 import { twoFactorCodeEmail } from "../templates/twoFactorCode.js";
+import { emailChangeCodeEmail } from "../templates/emailChangeCode.js";
+import { registrationCodeEmail } from "../templates/registrationCode.js";
 import { adminDirectEmail } from "../templates/adminDirectEmail.js";
 import { contactMessageEmail } from "../templates/contactMessage.js";
+import { vendorInactivityReminderEmail } from "../templates/vendorInactivityReminder.js";
+import { vendorSuspendedEmail } from "../templates/vendorSuspended.js";
+import { vendorReactivatedEmail } from "../templates/vendorReactivated.js";
+import { vendorWinbackEmail } from "../templates/vendorWinback.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -113,11 +120,36 @@ export async function sendPasswordResetEmail(user, code) {
 // Best-effort (Bloque 16) — un evento del ciclo de verificación/cobro nunca
 // debe bloquear la acción del admin que lo disparó (aprobar, generar link,
 // confirmar pago) si Resend falla; el estado en DB ya cambió igual.
+// Bloque 64 (bug real encontrado al extender esto): mandaba a `vendor.email`
+// (contacto público OPCIONAL de la tienda, nunca cargado en esta base —
+// confirmado en vivo que las 12 tiendas lo tienen null) en vez de
+// `vendor.user.email` (el correo de LOGIN de la cuenta, mismo criterio que ya
+// usa todo el ciclo de vida del vendedor en Bloque 62) — ningún correo de
+// este ciclo se entregó nunca de verdad, silenciosamente. Los callers ahora
+// incluyen `user` al pedir el vendor.
 export async function sendVerificationUpdateEmail({ vendor, type, title, message, ctaHref }) {
-  if (!vendor.email) return;
+  if (!vendor.user?.email) return;
   const { subject, html } = await verificationUpdateEmail({ type, vendorName: vendor.companyName, title, message, ctaHref });
-  const result = await sendViaResend({ to: vendor.email, subject, html });
-  await logEmail({ vendorId: vendor.id, orderId: null, type: "VERIFICATION_UPDATE", to: vendor.email, subject, result });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VERIFICATION_UPDATE", to: vendor.user.email, subject, result });
+  return result;
+}
+
+// Bloque 64: aviso proactivo (no es un cambio de estado, por eso no pasa por
+// notifyVerificationEvent ni deja rastro en la campanita) — mismo criterio
+// que sendVendorInactivityReminderEmail (Bloque 62): email-only, best-effort,
+// se re-envía siempre desde verificationPayment.job.js cuando corresponda.
+export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await verificationUpdateEmail({
+    type: "VERIFICATION_PAYMENT_REMINDER",
+    vendorName: vendor.companyName,
+    title: "Tu pago de suscripción vence pronto",
+    message: `Tu transferencia CUP del Plan Business vence en ${daysUntilDue} días. Súbela desde tu panel para no perder el badge de verificación.`,
+    ctaHref: `${env.frontendUrl}/vendedor/pago-manual`,
+  });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VERIFICATION_PAYMENT_REMINDER", to: vendor.user.email, subject, result });
   return result;
 }
 
@@ -152,6 +184,29 @@ export async function sendTwoFactorCodeEmail(user, code) {
   return result;
 }
 
+// El resultado SÍ importa (mismo criterio que sendPasswordResetEmail/
+// sendTwoFactorCodeEmail): sin el código en el correo, el cambio de correo
+// queda trabado. Va SIEMPRE a `user.email` (el correo VIEJO, ya en la
+// cuenta) — nunca a `newEmail`, ver la nota en emailChangeCode.js.
+export async function sendEmailChangeCodeEmail(user, code, newEmail) {
+  const { subject, html } = await emailChangeCodeEmail({ fullName: user.fullName, code, newEmail });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "EMAIL_CHANGE_CODE", to: user.email, subject, result });
+  return result;
+}
+
+// El resultado SÍ importa (mismo criterio que sendPasswordResetEmail/
+// sendTwoFactorCodeEmail): sin el código en el correo, el registro queda
+// trabado — `user` acá es un objeto plano { fullName, email }, no
+// necesariamente un User real (ver PendingRegistration, todavía no existe
+// ninguno cuando se manda este correo).
+export async function sendRegistrationCodeEmail(user, code) {
+  const { subject, html } = await registrationCodeEmail({ fullName: user.fullName, code });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "REGISTRATION_CODE", to: user.email, subject, result });
+  return result;
+}
+
 // Bloque 47: correo puntual admin -> cliente/tienda (AdminChat.jsx, pestaña
 // "Correo directo") — vendorId solo si el destinatario es una tienda, mismo
 // EmailLog type MANUAL que sendManualOrderEmail (pedido explícito del bloque).
@@ -172,5 +227,47 @@ export async function sendContactMessageEmail({ to, name, email, message }) {
   const { subject, html } = await contactMessageEmail({ name, email, message });
   const result = await sendViaResend({ to, subject, html });
   await logEmail({ vendorId: null, orderId: null, type: "CONTACT_MESSAGE", to, subject, result });
+  return result;
+}
+
+// --- Bloque 62: ciclo de vida de inactividad de tienda + re-enganche de
+// clientes (vendorLifecycle.job.js) — best-effort en los 4, ninguno bloquea
+// el job si Resend falla (ya se logueó en EmailLog para verlo en Admin >
+// Errores). `vendor` acá siempre viene con `user` incluido (ver el job) —
+// el destinatario es el correo de LOGIN de la cuenta (User.email), no
+// Vendor.email (contacto público de la tienda): lo que importa es avisarle
+// a quien de verdad entra al panel.
+export async function sendVendorInactivityReminderEmail(vendor, daysInactive) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await vendorInactivityReminderEmail({ vendor, daysInactive });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_INACTIVITY_REMINDER", to: vendor.user.email, subject, result });
+  return result;
+}
+
+export async function sendVendorSuspendedEmail(vendor, reason) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await vendorSuspendedEmail({ vendor, reason });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_SUSPENDED", to: vendor.user.email, subject, result });
+  return result;
+}
+
+export async function sendVendorReactivatedEmail(vendor, reason) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await vendorReactivatedEmail({ vendor, reason });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_REACTIVATED", to: vendor.user.email, subject, result });
+  return result;
+}
+
+// A diferencia de los 3 de arriba, el destinatario es el CLIENTE (no el
+// vendedor) — `fromName` firma el correo como la tienda, mismo criterio que
+// sendOrderConfirmationEmail/sendManualOrderEmail.
+export async function sendVendorWinbackEmail({ customer, vendor, offers }) {
+  if (!customer.email) return { ok: false, error: "Cliente sin correo" };
+  const { subject, html } = await vendorWinbackEmail({ customer, vendor, offers });
+  const result = await sendViaResend({ to: customer.email, subject, html, fromName: vendor.companyName });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_WINBACK", to: customer.email, subject, result });
   return result;
 }

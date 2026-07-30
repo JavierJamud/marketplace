@@ -1,4 +1,4 @@
-import { emailShell, statusBadge, paragraph } from "./_shared.js";
+import { emailShell, paragraph } from "./_shared.js";
 
 // Mismos 3 estados de KitchenStatus (schema.prisma), no una paleta paralela.
 const STATUS_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo para retirar" };
@@ -16,9 +16,9 @@ export async function tableOrderStatusEmail({ vendorName, tableNumber, kitchenSt
     title: `Mesa ${tableNumber} — ${vendorName}`,
     storeName: vendorName,
     accentColor: color,
+    badge: { label, color },
     bodyMjml: `
       ${paragraph("Tu pedido cambió de estado:")}
-      ${statusBadge(label, color)}
     `,
   });
   return { subject, html };

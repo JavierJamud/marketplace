@@ -1,6 +1,5 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
-import { MapPin } from "lucide-react";
+import { MapPin, Flame } from "lucide-react";
 import { api } from "../lib/api.js";
 import { formatPrice } from "../lib/format.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
@@ -19,7 +18,6 @@ const LOW_STOCK_THRESHOLD = 3;
 // sin ningún borde. Ahora lleva una sombra sutil SIEMPRE (se intensifica al
 // hover) para que el borde de la tarjeta se note incluso quieta.
 export function ProductCard({ product }) {
-  const [descExpanded, setDescExpanded] = useState(false);
 
   // images[] guarda paths relativos ("/uploads/products/<tienda>/<archivo>")
   // servidos por el backend, no por el frontend — hay que anteponer el origin.
@@ -28,28 +26,32 @@ export function ProductCard({ product }) {
   const firstImage = product.images?.[0];
   const image = firstImage ? (/^https?:\/\//.test(firstImage) ? firstImage : `${api.defaults.baseURL}${firstImage}`) : null;
   const discount = product.oldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : null;
-  const isOutOfStock = product.stock === 0;
-  const isLowStock = !isOutOfStock && product.stock != null && product.stock <= LOW_STOCK_THRESHOLD;
+  // Bloque 56: "disponible siempre" nunca se muestra como agotado/bajo stock.
+  const isOutOfStock = !product.unlimitedStock && product.stock === 0;
+  const isLowStock = !product.unlimitedStock && !isOutOfStock && product.stock != null && product.stock <= LOW_STOCK_THRESHOLD;
   const productHref = `/producto/${product.vendor?.slug}/${product.slug}`;
 
   return (
     <div className="group flex h-full flex-col overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg">
-      <Link to={productHref} className="block p-2.5 pb-0">
-        {/* Bloque 51 (pedido explícito): contenedor de imagen ~600×350 (más
-            ancho que alto, aspect-[12/7] = 600/350 exacto) en vez de
-            cuadrado — se ve más compacto y la tarjeta entera queda más chica. */}
-        <div className="relative aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
+      <Link to={productHref} className="block p-[2px] pb-0">
+        <div className="relative aspect-[7/4] w-full overflow-hidden rounded-[20px] border border-dashed border-outline-variant bg-surface-container">
           {(product.badge || discount) && (
             <span
-              className={`absolute left-2 top-2 z-10 rounded-full px-2 py-0.5 text-[10.5px] font-bold text-white ${
+              className={`absolute left-1.5 top-1.5 z-10 max-w-[45%] truncate rounded-full px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:left-2 sm:top-2 sm:px-2 sm:text-[10.5px] ${
                 discount ? "bg-error" : "bg-tertiary-accent"
               }`}
             >
               {product.badge ?? `-${discount}%`}
             </span>
           )}
+          {product.isBestSeller && (
+            <span className="absolute right-1.5 top-1.5 z-10 flex max-w-[48%] items-center gap-0.5 rounded-full bg-[#8a5100] px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:right-2 sm:top-2 sm:gap-1 sm:px-2 sm:text-[10.5px]">
+              <Flame className="h-2.5 w-2.5 flex-shrink-0 sm:h-3 sm:w-3" />
+              <span className="truncate">Más vendido</span>
+            </span>
+          )}
           {image ? (
-            <img src={image} alt={product.name} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+            <img src={image} alt={product.name} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
           )}
@@ -76,15 +78,11 @@ export function ProductCard({ product }) {
         )}
         {product.description && (
           <div className="mb-1">
-            <p className={`text-[11.5px] leading-4 text-outline ${descExpanded ? "" : "line-clamp-2"}`}>{product.description}</p>
+            <p className="line-clamp-2 text-[11.5px] leading-4 text-outline">{product.description}</p>
             {product.description.length > 45 && (
-              <button
-                type="button"
-                onClick={() => setDescExpanded((v) => !v)}
-                className="text-[11px] font-bold text-tertiary-accent hover:underline"
-              >
-                {descExpanded ? "leer menos" : "...leer más"}
-              </button>
+              <Link to={productHref} className="text-[11px] font-bold text-tertiary-accent hover:underline">
+                ...leer más
+              </Link>
             )}
           </div>
         )}

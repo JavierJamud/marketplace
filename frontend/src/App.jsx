@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
+import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
 
 // Público
 import Home from "./pages/public/Home.jsx";
@@ -35,6 +36,7 @@ import VendorStoreOffers from "./pages/vendor/VendorStoreOffers.jsx";
 import VendorOrders from "./pages/vendor/VendorOrders.jsx";
 import VendorTables from "./pages/vendor/VendorTables.jsx";
 import VendorVerification from "./pages/vendor/VendorVerification.jsx";
+import PagoManual from "./pages/vendor/PagoManual.jsx";
 import VendorChat from "./pages/vendor/VendorChat.jsx";
 import VendorReviews from "./pages/vendor/VendorReviews.jsx";
 import VendorSettings from "./pages/vendor/VendorSettings.jsx";
@@ -44,8 +46,10 @@ import VendorProfile from "./pages/vendor/VendorProfile.jsx";
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import AdminVendors from "./pages/admin/AdminVendors.jsx";
+import AdminSuspendedVendors from "./pages/admin/AdminSuspendedVendors.jsx";
 import AdminVerifications from "./pages/admin/AdminVerifications.jsx";
 import AdminCustomers from "./pages/admin/AdminCustomers.jsx";
+import AdminActivityLog from "./pages/admin/AdminActivityLog.jsx";
 import AdminSuggestions from "./pages/admin/AdminSuggestions.jsx";
 import AdminReviews from "./pages/admin/AdminReviews.jsx";
 import AdminCampaigns from "./pages/admin/AdminCampaigns.jsx";
@@ -64,6 +68,8 @@ import AdminContacto from "./pages/admin/AdminContacto.jsx";
 import AdminAyuda from "./pages/admin/AdminAyuda.jsx";
 import AdminBranding from "./pages/admin/AdminBranding.jsx";
 import AdminOffers from "./pages/admin/AdminOffers.jsx";
+import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
+import AdminStoreOffers from "./pages/admin/AdminStoreOffers.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
 
 export default function App() {
@@ -81,7 +87,14 @@ export default function App() {
         <Route path="/carrito" element={<Cart />} />
         <Route path="/carrito-compartido/:id" element={<SharedCart />} />
         <Route path="/checkout" element={<Checkout />} />
-        <Route path="/cuenta/panel" element={<CustomerPanel />} />
+        <Route
+          path="/cuenta/panel"
+          element={
+            <ProtectedRoute roles={["CUSTOMER"]} redirectTo="/cuenta">
+              <CustomerPanel />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/vender" element={<VendorOnboarding />} />
         <Route path="/mesa/:qrToken" element={<TableOrder />} />
         <Route path="/terminos" element={<Terms />} />
@@ -96,8 +109,21 @@ export default function App() {
           sin el header/footer del sitio. */}
       <Route path="/cuenta" element={<Account />} />
 
+      {/* Auditoría de seguridad: 3 URLs de entrada distintas por rol — mismo
+          componente y mismo POST /auth/login de siempre (ver comentario en
+          Account.jsx), solo cambia el copy y qué vistas ofrece cada una. */}
+      <Route path="/vendedor/ingresar" element={<Account mode="vendor" />} />
+      <Route path="/admin/ingresar" element={<Account mode="admin" />} />
+
       {/* Panel de vendedor */}
-      <Route path="/vendedor" element={<VendorLayout />}>
+      <Route
+        path="/vendedor"
+        element={
+          <ProtectedRoute roles={["VENDOR"]} redirectTo="/vendedor/ingresar">
+            <VendorLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<VendorDashboard />} />
         <Route path="productos" element={<VendorProducts />} />
         <Route path="ofertas" element={<VendorOffers />} />
@@ -106,6 +132,7 @@ export default function App() {
         <Route path="pedidos" element={<VendorOrders />} />
         <Route path="mesas" element={<VendorTables />} />
         <Route path="verificacion" element={<VendorVerification />} />
+        <Route path="pago-manual" element={<PagoManual />} />
         <Route path="mensajes" element={<VendorChat />} />
         <Route path="resenas" element={<VendorReviews />} />
         <Route path="configuracion" element={<VendorSettings />} />
@@ -117,12 +144,21 @@ export default function App() {
       </Route>
 
       {/* Panel de administración ZeuDin */}
-      <Route path="/admin" element={<AdminLayout />}>
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute roles={["ADMIN"]} redirectTo="/admin/ingresar">
+            <AdminLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<AdminDashboard />} />
         <Route path="tiendas" element={<AdminVendors />} />
+        <Route path="tiendas-suspendidas" element={<AdminSuspendedVendors />} />
         <Route path="productos" element={<AdminProducts />} />
         <Route path="verificaciones" element={<AdminVerifications />} />
         <Route path="clientes" element={<AdminCustomers />} />
+        <Route path="actividad" element={<AdminActivityLog />} />
         <Route path="sugerencias" element={<AdminSuggestions />} />
         <Route path="comentarios" element={<AdminReviews />} />
         <Route path="mensajes" element={<AdminChat />} />
@@ -130,6 +166,8 @@ export default function App() {
         <Route path="campanas" element={<AdminCampaigns />} />
         <Route path="suscripciones" element={<AdminSubscriptions />} />
         <Route path="ofertas" element={<AdminOffers />} />
+        <Route path="codigos-descuento" element={<AdminDiscountCodes />} />
+        <Route path="ofertas-tienda" element={<AdminStoreOffers />} />
         <Route path="anuncios" element={<AdminAnnouncements />} />
         <Route path="integraciones" element={<AdminIntegrations />} />
         <Route path="marca" element={<AdminBranding />} />

@@ -6,6 +6,8 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { sendOrderConfirmationEmail, sendOrderStatusEmail, sendManualOrderEmail } from "../lib/email.js";
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
+import { resolveUnitPrice } from "../lib/pricing.js";
+import { logActivity } from "../lib/activityLog.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -68,10 +70,10 @@ export async function createOrder(req, res) {
   const data = createOrderSchema.parse(req.body);
 
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
-  if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
 
   const productIds = data.items.map((i) => i.productId);
-  const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
+  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { priceTiers: true } });
 
   if (products.length !== productIds.length) throw new AppError("Uno o más productos ya no están disponibles.", 400);
 
@@ -106,24 +108,33 @@ export async function createOrder(req, res) {
   const quickCheck = data.items
     .map((i) => {
       const product = productById[i.productId];
+      // Bloque 56: "disponible siempre" — nunca entra a este chequeo, sin
+      // importar qué tenga guardado en `stock` (no se le lleva seguimiento).
+      if (product.unlimitedStock) return null;
       const available = i.size ? Number(product.sizeStock?.[i.size] ?? 0) : product.stock;
       return { productId: i.productId, requested: i.quantity, available, name: product.name, size: i.size ?? null };
     })
-    .filter((i) => i.requested > i.available);
+    .filter((i) => i && i.requested > i.available);
   if (quickCheck.length > 0) {
     throw new AppError("Algunos productos ya no tienen suficiente stock.", 409, { insufficientStock: quickCheck });
   }
 
-  // El precio se toma del producto en DB (no del cliente) para evitar manipulación.
-  const orderItems = data.items.map((i) => ({
-    productId: i.productId,
-    name: productById[i.productId].name,
-    price: productById[i.productId].price,
-    currency: productById[i.productId].currency,
-    quantity: i.quantity,
-    selectedOptions: i.selectedOptions ?? null,
-    size: i.size ?? null,
-  }));
+  // El precio se toma del producto en DB (no del cliente) para evitar
+  // manipulación. Bloque 55: si el producto tiene precios por cantidad
+  // (mayoreo), acá se resuelve el precio POR UNIDAD real según la cantidad
+  // pedida — nunca el precio de 1 unidad a secas ni uno que mande el cliente.
+  const orderItems = data.items.map((i) => {
+    const product = productById[i.productId];
+    return {
+      productId: i.productId,
+      name: product.name,
+      price: resolveUnitPrice(product.price, product.priceTiers, i.quantity),
+      currency: product.currency,
+      quantity: i.quantity,
+      selectedOptions: i.selectedOptions ?? null,
+      size: i.size ?? null,
+    };
+  });
   const subtotal = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
   // Autenticación opcional: si viene un token válido, asocia el pedido al cliente.
@@ -205,6 +216,19 @@ export async function createOrder(req, res) {
   // Confirmación al cliente — best-effort, nunca bloquea ni revierte el pedido.
   await sendOrderConfirmationEmail(order);
 
+  // Solo se registra si el pedido se hizo logueado — un pedido de invitado no
+  // tiene ningún User al que atarle la fila de ActivityLog.
+  if (customerId) {
+    logActivity({
+      actorId: customerId,
+      actorRole: "CUSTOMER",
+      vendorId: order.vendorId,
+      action: "order_placed",
+      description: `Hizo un pedido en "${order.vendor.companyName}"`,
+      meta: { orderId: order.id, code: order.code },
+    });
+  }
+
   res.status(201).json({ order });
 }
 
@@ -283,10 +307,20 @@ export async function updateOrderStatus(req, res) {
   // NEW nunca llegó a descontar nada, así que no hay nada que devolver ahí.
   const shouldRestock = status === "CANCELLED" && order.status !== "NEW";
 
+  // Bloque 56: no tiene sentido "devolver" stock de un producto que nunca le
+  // llevamos la cuenta — se resuelve antes de la transacción, igual que en
+  // confirmOrderSale.
+  let isUnlimited = new Map();
+  if (shouldRestock) {
+    const restockProductIds = [...new Set(order.items.map((i) => i.productId).filter(Boolean))];
+    const restockProducts = await prisma.product.findMany({ where: { id: { in: restockProductIds } }, select: { id: true, unlimitedStock: true } });
+    isUnlimited = new Map(restockProducts.map((p) => [p.id, p.unlimitedStock]));
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     if (shouldRestock) {
       for (const item of order.items) {
-        if (!item.productId) continue;
+        if (!item.productId || isUnlimited.get(item.productId)) continue;
         if (item.size) await incrementSizeStock(tx, item.productId, item.size, item.quantity);
         else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
@@ -313,9 +347,16 @@ export async function confirmOrderSale(req, res) {
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   if (order.status !== "NEW") throw new AppError(`Este pedido ya no está pendiente (está "${order.status}").`, 400);
 
+  // Bloque 56: "disponible siempre" — se resuelve ANTES de la transacción
+  // para saber a qué ítems no hay que hacerles ningún chequeo/descuento.
+  const orderProductIds = [...new Set(order.items.map((i) => i.productId).filter(Boolean))];
+  const orderProducts = await prisma.product.findMany({ where: { id: { in: orderProductIds } }, select: { id: true, unlimitedStock: true } });
+  const isUnlimited = new Map(orderProducts.map((p) => [p.id, p.unlimitedStock]));
+
   const updated = await prisma.$transaction(async (tx) => {
     for (const item of order.items) {
       if (!item.productId) continue; // producto borrado después del pedido — nada que descontar
+      if (isUnlimited.get(item.productId)) continue; // sin seguimiento de stock — nunca bloquea la confirmación.
 
       // Bloque 52: si el ítem lleva talla, decrementar ESA talla (con lock de
       // fila, ver decrementSizeStock) en vez del stock general del producto.
@@ -357,14 +398,16 @@ async function findAtRiskSiblingOrders({ vendorId, excludeOrderId, productIds })
   });
   if (siblingOrders.length === 0) return [];
 
-  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, stock: true, sizeStock: true } });
+  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, stock: true, sizeStock: true, unlimitedStock: true } });
   const productById = new Map(products.map((p) => [p.id, p]));
 
   // Bloque 52: si el ítem lleva talla, lo que importa es el stock de ESA
-  // talla, no el total del producto (puede sobrar en otras tallas).
+  // talla, no el total del producto (puede sobrar en otras tallas). Bloque
+  // 56: un producto "disponible siempre" nunca queda en riesgo.
   function availableFor(item) {
     const product = productById.get(item.productId);
     if (!product) return 0;
+    if (product.unlimitedStock) return Infinity;
     return item.size ? Number(product.sizeStock?.[item.size] ?? 0) : product.stock;
   }
 
@@ -416,18 +459,24 @@ export async function updateOrderItems(req, res) {
   if (order.status !== "NEW") throw new AppError("Solo se pueden modificar pedidos pendientes, todavía sin confirmar.", 400);
 
   const uniqueProductIds = [...new Set(items.map((i) => i.productId))];
-  const products = await prisma.product.findMany({ where: { id: { in: uniqueProductIds }, vendorId: vendor.id } });
+  const products = await prisma.product.findMany({
+    where: { id: { in: uniqueProductIds }, vendorId: vendor.id },
+    include: { priceTiers: true },
+  });
   if (products.length !== uniqueProductIds.length) throw new AppError("Uno o más productos ya no están disponibles.", 400);
   const productById = Object.fromEntries(products.map((p) => [p.id, p]));
 
-  const orderItems = items.map((i) => ({
-    productId: i.productId,
-    name: productById[i.productId].name,
-    price: productById[i.productId].price,
-    currency: productById[i.productId].currency,
-    quantity: i.quantity,
-    size: i.size ?? null,
-  }));
+  const orderItems = items.map((i) => {
+    const product = productById[i.productId];
+    return {
+      productId: i.productId,
+      name: product.name,
+      price: resolveUnitPrice(product.price, product.priceTiers, i.quantity),
+      currency: product.currency,
+      quantity: i.quantity,
+      size: i.size ?? null,
+    };
+  });
   const total = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
   const updated = await prisma.$transaction(async (tx) => {

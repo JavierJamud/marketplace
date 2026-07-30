@@ -5,6 +5,7 @@ import DOMPurify from "isomorphic-dompurify";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { offerSummarySelect, OFFER_UPLOAD_DIR } from "./offers.controller.js";
+import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 
 // Bloque 51: sección "Ofertas" del panel admin. A diferencia de
 // offers.controller.js (vendedor, solo PRODUCT/CUSTOM, siempre sujeto al
@@ -25,10 +26,10 @@ export async function listAllOffers(req, res) {
     orderBy: { createdAt: "desc" },
     select: {
       ...offerSummarySelect,
-      vendor: { select: { id: true, companyName: true, slug: true, isVerified: true } },
+      vendor: { select: { id: true, companyName: true, slug: true, verificationStatus: true } },
     },
   });
-  res.json({ offers });
+  res.json({ offers: offers.map((o) => ({ ...o, vendor: withComputedVendorFields(o.vendor) })) });
 }
 
 const createAdminOfferSchema = z.object({

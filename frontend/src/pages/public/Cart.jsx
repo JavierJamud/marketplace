@@ -5,9 +5,8 @@ import toast from "react-hot-toast";
 import { Minus, Plus, Trash2, MessageCircle, Tag, X } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";
-import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { useCart } from "../../context/CartContext.jsx";
-import { waLink } from "../../lib/whatsapp.js";
+import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ShareCartButton } from "../../components/ShareCartButton.jsx";
@@ -20,12 +19,11 @@ import { ShareCartButton } from "../../components/ShareCartButton.jsx";
 function singleCurrencySubtotal(items) {
   const currencies = new Set(items.map((i) => i.currency ?? "CUP"));
   if (currencies.size > 1) return null;
-  return items.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+  return items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
 }
 
 export default function Cart() {
-  const { siteName } = usePlatformSettings();
-  const { items, vendorId, vendorName, vendorSlug, vendorColor, vendorVerified, vendorWhatsapp, updateQuantity, removeItem, discount, setDiscount, clearDiscount } = useCart();
+  const { items, vendorId, vendorName, vendorSlug, vendorColor, vendorVerified, updateQuantity, removeItem, discount, setDiscount, clearDiscount } = useCart();
   const [itemToRemove, setItemToRemove] = useState(null);
   const [codeInput, setCodeInput] = useState("");
   const subtotal = singleCurrencySubtotal(items);
@@ -51,10 +49,13 @@ export default function Cart() {
   const locationLabel = location ? `${location.municipality?.name ?? ""}, ${location.province?.name}` : "";
   const color = vendor?.color ?? vendorColor ?? "#232F3E";
   const isVerified = vendor?.isVerified ?? vendorVerified;
-  const whatsapp = vendor?.whatsapp ?? vendorWhatsapp;
-  // El vendedor elige en su configuración si sus pedidos van directo a
-  // WhatsApp o a su panel — se muestra un solo atajo, no los dos a la vez.
-  const wantsPanel = vendor?.orderDestination === "PANEL";
+  // Bloque 68 (pedido explícito): el destino elegido por la tienda ya NO
+  // decide si se salta el formulario (siempre se pasa por /checkout) — solo
+  // cambia el color/label del botón, para que el cliente sepa qué esperar
+  // después de confirmar (ver Checkout.jsx, que arma el mensaje real de
+  // WhatsApp recién con los datos ya completos).
+  const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
+  const emphasizeWhatsapp = orderDestination !== "PANEL";
 
   if (items.length === 0) {
     return (
@@ -71,10 +72,6 @@ export default function Cart() {
       </div>
     );
   }
-
-  const waText = `Hola ${vendorName}, quiero pedir:\n${items
-    .map((i) => `• ${i.quantity}× ${i.name}${i.size ? ` (talla ${i.size})` : ""}`)
-    .join("\n")}\nTotal aprox: ${formatMixedTotal(items)}`;
 
   return (
     <div className="container-app max-w-[1080px] py-9">
@@ -101,33 +98,40 @@ export default function Cart() {
           </div>
 
           <div className="overflow-hidden rounded-md border border-surface-container-high bg-surface-container-lowest">
-            {items.map((it) => (
-              <div key={`${it.productId}-${it.size ?? ""}`} className="flex items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
-                <div className="h-16 w-16 flex-shrink-0 rounded-md bg-surface-container" />
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5 text-body-md font-semibold text-on-surface">
-                    {it.name}
-                    {it.size && (
-                      <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">Talla {it.size}</span>
+            {items.map((it) => {
+              const unitPrice = resolveUnitPrice(it.price, it.priceTiers, it.quantity);
+              const savings = calcSavings(it.price, it.priceTiers, it.quantity);
+              return (
+                <div key={`${it.productId}-${it.size ?? ""}`} className="flex items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
+                  <div className="h-16 w-16 flex-shrink-0 rounded-md bg-surface-container" />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5 text-body-md font-semibold text-on-surface">
+                      {it.name}
+                      {it.size && (
+                        <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">Talla {it.size}</span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[12.5px] text-outline">{formatPrice(unitPrice, it.currency)} c/u</div>
+                    {savings > 0 && (
+                      <div className="mt-0.5 text-[11.5px] font-semibold text-tertiary-accent">Ahorras {formatPrice(savings, it.currency)} por mayoreo</div>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[12.5px] text-outline">{formatPrice(it.price, it.currency)} c/u</div>
-                </div>
-                <div className="flex items-center rounded border border-outline-variant">
-                  <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
-                    <Minus className="h-3.5 w-3.5" />
+                  <div className="flex items-center rounded border border-outline-variant">
+                    <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                      <Minus className="h-3.5 w-3.5" />
+                    </button>
+                    <div className="w-[34px] text-center text-body-md font-semibold">{it.quantity}</div>
+                    <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="w-24 flex-shrink-0 text-right text-body-md font-bold text-on-surface">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
+                  <button onClick={() => setItemToRemove(it)} className="p-1.5 text-error">
+                    <Trash2 className="h-4 w-4" />
                   </button>
-                  <div className="w-[34px] text-center text-body-md font-semibold">{it.quantity}</div>
-                  <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
                 </div>
-                <div className="w-24 flex-shrink-0 text-right text-body-md font-bold text-on-surface">{formatPrice(it.price * it.quantity, it.currency)}</div>
-                <button onClick={() => setItemToRemove(it)} className="p-1.5 text-error">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -191,35 +195,22 @@ export default function Cart() {
             <span>Total</span>
             <span>{discount && subtotal != null ? formatPrice(Math.max(0, subtotal - discount.amount)) : formatMixedTotal(items)}</span>
           </div>
-          {wantsPanel ? (
-            <>
-              <Link to="/checkout" className="flex h-12 items-center justify-center rounded bg-primary-container text-label-md font-bold text-white">
-                Completar pedido
-              </Link>
-              <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
-                Esta tienda gestiona sus pedidos desde su panel. Completa tus datos y te contactarán para coordinar.
-              </p>
-            </>
-          ) : (
-            <>
-              {whatsapp && (
-                <a
-                  href={waLink(whatsapp, waText)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mb-2.5 flex h-12 items-center justify-center gap-2 rounded bg-[#25D366] text-label-md font-bold text-white"
-                >
-                  <MessageCircle className="h-[18px] w-[18px]" /> Pedir por WhatsApp
-                </a>
-              )}
-              <Link to="/checkout" className="flex h-[46px] items-center justify-center rounded bg-primary-container text-label-md font-bold text-white">
-                Checkout con dirección
-              </Link>
-              <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
-                No se cobra nada en {siteName} — coordinas el pago directo con el vendedor (contra entrega, en línea o efectivo).
-              </p>
-            </>
-          )}
+          <Link
+            to="/checkout"
+            className={`flex h-12 items-center justify-center gap-2 rounded text-label-md font-bold text-white ${
+              emphasizeWhatsapp ? "bg-[#25D366]" : "bg-primary-container"
+            }`}
+          >
+            {emphasizeWhatsapp && <MessageCircle className="h-[18px] w-[18px]" />}
+            Completar pedido
+          </Link>
+          <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
+            {orderDestination === "PANEL"
+              ? "Esta tienda gestiona sus pedidos desde su panel. Completa tus datos y te contactarán para coordinar."
+              : orderDestination === "BOTH"
+              ? "Completa tus datos — la tienda recibe tu pedido en su panel y también te puede coordinar por WhatsApp."
+              : `Completa tus datos — al confirmar te ofrecemos mandarle el pedido a ${vendorName} por WhatsApp.`}
+          </p>
         </div>
       </div>
 

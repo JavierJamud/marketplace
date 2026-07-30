@@ -4,6 +4,18 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
 export const api = axios.create({ baseURL: API_URL });
 
+// Bloque 60: este módulo no es un componente — no puede leer el `user`
+// actual ni navegar. AuthContext.jsx se registra acá una sola vez al
+// montar, así que cuando el refresh falla de verdad (sesión revocada o
+// vencida) el cierre es el mismo "de verdad" (limpiar estado + redirigir)
+// que usan el resto de los casos (logout explícito, inactividad,
+// sincronización entre pestañas) — antes esto solo borraba localStorage y
+// dejaba la pantalla viva con datos viejos.
+let sessionExpiredHandler = null;
+export function setSessionExpiredHandler(fn) {
+  sessionExpiredHandler = fn;
+}
+
 // Bloque 29: cuando una llamada usa responseType:"blob" (descarga de PDF), un
 // error del backend (400/500 con {error:"..."} en JSON) también llega como
 // Blob en err.response.data — el patrón de siempre (err.response?.data?.error)
@@ -34,6 +46,11 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
+    // Distingue "esta llamada nunca llevó sesión" (visitante anónimo pegándole
+    // a algo que da 401 — normal, no hay ninguna sesión que "expiró") de "esta
+    // llamada SÍ llevaba un access token y aun así lo rechazaron" (sesión
+    // realmente rota) — solo el segundo caso amerita el cierre forzado.
+    const hadAuthHeader = !!original?.headers?.Authorization;
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       const refreshToken = localStorage.getItem("refreshToken");
@@ -46,7 +63,11 @@ api.interceptors.response.use(
         } catch {
           localStorage.removeItem("accessToken");
           localStorage.removeItem("refreshToken");
+          sessionExpiredHandler?.();
         }
+      } else if (hadAuthHeader) {
+        localStorage.removeItem("accessToken");
+        sessionExpiredHandler?.();
       }
     }
     return Promise.reject(error);

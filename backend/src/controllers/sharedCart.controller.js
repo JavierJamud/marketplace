@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { productPriceTiersInclude } from "./products.controller.js";
 
 // Bloque 54: "Compartir carrito" — genera un link público de un solo
 // vendedor (mismo carrito de un solo vendedor que el resto del sitio) que
@@ -28,7 +29,7 @@ export async function createSharedCart(req, res) {
   const data = createSharedCartSchema.parse(req.body);
 
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
-  if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
 
   const shared = await prisma.sharedCart.create({
     data: {
@@ -50,12 +51,19 @@ export async function getSharedCart(req, res) {
   if (!shared) throw new AppError("Este carrito compartido ya no existe.", 404);
 
   const vendor = await prisma.vendor.findUnique({ where: { id: shared.vendorId } });
-  if (!vendor || vendor.isBlocked) throw new AppError("Esta tienda ya no está disponible.", 404);
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Esta tienda ya no está disponible.", 404);
 
   const productIds = [...new Set(shared.items.map((i) => i.productId))];
-  const products = await prisma.product.findMany({ where: { id: { in: productIds }, isActive: true } });
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds }, isActive: true },
+    include: productPriceTiersInclude,
+  });
   const productById = Object.fromEntries(products.map((p) => [p.id, p]));
 
+  // Bloque 55: se manda `priceTiers` tal cual (no un precio ya resuelto) —
+  // así el carrito de quien recibe el link sigue recalculando el precio por
+  // unidad si más adelante cambia la cantidad, igual que cualquier ítem
+  // agregado normalmente desde la ficha de producto.
   const items = shared.items
     .map((i) => {
       const product = productById[i.productId];
@@ -67,6 +75,7 @@ export async function getSharedCart(req, res) {
         name: product.name,
         image: product.images?.[0] ?? null,
         price: product.price,
+        priceTiers: product.priceTiers,
         currency: product.currency,
         size: i.size ?? null,
         quantity: Math.min(i.quantity, availableStock),
@@ -81,7 +90,7 @@ export async function getSharedCart(req, res) {
       slug: vendor.slug,
       companyName: vendor.companyName,
       color: vendor.color,
-      isVerified: vendor.isVerified,
+      isVerified: vendor.verificationStatus === "VERIFIED",
       whatsapp: vendor.whatsapp,
     },
     items,

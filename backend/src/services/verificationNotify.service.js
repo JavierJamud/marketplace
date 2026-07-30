@@ -31,6 +31,19 @@ const EVENTS = {
     body: () =>
       "Tu tienda volvió al Plan Regular — perdiste el badge de verificación y las funciones Business (IA para clientes, destacado en home, productos ilimitados). Puedes volver a verificarte cuando quieras desde tu panel.",
   },
+  // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
+  // nuevo reactiva sin rehacer documentos); SUSPENDED implica que la
+  // suscripción de Stripe ya no existe (necesita una nueva desde cero).
+  VERIFICATION_PAYMENT_FAILED: {
+    title: "No pudimos cobrar tu suscripción",
+    body: () =>
+      "El cobro de tu Plan Business falló — perdiste el badge de verificación hasta resolverlo. Actualiza tu método de pago o completa la transferencia CUP desde tu panel para recuperarlo, sin necesidad de volver a subir tus documentos.",
+  },
+  VERIFICATION_SUSPENDED: {
+    title: "Tu suscripción fue suspendida",
+    body: () =>
+      "Tu suscripción del Plan Business ya no está activa — perdiste el badge de verificación. Puedes iniciar una suscripción nueva desde tu panel cuando quieras (tus documentos ya aprobados siguen valiendo).",
+  },
 };
 
 export async function notifyVerificationEvent(vendor, type, { notes, ctaHref } = {}) {

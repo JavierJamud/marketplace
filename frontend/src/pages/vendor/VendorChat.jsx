@@ -12,7 +12,11 @@ function fmtTime(iso) {
 export default function VendorChat() {
   const { siteName } = usePlatformSettings();
   const { vendor } = useOutletContext();
-  const isApproved = vendor?.verification?.status === "APPROVED";
+  // Bug real corregido: chequeaba vendor.verification.status === "APPROVED",
+  // un campo que ya no existe (el estado vive en Vendor.verificationStatus
+  // desde el Bloque 64) — el chat quedaba bloqueado para SIEMPRE incluso con
+  // la tienda verificada. Mismo criterio que el resto del panel (isVerified).
+  const isApproved = !!vendor?.isVerified;
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const bottomRef = useRef(null);

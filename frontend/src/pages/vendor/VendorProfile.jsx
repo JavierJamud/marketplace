@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useOutletContext, useNavigate, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Mail, KeyRound, ShieldCheck, Store as StoreIcon, ArrowRight, UserRound, FileText, User as UserIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
 import { Select } from "../../components/ui/Select.jsx";
@@ -12,40 +12,8 @@ import { Button } from "../../components/ui/Button.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
-
-function EmailModal({ currentEmail, onClose }) {
-  const { refetch } = useAuth();
-  const [newEmail, setNewEmail] = useState(currentEmail);
-  const [currentPassword, setCurrentPassword] = useState("");
-
-  const save = useMutation({
-    mutationFn: async () => (await api.patch("/auth/me/email", { newEmail, currentPassword })).data,
-    onSuccess: async () => {
-      toast.success("Correo actualizado.");
-      await refetch();
-      onClose();
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cambiar el correo."),
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6">
-        <h2 className="mb-4 text-title-lg font-bold text-on-surface">Cambiar correo</h2>
-        <div className="flex flex-col gap-3.5">
-          <Input label="Correo nuevo" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
-          <PasswordInput label="Contraseña actual" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
-        </div>
-        <div className="mt-5 flex gap-2.5">
-          <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose} disabled={save.isPending}>Cancelar</Button>
-          <Button className="flex-1 rounded-xl" disabled={!newEmail || !currentPassword || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? "Guardando..." : "Guardar"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 
 function PasswordCard() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -85,41 +53,55 @@ function PasswordCard() {
   );
 }
 
-function TwoFactorCard() {
-  const { user, refetch } = useAuth();
+// Bloque 60: reemplaza el switch opt-in de 2FA (ya no aplica — el código de
+// login pasa a ser obligatorio para todos, no opcional, ver
+// auth.controller.js login()). En su lugar, un control real: cerrar sesión
+// en todos los dispositivos/navegadores de la cuenta de una — útil si el
+// vendedor sospecha que alguien más tiene acceso. Pide confirmación antes
+// de ejecutar (mismo ConfirmModal que ya usa el resto del sitio para
+// acciones consecuentes) ya que además de cerrar TODAS las sesiones activas
+// también borra los dispositivos "de confianza" — el próximo login, en
+// cualquier lado (incluida esta misma pestaña), va a volver a pedir el
+// código de verificación.
+function SecurityCard() {
+  const { logoutAllDevices } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [confirming, setConfirming] = useState(false);
 
-  const toggle = useMutation({
-    mutationFn: async (enabled) => (await api.patch("/auth/me/2fa", { enabled })).data,
-    onSuccess: async (data) => {
-      toast.success(data.twoFactorEnabled ? "Verificación en dos pasos activada." : "Verificación en dos pasos desactivada.");
-      await refetch();
+  const logoutAll = useMutation({
+    mutationFn: logoutAllDevices,
+    onSuccess: () => {
+      toast.success("Cerraste sesión en todos los dispositivos.");
+      navigate(loginPathFor(location.pathname), { replace: true });
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar."),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cerrar la sesión en todos los dispositivos."),
   });
-
-  const enabled = !!user?.twoFactorEnabled;
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
-        <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Verificación en dos pasos
+        <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Seguridad de la cuenta
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Con esto activo, cada inicio de sesión de tu cuenta pide además un código de 6 dígitos mandado al correo de la
-        cuenta — un extra de seguridad si alguien más consigue tu contraseña.
+        Tu sesión y tus dispositivos recordados están protegidos con un código de verificación por correo, obligatorio
+        en cada inicio de sesión desde un navegador nuevo. Si sospechas que alguien más tiene acceso, cierra sesión en
+        todos tus dispositivos — vas a tener que volver a iniciar sesión (y verificar el código) en todos lados.
       </p>
-      <button
-        onClick={() => toggle.mutate(!enabled)}
-        disabled={toggle.isPending}
-        className={`flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-[13px] font-bold transition disabled:opacity-50 ${
-          enabled ? "border-verified bg-verified/10 text-verified-dark" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"
-        }`}
-      >
-        <span className={`flex h-5 w-9 flex-shrink-0 items-center rounded-full p-0.5 transition-colors ${enabled ? "bg-verified" : "bg-surface-container-high"}`}>
-          <span className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} />
-        </span>
-        {toggle.isPending ? "Guardando..." : enabled ? "Activada" : "Desactivada"}
-      </button>
+      <Button variant="outline" className="rounded-xl border-error text-error hover:bg-error/5" onClick={() => setConfirming(true)}>
+        Cerrar sesión en todos los dispositivos
+      </Button>
+
+      <ConfirmModal
+        open={confirming}
+        title="¿Cerrar sesión en todos los dispositivos?"
+        message="Esto revoca todas tus sesiones activas y todos los dispositivos recordados — vas a tener que volver a iniciar sesión (con el código de verificación) en cualquier lado, incluida esta pestaña."
+        confirmLabel={logoutAll.isPending ? "Cerrando..." : "Sí, cerrar todas"}
+        danger
+        confirmDisabled={logoutAll.isPending}
+        onConfirm={() => logoutAll.mutate()}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }
@@ -283,7 +265,7 @@ export default function VendorProfile() {
       </div>
 
       <PasswordCard />
-      <TwoFactorCard />
+      <SecurityCard />
       <OwnerNameCard />
       <StoreInfoCard />
       <KycDocumentsCard />
@@ -296,7 +278,7 @@ export default function VendorProfile() {
         <ArrowRight className="h-4 w-4" />
       </Link>
 
-      {changingEmail && <EmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}
+      {changingEmail && <ChangeEmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}
     </div>
   );
 }

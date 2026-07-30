@@ -5,7 +5,7 @@ import { X, Minus, Plus, Trash2, MessageCircle, ShoppingBag, Tag } from "lucide-
 import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";
 import { useCart } from "../../context/CartContext.jsx";
-import { waLink } from "../../lib/whatsapp.js";
+import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../ui/VerifiedBadge.jsx";
 import { ShareCartButton } from "../ShareCartButton.jsx";
 
@@ -21,7 +21,6 @@ export function CartDrawer() {
     vendorSlug,
     vendorColor,
     vendorVerified,
-    vendorWhatsapp,
     updateQuantity,
     removeItem,
     isDrawerOpen,
@@ -49,14 +48,13 @@ export function CartDrawer() {
   }, [isDrawerOpen, closeCart]);
 
   const isVerified = vendor?.isVerified ?? vendorVerified;
-  const whatsapp = vendor?.whatsapp ?? vendorWhatsapp;
-  const wantsPanel = vendor?.orderDestination === "PANEL";
+  // Bloque 68 (pedido explícito): mismo criterio que Cart.jsx — el destino
+  // ya no salta el formulario (siempre va a /checkout), solo cambia el
+  // color/label del botón.
+  const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
+  const emphasizeWhatsapp = orderDestination !== "PANEL";
   const count = items.reduce((a, i) => a + i.quantity, 0);
-  const subtotal = items.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
-
-  const waText = `Hola ${vendorName}, quiero pedir:\n${items
-    .map((i) => `• ${i.quantity}× ${i.name}${i.size ? ` (talla ${i.size})` : ""}`)
-    .join("\n")}\nTotal aprox: ${formatMixedTotal(items)}`;
+  const subtotal = items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
 
   return (
     <>
@@ -138,49 +136,56 @@ export function CartDrawer() {
             {/* Ítems (scrollable) */}
             <div className="flex-1 overflow-y-auto px-4 py-1">
               <div className="flex flex-col gap-1.5">
-                {items.map((it) => (
-                  <div
-                    key={`${it.productId}-${it.size ?? ""}`}
-                    className="flex items-center gap-3 rounded-2xl p-2.5 transition-colors hover:bg-surface-container/60"
-                  >
-                    <div className="h-14 w-14 flex-shrink-0 rounded-xl bg-surface-container" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 truncate text-body-sm font-semibold text-on-surface">
-                        {it.name}
-                        {it.size && (
-                          <span className="flex-shrink-0 rounded-full bg-surface-container px-1.5 py-0.5 text-[10px] font-bold text-on-surface-variant">
-                            {it.size}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-0.5 text-[11.5px] text-outline">{formatPrice(it.price, it.currency)} c/u</div>
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <div className="flex items-center gap-0.5 rounded-full bg-surface-container p-0.5">
+                {items.map((it) => {
+                  const unitPrice = resolveUnitPrice(it.price, it.priceTiers, it.quantity);
+                  const savings = calcSavings(it.price, it.priceTiers, it.quantity);
+                  return (
+                    <div
+                      key={`${it.productId}-${it.size ?? ""}`}
+                      className="flex items-center gap-3 rounded-2xl p-2.5 transition-colors hover:bg-surface-container/60"
+                    >
+                      <div className="h-14 w-14 flex-shrink-0 rounded-xl bg-surface-container" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 truncate text-body-sm font-semibold text-on-surface">
+                          {it.name}
+                          {it.size && (
+                            <span className="flex-shrink-0 rounded-full bg-surface-container px-1.5 py-0.5 text-[10px] font-bold text-on-surface-variant">
+                              {it.size}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-[11.5px] text-outline">
+                          {formatPrice(unitPrice, it.currency)} c/u
+                          {savings > 0 && <span className="ml-1.5 font-semibold text-tertiary-accent">· ahorras {formatPrice(savings, it.currency)}</span>}
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="flex items-center gap-0.5 rounded-full bg-surface-container p-0.5">
+                            <button
+                              onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
+                            >
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <div className="w-6 text-center text-[12px] font-semibold">{it.quantity}</div>
+                            <button
+                              onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
                           <button
-                            onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)}
-                            className="flex h-6 w-6 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
+                            onClick={() => removeItem(it.productId, it.size)}
+                            className="flex h-6 w-6 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
                           >
-                            <Minus className="h-3 w-3" />
-                          </button>
-                          <div className="w-6 text-center text-[12px] font-semibold">{it.quantity}</div>
-                          <button
-                            onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)}
-                            className="flex h-6 w-6 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
-                          >
-                            <Plus className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                        <button
-                          onClick={() => removeItem(it.productId, it.size)}
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
                       </div>
+                      <div className="flex-shrink-0 text-body-sm font-bold text-on-surface">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
                     </div>
-                    <div className="flex-shrink-0 text-body-sm font-bold text-on-surface">{formatPrice(it.price * it.quantity, it.currency)}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -199,35 +204,16 @@ export function CartDrawer() {
                 <span>{discount ? formatPrice(Math.max(0, subtotal - discount.amount)) : formatMixedTotal(items)}</span>
               </div>
 
-              {wantsPanel ? (
-                <RouterLink
-                  to="/checkout"
-                  onClick={closeCart}
-                  className="flex h-12 items-center justify-center rounded-xl bg-primary-container text-label-md font-bold text-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:brightness-95"
-                >
-                  Completar pedido
-                </RouterLink>
-              ) : (
-                <>
-                  {whatsapp && (
-                    <a
-                      href={waLink(whatsapp, waText)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mb-2 flex h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-md font-bold text-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg hover:opacity-90"
-                    >
-                      <MessageCircle className="h-[18px] w-[18px]" /> Pedir por WhatsApp
-                    </a>
-                  )}
-                  <RouterLink
-                    to="/checkout"
-                    onClick={closeCart}
-                    className="flex h-11 items-center justify-center rounded-xl border border-primary-container text-label-md font-bold text-primary-container transition-colors hover:bg-primary-container/5"
-                  >
-                    Checkout con dirección
-                  </RouterLink>
-                </>
-              )}
+              <RouterLink
+                to="/checkout"
+                onClick={closeCart}
+                className={`flex h-12 items-center justify-center gap-2 rounded-xl text-label-md font-bold text-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+                  emphasizeWhatsapp ? "bg-[#25D366] hover:opacity-90" : "bg-primary-container hover:brightness-95"
+                }`}
+              >
+                {emphasizeWhatsapp && <MessageCircle className="h-[18px] w-[18px]" />}
+                Completar pedido
+              </RouterLink>
               <RouterLink
                 to="/carrito"
                 onClick={closeCart}

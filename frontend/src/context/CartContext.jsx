@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import toast from "react-hot-toast";
 import { api } from "../lib/api.js";
 import { useAuth } from "./AuthContext.jsx";
+import { resolveUnitPrice } from "../lib/pricing.js";
 
 // Regla de negocio clave: el carrito pertenece a UN SOLO vendedor a la vez.
 // Si el cliente agrega un producto de otra tienda, se muestra un conflicto
@@ -170,7 +171,12 @@ export function CartProvider({ children }) {
         const existing = prev.find((i) => i.productId === product.id && i.size === size);
         if (existing) {
           const nextQty = Math.max(1, Math.min(existing.quantity + quantity, stock));
-          return prev.map((i) => (i.productId === product.id && i.size === size ? { ...i, quantity: nextQty, stock } : i));
+          // priceTiers se refresca con lo que trae `product` (por si el
+          // vendedor los cambió desde la última visita) en vez de conservar
+          // lo que ya había en el carrito.
+          return prev.map((i) =>
+            i.productId === product.id && i.size === size ? { ...i, quantity: nextQty, stock, priceTiers: product.priceTiers ?? i.priceTiers } : i
+          );
         }
         return [
           ...prev,
@@ -178,6 +184,7 @@ export function CartProvider({ children }) {
             productId: product.id,
             name: product.name,
             price: product.price,
+            priceTiers: product.priceTiers ?? [],
             currency,
             size,
             quantity: Math.max(1, Math.min(quantity, stock)),
@@ -202,7 +209,17 @@ export function CartProvider({ children }) {
         const currency = product.currency ?? "CUP";
         setVendor(vendorMeta(product));
         setItems([
-          { productId: product.id, name: product.name, price: product.price, currency, size, quantity: Math.max(1, Math.min(quantity, stock)), stock, selectedOptions },
+          {
+            productId: product.id,
+            name: product.name,
+            price: product.price,
+            priceTiers: product.priceTiers ?? [],
+            currency,
+            size,
+            quantity: Math.max(1, Math.min(quantity, stock)),
+            stock,
+            selectedOptions,
+          },
         ]);
         // Bloque 52: un código de descuento pertenece a la tienda anterior —
         // cambiar de vendedor lo invalida (el carrito vuelve a ser de la
@@ -238,7 +255,11 @@ export function CartProvider({ children }) {
     setDiscount(null);
   };
 
-  const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  // Bloque 55: cada línea puede tener precios por cantidad — el total real
+  // se calcula resolviendo el precio unitario según la cantidad de ESA
+  // línea, igual que hace el backend al confirmar el pedido (nunca un
+  // simple price*quantity con el precio de 1 sola unidad).
+  const total = items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
   const discountAmount = discount?.amount ?? 0;
   const totalWithDiscount = Math.max(0, total - discountAmount);
 

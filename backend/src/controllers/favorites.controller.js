@@ -42,7 +42,7 @@ export async function addFavorite(req, res) {
     if (existing) throw new AppError("Ya tienes este producto en favoritos.", 409);
   } else {
     const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
-    if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
+    if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
     const existing = await prisma.favorite.findUnique({ where: { userId_vendorId: { userId: req.user.id, vendorId: data.vendorId } } });
     if (existing) throw new AppError("Ya tienes esta tienda en favoritos.", 409);
   }

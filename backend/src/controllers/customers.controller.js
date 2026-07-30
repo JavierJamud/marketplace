@@ -13,9 +13,14 @@ export async function getMe(req, res) {
   res.json({ customer: publicCustomer(user) });
 }
 
+// Bloque 71 (pedido explícito): `email` YA NO se acepta acá — cambiar de
+// correo pasa a exigir el flujo de código de verificación al correo viejo
+// (POST /auth/me/email/request-code + /confirm, ver auth.controller.js),
+// igual que ya regía para vendedor/admin. Antes este endpoint dejaba
+// cambiar el correo del cliente junto con el resto del perfil, sin
+// contraseña ni verificación de ningún tipo — hueco real de seguridad.
 const updateSchema = z.object({
   fullName: z.string().min(2).optional(),
-  email: z.string().email().optional(),
   phone: z.string().min(8).optional(),
   address: z.string().optional(),
   provinceId: z.string().optional(),
@@ -23,12 +28,6 @@ const updateSchema = z.object({
 
 export async function updateMe(req, res) {
   const data = updateSchema.parse(req.body);
-
-  if (data.email) {
-    const existing = await prisma.user.findUnique({ where: { email: data.email } });
-    if (existing && existing.id !== req.user.id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
-  }
-
   const updated = await prisma.user.update({ where: { id: req.user.id }, data, include: { province: true } });
   res.json({ customer: publicCustomer(updated) });
 }

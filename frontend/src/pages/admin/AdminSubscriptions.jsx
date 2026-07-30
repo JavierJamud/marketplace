@@ -5,15 +5,21 @@ import toast from "react-hot-toast";
 import { CreditCard, Landmark, Bot, Clock, X, Plus, ListChecks } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
+import { Input } from "../../components/ui/Input.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark };
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP" };
 
+// Bloque 64: status ya viene calculado 1:1 desde Vendor.verificationStatus
+// (ver listSubscriptions en admin.controller.js) — se agregan los 2 estados
+// nuevos del cobro recurrente.
 const STATUS_META = {
   active: { label: "Activa", bg: "rgba(12,174,83,0.12)", color: "#0A8F42" },
   pending_payment: { label: "Pago pendiente", bg: "rgba(254,152,0,0.15)", color: "#8A5100" },
   rejected: { label: "Rechazada", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
+  payment_failed: { label: "Pago fallido", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
+  suspended: { label: "Suspendida", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
 };
 
 function fmtUsd(n) {
@@ -130,6 +136,77 @@ function PlanFeaturesCard() {
   );
 }
 
+// Bloque 64: cuenta/monto/instrucciones que ve el vendedor en /vendedor/pago-manual
+// al pagar por transferencia CUP — antes hardcodeado a mano en el frontend
+// ("CI: 9205-XXXX-XXXX"), ahora editable acá sin redeploy.
+function CupPaymentSettingsCard() {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const [form, setForm] = useState({ cupBankAccountNumber: "", cupBankAccountHolder: "", cupBankInstructions: "", cupSubscriptionPriceCup: 2500 });
+
+  useEffect(() => {
+    if (!settings) return;
+    setForm({
+      cupBankAccountNumber: settings.cupBankAccountNumber ?? "",
+      cupBankAccountHolder: settings.cupBankAccountHolder ?? "",
+      cupBankInstructions: settings.cupBankInstructions ?? "",
+      cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup ?? 2500,
+    });
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: async () => (await api.patch("/admin/settings/cup-payment", form)).data,
+    onSuccess: () => {
+      toast.success("Datos de pago CUP actualizados.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  return (
+    <div className="mb-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <Landmark className="h-5 w-5 text-tertiary-accent" /> Datos de pago CUP
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">
+        Lo que ve el vendedor en "Pago por transferencia CUP" — vacío = le pedimos que contacte al equipo en su lugar.
+      </p>
+      <div className="mb-3.5 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <Input
+          label="Monto mensual (CUP)"
+          type="number"
+          value={form.cupSubscriptionPriceCup}
+          onChange={(e) => setForm({ ...form, cupSubscriptionPriceCup: Number(e.target.value) })}
+        />
+        <Input
+          label="Número de cuenta"
+          value={form.cupBankAccountNumber}
+          onChange={(e) => setForm({ ...form, cupBankAccountNumber: e.target.value })}
+        />
+        <Input
+          label="A nombre de"
+          value={form.cupBankAccountHolder}
+          onChange={(e) => setForm({ ...form, cupBankAccountHolder: e.target.value })}
+        />
+      </div>
+      <label className="mb-1 block text-label-md font-semibold text-on-surface-variant">Instrucciones adicionales</label>
+      <textarea
+        value={form.cupBankInstructions}
+        onChange={(e) => setForm({ ...form, cupBankInstructions: e.target.value })}
+        rows={3}
+        placeholder="Ej.: incluir el nombre de la tienda como referencia..."
+        className="mb-4 w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+      />
+      <Button className="rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
+        {save.isPending ? "Guardando..." : "Guardar cambios"}
+      </Button>
+    </div>
+  );
+}
+
 export default function AdminSubscriptions() {
   const queryClient = useQueryClient();
   const [revoking, setRevoking] = useState(null);
@@ -165,7 +242,7 @@ export default function AdminSubscriptions() {
     ? [
         { label: "Suscripciones activas", value: String(data.metrics.active) },
         { label: "Pago pendiente", value: String(data.metrics.pendingPayment) },
-        { label: "Rechazadas", value: String(data.metrics.rejected) },
+        { label: "Problemas de cobro", value: String(data.metrics.paymentFailed + data.metrics.suspended) },
         { label: "MRR estimado", value: fmtUsd(data.metrics.mrrUsd), delta: "USD, según Stripe" },
       ]
     : [];
@@ -177,10 +254,13 @@ export default function AdminSubscriptions() {
         Estado de cobro de cada tienda Business, calculado en vivo a partir del plan y su verificación — nunca un valor guardado aparte.
       </p>
       <div className="mb-6 rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        💡 Todavía no hay cobro recurrente automático (Stripe cobra una vez, al verificarse) — "Activa"/"Pago pendiente"/"Rechazada" reflejan el estado real de cada tienda, y "Revocar" es una decisión manual del admin, nunca un vencimiento solo.
+        💡 El cobro es recurrente de verdad: Stripe cobra cada mes solo (factura fallida = "Pago fallido", suscripción cancelada = "Suspendida");
+        CUP se renueva a mano cada ciclo, con recordatorio automático 7 días antes de vencer. "Revocar" sigue siendo la única
+        decisión 100% manual del admin.
       </div>
 
       <PlanFeaturesCard />
+      <CupPaymentSettingsCard />
 
       <div className="mb-6 grid grid-cols-2 gap-[18px] lg:grid-cols-4">
         {metrics.map((m) => (
@@ -232,6 +312,9 @@ export default function AdminSubscriptions() {
                     {s.stripeCheckoutExpired ? "Link vencido" : "Esperando pago en Stripe"}
                   </div>
                 )}
+                {s.status === "active" && s.nextPaymentDueDate && (
+                  <div className="mt-0.5 text-[11px] text-outline">Próximo vencimiento: {fmtDate(s.nextPaymentDueDate)}</div>
+                )}
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
                 <Link
@@ -241,7 +324,7 @@ export default function AdminSubscriptions() {
                 >
                   Ver
                 </Link>
-                {s.status === "active" && (
+                {["active", "payment_failed", "suspended"].includes(s.status) && (
                   <button
                     onClick={() => handleRevoke(s)}
                     disabled={revoke.isPending && revoking === s.vendorId}

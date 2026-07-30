@@ -14,21 +14,22 @@ function imgUrl(path) {
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
-const CURRENCIES = ["CUP", "USD", "EUR"];
-
 // Bloque 52 (pedido explícito): "todo lo que agrega el vendedor debe tener
 // supervisión y conexión visual o de edición para el administrador en todo
 // momento" — antes no existía ninguna pantalla para ver/editar productos
 // individuales de cualquier tienda, solo estadísticas agregadas por vendedor.
 function ProductEditModal({ product, categories, onClose }) {
   const queryClient = useQueryClient();
+  const { data: siteSettings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
   const [form, setForm] = useState({
     name: product.name,
     description: product.description ?? "",
     categoryId: product.categoryId ?? "",
     price: String(product.price),
     oldPrice: product.oldPrice ? String(product.oldPrice) : "",
-    currency: product.currency ?? "CUP",
     stock: String(product.stock),
     badge: product.badge ?? "",
     isActive: product.isActive,
@@ -44,7 +45,6 @@ function ProductEditModal({ product, categories, onClose }) {
           categoryId: form.categoryId || undefined,
           price: Number(form.price),
           oldPrice: form.oldPrice ? Number(form.oldPrice) : null,
-          currency: form.currency,
           stock: Number(form.stock),
           badge: form.badge || null,
           isActive: form.isActive,
@@ -105,14 +105,25 @@ function ProductEditModal({ product, categories, onClose }) {
           <div className="grid grid-cols-[1fr_1fr_88px] gap-3">
             <Input label="Precio" type="number" min={0} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
             <Input label="Precio anterior" type="number" min={0} value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })} />
-            <Select label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </Select>
+            {/* Bloque 65: ya no es elegible por producto — la moneda es una
+                sola para toda la tienda, se fuerza server-side de todos modos. */}
+            <div>
+              <span className="mb-1 block text-label-md text-on-surface-variant">Moneda</span>
+              <div className="flex h-11 items-center justify-center rounded-lg border border-outline-variant bg-surface-container px-2 text-[13px] font-semibold text-on-surface-variant">
+                {product.vendor?.currency ?? "CUP"}
+              </div>
+            </div>
           </div>
           {!(product.sizes?.length > 0) && (
             <Input label="Stock" type="number" min={0} value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
           )}
-          <Input label="Badge" placeholder="Nuevo, -20%, Bestseller..." value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })} />
+          <Select label="Etiqueta" value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })}>
+            <option value="">Sin etiqueta</option>
+            <option value="Nuevo">Nuevo</option>
+            {(siteSettings?.availableProductBadges ?? []).map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </Select>
 
           <label className="flex items-center gap-2 text-body-md text-on-surface">
             <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />

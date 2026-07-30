@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Heart } from "lucide-react";
+import { Heart, Mail } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
@@ -12,6 +12,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { SuggestionBox } from "../../components/SuggestionBox.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { StoreCard } from "../../components/StoreCard.jsx";
+import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -34,13 +35,17 @@ const TABS = [
 ];
 
 export default function CustomerPanel() {
-  const { user, loading: authLoading, logout } = useAuth();
+  // Bloque 60: la sesión/rol ya se validó un nivel arriba (ver
+  // ProtectedRoute en App.jsx) — nunca hay que volver a chequear acá.
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("orders");
 
-  const [profileForm, setProfileForm] = useState({ fullName: "", email: "", phone: "" });
+  const [profileForm, setProfileForm] = useState({ fullName: "", phone: "" });
   const [addressForm, setAddressForm] = useState({ provinceId: "", address: "" });
+  const [changingEmail, setChangingEmail] = useState(false);
 
   const { data: customer, isLoading: customerLoading } = useQuery({
     queryKey: ["my-customer-profile"],
@@ -78,7 +83,7 @@ export default function CustomerPanel() {
 
   useEffect(() => {
     if (!customer) return;
-    setProfileForm({ fullName: customer.fullName ?? "", email: customer.email ?? "", phone: customer.phone ?? "" });
+    setProfileForm({ fullName: customer.fullName ?? "", phone: customer.phone ?? "" });
     setAddressForm({ provinceId: customer.provinceId ?? "", address: customer.address ?? "" });
   }, [customer]);
 
@@ -100,20 +105,9 @@ export default function CustomerPanel() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
 
-  if (authLoading) {
-    return (
-      <div className="container-app flex min-h-[50vh] items-center justify-center">
-        <Spinner />
-      </div>
-    );
-  }
-
-  // Antes esta ruta no tenía guard — cualquiera con la URL entraba sin sesión.
-  if (!user) return <Navigate to="/cuenta" replace />;
-
-  function handleLogout() {
-    logout();
-    navigate("/", { replace: true });
+  async function handleLogout() {
+    await logout();
+    navigate(loginPathFor(location.pathname), { replace: true });
   }
 
   return (
@@ -296,13 +290,21 @@ export default function CustomerPanel() {
         {tab === "profile" && (
           <div>
             <h1 className="mb-5 font-display text-headline-md text-on-surface">Mi perfil</h1>
+
+            <div className="mb-5 max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
+              <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+                <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta
+              </div>
+              <p className="mb-4 text-[13.5px] text-on-surface-variant">{customer?.email}</p>
+              <Button variant="outline" onClick={() => setChangingEmail(true)}>Cambiar correo</Button>
+            </div>
+
             <div className="max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
               {customerLoading ? (
                 <Spinner />
               ) : (
                 <div className="flex flex-col gap-3.5">
                   <Input label="Nombre completo" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} />
-                  <Input label="Correo" type="email" value={profileForm.email} onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })} />
                   <Input label="Teléfono" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} />
                   <Button className="w-full" onClick={() => saveProfile.mutate()} disabled={saveProfile.isPending}>
                     {saveProfile.isPending ? "Guardando..." : "Guardar cambios"}
@@ -310,6 +312,8 @@ export default function CustomerPanel() {
                 </div>
               )}
             </div>
+
+            {changingEmail && <ChangeEmailModal currentEmail={customer?.email} onClose={() => setChangingEmail(false)} />}
           </div>
         )}
       </div>

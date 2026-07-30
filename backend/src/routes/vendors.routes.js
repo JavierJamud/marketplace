@@ -10,10 +10,16 @@ import { chatRateLimit } from "../middleware/rateLimit.js";
 const router = Router();
 
 router.get("/", vendorsController.listVendors);
-router.get("/me", authenticate, vendorsController.getMyVendor);
-router.patch("/me", authenticate, vendorsController.updateMyVendor);
-router.get("/me/dashboard", authenticate, vendorsController.getDashboard);
-router.patch("/me/schedule", authenticate, vendorsController.updateSchedule);
+// Auditoría de seguridad: estas 4 eran las únicas rutas "/me/*" de este
+// archivo sin requireRole("VENDOR") explícito — hoy no eran explotables
+// porque resolveMyVendor() ya devuelve 404 a quien no tenga fila en Vendor,
+// pero quedaban inconsistentes con el resto del archivo y frágiles ante un
+// controller nuevo que no use resolveMyVendor. Se agrega el guard acá
+// también, sin cambiar el comportamiento actual.
+router.get("/me", authenticate, requireRole("VENDOR"), vendorsController.getMyVendor);
+router.patch("/me", authenticate, requireRole("VENDOR"), vendorsController.updateMyVendor);
+router.get("/me/dashboard", authenticate, requireRole("VENDOR"), vendorsController.getDashboard);
+router.patch("/me/schedule", authenticate, requireRole("VENDOR"), vendorsController.updateSchedule);
 router.get("/me/messages", authenticate, requireRole("VENDOR"), vendorsController.getMyMessages);
 router.post("/me/messages", authenticate, requireRole("VENDOR"), vendorsController.sendMyMessage);
 router.patch("/me/messages/read", authenticate, requireRole("VENDOR"), vendorsController.markMyMessagesRead);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { ShieldCheck, EyeOff, Eye, Trash2, Store, Package } from "lucide-react";
+import { ShieldCheck, EyeOff, Eye, Trash2, Store, Package, Flag, Check, Ban } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
@@ -9,6 +9,15 @@ import { StarRating } from "../../components/ui/StarRating.jsx";
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
+
+// Bloque 69 (pedido explícito): estado del reporte, si tiene uno — REPORTED
+// es la única fase con acciones reales (Mantener/Suspender); KEPT/SUSPENDED
+// son solo informativas acá (la decisión ya se tomó, ver resolveReport).
+const REPORT_STATUS_META = {
+  REPORTED: { label: "Reportado — esperando tu decisión", className: "bg-tertiary-accent/10 text-tertiary-accent" },
+  KEPT: { label: "Mantenido (ya no se puede reportar de nuevo)", className: "bg-verified/10 text-verified-dark" },
+  SUSPENDED: { label: "Suspendido", className: "bg-error/10 text-error" },
+};
 
 // Bloque 22: única pantalla que puede ocultar o borrar un comentario — el
 // vendedor (VendorReviews.jsx) solo puede responder, nunca tocar esto.
@@ -27,6 +36,18 @@ export default function AdminReviews() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar."),
   });
 
+  // Bloque 69 (pedido explícito): resuelve un reporte pendiente — "mantener"
+  // vuelve a mostrarlo y lo sella contra nuevos reportes; "suspender" lo deja
+  // oculto (desde ahí, solo "Eliminar" de abajo, ya existente).
+  const resolveReport = useMutation({
+    mutationFn: async ({ id, decision }) => (await api.patch(`/admin/reviews/${id}/resolve-report`, { decision })).data,
+    onSuccess: (_data, { decision }) => {
+      toast.success(decision === "keep" ? "Comentario mantenido — vuelve a ser visible." : "Comentario suspendido.");
+      queryClient.invalidateQueries({ queryKey: ["admin-reviews"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo resolver el reporte."),
+  });
+
   const deleteReview = useMutation({
     mutationFn: async (id) => (await api.delete(`/admin/reviews/${id}`)).data,
     onSuccess: () => {
@@ -42,7 +63,8 @@ export default function AdminReviews() {
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Comentarios</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Todos los comentarios y reseñas del sitio. Ocultar es reversible (deja de verse en la tienda y en el panel del vendedor, pero
-        puedes volver a mostrarlo); eliminar es definitivo.
+        puedes volver a mostrarlo); eliminar es definitivo. Los reportados por un vendedor o un cliente se ocultan solos apenas se
+        reportan — resuélvelos abajo antes de que el comentario vuelva a mostrarse.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
@@ -66,6 +88,11 @@ export default function AdminReviews() {
                   )}
                   {r.isHidden && (
                     <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10.5px] font-bold text-outline">Oculto</span>
+                  )}
+                  {r.reportStatus && (
+                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${REPORT_STATUS_META[r.reportStatus].className}`}>
+                      <Flag className="mr-1 inline h-2.5 w-2.5" /> {REPORT_STATUS_META[r.reportStatus].label}
+                    </span>
                   )}
                 </div>
                 <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-outline">
@@ -101,6 +128,32 @@ export default function AdminReviews() {
               <div className="mb-3 rounded-md bg-surface-container p-3">
                 <div className="mb-1 text-[12px] font-bold text-tertiary-accent">Respuesta de {r.vendor?.companyName}</div>
                 <p className="text-[13px] leading-5 text-on-surface-variant">{r.vendorReply}</p>
+              </div>
+            )}
+
+            {r.reportStatus === "REPORTED" && (
+              <div className="mb-3 rounded-md border border-tertiary-accent/25 bg-tertiary-accent/[0.06] p-3">
+                <div className="mb-1 flex items-center gap-1.5 text-[12px] font-bold text-tertiary-accent">
+                  <Flag className="h-3 w-3" /> Reportado por {r.reportedBy?.role === "VENDOR" ? "el vendedor de la tienda" : "un cliente"}
+                  {r.reportedBy?.fullName ? ` (${r.reportedBy.fullName})` : ""}
+                </div>
+                {r.reportReason && <p className="mb-2.5 text-[13px] leading-5 text-on-surface-variant">Motivo: "{r.reportReason}"</p>}
+                <div className="flex gap-2.5">
+                  <button
+                    onClick={() => resolveReport.mutate({ id: r.id, decision: "keep" })}
+                    disabled={resolveReport.isPending}
+                    className="flex items-center gap-1.5 rounded-md bg-verified px-3 py-1.5 text-[12.5px] font-bold text-white disabled:opacity-50"
+                  >
+                    <Check className="h-3.5 w-3.5" /> Mantener
+                  </button>
+                  <button
+                    onClick={() => resolveReport.mutate({ id: r.id, decision: "suspend" })}
+                    disabled={resolveReport.isPending}
+                    className="flex items-center gap-1.5 rounded-md border border-error/30 bg-error/5 px-3 py-1.5 text-[12.5px] font-bold text-error disabled:opacity-50"
+                  >
+                    <Ban className="h-3.5 w-3.5" /> Suspender
+                  </button>
+                </div>
               </div>
             )}
 

@@ -194,3 +194,28 @@
     height: 7px;
   }
 }
+
+/* Galería de producto: crossfade suave con ligero zoom-in al entrar.
+   imgFadeIn: imagen nueva aparece desde 0→1 opacity con scale 1.04→1.
+   imgFadeOut: imagen anterior desaparece de 1→0 opacity con scale 1→1.02. */
+@keyframes imgFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes imgFadeOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+}

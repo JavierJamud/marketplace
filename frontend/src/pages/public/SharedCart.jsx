@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PackageSearch, CheckCircle2, ShoppingBag, AlertTriangle } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
+import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
@@ -158,7 +159,7 @@ export default function SharedCart() {
                   )}
                 </div>
                 <div className="text-[12.5px] text-outline">
-                  {item.quantity} × {formatPrice(item.price, item.currency)}
+                  {item.quantity} × {formatPrice(resolveUnitPrice(item.price, item.priceTiers, item.quantity), item.currency)}
                 </div>
               </div>
               {committed && i < revealCount && <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-verified" />}

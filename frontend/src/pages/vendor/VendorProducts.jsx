@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Pencil, Trash2, ScanBarcode, X, ArrowUpDown, Star, Ruler } from "lucide-react";
+import { Pencil, Trash2, ScanBarcode, X, ArrowUpDown, Star, Ruler, Layers } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { Button } from "../../components/ui/Button.jsx";
@@ -16,7 +16,6 @@ import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 // Bloque 52: presets rápidos de tallas de ropa — un click para agregar/quitar,
 // además del input libre (numéricas de calzado, "Talla única", etc.).
 const PRESET_SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
-const CURRENCIES = ["CUP", "USD", "EUR"];
 // Bloque 52: "whatsapp" ya no está hardcodeado en esta lista — es el único
 // canal que products.controller.js permite SIEMPRE (universal, no
 // desactivable); "cod"/"prepaid" recién se muestran si el admin los activó
@@ -41,12 +40,32 @@ const STATUS_STYLE = {
   low: { background: "rgba(138,81,0,0.12)", color: "#8a5100" },
   out: { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
   paused: { background: "rgba(117,119,124,0.12)", color: "#75777c" },
+  unlimited: { background: "rgba(0,105,181,0.12)", color: "#0069b5" },
+  "no-photos": { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
 };
-const STATUS_LABEL = { active: "Activo", low: "Stock bajo", out: "Sin stock", paused: "Pausado" };
-const ROW_TINT = { out: "bg-[#ba1a1a]/[0.03]", low: "bg-[#8a5100]/[0.04]", active: "", paused: "" };
+const STATUS_LABEL = {
+  active: "Activo",
+  low: "Stock bajo",
+  out: "Sin stock",
+  paused: "Pausado",
+  unlimited: "Siempre disponible",
+  "no-photos": "Sin fotos (pausado)",
+};
+const ROW_TINT = {
+  out: "bg-[#ba1a1a]/[0.03]",
+  low: "bg-[#8a5100]/[0.04]",
+  active: "",
+  paused: "",
+  unlimited: "",
+  "no-photos": "bg-[#ba1a1a]/[0.03]",
+};
 
+// Bloque 56: un producto sin ninguna foto queda pausado de forma forzada por
+// el backend (ver createProduct/removeProductImage) — se distingue de un
+// "Pausado" común para que el vendedor sepa exactamente qué le falta.
 function stockStatus(p) {
-  if (!p.isActive) return "paused";
+  if (!p.isActive) return p.images?.length > 0 ? "paused" : "no-photos";
+  if (p.unlimitedStock) return "unlimited";
   if (p.stock <= 0) return "out";
   if (p.stock <= LOW_STOCK_THRESHOLD) return "low";
   return "active";
@@ -58,19 +77,26 @@ const EMPTY_FORM = {
   categoryId: "",
   price: "",
   oldPrice: "",
-  currency: "CUP",
   stock: "0",
+  unlimitedStock: false,
   barcode: "",
-  badge: "",
+  badge: "Nuevo",
+  currency: "USD",
   paymentMethods: ["whatsapp"],
   availableForTableMenu: false,
   tags: [],
   sizes: [],
   sizeStock: {},
+  priceTiers: [],
 };
 
 function ProductModal({ product, prefillBarcode, planType, isRestaurant, categories, onClose }) {
   const queryClient = useQueryClient();
+  // Bloque 66: a diferencia de savedProduct (que pasa a existir tanto para
+  // un producto editado COMO para uno recién creado en esta misma sesión de
+  // modal), isEdit distingue "ya existía al abrir el modal" — es lo que
+  // decide si el guardado exitoso cierra el modal solo (ver save.onSuccess).
+  const isEdit = !!product;
   // savedProduct != null en cuanto el producto existe en la DB (ya sea
   // porque se abrió en modo edición, o porque se acaba de crear) — recién
   // ahí se puede subir fotos, que necesitan un productId real.
@@ -90,15 +116,17 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           categoryId: product.categoryId ?? "",
           price: String(product.price),
           oldPrice: product.oldPrice ? String(product.oldPrice) : "",
-          currency: product.currency ?? "CUP",
           stock: String(product.stock),
+          unlimitedStock: product.unlimitedStock ?? false,
           barcode: product.barcode ?? "",
           badge: product.badge ?? "",
+          currency: product.currency ?? "USD",
           paymentMethods: product.paymentMethods,
           availableForTableMenu: product.availableForTableMenu ?? false,
           tags: product.tags ?? [],
           sizes: product.sizes ?? [],
           sizeStock: product.sizeStock ?? {},
+          priceTiers: (product.priceTiers ?? []).map((t) => ({ minQty: String(t.minQty), price: String(t.price) })),
         }
       : { ...EMPTY_FORM, barcode: prefillBarcode ?? "" }
   );
@@ -107,6 +135,10 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
   // Estado propio (no derivado de form.sizes.length) — si no, tildar el
   // checkbox y todavía no haber elegido ninguna talla lo "apagaría" solo.
   const [sizesEnabled, setSizesEnabled] = useState((product?.sizes ?? []).length > 0);
+  // Bloque 55: mismo criterio que sizesEnabled — estado propio para no
+  // "apagar" el checkbox solo si el vendedor borra momentáneamente todos los
+  // tramos mientras edita.
+  const [priceTiersEnabled, setPriceTiersEnabled] = useState((product?.priceTiers ?? []).length > 0);
 
   function addTag() {
     const clean = tagInput.trim().toLowerCase();
@@ -161,7 +193,46 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
   // campo Stock normal vuelve a mandar.
   function toggleHasSizes(next) {
     setSizesEnabled(next);
+    // Bloque 56: tallas y "disponible siempre" son mutuamente excluyentes —
+    // cada talla necesita su propio stock real (el backend también lo exige,
+    // ver assertStockModeConsistent).
     if (!next) setForm((f) => ({ ...f, sizes: [], sizeStock: {} }));
+    else if (form.unlimitedStock) setForm((f) => ({ ...f, unlimitedStock: false }));
+  }
+
+  // Bloque 56: "disponible siempre" — el vendedor no lleva (o no quiere
+  // llevar) stock real de este producto; se muestra siempre disponible y no
+  // se le hace ningún seguimiento (ver pricing.js del backend). Apagable en
+  // cualquier momento sin perder el número de stock ya cargado.
+  function toggleUnlimitedStock(next) {
+    if (next) setSizesEnabled(false);
+    setForm((f) => ({ ...f, unlimitedStock: next, ...(next ? { sizes: [], sizeStock: {} } : {}) }));
+  }
+
+  // Bloque 55: precios por cantidad (mayoreo) — opcional por producto. Al
+  // apagar el checkbox se vacía form.priceTiers, y como siempre se manda esa
+  // clave en el payload (ver `save` abajo), el backend borra los tramos que
+  // ya existieran para ese producto.
+  function togglePriceTiers(next) {
+    setPriceTiersEnabled(next);
+    if (!next) setForm((f) => ({ ...f, priceTiers: [] }));
+    else if (form.priceTiers.length === 0) setForm((f) => ({ ...f, priceTiers: [{ minQty: "3", price: "" }] }));
+  }
+
+  function addPriceTier() {
+    setForm((f) => {
+      const last = f.priceTiers[f.priceTiers.length - 1];
+      const nextMinQty = last?.minQty ? Number(last.minQty) + 1 : 3;
+      return { ...f, priceTiers: [...f.priceTiers, { minQty: String(nextMinQty), price: "" }] };
+    });
+  }
+
+  function updatePriceTier(index, key, value) {
+    setForm((f) => ({ ...f, priceTiers: f.priceTiers.map((t, i) => (i === index ? { ...t, [key]: value } : t)) }));
+  }
+
+  function removePriceTier(index) {
+    setForm((f) => ({ ...f, priceTiers: f.priceTiers.filter((_, i) => i !== index) }));
   }
 
   const save = useMutation({
@@ -172,11 +243,11 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
         categoryId: form.categoryId || undefined,
         price: Number(form.price),
         oldPrice: form.oldPrice ? Number(form.oldPrice) : null,
-        currency: form.currency,
         // Con tallas, el stock lo recalcula el backend a partir de
         // sizeStock (reconcileStock) — igual se manda el número actual
         // como referencia, no hace daño.
         stock: Number(form.stock),
+        unlimitedStock: form.unlimitedStock,
         barcode: form.barcode || undefined,
         badge: form.badge || null,
         paymentMethods: form.paymentMethods,
@@ -184,14 +255,30 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
         tags: form.tags,
         sizes: sizesEnabled ? form.sizes : [],
         sizeStock: sizesEnabled ? form.sizeStock : {},
+        // Siempre se manda (aunque sea []) para que apagar el checkbox borre
+        // tramos ya guardados en el backend (ver hasTiersInPayload allá).
+        priceTiers: priceTiersEnabled
+          ? form.priceTiers
+              .filter((t) => t.minQty !== "" && t.price !== "")
+              .map((t) => ({ minQty: Number(t.minQty), price: Number(t.price) }))
+          : [],
+        currency: form.currency,
       };
       if (savedProduct) return (await api.patch(`/products/${savedProduct.id}`, payload)).data;
       return (await api.post("/products", payload)).data;
     },
     onSuccess: (data) => {
-      toast.success(savedProduct ? "Producto actualizado." : "Producto creado — ahora puedes subirle fotos.");
+      // Bloque 56: un producto recién creado se guarda en pausa hasta que
+      // tenga al menos 1 foto (ver createProduct en el backend) — el toast
+      // deja claro por qué, así el vendedor no piensa que algo falló.
+      toast.success(savedProduct ? "Producto actualizado." : "Producto creado — sube al menos 1 foto para que salga a la venta.");
       setSavedProduct(data.product);
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
+      // Bloque 66 (bug real reportado en vivo): el modal se quedaba abierto
+      // para siempre tras editar — nunca se cerraba solo. Ahora sí, apenas
+      // el guardado fue exitoso Y el producto ya tiene al menos 1 foto (si
+      // edita uno que quedó sin ninguna, se queda abierto para que la suba).
+      if (isEdit && data.product.images?.length > 0) onClose();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el producto."),
   });
@@ -325,8 +412,15 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
             />
           </div>
 
-          <Select label="Categoría" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
-            <option value="">Sin categoría</option>
+          <Select
+            label="Categoría"
+            required
+            value={form.categoryId}
+            onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+          >
+            <option value="" disabled>
+              Elige una categoría...
+            </option>
             {categories?.map((c) =>
               c.children?.length ? (
                 <optgroup key={c.id} label={c.name}>
@@ -341,20 +435,47 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
             )}
           </Select>
 
-          <div className="grid grid-cols-[1fr_1fr_88px] gap-3">
+          <div className="grid grid-cols-[1fr_1fr_120px] gap-3">
             <Input label="Precio" type="number" min={1} required value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
             <Input label="Precio anterior (opcional)" type="number" min={1} value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })} />
-            <Select label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </Select>
+            <div>
+              <span className="mb-1 block text-label-md text-on-surface-variant">Moneda</span>
+              <select
+                value={form.currency}
+                onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                className="h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2 text-[13px] font-semibold text-on-surface focus:outline-none"
+              >
+                {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {!sizesEnabled && (
+            {!sizesEnabled && !form.unlimitedStock && (
               <Input label="Stock" type="number" min={0} required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
             )}
-            <Input label="Código de barras" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} className={sizesEnabled ? "col-span-2" : ""} />
+            <Input
+              label="Código de barras"
+              value={form.barcode}
+              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+              className={sizesEnabled || form.unlimitedStock ? "col-span-2" : ""}
+            />
           </div>
+
+          {!sizesEnabled && (
+            <label className="flex items-start gap-2 rounded-lg border border-outline-variant p-3.5 text-body-md font-semibold text-on-surface">
+              <input type="checkbox" className="mt-0.5" checked={form.unlimitedStock} onChange={(e) => toggleUnlimitedStock(e.target.checked)} />
+              <span>
+                Disponible siempre (sin stock definido)
+                <span className="mt-1 block text-label-sm font-normal text-outline">
+                  Para productos que no se agotan o que siempre repones al momento — el stock deja de ser obligatorio. Ojo: no vas a tener ningún
+                  seguimiento de este producto (no aparece en "stock bajo" ni "sin stock" aunque en algún momento se te termine de verdad).
+                </span>
+              </span>
+            </label>
+          )}
 
           <div className="rounded-lg border border-outline-variant p-3.5">
             <label className="flex items-center gap-2 text-body-md font-semibold text-on-surface">
@@ -422,7 +543,72 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
               </div>
             )}
           </div>
-          <Input label="Badge (opcional)" placeholder="Nuevo, -20%, Bestseller..." value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })} />
+
+          <div className="rounded-lg border border-outline-variant p-3.5">
+            <label className="flex items-center gap-2 text-body-md font-semibold text-on-surface">
+              <input type="checkbox" checked={priceTiersEnabled} onChange={(e) => togglePriceTiers(e.target.checked)} />
+              <Layers className="h-4 w-4 text-tertiary-accent" /> Precios especiales por cantidad (mayoreo)
+            </label>
+            {priceTiersEnabled && (
+              <div className="mt-3">
+                <p className="mb-2 text-label-sm text-outline">
+                  Opcional: ofrece un precio más bajo por unidad a partir de cierta cantidad (ej. 3+ unidades a $90, 10+ a $80). Cada tramo debe pedir
+                  más unidades y costar menos que el anterior.
+                </p>
+                <div className="space-y-2">
+                  {form.priceTiers.map((tier, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="flex-shrink-0 text-[12.5px] text-on-surface-variant">A partir de</span>
+                      <input
+                        type="number"
+                        min={2}
+                        value={tier.minQty}
+                        onChange={(e) => updatePriceTier(i, "minQty", e.target.value)}
+                        className="h-9 w-16 rounded border border-outline-variant bg-surface-container-lowest px-2 text-center text-[13px] outline-none focus:border-primary-container"
+                      />
+                      <span className="flex-shrink-0 text-[12.5px] text-on-surface-variant">u.:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder="Precio c/u"
+                        value={tier.price}
+                        onChange={(e) => updatePriceTier(i, "price", e.target.value)}
+                        className="h-9 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-2 text-[13px] outline-none focus:border-primary-container"
+                      />
+                      <span className="flex-shrink-0 text-[12px] text-outline">{currency}</span>
+                      <button type="button" onClick={() => removePriceTier(i)} className="flex-shrink-0 text-outline hover:text-error">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={addPriceTier}
+                  disabled={form.priceTiers.length >= 10}
+                  className="mt-2 rounded-md border border-outline-variant px-3 py-1.5 text-[12.5px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
+                >
+                  + Agregar otro tramo
+                </button>
+              </div>
+            )}
+          </div>
+          <div>
+            <Select label="Etiqueta" value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })}>
+              <option value="">Sin etiqueta</option>
+              <option value="Nuevo">Nuevo</option>
+              {(siteSettings?.availableProductBadges ?? []).map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </Select>
+            {!savedProduct && (
+              <p className="mt-1 text-label-sm text-outline">
+                Todo producto nuevo sale con "Nuevo" — se quita sola a los {siteSettings?.newBadgeDurationDays ?? 14} días, o puedes
+                cambiarla ahora.
+              </p>
+            )}
+          </div>
 
           <div>
             <span className="mb-1 block text-label-md text-on-surface-variant">Tags de búsqueda (opcional, hasta {MAX_TAGS})</span>
@@ -502,7 +688,14 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           </div>
 
           <div>
-            <span className="mb-1.5 block text-label-md text-on-surface-variant">Fotos del producto</span>
+            <span className="mb-1.5 block text-label-md text-on-surface-variant">
+              Fotos del producto <span className="text-error">*</span>
+            </span>
+            {savedProduct && !savedProduct.images?.length && (
+              <p className="mb-2.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
+                ⚠️ Este producto está en pausa y no se muestra a la venta hasta que subas al menos 1 foto.
+              </p>
+            )}
             {savedProduct ? (
               <>
                 <div className="mb-2.5 flex flex-wrap gap-2">
@@ -543,7 +736,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                   ))}
                   <ImageCropUploader
                     key={cropResetKey}
-                    aspect={4 / 3}
+                    aspect={7 / 4}
                     accept="image/jpeg,image/webp"
                     boxClassName="h-16 w-16 flex-shrink-0"
                     compact
@@ -553,7 +746,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                 <p className="text-label-sm text-outline">
                   {uploadImages.isPending
                     ? "Subiendo foto..."
-                    : "Tamaño recomendado: 1200×900px (relación 4:3) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP."}
+                    : "Tamaño recomendado: 1400×800px (relación 7:4) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP."}
                   {savedProduct.images?.length > 1 && " Arrastra una foto (o usa la estrella) para elegir la portada."}
                 </p>
 
@@ -583,8 +776,22 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           </div>
 
           <div className="flex gap-3 pt-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
-              {savedProduct ? "Cerrar" : "Cancelar"}
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                // Bloque 66 (pedido explícito): nunca cerrar dejando el
+                // producto sin ninguna foto — queda pausado y sin avisar
+                // resulta en vendedores que creen haber terminado.
+                if (savedProduct && !savedProduct.images?.length) {
+                  toast.error("Sube al menos 1 foto antes de terminar — sin fotos el producto queda pausado y no se muestra en tu tienda.");
+                  return;
+                }
+                onClose();
+              }}
+            >
+              {savedProduct ? "Listo" : "Cancelar"}
             </Button>
             <Button type="submit" className="flex-1" disabled={save.isPending || form.description.trim().length < 10}>
               {save.isPending ? "Guardando..." : savedProduct ? "Guardar cambios" : "Crear producto"}
@@ -764,7 +971,7 @@ export default function VendorProducts() {
                 </div>
               </div>
               <span className="text-[13.5px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-              <span className="text-[13.5px] text-on-surface-variant">{p.stock} u.</span>
+              <span className="text-[13.5px] text-on-surface-variant">{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
               <span className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={STATUS_STYLE[status]}>
                 {STATUS_LABEL[status]}
               </span>

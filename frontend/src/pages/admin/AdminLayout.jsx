@@ -1,24 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Sparkles, Tag, Package, HelpCircle, Mail, LifeBuoy } from "lucide-react";
-import { useAuth } from "../../context/AuthContext.jsx";
-import { Spinner } from "../../components/ui/Spinner.jsx";
+import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Sparkles, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity } from "lucide-react";
+import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 const NAV = [
   { to: "/admin", label: "Resumen", icon: LayoutDashboard, end: true },
   { to: "/admin/tiendas", label: "Tiendas", icon: Store },
+  { to: "/admin/tiendas-suspendidas", label: "Tiendas suspendidas", icon: Ban },
   { to: "/admin/productos", label: "Productos", icon: Package },
   { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck },
   { to: "/admin/clientes", label: "Clientes", icon: Users },
+  // Bloque 70 (pedido explícito): récord de todo lo que hacen vendedores y
+  // clientes en sus paneles + gráfica de uso por día/semana/mes.
+  { to: "/admin/actividad", label: "Actividad", icon: Activity },
   { to: "/admin/sugerencias", label: "Sugerencias", icon: MessageSquare },
   { to: "/admin/comentarios", label: "Comentarios", icon: Star },
   { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle },
   { to: "/admin/campanas", label: "Campañas", icon: Megaphone },
   { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard },
   { to: "/admin/ofertas", label: "Ofertas", icon: Tag },
+  // Auditoría de seguridad: antes no había ninguna supervisión de admin
+  // sobre esto (Bloque 52) — ver discountCodes.controller.js/storeOffers.controller.js.
+  { to: "/admin/codigos-descuento", label: "Códigos de descuento", icon: Percent },
+  { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
   { to: "/admin/marca", label: "Marca de la plataforma", icon: Sparkles },
@@ -192,7 +199,9 @@ function SearchAndNotifications({ onOpenSidebar }) {
 }
 
 export default function AdminLayout() {
-  const { user, loading, logout } = useAuth();
+  // Bloque 60: la sesión/rol ya se validó un nivel arriba (ver
+  // ProtectedRoute en App.jsx) — nunca hay que volver a chequear acá.
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -216,24 +225,13 @@ export default function AdminLayout() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
-  function handleLogout() {
-    // Bug conocido: este link antes solo redirigía a Home sin borrar el
-    // token — la sesión anterior quedaba viva en localStorage y volvía a
-    // entrar sola. logout() borra accessToken/refreshToken y resetea el user.
-    logout();
-    navigate("/", { replace: true });
+  // Bloque 60: logout() ahora avisa al backend para revocar la sesión de
+  // verdad (antes solo borraba el token del lado del cliente). El destino
+  // pasa a ser el login de admin (antes iba siempre a "/", incluso acá).
+  async function handleLogout() {
+    await logout();
+    navigate(loginPathFor(location.pathname), { replace: true });
   }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-container">
-        <Spinner />
-      </div>
-    );
-  }
-
-  // Guard: rol admin estrictamente separado de vendedor/cliente.
-  if (!user || user.role !== "ADMIN") return <Navigate to="/cuenta" replace />;
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">

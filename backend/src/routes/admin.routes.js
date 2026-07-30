@@ -12,8 +12,11 @@ import * as errorLogsController from "../controllers/errorLogs.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
 import * as staticPagesController from "../controllers/staticPages.controller.js";
 import * as faqController from "../controllers/faq.controller.js";
+import * as discountCodesController from "../controllers/discountCodes.controller.js";
+import * as storeOffersController from "../controllers/storeOffers.controller.js";
 import * as adminOffersController from "../controllers/adminOffers.controller.js";
 import * as adminProductsController from "../controllers/adminProducts.controller.js";
+import * as verificationArchiveController from "../controllers/verificationArchive.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { siteUpload } from "../middleware/siteUpload.js";
@@ -30,6 +33,12 @@ router.get("/vendors", adminController.listVendors);
 router.patch("/vendors/:id", adminController.updateVendor);
 router.delete("/vendors/:id", adminController.deleteVendor);
 router.get("/vendors/:id/stats", adminController.getVendorStats);
+router.get("/vendors/:id/table-orders", adminController.getVendorTableOrders);
+
+// Bloque 62: suspensión automática por inactividad (vendorLifecycle.job.js)
+// + reactivación manual con motivo obligatorio.
+router.get("/vendors/suspended", adminController.listSuspendedVendors);
+router.post("/vendors/:id/reactivate", adminController.reactivateVendor);
 
 // Bloque 52: supervisión/edición de productos de cualquier vendedor.
 router.get("/products", adminProductsController.listAllProducts);
@@ -39,6 +48,17 @@ router.delete("/products/:id", adminProductsController.deleteAdminProduct);
 router.get("/verifications", adminController.listVerifications);
 router.patch("/verifications/:id", adminController.updateVerification);
 router.patch("/verifications/:id/confirm-payment", adminController.confirmCupPayment);
+// Bloque 64: "abrir para revisar" — PENDING_DOCS -> IN_REVIEW.
+router.post("/verifications/:id/start-review", adminController.startVerificationReview);
+
+// Bloque 72 (pedido explícito): archivo permanente de la documentación de
+// verificación por tienda — las ramas las crea sola
+// transitionVendorVerification() al llegar a VERIFIED, acá solo viven
+// consulta/edición/borrado (gateado — ver deleteVerificationArchive).
+router.get("/vendors/:vendorId/verification-archive", verificationArchiveController.listVerificationArchive);
+router.patch("/verification-archive/:id", verificationArchiveController.updateVerificationArchive);
+router.delete("/verification-archive/:id", verificationArchiveController.deleteVerificationArchive);
+router.get("/verification-archive/:id/file/:type", verificationArchiveController.getVerificationArchiveFile);
 
 // Bloque 46: Suscripciones Business — solo lectura + revocar, nunca genera
 // un link de pago nuevo (eso lo sigue haciendo únicamente el propio
@@ -56,6 +76,11 @@ router.get("/search", adminController.adminSearch);
 router.get("/notifications", adminController.listAdminNotifications);
 router.post("/emails", adminController.sendAdminEmail);
 
+// Bloque 70 (pedido explícito): historial de acciones de vendedores/clientes
+// + estadísticas de uso (top vendedores/clientes por día/semana/mes).
+router.get("/activity-log", adminController.listActivityLog);
+router.get("/activity-log/stats", adminController.getActivityStats);
+
 router.get("/suggestions", suggestionsController.listSuggestions);
 router.patch("/suggestions/:id", suggestionsController.updateSuggestion);
 
@@ -65,7 +90,10 @@ router.post("/messages/:vendorId", adminController.sendConversationMessage);
 router.patch("/messages/:vendorId/read", adminController.markConversationRead);
 
 router.get("/campaigns", campaignsController.listCampaigns);
-router.post("/campaigns", campaignsController.createCampaign);
+router.post("/campaigns", siteUpload.single("image"), campaignsController.createCampaign);
+router.patch("/campaigns/:id", siteUpload.single("image"), campaignsController.updateCampaign);
+router.post("/campaigns/:id/resend", campaignsController.resendCampaign);
+router.delete("/campaigns/:id", campaignsController.deleteCampaign);
 
 router.get("/integrations", integrationsController.listIntegrations);
 router.post("/integrations", integrationsController.upsertIntegration);
@@ -107,6 +135,9 @@ router.patch("/settings/chat-widget", settingsController.updateChatWidgetSetting
 router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);
 router.patch("/settings/branding", settingsController.updateBranding);
 router.post("/settings/branding/logo", siteUpload.single("logo"), settingsController.updateBrandingLogo);
+router.patch("/settings/cup-payment", settingsController.updateCupPaymentSettings);
+router.patch("/settings/available-currencies", settingsController.updateAvailableCurrencies);
+router.patch("/settings/product-badges", settingsController.updateProductBadgeSettings);
 
 // Bloque 46: anuncios programados (banners públicos) — mismo mecanismo de
 // subida que hero-image arriba (siteUpload), imagen opcional.
@@ -129,11 +160,23 @@ router.post("/faq", faqController.createFaq);
 router.patch("/faq/:id", faqController.updateFaq);
 router.delete("/faq/:id", faqController.deleteFaq);
 
+// Auditoría de seguridad: el admin no tenía ninguna supervisión sobre
+// códigos de descuento ni ofertas de tienda de los vendedores (Bloque 52) —
+// mismas reglas que ya aplica el propio vendedor (activar/desactivar
+// siempre permitido; eliminar un código solo si nunca se usó), solo que
+// sobre CUALQUIER vendedor, sin tener que entrar a Prisma Studio.
+router.get("/discount-codes", discountCodesController.listAllDiscountCodesAdmin);
+router.patch("/discount-codes/:id/active", discountCodesController.setDiscountCodeActiveAdmin);
+router.delete("/discount-codes/:id", discountCodesController.deleteDiscountCodeAdmin);
+router.get("/store-offers", storeOffersController.listAllStoreOffersAdmin);
+router.patch("/store-offers/:id/active", storeOffersController.setStoreOfferActiveAdmin);
+
 // Bloque 22: moderación de comentarios — el vendedor no tiene acceso a
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar
 // los suyos y responder).
 router.get("/reviews", reviewsController.listAllReviews);
 router.patch("/reviews/:id/hidden", reviewsController.setReviewHidden);
+router.patch("/reviews/:id/resolve-report", reviewsController.resolveReviewReport);
 router.delete("/reviews/:id", reviewsController.deleteReview);
 
 // Bloque 33: rutas literales ANTES de ":id/resolve" no hacen falta acá (no

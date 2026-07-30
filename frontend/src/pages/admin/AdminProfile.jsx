@@ -4,43 +4,9 @@ import toast from "react-hot-toast";
 import { Mail, KeyRound } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { Input } from "../../components/ui/Input.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-
-function EmailModal({ currentEmail, onClose }) {
-  const { refetch } = useAuth();
-  const [newEmail, setNewEmail] = useState(currentEmail);
-  const [currentPassword, setCurrentPassword] = useState("");
-
-  const save = useMutation({
-    mutationFn: async () => (await api.patch("/auth/me/email", { newEmail, currentPassword })).data,
-    onSuccess: async () => {
-      toast.success("Correo actualizado.");
-      await refetch();
-      onClose();
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cambiar el correo."),
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6">
-        <h2 className="mb-4 text-title-lg font-bold text-on-surface">Cambiar correo</h2>
-        <div className="flex flex-col gap-3.5">
-          <Input label="Correo nuevo" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
-          <PasswordInput label="Contraseña actual" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
-        </div>
-        <div className="mt-5 flex gap-2.5">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={save.isPending}>Cancelar</Button>
-          <Button className="flex-1" disabled={!newEmail || !currentPassword || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? "Guardando..." : "Guardar"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 
 function PasswordCard() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -99,7 +65,7 @@ export default function AdminProfile() {
 
       <PasswordCard />
 
-      {changingEmail && <EmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}
+      {changingEmail && <ChangeEmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}
     </div>
   );
 }

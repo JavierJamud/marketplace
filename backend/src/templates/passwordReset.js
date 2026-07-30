@@ -11,6 +11,7 @@ export async function passwordResetEmail({ fullName, code }) {
   const html = await emailShell({
     preview: "Usa este código para restablecer tu contraseña — vence en 15 minutos",
     title: "Restablecer contraseña",
+    badge: { label: "Recuperación de cuenta", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola ${fullName ?? ""}, usa este código para restablecer tu contraseña. Vence en <strong>15 minutos</strong>.`)}

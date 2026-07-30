@@ -11,6 +11,18 @@ export const loginRateLimit = rateLimit({
   message: { error: "Demasiados intentos de inicio de sesión. Prueba de nuevo en unos minutos." },
 });
 
+// Auditoría de seguridad: /auth/register era el único endpoint de auth sin
+// límite — sin esto, un script podía scriptear altas masivas de cuentas
+// (spam de la tabla User, abuso del correo de bienvenida, etc.). Mismo
+// criterio que loginRateLimit: generoso para no entorpecer pruebas manuales.
+export const registerRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados registros desde este origen. Prueba de nuevo en unos minutos." },
+});
+
 export const ordersRateLimit = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 60,

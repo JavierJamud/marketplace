@@ -41,12 +41,19 @@ enum OrderChannel {
 }
 
 // Preferencia del vendedor: a dónde llegan los pedidos que hace un cliente.
-// WHATSAPP = el catálogo muestra el botón directo de WhatsApp (no crea
-// pedido en el panel). PANEL = se oculta ese atajo y se dirige al checkout
-// completo, cuyo pedido cae en /vendedor/pedidos para gestionar ahí.
+// Bloque 68 (pedido explícito): el checkout con formulario completo ya
+// SIEMPRE crea el Order real y cae en /vendedor/pedidos, sin importar este
+// valor (antes WHATSAPP dejaba saltarse el formulario entero con un atajo
+// directo a wa.me que nunca creaba pedido — ese atajo se eliminó). Ahora
+// este campo solo decide qué le ofrece la pantalla de confirmación al
+// cliente DESPUÉS de crear el pedido: WHATSAPP = solo ofrece mandarlo por
+// WhatsApp; PANEL = no menciona WhatsApp, el vendedor lo gestiona desde su
+// panel; BOTH = ofrece las dos cosas (WhatsApp + aviso de que ya quedó en
+// su panel).
 enum OrderDestination {
   WHATSAPP
   PANEL
+  BOTH
 }
 
 enum OrderStatus {
@@ -63,16 +70,43 @@ enum KitchenStatus {
   READY
 }
 
-// Bloque 16: la aprobación final SIEMPRE la hace un humano — ya no existe
-// auto-aprobación al subir documentos (ver verification.controller.js).
-// PENDING_REVIEW = documentos subidos, esperando que un admin los revise.
-// PENDING_PAYMENT = documentos ya aprobados, falta resolver el cobro de la
-// suscripción (ver VerificationPaymentMethod) antes de activar el badge.
-enum VerificationStatus {
-  PENDING_REVIEW
+// Bloque 64 (pedido explícito — bug real reportado en vivo): fuente única de
+// verdad del estado de verificación de una tienda. Antes vivía repartido en
+// dos lugares que podían desincronizarse (`VerificationRequest.status` +
+// `Vendor.isVerified`, este último un booleano guardado aparte) — confirmado
+// en la propia base de datos que 5 de 12 tiendas sembradas tenían
+// `isVerified:true` sin verificación real completa. Ahora todo el sitio (badge,
+// IA, destacado, admin) lee ÚNICAMENTE `Vendor.verificationStatus`.
+// NOT_STARTED: nunca inició el trámite (o su VerificationRequest no tiene
+// fotos todavía). PENDING_DOCS: documentos subidos, nadie los abrió aún.
+// IN_REVIEW: un admin ya abrió la solicitud para revisarla (ver
+// admin.controller.js:startVerificationReview). PENDING_PAYMENT: documentos
+// aprobados, falta resolver el cobro. VERIFIED: badge activo (docs + cobro
+// vigente). PAYMENT_FAILED: estuvo VERIFIED pero el cobro recurrente falló
+// (Stripe invoice o vencimiento CUP) — recuperable pagando de nuevo, sin
+// rehacer documentos. SUSPENDED: Stripe eliminó la suscripción de verdad
+// (`customer.subscription.deleted`) — para volver hace falta una suscripción
+// nueva, no solo pagar una factura vencida. REJECTED: documentos rechazados.
+enum VendorVerificationStatus {
+  NOT_STARTED
+  PENDING_DOCS
+  IN_REVIEW
   PENDING_PAYMENT
-  APPROVED
+  VERIFIED
+  PAYMENT_FAILED
+  SUSPENDED
   REJECTED
+}
+
+// Bloque 64: de dónde vino cada cambio de estado (VerificationStatusLog) —
+// distingue una decisión humana de admin de algo que pasó solo (webhook de
+// Stripe o el cron de vencimiento CUP), y de una acción del propio vendedor
+// (ej. cancelar su plan).
+enum VerificationStatusSource {
+  ADMIN_ACTION
+  STRIPE_WEBHOOK
+  CRON_EXPIRATION
+  VENDOR_ACTION
 }
 
 // Cómo eligió pagar el vendedor la suscripción una vez aprobados sus
@@ -82,6 +116,16 @@ enum VerificationStatus {
 enum VerificationPaymentMethod {
   CARD
   CUP_TRANSFER
+}
+
+// Bloque 66 (pedido explícito): qué tipo de documento de identidad subió el
+// vendedor en la verificación — antes se asumía siempre carné de identidad
+// cubano; ahora el vendedor elige cuál de los tres presenta (idPhotoBackUrl
+// queda opcional en el controller cuando es PASSPORT, que no tiene reverso).
+enum IdDocumentType {
+  NATIONAL_ID
+  PASSPORT
+  INTERNATIONAL_ID
 }
 
 enum CampaignStatus {
@@ -112,6 +156,26 @@ enum EmailType {
   // vendedor, y no debe contar contra su límite mensual de emails manuales
   // (es una necesidad operativa básica, no un extra de marketing).
   DOCUMENT
+  // Bloque 59: código de verificación previo a crear la cuenta (cliente o
+  // vendedor) — mismo criterio que TWO_FACTOR_CODE, tipo propio pese a
+  // compartir la forma "código de 6 dígitos por correo".
+  REGISTRATION_CODE
+  // Bloque 62: ciclo de vida de inactividad de la tienda (recordatorio de 7
+  // días, suspensión automática a los 90, reactivación por un admin) y
+  // re-enganche de clientes que compraron una sola vez — 4 tipos propios,
+  // ninguno cuenta contra el límite mensual de MANUAL del vendedor (son
+  // necesidad operativa/de la plataforma, no marketing suyo).
+  VENDOR_INACTIVITY_REMINDER
+  VENDOR_SUSPENDED
+  VENDOR_WINBACK
+  VENDOR_REACTIVATED
+  // Bloque 64: aviso proactivo (no es un cambio de estado en sí, a diferencia
+  // de VERIFICATION_UPDATE que sí cubre esos) — 7 días antes de que venza el
+  // ciclo de pago CUP recurrente.
+  VERIFICATION_PAYMENT_REMINDER
+  // Bloque 71: código de verificación para cambiar el correo de la cuenta —
+  // mismo criterio que TWO_FACTOR_CODE/REGISTRATION_CODE (tipo propio).
+  EMAIL_CHANGE_CODE
 }
 
 enum EmailStatus {
@@ -154,6 +218,8 @@ model Country {
 
   provinces Province[]
   vendorDeliveries VendorDeliveryCountry[]
+  // Bloque 66: tiendas cuyo país de registro LEGAL es este (Vendor.registrationCountryId).
+  vendorsRegisteredHere Vendor[]
 }
 
 // Países a los que un vendedor puntual entrega (además/aparte de las
@@ -192,6 +258,8 @@ model Province {
   vendorLocations VendorLocation[]
   addresses      Address[]
   users          User[]
+  // Bloque 66: tiendas cuya provincia de registro LEGAL es esta (Vendor.legalProvinceId).
+  vendorsLegal   Vendor[]
 
   adjacentTo   ProvinceAdjacency[] @relation("ProvinceA")
   adjacentFrom ProvinceAdjacency[] @relation("ProvinceB")
@@ -206,6 +274,8 @@ model Municipality {
 
   vendorLocations VendorLocation[]
   addresses       Address[]
+  // Bloque 66: tiendas cuyo municipio de registro LEGAL es este (Vendor.legalMunicipalityId).
+  vendorsLegal    Vendor[]
 
   @@unique([provinceId, name])
 }
@@ -272,6 +342,15 @@ model Product {
   // comportamiento de los productos ya cargados al desplegar la migración.
   currency    ProductCurrency @default(CUP)
   stock       Int      @default(0)
+  // Bloque 56 (pedido explícito): hay vendedores que no tienen un stock
+  // acotado real (servicios, productos que siempre reponen al toque, etc.) —
+  // con esto en true, `stock` deja de usarse para disponibilidad/descuento en
+  // TODO el sistema (carrito, checkout, confirmación de venta, dashboard de
+  // bajo stock/agotado): el producto se muestra siempre disponible y nunca se
+  // le hace seguimiento de cuántas unidades quedan. Mutuamente excluyente con
+  // `sizes` (cada talla sí necesita su propio stock real, ver
+  // assertStockModeConsistent en products.controller.js).
+  unlimitedStock Boolean @default(false)
   barcode     String?
   images      String[] @default([])
   badge       String?
@@ -299,6 +378,12 @@ model Product {
   // vender en la tienda normal, en el menú QR de mesa, en ambos o en ninguno.
   availableForTableMenu Boolean @default(false)
   createdAt   DateTime @default(now())
+  // Bloque 66: se setea la PRIMERA vez que el producto pasa a isActive:true
+  // (ver addProductImages/addProductImageLink en products.controller.js, que
+  // ya tenían la lógica `wasEmpty` que activa el producto con su 1ª foto) —
+  // es el ancla real de "cuántos días lleva activo" para la etiqueta "Nuevo"
+  // automática, en vez de createdAt (que existe desde antes de tener fotos).
+  activatedAt DateTime?
 
   vendor   Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -309,8 +394,31 @@ model Product {
   favorites  Favorite[]
   requests   ProductRequest[]
   offers     Offer[]
+  priceTiers ProductPriceTier[]
 
   @@unique([vendorId, slug])
+}
+
+// Bloque 55: precios por cantidad (mayoreo) — 100% opcional, el vendedor
+// decide por producto si lo activa. Cada fila dice "a partir de esta
+// cantidad, el precio POR UNIDAD baja a este" — nunca reemplaza Product.price
+// (que sigue siendo el precio de 1 unidad), solo lo abarata a partir de un
+// umbral. Se resuelve el tier aplicable según la cantidad tanto al mostrarle
+// el precio al cliente como al confirmar un pedido de verdad (ver
+// resolveUnitPrice en lib/pricing.js) — nunca se confía en un precio que
+// mande el cliente.
+model ProductPriceTier {
+  id        String  @id @default(cuid())
+  productId String
+  // Cantidad mínima para que aplique este precio — siempre >= 2 (1 unidad ya
+  // la cubre Product.price, no hace falta una fila para eso).
+  minQty    Int
+  price     Decimal @db.Decimal(12, 2)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, minQty])
+  @@index([productId, minQty])
 }
 
 // Variantes de producto / ítem de menú (ej. "Guarnición": Congrí, Arroz blanco, Puré (+80))
@@ -344,17 +452,37 @@ model User {
   // el flag de auditoría que distingue "eliminado" de "suspendido a mano".
   deletedAt    DateTime?
   createdAt    DateTime @default(now())
+  // Bloque 62: se actualiza en cada login exitoso (auth.controller.js) —
+  // clientes, vendedores y admin por igual, una sola tabla. Para un
+  // vendedor, "acceder a su panel" = loguearse con esta cuenta; es lo que
+  // usa el cron de inactividad (vendorLifecycle.job.js) para el
+  // recordatorio de 7 días y la suspensión automática a los 90. null =
+  // nunca inició sesión desde que existe la cuenta (no se asume actividad
+  // retroactiva al desplegar esta migración).
+  lastLoginAt  DateTime?
 
   // Reset de contraseña por código (nunca en texto plano, expira ~15 min).
   resetCodeHash      String?
   resetCodeExpiresAt DateTime?
 
-  // Bloque 47: 2FA opt-in por correo — campos propios, separados de
-  // resetCodeHash/resetCodeExpiresAt (un reset de contraseña en curso no
-  // debe pisar un código de 2FA en curso, ni viceversa).
-  twoFactorEnabled       Boolean   @default(false)
+  // Bloque 60: código de verificación en dos pasos del LOGIN — campos
+  // propios, separados de resetCodeHash/resetCodeExpiresAt (un reset de
+  // contraseña en curso no debe pisar un código de 2FA en curso, ni
+  // viceversa). Antes (Bloque 47) esto era opt-in vía `twoFactorEnabled`
+  // (columna eliminada en esta misma migración) — ahora se pide siempre que
+  // no haya un TrustedDevice vigente para esta cuenta (ver auth.controller.js).
   twoFactorCodeHash      String?
   twoFactorCodeExpiresAt DateTime?
+
+  // Bloque 71 (pedido explícito): cambiar de correo deja de ser directo —
+  // primero hay que probar acceso al correo VIEJO (el que ya está en la
+  // cuenta), con un código propio (letras+números, nunca reutiliza
+  // resetCodeHash/twoFactorCodeHash) mandado a esa dirección. pendingEmail
+  // guarda el correo pedido hasta que el código se confirma — recién ahí se
+  // escribe de verdad en `email`.
+  pendingEmail             String?
+  emailChangeCodeHash      String?
+  emailChangeCodeExpiresAt DateTime?
 
   province  Province?  @relation(fields: [provinceId], references: [id], onDelete: SetNull)
   vendor    Vendor?
@@ -362,6 +490,11 @@ model User {
   orders    Order[]
   favorites Favorite[]
   reviews   Review[]
+  // Bloque 69: reportes de reseñas que este usuario hizo/resolvió — nombradas
+  // aparte de `reviews` (esa es "las reseñas que escribió", esto es "las
+  // que reportó" o "las que resolvió como admin").
+  reportedReviews       Review[] @relation("ReviewReportedBy")
+  reportResolvedReviews Review[] @relation("ReviewReportResolvedBy")
   reviewedVerifications VerificationRequest[] @relation("ReviewedBy")
   paymentConfirmedVerifications VerificationRequest[] @relation("PaymentConfirmedBy")
   marketplaceChatMessages MarketplaceChatMessage[]
@@ -371,6 +504,77 @@ model User {
   productRequests ProductRequest[]
   chatTrainingExamples ChatTrainingExample[]
   cartSnapshot CartSnapshot?
+  sessions Session[]
+  trustedDevices TrustedDevice[]
+  vendorStatusChangesMade VendorStatusLog[]
+  winbackEmailsReceived   WinbackEmailLog[]
+  verificationStatusChangesMade VerificationStatusLog[]
+  activityLogs ActivityLog[]
+  verificationArchivesReviewed VerificationArchive[] @relation("VerificationArchiveReviewedBy")
+}
+
+// Bloque 60: reemplaza el refresh token JWT sin estado por uno opaco
+// respaldado por esta tabla — es lo que hace posible revocar una sesión de
+// verdad (logout, "cerrar en todos los dispositivos", expiración por
+// inactividad) en vez de solo borrar el token del lado del cliente y
+// dejarlo igual de válido en el servidor hasta que expire solo. `browserId`
+// (no la sesión en sí) es lo que identifica "este navegador" — un login
+// nuevo revoca cualquier Session previa de ese mismo (userId, browserId),
+// garantizando una sola sesión activa por navegador.
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  browserId        String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, browserId])
+}
+
+// Bloque 60: "recordar este dispositivo" — token opaco propio (nunca el
+// mismo que el refresh token de Session), guardado en localStorage y NUNCA
+// borrado por un logout normal (justamente lo que lo distingue de una
+// sesión: sobrevive cerrar sesión, solo se borra si expira o si el dueño de
+// la cuenta cierra sesión en todos los dispositivos). Ventana rodante de 30
+// días — se extiende cada vez que se usa para saltar el código de login.
+model TrustedDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  expiresAt  DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Bloque 59 (pedido explícito): verificación de correo obligatoria ANTES de
+// crear la cuenta real (cliente o vendedor — el registro de vendedor es el
+// mismo POST /auth/register + un POST /vendors después, así que gatearlo acá
+// alcanza para los dos). A diferencia de resetCodeHash/twoFactorCodeHash (que
+// viven como columnas de un User que YA existe), acá todavía no hay ningún
+// User que crear — se guardan los datos del formulario + el código en esta
+// tabla aparte, y recién se crea el User real cuando el código se verifica
+// (ver verifyRegistration en auth.controller.js). Si el cliente nunca
+// verifica, no queda ningún User "fantasma" a medio crear — solo esta fila,
+// que un reintento de registro con el mismo correo simplemente sobrescribe
+// (upsert por email).
+model PendingRegistration {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  fullName      String
+  phone         String
+  country       String
+  codeHash      String
+  codeExpiresAt DateTime
+  createdAt     DateTime @default(now())
 }
 
 model Vendor {
@@ -395,6 +599,18 @@ model Vendor {
   // — ese es el único punto donde su ausencia realmente rompe algo.
   ownerIdNumber  String?
   companyAddress String?
+  // Bloque 66 (pedido explícito): datos legales de verificación — PRIVADOS,
+  // nunca expuestos en getVendorBySlug ni ningún endpoint público (mismo
+  // criterio que ownerIdNumber/companyAddress arriba). companyTaxId es el ID
+  // fiscal de la empresa; alternativa a ownerIdNumber (el gate de envío de la
+  // verificación exige al menos uno de los dos, no ambos). registrationCountryId/
+  // legalProvinceId/legalMunicipalityId son el país/provincia/municipio de
+  // registro LEGAL del negocio — distinto de VendorLocation (esa es zona de
+  // servicio/venta, esto es domicilio legal).
+  companyTaxId String?
+  registrationCountryId String?
+  legalProvinceId       String?
+  legalMunicipalityId   String?
   logoUrl     String?
   coverUrl    String?
   color       String?
@@ -407,13 +623,47 @@ model Vendor {
   tableCount  Int?
   planType    PlanType @default(REGULAR)
   orderDestination OrderDestination @default(WHATSAPP)
-  isVerified  Boolean  @default(false)
+  // Bloque 64: reemplaza el booleano `isVerified` (guardado aparte,
+  // desincronizable — ver el enum arriba) — este es el ÚNICO campo que
+  // cualquier parte del sitio debe leer para saber si el badge/IA/destacado
+  // corresponden. Nunca se escribe directo — siempre vía
+  // transitionVendorVerification() (services/vendorVerification.service.js).
+  verificationStatus   VendorVerificationStatus @default(NOT_STARTED)
+  // Cobro recurrente real (Bloque 64) — null hasta la primera vez que la
+  // tienda complete un checkout de suscripción. stripeCustomerId sobrevive a
+  // una suscripción cancelada (permite crear una nueva sin pedir los datos de
+  // pago de nuevo); stripeSubscriptionId es la suscripción VIGENTE puntual,
+  // se reemplaza si se crea una nueva tras SUSPENDED.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  // Próximo vencimiento del cobro — para Stripe es informativo (se actualiza
+  // desde el propio invoice del webhook, Stripe vence solo); para CUP es lo
+  // que el cron de verificationPayment.job.js usa de verdad para recordar (7
+  // días antes) y vencer (PAYMENT_FAILED) si nadie confirma un pago nuevo.
+  nextPaymentDueDate   DateTime?
   isBlocked   Boolean  @default(false)
   // Bloque 12: soft-delete de tienda — al eliminar se fuerza isBlocked:true
   // también (así los ~8 puntos del código que ya filtran por isBlocked:false
   // ocultan la tienda sin tocar cada uno) y se guarda deletedAt como marca
   // de auditoría/UI ("Eliminada" en vez de "Bloqueada", sin botón de revertir).
   deletedAt   DateTime?
+  // Bloque 62: tercer estado, distinto de isBlocked (el admin bloquea a
+  // mano, reversible en cualquier momento desde AdminVendors.jsx) y de
+  // deletedAt (soft-delete, sin vuelta atrás) — SUSPENDED lo pone el cron de
+  // inactividad (vendorLifecycle.job.js) solo, nunca un admin a mano; se
+  // reactiva desde AdminSuspendedVendors.jsx con un motivo obligatorio.
+  // Todo punto que hoy filtra por isBlocked:false para decidir qué tienda es
+  // pública también filtra status:ACTIVE (ver vendors.controller.js y el
+  // resto de los controllers listados en el pedido de este bloque).
+  status                VendorStatus @default(ACTIVE)
+  suspendedAt           DateTime?
+  suspensionReason      String?
+  reactivatedAt         DateTime?
+  reactivationReason    String?
+  // Para no reenviar el recordatorio de 7 días todos los días — se re-manda
+  // cada 7 días de inactividad continua (día 7, 14, 21... hasta reactivar o
+  // llegar a los 90 días de suspensión automática).
+  lastInactivityEmailAt DateTime?
   rating      Decimal  @default(0) @db.Decimal(2, 1)
   salesCount  Int      @default(0)
   timezone    String   @default("America/Havana")
@@ -432,6 +682,14 @@ model Vendor {
   // arriba — qué monedas coordina la tienda con el cliente, sin conversión
   // real ni tasa de cambio (Product.price sigue siendo siempre CUP).
   acceptedCurrencies String[] @default(["CUP"])
+  // Bloque 65 (pedido explícito): moneda operativa ÚNICA de la tienda —
+  // distinta de acceptedCurrencies de arriba (esa es informal/múltiple,
+  // "qué coordinás con el cliente"; esta es la moneda real en la que están
+  // expresados TODOS los precios de la tienda, elegida en el registro,
+  // editable después). Todo producto de esta tienda usa esta moneda —
+  // createProduct/updateProduct la fuerzan server-side, nunca se acepta un
+  // valor de currency distinto mandado por el cliente (ver products.controller.js).
+  currency ProductCurrency @default(CUP)
   // Sección "Garantías" (VendorSettings.jsx): condiciones propias de cada
   // negocio que se imprimen en el certificado de garantía (ver
   // generateWarrantyPdf en lib/pdf.js). Ambos campos son obligatorios para
@@ -441,11 +699,20 @@ model Vendor {
   // tiendas ya sembradas, igual criterio que companyAddress arriba.
   warrantyTerms       String? @db.Text
   warrantyDefaultDays Int?
+  // Bloque 66 (pedido explícito): cancelar la suscripción NO revoca el
+  // acceso de inmediato — solo marca la intención; el vendedor sigue
+  // VERIFIED hasta nextPaymentDueDate. El cron de verificationPayment.job.js
+  // (o el webhook customer.subscription.deleted de Stripe, que dispara solo
+  // al llegar cancel_at_period_end) recién ahí transiciona a NOT_STARTED.
+  cancelAtPeriodEnd Boolean @default(false)
   createdAt   DateTime @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   category Category? @relation("VendorCategory", fields: [categoryId], references: [id], onDelete: SetNull)
   businessCategory BusinessCategory? @relation(fields: [businessCategoryId], references: [id], onDelete: SetNull)
+  registrationCountry Country?      @relation(fields: [registrationCountryId], references: [id], onDelete: SetNull)
+  legalProvince       Province?     @relation(fields: [legalProvinceId], references: [id], onDelete: SetNull)
+  legalMunicipality   Municipality? @relation(fields: [legalMunicipalityId], references: [id], onDelete: SetNull)
 
   locations     VendorLocation[]
   schedules     VendorSchedule[]
@@ -466,6 +733,54 @@ model Vendor {
   discountCodes DiscountCode[]
   storeOffers   StoreOffer[]
   sharedCarts   SharedCart[]
+  statusLogs       VendorStatusLog[]
+  winbackEmailLogs WinbackEmailLog[]
+  verificationStatusLogs VerificationStatusLog[]
+  activityLogs     ActivityLog[]
+  verificationArchives VerificationArchive[]
+}
+
+// Bloque 62: auditoría de cada cambio de Vendor.status a través del tiempo
+// — la columna status solo guarda el estado ACTUAL, esto guarda el
+// historial completo (cuándo, por qué, quién). byAdminId null = cambio
+// automático (el cron de suspensión por inactividad); seteado = un admin lo
+// hizo a mano (reactivación desde AdminSuspendedVendors.jsx).
+model VendorStatusLog {
+  id         String       @id @default(cuid())
+  vendorId   String
+  fromStatus VendorStatus
+  toStatus   VendorStatus
+  reason     String?
+  byAdminId  String?
+  at         DateTime     @default(now())
+
+  vendor  Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  byAdmin User?  @relation(fields: [byAdminId], references: [id], onDelete: SetNull)
+}
+
+// Bloque 62: un solo correo de "re-enganche" por (cliente, tienda, oferta)
+// — sin esto, el job diario mandaría el mismo correo cada día mientras la
+// oferta siga activa. Acotado a Offer (no StoreOffer) a propósito: es el
+// modelo con imageUrl/discountLabel ya listos para una tarjeta de email;
+// cubrir StoreOffer también queda como posible extensión, no se hizo acá
+// para no duplicar la lógica de armado del correo con dos formas distintas.
+model WinbackEmailLog {
+  id         String   @id @default(cuid())
+  customerId String
+  vendorId   String
+  offerId    String
+  sentAt     DateTime @default(now())
+
+  customer User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  offer    Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, vendorId, offerId])
+}
+
+enum VendorStatus {
+  ACTIVE
+  SUSPENDED
 }
 
 model VendorLocation {
@@ -575,6 +890,40 @@ model ErrorLog {
   @@index([origin, createdAt])
 }
 
+enum ActivityActorRole {
+  VENDOR
+  CUSTOMER
+}
+
+// Bloque 70 (pedido explícito): registro general de acciones de vendedores y
+// clientes en sus paneles/cuenta — le da al admin un historial completo
+// ("todo lo que hacen") y una base para calcular uso por día/semana/mes
+// (ver getActivityStats en admin.controller.js). No reemplaza los logs ya
+// existentes que auditan UNA transición puntual (VendorStatusLog,
+// VerificationStatusLog) — este es de propósito general, por eso `action` es
+// texto libre (no un enum): agregar un nuevo tipo de acción a registrar
+// nunca debe necesitar una migración. `vendorId` es nulo para acciones de un
+// cliente que no involucran ninguna tienda en particular (ej. actualizar su
+// perfil); `description` ya viene armado en español, listo para mostrar sin
+// que el frontend tenga que interpretar `action`/`meta`.
+model ActivityLog {
+  id          String            @id @default(cuid())
+  actorId     String
+  actorRole   ActivityActorRole
+  vendorId    String?
+  action      String
+  description String
+  meta        Json?
+  createdAt   DateTime          @default(now())
+
+  actor  User    @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([createdAt])
+}
+
 model OrderItem {
   id              String  @id @default(cuid())
   orderId         String
@@ -639,9 +988,16 @@ model TableOrder {
 model VerificationRequest {
   id              String             @id @default(cuid())
   vendorId        String             @unique
-  status          VerificationStatus @default(PENDING_REVIEW)
+  // Bloque 64: perdió su propio `status` — el estado vive solo en
+  // `Vendor.verificationStatus` de ahora en más (ver ese enum para el porqué).
+  // Este modelo sigue siendo el que guarda los documentos/datos de la fase
+  // de pago en curso.
   fullName        String?
   idNumber        String?
+  // Bloque 66: qué documento presentó (carné cubano / pasaporte / carné de
+  // extranjería) — el pasaporte no tiene reverso, ver el gate opcional de
+  // idPhotoBackUrl en submitVerification según este valor.
+  idDocumentType  IdDocumentType?
   idPhotoFrontUrl String?
   idPhotoBackUrl  String?
   selfieUrl       String?
@@ -657,6 +1013,12 @@ model VerificationRequest {
   // automática, usado arriba para la fase de documentos.
   paymentMethod        VerificationPaymentMethod?
   paymentProofUrl       String?
+  // Bloque 66 (pedido explícito): el comprobante deja de ser obligatorio —
+  // el vendedor puede reclamar el pago ("Ya pagué") con o sin archivo
+  // adjunto. paymentClaimedAt es lo que se setea SIEMPRE al llamar ese
+  // endpoint (con o sin archivo) — dispara el aviso por correo al admin y es
+  // lo que el panel de admin muestra como "esperando confirmación".
+  paymentClaimedAt     DateTime?
   paymentConfirmedAt    DateTime?
   paymentConfirmedById  String?
 
@@ -675,6 +1037,76 @@ model VerificationRequest {
   vendor            Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   reviewedBy        User?  @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   paymentConfirmedBy User? @relation("PaymentConfirmedBy", fields: [paymentConfirmedById], references: [id], onDelete: SetNull)
+}
+
+// Bloque 64: auditoría completa de cada cambio de Vendor.verificationStatus —
+// la columna en Vendor solo guarda el estado ACTUAL, esto guarda el
+// historial (cuándo, de dónde a dónde, por qué, quién si fue un admin).
+// Cubre el "verificationHistory" pedido explícitamente, sin duplicar el
+// historial de pagos de Stripe (ese ya vive en el propio dashboard de
+// Stripe, consultable en vivo por stripeCustomerId).
+model VerificationStatusLog {
+  id         String                   @id @default(cuid())
+  vendorId   String
+  fromStatus VendorVerificationStatus
+  toStatus   VendorVerificationStatus
+  reason     String?
+  actorId    String?
+  source     VerificationStatusSource
+  at         DateTime                 @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+}
+
+// Bloque 72 (pedido explícito): archivo PERMANENTE de la documentación que
+// llevó a una tienda a quedar verificada — hora, fecha, datos personales y
+// del negocio, fotos del responsable y de la identificación, todo archivado.
+// Una fila nueva ("rama") por cada verificación exitosa (creada automática
+// al llegar a VERIFIED, ver transitionVendorVerification en
+// vendorVerification.service.js) — nunca se reemplaza ni se pisa: si la
+// tienda pierde la verificación y vuelve a pagar/enviar documentación más
+// adelante, esa segunda verificación exitosa crea una rama NUEVA, la vieja
+// queda intacta. Es un snapshot independiente — guarda nombres resueltos de
+// país/provincia/municipio (no FKs) para seguir siendo legible aunque esas
+// tablas de referencia cambien después. Editable (correcciones de datos),
+// pero solo eliminable a mano por un admin y SOLO si la tienda YA NO está
+// verificada (ver deleteVerificationArchive) — nunca un borrado automático.
+model VerificationArchive {
+  id       String @id @default(cuid())
+  vendorId String
+
+  companyName    String
+  ownerName      String?
+  ownerIdNumber  String?
+  companyTaxId   String?
+  companyAddress String?
+  description    String?
+
+  idDocumentType          IdDocumentType?
+  fullName                String?
+  idNumber                String?
+  registrationCountryName String?
+  legalProvinceName       String?
+  legalMunicipalityName   String?
+
+  // Mismos archivos que VerificationRequest en el momento de verificarse —
+  // nunca se borran del disco al archivar (ver submitVerification).
+  selfieUrl       String?
+  idPhotoFrontUrl String?
+  idPhotoBackUrl  String?
+
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  reviewedById String?
+
+  notes     String?
+  archivedAt DateTime @default(now())
+
+  vendor     Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("VerificationArchiveReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, archivedAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -719,6 +1151,14 @@ model Campaign {
   provinceId String? // null = toda Cuba
   subject    String?
   content    String?
+  // Bloque 67 (pedido explícito): personalización de la campaña — banner
+  // arriba del mensaje (archivo subido a /uploads/site o link externo, mismo
+  // criterio que announcements/store-offers) y botón de llamado a la acción
+  // opcional. ctaLabel/ctaUrl van siempre juntos (validado en el controller,
+  // no acá) — un botón no tiene sentido con uno solo de los dos.
+  imageUrl   String?
+  ctaLabel   String?
+  ctaUrl     String?
   status     CampaignStatus @default(DRAFT)
   sentCount  Int            @default(0)
   openCount  Int            @default(0)
@@ -758,6 +1198,14 @@ model SiteSettings {
   // cambiar el comportamiento visible al desplegar esta migración.
   siteName String  @default("ZeuDin")
   logoUrl  String?
+  // Bloque 61: redes de la plataforma — usadas hoy por la fila de íconos del
+  // footer de los correos ("Marca de la plataforma" en el admin), y a futuro
+  // por el footer del sitio. null = ese ícono/link simplemente no se
+  // muestra (nunca un link inventado/placeholder). El de "sitio web" no
+  // necesita columna propia — siempre es env.frontendUrl.
+  whatsappUrl  String?
+  instagramUrl String?
+  facebookUrl  String?
   // Límites por plan — cuántos países de entrega y provincias de Cuba puede
   // tener cargados un vendedor a la vez. Nunca hardcodeados en el código:
   // el admin los edita desde AdminLocations.jsx. null en el máximo de
@@ -815,6 +1263,33 @@ model SiteSettings {
   // no aparece en esta lista porque no se puede desactivar — ver
   // products.controller.js) — acá solo viven los OPCIONALES.
   productPaymentMethods String[] @default(["cod", "prepaid"])
+  // Bloque 65: de qué conjunto fijo (CUP/USD/EUR/MXN) puede elegir una
+  // tienda su moneda operativa única al registrarse o al cambiarla después
+  // — el admin activa/desactiva sin redesplegar, nunca texto libre (mismo
+  // patrón que productPaymentMethods de arriba). Nunca puede quedar vacío
+  // (validado en updateAvailableCurrencies) — un registro sin ninguna
+  // moneda para elegir rompería el alta de tiendas nuevas.
+  availableCurrencies String[] @default(["CUP", "USD", "EUR", "MXN"])
+  // Bloque 64: datos bancarios de transferencia CUP para la suscripción del
+  // Plan Business — antes hardcodeados a mano en VendorVerification.jsx
+  // ("CI: 9205-XXXX-XXXX"), ahora editables desde el admin sin redesplegar.
+  // null = el vendedor ve un aviso de "contacta al equipo" en vez de un dato
+  // inventado (mismo criterio que whatsappUrl/etc. de Bloque 61).
+  cupBankAccountNumber String?
+  cupBankAccountHolder String?
+  cupBankInstructions  String? @db.Text
+  cupSubscriptionPriceCup Int @default(2500)
+  // Bloque 66 (pedido explícito): catálogo administrable de etiquetas que un
+  // vendedor puede elegir para un producto (mismo patrón que
+  // productPaymentMethods/availableCurrencies arriba) — "Nuevo" es un valor
+  // fijo del sistema que NO vive en esta lista (siempre disponible, se
+  // fuerza solo al crear el producto, nunca se puede desactivar). El admin
+  // agrega/quita el resto desde AdminBranding.jsx sin redesplegar.
+  availableProductBadges String[] @default(["Popular", "Solicitado"])
+  // Cuántos días dura la etiqueta "Nuevo" antes de desaparecer sola (ver
+  // expireNewBadges en products.controller.js) — contados desde
+  // Product.activatedAt, no desde createdAt.
+  newBadgeDurationDays Int @default(14)
   updatedAt    DateTime @updatedAt
 }
 
@@ -911,6 +1386,15 @@ enum VendorNotificationType {
   // Bloque 46: el admin revoca el Plan Business desde Suscripciones — mismo
   // canal (email + campanita) que el resto del ciclo de verificación/cobro.
   VERIFICATION_BUSINESS_REVOKED
+  // Bloque 62: suspensión automática por inactividad (90 días) — así queda
+  // visible en la campanita del panel si el vendedor vuelve a intentar
+  // entrar, no solo en el correo que ya recibió.
+  VENDOR_SUSPENDED
+  // Bloque 64: cobro recurrente del Plan Business — distintos de
+  // VENDOR_SUSPENDED de arriba (esa es por inactividad de LOGIN, esta es por
+  // el ciclo de pago de la verificación).
+  VERIFICATION_PAYMENT_FAILED
+  VERIFICATION_SUSPENDED
 }
 
 model VendorNotification {
@@ -928,6 +1412,20 @@ model VendorNotification {
 // ---------------------------------------------------------------------------
 // Reseñas, direcciones, favoritos
 // ---------------------------------------------------------------------------
+
+// Bloque 69 (pedido explícito): ciclo de vida de un reporte sobre una reseña
+// — null (sin fila, ver Review.reportStatus más abajo) = nunca se reportó.
+// REPORTED: alguien (vendedor o cliente) la reportó — se oculta sola en el
+// momento y espera revisión del admin. KEPT: el admin revisó y decidió
+// mantenerla — vuelve a ser visible y queda "sellada" contra nuevos reportes
+// (ver assertReportable en reviews.controller.js). SUSPENDED: el admin
+// revisó y decidió suspenderla — sigue oculta, y desde acá solo el admin
+// puede borrarla de verdad (ver deleteReview, ya existente).
+enum ReviewReportStatus {
+  REPORTED
+  KEPT
+  SUSPENDED
+}
 
 model Review {
   id        String   @id @default(cuid())
@@ -962,9 +1460,25 @@ model Review {
   vendorReply     String?
   vendorRepliedAt DateTime?
 
+  // Bloque 69 (pedido explícito): reporte de un comentario — por el
+  // vendedor de la tienda (desde su panel) o por cualquier cliente logueado
+  // (desde donde vea la reseña, nunca sobre su propio comentario). Reportar
+  // oculta la reseña de inmediato (isHidden:true) y notifica al admin — el
+  // admin es quien decide después si la mantiene (reportStatus:"KEPT",
+  // vuelve a ser visible y no se puede volver a reportar) o la suspende
+  // (reportStatus:"SUSPENDED", sigue oculta, solo el admin puede borrarla).
+  reportStatus       ReviewReportStatus?
+  reportedById       String?
+  reportReason       String?
+  reportedAt         DateTime?
+  reportResolvedById String?
+  reportResolvedAt   DateTime?
+
   product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
   vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reportedBy       User? @relation("ReviewReportedBy", fields: [reportedById], references: [id], onDelete: SetNull)
+  reportResolvedBy User? @relation("ReviewReportResolvedBy", fields: [reportResolvedById], references: [id], onDelete: SetNull)
 }
 
 model Address {
@@ -1198,10 +1712,15 @@ enum OfferOrientation {
   HORIZONTAL
 }
 
+// Bloque 65: se reusa el mismo enum para Vendor.currency (moneda operativa
+// única de la tienda, elegida en el registro) — mismo concepto que
+// Product.currency (en qué moneda está expresado un precio puntual), nunca
+// dos enums paralelos para la misma idea. MXN nuevo a pedido explícito.
 enum ProductCurrency {
   CUP
   USD
   EUR
+  MXN
 }
 
 model Offer {
@@ -1240,6 +1759,7 @@ model Offer {
 
   vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  winbackEmailLogs WinbackEmailLog[]
 
   @@index([vendorId, createdAt])
   @@index([status, expiresAt])

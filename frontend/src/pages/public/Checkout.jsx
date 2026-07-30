@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { waLink } from "../../lib/whatsapp.js";
+import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
@@ -16,6 +17,32 @@ const PAY_OPTIONS = [
   { id: "online", title: "Pago en línea con el vendedor", sub: "Transferencia, Zelle, etc. — arreglan método y monto directo por WhatsApp" },
   { id: "cash", title: "Efectivo", sub: "Coordinas el lugar y momento por WhatsApp" },
 ];
+
+// Bloque 68 (pedido explícito): mensaje de WhatsApp del pedido YA
+// confirmado (con datos reales del cliente, siempre completados en el
+// formulario de arriba) — organizado por secciones con líneas separadoras
+// (guiones repetidos, no una tabla de ancho fijo) para que se lea bien en
+// cualquier ancho de pantalla dentro de WhatsApp. Reemplaza los mensajes
+// sueltos que antes armaba cada atajo que saltaba el formulario (ya
+// eliminados de Product.jsx/Cart.jsx/CartDrawer.jsx).
+const WA_SEPARATOR = "──────────────────";
+
+function buildOrderWhatsAppText(info) {
+  const lines = [
+    `🛍️ *Pedido ${info.orderCode}* — ${info.vendorName}`,
+    WA_SEPARATOR,
+    "📦 *Productos*",
+    ...info.items.map(
+      (it) => `• ${it.quantity}× ${it.name}${it.size ? ` (talla ${it.size})` : ""} — ${formatPrice(it.unitPrice, it.currency)} c/u`
+    ),
+    WA_SEPARATOR,
+  ];
+  if (info.discount) {
+    lines.push(`🏷️ Descuento (${info.discount.code}): -${formatPrice(info.discount.amount)}`);
+  }
+  lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`, `Entrega: ${info.address}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
+  return lines.join("\n");
+}
 
 export default function Checkout() {
   const { siteName } = usePlatformSettings();
@@ -45,7 +72,15 @@ export default function Checkout() {
     enabled: !!vendorSlug,
   });
 
-  const wantsWhatsApp = (vendor?.orderDestination ?? "WHATSAPP") === "WHATSAPP";
+  // Bloque 68: 3 valores reales ahora (WHATSAPP | PANEL | BOTH) — el pedido
+  // SIEMPRE se crea acá (con el formulario completo, siempre obligatorio),
+  // esto solo decide qué le ofrecemos al cliente en la confirmación. Se
+  // captura en `confirmedInfo` en el momento del éxito (ver onSuccess) — la
+  // pantalla de confirmación NUNCA debe releer esta variable en vivo,
+  // porque `clearCart()` resetea el vendedor del contexto (`vendorSlug`
+  // queda null), lo que apagaría esta query y volvería `orderDestination`
+  // al default silenciosamente.
+  const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
 
   // Derive vendor's delivery countries
   const vendorCountries = useMemo(() => {
@@ -120,12 +155,41 @@ export default function Checkout() {
         })
       ).data,
     onSuccess: ({ order }) => {
+      // Bloque 68: se captura todo lo necesario para armar el mensaje de
+      // WhatsApp bien formateado (con los datos reales que el cliente
+      // ACABA de completar en el formulario) sin tener que reconsultar nada.
+      const totalLabel = discount
+        ? formatPrice(
+            Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount)
+          )
+        : formatMixedTotal(items);
       setConfirmedInfo({
         vendorName,
+        // Bug real preexistente (encontrado de paso): `vendorSlug` del
+        // contexto queda `undefined` apenas se llama `clearCart()` más
+        // abajo (resetea el vendedor del carrito) — el link "Volver a la
+        // tienda" de la pantalla de confirmación quedaba armando
+        // `/v/undefined` (y ese prefijo tampoco es una ruta real — la
+        // tienda vive en `/tienda/:slug`, ver App.jsx). Se captura acá,
+        // antes de limpiar el carrito.
+        vendorSlug,
         provinceName: selectedProvince?.name ?? "tu provincia/estado",
-        wantsWhatsApp,
+        orderDestination,
         vendorWhatsapp: vendor?.whatsapp,
         orderCode: order.code,
+        items: items.map((i) => ({
+          name: i.name,
+          quantity: i.quantity,
+          size: i.size,
+          unitPrice: resolveUnitPrice(i.price, i.priceTiers, i.quantity),
+          currency: i.currency,
+        })),
+        totalLabel,
+        discount,
+        customerName: form.customerName,
+        customerPhone: form.customerPhone,
+        address: [isStateSelected ? null : form.municipalityName, form.address].filter(Boolean).join(" — "),
+        payTitle: PAY_OPTIONS.find((p) => p.id === pay)?.title ?? pay,
       });
       clearCart();
       setDone(true);
@@ -150,8 +214,9 @@ export default function Checkout() {
   });
 
   if (done && confirmedInfo) {
-    const waText = `¡Hola! Acabo de hacer el pedido ${confirmedInfo.orderCode} en ${confirmedInfo.vendorName}.`;
-    const href = waLink(confirmedInfo.vendorWhatsapp, waText);
+    const showWhatsappCta = confirmedInfo.orderDestination !== "PANEL";
+    const showPanelNote = confirmedInfo.orderDestination !== "WHATSAPP";
+    const href = showWhatsappCta ? waLink(confirmedInfo.vendorWhatsapp, buildOrderWhatsAppText(confirmedInfo)) : null;
 
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
@@ -163,11 +228,14 @@ export default function Checkout() {
           Tu código es <span className="font-mono font-bold text-on-surface">{confirmedInfo.orderCode}</span>.
         </p>
 
-        {confirmedInfo.wantsWhatsApp ? (
+        {/* Bloque 68: los 2 bloques de abajo ya no son mutuamente
+            excluyentes — con orderDestination:"BOTH" se muestran los dos
+            (WhatsApp + panel), con "WHATSAPP"/"PANEL" solo el que corresponde. */}
+        {showWhatsappCta && (
           <div className="mt-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6 text-left">
             <p className="text-body-md text-on-surface-variant">
-              Esta tienda coordina sus entregas por WhatsApp. Escribiles para ultimar el envío a{" "}
-              <span className="font-semibold text-on-surface">{confirmedInfo.provinceName}</span>.
+              Envíale tu pedido a <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> por WhatsApp para
+              ultimar la entrega en {confirmedInfo.provinceName}.
             </p>
             {href ? (
               <a
@@ -176,7 +244,7 @@ export default function Checkout() {
                 rel="noopener noreferrer"
                 className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#25D366] text-label-lg font-bold text-white shadow hover:opacity-90"
               >
-                <MessageCircle className="h-5 w-5" /> Abrir WhatsApp con la tienda
+                <MessageCircle className="h-5 w-5" /> Enviar pedido por WhatsApp
               </a>
             ) : (
               <p className="mt-3 text-body-sm text-outline">
@@ -184,17 +252,18 @@ export default function Checkout() {
               </p>
             )}
           </div>
-        ) : (
+        )}
+        {showPanelNote && (
           <div className="mt-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6 text-left">
             <p className="text-body-md text-on-surface-variant">
-              Le avisamos a <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> por correo. Te van a
-              contactar pronto para coordinar la entrega.
+              Tu pedido ya quedó guardado en el panel de <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span>.
+              Te van a contactar pronto para coordinar la entrega.
             </p>
           </div>
         )}
 
         <div className="mt-8">
-          <Link to={`/v/${vendorSlug}`} className="text-label-lg font-bold text-tertiary-accent hover:underline">
+          <Link to={`/tienda/${confirmedInfo.vendorSlug}`} className="text-label-lg font-bold text-tertiary-accent hover:underline">
             Volver a la tienda
           </Link>
         </div>
@@ -208,7 +277,9 @@ export default function Checkout() {
         <h1 className="text-display-sm font-extrabold text-on-surface">El carrito está vacío</h1>
         <p className="mt-2 text-body-md text-on-surface-variant">Agrega productos antes de realizar un pedido.</p>
         <div className="mt-6">
-          <Link to="/stores" className="text-label-lg font-bold text-tertiary-accent hover:underline">
+          {/* Bug real preexistente (encontrado de paso): "/stores" no es una
+              ruta real — la lista de tiendas vive en "/tiendas" (ver App.jsx). */}
+          <Link to="/tiendas" className="text-label-lg font-bold text-tertiary-accent hover:underline">
             Ver tiendas disponibles
           </Link>
         </div>
@@ -356,20 +427,23 @@ export default function Checkout() {
           <div className="sticky top-20 rounded-xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
             <h2 className="mb-4 text-title-lg font-bold text-on-surface">Resumen del pedido</h2>
             <div className="mb-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
-              {items.map((item) => (
-                <div key={`${item.productId}-${item.size ?? ""}`} className="flex justify-between gap-3 text-body-md border-b border-surface-container-high pb-2.5 last:border-b-0">
-                  <div>
-                    <div className="font-semibold text-on-surface">
-                      {item.name}
-                      {item.size && <span className="ml-1.5 text-body-sm text-outline">(talla {item.size})</span>}
+              {items.map((item) => {
+                const unitPrice = resolveUnitPrice(item.price, item.priceTiers, item.quantity);
+                return (
+                  <div key={`${item.productId}-${item.size ?? ""}`} className="flex justify-between gap-3 text-body-md border-b border-surface-container-high pb-2.5 last:border-b-0">
+                    <div>
+                      <div className="font-semibold text-on-surface">
+                        {item.name}
+                        {item.size && <span className="ml-1.5 text-body-sm text-outline">(talla {item.size})</span>}
+                      </div>
+                      <div className="text-body-sm text-outline">
+                        {item.quantity} x {formatPrice(unitPrice, item.currency)}
+                      </div>
                     </div>
-                    <div className="text-body-sm text-outline">
-                      {item.quantity} x {formatPrice(item.price, item.currency)}
-                    </div>
+                    <div className="font-bold text-on-surface">{formatPrice(unitPrice * item.quantity, item.currency)}</div>
                   </div>
-                  <div className="font-bold text-on-surface">{formatPrice(item.price * item.quantity, item.currency)}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {discount && (
               <div className="mb-2.5 flex items-center justify-between text-body-sm font-semibold text-verified-dark">
@@ -381,7 +455,9 @@ export default function Checkout() {
             <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
               <span>Total estimado</span>
               <span className="text-title-lg font-extrabold text-tertiary-accent">
-                {discount ? formatPrice(Math.max(0, items.reduce((s, i) => s + Number(i.price) * i.quantity, 0) - discount.amount)) : formatMixedTotal(items)}
+                {discount
+                  ? formatPrice(Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount))
+                  : formatMixedTotal(items)}
               </span>
             </div>
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { logActivity } from "../lib/activityLog.js";
 
 const createSchema = z.object({ message: z.string().min(5, "Cuéntanos un poco más.") });
 
@@ -13,6 +14,17 @@ export async function createSuggestion(req, res) {
   const suggestion = await prisma.suggestion.create({
     data: { authorId: req.user.id, authorType, message },
   });
+
+  const vendor = authorType === "VENDOR" ? await prisma.vendor.findUnique({ where: { userId: req.user.id }, select: { id: true } }) : null;
+  logActivity({
+    actorId: req.user.id,
+    actorRole: authorType,
+    vendorId: vendor?.id,
+    action: "suggestion_submitted",
+    description: "Envió una sugerencia",
+    meta: { suggestionId: suggestion.id },
+  });
+
   res.status(201).json({ suggestion });
 }
 

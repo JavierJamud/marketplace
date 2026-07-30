@@ -1,5 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 import { correctSearchQuery } from "../lib/ai.js";
+import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from "./products.controller.js";
+import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
 // "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
@@ -12,33 +14,49 @@ import { correctSearchQuery } from "../lib/ai.js";
 // se aplican después con el query builder normal de Prisma sobre esos IDs.
 const NAME_MATCH_LIMIT = 500;
 
+// Bloque 58 (pedido explícito): además de mayúsculas/tildes, un signo de
+// puntuación en un lado y no en el otro rompía el match — "Ron Santiago
+// 750ml" no encontraba "Ron Santiago, 750ml" (la coma no está en la
+// búsqueda) ni al revés. `regexp_replace(..., '[^a-z0-9]+', ' ', 'g')`
+// pliega TODO signo/espacio no alfanumérico a un solo espacio de los dos
+// lados de la comparación (columna Y término de búsqueda), así que
+// puntuación, comas, puntos y espacios de más dejan de importar — solo se
+// comparan letras y números reales. Se aplica siempre DESPUÉS de
+// unaccent()+lower(), nunca antes (el orden importa: unaccent ya resolvió
+// tildes/mayúsculas, esto solo pule lo que queda).
 async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
-  const pattern = `%${q}%`;
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true AND unaccent(name) ILIKE unaccent(${pattern})
+    WHERE "isActive" = true
+      AND regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')
+          ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
 }
 
 async function findProductIdsByNameOrDescription(q, limit) {
-  const pattern = `%${q}%`;
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
     WHERE "isActive" = true
-      AND (unaccent(name) ILIKE unaccent(${pattern}) OR unaccent(description) ILIKE unaccent(${pattern}))
+      AND (
+        regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')
+          ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
+        OR regexp_replace(unaccent(lower(description)), '[^a-z0-9]+', ' ', 'g')
+          ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
+      )
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
 }
 
 async function findProductIdsByTag(q, limit) {
-  const pattern = `%${q}%`;
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
     WHERE "isActive" = true AND EXISTS (
-      SELECT 1 FROM unnest(tags) AS t WHERE unaccent(t) ILIKE unaccent(${pattern})
+      SELECT 1 FROM unnest(tags) AS t
+      WHERE regexp_replace(unaccent(lower(t)), '[^a-z0-9]+', ' ', 'g')
+            ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
     )
     LIMIT ${limit}
   `;
@@ -46,10 +64,11 @@ async function findProductIdsByTag(q, limit) {
 }
 
 async function findVendorIdsByCompanyName(q, limit) {
-  const pattern = `%${q}%`;
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Vendor"
-    WHERE "isBlocked" = false AND unaccent("companyName") ILIKE unaccent(${pattern})
+    WHERE "isBlocked" = false AND "status" = 'ACTIVE'
+      AND regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g')
+          ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
@@ -65,11 +84,15 @@ async function findVendorIdsByCompanyName(q, limit) {
 // nada, el cliente decide si le sirve.
 const TRIGRAM_THRESHOLD = 0.15;
 
+// Bloque 58: misma normalización de puntuación que las búsquedas literales
+// de arriba, para que una coma/punto de más o de menos no le baje la
+// similitud a un match que en el fondo es el mismo texto.
 async function findProductIdsByTrigram(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true AND similarity(unaccent(name), unaccent(${q})) > ${TRIGRAM_THRESHOLD}
-    ORDER BY similarity(unaccent(name), unaccent(${q})) DESC
+    WHERE "isActive" = true
+      AND similarity(regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
+    ORDER BY similarity(regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
@@ -78,8 +101,9 @@ async function findProductIdsByTrigram(q, limit) {
 async function findVendorIdsByTrigram(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Vendor"
-    WHERE "isBlocked" = false AND similarity(unaccent("companyName"), unaccent(${q})) > ${TRIGRAM_THRESHOLD}
-    ORDER BY similarity(unaccent("companyName"), unaccent(${q})) DESC
+    WHERE "isBlocked" = false AND "status" = 'ACTIVE'
+      AND similarity(regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
+    ORDER BY similarity(regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
@@ -98,6 +122,7 @@ function reorderByIds(rows, ids) {
 // y la Home.
 export async function structuredSearch(req, res) {
   const { q, categoryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment } = req.query;
+  await expireNewBadges();
 
   // Filtrar por categoría incluye sus subcategorías (ej. "Restaurantes" trae
   // también los productos cargados bajo "Platos fuertes"/"Entrantes"/etc.):
@@ -121,7 +146,8 @@ export async function structuredSearch(req, res) {
     paymentMethods: paymentMethods?.length ? { hasSome: paymentMethods } : undefined,
     vendor: {
       isBlocked: false,
-      isVerified: onlyVerified === "true" ? true : undefined,
+      status: "ACTIVE",
+      verificationStatus: onlyVerified === "true" ? "VERIFIED" : undefined,
       locations: provinceId
         ? { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } }
         : undefined,
@@ -132,7 +158,7 @@ export async function structuredSearch(req, res) {
       select: {
         companyName: true,
         slug: true,
-        isVerified: true,
+        verificationStatus: true,
         isBlocked: true,
         color: true,
         whatsapp: true,
@@ -142,6 +168,7 @@ export async function structuredSearch(req, res) {
     // Bloque 49: ProductCard.jsx muestra el rubro como chip — antes no
     // viajaba en esta consulta (solo el vendedor).
     category: { select: { name: true } },
+    ...productPriceTiersInclude,
   };
 
   async function fetchByIds(ids) {
@@ -192,7 +219,7 @@ export async function structuredSearch(req, res) {
   }
   // Relevancia (default): tiendas verificadas primero, luego lo ya ordenado arriba.
   if (!sort || sort === "relevance") {
-    products = [...products].sort((a, b) => (b.vendor.isVerified ? 1 : 0) - (a.vendor.isVerified ? 1 : 0));
+    products = [...products].sort((a, b) => (b.vendor.verificationStatus === "VERIFIED" ? 1 : 0) - (a.vendor.verificationStatus === "VERIFIED" ? 1 : 0));
   }
 
   // Si no hay resultados en la provincia elegida, sugerí provincias vecinas
@@ -207,7 +234,8 @@ export async function structuredSearch(req, res) {
     nearbyProvinces = adjacencies.map((a) => a.provinceB);
   }
 
-  res.json({ products, nearbyProvinces });
+  const withBestSeller = await attachBestSellerFlag(products);
+  res.json({ products: withBestSeller.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })), nearbyProvinces });
 }
 
 // --- Bloque 22: autocompletado en vivo -------------------------------------
@@ -248,8 +276,16 @@ export async function autocompleteSearch(req, res) {
   if (q.length < AUTOCOMPLETE_MIN_CHARS) return res.json({ products: [], vendors: [], hasMore: false });
   const lowerQ = q.toLowerCase();
 
-  const vendorSelect = { companyName: true, slug: true, isVerified: true };
-  const vendorWhere = { isBlocked: false, ...(onlyVerified ? { isVerified: true } : {}) };
+  const vendorSelect = { companyName: true, slug: true, verificationStatus: true };
+  // Bloque 64: products:{some} es la regla de visibilidad (independiente de
+  // verificationStatus) — sin productos publicados, ni la tienda ni sus
+  // productos aparecen acá.
+  const vendorWhere = {
+    isBlocked: false,
+    status: "ACTIVE",
+    products: { some: { isActive: true } },
+    ...(onlyVerified ? { verificationStatus: "VERIFIED" } : {}),
+  };
 
   // Bloque 52: unaccent() de los dos lados (antes Prisma "contains" +
   // mode:"insensitive", que ignora mayúsculas pero nunca tildes — mismo bug
@@ -292,7 +328,7 @@ export async function autocompleteSearch(req, res) {
   const ranked = fuzzy
     ? candidates
     : candidates
-        .map((p) => ({ p, tier: matchTier(p, lowerQ), featured: p.isFeatured || p.vendor.isVerified }))
+        .map((p) => ({ p, tier: matchTier(p, lowerQ), featured: p.isFeatured || p.vendor.verificationStatus === "VERIFIED" }))
         .sort((a, b) => a.tier - b.tier || Number(b.featured) - Number(a.featured))
         .map((x) => x.p);
 
@@ -307,7 +343,7 @@ export async function autocompleteSearch(req, res) {
 
   const vendorIds = await findVendorIdsByCompanyName(q, 20);
   let vendorMatches = vendorIds.length
-    ? await prisma.vendor.findMany({ where: { ...vendorWhere, id: { in: vendorIds } }, select: { id: true, companyName: true, slug: true, isVerified: true, color: true }, take: 20 })
+    ? await prisma.vendor.findMany({ where: { ...vendorWhere, id: { in: vendorIds } }, select: { id: true, companyName: true, slug: true, verificationStatus: true, color: true }, take: 20 })
     : [];
   let vendors;
   if (vendorMatches.length > 0) {
@@ -315,10 +351,10 @@ export async function autocompleteSearch(req, res) {
   } else {
     const fuzzyVendorIds = await findVendorIdsByTrigram(q, 20);
     const fuzzyVendors = fuzzyVendorIds.length
-      ? await prisma.vendor.findMany({ where: { ...vendorWhere, id: { in: fuzzyVendorIds } }, select: { id: true, companyName: true, slug: true, isVerified: true, color: true } })
+      ? await prisma.vendor.findMany({ where: { ...vendorWhere, id: { in: fuzzyVendorIds } }, select: { id: true, companyName: true, slug: true, verificationStatus: true, color: true } })
       : [];
     vendors = reorderByIds(fuzzyVendors, fuzzyVendorIds).slice(0, AUTOCOMPLETE_VENDOR_LIMIT);
   }
 
-  res.json({ products, vendors, hasMore: ranked.length > AUTOCOMPLETE_LIMIT });
+  res.json({ products, vendors: withComputedVendorFieldsList(vendors), hasMore: ranked.length > AUTOCOMPLETE_LIMIT });
 }

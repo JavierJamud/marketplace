@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet } from "lucide-react";
+import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet, Share2, Plus, Tag } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -22,6 +22,10 @@ export default function AdminBranding() {
   const [name, setName] = useState("");
   const [linkInput, setLinkInput] = useState("");
   const [filePreview, setFilePreview] = useState(null);
+  // Bloque 61: usadas por la fila de íconos del footer de los correos — ver
+  // emailShell() en backend/src/templates/_shared.js. "Sitio web" no
+  // necesita un campo acá, siempre es la URL del propio sitio.
+  const [social, setSocial] = useState({ whatsappUrl: "", instagramUrl: "", facebookUrl: "" });
 
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -32,6 +36,16 @@ export default function AdminBranding() {
     if (settings) setName(settings.siteName ?? "");
   }, [settings]);
 
+  useEffect(() => {
+    if (settings) {
+      setSocial({
+        whatsappUrl: settings.whatsappUrl ?? "",
+        instagramUrl: settings.instagramUrl ?? "",
+        facebookUrl: settings.facebookUrl ?? "",
+      });
+    }
+  }, [settings]);
+
   const saveName = useMutation({
     mutationFn: async () => (await api.patch("/admin/settings/branding", { siteName: name.trim() })).data,
     onSuccess: () => {
@@ -39,6 +53,22 @@ export default function AdminBranding() {
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el nombre."),
+  });
+
+  const saveSocial = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch("/admin/settings/branding", {
+          whatsappUrl: social.whatsappUrl.trim(),
+          instagramUrl: social.instagramUrl.trim(),
+          facebookUrl: social.facebookUrl.trim(),
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success("Redes sociales actualizadas.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar las redes."),
   });
 
   const uploadLogoFile = useMutation({
@@ -106,6 +136,65 @@ export default function AdminBranding() {
     const current = settings?.productPaymentMethods ?? ["cod", "prepaid"];
     const next = current.includes(id) ? current.filter((m) => m !== id) : [...current, id];
     toggleProductPaymentMethods.mutate(next);
+  }
+
+  // Bloque 65 (pedido explícito): de qué conjunto fijo puede elegir una
+  // tienda su moneda operativa única, en el registro o al cambiarla después
+  // (VendorOnboarding.jsx/VendorSettings.jsx) — mismo patrón que los
+  // métodos de pago de arriba, nunca puede quedar vacío.
+  const ALL_CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
+  const toggleAvailableCurrencies = useMutation({
+    mutationFn: async (next) => (await api.patch("/admin/settings/available-currencies", { availableCurrencies: next })).data,
+    onSuccess: () => {
+      toast.success("Monedas disponibles actualizadas.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+  function toggleCurrency(id) {
+    const current = settings?.availableCurrencies ?? ALL_CURRENCIES;
+    if (current.length === 1 && current.includes(id)) {
+      toast.error("Tiene que quedar al menos una moneda disponible.");
+      return;
+    }
+    const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
+    toggleAvailableCurrencies.mutate(next);
+  }
+
+  // Bloque 66 (pedido explícito): catálogo de etiquetas de producto — "Nuevo"
+  // es fijo del sistema (no vive acá, ver assertBadgeAllowed en
+  // products.controller.js). Estado local + useEffect de sincronización,
+  // mismo patrón que FeatureChipList/PlanFeaturesCard en AdminSubscriptions.jsx.
+  const [productBadges, setProductBadges] = useState([]);
+  const [badgeDraft, setBadgeDraft] = useState("");
+  const [newBadgeDurationDays, setNewBadgeDurationDays] = useState(14);
+
+  useEffect(() => {
+    if (!settings) return;
+    setProductBadges(settings.availableProductBadges ?? []);
+    setNewBadgeDurationDays(settings.newBadgeDurationDays ?? 14);
+  }, [settings]);
+
+  const saveProductBadges = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch("/admin/settings/product-badges", {
+          availableProductBadges: productBadges,
+          newBadgeDurationDays: Number(newBadgeDurationDays),
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success("Etiquetas de producto actualizadas.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  function addProductBadge() {
+    const value = badgeDraft.trim();
+    if (!value || value === "Nuevo" || productBadges.includes(value)) return;
+    setProductBadges([...productBadges, value]);
+    setBadgeDraft("");
   }
 
   const currentLogoUrl = filePreview ?? resolveLogoUrl(settings?.logoUrl);
@@ -199,6 +288,42 @@ export default function AdminBranding() {
         </div>
       </div>
 
+      {/* Bloque 61: usadas por la fila de íconos del footer de los correos
+          (emailShell) — "Sitio web" no necesita campo, siempre es el sitio
+          propio. Vacío = ese ícono no se muestra, nunca un link inventado. */}
+      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+          <Share2 className="h-4 w-4 text-tertiary-accent" /> Redes sociales
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Se muestran como íconos en el pie de los correos que manda la plataforma. Deja vacío el que no uses — no se
+          muestra su ícono.
+        </p>
+        <div className="flex flex-col gap-3">
+          <Input
+            label="WhatsApp"
+            placeholder="https://wa.me/53..."
+            value={social.whatsappUrl}
+            onChange={(e) => setSocial((s) => ({ ...s, whatsappUrl: e.target.value }))}
+          />
+          <Input
+            label="Instagram"
+            placeholder="https://instagram.com/..."
+            value={social.instagramUrl}
+            onChange={(e) => setSocial((s) => ({ ...s, instagramUrl: e.target.value }))}
+          />
+          <Input
+            label="Facebook"
+            placeholder="https://facebook.com/..."
+            value={social.facebookUrl}
+            onChange={(e) => setSocial((s) => ({ ...s, facebookUrl: e.target.value }))}
+          />
+        </div>
+        <Button className="mt-4 rounded-xl px-5" disabled={saveSocial.isPending} onClick={() => saveSocial.mutate()}>
+          {saveSocial.isPending ? "Guardando..." : "Guardar redes sociales"}
+        </Button>
+      </div>
+
       <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
           <MessageCircle className="h-4 w-4 text-tertiary-accent" /> Chatbot del Home
@@ -240,6 +365,89 @@ export default function AdminBranding() {
             </label>
           ))}
         </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+          <Wallet className="h-4 w-4 text-tertiary-accent" /> Monedas disponibles para productos
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Qué monedas pueden elegir los vendedores al publicar cada producto. Por defecto siempre USD.
+          Tiene que quedar al menos una activa.
+        </p>
+        <div className="flex flex-col gap-2">
+          {ALL_CURRENCIES.map((c) => (
+            <label key={c} className="flex items-center gap-2.5 text-body-md text-on-surface">
+              <input
+                type="checkbox"
+                checked={(settings?.availableCurrencies ?? ALL_CURRENCIES).includes(c)}
+                disabled={toggleAvailableCurrencies.isPending}
+                onChange={() => toggleCurrency(c)}
+              />
+              {c}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+          <Tag className="h-4 w-4 text-tertiary-accent" /> Etiquetas de producto
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Cuáles puede elegir un vendedor para un producto (además de "Nuevo", que es automático — todo producto sale con
+          ella y se le quita sola pasados los días que pongas abajo).
+        </p>
+
+        <div className="mb-3 flex flex-wrap gap-2">
+          <span className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-surface-container px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant">
+            Nuevo <span className="text-[10.5px] font-normal text-outline">(automática, fija)</span>
+          </span>
+          {productBadges.map((b) => (
+            <span
+              key={b}
+              className="flex items-center gap-1.5 rounded-full border border-tertiary-accent bg-tertiary-accent/10 px-3.5 py-2 text-[12.5px] font-semibold text-tertiary-accent"
+            >
+              {b}
+              <button type="button" onClick={() => setProductBadges(productBadges.filter((x) => x !== b))}>
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="mb-4 flex gap-2">
+          <input
+            value={badgeDraft}
+            onChange={(e) => setBadgeDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addProductBadge();
+              }
+            }}
+            placeholder="Ej.: Popular, Solicitado..."
+            className="h-10 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+          />
+          <Button variant="outline" className="rounded-lg" size="sm" disabled={!badgeDraft.trim()} onClick={addProductBadge}>
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+        <label className="mb-4 block">
+          <span className="mb-1 block text-label-md text-on-surface-variant">Días que dura "Nuevo" antes de quitarse sola</span>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={newBadgeDurationDays}
+            onChange={(e) => setNewBadgeDurationDays(e.target.value)}
+            className="h-10 w-28 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+          />
+        </label>
+
+        <Button className="rounded-xl font-bold" disabled={saveProductBadges.isPending} onClick={() => saveProductBadges.mutate()}>
+          {saveProductBadges.isPending ? "Guardando..." : "Guardar etiquetas"}
+        </Button>
       </div>
     </div>
   );

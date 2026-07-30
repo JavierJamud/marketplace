@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { sendTableOrderStatusEmail } from "../lib/email.js";
+import { logActivity } from "../lib/activityLog.js";
 
 // Estado de cocina: solo se puede avanzar un paso a la vez, nunca saltar
 // (ej. de "received" directo a "ready") ni retroceder.
@@ -39,6 +40,14 @@ export async function createTable(req, res) {
 
   // qrToken se autogenera (cuid único) — nunca un valor adivinable del cliente.
   const table = await prisma.table.create({ data: { vendorId: vendor.id, tableNumber } });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "VENDOR",
+    vendorId: vendor.id,
+    action: "table_created",
+    description: `Agregó la mesa #${tableNumber}`,
+    meta: { tableId: table.id },
+  });
   res.status(201).json({ table });
 }
 
@@ -63,8 +72,12 @@ export async function updateKitchenStatus(req, res) {
   // productId real que guardó createTableOrder.
   const updated = await prisma.$transaction(async (tx) => {
     if (tableOrder.kitchenStatus === "RECEIVED" && status === "PREPARING") {
+      const tableProductIds = [...new Set(tableOrder.items.map((i) => i.productId).filter(Boolean))];
+      const tableProducts = await tx.product.findMany({ where: { id: { in: tableProductIds } }, select: { id: true, unlimitedStock: true } });
+      const isUnlimited = new Map(tableProducts.map((p) => [p.id, p.unlimitedStock]));
+
       for (const item of tableOrder.items) {
-        if (!item.productId) continue;
+        if (!item.productId || isUnlimited.get(item.productId)) continue; // Bloque 56: "disponible siempre" — sin seguimiento de stock.
         const result = await tx.product.updateMany({
           where: { id: item.productId, stock: { gte: item.quantity } },
           data: { stock: { decrement: item.quantity } },
@@ -129,6 +142,8 @@ export async function getTableByToken(req, res) {
           slug: true,
           whatsapp: true,
           color: true,
+          isBlocked: true,
+          status: true,
           // Bloque 16: solo los productos que el vendedor marcó para el menú
           // QR (VendorProducts.jsx) — antes se mostraban TODOS los activos,
           // sin distinguir de la tienda normal.
@@ -137,7 +152,11 @@ export async function getTableByToken(req, res) {
       },
     },
   });
-  if (!table) throw new AppError("Mesa no encontrada.", 404);
+  // Bloque 62: hueco real que había acá — este endpoint (QR de mesa) nunca
+  // chequeó isBlocked/status del vendedor, a diferencia de cualquier otro
+  // punto público (Store.jsx, Product.jsx, etc). Una tienda bloqueada o
+  // suspendida seguía siendo 100% accesible vía su QR.
+  if (!table || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
   res.json({ table });
 }
 
@@ -150,8 +169,13 @@ const createTableOrderSchema = z.object({
 
 export async function createTableOrder(req, res) {
   const { qrToken } = req.params;
-  const table = await prisma.table.findUnique({ where: { qrToken }, include: { vendor: { select: { id: true, companyName: true } } } });
-  if (!table) throw new AppError("Mesa no encontrada.", 404);
+  const table = await prisma.table.findUnique({
+    where: { qrToken },
+    include: { vendor: { select: { id: true, companyName: true, isBlocked: true, status: true } } },
+  });
+  // Bloque 62: mismo hueco que getTableByToken — sin esto, se podía seguir
+  // haciendo pedidos reales a una tienda bloqueada o suspendida vía el QR.
+  if (!table || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
 
   const { items, customerEmail } = createTableOrderSchema.parse(req.body);
 
@@ -166,8 +190,11 @@ export async function createTableOrder(req, res) {
   // updateKitchenStatus). Solo evita registrar un pedido de mesa obviamente
   // imposible con el stock de este instante.
   const insufficientStock = items
-    .map((i) => ({ productId: i.productId, requested: i.quantity, available: productById[i.productId].stock, name: productById[i.productId].name }))
-    .filter((i) => i.requested > i.available);
+    .map((i) => {
+      if (productById[i.productId].unlimitedStock) return null; // Bloque 56: "disponible siempre" — nunca entra a este chequeo.
+      return { productId: i.productId, requested: i.quantity, available: productById[i.productId].stock, name: productById[i.productId].name };
+    })
+    .filter((i) => i && i.requested > i.available);
   if (insufficientStock.length > 0) {
     throw new AppError("Algunos productos ya no tienen suficiente stock.", 409, { insufficientStock });
   }

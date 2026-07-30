@@ -137,6 +137,13 @@ function MarketplaceProductCard({ product }) {
   const discount = product.oldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : null;
   return (
     <Link to={href} className="flex items-center gap-2.5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-2.5 shadow-sm">
+      <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md bg-surface-container">
+        {product.images?.[0] ? (
+          <img src={imgUrl(product.images[0])} alt={product.name} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-[8px] text-outline">Sin foto</div>
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[12.5px] font-semibold text-on-surface">{product.name}</p>
         {product.description && <p className="truncate text-[11px] text-outline">{product.description}</p>}
@@ -153,13 +160,6 @@ function MarketplaceProductCard({ product }) {
           <StoreIcon className="h-2.5 w-2.5 flex-shrink-0" />
           <span className="truncate">{product.vendor.companyName}</span>
         </div>
-      </div>
-      <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md bg-surface-container">
-        {product.images?.[0] ? (
-          <img src={imgUrl(product.images[0])} alt={product.name} className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-[8px] text-outline">Sin foto</div>
-        )}
       </div>
     </Link>
   );
@@ -698,10 +698,7 @@ export function MarketplaceChatWidget() {
             {recording ? (
               <div className="flex h-10 flex-1 items-center gap-2 rounded-full border border-error/40 bg-error/5 px-4">
                 <span className="h-2 w-2 flex-shrink-0 animate-pulse rounded-full bg-error" />
-                {/* Bloque 39 (pedido explícito): ondas reales del micrófono
-                    en vez de un texto fijo — le da al cliente una noción
-                    real de que se está grabando su voz. */}
-                <VoiceWaveform stream={streamRef.current} />
+                <span className="flex-1 text-[12.5px] text-error">Grabando...</span>
                 <button onClick={cancelRecording} aria-label="Cancelar grabación" className="flex-shrink-0 text-outline hover:text-error">
                   <X className="h-4 w-4" />
                 </button>

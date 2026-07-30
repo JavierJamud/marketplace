@@ -79,6 +79,7 @@ const PRODUCT_SELECT_FIELDS = {
   price: true,
   oldPrice: true,
   stock: true,
+  unlimitedStock: true,
   images: true,
   tags: true,
   options: { select: { name: true, values: true } },
@@ -177,11 +178,11 @@ async function loadVendorForChat(vendorId, message, history) {
       _count: { select: { products: { where: { isActive: true } } } },
     },
   });
-  if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
   // Mismo gate que el widget del frontend (no lo muestra si no está
   // verificada) — pero acá es lo que de verdad importa: sin esto, cualquiera
   // podría pegarle al endpoint directo sin pasar por la UI.
-  if (!vendor.isVerified) throw new AppError("El chat con IA solo está disponible para tiendas verificadas.", 403);
+  if (vendor.verificationStatus !== "VERIFIED") throw new AppError("El chat con IA solo está disponible para tiendas verificadas.", 403);
 
   const totalActive = vendor._count.products;
   let products;
@@ -374,7 +375,10 @@ function catalogText(products, cartQuantities) {
       const inCart = cartQuantities[p.id] ?? 0;
       const available = Math.max(0, p.stock - inCart);
       let stock;
-      if (p.stock <= 0) stock = "AGOTADO";
+      // Bloque 56: "disponible siempre" — el modelo nunca ve un número de
+      // stock para este producto, nunca lo puede dar por agotado.
+      if (p.unlimitedStock) stock = "disponible siempre (sin límite de stock)";
+      else if (p.stock <= 0) stock = "AGOTADO";
       else if (inCart > 0 && available > 0) stock = `disponible para agregar: ${available} más (ya tiene ${inCart} en el carrito, stock total ${p.stock})`;
       else if (inCart > 0) stock = `disponible para agregar: 0 (ya tiene TODO el stock en el carrito: ${inCart} de ${p.stock})`;
       else stock = `stock ${p.stock}`;
@@ -500,7 +504,17 @@ SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [{"productId": 
 // select de loadVendorForChat) pero no se le pasaban a la tarjeta; hacen
 // falta para la descripción corta y el badge de descuento del nuevo diseño.
 function toCardProduct(p) {
-  return { id: p.id, name: p.name, slug: p.slug, price: p.price, oldPrice: p.oldPrice, description: p.description, images: p.images, stock: p.stock };
+  return {
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    price: p.price,
+    oldPrice: p.oldPrice,
+    description: p.description,
+    images: p.images,
+    stock: p.stock,
+    unlimitedStock: p.unlimitedStock ?? false,
+  };
 }
 
 const chatMessageSchema = z.object({
@@ -634,6 +648,7 @@ export async function postChatMessage(req, res) {
     .map((a) => ({ product: a && resolveCatalogIndex(a.productId), quantity: Math.max(1, Number(a?.quantity) || 1) }))
     .filter((a) => {
       if (!a.product) return false;
+      if (a.product.unlimitedStock) return true; // Bloque 56: "disponible siempre" — nunca lo bloquea el stock.
       const available = a.product.stock - (cartQuantities[a.product.id] ?? 0);
       return available > 0 && a.quantity <= available;
     })
@@ -685,8 +700,8 @@ export async function getChatHistory(req, res) {
   // A diferencia de postChatMessage, acá no tiene sentido tirar un error si
   // la tienda dejó de estar verificada entre que se abrió la página y se
   // pidió el historial — simplemente no hay nada que mostrar.
-  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { isVerified: true, isBlocked: true } });
-  if (!vendor || vendor.isBlocked || !vendor.isVerified) return res.json({ messages: [] });
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { verificationStatus: true, isBlocked: true, status: true } });
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || vendor.verificationStatus !== "VERIFIED") return res.json({ messages: [] });
 
   const messages = await prisma.chatMessage.findMany({ where: { vendorId, sessionId }, orderBy: { createdAt: "asc" } });
 
@@ -708,7 +723,7 @@ export async function getChatHistory(req, res) {
   const products = allProductIds.length
     ? await prisma.product.findMany({
         where: { id: { in: allProductIds } },
-        select: { id: true, name: true, slug: true, price: true, images: true, stock: true },
+        select: { id: true, name: true, slug: true, price: true, images: true, stock: true, unlimitedStock: true },
       })
     : [];
   const productById = new Map(products.map((p) => [p.id, p]));

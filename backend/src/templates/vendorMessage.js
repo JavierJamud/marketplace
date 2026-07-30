@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, paragraph } from "./_shared.js";
+import { emailShell, ctaButton, paragraph, resolveAssetUrl } from "./_shared.js";
 
 // order: { code, vendor: {companyName, color} }, subject/message: texto que escribió el vendedor
 export async function vendorMessageEmail({ order, subject, message }) {
@@ -12,6 +12,7 @@ export async function vendorMessageEmail({ order, subject, message }) {
     preview: message.slice(0, 120),
     title: subject,
     storeName: order.vendor.companyName,
+    storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     // Si la tienda tiene su propio color de marca, el header lo usa — si no,
     // cae al navy genérico de la plataforma (mismo comportamiento que el
     // avatar de la tienda en VendorLayout/Store.jsx).

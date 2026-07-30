@@ -250,7 +250,7 @@ export default function Home() {
           </div>
           <div className="flex flex-wrap gap-3">
             <Link
-              to="/cuenta?tab=vendedor"
+              to="/vendedor/ingresar?tab=registro"
               className="whitespace-nowrap rounded bg-secondary-container px-5 py-3.5 text-label-md text-on-secondary-container hover:brightness-95"
             >
               Crear mi tienda gratis

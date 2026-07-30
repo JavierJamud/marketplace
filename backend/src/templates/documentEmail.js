@@ -1,4 +1,4 @@
-import { emailShell, paragraph, smallNote } from "./_shared.js";
+import { emailShell, paragraph, smallNote, resolveAssetUrl } from "./_shared.js";
 
 // Bloque 49: antes invoices.controller.js armaba HTML crudo (<p> sin
 // ningún estilo) a mano en vez de pasar por un template — con el resto del
@@ -12,6 +12,7 @@ export async function invoiceEmail({ vendor, order, customerName }) {
     preview: `Adjuntamos la factura de tu pedido ${order.code} en ${vendor.companyName}`,
     title: "Tu factura de compra",
     storeName: vendor.companyName,
+    storeLogoUrl: resolveAssetUrl(vendor.logoUrl),
     accentColor: vendor.color || undefined,
     bodyMjml: `
       ${paragraph(`Hola${customerName ? ` ${customerName}` : ""},`)}
@@ -28,6 +29,7 @@ export async function warrantyEmail({ vendor, order, customerName, warrantyDays 
     preview: `Tu certificado de garantía de ${vendor.companyName}, válido por ${warrantyDays} día(s)`,
     title: "Tu certificado de garantía",
     storeName: vendor.companyName,
+    storeLogoUrl: resolveAssetUrl(vendor.logoUrl),
     accentColor: vendor.color || undefined,
     bodyMjml: `
       ${paragraph(`Hola${customerName ? ` ${customerName}` : ""},`)}

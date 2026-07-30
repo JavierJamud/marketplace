@@ -21,11 +21,11 @@ export const PROMPTS = {
 La tienda "${vendorName}"${productName ? ` está publicando el producto "${productName}"` : " está publicando un producto"} y escribió este borrador de descripción:
 "${currentText}"
 
-Tu tarea: reescribe y mejora ese borrador para convertirlo en la descripción final de la ficha de producto — resumida, profesional y persuasiva, pensada para captar la atención del cliente.
+Tu tarea: reescribe y mejora ese borrador para convertirlo en la descripción final de la ficha de producto — persuasiva, con un estilo moderno y descriptivo que ayude al cliente a imaginarse usando el producto, no un resumen telegráfico.
 
 Reglas de contenido:
-- Español neutro/cubano, tono profesional pero cercano.
-- 2 a 4 oraciones.
+- Español neutro/cubano, tono profesional, cercano y moderno.
+- 3 a 5 oraciones — desarrolla al menos 2 beneficios o detalles concretos ya sugeridos en el borrador, no te quedes en una sola frase genérica.
 - Nunca inventes características, materiales, tallas o precios que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
@@ -33,27 +33,45 @@ ${OUTPUT_RULES}`,
 La tienda "${vendorName}" escribió este borrador de descripción para su perfil público:
 "${currentText}"
 
-Tu tarea: reescribe y mejora ese borrador para convertirlo en la descripción final del perfil de la tienda — resumida, profesional y persuasiva, pensada para generar confianza y captar clientes.
+Tu tarea: reescribe y mejora ese borrador para convertirlo en la descripción final del perfil de la tienda — persuasiva, con un estilo moderno y descriptivo, pensada para generar confianza y captar clientes contando qué la hace distinta.
 
 Reglas de contenido:
-- Español neutro/cubano, tono profesional pero cercano y confiable.
-- 2 a 4 oraciones.
+- Español neutro/cubano, tono profesional, cercano, confiable y moderno.
+- 3 a 5 oraciones — desarrolla la propuesta de valor de la tienda, no te quedes en una sola frase genérica.
 - Nunca inventes datos (rubro, ubicación, años de experiencia) que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
-  // Bloque 51: descripción corta de una tarjeta de OFERTA (Home) — a
-  // diferencia de product/store (ficha completa), acá el texto es de 1-2
-  // oraciones nada más, pensado para leerse en 2 segundos sobre una imagen.
+  // Bloque 51: descripción de una tarjeta de OFERTA (Home) — a diferencia de
+  // product/store (ficha completa), acá el texto tiene que seguir leyéndose
+  // rápido sobre una imagen, así que es más corto pero sin caer en 1 sola
+  // frase telegráfica (pedido explícito post-entrega: "que no sea tan corto").
   offer: ({ currentText, vendorName, productName, siteName }) => `Eres un copywriter experto en marketing de ofertas para ${siteName}, un marketplace multivendedor de Cuba.
 La tienda "${vendorName}"${productName ? ` está promocionando una oferta sobre el producto "${productName}"` : " está armando una oferta destacada"} y escribió este borrador:
 "${currentText}"
 
-Tu tarea: reescribe y mejora ese borrador para convertirlo en el texto final de una tarjeta de oferta — corto, directo y persuasivo, pensado para leerse de un vistazo sobre una imagen.
+Tu tarea: reescribe y mejora ese borrador para convertirlo en el texto final de una tarjeta de oferta — directo, persuasivo y con un estilo moderno, pensado para leerse rápido sobre una imagen pero sin sonar telegráfico.
 
 Reglas de contenido:
-- Español neutro/cubano, tono entusiasta pero creíble (nunca exagerado o falso).
-- 1 a 2 oraciones cortas, nunca más.
+- Español neutro/cubano, tono entusiasta, moderno y creíble (nunca exagerado o falso).
+- 2 a 3 oraciones cortas.
 - Nunca inventes porcentajes de descuento, plazos ni condiciones que no estén ya sugeridos en el borrador del vendedor.
+
+${OUTPUT_RULES}`,
+  // Bloque 66 (pedido explícito): "Mejorar con IA" para el cuerpo de una
+  // campaña de correo masivo (AdminCampaigns.jsx) — a diferencia de
+  // product/store/offer, no hay una tienda/producto puntual detrás (lo manda
+  // el equipo de la plataforma a clientes o vendedores en general), así que
+  // el prompt no depende de vendorName/productName.
+  campaign: ({ currentText, siteName }) => `Eres un copywriter experto en email marketing para ${siteName}, un marketplace multivendedor de Cuba.
+El equipo de administración de la plataforma está redactando el cuerpo de un correo masivo (campaña) para sus clientes o vendedores, y escribió este borrador:
+"${currentText}"
+
+Tu tarea: reescribe y mejora ese borrador para convertirlo en el cuerpo final del correo — claro, persuasivo, con un estilo moderno y descriptivo (no un resumen telegráfico), manteniendo la intención y el tema original del borrador.
+
+Reglas de contenido:
+- Español neutro/cubano, tono profesional, cercano y moderno.
+- 3 a 6 oraciones, idealmente cerrando con una invitación clara a la acción si el borrador ya sugiere una.
+- Nunca inventes fechas, descuentos, promociones ni datos concretos que no estén ya sugeridos en el borrador.
 
 ${OUTPUT_RULES}`,
   // Sección "Garantías" de VendorSettings.jsx — a diferencia de product/store,

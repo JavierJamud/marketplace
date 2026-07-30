@@ -5,6 +5,7 @@ import { unlink } from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { logActivity } from "../lib/activityLog.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Bloque 52: ofertas DENTRO de cada tienda (distintas de Offer, la sección
@@ -86,6 +87,11 @@ const createStoreOfferSchema = z.object({
 export async function createStoreOffer(req, res) {
   try {
     const vendor = await resolveMyVendor(req.user.id);
+    // Bloque 66 (pedido explícito): ofertas de tienda solo para tiendas
+    // verificadas — mismo gate que ya usa createOffer (offers.controller.js).
+    if (vendor.verificationStatus !== "VERIFIED") {
+      throw new AppError("Disponible solo para tiendas verificadas.", 403);
+    }
     const data = createStoreOfferSchema.parse(req.body);
 
     if (data.isLimitedTime && !data.expiresAt) {
@@ -117,6 +123,14 @@ export async function createStoreOffer(req, res) {
         discountCodeExclusive: data.isLimitedTime ? data.discountCodeExclusive : false,
       },
       select: storeOfferSummarySelect,
+    });
+    logActivity({
+      actorId: req.user.id,
+      actorRole: "VENDOR",
+      vendorId: vendor.id,
+      action: "store_offer_created",
+      description: `Creó la oferta de tienda "${storeOffer.title}"`,
+      meta: { storeOfferId: storeOffer.id },
     });
     res.status(201).json({ storeOffer });
   } catch (err) {
@@ -185,4 +199,34 @@ export async function updateStoreOffer(req, res) {
     if (req.file) unlink(join(STORE_OFFER_UPLOAD_DIR, req.file.filename)).catch(() => {});
     throw err;
   }
+}
+
+// --- Admin (auditoría de seguridad) -----------------------------------------
+// Antes no existía ninguna supervisión de admin sobre las ofertas de tienda
+// (distinto de Offer/Home, que sí tiene adminOffers.controller.js) — un
+// admin no tenía forma de suspender una oferta abusiva de un vendedor sin
+// entrar a Prisma Studio. Reusa el mismo campo `active` que ya usa el propio
+// vendedor para retirar/reactivar — no hace falta un estado SUSPENDED
+// aparte para esto.
+
+export async function listAllStoreOffersAdmin(_req, res) {
+  await expireStaleStoreOffers();
+  const storeOffers = await prisma.storeOffer.findMany({
+    orderBy: { createdAt: "desc" },
+    select: { ...storeOfferSummarySelect, vendor: { select: { id: true, companyName: true, slug: true } } },
+  });
+  res.json({ storeOffers });
+}
+
+const adminSetActiveSchema = z.object({ active: z.boolean() });
+
+export async function setStoreOfferActiveAdmin(req, res) {
+  const { id } = req.params;
+  const { active } = adminSetActiveSchema.parse(req.body);
+
+  const existing = await prisma.storeOffer.findUnique({ where: { id } });
+  if (!existing) throw new AppError("Oferta no encontrada.", 404);
+
+  const storeOffer = await prisma.storeOffer.update({ where: { id }, data: { active }, select: storeOfferSummarySelect });
+  res.json({ storeOffer });
 }

@@ -9,6 +9,10 @@ import { isVendorOpenNow } from "../services/schedule.service.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { expireStaleStoreOffers, storeOfferSummarySelect } from "./storeOffers.controller.js";
+import { productPriceTiersInclude, expireNewBadges } from "./products.controller.js";
+import { withComputedVendorFields, withComputedVendorFieldsList, transitionVendorVerification } from "../services/vendorVerification.service.js";
+import { cancelStripeSubscription, scheduleStripeSubscriptionCancellation } from "../lib/stripe.js";
+import { logActivity } from "../lib/activityLog.js";
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
@@ -16,6 +20,18 @@ const E164_REGEX = /^\+\d{7,15}$/;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const VENDOR_AI_DOC_DIR = join(__dirname, "..", "..", "uploads", "vendor-ai-docs");
+
+// Bloque 65: mismo criterio que assertPaymentMethodsAllowed (products.controller.js)
+// — sin esto, una tienda podría quedar (o cambiarse) a una moneda que el
+// admin ya desactivó desde "Marca de la plataforma".
+async function assertCurrencyAllowed(currency) {
+  if (!currency) return;
+  const settings = await prisma.siteSettings.findFirst();
+  const allowed = settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"];
+  if (!allowed.includes(currency)) {
+    throw new AppError(`La moneda "${currency}" ya no está disponible en la plataforma.`, 400);
+  }
+}
 
 const createVendorSchema = z.object({
   companyName: z.string().min(2),
@@ -39,6 +55,10 @@ const createVendorSchema = z.object({
   // Bloque 18: obligatorio — el rubro/tipo de negocio se elige una sola vez
   // al registrar la tienda (se puede cambiar después desde VendorSettings.jsx).
   businessCategoryId: z.string().min(1, "Elige el tipo de negocio de tu tienda."),
+  // La moneda de la tienda ahora es opcional en el registro — cada producto
+  // tiene su propia moneda. Se mantiene en el modelo para referencia y
+  // reportes, pero ya no controla los precios. Por defecto USD.
+  currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
   locations: z
     .array(z.object({ provinceId: z.string(), municipalityId: z.string().optional() }))
     .min(1, "Selecciona al menos una provincia donde prestas servicio"),
@@ -54,6 +74,9 @@ export async function createVendor(req, res) {
 
   const businessCategory = await prisma.businessCategory.findUnique({ where: { id: data.businessCategoryId } });
   if (!businessCategory) throw new AppError("Ese tipo de negocio no existe.", 400);
+
+  if (data.currency) await assertCurrencyAllowed(data.currency);
+  data.currency = data.currency ?? "USD";
 
   let slug = slugify(data.companyName);
   const slugTaken = await prisma.vendor.findUnique({ where: { slug } });
@@ -77,6 +100,7 @@ export async function createVendor(req, res) {
       isRestaurant: data.isRestaurant,
       tableCount: data.tableCount,
       businessCategoryId: data.businessCategoryId,
+      currency: data.currency,
       planType: "REGULAR",
       orderDestination,
       locations: { create: data.locations.map((l) => ({ provinceId: l.provinceId, municipalityId: l.municipalityId })) },
@@ -103,6 +127,12 @@ export async function getVendorBySlug(req, res) {
   // expireStaleOffers en offers.controller.js, así la sección "Ofertas" de
   // Store.jsx nunca muestra una vencida que todavía no pasó por este check.
   await expireStaleStoreOffers();
+  // Bloque 66: hay que vencer "Nuevo" ANTES de traer los productos de abajo
+  // (a diferencia de expireStaleStoreOffers, que vence un modelo aparte) —
+  // por eso esta consulta liviana primero, para no devolver un badge recién
+  // vencido como si siguiera vigente en esta misma respuesta.
+  const vendorIdLookup = await prisma.vendor.findUnique({ where: { slug }, select: { id: true } });
+  if (vendorIdLookup) await expireNewBadges(vendorIdLookup.id);
   const vendor = await prisma.vendor.findUnique({
     where: { slug },
     include: {
@@ -116,17 +146,36 @@ export async function getVendorBySlug(req, res) {
       // para que una tienda con varios productos agotados viejos no le tape
       // el cupo a productos disponibles nuevos (o viceversa) antes de que el
       // split ocurra del lado del cliente.
-      products: { where: { isActive: true }, take: 48, orderBy: { createdAt: "desc" } },
+      products: { where: { isActive: true }, take: 48, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
       // Comentarios públicos de la tienda (sin producto asociado) — un
       // comentario oculto por el admin (isHidden) nunca llega acá.
       reviews: { where: { productId: null, isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
-      tables: { orderBy: { tableNumber: "asc" }, take: 1 },
+      // Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes se
+      // incluía `tables` (con su `qrToken` real) acá, y Store.jsx armaba un
+      // link directo a `/mesa/:qrToken` — cualquier visitante llegaba al
+      // pedido de mesa sin escanear ningún QR físico. El menú de mesa NUNCA
+      // debe ser alcanzable desde la tienda pública — solo escaneando el QR
+      // real (que apunta directo a esa URL) o desde el panel del vendedor
+      // (VendorTables.jsx, que sí lista sus propios QRs).
       // Bloque 52: ofertas de ESTA tienda (distintas de Offer/Home) — Store.jsx
       // solo renderiza la sección si esta lista no viene vacía.
       storeOffers: { where: { active: true }, orderBy: { createdAt: "desc" }, select: storeOfferSummarySelect },
     },
   });
-  if (!vendor || vendor.isBlocked) throw new AppError("Tienda no encontrada.", 404);
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+
+  // Bloque 64 (regla de visibilidad, independiente de verificationStatus):
+  // una tienda sin ningún producto publicado no muestra su perfil completo
+  // ni un catálogo vacío con apariencia normal — Store.jsx recibe esta forma
+  // reducida y renderiza el estado "Tienda aún no disponible" en su lugar.
+  if (vendor.products.length === 0) {
+    // hasPublishedProducts va DENTRO de vendor (no como hermano) para que
+    // Store.jsx pueda chequearlo sin cambiar la forma `data = res.vendor` que
+    // ya usa en el resto del archivo.
+    return res.json({
+      vendor: { companyName: vendor.companyName, slug: vendor.slug, color: vendor.color, logoUrl: vendor.logoUrl, hasPublishedProducts: false },
+    });
+  }
 
   const { isOpen } = isVendorOpenNow(vendor.schedules, vendor.timezone);
   // ownerName/ownerIdNumber/companyAddress son privados (KYC/contacto
@@ -158,9 +207,11 @@ export async function getVendorBySlug(req, res) {
   // error 503 apenas el cliente escribiera algo. Solo se chequea para
   // tiendas verificadas (el widget nunca se monta si no lo está de todas
   // formas, ver Store.jsx/Product.jsx).
-  const aiAvailable = vendor.isVerified ? await isAIAvailable() : false;
+  const aiAvailable = vendor.verificationStatus === "VERIFIED" ? await isAIAvailable() : false;
 
-  res.json({ vendor: { ...publicVendor, isOpenNow: isOpen, reviewStats: { total, breakdown }, aiAvailable } });
+  res.json({
+    vendor: withComputedVendorFields({ ...publicVendor, isOpenNow: isOpen, reviewStats: { total, breakdown }, aiAvailable }),
+  });
 }
 
 export async function listVendors(req, res) {
@@ -169,15 +220,20 @@ export async function listVendors(req, res) {
   const vendors = await prisma.vendor.findMany({
     where: {
       isBlocked: false,
+      status: "ACTIVE",
+      // Bloque 64 (regla de visibilidad, INDEPENDIENTE de verificationStatus
+      // de arriba): una tienda sin ningún producto publicado no aparece acá,
+      // verificada o no, Plan Business o Regular.
+      products: { some: { isActive: true } },
       isRestaurant: isRestaurant !== undefined ? isRestaurant === "true" : undefined,
-      isVerified: isVerified !== undefined ? isVerified === "true" : undefined,
+      verificationStatus: isVerified !== undefined ? (isVerified === "true" ? "VERIFIED" : { not: "VERIFIED" }) : undefined,
       companyName: q ? { contains: String(q), mode: "insensitive" } : undefined,
       businessCategoryId: businessCategoryId ? String(businessCategoryId) : undefined,
       locations: provinceId
         ? { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } }
         : undefined,
     },
-    orderBy: [{ isVerified: "desc" }, { createdAt: "desc" }],
+    orderBy: { createdAt: "desc" },
     include: {
       locations: { include: { province: true, municipality: true } },
       category: true,
@@ -190,8 +246,13 @@ export async function listVendors(req, res) {
     take: 50,
   });
 
+  // Bloque 64: verificadas primero — ya no se puede ordenar por isVerified
+  // en la propia query (es un enum de 8 valores, no un booleano), se
+  // reordena acá con el mismo criterio de siempre.
+  vendors.sort((a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0));
+
   // ownerName es privado — ver nota en getVendorBySlug.
-  res.json({ vendors: vendors.map(({ ownerName, ...v }) => v) });
+  res.json({ vendors: withComputedVendorFieldsList(vendors.map(({ ownerName, ...v }) => v)) });
 }
 
 export async function getMyVendor(req, res) {
@@ -207,7 +268,7 @@ export async function getMyVendor(req, res) {
     },
   });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
-  res.json({ vendor });
+  res.json({ vendor: withComputedVendorFields(vendor) });
 }
 
 // Bloque 17 (auditoría de seguridad): este endpoint era el único de todo el
@@ -231,11 +292,19 @@ const updateVendorSchema = z.object({
   logoUrl: z.string().optional().nullable(),
   coverUrl: z.string().optional().nullable(),
   planType: z.enum(["REGULAR", "BUSINESS"]).optional(),
-  orderDestination: z.enum(["WHATSAPP", "PANEL"]).optional(),
+  // Bloque 68: 3ra opción — BOTH (WhatsApp + panel). Ver el enum en
+  // schema.prisma para lo que decide cada valor ahora (ya no gatea si se
+  // crea el Order, eso siempre pasa; solo qué le ofrece la confirmación).
+  orderDestination: z.enum(["WHATSAPP", "PANEL", "BOTH"]).optional(),
   acceptedPaymentMethods: z.array(z.string().trim().min(1)).optional(),
   // Bloque 47: informativo, mismo criterio que acceptedPaymentMethods (ver
   // decisión B del bloque) — nunca valida ni convierte nada.
   acceptedCurrencies: z.array(z.string().trim().min(1)).optional(),
+  // Bloque 65: cambiar la moneda operativa de la tienda DESPUÉS del registro
+  // — a propósito nunca convierte los precios de los productos ya cargados
+  // (VendorSettings.jsx avisa esto explícito), solo cambia la etiqueta de
+  // los productos nuevos/editados en adelante (ver products.controller.js).
+  currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional(),
   provinceId: z.string().optional(),
   municipalityId: z.string().optional().nullable(),
   // Bloque 18: el vendedor puede cambiar su tipo de negocio después del
@@ -263,19 +332,17 @@ export async function updateMyVendor(req, res) {
     if (!businessCategory) throw new AppError("Ese tipo de negocio no existe.", 400);
   }
 
+  if (data.currency) await assertCurrencyAllowed(data.currency);
+
   // El upgrade a Business solo lo otorga una verificación KYC aprobada (ver
   // verification.controller.js) — acá solo se permite bajar a Regular.
-  const planType = data.planType === "REGULAR" ? "REGULAR" : undefined;
-  // Bloque 47 (bug real encontrado al cablear "Cancelar suscripción" en
-  // VendorSubscription.jsx — mismo criterio ya aplicado en Bloque 46 al
-  // revoke-business del admin): el badge/IA para clientes/destacado en home
-  // SIEMPRE leen Vendor.isVerified (ver Store.jsx/getVendorBySlug), nunca
-  // planType directo. Bajar a Regular sin tocar isVerified dejaría la tienda
-  // "cancelada" pero igual mostrándose verificada — se sincronizan los dos
-  // campos acá, igual que en el revoke-business del admin.
-  const isVerified = data.planType === "REGULAR" ? false : undefined;
+  // Bloque 66 (pedido explícito): si la tienda está VERIFIED, bajar a
+  // Regular queda DIFERIDO (ver más abajo) — planType se mantiene BUSINESS
+  // acá, el cron/webhook lo cambia recién al llegar la fecha real de
+  // vencimiento (Vendor.nextPaymentDueDate).
+  const planType = data.planType === "REGULAR" && vendor.verificationStatus !== "VERIFIED" ? "REGULAR" : undefined;
 
-  const updated = await prisma.vendor.update({
+  let updated = await prisma.vendor.update({
     where: { id: vendor.id },
     data: {
       companyName: data.companyName,
@@ -288,15 +355,43 @@ export async function updateMyVendor(req, res) {
       logoUrl: data.logoUrl,
       coverUrl: data.coverUrl,
       planType,
-      isVerified,
       orderDestination: data.orderDestination,
       acceptedPaymentMethods: data.acceptedPaymentMethods,
       acceptedCurrencies: data.acceptedCurrencies,
+      currency: data.currency,
       businessCategoryId: data.businessCategoryId,
       warrantyTerms: data.warrantyTerms,
       warrantyDefaultDays: data.warrantyDefaultDays,
     },
   });
+
+  if (data.planType === "REGULAR" && vendor.verificationStatus === "VERIFIED") {
+    // Bloque 66 (pedido explícito): "Cancelar suscripción" ya NO revoca el
+    // acceso de inmediato — la tienda sigue VERIFIED/Business hasta
+    // Vendor.nextPaymentDueDate. Se registra la intención (cancelAtPeriodEnd)
+    // y, si paga con Stripe, se agenda su cancelación NATIVA
+    // (cancel_at_period_end) — Stripe sigue facturando/vigente hasta el
+    // final del ciclo ya pagado y recién ahí dispara
+    // customer.subscription.deleted (handleSubscriptionDeleted), que revoca
+    // el badge de verdad. El cron de verificationPayment.job.js cubre el
+    // caso CUP (sin Stripe de por medio).
+    if (!vendor.cancelAtPeriodEnd) {
+      if (vendor.stripeSubscriptionId) await scheduleStripeSubscriptionCancellation(vendor.stripeSubscriptionId);
+      updated = await prisma.vendor.update({ where: { id: vendor.id }, data: { cancelAtPeriodEnd: true } });
+    }
+  } else if (data.planType === "REGULAR" && !["NOT_STARTED", "REJECTED"].includes(vendor.verificationStatus)) {
+    // Bloque 64 (mismo criterio que revoke-business del admin): todavía en
+    // documentos/pago (nunca llegó a VERIFIED) — no hay ciclo pago vigente
+    // que honrar, así que cancelar acá sigue siendo inmediato: vuelve a
+    // NOT_STARTED de verdad y cancela cualquier suscripción de Stripe que
+    // hubiera quedado a medias.
+    if (vendor.stripeSubscriptionId) await cancelStripeSubscription(vendor.stripeSubscriptionId);
+    updated = await transitionVendorVerification(vendor.id, "NOT_STARTED", {
+      actorId: req.user.id,
+      source: "VENDOR_ACTION",
+      extraData: { stripeSubscriptionId: null },
+    });
+  }
 
   if (data.provinceId) {
     const location = await prisma.vendorLocation.findFirst({ where: { vendorId: vendor.id } });
@@ -308,7 +403,15 @@ export async function updateMyVendor(req, res) {
     }
   }
 
-  res.json({ vendor: updated });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "VENDOR",
+    vendorId: vendor.id,
+    action: "vendor_settings_updated",
+    description: `Actualizó la configuración de "${vendor.companyName}"`,
+  });
+
+  res.json({ vendor: withComputedVendorFields(updated) });
 }
 
 const scheduleSchema = z.object({
@@ -378,14 +481,16 @@ export async function getDashboard(req, res) {
     prisma.tableOrder.count({ where: { table: { vendorId: vendor.id }, kitchenStatus: "RECEIVED" } }),
     prisma.product.count({ where: { vendorId: vendor.id, isActive: true } }),
     prisma.review.aggregate({ where: { vendorId: vendor.id, rating: { not: null } }, _count: { rating: true } }),
+    // Bloque 56: un producto "disponible siempre" nunca aparece acá — es
+    // justamente lo que significa no llevarle seguimiento de stock.
     prisma.product.findMany({
-      where: { vendorId: vendor.id, isActive: true, stock: { gt: 0, lte: LOW_STOCK_THRESHOLD } },
+      where: { vendorId: vendor.id, isActive: true, unlimitedStock: false, stock: { gt: 0, lte: LOW_STOCK_THRESHOLD } },
       orderBy: { stock: "asc" },
       select: { id: true, name: true, stock: true, images: true },
       take: 10,
     }),
     prisma.product.findMany({
-      where: { vendorId: vendor.id, isActive: true, stock: { lte: 0 } },
+      where: { vendorId: vendor.id, isActive: true, unlimitedStock: false, stock: { lte: 0 } },
       orderBy: { createdAt: "desc" },
       select: { id: true, name: true, stock: true, images: true },
       take: 10,
@@ -471,7 +576,7 @@ export async function getDashboard(req, res) {
     maxProducts: vendor.planType === "REGULAR" ? 20 : null,
     rating: Number(vendor.rating),
     reviewCount: reviewAgg._count.rating,
-    isVerified: vendor.isVerified,
+    isVerified: vendor.verificationStatus === "VERIFIED",
     planType: vendor.planType,
     recentOrders: merged,
     lowStockProducts,
@@ -501,9 +606,9 @@ export async function trackEngagement(req, res) {
 // Habilitado solo para vendedores con KYC APPROVED — se valida server-side
 // acá, no solo en el frontend (VendorChat.jsx también oculta la UI).
 async function requireApprovedVendor(userId) {
-  const vendor = await prisma.vendor.findUnique({ where: { userId }, include: { verification: true } });
+  const vendor = await prisma.vendor.findUnique({ where: { userId } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
-  if (vendor.verification?.status !== "APPROVED") {
+  if (vendor.verificationStatus !== "VERIFIED") {
     const { siteName } = await getBrandSettings();
     throw new AppError(`El chat con el equipo de ${siteName} se habilita al verificar tu tienda.`, 403);
   }
