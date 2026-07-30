@@ -35,13 +35,22 @@ function formatDate(iso) {
 // Un comentario reportado se oculta de inmediato server-side, así que no
 // hace falta un estado "ya reportado" acá: en cuanto se reporta, desaparece
 // de esta lista en el próximo refetch (ver invalidateQueries del llamador).
+//
+// Bloque 74 (pedido explícito, rediseño): antes la foto adjunta era una
+// franja angosta pegada al costado del texto (fácil de subestimar, casi
+// invisible en mobile) — pasa a ser una tarjeta vertical de secciones
+// apiladas (cabecera / insignia / comentario / foto / respuesta), cada una
+// con su propio espacio, y la foto como una miniatura ancha y clara, nunca
+// un flaco borde lateral. Se muestra SIEMPRE que la reseña tenga una,
+// en cualquier tamaño de pantalla — solo cambia de tamaño, nunca de
+// visibilidad.
 function ReviewCard({ r, vendorName, onImageClick, currentUserId, onReportClick }) {
   const firstImage = r.images?.[0] ? imgUrl(r.images[0]) : null;
   const color = avatarColor(r.authorName);
   const canReport = currentUserId && r.userId && r.userId !== currentUserId;
 
   return (
-    <div className="group relative flex w-[210px] flex-shrink-0 overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-shadow hover:shadow-[0_4px_20px_rgba(0,0,0,0.10)] sm:w-[260px] md:w-[300px]">
+    <div className="group relative flex w-[230px] flex-shrink-0 flex-col gap-2.5 overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] transition-shadow hover:shadow-[0_4px_20px_rgba(0,0,0,0.10)] sm:w-[270px] sm:p-4 md:w-[300px]">
       {canReport && (
         <button
           type="button"
@@ -52,60 +61,51 @@ function ReviewCard({ r, vendorName, onImageClick, currentUserId, onReportClick 
           <Flag className="h-3 w-3" />
         </button>
       )}
-      {/* Contenido */}
-      <div className={`flex flex-1 flex-col p-3 sm:p-4 ${firstImage ? "pr-2.5 sm:pr-3" : ""}`}>
-        {/* Cabecera */}
-        <div className="mb-2.5 flex items-center gap-2">
-          <div
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10.5px] font-extrabold text-white shadow-sm sm:h-8 sm:w-8 sm:text-[11px]"
-            style={{ background: `linear-gradient(135deg, ${color}dd, ${color}88)` }}
-          >
-            {initials(r.authorName)}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[12.5px] font-bold text-on-surface">{r.authorName}</p>
-            <p className="text-[10px] text-outline">{formatDate(r.createdAt)}</p>
-          </div>
-          {r.rating && <StarRating value={r.rating} size="h-2.5 w-2.5" />}
+
+      {/* Cabecera */}
+      <div className="flex items-center gap-2">
+        <div
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10.5px] font-extrabold text-white shadow-sm sm:h-8 sm:w-8 sm:text-[11px]"
+          style={{ background: `linear-gradient(135deg, ${color}dd, ${color}88)` }}
+        >
+          {initials(r.authorName)}
         </div>
-
-        {/* Badge compra verificada */}
-        {r.isVerifiedPurchase && (
-          <span className="mb-2 inline-flex w-fit items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[9.5px] font-bold text-verified-dark">
-            <ShieldCheck className="h-2.5 w-2.5" /> Compra verificada
-          </span>
-        )}
-
-        {/* Comentario */}
-        {r.comment && (
-          <p className="line-clamp-3 flex-1 text-[12.5px] italic leading-[18px] text-on-surface-variant">
-            "{r.comment}"
-          </p>
-        )}
-
-        {/* Respuesta del vendedor */}
-        {r.vendorReply && vendorName && (
-          <div className="mt-2.5 rounded-xl border border-tertiary-accent/15 bg-tertiary-accent/5 p-2.5">
-            <p className="mb-0.5 text-[10px] font-bold text-tertiary-accent">· {vendorName}</p>
-            <p className="line-clamp-2 text-[11px] leading-4 text-on-surface-variant">{r.vendorReply}</p>
-          </div>
-        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[12.5px] font-bold text-on-surface">{r.authorName}</p>
+          <p className="text-[10px] text-outline">{formatDate(r.createdAt)}</p>
+        </div>
+        {r.rating && <StarRating value={r.rating} size="h-2.5 w-2.5" />}
       </div>
 
-      {/* Imagen a la derecha con degradado */}
+      {/* Badge compra verificada */}
+      {r.isVerifiedPurchase && (
+        <span className="inline-flex w-fit items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[9.5px] font-bold text-verified-dark">
+          <ShieldCheck className="h-2.5 w-2.5" /> Compra verificada
+        </span>
+      )}
+
+      {/* Comentario */}
+      {r.comment && (
+        <p className="line-clamp-3 text-[12.5px] italic leading-[18px] text-on-surface-variant">"{r.comment}"</p>
+      )}
+
+      {/* Foto adjunta — miniatura ancha y clara, siempre visible si existe */}
       {firstImage && (
         <button
           type="button"
           onClick={() => onImageClick?.(firstImage)}
-          className="relative w-14 flex-shrink-0 overflow-hidden focus:outline-none sm:w-20"
+          className="block h-24 w-full flex-shrink-0 overflow-hidden rounded-xl focus:outline-none sm:h-28"
         >
-          <img
-            src={firstImage}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-          <div className="absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-surface-container-lowest to-transparent sm:w-8" />
+          <img src={firstImage} alt="" className="h-full w-full object-cover" />
         </button>
+      )}
+
+      {/* Respuesta del vendedor */}
+      {r.vendorReply && vendorName && (
+        <div className="rounded-xl border border-tertiary-accent/15 bg-tertiary-accent/5 p-2.5">
+          <p className="mb-0.5 text-[10px] font-bold text-tertiary-accent">· {vendorName}</p>
+          <p className="line-clamp-2 text-[11px] leading-4 text-on-surface-variant">{r.vendorReply}</p>
+        </div>
       )}
     </div>
   );
@@ -145,7 +145,7 @@ export function ReviewsMarquee({ reviews, vendorName, onImageClick, currentUserI
   return (
     <div className="overflow-hidden" style={{ maskImage: "linear-gradient(to right, transparent, black 5%, black 95%, transparent)" }}>
       <div
-        className="flex gap-3 will-change-transform sm:gap-4"
+        className="flex items-start gap-3 will-change-transform sm:gap-4"
         style={{
           animation: `marquee ${durationSecs}s linear infinite`,
           width: "max-content",
