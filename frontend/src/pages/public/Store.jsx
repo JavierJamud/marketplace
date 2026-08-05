@@ -381,70 +381,192 @@ export default function Store() {
 
   return (
     <div>
-      {/* BANNER */}
-      <div style={{ background: v.color ?? "#232F3E" }}>
-        {/* Bloque 52 (fix de alineación): antes `items-end` alineaba el
-            avatar contra el borde INFERIOR del bloque de texto entero — en
-            mobile, donde la descripción + stats ocupan varias líneas, el
-            avatar quedaba flotando lejos del título, con un hueco arriba que
-            se veía "desagrupado". Ahora el avatar y el título van siempre
-            juntos (items-center en su propia fila) sin importar cuánto texto
-            haya debajo; los botones de acción pasan a su propia fila,
-            apilados en mobile y alineados a la derecha desde `sm:`. */}
-        <div className="container-app flex flex-col gap-5 py-8 sm:flex-row sm:items-start sm:justify-between sm:py-9">
-          <div className="flex items-center gap-4">
-            <div className="flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center rounded-full border-[3px] border-white/50 bg-white/10 font-display text-3xl font-extrabold text-white sm:h-[88px] sm:w-[88px] sm:text-4xl">
-              {v.companyName[0]}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="font-display text-headline-lg-mobile text-white sm:text-headline-md">{v.companyName}</h1>
-                {v.isVerified && <VerifiedBadge />}
+      {/* BANNER PROFESIONAL — tarjeta unificada separada de bordes y navbar */}
+      <div className="container-app mt-5 mb-1">
+        <div
+          className="relative overflow-hidden rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
+          style={{
+            background: `linear-gradient(150deg, ${v.color ?? "#232F3E"} 0%, ${v.color ? v.color + "dd" : "#1a2632"} 55%, #111827 100%)`,
+          }}
+        >
+          {/* Círculo decorativo de fondo — profundidad */}
+          <div
+            className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full opacity-10"
+            style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
+          />
+          <div
+            className="pointer-events-none absolute -bottom-10 -left-10 h-48 w-48 rounded-full opacity-[0.07]"
+            style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
+          />
+
+          {/* ── ZONA SUPERIOR: avatar + nombre + acciones ── */}
+          <div className="relative flex flex-col gap-5 px-5 pb-5 pt-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:pt-6">
+
+            {/* Avatar + info de tienda */}
+            <div className="flex items-center gap-4 sm:gap-5">
+              {/* Avatar circular grande */}
+              <div
+                className="relative flex h-[76px] w-[76px] flex-shrink-0 items-center justify-center rounded-full font-display text-[32px] font-extrabold text-white shadow-xl ring-[3px] ring-white/20 sm:h-[92px] sm:w-[92px] sm:text-[40px]"
+                style={{ background: "rgba(255,255,255,0.12)", backdropFilter: "blur(8px)" }}
+              >
+                {v.companyName[0]}
+                {/* Dot de estado encima del avatar */}
                 <span
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                    v.isOpenNow ? "bg-verified/20 text-white" : "bg-black/25 text-white/85"
+                  className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-2 border-white shadow ${
+                    v.isOpenNow ? "bg-verified" : "bg-outline"
+                  }`}
+                />
+              </div>
+
+              {/* Nombre, categoría, descripción */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start gap-1.5">
+                  <h1 className="font-display text-[22px] font-extrabold leading-tight text-white sm:text-[26px]">
+                    {v.companyName}
+                  </h1>
+                  {v.isVerified && (
+                    <span className="mt-0.5 flex-shrink-0 self-start">
+                      <VerifiedBadge size="md" />
+                    </span>
+                  )}
+                </div>
+
+                {/* Sub-badges: estado · categoría */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                      v.isOpenNow
+                        ? "bg-verified/20 text-verified-light"
+                        : "bg-white/10 text-white/60"
+                    }`}
+                  >
+                    {v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
+                  </span>
+                  {v.category?.name && (
+                    <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white/80">
+                      {v.category.name}
+                    </span>
+                  )}
+                  {v.isRestaurant && (
+                    <span className="inline-flex items-center rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-[11px] font-semibold text-secondary-container">
+                      Restaurante
+                    </span>
+                  )}
+
+                </div>
+
+                {/* Descripción */}
+                {v.description && (
+                  <p className="mt-2 line-clamp-2 max-w-[500px] text-[13px] leading-relaxed text-white/65">
+                    {v.description}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Botones de acción — alineados a la derecha */}
+            <div className="flex flex-shrink-0 items-center gap-2 sm:self-start sm:pt-1">
+              <button
+                onClick={handleShare}
+                aria-label="Compartir tienda"
+                title="Compartir tienda"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-white/20"
+              >
+                <Share2 className="h-[18px] w-[18px]" />
+              </button>
+              {user && (
+                <button
+                  onClick={() => toggleFavorite.mutate()}
+                  disabled={toggleFavorite.isPending}
+                  aria-label={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+                  title={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-sm transition-colors disabled:opacity-60 ${
+                    myFavorite ? "bg-white/20 text-white" : "bg-white/10 text-white/80 hover:bg-white/20"
                   }`}
                 >
-                  {v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
-                </span>
-              </div>
-              {v.description && <p className="mt-2 max-w-[560px] text-[13.5px] text-white/80">{v.description}</p>}
-              <div className="mt-3 flex flex-wrap items-center gap-x-[18px] gap-y-2 text-[13px] text-white/85">
-                <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue />
-                <span>{v.salesCount} ventas</span>
-                <span>📍 {locationLabel}</span>
-                <span>Desde {joinedYear}</span>
-              </div>
+                  <Heart className={`h-[18px] w-[18px] ${myFavorite ? "fill-white" : "fill-none"}`} />
+                </button>
+              )}
+              <a
+                href={waLink(v.whatsapp, `Hola ${v.companyName}, tengo una consulta sobre sus productos.`)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-label-md font-bold text-white shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
+              >
+                <MessageCircle className="h-[17px] w-[17px]" />
+                Contactar
+              </a>
             </div>
           </div>
-          <div className="flex flex-shrink-0 items-center gap-2.5">
-            <button
-              onClick={handleShare}
-              aria-label="Compartir tienda"
-              title="Compartir tienda"
-              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
-            >
-              <Share2 className="h-[18px] w-[18px]" />
-            </button>
-            {user && (
-              <button
-                onClick={() => toggleFavorite.mutate()}
-                disabled={toggleFavorite.isPending}
-                aria-label={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-                title={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 disabled:opacity-60"
-              >
-                <Heart className={`h-[18px] w-[18px] ${myFavorite ? "fill-white" : "fill-none"}`} />
-              </button>
-            )}
-            <a
-              href={waLink(v.whatsapp, `Hola ${v.companyName}, tengo una consulta sobre sus productos.`)}
-              target="_blank"
-              rel="noreferrer"
-              className="flex flex-1 items-center justify-center gap-2 rounded bg-[#25D366] px-5 py-3 text-label-md font-bold text-white sm:flex-initial"
-            >
-              <MessageCircle className="h-[18px] w-[18px]" /> Contactar
-            </a>
+
+          {/* ── FRANJA INFERIOR: stats sobre fondo oscuro semitransparente ── */}
+          <div className="relative border-t border-white/10 bg-black/25 px-5 py-3.5 sm:px-8">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5">
+
+              {/* Rating */}
+              <div className="flex items-center gap-1.5">
+                <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue className="text-white" />
+                {v.reviewStats?.total > 0 && (
+                  <span className="text-[12px] text-white/50">
+                    ({v.reviewStats.total} reseña{v.reviewStats.total === 1 ? "" : "s"})
+                  </span>
+                )}
+              </div>
+
+              <span className="h-3.5 w-px bg-white/15" />
+
+              {/* Ventas */}
+              <span className="text-[12.5px] text-white/70">
+                <span className="font-bold text-white">{v.salesCount}</span> ventas
+              </span>
+
+              <span className="h-3.5 w-px bg-white/15" />
+
+              {/* Productos */}
+              <span className="text-[12.5px] text-white/70">
+                <span className="font-bold text-white">{v.products?.length ?? 0}</span>{" "}
+                producto{(v.products?.length ?? 0) === 1 ? "" : "s"}
+              </span>
+
+              <span className="h-3.5 w-px bg-white/15" />
+
+              {/* Ubicación */}
+              <span className="text-[12.5px] text-white/70">📍 {locationLabel}</span>
+
+              <span className="h-3.5 w-px bg-white/15" />
+
+              {/* Año */}
+              <span className="text-[12.5px] text-white/70">
+                Desde <span className="font-bold text-white">{joinedYear}</span>
+              </span>
+
+              {/* Métodos de pago — al extremo derecho si hay espacio */}
+              {v.acceptedPaymentMethods?.length > 0 && (
+                <>
+                  <span className="h-3.5 w-px bg-white/15" />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {v.acceptedPaymentMethods.slice(0, 3).map((methodId) => {
+                      const method = resolvePaymentMethod(methodId);
+                      const Icon = method.icon;
+                      return (
+                        <span
+                          key={methodId}
+                          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/75"
+                        >
+                          <Icon className="h-2.5 w-2.5" />
+                          {method.label}
+                        </span>
+                      );
+                    })}
+                    {v.acceptedPaymentMethods.length > 3 && (
+                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/55">
+                        +{v.acceptedPaymentMethods.length - 3}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
