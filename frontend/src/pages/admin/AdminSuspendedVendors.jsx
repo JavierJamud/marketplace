@@ -46,14 +46,14 @@ export default function AdminSuspendedVendors() {
         Suspendidas automáticamente por 90 días sin acceso al panel de vendedor. Ocultas de todo el sitio hasta reactivarlas.
       </p>
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
-        <div className="grid grid-cols-[2fr_1.3fr_1.3fr_2.2fr_1fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline">
+      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+        <div className="grid grid-cols-[2fr_1.3fr_1.3fr_2.2fr_1fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[720px]">
           <span>Tienda</span><span>Suspendida el</span><span>Último acceso</span><span>Motivo</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
         {!isLoading && rows.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay tiendas suspendidas ahora mismo.</p>}
         {rows.map((v) => (
-          <div key={v.id} className="grid grid-cols-[2fr_1.3fr_1.3fr_2.2fr_1fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
+          <div key={v.id} className="grid min-w-[720px] grid-cols-[2fr_1.3fr_1.3fr_2.2fr_1fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
             <div className="flex items-center gap-2.5">
               <span
                 className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"

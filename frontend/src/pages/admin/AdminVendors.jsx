@@ -181,8 +181,8 @@ export default function AdminVendors() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
-        <div className="grid grid-cols-[2fr_1.2fr_1fr_1fr_2fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline">
+      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+        <div className="grid grid-cols-[2fr_1.2fr_1fr_1fr_2fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[640px]">
           <span>Tienda</span><span>Provincia</span><span>Plan</span><span>Estado</span><span className="text-right">Acciones</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
@@ -190,7 +190,7 @@ export default function AdminVendors() {
         {rows.map((v) => (
           <div
             key={v.id}
-            className="grid grid-cols-[2fr_1.2fr_1fr_1fr_2fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
+            className="grid min-w-[640px] grid-cols-[2fr_1.2fr_1fr_1fr_2fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
             style={{ opacity: v.isBlocked ? 0.55 : 1 }}
           >
             <div className="flex items-center gap-2.5">

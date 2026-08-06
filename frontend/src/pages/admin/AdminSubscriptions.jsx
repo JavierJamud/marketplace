@@ -272,8 +272,8 @@ export default function AdminSubscriptions() {
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
-        <div className="grid grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline">
+      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+        <div className="grid grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[640px]">
           <span>Tienda</span><span>Provincia</span><span>Estado</span><span>Pago</span><span className="text-right">Acciones</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
@@ -282,7 +282,7 @@ export default function AdminSubscriptions() {
           const status = STATUS_META[s.status];
           const PaymentIcon = PAYMENT_METHOD_ICON[s.paymentMethod];
           return (
-            <div key={s.vendorId} className="grid grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
+            <div key={s.vendorId} className="grid min-w-[640px] grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
               <div className="flex items-center gap-2.5">
                 <span
                   className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"

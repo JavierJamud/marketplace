@@ -246,6 +246,8 @@ export default function VendorSettings() {
           // "" es el estado inicial de un input controlado sin valor todavía
           // — mandarlo tal cual rompe el zod .min(1) del backend (a
           // diferencia de no mandar la clave). null sí es válido (.nullable()).
+          ownerIdNumber: form.ownerIdNumber.trim() || null,
+          companyAddress: form.companyAddress.trim() || null,
           warrantyTerms: form.warrantyTerms.trim() || null,
           warrantyDefaultDays: form.warrantyDefaultDays === "" ? null : Number(form.warrantyDefaultDays),
         })
@@ -783,6 +785,38 @@ export default function VendorSettings() {
               <p className="text-[12px] text-outline">Agrega los países y provincias/estados donde vendes arriba.</p>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Bloque de auditoría (2026-08-06): estos 2 campos ya se mandaban en
+          el payload de saveProfile pero nunca tuvieron un input visible en
+          ningún panel — el vendedor no tenía forma de completarlos, y
+          loadConfirmedOrderForVendor (invoices.controller.js) los exige
+          antes de generar factura/garantía, señalando explícitamente "Puedes
+          cargarlos en Configuración". */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <FileText className="h-5 w-5 text-tertiary-accent" /> Datos de facturación
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Privados — nunca se muestran en tu tienda pública. Se usan para generar las facturas y certificados de garantía de
+          tus pedidos.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Input
+            label="Identificación del responsable (carné de identidad)"
+            value={form.ownerIdNumber}
+            onChange={(e) => setForm((f) => ({ ...f, ownerIdNumber: e.target.value }))}
+            error={errors.ownerIdNumber?.[0]}
+            placeholder="Ej.: 90010112345"
+          />
+          <Input
+            label="Dirección de la empresa"
+            value={form.companyAddress}
+            onChange={(e) => setForm((f) => ({ ...f, companyAddress: e.target.value }))}
+            error={errors.companyAddress?.[0]}
+            placeholder="Ej.: Calle 23 #456, Vedado, La Habana"
+          />
         </div>
       </div>
 

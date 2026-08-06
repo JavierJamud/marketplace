@@ -95,8 +95,8 @@ export default function AdminCustomers() {
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente..." className="w-full border-none bg-transparent text-[13.5px] outline-none" />
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
-        <div className="grid grid-cols-[2fr_1.4fr_1fr_1fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline">
+      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+        <div className="grid grid-cols-[2fr_1.4fr_1fr_1fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[620px]">
           <span>Cliente</span><span>Provincia</span><span>Pedidos</span><span>Estado</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
@@ -104,7 +104,7 @@ export default function AdminCustomers() {
         {rows.map((c) => (
           <div
             key={c.id}
-            className="grid grid-cols-[2fr_1.4fr_1fr_1fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
+            className="grid min-w-[620px] grid-cols-[2fr_1.4fr_1fr_1fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
             style={{ opacity: c.isSuspended ? 0.55 : 1 }}
           >
             <div className="flex items-center gap-2.5">
