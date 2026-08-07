@@ -774,7 +774,7 @@ export default function Store() {
                 if (!user) goToReviewLogin();
               }}
               placeholder={user ? "Escribe un comentario..." : "Inicia sesión para comentar"}
-              className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+              className="h-11 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
             />
             <button
               onClick={() => {
@@ -845,7 +845,7 @@ export default function Store() {
               </div>
               <div className="min-w-0">
                 <div className="truncate text-[13.5px] font-bold text-on-surface">{x.companyName}</div>
-                <div className="flex items-center gap-1.5 text-[11.5px] text-outline">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[11.5px] text-outline">
                   <StarRating value={Number(x.rating)} size="h-3 w-3" showValue />
                   <span>· {x._count?.products ?? 0} prod.</span>
                 </div>

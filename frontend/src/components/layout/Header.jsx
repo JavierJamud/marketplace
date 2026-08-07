@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ShoppingCart, User, LogOut } from "lucide-react";
+import { ShoppingCart, User, LogOut, Store } from "lucide-react";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -43,7 +43,7 @@ function AccountMenu({ user, accountHref, panelLabel }) {
 
   if (!user) {
     return (
-      <Link to="/cuenta" className="hidden items-center text-white/85 hover:text-white sm:flex">
+      <Link to="/cuenta" aria-label="Iniciar sesión o crear cuenta" className="flex items-center text-white/85 hover:text-white">
         <User className="h-5 w-5" />
       </Link>
     );
@@ -58,8 +58,8 @@ function AccountMenu({ user, accountHref, panelLabel }) {
   }
 
   return (
-    <div ref={ref} className="relative hidden sm:block">
-      <button onClick={() => setOpen((o) => !o)} className="flex items-center text-white/85 hover:text-white">
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen((o) => !o)} aria-label="Mi cuenta" className="flex items-center text-white/85 hover:text-white">
         <User className="h-5 w-5" />
       </button>
       {open && (
@@ -122,9 +122,11 @@ export function Header() {
           <AccountMenu user={user} accountHref={accountHref} panelLabel={panelLabel} />
           <Link
             to="/vender"
-            className="whitespace-nowrap rounded bg-secondary-container px-4 py-2.5 text-[13px] font-bold text-on-secondary-container hover:brightness-95"
+            aria-label="Vender gratis"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded bg-secondary-container px-2.5 py-2.5 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
           >
-            Vender gratis
+            <Store className="h-4 w-4 sm:hidden" />
+            <span className="hidden sm:inline">Vender gratis</span>
           </Link>
         </div>
       </div>

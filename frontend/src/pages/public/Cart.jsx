@@ -102,9 +102,9 @@ export default function Cart() {
               const unitPrice = resolveUnitPrice(it.price, it.priceTiers, it.quantity);
               const savings = calcSavings(it.price, it.priceTiers, it.quantity);
               return (
-                <div key={`${it.productId}-${it.size ?? ""}`} className="flex items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
+                <div key={`${it.productId}-${it.size ?? ""}`} className="flex flex-wrap items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
                   <div className="h-16 w-16 flex-shrink-0 rounded-md bg-surface-container" />
-                  <div className="flex-1">
+                  <div className="min-w-[140px] flex-1">
                     <div className="flex items-center gap-1.5 text-body-md font-semibold text-on-surface">
                       {it.name}
                       {it.size && (
@@ -116,19 +116,23 @@ export default function Cart() {
                       <div className="mt-0.5 text-[11.5px] font-semibold text-tertiary-accent">Ahorras {formatPrice(savings, it.currency)} por mayoreo</div>
                     )}
                   </div>
-                  <div className="flex items-center rounded border border-outline-variant">
-                    <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
-                      <Minus className="h-3.5 w-3.5" />
-                    </button>
-                    <div className="w-[34px] text-center text-body-md font-semibold">{it.quantity}</div>
-                    <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
-                      <Plus className="h-3.5 w-3.5" />
-                    </button>
+                  <div className="flex w-full items-center justify-between gap-3.5 sm:w-auto sm:justify-end">
+                    <div className="flex items-center rounded border border-outline-variant">
+                      <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <div className="w-[34px] text-center text-body-md font-semibold">{it.quantity}</div>
+                      <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="w-20 flex-shrink-0 text-right text-body-md font-bold text-on-surface sm:w-24">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
+                      <button onClick={() => setItemToRemove(it)} className="p-1.5 text-error">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="w-24 flex-shrink-0 text-right text-body-md font-bold text-on-surface">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
-                  <button onClick={() => setItemToRemove(it)} className="p-1.5 text-error">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </div>
               );
             })}

@@ -568,7 +568,7 @@ export default function Product() {
                 if (!user) goToReviewLogin();
               }}
               placeholder={user ? "Escribe una reseña de este producto..." : "Inicia sesión para reseñar"}
-              className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+              className="h-11 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
             />
             <button
               onClick={() => {

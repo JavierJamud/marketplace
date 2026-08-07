@@ -250,7 +250,7 @@ export default function VendorVerification() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-0 border-t border-surface-container-high px-6 py-5">
+        <div className="flex items-center gap-0 overflow-x-auto border-t border-surface-container-high px-6 py-5">
           {STEPS.map((text, i) => (
             <div key={text} className={`flex items-center ${i < STEPS.length - 1 ? "flex-1" : ""}`}>
               <Step text={text} stepNumber={String(i + 1)} state={stepStates[i]} />
