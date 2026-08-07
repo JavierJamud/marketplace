@@ -37,7 +37,7 @@ const CATEGORIES = [
     icon: ShieldCheck,
     title: "Seguridad",
     description: "Badge de tienda verificada, cuentas y buenas prácticas.",
-    to: "/contacto",
+    to: "/faq?tab=customer",
   },
 ];
 

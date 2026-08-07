@@ -250,12 +250,12 @@ export default function VendorVerification() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-0 overflow-x-auto border-t border-surface-container-high px-6 py-5">
+        <div className="flex flex-col gap-3 border-t border-surface-container-high px-6 py-5 sm:flex-row sm:items-center sm:gap-0">
           {STEPS.map((text, i) => (
-            <div key={text} className={`flex items-center ${i < STEPS.length - 1 ? "flex-1" : ""}`}>
+            <div key={text} className={`flex items-center sm:${i < STEPS.length - 1 ? "flex-1" : ""}`}>
               <Step text={text} stepNumber={String(i + 1)} state={stepStates[i]} />
               {i < STEPS.length - 1 && (
-                <div className="mx-3 h-0.5 flex-1" style={{ background: stepStates[i] === "done" ? "#0CAE53" : "#e4e2e3" }} />
+                <div className="ml-auto hidden h-0.5 flex-1 sm:mx-3 sm:block" style={{ background: stepStates[i] === "done" ? "#0CAE53" : "#e4e2e3" }} />
               )}
             </div>
           ))}

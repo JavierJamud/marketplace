@@ -107,18 +107,33 @@ export default function Checkout() {
   }, [vendorCountries, selectedCountryId]);
 
   // Derive vendor's provinces/states for selected country
+  //
+  // Auditoría 2026-08-06 (Crítico #2 de AUDITORIA.md): con `selectedCountryId`
+  // sin resolver (típicamente porque el vendedor no tiene `locations`/
+  // `deliveryCountries` con un país válido — ver `vendorCountries` arriba,
+  // o porque a una provincia le falta `countryId` en la base) este memo
+  // cortaba acá mismo y el checkout quedaba sin ninguna provincia para
+  // elegir, aun cuando el selector de país (más abajo, rama `vendorCountries
+  // .length <= 1`) ya le muestra "Cuba" al cliente como si todo estuviera
+  // resuelto. Se saca el `return []` temprano por `!selectedCountryId` y se
+  // vuelven opcionales los filtros por país (`!selectedCountryId || ...`):
+  // con país resuelto, el comportamiento es idéntico a antes (mismo filtro
+  // por país); sin país resuelto, cae directo al fallback de "todas las
+  // provincias activas" en vez de no ofrecer ninguna.
   const vendorProvincesForCountry = useMemo(() => {
-    if (!vendor || !selectedCountryId) return [];
+    if (!vendor) return [];
     const provMap = new Map();
     (vendor.locations ?? []).forEach((l) => {
-      if (l.province && (l.province.countryId === selectedCountryId || l.province.country?.id === selectedCountryId)) {
+      if (l.province && (!selectedCountryId || l.province.countryId === selectedCountryId || l.province.country?.id === selectedCountryId)) {
         provMap.set(l.province.id, l.province);
       }
     });
-    // Fallback: if vendor specified country but no specific locations, allow all active provinces for that country
+    // Fallback: si el vendedor no tiene provincias propias para el país
+    // resuelto (o no hay país resuelto en absoluto), ofrecer todas las
+    // provincias activas — filtradas por país solo cuando hay uno real.
     if (provMap.size === 0 && provinces) {
       provinces
-        .filter((p) => p.countryId === selectedCountryId || p.country?.id === selectedCountryId)
+        .filter((p) => !selectedCountryId || p.countryId === selectedCountryId || p.country?.id === selectedCountryId)
         .forEach((p) => provMap.set(p.id, p));
     }
     return Array.from(provMap.values());
@@ -294,7 +309,7 @@ export default function Checkout() {
           <h1 className="text-display-sm font-extrabold text-on-surface">Finalizar compra</h1>
           <p className="text-body-md text-on-surface-variant">
             Comprando en{" "}
-            <Link to={`/v/${vendorSlug}`} className="font-bold text-on-surface hover:underline">
+            <Link to={`/tienda/${vendorSlug}`} className="font-bold text-on-surface hover:underline">
               {vendorName}
             </Link>
           </p>
