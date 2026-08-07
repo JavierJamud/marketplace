@@ -558,8 +558,15 @@ export function StoreChatWidget({ vendor }) {
       {/* Bloque 24: burbuja proactiva — mismo rincón que el botón flotante,
           apilada justo arriba. Se cierra con la X sin abrir el chat, o sola
           al abrirlo (ver useEffects de arriba). */}
+      {/* Auditoría 2026-08-06 (Eje 2): en mobile esta burbuja se auto-abría
+          encima de los pills de método de pago / botón "Agregar al carrito"
+          de Product.jsx — el espacio reducido de esa pantalla no deja
+          ningún rincón del viewport donde no termine tapando algo del flujo
+          de compra. `hidden sm:flex` deja el comportamiento de desktop
+          intacto (donde sí hay margen real) y en mobile solo queda visible
+          el botón redondo de abrir el chat, sin la tarjeta de saludo. */}
       {!open && showBubble && (
-        <div className="fixed bottom-[84px] right-5 z-[60] flex max-w-[260px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:bottom-[100px] sm:right-6">
+        <div className="fixed bottom-[84px] right-5 z-[60] hidden max-w-[260px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:flex sm:bottom-[100px] sm:right-6">
           <VendorAvatar vendor={vendor} className="h-8 w-8 text-[13px]" />
           <p className="flex-1 text-[12.5px] leading-[17px] text-on-surface-variant">
             ¡Hola! Soy el asistente de <span className="font-bold text-on-surface">{vendor.companyName}</span>, te ayudo a encontrar el producto ideal.
