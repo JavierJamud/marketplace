@@ -195,7 +195,7 @@ export default function VendorDashboard() {
                   </div>
                   <div className="flex-1 text-[13px] font-semibold text-on-surface">{p.name}</div>
                   <span className="rounded-full bg-verified/10 px-2.5 py-1 text-[11px] font-bold text-verified-dark">
-                    {p.soldCount} vendidos
+                    {p.soldCount} {p.soldCount === 1 ? "vendido" : "vendidos"}
                   </span>
                 </div>
               ))

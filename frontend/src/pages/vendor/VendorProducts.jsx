@@ -90,7 +90,7 @@ const EMPTY_FORM = {
   priceTiers: [],
 };
 
-function ProductModal({ product, prefillBarcode, planType, isRestaurant, categories, onClose }) {
+function ProductModal({ product, prefillBarcode, planType, isRestaurant, categories, onClose, vendorCurrency }) {
   const queryClient = useQueryClient();
   // Bloque 66: a diferencia de savedProduct (que pasa a existir tanto para
   // un producto editado COMO para uno recién creado en esta misma sesión de
@@ -128,7 +128,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           sizeStock: product.sizeStock ?? {},
           priceTiers: (product.priceTiers ?? []).map((t) => ({ minQty: String(t.minQty), price: String(t.price) })),
         }
-      : { ...EMPTY_FORM, barcode: prefillBarcode ?? "" }
+      : { ...EMPTY_FORM, barcode: prefillBarcode ?? "", currency: vendorCurrency ?? "CUP" }
   );
   const [tagInput, setTagInput] = useState("");
   const [sizeInput, setSizeInput] = useState("");
@@ -981,10 +981,10 @@ export default function VendorProducts() {
                 </span>
               )}
               <div className="flex justify-end gap-2">
-                <button onClick={() => setModalState({ mode: "edit", product: p })} className="text-tertiary-accent">
+                <button onClick={() => setModalState({ mode: "edit", product: p })} aria-label={`Editar ${p.name}`} title="Editar producto" className="text-tertiary-accent">
                   <Pencil className="h-4 w-4" />
                 </button>
-                <button onClick={() => setDeleteTarget(p)} className="text-error">
+                <button onClick={() => setDeleteTarget(p)} aria-label={`Eliminar ${p.name}`} title="Eliminar producto" className="text-error">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
@@ -1004,6 +1004,7 @@ export default function VendorProducts() {
           planType={data?.planType}
           isRestaurant={vendor?.isRestaurant}
           categories={categories}
+          vendorCurrency={vendor?.currency}
           onClose={closeModal}
         />
       )}

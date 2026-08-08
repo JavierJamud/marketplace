@@ -45,16 +45,17 @@ export default function Contacto() {
           <div className="prose-static" dangerouslySetInnerHTML={{ __html: htmlContent }} />
         ) : (
           <div className="flex flex-col gap-4">
-            {/* Datos de referencia — a confirmar/reemplazar por el equipo de
-                ZeuDin con los canales reales antes de publicar (mismo
-                criterio que el copy genérico de Terms.jsx/Privacy.jsx). */}
+            {/* Canales reales confirmados por el equipo de ZeuDin
+                (2026-08-07) — siguen siendo el fallback: si se carga
+                contenido en /admin/contacto, esta tarjeta se reemplaza por
+                completo y pasa a ser editable desde ahí. */}
             <div className="flex items-start gap-3 rounded-lg border border-surface-container-high bg-surface-container-lowest p-4">
               <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#25D366]/10">
                 <MessageCircle className="h-5 w-5 text-[#25D366]" />
               </span>
               <div>
                 <div className="text-[13.5px] font-bold text-on-surface">WhatsApp</div>
-                <div className="text-[13px] text-on-surface-variant">+53 5555 5555</div>
+                <div className="text-[13px] text-on-surface-variant">+1 469 507 4046</div>
               </div>
             </div>
             <div className="flex items-start gap-3 rounded-lg border border-surface-container-high bg-surface-container-lowest p-4">
@@ -63,7 +64,7 @@ export default function Contacto() {
               </span>
               <div>
                 <div className="text-[13.5px] font-bold text-on-surface">Correo</div>
-                <div className="text-[13px] text-on-surface-variant">hola@zeudin.com</div>
+                <div className="text-[13px] text-on-surface-variant">soporte@zeudin.com</div>
               </div>
             </div>
             <div className="flex items-start gap-3 rounded-lg border border-surface-container-high bg-surface-container-lowest p-4">

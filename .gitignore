@@ -11,3 +11,8 @@ frontend/dist
 backend/.env
 frontend/.env
 *.log
+
+# Artefactos de sesiones de auditoría con Playwright MCP (screenshots/logs
+# sueltos en la raíz, no son parte del código del proyecto)
+.playwright-mcp/
+/*.png
