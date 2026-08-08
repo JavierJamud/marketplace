@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";

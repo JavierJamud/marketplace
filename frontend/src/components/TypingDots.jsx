@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 
 // Bloque 38 (pedido explícito): solo los 3 puntitos, sin texto de estado al
 // lado — animados con Framer Motion (ya instalado en el proyecto) en vez de
