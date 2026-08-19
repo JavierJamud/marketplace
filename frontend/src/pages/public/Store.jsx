@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { MessageCircle, ShieldAlert, Share2, Heart, Check, ShieldCheck, Star, Tag, Clock, Camera, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Sparkles, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -28,7 +28,6 @@ const NAV = [
   { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
-  { to: "/admin/marca", label: "Marca de la plataforma", icon: Sparkles },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
   // el useQuery de abajo y el render del badge en el map de NAV.
@@ -46,7 +45,7 @@ const NAV = [
 
 // Bloque 47: barra fija de búsqueda + notificaciones — visible en desktop y
 // mobile por igual (reemplaza el header que antes solo existía en mobile).
-function SearchAndNotifications({ onOpenSidebar }) {
+function SearchAndNotifications({ onOpenSidebar, onLogout }) {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -159,40 +158,53 @@ function SearchAndNotifications({ onOpenSidebar }) {
 
       <div className="flex-1" />
 
-      <div ref={notifRef} className="relative flex-shrink-0">
-        <button
-          onClick={() => setNotifOpen((o) => !o)}
-          className="relative flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container"
-          aria-label="Notificaciones"
-        >
-          <Bell className="h-[18px] w-[18px]" />
-          {notifTotal > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-error px-1 text-[9.5px] font-bold text-white">
-              {notifTotal > 99 ? "99+" : notifTotal}
-            </span>
-          )}
-        </button>
+      <div className="flex flex-shrink-0 items-center gap-1">
+        <div ref={notifRef} className="relative">
+          <button
+            onClick={() => setNotifOpen((o) => !o)}
+            className="relative flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container"
+            aria-label="Notificaciones"
+          >
+            <Bell className="h-[18px] w-[18px]" />
+            {notifTotal > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-error px-1 text-[9.5px] font-bold text-white">
+                {notifTotal > 99 ? "99+" : notifTotal}
+              </span>
+            )}
+          </button>
 
-        {notifOpen && (
-          <div className="absolute right-0 z-10 mt-1.5 w-[300px] overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
-            <div className="border-b border-surface-container-high px-3.5 py-2.5 text-[12.5px] font-bold text-on-surface">Notificaciones</div>
-            <div className="max-h-[360px] overflow-y-auto">
-              {!notifications?.items?.length && <p className="p-3.5 text-[12.5px] text-outline">No hay nada pendiente.</p>}
-              {notifications?.items?.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={() => {
-                    setNotifOpen(false);
-                    navigate(n.to);
-                  }}
-                  className="block w-full border-b border-surface-container px-3.5 py-2.5 text-left text-[12.5px] last:border-b-0 hover:bg-surface-container"
-                >
-                  {n.text}
-                </button>
-              ))}
+          {notifOpen && (
+            <div className="absolute right-0 z-10 mt-1.5 w-[300px] overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
+              <div className="border-b border-surface-container-high px-3.5 py-2.5 text-[12.5px] font-bold text-on-surface">Notificaciones</div>
+              <div className="max-h-[360px] overflow-y-auto">
+                {!notifications?.items?.length && <p className="p-3.5 text-[12.5px] text-outline">No hay nada pendiente.</p>}
+                {notifications?.items?.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => {
+                      setNotifOpen(false);
+                      navigate(n.to);
+                    }}
+                    className="block w-full border-b border-surface-container px-3.5 py-2.5 text-left text-[12.5px] last:border-b-0 hover:bg-surface-container"
+                  >
+                    {n.text}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Bloque 76 (pedido explícito): mismo lugar/criterio que el panel
+            de vendedor — al lado de la campanita, fuera del sidebar. */}
+        <button
+          onClick={onLogout}
+          title="Cerrar sesión"
+          aria-label="Cerrar sesión"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container"
+        >
+          <LogOut className="h-[18px] w-[18px]" />
+        </button>
       </div>
     </div>
   );
@@ -234,13 +246,24 @@ export default function AdminLayout() {
   }
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
+    <div className="min-h-dvh lg:grid lg:grid-cols-[248px_1fr]">
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 animate-overlay-in bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] flex-col bg-tertiary px-3.5 py-[22px] transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:translate-x-0 ${
+        // Ver nota igual en VendorLayout.jsx: `h-dvh` en un `fixed` se
+        // recalcula en vivo mientras el navegador oculta/muestra su barra de
+        // direcciones al hacer scroll (bug real reportado en vivo) — en
+        // mobile se saca del todo, `inset-y-0` alcanza sin recalcular nada;
+        // en desktop (`lg:sticky`) sí hace falta explícita.
+        // Ver misma nota en VendorLayout.jsx: se probó mover el scroll al
+        // `<aside>` entero pensando que el `overflow-y-auto` del nav era
+        // frágil anidado en un sticky/dvh — resultó ser un falso positivo
+        // (una ventana de prueba dejada en tamaño de celular por error, no
+        // un bug real). El scroll vuelve al nav — el logo de arriba queda
+        // fijo, solo el nav se desliza internamente cuando hace falta.
+        className={`fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col bg-tertiary px-3.5 py-[22px] transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -257,7 +280,22 @@ export default function AdminLayout() {
             <div className="text-[10px] font-semibold tracking-widest text-tertiary-accent-light">ADMIN</div>
           </div>
         </Link>
-        <nav className="mt-[18px] flex flex-1 flex-col gap-[3px] overflow-y-auto">
+        {/* Bugs reales reportados en vivo (ver misma nota en
+            VendorLayout.jsx): (1) sin `min-h-0` este nav nunca se encoge por
+            debajo de su propio alto de contenido, así que `overflow-y-auto`
+            quedaba sin efecto y el nav (acá, 22 links) se desbordaba del
+            aside en vez de scrollear internamente cuando el alto real
+            disponible era menor. (2) `flex-1` además dejaba CRECER al nav
+            más allá de su contenido cuando sobraba espacio (en mobile, al
+            colapsarse la barra de direcciones de Safari durante el scroll),
+            dejando un hueco vacío antes de cualquier contenido fijo debajo.
+            Sin `flex-1` (un hijo flex ya es `flex:0 1 auto` por default) el
+            nav nunca crece de más. (3) El propio `overflow-y-auto` de este
+            nav, anidado dentro del `<aside>` sticky/dvh — se creyó frágil
+            en navegadores reales, pero era un falso positivo (ver nota en
+            `className` del `<aside>`). El scroll vuelve al nav — el logo de
+            arriba queda fijo, solo el nav se desliza internamente. */}
+        <nav className="mt-[18px] flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto">
           {NAV.map(({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
@@ -279,13 +317,10 @@ export default function AdminLayout() {
             </NavLink>
           ))}
         </nav>
-        <button onClick={handleLogout} className="flex items-center gap-2.5 rounded px-3 py-2.5 text-left text-[13px] font-semibold text-white/50 hover:text-white/80">
-          Salir del panel
-        </button>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col">
-        <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} />
+      <div className="flex min-h-dvh flex-1 flex-col">
+        <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} onLogout={handleLogout} />
         <main className="flex-1 bg-surface-container px-4 py-6 lg:px-[38px] lg:py-[30px]">
           <Outlet />
         </main>

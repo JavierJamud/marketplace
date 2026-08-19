@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers } from "lucide-react";
+import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
@@ -163,6 +164,48 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
   );
 }
 
+// Bloque 77 (pedido explícito): enlace copiable + QR real y escaneable
+// (qrcode.react — antes el único "QR" del proyecto, en VendorTables.jsx, era
+// decorativo, no un QR de verdad) hacia la propia tienda pública
+// (/tienda/:slug, la misma ruta de siempre, no una URL secreta aparte).
+function VendorShareLink({ slug, isPrivate }) {
+  const url = `${window.location.origin}/tienda/${slug}`;
+
+  function copyLink() {
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast.success("Enlace copiado."))
+      .catch(() => toast.error("No se pudo copiar el enlace."));
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-4 rounded-xl border border-outline-variant bg-surface-container/40 p-4 sm:flex-row sm:items-center">
+      <div className="flex-shrink-0 rounded-lg bg-white p-2">
+        <QRCodeSVG value={url} size={104} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="mb-1.5 text-[12px] font-bold text-on-surface-variant">
+          Enlace de tu tienda {isPrivate ? "privada" : "pública"}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            readOnly
+            value={url}
+            onFocus={(e) => e.target.select()}
+            className="h-9 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[12.5px] text-on-surface-variant outline-none"
+          />
+          <Button variant="outline" className="flex-shrink-0 rounded-lg px-3 py-2" onClick={copyLink}>
+            <Copy className="mr-1.5 h-3.5 w-3.5" /> Copiar
+          </Button>
+        </div>
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-outline">
+          <QrCode className="h-3 w-3 flex-shrink-0" /> Escaneable de verdad — imprímelo o compártelo tal cual.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function VendorSettings() {
   const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
@@ -170,6 +213,10 @@ export default function VendorSettings() {
     ownerIdNumber: "",
     companyAddress: "",
     orderDestination: "WHATSAPP",
+    // Bloque 77 (pedido explícito): tienda privada — no aparece en el
+    // catálogo público/buscador, sigue funcionando 100% normal por su link
+    // directo (mismo /tienda/:slug de siempre, ver el card de abajo).
+    isPrivate: false,
     acceptedPaymentMethods: [],
     currency: "CUP",
     warrantyTerms: "",
@@ -223,6 +270,7 @@ export default function VendorSettings() {
       ownerIdNumber: vendor.ownerIdNumber ?? "",
       companyAddress: vendor.companyAddress ?? "",
       orderDestination: vendor.orderDestination ?? "WHATSAPP",
+      isPrivate: vendor.isPrivate ?? false,
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
       currency: vendor.currency ?? "CUP",
       warrantyTerms: vendor.warrantyTerms ?? "",
@@ -564,6 +612,49 @@ export default function VendorSettings() {
             );
           })}
         </div>
+      </div>
+
+      {/* Bloque 77 (pedido explícito): tienda privada — el toggle viaja con
+          el resto del form (mismo "Guardar cambios" de arriba, igual que
+          orderDestination). El link es SIEMPRE el mismo /tienda/:slug de
+          siempre — lo único que cambia es si el sitio la ofrece sola en el
+          catálogo/buscador o no; por eso el QR/link de acá sirven en los dos
+          estados, solo cambia la explicación. */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          {form.isPrivate ? <Lock className="h-5 w-5 text-tertiary-accent" /> : <Globe className="h-5 w-5 text-tertiary-accent" />}
+          Visibilidad de tu tienda
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Una tienda privada no aparece en el inicio, el catálogo, el buscador ni las recomendaciones del asistente — solo la
+          ve quien tenga tu enlace directo. Sigue funcionando exactamente igual: pedidos, reseñas, todo.
+        </p>
+        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setForm((f) => ({ ...f, isPrivate: false }))}
+            className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition ${
+              !form.isPrivate ? "border-tertiary-accent bg-tertiary-accent/[0.06]" : "border-outline-variant hover:border-tertiary-accent/50"
+            }`}
+          >
+            <Globe className={`h-5 w-5 ${!form.isPrivate ? "text-tertiary-accent" : "text-outline"}`} />
+            <div className={`text-[13px] font-bold ${!form.isPrivate ? "text-tertiary-accent" : "text-on-surface"}`}>Pública</div>
+            <p className="text-[11.5px] leading-4 text-outline">Cualquiera puede encontrarte navegando el sitio.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setForm((f) => ({ ...f, isPrivate: true }))}
+            className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition ${
+              form.isPrivate ? "border-tertiary-accent bg-tertiary-accent/[0.06]" : "border-outline-variant hover:border-tertiary-accent/50"
+            }`}
+          >
+            <Lock className={`h-5 w-5 ${form.isPrivate ? "text-tertiary-accent" : "text-outline"}`} />
+            <div className={`text-[13px] font-bold ${form.isPrivate ? "text-tertiary-accent" : "text-on-surface"}`}>Privada</div>
+            <p className="text-[11.5px] leading-4 text-outline">Solo entra quien reciba tu enlace o escanee tu QR.</p>
+          </button>
+        </div>
+
+        {vendor?.slug && <VendorShareLink slug={vendor.slug} isPrivate={form.isPrivate} />}
       </div>
 
       {/* UNIFIED COBERTURA & ZONAS DE ENTREGA */}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { FileText, ShieldCheck, Download, Mail } from "lucide-react";
 import { api, getErrorMessage } from "../lib/api.js";
 import { Input } from "./ui/Input.jsx";

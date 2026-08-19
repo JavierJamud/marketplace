@@ -238,13 +238,18 @@ function extractPriceRange(text) {
 // cliente pidió explícitamente "ver/buscar productos" en general sin decir
 // cuál — antes esto devolvía [] siempre que no quedara ningún término tras
 // sacar las muletillas, aunque hubiera 29 productos reales con stock.
+// Bloque 82: mismo criterio que search.controller.js — un producto agotado
+// no debe recomendarse por el asistente de IA (solo se muestra en su propia
+// tienda, "Próximamente disponibles").
+const IN_STOCK_WHERE = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
+
 async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing } = {}) {
   const priceFilter = priceMin != null || priceMax != null ? { gte: priceMin ?? undefined, lte: priceMax ?? undefined } : undefined;
 
   if (!terms?.length) {
     if (!broadListing) return [];
     return prisma.product.findMany({
-      where: { isActive: true, vendor: { isBlocked: false, status: "ACTIVE" }, price: priceFilter },
+      where: { isActive: true, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
       include: CANDIDATE_INCLUDE,
       take: ZONE_POOL_LIMIT,
       orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -254,7 +259,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
   const matchedIds = await searchProductIdsByTerms(terms);
   const nameOrDescMatches = matchedIds.length
     ? await prisma.product.findMany({
-        where: { id: { in: matchedIds }, vendor: { isBlocked: false, status: "ACTIVE" }, price: priceFilter },
+        where: { id: { in: matchedIds }, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
         include: CANDIDATE_INCLUDE,
         take: ZONE_POOL_LIMIT,
         orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -276,7 +281,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
     const tagIds = (await searchTagMatches(terms)).filter((id) => !haveIds.has(id));
     const extra = tagIds.length
       ? await prisma.product.findMany({
-          where: { id: { in: tagIds }, vendor: { isBlocked: false, status: "ACTIVE" }, price: priceFilter },
+          where: { id: { in: tagIds }, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
           include: CANDIDATE_INCLUDE,
           take: ZONE_POOL_LIMIT - ranked.length,
         })
@@ -364,6 +369,7 @@ async function searchVendors({ terms, provinceId, municipalityId, onlyVerified }
   const where = {
     isBlocked: false,
     status: "ACTIVE",
+    isPrivate: false,
     // Bloque 64: regla de visibilidad, independiente de verificationStatus
     // de abajo — el bot no debe ofrecer una tienda sin catálogo.
     products: { some: { isActive: true } },

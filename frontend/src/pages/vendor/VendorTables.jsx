@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 
 // Mismo algoritmo determinístico del mockup VendorTables.dc.html — un patrón

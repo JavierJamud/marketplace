@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Icons from "lucide-react";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Check, X, Pencil, Trash2, Plus, GripVertical } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";

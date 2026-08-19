@@ -18,12 +18,18 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <LocationProvider>
             <CartProvider>
               <App />
-              {/* Auditoría 2026-08-06: el header público es sticky de 76px —
-                  con el offset por defecto (~16px) el toast quedaba tapando
-                  parcialmente el buscador (ej. al confirmar "Solicitar" en
-                  Store.jsx). containerStyle.top lo baja por debajo del
-                  header en todo el sitio, sin tocar la posición horizontal. */}
-              <Toaster position="top-center" containerStyle={{ top: 90 }} toastOptions={{ duration: 3500 }} />
+              {/* Toaster: contenedor posicionado en top-right.
+                  El diseño visual completo (card, sombra, animaciones) lo
+                  gestiona <Toast> en components/ui/Toast.jsx — el Toaster
+                  solo actúa como portal de montaje sin estilos propios.
+                  La duración de cada toast la decide toast.jsx según contenido. */}
+              <Toaster
+                position="top-right"
+                containerStyle={{ top: 16, right: 16, zIndex: 9999 }}
+                toastOptions={{
+                  style: { padding: 0, background: "transparent", boxShadow: "none", maxWidth: "none" },
+                }}
+              />
             </CartProvider>
           </LocationProvider>
         </AuthProvider>

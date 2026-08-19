@@ -1,5 +1,6 @@
-import { ShieldCheck, Flag } from "lucide-react";
+import { ShieldCheck, Flag, MessageSquareText } from "lucide-react";
 import { StarRating } from "./ui/StarRating.jsx";
+import { EmptyState } from "./ui/EmptyState.jsx";
 import { api } from "../lib/api.js";
 
 function imgUrl(path) {
@@ -120,12 +121,12 @@ function ReviewCard({ r, vendorName, onImageClick, currentUserId, onReportClick 
  * @param {function} onReportClick - Bloque 69: callback(review) al tocar "Reportar" — el padre decide el modal/mutación
  */
 export function ReviewsMarquee({ reviews, vendorName, onImageClick, currentUserId, onReportClick }) {
+  // Pedido explícito (con captura): el texto suelto sin ningún contenedor se
+  // veía poco cuidado — se reemplaza por el mismo `EmptyState` (borde
+  // punteado + ícono + título) que ya usa el resto del sitio para listas
+  // vacías, en vez de un párrafo de texto plano flotando en la página.
   if (!reviews?.length) {
-    return (
-      <p className="text-body-md text-on-surface-variant">
-        Todavía no hay reseñas.
-      </p>
-    );
+    return <EmptyState icon={MessageSquareText} title="Todavía no hay reseñas" description="Sé el primero en compartir tu opinión." />;
   }
 
   // Bug real corregido: con <4 reseñas se triplicaba el contenido

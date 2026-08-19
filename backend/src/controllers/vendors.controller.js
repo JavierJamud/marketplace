@@ -221,6 +221,10 @@ export async function listVendors(req, res) {
     where: {
       isBlocked: false,
       status: "ACTIVE",
+      // Bloque 77 (pedido explícito): una tienda privada nunca aparece en
+      // este catálogo público (Home.jsx/StoresPage) — sigue 100% accesible
+      // por su link directo, ver getVendorBySlug, que NO chequea esto.
+      isPrivate: false,
       // Bloque 64 (regla de visibilidad, INDEPENDIENTE de verificationStatus
       // de arriba): una tienda sin ningún producto publicado no aparece acá,
       // verificada o no, Plan Business o Regular.
@@ -315,6 +319,12 @@ const updateVendorSchema = z.object({
   // importa es invoices.controller.js justo antes de generar el PDF.
   warrantyTerms: z.string().trim().min(1).optional().nullable(),
   warrantyDefaultDays: z.number().int().positive().optional().nullable(),
+  // Bloque 77 (pedido explícito): el vendedor la prende/apaga desde
+  // VendorSettings.jsx — nunca afecta si la tienda funciona (sigue
+  // aceptando pedidos, reseñas, etc.), solo si aparece en el catálogo
+  // público/buscador/recomendaciones de IA (ver los ~9 puntos filtrados en
+  // vendors/search/businessCategories/assistant.controller.js).
+  isPrivate: z.boolean().optional(),
 });
 
 export async function updateMyVendor(req, res) {
@@ -362,6 +372,7 @@ export async function updateMyVendor(req, res) {
       businessCategoryId: data.businessCategoryId,
       warrantyTerms: data.warrantyTerms,
       warrantyDefaultDays: data.warrantyDefaultDays,
+      isPrivate: data.isPrivate,
     },
   });
 

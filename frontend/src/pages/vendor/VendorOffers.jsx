@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Tag, Plus, X, Search, Clock, Trash2, ShieldAlert, Pencil, ImagePlus, Layers } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
@@ -436,6 +436,14 @@ export default function VendorOffers() {
           icon={ShieldAlert}
           title="Disponible solo para tiendas verificadas"
           description="Verifica tu tienda para poder destacar tus productos con ofertas en la página principal."
+          action={
+            <Link
+              to="/vendedor/verificacion"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-secondary-container px-5 py-2.5 text-[13px] font-bold text-primary transition hover:brightness-95"
+            >
+              Ver planes
+            </Link>
+          }
         />
       ) : (
         <>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { CreditCard, Landmark, Bot, Clock, X, Plus, ListChecks } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";

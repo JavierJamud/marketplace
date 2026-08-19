@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { useAuth } from "./AuthContext.jsx";
 import { resolveUnitPrice } from "../lib/pricing.js";

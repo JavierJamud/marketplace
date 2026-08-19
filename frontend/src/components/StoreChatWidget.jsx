@@ -1,7 +1,8 @@
+import { generateId } from "../lib/uuid.js";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { X, Send, RotateCcw, ShoppingCart, Mic, Square, AlertTriangle, Volume2, VolumeX } from "lucide-react";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { useCart } from "../context/CartContext.jsx";
@@ -78,7 +79,7 @@ function getOrCreateSessionId(vendorId) {
 
   let sessionId = expired ? null : localStorage.getItem(sessionKey(vendorId));
   if (!sessionId) {
-    sessionId = crypto.randomUUID();
+    sessionId = generateId();
     localStorage.setItem(sessionKey(vendorId), sessionId);
     touchActivity(vendorId);
   }
@@ -89,7 +90,7 @@ function getOrCreateSessionId(vendorId) {
 // `expired: true`) como por el botón manual "Nuevo chat" — misma acción en
 // los dos casos: identidad de conversación nueva de cero.
 function startNewSession(vendorId) {
-  const sessionId = crypto.randomUUID();
+  const sessionId = generateId();
   localStorage.setItem(sessionKey(vendorId), sessionId);
   touchActivity(vendorId);
   return sessionId;

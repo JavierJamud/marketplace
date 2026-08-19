@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { Lightbulb } from "lucide-react";
 import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";

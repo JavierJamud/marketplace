@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { ShieldCheck, EyeOff, Eye, Trash2, Store, Package, Flag, Check, Ban } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";

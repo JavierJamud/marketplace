@@ -33,7 +33,7 @@ export async function listBusinessCategories(_req, res) {
       name: true,
       slug: true,
       icon: true,
-      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", products: { some: { isActive: true } } } } } },
+      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", isPrivate: false, products: { some: { isActive: true } } } } } },
     },
   });
   res.json({ categories: categories.map(({ _count, ...c }) => ({ ...c, vendorCount: _count.vendors })) });

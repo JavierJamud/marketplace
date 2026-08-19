@@ -164,8 +164,13 @@ export function AuthProvider({ children }) {
     setIdleWarningActive(false);
   }, []);
 
-  const login = async (email, password) => {
-    const { data } = await api.post("/auth/login", { email, password, browserId: getBrowserId(), deviceToken: getDeviceToken() });
+  // Bloque 76 (pedido explícito, bug real reportado en vivo): `context`
+  // ("admin"/"vendor", ausente = /cuenta) le dice al backend qué formulario
+  // se usó — así una cuenta admin probando /vendedor/ingresar (o viceversa)
+  // se corta ANTES de mandar el código de verificación, en vez de recién
+  // después de completarlo (ver auth.controller.js).
+  const login = async (email, password, context) => {
+    const { data } = await api.post("/auth/login", { email, password, browserId: getBrowserId(), deviceToken: getDeviceToken(), context });
     // Bloque 60: el código de login pasa a ser obligatorio para todos salvo
     // que este navegador ya sea de confianza (ver login() en el backend) —
     // el backend NUNCA emite tokens acá si hace falta, solo avisa que mandó
@@ -186,8 +191,8 @@ export function AuthProvider({ children }) {
   // Segundo paso del login — mismo resultado final que login() (tokens +
   // user), validando el código de 6 dígitos. Además marca este navegador
   // como de confianza por 30 días (deviceToken) para no volver a pedirlo.
-  const verifyTwoFactor = async (email, code) => {
-    const { data } = await api.post("/auth/2fa/verify", { email, code, browserId: getBrowserId() });
+  const verifyTwoFactor = async (email, code, context) => {
+    const { data } = await api.post("/auth/2fa/verify", { email, code, browserId: getBrowserId(), context });
     localStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));

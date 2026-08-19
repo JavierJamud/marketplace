@@ -1,3 +1,4 @@
+import { generateId } from "./uuid.js";
 // Bloque 60: dos identificadores propios de ESTE navegador, ninguno de los
 // dos se borra al cerrar sesión (logout()) — son justamente lo que permite
 // que un logout/relogin normal no vuelva a pedir el código de verificación,
@@ -15,7 +16,7 @@ const DEVICE_TOKEN_KEY = "zeudin_device_token";
 export function getBrowserId() {
   let id = localStorage.getItem(BROWSER_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateId();
     localStorage.setItem(BROWSER_ID_KEY, id);
   }
   return id;

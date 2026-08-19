@@ -1,12 +1,24 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Mail, KeyRound } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
+import AdminBranding from "./AdminBranding.jsx";
+
+// Bloque 76 (pedido explícito): "Marca de la plataforma" pasa de ser una
+// entrada propia del menú a vivir acá, como subsección — un admin solo
+// tiene UN lugar para toda su configuración (su cuenta + la marca del
+// sitio) en vez de 2 secciones separadas en el menú. AdminBranding.jsx
+// queda intacto tal cual (mismo componente, sin tocar su lógica interna) —
+// solo cambia desde dónde se llega a él.
+const TABS = [
+  { id: "cuenta", label: "Mi cuenta" },
+  { id: "marca", label: "Marca de la plataforma" },
+];
 
 function PasswordCard() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -49,23 +61,44 @@ function PasswordCard() {
 export default function AdminProfile() {
   const { user } = useAuth();
   const [changingEmail, setChangingEmail] = useState(false);
+  const [tab, setTab] = useState("cuenta");
 
   return (
-    <div className="max-w-[640px]">
+    <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Mi perfil</h1>
-      <p className="mb-[22px] text-[13.5px] text-outline">Correo y contraseña de tu cuenta de administrador.</p>
+      <p className="mb-4 text-[13.5px] text-outline">Tu cuenta de administrador y la marca de la plataforma.</p>
 
-      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
-          <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta
-        </div>
-        <p className="mb-4 text-[13.5px] text-on-surface-variant">{user?.email}</p>
-        <Button variant="outline" onClick={() => setChangingEmail(true)}>Cambiar correo</Button>
+      <div className="mb-[22px] flex flex-wrap gap-1.5 border-b border-surface-container-high">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2.5 text-[13.5px] font-bold transition-colors ${
+              tab === t.id ? "border-b-2 border-secondary text-on-surface" : "text-outline hover:text-on-surface"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <PasswordCard />
+      {tab === "cuenta" && (
+        <div className="max-w-[640px]">
+          <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+            <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+              <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta
+            </div>
+            <p className="mb-4 text-[13.5px] text-on-surface-variant">{user?.email}</p>
+            <Button variant="outline" onClick={() => setChangingEmail(true)}>Cambiar correo</Button>
+          </div>
 
-      {changingEmail && <ChangeEmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}
+          <PasswordCard />
+
+          {changingEmail && <ChangeEmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}
+        </div>
+      )}
+
+      {tab === "marca" && <AdminBranding />}
     </div>
   );
 }

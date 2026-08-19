@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Check, CreditCard, Landmark, ExternalLink, Sparkles, ArrowRight } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";

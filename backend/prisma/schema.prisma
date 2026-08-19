@@ -642,6 +642,26 @@ model Vendor {
   // días antes) y vencer (PAYMENT_FAILED) si nadie confirma un pago nuevo.
   nextPaymentDueDate   DateTime?
   isBlocked   Boolean  @default(false)
+  // Bloque 75 (pedido explícito, bug real reportado en vivo): antes de esto
+  // un vendedor bloqueado a mano por un admin no tenía forma de saber por
+  // qué — su panel seguía cargando todo con normalidad, sin ningún aviso.
+  // Se guarda el motivo que el admin escribe al bloquear (obligatorio, ver
+  // AdminVendors.jsx) y se limpia solo al desbloquear — VendorLayout.jsx lo
+  // muestra en una pantalla de bloqueo real, igual que ya hacía
+  // suspensionReason para el caso de suspensión automática por inactividad.
+  blockReason String?
+  // Bloque 76: para poder ordenar/mostrar "bloqueada el" en "Tiendas
+  // suspendidas" (AdminSuspendedVendors.jsx) igual que ya hace suspendedAt
+  // para el caso automático — se setea/limpia junto con blockReason.
+  blockedAt   DateTime?
+  // Bloque 77 (pedido explícito): tienda privada — sigue 100% funcional por
+  // su link directo (/tienda/:slug, productos, checkout, reseñas, etc., sin
+  // ningún cambio) pero desaparece de TODO punto de descubrimiento público
+  // (catálogo de tiendas, Home, buscador, autocompletado, categorías,
+  // recomendaciones del asistente de IA) — nunca de las acciones que ya
+  // tenía en curso (pedidos existentes, mensajes, etc.). El vendedor comparte
+  // su propio link/QR desde VendorSettings.jsx; nadie más la encuentra sola.
+  isPrivate   Boolean  @default(false)
   // Bloque 12: soft-delete de tienda — al eliminar se fuerza isBlocked:true
   // también (así los ~8 puntos del código que ya filtran por isBlocked:false
   // ocultan la tienda sin tocar cada uno) y se guarda deletedAt como marca
@@ -1206,6 +1226,14 @@ model SiteSettings {
   whatsappUrl  String?
   instagramUrl String?
   facebookUrl  String?
+  // Bloque 75 (pedido explícito): número de soporte en formato E.164 (ej.
+  // +5355512345) — DISTINTO de whatsappUrl de arriba (ese es un link
+  // cualquiera para el ícono del pie de los correos; este es un número
+  // crudo para poder armar un deep link de WhatsApp con mensaje
+  // prellenado). Lo usa el botón "Contactar soporte" que ve un vendedor con
+  // la tienda bloqueada o suspendida (VendorLayout.jsx) — cambiarlo acá
+  // actualiza el botón en todos lados, sin tocar código.
+  supportWhatsapp String?
   // Límites por plan — cuántos países de entrega y provincias de Cuba puede
   // tener cargados un vendedor a la vez. Nunca hardcodeados en el código:
   // el admin los edita desde AdminLocations.jsx. null en el máximo de

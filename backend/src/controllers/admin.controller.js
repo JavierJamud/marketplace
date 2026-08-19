@@ -141,10 +141,19 @@ export async function getDashboard(_req, res) {
 
 // --- Tiendas -----------------------------------------------------------
 
+// Bloque 76 (pedido explícito): una tienda bloqueada o suspendida
+// desaparece de esta lista por completo — vive en "Tiendas suspendidas"
+// (listSuspendedVendors) hasta que un admin la desbloquee/reactive, y recién
+// ahí vuelve a aparecer acá.
 export async function listVendors(req, res) {
   const { plan } = req.query;
   const vendors = await prisma.vendor.findMany({
-    where: { planType: plan === "business" ? "BUSINESS" : plan === "regular" ? "REGULAR" : undefined, deletedAt: null },
+    where: {
+      planType: plan === "business" ? "BUSINESS" : plan === "regular" ? "REGULAR" : undefined,
+      deletedAt: null,
+      isBlocked: false,
+      status: { not: "SUSPENDED" },
+    },
     include: { locations: { include: { province: true }, take: 1 }, category: true },
     orderBy: { createdAt: "desc" },
   });
@@ -153,6 +162,10 @@ export async function listVendors(req, res) {
 
 const updateVendorSchema = z.object({
   isBlocked: z.boolean().optional(),
+  // Bloque 75 (pedido explícito): motivo obligatorio al bloquear — el
+  // vendedor lo ve en su panel (VendorLayout.jsx) y lo usa para escribirle a
+  // soporte con contexto real, en vez de quedar sin ninguna explicación.
+  blockReason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.").optional(),
   planType: z.enum(["REGULAR", "BUSINESS"]).optional(),
   // Edición básica desde el admin (Bloque 12) — mismas reglas de forma que
   // el registro del vendedor.
@@ -172,33 +185,47 @@ export async function updateVendor(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
 
-  // Bloque 46 (auditoría de conexión — bug real encontrado): "Bloquear" solo
-  // ocultaba la tienda del sitio público (isBlocked ya se filtraba en
-  // listVendors/getVendorBySlug), pero la cuenta del dueño podía seguir
-  // entrando a su panel de vendedor sin ningún problema — login() únicamente
-  // chequea User.isSuspended, nunca Vendor.isBlocked. Mismo criterio que ya
-  // usa deleteVendor (soft-delete) para el caso permanente: sincronizar
-  // isSuspended con isBlocked acá también, para el caso reversible.
-  const updated =
-    data.isBlocked === undefined
-      ? await prisma.vendor.update({ where: { id }, data })
-      : (
-          await prisma.$transaction([
-            prisma.vendor.update({ where: { id }, data }),
-            prisma.user.update({ where: { id: vendor.userId }, data: { isSuspended: data.isBlocked } }),
-          ])
-        )[0];
+  // Bloque 75 (pedido explícito, bug real reportado en vivo): "Bloquear"
+  // dejaba al dueño sin ninguna forma de saber que su tienda estaba
+  // bloqueada — el panel de vendedor no chequeaba isBlocked para nada, solo
+  // status:"SUSPENDED" (inactividad). En vez de seguir bloqueando el LOGIN
+  // en sí (lo que antes hacía esto vía User.isSuspended, y por eso una
+  // sesión ya abierta se colaba sin aviso — exactamente el bug reportado),
+  // ahora se unifica con el mismo mecanismo que ya usa la suspensión
+  // automática: el vendedor puede entrar, pero VendorLayout.jsx lo detiene
+  // con una pantalla real explicando el motivo + botón de contacto. Motivo
+  // obligatorio al bloquear, se limpia solo al desbloquear.
+  if (data.isBlocked === true && !data.blockReason && !vendor.blockReason) {
+    throw new AppError("Escribe el motivo del bloqueo.", 400);
+  }
+  const vendorData = { ...data };
+  delete vendorData.blockReason;
+  if (data.isBlocked === true) {
+    vendorData.blockReason = data.blockReason ?? vendor.blockReason;
+    vendorData.blockedAt = vendor.blockedAt ?? new Date();
+  }
+  if (data.isBlocked === false) {
+    vendorData.blockReason = null;
+    vendorData.blockedAt = null;
+  }
+
+  const updated = await prisma.vendor.update({ where: { id }, data: vendorData });
   res.json({ vendor: updated });
 }
 
-// Bloque 62: pantalla propia (AdminSuspendedVendors.jsx) — separada de
-// listVendors porque acá importa la razón/fecha de la suspensión, no lo que
-// ya muestra la tabla general de tiendas.
+// Bloque 62/76: pantalla propia (AdminSuspendedVendors.jsx) — junta las 2
+// formas en que una tienda queda inhabilitada (bloqueo manual del admin O
+// suspensión automática por inactividad), porque para el vendedor el
+// resultado es el mismo (tienda oculta, panel bloqueado) y el admin necesita
+// verlas juntas para saber qué tiendas requieren su atención. Cada fila trae
+// su propio motivo/fecha — la UI (AdminSuspendedVendors.jsx) decide qué
+// mostrar y qué acción ofrecer (Desbloquear vs Reactivar) según cuál de los
+// 2 campos esté seteado.
 export async function listSuspendedVendors(_req, res) {
   const vendors = await prisma.vendor.findMany({
-    where: { status: "SUSPENDED" },
+    where: { OR: [{ status: "SUSPENDED" }, { isBlocked: true }] },
     include: { locations: { include: { province: true }, take: 1 }, category: true, user: { select: { lastLoginAt: true } } },
-    orderBy: { suspendedAt: "desc" },
+    orderBy: [{ blockedAt: "desc" }, { suspendedAt: "desc" }],
   });
   res.json({ vendors });
 }

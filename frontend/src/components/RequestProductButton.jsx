@@ -1,6 +1,7 @@
+import { generateId } from "../lib/uuid.js";
 import { useState } from "react";
 import { Bell, Check } from "lucide-react";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -13,7 +14,7 @@ const GUEST_ID_KEY = "zeudin_guest_id";
 function getOrCreateGuestId() {
   let id = localStorage.getItem(GUEST_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateId();
     localStorage.setItem(GUEST_ID_KEY, id);
   }
   return id;

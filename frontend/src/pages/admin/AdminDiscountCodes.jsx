@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Percent, Power, Trash2 } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";

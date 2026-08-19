@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Plus, Minus, UtensilsCrossed } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";

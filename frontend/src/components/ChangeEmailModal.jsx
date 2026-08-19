@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { useAuth, loginPathFor } from "../context/AuthContext.jsx";
 import { Input } from "./ui/Input.jsx";

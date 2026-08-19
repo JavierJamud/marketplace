@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { CheckCircle2, MessageCircle, Globe2, MapPin } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";

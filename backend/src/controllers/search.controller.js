@@ -66,7 +66,7 @@ async function findProductIdsByTag(q, limit) {
 async function findVendorIdsByCompanyName(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Vendor"
-    WHERE "isBlocked" = false AND "status" = 'ACTIVE'
+    WHERE "isBlocked" = false AND "status" = 'ACTIVE' AND "isPrivate" = false
       AND regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g')
           ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
     LIMIT ${limit}
@@ -101,7 +101,7 @@ async function findProductIdsByTrigram(q, limit) {
 async function findVendorIdsByTrigram(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Vendor"
-    WHERE "isBlocked" = false AND "status" = 'ACTIVE'
+    WHERE "isBlocked" = false AND "status" = 'ACTIVE' AND "isPrivate" = false
       AND similarity(regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
     ORDER BY similarity(regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) DESC
     LIMIT ${limit}
@@ -144,9 +144,16 @@ export async function structuredSearch(req, res) {
     categoryId: categoryIds ? { in: categoryIds } : undefined,
     price: minPrice || maxPrice ? { gte: minPrice ? Number(minPrice) : undefined, lte: maxPrice ? Number(maxPrice) : undefined } : undefined,
     paymentMethods: paymentMethods?.length ? { hasSome: paymentMethods } : undefined,
+    // Bloque 82 (pedido explícito, bug real reportado en vivo): un producto
+    // agotado (sin `unlimitedStock`, `stock` 0) no debe aparecer en Home ni
+    // en el catálogo — solo se muestra en su propia tienda, en la sección
+    // "Próximamente disponibles" (Store.jsx, Bloque 23, que consulta
+    // getVendorBySlug directo, sin pasar por acá — a propósito no se toca).
+    OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
     vendor: {
       isBlocked: false,
       status: "ACTIVE",
+      isPrivate: false,
       verificationStatus: onlyVerified === "true" ? "VERIFIED" : undefined,
       locations: provinceId
         ? { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } }
@@ -283,6 +290,7 @@ export async function autocompleteSearch(req, res) {
   const vendorWhere = {
     isBlocked: false,
     status: "ACTIVE",
+    isPrivate: false,
     products: { some: { isActive: true } },
     ...(onlyVerified ? { verificationStatus: "VERIFIED" } : {}),
   };
@@ -293,16 +301,21 @@ export async function autocompleteSearch(req, res) {
   // (280ms de debounce en SearchBar.jsx) — sin llamada a IA acá a propósito,
   // tiene que sentirse instantáneo mientras el cliente todavía está
   // escribiendo; la corrección con IA queda para /search (Enter/resultados).
+  // Bloque 82: mismo criterio que structuredSearch — un producto agotado no
+  // debe aparecer en el dropdown de búsqueda en vivo (solo en su tienda, ver
+  // "Próximamente disponibles").
+  const inStockWhere = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
+
   const nameOrDescIds = await findProductIdsByNameOrDescription(q, 40);
   const nameOrDescMatches = nameOrDescIds.length
-    ? await prisma.product.findMany({ where: { id: { in: nameOrDescIds }, vendor: vendorWhere }, include: { vendor: { select: vendorSelect } } })
+    ? await prisma.product.findMany({ where: { id: { in: nameOrDescIds }, vendor: vendorWhere, ...inStockWhere }, include: { vendor: { select: vendorSelect } } })
     : [];
 
   const tagIds = await findProductIdsByTag(q, 40);
   const alreadyHaveIds = new Set(nameOrDescMatches.map((p) => p.id));
   const tagOnlyIds = tagIds.filter((id) => !alreadyHaveIds.has(id));
   const tagOnlyMatches = tagOnlyIds.length
-    ? await prisma.product.findMany({ where: { id: { in: tagOnlyIds }, vendor: vendorWhere }, include: { vendor: { select: vendorSelect } } })
+    ? await prisma.product.findMany({ where: { id: { in: tagOnlyIds }, vendor: vendorWhere, ...inStockWhere }, include: { vendor: { select: vendorSelect } } })
     : [];
 
   let candidates = [...nameOrDescMatches, ...tagOnlyMatches].filter((p) => !p.vendor.isBlocked);
@@ -314,7 +327,7 @@ export async function autocompleteSearch(req, res) {
   if (candidates.length === 0) {
     const fuzzyIds = await findProductIdsByTrigram(q, 40);
     if (fuzzyIds.length) {
-      const fuzzyProducts = await prisma.product.findMany({ where: { id: { in: fuzzyIds }, vendor: vendorWhere }, include: { vendor: { select: vendorSelect } } });
+      const fuzzyProducts = await prisma.product.findMany({ where: { id: { in: fuzzyIds }, vendor: vendorWhere, ...inStockWhere }, include: { vendor: { select: vendorSelect } } });
       candidates = reorderByIds(fuzzyProducts.filter((p) => !p.vendor.isBlocked), fuzzyIds);
       fuzzy = true;
     }

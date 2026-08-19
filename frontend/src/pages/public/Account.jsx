@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -54,7 +54,7 @@ function AccountShell({ provinceCount, mode = "customer", children }) {
   const { siteName, logoUrl } = usePlatformSettings();
   const copy = SHELL_COPY[mode];
   return (
-    <div className="min-h-screen animate-fade-up bg-background lg:grid lg:grid-cols-2">
+    <div className="min-h-dvh animate-fade-up bg-background lg:grid lg:grid-cols-2">
       {/* Panel izquierdo — marca completa en desktop */}
       <div className="hidden flex-col justify-center overflow-hidden bg-gradient-to-br from-primary-container to-primary px-14 py-14 lg:flex">
         <Link to="/" className="mb-9 flex items-center gap-2.5">
@@ -239,7 +239,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const result = await login(loginForm.email, loginForm.password);
+        const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" ? mode : undefined);
         // Bloque 47: 2FA opt-in — en vez de navegar, muestra el paso de
         // "ingresa el código" (mismo patrón visual que forgot-code).
         if (result?.requiresTwoFactor) {
@@ -273,7 +273,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode);
+        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" ? mode : undefined);
         if (!roleAllowedForMode(user.role)) {
           logout();
           toast.error("Credenciales inválidas.");

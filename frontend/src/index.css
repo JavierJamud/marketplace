@@ -24,6 +24,23 @@
   }
 }
 
+/* Bug real reportado en vivo: en mobile, Safari/Chrome hacen zoom
+   automático apenas se enfoca un input/textarea/select con font-size menor
+   a 16px — es un comportamiento propio del focus (para que el texto sea
+   legible), no del gesto de zoom, así que ni user-scalable=no ni
+   touch-action de arriba lo evitan. Casi todo el sitio usa tamaños de texto
+   compactos (12-14px) por diseño — en vez de tocar cada input de cada
+   archivo, se fuerza 16px SOLO en pantallas chicas (<=640px, mismo
+   breakpoint `sm` que ya usa el resto del sitio), dejando el tamaño
+   compacto intacto en tablet/desktop. */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 @layer components {
   .container-app {
     @apply mx-auto w-full max-w-content px-4 sm:px-gutter;
@@ -218,4 +235,28 @@
     opacity: 0;
     transform: scale(1.02);
   }
+}
+
+/* ─── Toast: entrada con rebote spring desde la derecha ───────────────────── */
+@keyframes toastIn {
+  0%   { transform: translateX(calc(100% + 24px)); opacity: 0; }
+  55%  { opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+/* Salida rápida hacia la derecha */
+@keyframes toastOut {
+  0%   { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(calc(100% + 24px)); opacity: 0; }
+}
+
+/* Barra de progreso: de izquierda a derecha (scaleX 0 → 1) */
+@keyframes toastProgress {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Spinner del toast de tipo loading */
+@keyframes toastSpin {
+  to { transform: rotate(360deg); }
 }

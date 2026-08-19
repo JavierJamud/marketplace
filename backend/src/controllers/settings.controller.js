@@ -44,6 +44,10 @@ export async function getSettings(_req, res) {
       whatsappUrl: settings.whatsappUrl,
       instagramUrl: settings.instagramUrl,
       facebookUrl: settings.facebookUrl,
+      // Bloque 75: número crudo (E.164) para el botón "Contactar soporte"
+      // que ve un vendedor bloqueado/suspendido — distinto de whatsappUrl
+      // (ese es un link libre para el ícono del pie de los correos).
+      supportWhatsapp: settings.supportWhatsapp,
       offerCooldownDays: settings.offerCooldownDays,
       offerDefaultDurationDays: settings.offerDefaultDurationDays,
       showChatWidget: settings.showChatWidget,
@@ -205,6 +209,10 @@ const brandingSchema = z.object({
   whatsappUrl: z.string().trim().optional().nullable(),
   instagramUrl: z.string().trim().optional().nullable(),
   facebookUrl: z.string().trim().optional().nullable(),
+  // Bloque 75: a diferencia de whatsappUrl (link libre), este SÍ se valida
+  // en formato E.164 — hace falta un número crudo, no un link, para poder
+  // armarle un mensaje prellenado al botón "Contactar soporte".
+  supportWhatsapp: z.union([z.string().regex(/^\+\d{7,15}$/, "Incluye el código de país (ej. +5355512345)."), z.literal("")]).optional().nullable(),
 });
 
 // Admin ("Marca de la plataforma") — nombre de la plataforma y logo por
@@ -219,6 +227,7 @@ export async function updateBranding(req, res) {
   if (data.whatsappUrl !== undefined) update.whatsappUrl = data.whatsappUrl || null;
   if (data.instagramUrl !== undefined) update.instagramUrl = data.instagramUrl || null;
   if (data.facebookUrl !== undefined) update.facebookUrl = data.facebookUrl || null;
+  if (data.supportWhatsapp !== undefined) update.supportWhatsapp = data.supportWhatsapp || null;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
   res.json({
     settings: {
@@ -227,6 +236,7 @@ export async function updateBranding(req, res) {
       whatsappUrl: updated.whatsappUrl,
       instagramUrl: updated.instagramUrl,
       facebookUrl: updated.facebookUrl,
+      supportWhatsapp: updated.supportWhatsapp,
     },
   });
 }

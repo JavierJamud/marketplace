@@ -1,8 +1,9 @@
+import { generateId } from "../lib/uuid.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { X, Send, RotateCcw, Mic, Square, Store as StoreIcon, AlertTriangle, Volume2, VolumeX } from "lucide-react";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
@@ -58,14 +59,14 @@ function getOrCreateSessionId() {
   const expired = lastActivity && Date.now() - lastActivity > SESSION_EXPIRY_MS;
   let sessionId = expired ? null : localStorage.getItem(SESSION_KEY);
   if (!sessionId) {
-    sessionId = crypto.randomUUID();
+    sessionId = generateId();
     localStorage.setItem(SESSION_KEY, sessionId);
     touchActivity();
   }
   return sessionId;
 }
 function startNewSession() {
-  const sessionId = crypto.randomUUID();
+  const sessionId = generateId();
   localStorage.setItem(SESSION_KEY, sessionId);
   touchActivity();
   return sessionId;

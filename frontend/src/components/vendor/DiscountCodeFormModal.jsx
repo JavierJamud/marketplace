@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { X } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../ui/Button.jsx";

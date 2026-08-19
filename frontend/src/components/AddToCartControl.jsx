@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Minus, Plus, ShoppingCart, X } from "lucide-react";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../lib/api.js";
@@ -98,7 +98,26 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
     </button>
   );
 
+  // Bug real reportado en vivo (con captura): un producto SIN tallas y con
+  // stock 0 (no unlimitedStock) igual se podía agregar al carrito — este
+  // botón nunca chequeaba stock para nada, a diferencia del selector de
+  // tallas de arriba (que sí deshabilita cada talla agotada). Con tallas, no
+  // hace falta repetir el chequeo acá: `activeSize` solo llega a existir si
+  // el cliente pudo elegir una talla con stock > 0 (las agotadas ya vienen
+  // deshabilitadas arriba).
+  const outOfStock = !hasSizes && !product.unlimitedStock && Number(product.stock) === 0;
+
   if (!existing) {
+    if (outOfStock) {
+      return (
+        <span
+          title="Sin stock"
+          className={`flex ${dim} flex-shrink-0 cursor-not-allowed items-center justify-center ${shape} bg-surface-container text-outline/50`}
+        >
+          {variant === "circle" ? <Plus className={iconDim} /> : <ShoppingCart className={iconDim} />}
+        </span>
+      );
+    }
     return (
       <div className="flex items-center">
         {sizeChip}

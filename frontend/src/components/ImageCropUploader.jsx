@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Cropper from "react-easy-crop";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { ImagePlus, ZoomIn } from "lucide-react";
 import { Button } from "./ui/Button.jsx";
 import { getCroppedImageBlob } from "../utils/cropImage.js";

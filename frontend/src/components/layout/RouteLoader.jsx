@@ -23,7 +23,15 @@ export function RouteLoader() {
     // vez de arriba del todo. Solo depende de pathname (no de location
     // completa) para no pisar un scroll-a-sección por hash dentro de la
     // MISMA página (ver Store.jsx `#resenas`).
-    window.scrollTo(0, 0);
+    // Bug real reportado en vivo: `html` tiene `scroll-smooth` global
+    // (index.css) — un `window.scrollTo(0,0)` sin más queda sujeto a ese
+    // scroll-behavior:smooth del CSS y ANIMA desde la posición vieja en vez
+    // de saltar directo, así que la página nueva se veía "un poco desplazada
+    // hacia arriba" en vez de arrancar ya arriba del todo. `behavior:
+    // "instant"` fuerza el salto inmediato, ignorando el smooth del CSS —
+    // el scroll-smooth global sigue intacto para todo lo demás (ej. anclas
+    // `#resenas` dentro de la misma página).
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
 
     setVisible(true);
     setProgress(20);

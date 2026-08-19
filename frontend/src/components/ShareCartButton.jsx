@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../lib/toast.jsx";
 import { Share2 } from "lucide-react";
 import { api } from "../lib/api.js";
 import { useCart } from "../context/CartContext.jsx";

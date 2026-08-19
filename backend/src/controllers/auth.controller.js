@@ -199,7 +199,25 @@ const loginSchema = z.object({
   // este navegador ya verificó un código de login para ESTA cuenta en los
   // últimos 30 días, se salta el paso de 2FA.
   deviceToken: z.string().nullish(),
+  // Bloque 76 (bug real reportado en vivo): qué formulario de login se usó
+  // ("admin"/"vendor", ausente = /cuenta, acepta cualquier rol como
+  // siempre) — antes esto solo se validaba en el FRONTEND, y encima recién
+  // DESPUÉS de completar el 2FA entero: una cuenta admin podía arrancar el
+  // login desde /vendedor/ingresar, recibir un código de verdad por correo,
+  // confirmarlo, y recién ahí el frontend deshacía la sesión con
+  // "Credenciales inválidas" — mandaba un código innecesario y emitía
+  // tokens reales por un instante para una cuenta que nunca debía poder
+  // entrar por ahí. Ahora se corta acá, antes de mandar ningún código.
+  context: z.enum(["admin", "vendor"]).nullish(),
 });
+
+// Mismo mensaje genérico que una contraseña incorrecta — un admin probando
+// el formulario de vendedor (o viceversa) nunca debe poder distinguir "no
+// existe esta cuenta" de "existe pero no con ese rol".
+function assertRoleMatchesContext(user, context) {
+  if (context === "admin" && user.role !== "ADMIN") throw new AppError("Correo o contraseña incorrectos.", 401);
+  if (context === "vendor" && user.role !== "VENDOR") throw new AppError("Correo o contraseña incorrectos.", 401);
+}
 
 // Bloque 47/60: mismo largo/TTL que el reset de contraseña, pero en campos
 // propios (twoFactorCodeHash/twoFactorCodeExpiresAt) — un reset en curso y
@@ -215,6 +233,8 @@ export async function login(req, res) {
 
   const valid = await bcrypt.compare(data.password, user.passwordHash);
   if (!valid) throw new AppError("Correo o contraseña incorrectos.", 401);
+
+  assertRoleMatchesContext(user, data.context);
 
   // isSuspended ya existía (Bloque 4, "Suspender" en AdminCustomers.jsx) pero
   // nunca se chequeaba acá — el botón no bloqueaba nada de verdad. Bloque 12
@@ -261,10 +281,14 @@ const verifyTwoFactorSchema = z.object({
   email: z.string().email(),
   code: z.string().length(TWO_FACTOR_CODE_LENGTH),
   browserId: z.string().nullish(),
+  // Bloque 76: defensa en profundidad — login() ya corta antes de mandar el
+  // código si el contexto no coincide, así que en la práctica esto nunca
+  // debería dispararse, pero no cuesta nada repetir el chequeo acá también.
+  context: z.enum(["admin", "vendor"]).nullish(),
 });
 
 export async function verifyTwoFactorLogin(req, res) {
-  const { email, code, browserId } = verifyTwoFactorSchema.parse(req.body);
+  const { email, code, browserId, context } = verifyTwoFactorSchema.parse(req.body);
   const user = await prisma.user.findUnique({ where: { email } });
 
   const valid =
@@ -272,6 +296,8 @@ export async function verifyTwoFactorLogin(req, res) {
       ? await bcrypt.compare(code, user.twoFactorCodeHash)
       : false;
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
+
+  assertRoleMatchesContext(user, context);
 
   // El código se invalida al usarlo — no se puede reutilizar para un segundo
   // login. Bloque 62: mismo update ya de paso registra el login exitoso.

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Pencil, Trash2, ScanBarcode, X, ArrowUpDown, Star, Ruler, Layers } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";

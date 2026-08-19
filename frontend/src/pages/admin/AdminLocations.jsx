@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Globe2, MapPin, Plus, Pencil, SlidersHorizontal, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";

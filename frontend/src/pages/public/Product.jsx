@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Minus, Plus, ShoppingCart, MapPin, ShieldCheck, ScanBarcode, CheckCircle2, Star, Camera, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
@@ -461,11 +461,26 @@ export default function Product() {
           )}
 
           <div className="mb-5 flex flex-wrap gap-2">
-            {(product.paymentMethods ?? []).map((m) => (
+            {/* Bug real reportado en vivo (con captura): "table" es un valor
+                interno del enum `paymentMethods` (products.controller.js)
+                que quedó de datos de siembra viejos — no es un método de
+                pago real que el vendedor pueda elegir hoy (el pedido por
+                mesa/QR es un campo aparte, `availableForTableMenu`, ver
+                VendorProducts.jsx) ni algo que el cliente entienda al
+                leerlo tal cual. Se filtra en vez de traducirlo — no
+                corresponde mostrarlo como si fuera un método de pago. */}
+            {(product.paymentMethods ?? []).filter((m) => m !== "table").map((m) => (
               <span key={m} className="rounded-full bg-surface-container px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">
                 {PAY_LABELS[m] ?? m}
               </span>
             ))}
+            {/* Pedido explícito: en vez de dejar ese espacio con el valor
+                crudo/confuso de arriba, un producto sin stock real muestra
+                acá mismo una pastilla "Agotado" — mismo criterio de color
+                que el badge "Sin stock" de ProductCard.jsx. */}
+            {!product.unlimitedStock && product.stock === 0 && (
+              <span className="rounded-full bg-error/10 px-3 py-1.5 text-[12px] font-bold text-error">Agotado</span>
+            )}
           </div>
 
           {/* Bloque 68 (pedido explícito): antes acá había un atajo directo a
@@ -475,21 +490,31 @@ export default function Product() {
               "Agregar al carrito" → checkout con formulario obligatorio; el
               destino elegido por la tienda solo cambia qué se le ofrece
               DESPUÉS de confirmar el pedido (ver Checkout.jsx). */}
-          <div className="mb-3.5 flex items-center gap-3.5">
-            <div className="flex items-center rounded border border-outline-variant">
-              <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[46px] w-10 items-center justify-center text-lg text-on-surface">
-                <Minus className="h-4 w-4" />
-              </button>
-              <div className="w-[42px] text-center text-title-lg font-semibold">{qty}</div>
-              <button
-                onClick={() => setQty((q) => Math.min(q + 1, remainingStock || 1))}
-                disabled={qty >= remainingStock}
-                className={`flex h-[46px] w-10 items-center justify-center text-lg ${qty >= remainingStock ? "cursor-not-allowed text-outline/40" : "text-on-surface"}`}
-              >
-                <Plus className="h-4 w-4" />
-              </button>
+          {/* Bug real reportado en vivo (con captura): el stepper se mostraba
+              SIEMPRE, incluso sin stock real disponible — y el botón "-"
+              tenía un piso de `Math.max(1, q - 1)` que nunca lo dejaba bajar
+              de 1, así que un producto sin stock mostraba "1" para siempre.
+              Sin stock, el botón de abajo pasa a "Solicitar este producto"
+              (RequestProductButton), que no usa ninguna cantidad — el
+              stepper no tiene sentido ahí, así que se oculta del todo en vez
+              de mostrar un número que no representa nada real. */}
+          {remainingStock > 0 && (
+            <div className="mb-3.5 flex items-center gap-3.5">
+              <div className="flex items-center rounded border border-outline-variant">
+                <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[46px] w-10 items-center justify-center text-lg text-on-surface">
+                  <Minus className="h-4 w-4" />
+                </button>
+                <div className="w-[42px] text-center text-title-lg font-semibold">{qty}</div>
+                <button
+                  onClick={() => setQty((q) => Math.min(q + 1, remainingStock || 1))}
+                  disabled={qty >= remainingStock}
+                  className={`flex h-[46px] w-10 items-center justify-center text-lg ${qty >= remainingStock ? "cursor-not-allowed text-outline/40" : "text-on-surface"}`}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           {!product.unlimitedStock && product.stock === 0 ? (
             <RequestProductButton productId={product.id} />
           ) : (

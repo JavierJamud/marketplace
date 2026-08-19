@@ -24,5 +24,8 @@ export function usePlatformSettings() {
   return {
     siteName: data?.siteName || DEFAULT_SITE_NAME,
     logoUrl: resolveLogoUrl(data?.logoUrl),
+    // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del
+    // vendedor bloqueado/suspendido — null si el admin nunca lo cargó.
+    supportWhatsapp: data?.supportWhatsapp || null,
   };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
-import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet, Share2, Plus, Tag } from "lucide-react";
+import toast from "../../lib/toast.jsx";
+import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -26,6 +26,9 @@ export default function AdminBranding() {
   // emailShell() en backend/src/templates/_shared.js. "Sitio web" no
   // necesita un campo acá, siempre es la URL del propio sitio.
   const [social, setSocial] = useState({ whatsappUrl: "", instagramUrl: "", facebookUrl: "" });
+  // Bloque 75 (pedido explícito): número crudo (no un link) para el botón
+  // "Contactar soporte" que ve un vendedor con la tienda bloqueada/suspendida.
+  const [supportWhatsapp, setSupportWhatsapp] = useState("");
 
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -43,6 +46,7 @@ export default function AdminBranding() {
         instagramUrl: settings.instagramUrl ?? "",
         facebookUrl: settings.facebookUrl ?? "",
       });
+      setSupportWhatsapp(settings.supportWhatsapp ?? "");
     }
   }, [settings]);
 
@@ -69,6 +73,15 @@ export default function AdminBranding() {
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar las redes."),
+  });
+
+  const saveSupportWhatsapp = useMutation({
+    mutationFn: async () => (await api.patch("/admin/settings/branding", { supportWhatsapp: supportWhatsapp.trim() })).data,
+    onSuccess: () => {
+      toast.success("Número de soporte actualizado.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el número."),
   });
 
   const uploadLogoFile = useMutation({
@@ -321,6 +334,30 @@ export default function AdminBranding() {
         </div>
         <Button className="mt-4 rounded-xl px-5" disabled={saveSocial.isPending} onClick={() => saveSocial.mutate()}>
           {saveSocial.isPending ? "Guardando..." : "Guardar redes sociales"}
+        </Button>
+      </div>
+
+      {/* Bloque 75 (pedido explícito): número crudo, no un link — lo usa el
+          botón "Contactar soporte" que ve un vendedor con la tienda
+          bloqueada/suspendida (VendorLayout.jsx) para armar un mensaje de
+          WhatsApp prellenado. Cambiarlo acá actualiza el botón en todos
+          lados de una, sin tocar código. */}
+      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+          <LifeBuoy className="h-4 w-4 text-tertiary-accent" /> Número de soporte
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          A dónde llega el botón "Contactar soporte" que ve un vendedor con la tienda bloqueada o suspendida — abre
+          WhatsApp con un mensaje ya armado (nombre de la tienda + motivo).
+        </p>
+        <Input
+          label="WhatsApp de soporte"
+          placeholder="+5355512345"
+          value={supportWhatsapp}
+          onChange={(e) => setSupportWhatsapp(e.target.value)}
+        />
+        <Button className="mt-4 rounded-xl px-5" disabled={saveSupportWhatsapp.isPending} onClick={() => saveSupportWhatsapp.mutate()}>
+          {saveSupportWhatsapp.isPending ? "Guardando..." : "Guardar número de soporte"}
         </Button>
       </div>
 

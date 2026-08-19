@@ -63,10 +63,15 @@ export default function VendorChat() {
             <Lock className="h-5 w-5" />
             <span className="text-[14px] font-bold">Función exclusiva para tiendas verificadas</span>
           </div>
-          <p className="mb-3 text-[12.5px] leading-[18px] text-white/80">
+          <p className="mb-4 text-[12.5px] leading-[18px] text-white/80">
             El chat con el equipo de {siteName} se habilita automáticamente cuando tu tienda pasa la verificación KYC.
           </p>
-          <Link to="/vendedor/verificacion" className="text-[12.5px] font-bold text-secondary-container">Verificar mi tienda →</Link>
+          <Link
+            to="/vendedor/verificacion"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-secondary-container px-5 py-2.5 text-[13px] font-bold text-primary transition hover:brightness-95"
+          >
+            Ver planes
+          </Link>
         </div>
       </div>
     );

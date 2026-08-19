@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import toast from "react-hot-toast";
+import toast from "../../lib/toast.jsx";
 import { Search, X, BarChart3 } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -125,6 +125,7 @@ export default function AdminVendors() {
   const [deleting, setDeleting] = useState(null);
   const [viewingStats, setViewingStats] = useState(null);
   const [blocking, setBlocking] = useState(null); // tienda a bloquear, para el modal de confirmación
+  const [blockReason, setBlockReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-vendors", filter],
@@ -137,10 +138,10 @@ export default function AdminVendors() {
       queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
       setEditing(null);
       setBlocking(null);
+      setBlockReason("");
     },
     onError: (err) => {
       toast.error(err.response?.data?.error ?? "No se pudo actualizar la tienda.");
-      setBlocking(null);
     },
   });
 
@@ -277,12 +278,24 @@ export default function AdminVendors() {
       <ConfirmModal
         open={!!blocking}
         title={`¿Bloquear "${blocking?.companyName}"?`}
-        message="La tienda se oculta de todo el sitio y el dueño no va a poder volver a entrar hasta que la desbloquees."
+        message="La tienda se oculta de todo el sitio. El dueño sí puede entrar a su panel, pero ve el motivo que escribas abajo y no puede usar ninguna sección hasta que la desbloquees."
         confirmLabel={update.isPending ? "Bloqueando..." : "Sí, bloquear"}
         danger
-        onConfirm={() => update.mutate({ id: blocking.id, payload: { isBlocked: true } })}
-        onCancel={() => setBlocking(null)}
-      />
+        confirmDisabled={blockReason.trim().length < 5 || update.isPending}
+        onConfirm={() => update.mutate({ id: blocking.id, payload: { isBlocked: true, blockReason: blockReason.trim() } })}
+        onCancel={() => {
+          setBlocking(null);
+          setBlockReason("");
+        }}
+      >
+        <textarea
+          value={blockReason}
+          onChange={(e) => setBlockReason(e.target.value)}
+          placeholder="Motivo del bloqueo (obligatorio, lo va a ver el vendedor)..."
+          rows={3}
+          className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+        />
+      </ConfirmModal>
     </div>
   );
 }

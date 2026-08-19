@@ -12,7 +12,7 @@ export default function NotFound() {
   const { siteName, logoUrl } = usePlatformSettings();
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-primary-container to-primary px-6 py-16 text-center">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-gradient-to-b from-primary-container to-primary px-6 py-16 text-center">
       <Link to="/" className="mb-9 flex items-center gap-2.5">
         {logoUrl ? (
           <img src={logoUrl} alt={siteName} className="h-10 w-10 flex-shrink-0 rounded-[9px] object-cover" />

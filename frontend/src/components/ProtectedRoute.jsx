@@ -12,7 +12,7 @@ export function ProtectedRoute({ roles, redirectTo, children }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-surface-container">
+      <div className="flex min-h-dvh items-center justify-center bg-surface-container">
         <Spinner />
       </div>
     );
