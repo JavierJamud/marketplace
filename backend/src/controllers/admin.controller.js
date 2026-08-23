@@ -774,7 +774,7 @@ export async function adminSearch(req, res) {
 // queries que ya alimentan cada sección (Verificaciones/Sugerencias/Errores/
 // Mensajes), solo junta el conteo y los últimos items acá.
 export async function listAdminNotifications(_req, res) {
-  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews] = await Promise.all([
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports] = await Promise.all([
     prisma.vendor.findMany({
       where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } },
       select: { id: true, companyName: true, createdAt: true },
@@ -800,6 +800,21 @@ export async function listAdminNotifications(_req, res) {
     prisma.review.findMany({
       where: { reportStatus: "REPORTED" },
       select: { id: true, reportedAt: true, vendor: { select: { companyName: true } } },
+      take: 5,
+    }),
+    // Feature B (pedido explícito): "el admin debe poder ver, desde su
+    // panel, una alerta con el producto/tienda reportado" — mismo criterio
+    // que reportedReviews de arriba (sin tabla de notificaciones propia,
+    // agregación en vivo).
+    prisma.report.findMany({
+      where: { status: "PENDING" },
+      select: {
+        id: true,
+        createdAt: true,
+        product: { select: { name: true } },
+        vendor: { select: { companyName: true } },
+        customerListing: { select: { name: true } },
+      },
       take: 5,
     }),
   ]);
@@ -829,6 +844,12 @@ export async function listAdminNotifications(_req, res) {
       to: "/admin/comentarios",
       createdAt: r.reportedAt,
     })),
+    ...pendingFraudReports.map((r) => ({
+      id: `fraud-${r.id}`,
+      text: `Reporte de fraude: ${r.product?.name ?? r.vendor?.companyName ?? r.customerListing?.name ?? "objetivo eliminado"}`,
+      to: "/admin/reportes-fraude",
+      createdAt: r.createdAt,
+    })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
   if (newSuggestions > 0) {
@@ -844,7 +865,8 @@ export async function listAdminNotifications(_req, res) {
     unresolvedErrors +
     vendorsWithUnread.reduce((sum, v) => sum + v._count.messages, 0) +
     paymentClaims.length +
-    reportedReviews.length;
+    reportedReviews.length +
+    pendingFraudReports.length;
 
   res.json({ items: items.slice(0, 12), total });
 }

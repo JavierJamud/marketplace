@@ -17,6 +17,7 @@ import * as storeOffersController from "../controllers/storeOffers.controller.js
 import * as adminOffersController from "../controllers/adminOffers.controller.js";
 import * as adminProductsController from "../controllers/adminProducts.controller.js";
 import * as adminCustomerListingsController from "../controllers/adminCustomerListings.controller.js";
+import * as adminReportsController from "../controllers/adminReports.controller.js";
 import * as verificationArchiveController from "../controllers/verificationArchive.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -46,6 +47,15 @@ router.post("/vendors/:id/reactivate", adminController.reactivateVendor);
 router.get("/customer-listings", adminCustomerListingsController.listCustomerListingsByOwner);
 router.patch("/customer-listings/:id", adminCustomerListingsController.updateAdminCustomerListing);
 router.delete("/customer-listings/:id", adminCustomerListingsController.deleteAdminCustomerListing);
+
+// Feature B: reportes de fraude sobre producto/tienda/venta rápida. Rutas
+// literales ("pending-count") ANTES de ":id/..." — mismo criterio que
+// locations/countries/activate-all de arriba.
+router.get("/reports/pending-count", adminReportsController.getFraudReportsPendingCount);
+router.get("/reports", adminReportsController.listFraudReports);
+router.post("/reports/:id/request-evidence", adminReportsController.requestEvidence);
+router.post("/reports/:id/dismiss", adminReportsController.dismissFraudReport);
+router.post("/reports/:id/resolve", adminReportsController.resolveFraudReport);
 
 // Bloque 52: supervisión/edición de productos de cualquier vendedor.
 router.get("/products", adminProductsController.listAllProducts);
