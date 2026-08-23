@@ -19,6 +19,9 @@ import { vendorInactivityReminderEmail } from "../templates/vendorInactivityRemi
 import { vendorSuspendedEmail } from "../templates/vendorSuspended.js";
 import { vendorReactivatedEmail } from "../templates/vendorReactivated.js";
 import { vendorWinbackEmail } from "../templates/vendorWinback.js";
+import { fraudReportEvidenceRequestedEmail } from "../templates/fraudReportEvidenceRequested.js";
+import { fraudReportDismissedEmail } from "../templates/fraudReportDismissed.js";
+import { fraudReportSuspendedEmail } from "../templates/fraudReportSuspended.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -250,6 +253,32 @@ export async function sendVendorSuspendedEmail(vendor, reason) {
   const { subject, html } = await vendorSuspendedEmail({ vendor, reason });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_SUSPENDED", to: vendor.user.email, subject, result });
+  return result;
+}
+
+// Feature B — a diferencia del resto de sendVendorXEmail de arriba, estas 3
+// no reciben un Vendor (el objetivo puede ser un dueño de venta rápida sin
+// tienda) — reciben el User real (vendor.user o CustomerListing.owner) y
+// vendorId aparte, solo para el log (null si no hay tienda de por medio).
+// Ver fraudReportNotify.service.js para quién llama a cuál.
+export async function sendFraudReportEvidenceRequestedEmail(user, vendorId, { targetLabel, message, deadlineDays, ctaUrl }) {
+  const { subject, html } = await fraudReportEvidenceRequestedEmail({ fullName: user.fullName, targetLabel, message, deadlineDays, ctaUrl });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId, orderId: null, type: "FRAUD_REPORT_EVIDENCE_REQUESTED", to: user.email, subject, result });
+  return result;
+}
+
+export async function sendFraudReportDismissedEmail(user, vendorId, { targetLabel, ctaUrl }) {
+  const { subject, html } = await fraudReportDismissedEmail({ fullName: user.fullName, targetLabel, ctaUrl });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId, orderId: null, type: "FRAUD_REPORT_DISMISSED", to: user.email, subject, result });
+  return result;
+}
+
+export async function sendFraudReportSuspendedEmail(user, vendorId, { targetLabel, reason }) {
+  const { subject, html } = await fraudReportSuspendedEmail({ fullName: user.fullName, targetLabel, reason });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId, orderId: null, type: "FRAUD_REPORT_SUSPENDED", to: user.email, subject, result });
   return result;
 }
 

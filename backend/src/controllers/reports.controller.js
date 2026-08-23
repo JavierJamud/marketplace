@@ -30,26 +30,31 @@ const createReportSchema = z
     message: "Manda productId, vendorId o customerListingId, exactamente uno de los tres.",
   });
 
-// Resuelve el objetivo del reporte y devuelve el userId del dueño real
-// (quien recibe el aviso y puede mandar evidencia) — 3 ramas, una por tipo
-// de objetivo posible.
-async function resolveReportTarget(data) {
-  if (data.productId) {
+// Resuelve el objetivo de un reporte (a partir de los 3 ids, tanto los que
+// vienen del body al crear como los ya guardados en una fila Report) al
+// USER real detrás — quien recibe el aviso y puede mandar evidencia — más
+// el "kind" (VENDOR si hay una tienda de por medio, sea directa o vía
+// producto; CUSTOMER_LISTING si no). Un solo resolver para las 3 ramas,
+// reusado por createReport (guard de auto-reporte/duplicado),
+// submitEvidence (verificar quién puede responder) y
+// fraudReportNotify.service.js (a quién avisar).
+export async function resolveReportTarget({ productId, vendorId, customerListingId }) {
+  if (productId) {
     const product = await prisma.product.findUnique({
-      where: { id: data.productId },
-      include: { vendor: { select: { id: true, userId: true, companyName: true } } },
+      where: { id: productId },
+      include: { vendor: { include: { user: true } } },
     });
     if (!product) throw new AppError("Producto no encontrado.", 404);
-    return { field: "productId", ownerUserId: product.vendor.userId, label: `producto "${product.name}"` };
+    return { field: "productId", kind: "VENDOR", vendorId: product.vendor.id, user: product.vendor.user, label: `producto "${product.name}"` };
   }
-  if (data.vendorId) {
-    const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { id: true, userId: true, companyName: true } });
+  if (vendorId) {
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, include: { user: true } });
     if (!vendor) throw new AppError("Tienda no encontrada.", 404);
-    return { field: "vendorId", ownerUserId: vendor.userId, label: `tienda "${vendor.companyName}"` };
+    return { field: "vendorId", kind: "VENDOR", vendorId: vendor.id, user: vendor.user, label: `tienda "${vendor.companyName}"` };
   }
-  const listing = await prisma.customerListing.findUnique({ where: { id: data.customerListingId }, select: { id: true, ownerId: true, name: true } });
+  const listing = await prisma.customerListing.findUnique({ where: { id: customerListingId }, include: { owner: true } });
   if (!listing) throw new AppError("Anuncio no encontrado.", 404);
-  return { field: "customerListingId", ownerUserId: listing.ownerId, label: `anuncio "${listing.name}"` };
+  return { field: "customerListingId", kind: "CUSTOMER_LISTING", vendorId: null, user: listing.owner, label: `anuncio "${listing.name}"` };
 }
 
 export async function createReport(req, res) {
@@ -58,7 +63,7 @@ export async function createReport(req, res) {
     const data = createReportSchema.parse(req.body);
     const target = await resolveReportTarget(data);
 
-    if (target.ownerUserId === req.user.id) {
+    if (target.user.id === req.user.id) {
       throw new AppError(`No puedes reportar tu propio ${target.label}.`, 400);
     }
 
@@ -84,6 +89,46 @@ export async function createReport(req, res) {
     // algo falla después (validación, auto-reporte, duplicado, objetivo
     // inexistente) no debe quedar huérfano.
     if (req.file) unlink(join(REPORT_UPLOAD_DIR, req.file.filename)).catch(() => {});
+    throw err;
+  }
+}
+
+const submitEvidenceSchema = z.object({
+  evidenceMessage: z.string().trim().min(10, "Contanos qué pasó (mínimo 10 caracteres)."),
+});
+
+// Respuesta del reportado (pedido explícito): "si el cliente envía evidencia
+// de que su producto/tienda es real, no se toma ninguna acción" — esto solo
+// GUARDA la respuesta, la decisión final (resolver/suspender) sigue siendo
+// del admin (ver adminReports.controller.js), salvo que el plazo venza
+// primero (ver fraudReports.job.js). Fotos opcionales — el mensaje es lo
+// único realmente obligatorio para poder responder.
+export async function submitEvidence(req, res) {
+  try {
+    const { id } = req.params;
+    const report = await prisma.report.findUnique({ where: { id } });
+    if (!report) throw new AppError("Reporte no encontrado.", 404);
+    if (report.status !== "EVIDENCE_REQUESTED") {
+      throw new AppError("Este reporte no está esperando evidencia en este momento.", 400);
+    }
+
+    const target = await resolveReportTarget(report);
+    if (target.user.id !== req.user.id) {
+      throw new AppError("No tienes permiso para responder a este reporte.", 403);
+    }
+
+    const data = submitEvidenceSchema.parse(req.body);
+    const images = (req.files ?? []).map((f) => `/uploads/reports/${f.filename}`);
+
+    const updated = await prisma.report.update({
+      where: { id },
+      data: { evidenceMessage: data.evidenceMessage, evidenceImages: images, evidenceSentAt: new Date() },
+    });
+    res.json({ report: updated });
+  } catch (err) {
+    if (req.files?.length) {
+      for (const f of req.files) unlink(join(REPORT_UPLOAD_DIR, f.filename)).catch(() => {});
+    }
     throw err;
   }
 }
