@@ -64,3 +64,15 @@ export const contactRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Demasiados mensajes seguidos. Prueba de nuevo en unos minutos." },
 });
+
+// Feature B (pedido explícito): reportar fraude sube un archivo real y crea
+// una fila que el admin tiene que revisar — mismo criterio que
+// contactRateLimit (generoso para uso real, evita que un script sature la
+// cola de reportes).
+export const reportRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados reportes seguidos. Prueba de nuevo en unos minutos." },
+});

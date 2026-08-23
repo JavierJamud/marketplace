@@ -35,9 +35,11 @@ import faqRoutes from "./routes/faq.routes.js";
 import cartRoutes from "./routes/cart.routes.js";
 import sharedCartsRoutes from "./routes/sharedCarts.routes.js";
 import customerListingsRoutes from "./routes/customerListings.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
 import { PRODUCT_UPLOAD_DIR } from "./controllers/products.controller.js";
 import { CUSTOMER_LISTING_UPLOAD_DIR } from "./controllers/customerListings.controller.js";
+import { REPORT_UPLOAD_DIR } from "./controllers/reports.controller.js";
 import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
 import { STORE_OFFER_UPLOAD_DIR } from "./controllers/storeOffers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
@@ -96,6 +98,9 @@ app.use("/uploads/store-offers", express.static(STORE_OFFER_UPLOAD_DIR));
 app.use("/uploads/reviews", express.static(REVIEW_UPLOAD_DIR));
 // Fotos de anuncios de venta rápida de clientes — públicas, mismo criterio.
 app.use("/uploads/customer-listings", express.static(CUSTOMER_LISTING_UPLOAD_DIR));
+// Capturas de reportes de fraude — públicas para que el admin abra el link
+// directo desde AdminFraudReports.jsx, mismo criterio que las de reseña.
+app.use("/uploads/reports", express.static(REPORT_UPLOAD_DIR));
 
 app.use("/auth", authRoutes);
 app.use("/vendors", vendorsRoutes);
@@ -124,6 +129,7 @@ app.use("/faq", faqRoutes);
 app.use("/cart", cartRoutes);
 app.use("/shared-carts", sharedCartsRoutes);
 app.use("/customer-listings", customerListingsRoutes);
+app.use("/reports", reportsRoutes);
 
 app.use((req, res) => res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` }));
 
