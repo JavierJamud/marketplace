@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Heart, Mail } from "lucide-react";
+import { Heart, Mail, Package, Pencil, Trash2, CheckCircle2, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
@@ -13,6 +13,8 @@ import { SuggestionBox } from "../../components/SuggestionBox.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { StoreCard } from "../../components/StoreCard.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
+import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
+import { formatPrice } from "../../lib/format.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -28,11 +30,20 @@ const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por P
 
 const TABS = [
   { id: "orders", label: "Mis pedidos" },
+  { id: "quick-sale", label: "Venta rápida" },
   { id: "wishlist", label: "Favoritos" },
   { id: "addresses", label: "Direcciones" },
   { id: "profile", label: "Perfil" },
   { id: "suggestions", label: "Sugerencias" },
 ];
+
+const MAX_LISTINGS = 5;
+const LISTING_EMPTY_FORM = { name: "", description: "", price: "", currency: "USD" };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function daysRemaining(expiresAt) {
+  return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / DAY_MS));
+}
 
 export default function CustomerPanel() {
   // Bloque 60: la sesión/rol ya se validó un nivel arriba (ver
@@ -46,6 +57,11 @@ export default function CustomerPanel() {
   const [profileForm, setProfileForm] = useState({ fullName: "", phone: "" });
   const [addressForm, setAddressForm] = useState({ provinceId: "", address: "" });
   const [changingEmail, setChangingEmail] = useState(false);
+  const [listingModalOpen, setListingModalOpen] = useState(false);
+  const [editingListing, setEditingListing] = useState(null);
+  const [listingForm, setListingForm] = useState(LISTING_EMPTY_FORM);
+  const [savedListing, setSavedListing] = useState(null);
+  const [deleteListingTarget, setDeleteListingTarget] = useState(null);
 
   const { data: customer, isLoading: customerLoading } = useQuery({
     queryKey: ["my-customer-profile"],
@@ -79,6 +95,86 @@ export default function CustomerPanel() {
       queryClient.invalidateQueries({ queryKey: ["my-favorites"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo quitar de favoritos."),
+  });
+
+  // --- Venta rápida (clientes sin tienda) -----------------------------------
+  const { data: listings, isLoading: listingsLoading } = useQuery({
+    queryKey: ["my-customer-listings"],
+    queryFn: async () => (await api.get("/customer-listings/me/list")).data.listings,
+    enabled: !!user && tab === "quick-sale",
+  });
+
+  const { data: siteSettings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+    enabled: tab === "quick-sale",
+  });
+
+  function openCreateListing() {
+    setEditingListing(null);
+    setListingForm(LISTING_EMPTY_FORM);
+    setSavedListing(null);
+    setListingModalOpen(true);
+  }
+
+  function openEditListing(listing) {
+    setEditingListing(listing);
+    setListingForm({ name: listing.name, description: listing.description, price: listing.price, currency: listing.currency });
+    setSavedListing(listing);
+    setListingModalOpen(true);
+  }
+
+  const saveListing = useMutation({
+    mutationFn: async () => {
+      const payload = { ...listingForm, price: Number(listingForm.price) };
+      if (editingListing) return (await api.patch(`/customer-listings/${editingListing.id}`, payload)).data.listing;
+      return (await api.post("/customer-listings", payload)).data.listing;
+    },
+    onSuccess: (listing) => {
+      setSavedListing(listing);
+      setEditingListing(listing);
+      queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
+      toast.success(editingListing ? "Anuncio actualizado." : "Anuncio creado — ahora subí al menos una foto.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el anuncio."),
+  });
+
+  const uploadListingImage = useMutation({
+    mutationFn: async (file) => {
+      const body = new FormData();
+      body.append("images", file);
+      return (await api.post(`/customer-listings/${savedListing.id}/images`, body, { headers: { "Content-Type": "multipart/form-data" } })).data;
+    },
+    onSuccess: (data) => {
+      setSavedListing(data.listing);
+      queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
+      toast.success("Foto subida — tu anuncio ya está publicado.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo subir la foto."),
+  });
+
+  function handleListingImage(blob) {
+    const file = new File([blob], `listing-${Date.now()}.jpg`, { type: blob.type });
+    uploadListingImage.mutate(file);
+  }
+
+  const toggleListingSold = useMutation({
+    mutationFn: async (id) => (await api.patch(`/customer-listings/${id}/sold`)).data.listing,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] }),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar."),
+  });
+
+  const deleteListing = useMutation({
+    mutationFn: async (id) => (await api.delete(`/customer-listings/${id}`)).data,
+    onSuccess: () => {
+      toast.success("Anuncio eliminado.");
+      setDeleteListingTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo eliminar el anuncio.");
+      setDeleteListingTarget(null);
+    },
   });
 
   useEffect(() => {
@@ -187,6 +283,149 @@ export default function CustomerPanel() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {tab === "quick-sale" && (
+          <div>
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 className="font-display text-headline-md text-on-surface">Venta rápida</h1>
+                <p className="mt-1 text-[13px] text-on-surface-variant">
+                  Publicá hasta {MAX_LISTINGS} productos para vender sin abrir una tienda. Los compradores te piden por WhatsApp. Cada anuncio dura 30 días.
+                </p>
+              </div>
+              <Button onClick={openCreateListing} disabled={(listings?.length ?? 0) >= MAX_LISTINGS}>
+                Publicar anuncio ({listings?.length ?? 0}/{MAX_LISTINGS})
+              </Button>
+            </div>
+
+            {listingsLoading && <p className="text-body-md text-on-surface-variant">Cargando tus anuncios...</p>}
+            {!listingsLoading && !listings?.length && (
+              <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
+                Todavía no publicaste ningún anuncio de venta rápida.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {listings?.map((l) => (
+                <div key={l.id} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest">
+                  <div className="relative aspect-square w-full bg-surface-container">
+                    {l.images[0] ? (
+                      <img src={`${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${l.images[0]}`} alt={l.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-outline">
+                        <Package className="h-8 w-8" />
+                      </div>
+                    )}
+                    {l.isSold && (
+                      <span className="absolute left-2 top-2 rounded-full bg-inverse-surface/80 px-2.5 py-1 text-[10.5px] font-bold text-white">Vendido</span>
+                    )}
+                    {!l.isActive && !l.isSold && (
+                      <span className="absolute left-2 top-2 rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">Sin foto — no visible</span>
+                    )}
+                  </div>
+                  <div className="p-3.5">
+                    <div className="mb-0.5 truncate text-[13.5px] font-bold text-on-surface">{l.name}</div>
+                    <div className="mb-2 text-[13.5px] font-bold text-secondary">{formatPrice(l.price, l.currency)}</div>
+                    <div className="mb-3 text-[11.5px] text-outline">
+                      {daysRemaining(l.expiresAt) > 0 ? `Vence en ${daysRemaining(l.expiresAt)} días` : "Vence hoy"}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => openEditListing(l)}
+                        aria-label="Editar anuncio"
+                        className="flex h-8 flex-1 items-center justify-center gap-1 rounded border border-outline-variant text-[11.5px] font-semibold text-on-surface hover:bg-surface-container"
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Editar
+                      </button>
+                      <button
+                        onClick={() => toggleListingSold.mutate(l.id)}
+                        disabled={toggleListingSold.isPending}
+                        aria-label={l.isSold ? "Marcar como disponible" : "Marcar como vendido"}
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-outline-variant text-on-surface hover:bg-surface-container disabled:opacity-50"
+                      >
+                        <CheckCircle2 className={`h-3.5 w-3.5 ${l.isSold ? "text-secondary" : ""}`} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteListingTarget(l)}
+                        aria-label="Eliminar anuncio"
+                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-outline-variant text-error hover:bg-error/5"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {listingModalOpen && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
+                <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-title-lg font-bold text-on-surface">{editingListing ? "Editar anuncio" : "Nuevo anuncio"}</h3>
+                    <button onClick={() => setListingModalOpen(false)} aria-label="Cerrar" className="text-outline hover:text-on-surface">
+                      <XIcon className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="mb-4 flex justify-center">
+                    <ImageCropUploader
+                      value={savedListing?.images?.[0] ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${savedListing.images[0]}` : null}
+                      aspect={1}
+                      recommendedLabel={savedListing ? "Subí al menos 1 foto para que se publique" : "Guardá el anuncio primero para poder subir fotos"}
+                      onFileReady={handleListingImage}
+                      boxClassName="aspect-square w-[160px]"
+                    />
+                  </div>
+                  {!savedListing && (
+                    <p className="mb-4 text-center text-[12px] text-outline">Completá los datos y guardá — recién ahí podés subir la foto.</p>
+                  )}
+
+                  <div className="flex flex-col gap-3.5">
+                    <Input label="Título" value={listingForm.name} onChange={(e) => setListingForm({ ...listingForm, name: e.target.value })} />
+                    <div>
+                      <span className="mb-1 block text-label-md text-on-surface-variant">Descripción</span>
+                      <textarea
+                        value={listingForm.description}
+                        onChange={(e) => setListingForm({ ...listingForm, description: e.target.value })}
+                        placeholder="Contale al comprador qué es, el estado, etc. (mínimo 10 caracteres)"
+                        className="min-h-[80px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-[1fr_110px] gap-3">
+                      <Input label="Precio" type="number" min={1} value={listingForm.price} onChange={(e) => setListingForm({ ...listingForm, price: e.target.value })} />
+                      <Select label="Moneda" value={listingForm.currency} onChange={(e) => setListingForm({ ...listingForm, currency: e.target.value })}>
+                        {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Button className="w-full" onClick={() => saveListing.mutate()} disabled={saveListing.isPending}>
+                      {saveListing.isPending ? "Guardando..." : editingListing ? "Guardar cambios" : "Publicar anuncio"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {deleteListingTarget && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
+                <div className="w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6">
+                  <h3 className="mb-2 text-title-lg font-bold text-on-surface">¿Eliminar este anuncio?</h3>
+                  <p className="mb-5 text-[13.5px] text-on-surface-variant">
+                    "{deleteListingTarget.name}" se va a eliminar para siempre, junto con sus fotos. Esta acción no se puede deshacer.
+                  </p>
+                  <div className="flex gap-2.5">
+                    <Button variant="outline" className="flex-1" onClick={() => setDeleteListingTarget(null)}>Cancelar</Button>
+                    <Button variant="danger" className="flex-1" onClick={() => deleteListing.mutate(deleteListingTarget.id)} disabled={deleteListing.isPending}>
+                      {deleteListing.isPending ? "Eliminando..." : "Eliminar"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
