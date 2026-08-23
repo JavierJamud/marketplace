@@ -14,10 +14,18 @@ ALTER TABLE "Vendor" ADD COLUMN "nextPaymentDueDate" TIMESTAMP(3);
 -- siguen existiendo en este punto de la migración). Vendedores sin ninguna
 -- fila de VerificationRequest no matchean el FROM y quedan en el DEFAULT
 -- 'NOT_STARTED' de la columna recién creada — correcto, nunca iniciaron nada.
+-- Fix: la rama "WHEN vr.status = 'PENDING_PAYMENT'" se eliminó — comparaba
+-- el enum viejo VerificationStatus (solo PENDING_REVIEW/APPROVED/REJECTED,
+-- ver 20260709151616_init y 20260711050448_rename_pending_to_pending_review)
+-- contra un valor que nunca existió ahí ('PENDING_PAYMENT' es del enum
+-- NUEVO VendorVerificationStatus, creado arriba en esta misma migración).
+-- Esa rama no podía ser cierta para ningún vendedor: el concepto de "pendiente
+-- de pago" no existía antes de este bloque. Quitarla no cambia ningún dato,
+-- solo evita el error de tipo al comparar contra un literal inválido para
+-- ese enum.
 UPDATE "Vendor" v
 SET "verificationStatus" = (CASE
   WHEN v."isVerified" = true AND vr.status = 'APPROVED' THEN 'VERIFIED'
-  WHEN vr.status = 'PENDING_PAYMENT' THEN 'PENDING_PAYMENT'
   WHEN vr.status = 'REJECTED' THEN 'REJECTED'
   WHEN vr.status = 'PENDING_REVIEW' AND (vr."selfieUrl" IS NOT NULL OR vr."idPhotoFrontUrl" IS NOT NULL) THEN 'PENDING_DOCS'
   ELSE 'NOT_STARTED'

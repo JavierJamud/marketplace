@@ -7,12 +7,15 @@ PostgreSQL autoalojado). Los mockups de diseño (`design_references/`,
 la fuente de verdad visual, ver [`ADDENDUM_ZEUDIN.md`](./ADDENDUM_ZEUDIN.md)
 para el mapa completo de las 25 pantallas.
 
-**Estado actual:** `Home.jsx` está implementado pixel-a-pixel contra
-`Home.dc.html`, conectado a la API real (provincias/municipios, categorías,
-tiendas, búsqueda de productos). El resto de las pantallas tiene rutas y
-layouts (`PublicLayout`, `VendorLayout`, `AdminLayout`) funcionando, con
-contenido placeholder ("Próximamente") hasta que se aborden una por una
-siguiendo el mismo patrón.
+**Estado actual (corregido — esta sección estaba desactualizada):** las ~60
+páginas de `frontend/src/pages/{public,customer,vendor,admin}` están
+implementadas y conectadas a la API real, no son placeholder. `Home.jsx` fue
+la primera en hacerse pixel-a-pixel contra `Home.dc.html`, y el resto se
+desarrolló después siguiendo el mismo patrón (ver `ADDENDUM_ZEUDIN.md` y
+`AUDITORIA.md` para el historial detallado y hallazgos pendientes). El único
+texto "Próximamente" real que queda es una sección legítima de `Store.jsx`
+("Próximamente disponibles", productos sin stock con botón "Solicitar"), no
+un placeholder de página.
 
 ## Stack
 

@@ -140,7 +140,9 @@ async function main() {
         isRestaurant: v.isRestaurant,
         tableCount: v.tables ?? null,
         planType: v.plan === "business" ? "BUSINESS" : "REGULAR",
-        isVerified: v.verified,
+        // Fix: Vendor.isVerified se eliminó en el bloque 64 (ahora
+        // verificationStatus es la única fuente de verdad).
+        verificationStatus: v.verified ? "VERIFIED" : "NOT_STARTED",
         isBlocked: v.blocked ?? false,
         timezone: v.timezone,
         categoryId: categoryIdBySlug[v.categorySlug] ?? null,
@@ -163,7 +165,7 @@ async function main() {
         isRestaurant: v.isRestaurant,
         tableCount: v.tables ?? null,
         planType: v.plan === "business" ? "BUSINESS" : "REGULAR",
-        isVerified: v.verified,
+        verificationStatus: v.verified ? "VERIFIED" : "NOT_STARTED",
         isBlocked: v.blocked ?? false,
         timezone: v.timezone,
         categoryId: categoryIdBySlug[v.categorySlug] ?? null,
@@ -422,15 +424,17 @@ async function main() {
   }
 
   // --- Verificaciones KYC ------------------------------------------------
+  // Fix: VerificationRequest.status se eliminó en el bloque 64 (ahora
+  // Vendor.verificationStatus es la única fuente de verdad, seteada arriba
+  // al sembrar cada vendedor). Este registro solo guarda notas/documentos.
   console.log("Sembrando solicitudes de verificación...");
-  const verifStatusMap = { pending_review: "PENDING_REVIEW", approved: "APPROVED", rejected: "REJECTED" };
   for (const v of seedData.verifications) {
     const vendorId = vendorIdBySlug[v.vendorSlug];
     if (!vendorId) continue;
     await prisma.verificationRequest.upsert({
       where: { vendorId },
-      update: { status: verifStatusMap[v.status] ?? "PENDING_REVIEW", notes: v.notes ?? null },
-      create: { vendorId, status: verifStatusMap[v.status] ?? "PENDING_REVIEW", notes: v.notes ?? null },
+      update: { notes: v.notes ?? null },
+      create: { vendorId, notes: v.notes ?? null },
     });
   }
 
