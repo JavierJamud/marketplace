@@ -3,6 +3,7 @@ import toast from "../lib/toast.jsx";
 import { Share2 } from "lucide-react";
 import { api } from "../lib/api.js";
 import { useCart } from "../context/CartContext.jsx";
+import { copyToClipboard } from "../lib/clipboard.js";
 
 // Bloque 54: genera un link público de un solo uso (SharedCart, ver
 // sharedCart.controller.js) con los ítems ACTUALES del carrito — nunca
@@ -22,8 +23,7 @@ export function ShareCartButton({ className, iconOnly = false, animated = false 
       ).data,
     onSuccess: ({ id }) => {
       const url = `${window.location.origin}/carrito-compartido/${id}`;
-      navigator.clipboard
-        .writeText(url)
+      copyToClipboard(url)
         .then(() => toast.success("¡Enlace copiado! Compártelo para que vean y agreguen los mismos productos."))
         .catch(() => toast.error("No se pudo copiar el enlace."));
     },

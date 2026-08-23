@@ -46,7 +46,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6">
+      <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
         {step === "request" ? (
           <>
             <h2 className="mb-1 text-title-lg font-bold text-on-surface">Cambiar correo</h2>

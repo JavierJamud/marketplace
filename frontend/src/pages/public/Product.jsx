@@ -392,15 +392,17 @@ export default function Product() {
               {v.companyName}
               {v.isVerified && <VerifiedBadge size="sm" />}
             </Link>
-            <button
-              onClick={() => {
-                if (!user) return navigate(`/cuenta?next=${encodeURIComponent(`/producto/${vendorSlug}/${productSlug}`)}`);
-                setReportFraudOpen(true);
-              }}
-              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-outline hover:text-error"
-            >
-              <ShieldAlert className="h-3.5 w-3.5" /> Reportar estafa
-            </button>
+            {/* Pedido explícito: solo visible para clientes logueados —
+                antes se mostraba siempre y redirigía a login al click, ahora
+                directamente no aparece si no hay sesión de cliente. */}
+            {user?.role === "CUSTOMER" && (
+              <button
+                onClick={() => setReportFraudOpen(true)}
+                className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-outline hover:text-error"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" /> Reportar estafa
+              </button>
+            )}
           </div>
           <h1 className="mb-2.5 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{product.name}</h1>
           <div className="mb-5 flex flex-wrap items-center gap-2.5">

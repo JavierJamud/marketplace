@@ -11,6 +11,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
+import { copyToClipboard } from "../../lib/clipboard.js";
 
 // Bloque 68 (pedido explícito): 3 opciones reales de Vendor.orderDestination
 // — el checkout con formulario completo SIEMPRE crea el pedido de verdad
@@ -172,8 +173,7 @@ function VendorShareLink({ slug, isPrivate }) {
   const url = `${window.location.origin}/tienda/${slug}`;
 
   function copyLink() {
-    navigator.clipboard
-      .writeText(url)
+    copyToClipboard(url)
       .then(() => toast.success("Enlace copiado."))
       .catch(() => toast.error("No se pudo copiar el enlace."));
   }

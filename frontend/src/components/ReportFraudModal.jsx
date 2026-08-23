@@ -87,7 +87,10 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
       style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
     >
-      <div className="relative w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl" style={{ animation: "modal-pop 0.18s ease-out" }}>
+      <div
+        className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl"
+        style={{ animation: "modal-pop 0.18s ease-out" }}
+      >
         <button onClick={onClose} className="absolute right-4 top-4 rounded-full p-1.5 text-outline hover:bg-surface-variant hover:text-on-surface">
           <X className="h-4 w-4" />
         </button>

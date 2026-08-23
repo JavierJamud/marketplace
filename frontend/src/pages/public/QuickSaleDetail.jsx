@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { MessageCircle, Package, ChevronLeft, ShieldAlert } from "lucide-react";
 import { api } from "../../lib/api.js";
@@ -16,9 +16,9 @@ import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 // del pedido original ("solo tendrán la opción de pedir por WhatsApp").
 export default function QuickSaleDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [reportFraudOpen, setReportFraudOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(0);
 
   const { data: listing, isLoading } = useQuery({
     queryKey: ["public-customer-listing", id],
@@ -44,7 +44,8 @@ export default function QuickSaleDetail() {
     );
   }
 
-  const image = listing.images?.[0] ? `${api.defaults.baseURL}${listing.images[0]}` : null;
+  const images = listing.images ?? [];
+  const image = images[selectedImage] ? `${api.defaults.baseURL}${images[selectedImage]}` : null;
   const message = `Hola, vi tu anuncio "${listing.name}" (${formatPrice(listing.price, listing.currency)}) en ZeuDin y me interesa.`;
 
   return (
@@ -54,12 +55,31 @@ export default function QuickSaleDetail() {
       </Link>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <div className="aspect-square w-full overflow-hidden rounded-2xl bg-surface-container">
-          {image ? (
-            <img src={image} alt={listing.name} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-outline">
-              <Package className="h-12 w-12" />
+        <div>
+          <div className="aspect-[7/4] w-full overflow-hidden rounded-2xl bg-surface-container">
+            {image ? (
+              <img src={image} alt={listing.name} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-outline">
+                <Package className="h-12 w-12" />
+              </div>
+            )}
+          </div>
+          {/* Pedido explícito: "casi igual a un producto de tienda" — mismo
+              criterio de miniaturas que Product.jsx cuando hay más de 1 foto. */}
+          {images.length > 1 && (
+            <div className="mt-2.5 grid grid-cols-4 gap-2">
+              {images.map((url, i) => (
+                <button
+                  key={url}
+                  onClick={() => setSelectedImage(i)}
+                  className={`aspect-[7/4] w-full overflow-hidden rounded-md border-2 transition-all ${
+                    i === selectedImage ? "border-tertiary-accent opacity-100" : "border-transparent opacity-55 hover:opacity-85"
+                  }`}
+                >
+                  <img src={`${api.defaults.baseURL}${url}`} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -82,15 +102,15 @@ export default function QuickSaleDetail() {
             Pedir por WhatsApp
           </a>
 
-          <button
-            onClick={() => {
-              if (!user) return navigate(`/cuenta?next=${encodeURIComponent(`/ventas-rapidas/${id}`)}`);
-              setReportFraudOpen(true);
-            }}
-            className="ml-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-outline hover:text-error"
-          >
-            <ShieldAlert className="h-4 w-4" /> Reportar estafa
-          </button>
+          {/* Pedido explícito: solo visible para clientes logueados. */}
+          {user?.role === "CUSTOMER" && (
+            <button
+              onClick={() => setReportFraudOpen(true)}
+              className="ml-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-outline hover:text-error"
+            >
+              <ShieldAlert className="h-4 w-4" /> Reportar estafa
+            </button>
+          )}
         </div>
       </div>
 

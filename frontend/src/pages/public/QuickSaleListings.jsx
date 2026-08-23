@@ -35,7 +35,7 @@ export default function QuickSaleListings() {
               to={`/ventas-rapidas/${l.id}`}
               className="overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
             >
-              <div className="relative aspect-square w-full overflow-hidden bg-surface-container">
+              <div className="relative aspect-[7/4] w-full overflow-hidden bg-surface-container">
                 {image ? (
                   <img src={image} alt={l.name} className="h-full w-full object-cover" />
                 ) : (

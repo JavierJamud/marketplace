@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { waLink } from "../../lib/whatsapp.js";
+import { copyToClipboard } from "../../lib/clipboard.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -60,8 +61,7 @@ function StoreOfferCard({ offer, vendorName }) {
   const countdown = useLiveCountdown(offer.isLimitedTime ? offer.expiresAt : null);
 
   function handleCopyCode() {
-    navigator.clipboard
-      .writeText(offer.discountCode.code)
+    copyToClipboard(offer.discountCode.code)
       .then(() => toast.success(`¡Código "${offer.discountCode.code}" copiado!`))
       .catch(() => toast.error("No se pudo copiar el código."));
   }
@@ -320,8 +320,7 @@ export default function Store() {
   }
 
   function handleShare() {
-    navigator.clipboard
-      .writeText(window.location.href)
+    copyToClipboard(window.location.href)
       .then(showLinkCopiedToast)
       .catch(() => toast.error("No se pudo copiar el enlace."));
   }
@@ -478,17 +477,17 @@ export default function Store() {
               >
                 <Share2 className="h-[18px] w-[18px]" />
               </button>
-              <button
-                onClick={() => {
-                  if (!user) return navigate(`/cuenta?next=${encodeURIComponent(`/tienda/${slug}`)}`);
-                  setReportFraudOpen(true);
-                }}
-                aria-label="Reportar estafa"
-                title="Reportar estafa"
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-error/80 hover:text-white"
-              >
-                <ShieldAlert className="h-[18px] w-[18px]" />
-              </button>
+              {/* Pedido explícito: solo visible para clientes logueados. */}
+              {user?.role === "CUSTOMER" && (
+                <button
+                  onClick={() => setReportFraudOpen(true)}
+                  aria-label="Reportar estafa"
+                  title="Reportar estafa"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-error/80 hover:text-white"
+                >
+                  <ShieldAlert className="h-[18px] w-[18px]" />
+                </button>
+              )}
               {user && (
                 <button
                   onClick={() => toggleFavorite.mutate()}

@@ -6,7 +6,7 @@ import { AlertTriangle } from "lucide-react";
 export function ConfirmDeleteModal({ title, description, confirmLabel = "Eliminar", pending, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6 text-center">
+      <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl bg-surface-container-lowest p-6 text-center">
         <div className="mx-auto mb-3.5 flex h-12 w-12 items-center justify-center rounded-full bg-error/10">
           <AlertTriangle className="h-6 w-6 text-error" />
         </div>

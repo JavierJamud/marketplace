@@ -23,7 +23,7 @@ function Cell({ value }) {
 export function PlanComparisonModal({ onContinueRegular, businessHref = "/vendedor/configuracion" }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-surface-container-lowest p-6 sm:p-8">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface-container-lowest p-6 sm:p-8">
         <div className="mb-1 text-center font-display text-[13px] font-bold uppercase tracking-wide text-secondary">
           ¡Tu tienda ya existe!
         </div>

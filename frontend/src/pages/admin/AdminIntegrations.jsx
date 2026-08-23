@@ -4,6 +4,7 @@ import toast from "../../lib/toast.jsx";
 import { Copy, RefreshCw } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { copyToClipboard } from "../../lib/clipboard.js";
 
 // Bloque 45: Cerebras salió del sistema (su cuenta gratuita devolvía 402
 // Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
@@ -263,7 +264,9 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
   }
 
   function copyWebhookUrl() {
-    navigator.clipboard?.writeText(WEBHOOK_URL).then(() => toast.success("URL copiada."));
+    copyToClipboard(WEBHOOK_URL)
+      .then(() => toast.success("URL copiada."))
+      .catch(() => toast.error("No se pudo copiar la URL."));
   }
 
   return (

@@ -186,6 +186,21 @@ export default function CustomerPanel() {
     uploadListingImage.mutate(file);
   }
 
+  // Pedido explícito: la galería de fotos debe verse "casi igual a un
+  // producto de tienda" — mismo patrón que VendorProducts.jsx (varias
+  // fotos, cada una con su botón de quitar), solo sin arrastrar para
+  // reordenar/portada (customerListings.controller.js no tiene ese
+  // endpoint, y no es lo que se pidió acá).
+  const removeListingImage = useMutation({
+    mutationFn: async (url) => (await api.delete(`/customer-listings/${savedListing.id}/images`, { data: { url } })).data,
+    onSuccess: (data) => {
+      setSavedListing(data.listing);
+      queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
+      toast.success("Foto eliminada.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar la foto."),
+  });
+
   const toggleListingSold = useMutation({
     mutationFn: async (id) => (await api.patch(`/customer-listings/${id}/sold`)).data.listing,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] }),
@@ -385,7 +400,7 @@ export default function CustomerPanel() {
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               {listings?.map((l) => (
                 <div key={l.id} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest">
-                  <div className="relative aspect-square w-full bg-surface-container">
+                  <div className="relative aspect-[7/4] w-full bg-surface-container">
                     {l.images[0] ? (
                       <img src={`${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${l.images[0]}`} alt={l.name} className="h-full w-full object-cover" />
                     ) : (
@@ -436,27 +451,14 @@ export default function CustomerPanel() {
             </div>
 
             {listingModalOpen && (
-              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
-                <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/40 p-4">
+                <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-title-lg font-bold text-on-surface">{editingListing ? "Editar anuncio" : "Nuevo anuncio"}</h3>
                     <button onClick={() => setListingModalOpen(false)} aria-label="Cerrar" className="text-outline hover:text-on-surface">
                       <XIcon className="h-5 w-5" />
                     </button>
                   </div>
-
-                  <div className="mb-4 flex justify-center">
-                    <ImageCropUploader
-                      value={savedListing?.images?.[0] ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${savedListing.images[0]}` : null}
-                      aspect={1}
-                      recommendedLabel={savedListing ? "Subí al menos 1 foto para que se publique" : "Guardá el anuncio primero para poder subir fotos"}
-                      onFileReady={handleListingImage}
-                      boxClassName="aspect-square w-[160px]"
-                    />
-                  </div>
-                  {!savedListing && (
-                    <p className="mb-4 text-center text-[12px] text-outline">Completá los datos y guardá — recién ahí podés subir la foto.</p>
-                  )}
 
                   <div className="flex flex-col gap-3.5">
                     <Input label="Título" value={listingForm.name} onChange={(e) => setListingForm({ ...listingForm, name: e.target.value })} />
@@ -478,8 +480,72 @@ export default function CustomerPanel() {
                       </Select>
                     </div>
                     <Button className="w-full" onClick={() => saveListing.mutate()} disabled={saveListing.isPending}>
-                      {saveListing.isPending ? "Guardando..." : editingListing ? "Guardar cambios" : "Publicar anuncio"}
+                      {saveListing.isPending ? "Guardando..." : editingListing ? "Guardar cambios" : "Crear anuncio"}
                     </Button>
+
+                    {/* Pedido explícito: la sección de fotos debe verse "casi
+                        igual a un producto de tienda" — mismo patrón que
+                        VendorProducts.jsx (galería de miniaturas + botón para
+                        agregar, aspecto 7:4, hasta 4 fotos). */}
+                    <div className="border-t border-surface-container pt-3.5">
+                      <span className="mb-1.5 block text-label-md text-on-surface-variant">
+                        Fotos del anuncio <span className="text-error">*</span>
+                      </span>
+                      {savedListing && !savedListing.images?.length && (
+                        <p className="mb-2.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
+                          ⚠️ Este anuncio está en pausa y no se muestra a la venta hasta que subas al menos 1 foto.
+                        </p>
+                      )}
+                      {savedListing ? (
+                        <>
+                          <div className="mb-2.5 flex flex-wrap gap-2">
+                            {savedListing.images?.map((url) => (
+                              <div key={url} className="group relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md border border-surface-container-high">
+                                <img src={`${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}`} alt="" className="h-full w-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => removeListingImage.mutate(url)}
+                                  disabled={removeListingImage.isPending}
+                                  className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                            {(savedListing.images?.length ?? 0) < 4 && (
+                              <ImageCropUploader
+                                aspect={7 / 4}
+                                accept="image/jpeg,image/webp"
+                                boxClassName="h-16 w-16 flex-shrink-0"
+                                compact
+                                onFileReady={handleListingImage}
+                              />
+                            )}
+                          </div>
+                          <p className="text-label-sm text-outline">
+                            {uploadListingImage.isPending
+                              ? "Subiendo foto..."
+                              : "Tamaño recomendado: 1400×800px (relación 7:4) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP. Hasta 4 fotos."}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-label-sm text-outline">Guardá el anuncio primero para poder subirle fotos.</p>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (savedListing && !savedListing.images?.length) {
+                          toast.error("Sube al menos 1 foto antes de terminar — sin fotos el anuncio queda pausado y no se muestra en venta rápida.");
+                          return;
+                        }
+                        setListingModalOpen(false);
+                      }}
+                      className="mt-1 w-full rounded-xl border border-outline-variant py-2.5 text-label-md font-semibold text-on-surface-variant hover:bg-surface-variant"
+                    >
+                      {savedListing ? "Listo" : "Cancelar"}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -487,7 +553,7 @@ export default function CustomerPanel() {
 
             {deleteListingTarget && (
               <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
-                <div className="w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6">
+                <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
                   <h3 className="mb-2 text-title-lg font-bold text-on-surface">¿Eliminar este anuncio?</h3>
                   <p className="mb-5 text-[13.5px] text-on-surface-variant">
                     "{deleteListingTarget.name}" se va a eliminar para siempre, junto con sus fotos. Esta acción no se puede deshacer.

@@ -59,7 +59,7 @@ export function ConfirmModal({
       onClick={(e) => { if (e.target === e.currentTarget) onCancel?.(); }}
     >
       <div
-        className="relative w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6 shadow-2xl"
+        className="relative max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl"
         style={{ animation: "modal-pop 0.18s ease-out" }}
       >
         <button
