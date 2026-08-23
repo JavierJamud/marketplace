@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Minus, Plus, ShoppingCart, MapPin, ShieldCheck, ScanBarcode, CheckCircle2, Star, Camera, X as XIcon } from "lucide-react";
+import { Minus, Plus, ShoppingCart, MapPin, ShieldCheck, ShieldAlert, ScanBarcode, CheckCircle2, Star, Camera, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -18,6 +18,7 @@ import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
 
 // Bloque 69 (pedido explícito): "los productos también pueden llevar
@@ -54,6 +55,10 @@ export default function Product() {
   const [lightboxSrc, setLightboxSrc] = useState(null);
   const [reportTarget, setReportTarget] = useState(null);
   const [reportReason, setReportReason] = useState("");
+  // Feature B (pedido explícito): reportar ESTE producto por fraude —
+  // distinto de reportTarget/reportReason de arriba (eso es reportar un
+  // comentario de reseña, no el producto en sí).
+  const [reportFraudOpen, setReportFraudOpen] = useState(false);
   const autoplayRef = useRef(null);
   const fadeTimerRef = useRef(null);
   const reviewsRef = useRef(null);
@@ -382,10 +387,21 @@ export default function Product() {
 
         {/* PANEL DE COMPRA */}
         <div>
-          <Link to={`/tienda/${v.slug}`} className="mb-2.5 inline-flex items-center gap-1.5 text-label-md font-bold text-tertiary-accent">
-            {v.companyName}
-            {v.isVerified && <VerifiedBadge size="sm" />}
-          </Link>
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+            <Link to={`/tienda/${v.slug}`} className="inline-flex items-center gap-1.5 text-label-md font-bold text-tertiary-accent">
+              {v.companyName}
+              {v.isVerified && <VerifiedBadge size="sm" />}
+            </Link>
+            <button
+              onClick={() => {
+                if (!user) return navigate(`/cuenta?next=${encodeURIComponent(`/producto/${vendorSlug}/${productSlug}`)}`);
+                setReportFraudOpen(true);
+              }}
+              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-outline hover:text-error"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" /> Reportar estafa
+            </button>
+          </div>
           <h1 className="mb-2.5 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{product.name}</h1>
           <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <StarRating value={product.rating ?? 0} size="h-3.5 w-3.5" showValue />
@@ -699,6 +715,14 @@ export default function Product() {
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
       </ConfirmModal>
+
+      <ReportFraudModal
+        open={reportFraudOpen}
+        onClose={() => setReportFraudOpen(false)}
+        targetField="productId"
+        targetId={product.id}
+        targetLabel={`el producto "${product.name}"`}
+      />
     </div>
   );
 }

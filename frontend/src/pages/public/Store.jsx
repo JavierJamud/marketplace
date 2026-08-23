@@ -21,6 +21,7 @@ import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 
 const MAX_REVIEW_IMAGES = 4;
 
@@ -209,6 +210,9 @@ export default function Store() {
   // de cualquier cliente logueado (nunca el propio, ver ReviewsMarquee.jsx).
   const [reportTarget, setReportTarget] = useState(null);
   const [reportReason, setReportReason] = useState("");
+  // Feature B (pedido explícito): reportar ESTA tienda por fraude —
+  // distinto de reportTarget/reportReason de arriba (eso es un comentario).
+  const [reportFraudOpen, setReportFraudOpen] = useState(false);
   const trackedVisitRef = useRef(null);
   const reviewsRef = useRef(null);
 
@@ -473,6 +477,17 @@ export default function Store() {
                 className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-white/20"
               >
                 <Share2 className="h-[18px] w-[18px]" />
+              </button>
+              <button
+                onClick={() => {
+                  if (!user) return navigate(`/cuenta?next=${encodeURIComponent(`/tienda/${slug}`)}`);
+                  setReportFraudOpen(true);
+                }}
+                aria-label="Reportar estafa"
+                title="Reportar estafa"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-error/80 hover:text-white"
+              >
+                <ShieldAlert className="h-[18px] w-[18px]" />
               </button>
               {user && (
                 <button
@@ -882,6 +897,14 @@ export default function Store() {
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
       </ConfirmModal>
+
+      <ReportFraudModal
+        open={reportFraudOpen}
+        onClose={() => setReportFraudOpen(false)}
+        targetField="vendorId"
+        targetId={v.id}
+        targetLabel={`la tienda "${v.companyName}"`}
+      />
     </div>
   );
 }

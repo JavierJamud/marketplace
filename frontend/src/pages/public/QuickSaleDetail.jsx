@@ -1,10 +1,13 @@
-import { useParams, Link } from "react-router-dom";
+import { useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircle, Package, ChevronLeft } from "lucide-react";
+import { MessageCircle, Package, ChevronLeft, ShieldAlert } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { Spinner } from "../../components/ui/Spinner.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 
 // Detalle público de un anuncio de venta rápida. A diferencia de Product.jsx
 // (que exige pasar por carrito/checkout, ver Bloque 68), acá el pedido es
@@ -13,6 +16,9 @@ import { Spinner } from "../../components/ui/Spinner.jsx";
 // del pedido original ("solo tendrán la opción de pedir por WhatsApp").
 export default function QuickSaleDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [reportFraudOpen, setReportFraudOpen] = useState(false);
 
   const { data: listing, isLoading } = useQuery({
     queryKey: ["public-customer-listing", id],
@@ -76,9 +82,25 @@ export default function QuickSaleDetail() {
             Pedir por WhatsApp
           </a>
 
-          {/* Botón "Reportar" se agrega acá (Feature B). */}
+          <button
+            onClick={() => {
+              if (!user) return navigate(`/cuenta?next=${encodeURIComponent(`/ventas-rapidas/${id}`)}`);
+              setReportFraudOpen(true);
+            }}
+            className="ml-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-outline hover:text-error"
+          >
+            <ShieldAlert className="h-4 w-4" /> Reportar estafa
+          </button>
         </div>
       </div>
+
+      <ReportFraudModal
+        open={reportFraudOpen}
+        onClose={() => setReportFraudOpen(false)}
+        targetField="customerListingId"
+        targetId={listing.id}
+        targetLabel={`el anuncio "${listing.name}"`}
+      />
     </div>
   );
 }
