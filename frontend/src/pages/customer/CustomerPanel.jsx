@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Heart, Mail, Package, Pencil, Trash2, CheckCircle2, X as XIcon } from "lucide-react";
-import { api } from "../../lib/api.js";
+import { Heart, Mail, Package, Pencil, Trash2, CheckCircle2, X as XIcon, ShieldAlert, Clock, Camera } from "lucide-react";
+import { api, getErrorMessage } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -108,6 +108,34 @@ export default function CustomerPanel() {
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
     enabled: tab === "quick-sale",
+  });
+
+  // Feature B (pedido explícito): banner inline en esta misma tab (no una
+  // tab nueva, para no inflar el panel con algo casi siempre vacío) si
+  // alguno de sus anuncios fue reportado y está esperando su respuesta.
+  const { data: myFraudReports } = useQuery({
+    queryKey: ["my-fraud-reports"],
+    queryFn: async () => (await api.get("/reports/me/list")).data.reports,
+    enabled: !!user && tab === "quick-sale",
+  });
+  const pendingListingReports = (myFraudReports ?? []).filter((r) => r.customerListing && r.status === "EVIDENCE_REQUESTED" && !r.evidenceSentAt);
+  const [evidenceDrafts, setEvidenceDrafts] = useState({});
+  function updateEvidenceDraft(id, patch) {
+    setEvidenceDrafts((prev) => ({ ...prev, [id]: { message: "", files: [], ...prev[id], ...patch } }));
+  }
+  const submitListingEvidence = useMutation({
+    mutationFn: async ({ id, message, files }) => {
+      const form = new FormData();
+      form.append("evidenceMessage", message);
+      files.forEach((f) => form.append("evidence", f));
+      return (await api.post(`/reports/${id}/evidence`, form, { headers: { "Content-Type": "multipart/form-data" } })).data;
+    },
+    onSuccess: (_, { id }) => {
+      toast.success("Respuesta enviada — el admin la va a revisar.");
+      setEvidenceDrafts((prev) => { const next = { ...prev }; delete next[id]; return next; });
+      queryClient.invalidateQueries({ queryKey: ["my-fraud-reports"] });
+    },
+    onError: async (err) => toast.error(await getErrorMessage(err, "No se pudo enviar tu respuesta.")),
   });
 
   function openCreateListing() {
@@ -299,6 +327,53 @@ export default function CustomerPanel() {
                 Publicar anuncio ({listings?.length ?? 0}/{MAX_LISTINGS})
               </Button>
             </div>
+
+            {pendingListingReports.map((r) => {
+              const draft = evidenceDrafts[r.id] ?? { message: "", files: [] };
+              return (
+                <div key={r.id} className="mb-4 rounded-2xl border border-error/30 bg-error/5 p-5">
+                  <p className="mb-1 flex items-center gap-1.5 text-[13.5px] font-bold text-error">
+                    <ShieldAlert className="h-4 w-4" /> Reportaron tu anuncio "{r.customerListing?.name}"
+                  </p>
+                  <p className="mb-2 text-[13px] text-on-surface-variant">Un cliente dijo: "{r.message}"</p>
+                  {r.evidenceDueAt && (
+                    <p className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold text-error">
+                      <Clock className="h-3.5 w-3.5" /> Tenés hasta el {new Date(r.evidenceDueAt).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" })} para responder o se suspende automáticamente.
+                    </p>
+                  )}
+                  <textarea
+                    value={draft.message}
+                    onChange={(e) => updateEvidenceDraft(r.id, { message: e.target.value })}
+                    rows={3}
+                    placeholder="Explicá que tu producto es real (mínimo 10 caracteres)..."
+                    className="mb-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-outline-variant px-3 py-2 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-variant/40">
+                      <Camera className="h-3.5 w-3.5" />
+                      {draft.files.length > 0 ? `${draft.files.length} foto(s)` : "Adjuntar foto (opcional)"}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => updateEvidenceDraft(r.id, { files: Array.from(e.target.files ?? []).slice(0, 4) })}
+                      />
+                    </label>
+                    <button
+                      onClick={() => {
+                        if (draft.message.trim().length < 10) return toast.error("Contanos qué pasó (mínimo 10 caracteres).");
+                        submitListingEvidence.mutate({ id: r.id, message: draft.message.trim(), files: draft.files });
+                      }}
+                      disabled={submitListingEvidence.isPending}
+                      className="rounded-lg bg-error px-4 py-2 text-[12.5px] font-bold text-white disabled:opacity-50"
+                    >
+                      {submitListingEvidence.isPending ? "Enviando..." : "Enviar respuesta"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
 
             {listingsLoading && <p className="text-body-md text-on-surface-variant">Cargando tus anuncios...</p>}
             {!listingsLoading && !listings?.length && (

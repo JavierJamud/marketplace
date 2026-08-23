@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, Settings, MessageSquare, Menu, Star, UserCog, Tag, Percent, Gift, Ban, Zap, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Percent, Gift, Ban, Zap, LogOut } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -21,6 +21,10 @@ const NAV = [
   { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star },
+  // Feature B (pedido explícito): badge propio (fraudReportsPendingCount)
+  // — cuenta lo que necesita SU respuesta (EVIDENCE_REQUESTED y sin
+  // evidenceSentAt todavía), no todo lo que le pasó alguna vez.
+  { to: "/vendedor/reportes", label: "Reportes de fraude", icon: ShieldAlert, badge: true },
   { to: "/vendedor/configuracion", label: "Configuración", icon: Settings },
   { to: "/vendedor/perfil", label: "Mi perfil", icon: UserCog },
 ];
@@ -123,6 +127,17 @@ export default function VendorLayout() {
     enabled: !!user,
     retry: false,
   });
+
+  // Feature B: cuántos reportes de fraude siguen esperando SU respuesta —
+  // no hay endpoint de conteo dedicado (a diferencia de errorCount en
+  // AdminLayout.jsx), se reusa la misma lista que consume VendorFraudReports.jsx.
+  const { data: myFraudReports } = useQuery({
+    queryKey: ["my-fraud-reports"],
+    queryFn: async () => (await api.get("/reports/me/list")).data.reports,
+    enabled: !!user,
+    refetchInterval: 20000,
+  });
+  const fraudReportsPendingCount = (myFraudReports ?? []).filter((r) => r.status === "EVIDENCE_REQUESTED" && !r.evidenceSentAt).length;
 
   if (vendorLoading) {
     return (
@@ -246,7 +261,7 @@ export default function VendorLayout() {
             siempre completos y visibles, sin importar qué tan poco espacio
             quede para el nav. */}
         <nav className="flex min-h-0 flex-col gap-[3px] overflow-y-auto">
-          {nav.map(({ to, label, icon: Icon, end }) => (
+          {nav.map(({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -258,7 +273,12 @@ export default function VendorLayout() {
               }
             >
               <Icon className="h-[17px] w-[17px]" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {badge && fraudReportsPendingCount > 0 && (
+                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
+                  {fraudReportsPendingCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

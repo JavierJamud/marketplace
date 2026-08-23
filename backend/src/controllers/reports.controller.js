@@ -57,6 +57,32 @@ export async function resolveReportTarget({ productId, vendorId, customerListing
   return { field: "customerListingId", kind: "CUSTOMER_LISTING", vendorId: null, user: listing.owner, label: `anuncio "${listing.name}"` };
 }
 
+// Reportes donde el usuario logueado es el REPORTADO (no el que reportó) —
+// un solo endpoint para las 2 superficies de FB-8: VendorFraudReports.jsx
+// (vendedor, directo o vía uno de sus productos) y el banner de la tab
+// "Venta rápida" en CustomerPanel.jsx (dueño de un CustomerListing). El
+// `OR` cubre las 3 formas reales de ser el reportado, mismo criterio que
+// resolveReportTarget de arriba pero en sentido inverso (buscar POR
+// userId en vez de resolver un userId A PARTIR de ids del reporte).
+export async function listMyReportsAgainstMe(req, res) {
+  const reports = await prisma.report.findMany({
+    where: {
+      OR: [
+        { vendor: { userId: req.user.id } },
+        { product: { vendor: { userId: req.user.id } } },
+        { customerListing: { ownerId: req.user.id } },
+      ],
+    },
+    include: {
+      product: { select: { name: true, slug: true, vendor: { select: { slug: true } } } },
+      vendor: { select: { companyName: true, slug: true } },
+      customerListing: { select: { name: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json({ reports });
+}
+
 export async function createReport(req, res) {
   try {
     if (!req.file) throw new AppError("La captura de pantalla es obligatoria.", 400);

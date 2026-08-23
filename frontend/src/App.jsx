@@ -43,6 +43,7 @@ import VendorChat from "./pages/vendor/VendorChat.jsx";
 import VendorReviews from "./pages/vendor/VendorReviews.jsx";
 import VendorSettings from "./pages/vendor/VendorSettings.jsx";
 import VendorProfile from "./pages/vendor/VendorProfile.jsx";
+import VendorFraudReports from "./pages/vendor/VendorFraudReports.jsx";
 
 // Admin
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
@@ -141,6 +142,7 @@ export default function App() {
         <Route path="pago-manual" element={<PagoManual />} />
         <Route path="mensajes" element={<VendorChat />} />
         <Route path="resenas" element={<VendorReviews />} />
+        <Route path="reportes" element={<VendorFraudReports />} />
         <Route path="configuracion" element={<VendorSettings />} />
         {/* Unificado en "verificacion" (verificación y plan eran dos páginas
             mostrando casi lo mismo) — se deja el redirect por si alguien
