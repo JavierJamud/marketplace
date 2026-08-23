@@ -32,8 +32,16 @@ export function ProductCard({ product }) {
   const productHref = `/producto/${product.vendor?.slug}/${product.slug}`;
 
   return (
-    <div className="group flex h-full flex-col overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg">
-      <Link to={productHref} className="block p-[2px] pb-0">
+    // Pedido explícito: toda la tarjeta debe abrir el producto al hacer
+    // clic en cualquier parte, no solo en la imagen o el título — mismo
+    // criterio que StoreCard.jsx (que ya era un único <Link> completo).
+    // AddToCartControl es el único control interactivo adentro; su wrapper
+    // corta la propagación del clic para que agregar al carrito no navegue.
+    <Link
+      to={productHref}
+      className="group flex h-full flex-col overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
+    >
+      <div className="p-[2px] pb-0">
         <div className="relative aspect-[7/4] w-full overflow-hidden rounded-[20px] border border-dashed border-outline-variant bg-surface-container">
           {(product.badge || discount) && (
             <span
@@ -56,7 +64,7 @@ export function ProductCard({ product }) {
             <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
           )}
         </div>
-      </Link>
+      </div>
       <div className="flex flex-1 flex-col p-3 pt-2">
         <div className="mb-0.5 flex items-center gap-1.5">
           <span className="truncate text-[10.5px] font-bold text-tertiary-accent">{product.vendor?.companyName}</span>
@@ -67,9 +75,7 @@ export function ProductCard({ product }) {
             </span>
           )}
         </div>
-        <Link to={productHref} className="mb-0.5 line-clamp-2 text-[13.5px] font-bold leading-[18px] text-on-surface">
-          {product.name}
-        </Link>
+        <span className="mb-0.5 line-clamp-2 text-[13.5px] font-bold leading-[18px] text-on-surface">{product.name}</span>
         {product.vendor?.locations?.[0] && (
           <div className="mb-1 flex items-center gap-1 text-[11px] text-outline">
             <MapPin className="h-3 w-3" />
@@ -80,9 +86,7 @@ export function ProductCard({ product }) {
           <div className="mb-1">
             <p className="line-clamp-2 text-[11.5px] leading-4 text-outline">{product.description}</p>
             {product.description.length > 45 && (
-              <Link to={productHref} className="text-[11px] font-bold text-tertiary-accent hover:underline">
-                ...leer más
-              </Link>
+              <span className="text-[11px] font-bold text-tertiary-accent">...leer más</span>
             )}
           </div>
         )}
@@ -103,9 +107,11 @@ export function ProductCard({ product }) {
               <span className="ml-1.5 text-label-sm text-outline line-through">{formatPrice(product.oldPrice, product.currency)}</span>
             )}
           </div>
-          <AddToCartControl product={product} />
+          <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+            <AddToCartControl product={product} />
+          </div>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
