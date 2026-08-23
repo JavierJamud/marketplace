@@ -10,6 +10,8 @@ import Shop from "./pages/public/Shop.jsx";
 import Product from "./pages/public/Product.jsx";
 import Store from "./pages/public/Store.jsx";
 import Stores from "./pages/public/Stores.jsx";
+import QuickSaleListings from "./pages/public/QuickSaleListings.jsx";
+import QuickSaleDetail from "./pages/public/QuickSaleDetail.jsx";
 import Cart from "./pages/public/Cart.jsx";
 import SharedCart from "./pages/public/SharedCart.jsx";
 import Checkout from "./pages/public/Checkout.jsx";
@@ -84,6 +86,8 @@ export default function App() {
         <Route path="/producto/:vendorSlug/:productSlug" element={<Product />} />
         <Route path="/tienda/:slug" element={<Store />} />
         <Route path="/tiendas" element={<Stores />} />
+        <Route path="/ventas-rapidas" element={<QuickSaleListings />} />
+        <Route path="/ventas-rapidas/:id" element={<QuickSaleDetail />} />
         <Route path="/carrito" element={<Cart />} />
         <Route path="/carrito-compartido/:id" element={<SharedCart />} />
         <Route path="/checkout" element={<Checkout />} />
