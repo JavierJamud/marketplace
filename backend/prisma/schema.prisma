@@ -176,6 +176,13 @@ enum EmailType {
   // Bloque 71: código de verificación para cambiar el correo de la cuenta —
   // mismo criterio que TWO_FACTOR_CODE/REGISTRATION_CODE (tipo propio).
   EMAIL_CHANGE_CODE
+  // Feature B (pedido explícito): reportes de fraude sobre producto/tienda/
+  // venta rápida — 3 tipos propios, mismo criterio que el resto del enum
+  // (nunca reusar MANUAL, no deben contar contra el límite mensual del
+  // vendedor porque no las inició él).
+  FRAUD_REPORT_EVIDENCE_REQUESTED
+  FRAUD_REPORT_DISMISSED
+  FRAUD_REPORT_SUSPENDED
 }
 
 enum EmailStatus {
@@ -395,6 +402,7 @@ model Product {
   requests   ProductRequest[]
   offers     Offer[]
   priceTiers ProductPriceTier[]
+  reports    Report[]
 
   @@unique([vendorId, slug])
 }
@@ -514,6 +522,11 @@ model User {
   // Anuncios de venta rápida propios (clientes sin tienda) — ver
   // CustomerListing más abajo.
   customerListings CustomerListing[]
+  // Feature B: reportes de fraude que este usuario hizo (nombrado "made"
+  // para no chocar con reportedReviews de arriba, que es otra cosa) y los
+  // que resolvió como admin — mismo criterio que reportResolvedReviews.
+  reportsMade     Report[] @relation("ReportsMade")
+  reportsResolved Report[] @relation("ReportsResolvedBy")
 }
 
 // Bloque 60: reemplaza el refresh token JWT sin estado por uno opaco
@@ -761,6 +774,7 @@ model Vendor {
   verificationStatusLogs VerificationStatusLog[]
   activityLogs     ActivityLog[]
   verificationArchives VerificationArchive[]
+  reports          Report[]
 }
 
 // Bloque 62: auditoría de cada cambio de Vendor.status a través del tiempo
@@ -1321,6 +1335,11 @@ model SiteSettings {
   // expireNewBadges en products.controller.js) — contados desde
   // Product.activatedAt, no desde createdAt.
   newBadgeDurationDays Int @default(14)
+  // Feature B (pedido explícito, confirmado con el usuario: 5 días): plazo
+  // que tiene un vendedor/dueño de venta rápida para responder con evidencia
+  // a un reporte de fraude antes de que fraudReports.job.js lo suspenda
+  // solo — editable sin redeploy, mismo patrón que newBadgeDurationDays.
+  fraudReportEvidenceDeadlineDays Int @default(5)
   updatedAt    DateTime @updatedAt
 }
 
@@ -1426,6 +1445,12 @@ enum VendorNotificationType {
   // el ciclo de pago de la verificación).
   VERIFICATION_PAYMENT_FAILED
   VERIFICATION_SUSPENDED
+  // Feature B (pedido explícito): ciclo de un reporte de fraude sobre una
+  // tienda o alguno de sus productos — 3 pasos visibles en la campanita del
+  // vendedor, mismo criterio que el resto del ciclo de verificación/cobro.
+  FRAUD_REPORT_EVIDENCE_REQUESTED
+  FRAUD_REPORT_DISMISSED
+  FRAUD_REPORT_SUSPENDED
 }
 
 model VendorNotification {
@@ -1578,11 +1603,79 @@ model CustomerListing {
   // rotación de 30 días editando en loop.
   expiresAt   DateTime
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  // reports Report[] — se agrega en la migración de Feature B (fraud_reports).
+  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  reports Report[]
 
   @@index([ownerId])
   @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Feature B (pedido explícito): reportes de fraude sobre producto/tienda/
+// venta rápida. Patrón "exactamente uno de estos 3 campos" — mismo criterio
+// que Favorite (productId/vendorId), extendido a customerListingId acá.
+// screenshotUrl y message son OBLIGATORIOS los dos (pedido explícito: "debe
+// enviar captura Y mensaje, ambos obligatorios para poder decidir"). El
+// reporte no reimplementa suspender/editar/eliminar — reusa los endpoints
+// admin que ya existen sobre Product/Vendor, y los nuevos sobre
+// CustomerListing; solo fraudReports.job.js actúa directo (sin admin
+// presente) cuando vence el plazo de evidencia sin respuesta.
+// ---------------------------------------------------------------------------
+enum ReportStatus {
+  PENDING
+  EVIDENCE_REQUESTED
+  RESOLVED_NO_ACTION
+  RESOLVED_SUSPENDED
+  DISMISSED
+}
+
+model Report {
+  id         String  @id @default(cuid())
+  reporterId String
+  productId  String?
+  vendorId   String?
+  customerListingId String?
+
+  // Obligatorios los dos al crear (ver reports.controller.js) — es lo que
+  // permite al admin decidir sin tener que pedirle más datos al reportante
+  // antes de poder evaluar.
+  screenshotUrl String
+  message       String @db.Text
+
+  status ReportStatus @default(PENDING)
+
+  // Se setea al pedir evidencia (requestEvidence en adminReports.controller.js)
+  // — fraudReports.job.js es quien realmente actúa cuando se vence.
+  evidenceRequestedAt DateTime?
+  evidenceDueAt       DateTime?
+  // Respuesta del reportado (vendedor o dueño de la venta rápida) — mismo
+  // criterio que las fotos de reseña: archivos subidos, nunca un link.
+  evidenceMessage String?   @db.Text
+  evidenceImages  String[]  @default([])
+  evidenceSentAt  DateTime?
+
+  // autoResolved:true = lo resolvió fraudReports.job.js solo (venció el
+  // plazo sin respuesta) — mismo criterio que byAdminId:null en
+  // vendorLifecycle.job.js. resolvedById queda null en ese caso.
+  autoResolved   Boolean   @default(false)
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?   @db.Text
+
+  createdAt DateTime @default(now())
+
+  reporter         User             @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy       User?            @relation("ReportsResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  product          Product?         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendor           Vendor?          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  customerListing  CustomerListing? @relation(fields: [customerListingId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId])
+  @@index([status])
+  @@index([productId])
+  @@index([vendorId])
+  @@index([customerListingId])
+  @@index([evidenceDueAt])
 }
 
 // Bloque 21: chatbot IA por tienda verificada. Sin login — el cliente se
