@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Search } from "lucide-react";
+import { Search, Flag } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -46,6 +46,10 @@ export default function AdminCustomers() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [suspending, setSuspending] = useState(null); // cliente a suspender, para el modal de confirmación
+  // Feature B (pedido explícito): "cliente de alto riesgo... filtrable en
+  // admin para ver quién hizo cada reporte" — filtro simple sobre el
+  // reportsMadeCount ya derivado del backend.
+  const [onlyReporters, setOnlyReporters] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-customers"],
@@ -83,28 +87,36 @@ export default function AdminCustomers() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar el cliente."),
   });
 
-  const rows = (data ?? []).filter((c) => c.fullName?.toLowerCase().includes(q.toLowerCase()) || c.email.toLowerCase().includes(q.toLowerCase()));
+  const rows = (data ?? [])
+    .filter((c) => c.fullName?.toLowerCase().includes(q.toLowerCase()) || c.email.toLowerCase().includes(q.toLowerCase()))
+    .filter((c) => !onlyReporters || c.reportsMadeCount > 0);
 
   return (
     <div>
       <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Clientes</h1>
       <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Puedes editar datos, suspender o eliminar cuentas.</p>
 
-      <div className="mb-4 flex h-[42px] max-w-[340px] items-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-3">
-        <Search className="h-4 w-4 text-outline" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente..." className="w-full border-none bg-transparent text-[13.5px] outline-none" />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex h-[42px] max-w-[340px] flex-1 items-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-3">
+          <Search className="h-4 w-4 text-outline" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente..." className="w-full border-none bg-transparent text-[13.5px] outline-none" />
+        </div>
+        <label className="flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface-variant">
+          <input type="checkbox" checked={onlyReporters} onChange={(e) => setOnlyReporters(e.target.checked)} className="h-3.5 w-3.5" />
+          Solo con reportes hechos
+        </label>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
-        <div className="grid grid-cols-[2fr_1.4fr_1fr_1fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[620px]">
-          <span>Cliente</span><span>Provincia</span><span>Pedidos</span><span>Estado</span><span className="text-right">Acción</span>
+        <div className="grid grid-cols-[2fr_1.4fr_1fr_1.3fr_1fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[720px]">
+          <span>Cliente</span><span>Provincia</span><span>Pedidos</span><span>Reportes hechos</span><span>Estado</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
         {!isLoading && rows.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay clientes para esta búsqueda.</p>}
         {rows.map((c) => (
           <div
             key={c.id}
-            className="grid min-w-[620px] grid-cols-[2fr_1.4fr_1fr_1fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
+            className="grid min-w-[720px] grid-cols-[2fr_1.4fr_1fr_1.3fr_1fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
             style={{ opacity: c.isSuspended ? 0.55 : 1 }}
           >
             <div className="flex items-center gap-2.5">
@@ -121,6 +133,13 @@ export default function AdminCustomers() {
             </div>
             <span className="text-[13px] text-on-surface-variant">{c.province ?? "—"}</span>
             <span className="text-[13px] text-on-surface-variant">{c.orderCount}</span>
+            {c.reportsMadeCount > 0 ? (
+              <span className="flex w-fit items-center gap-1 rounded-full bg-error/10 px-2.5 py-1 text-[11px] font-bold text-error">
+                <Flag className="h-3 w-3" /> {c.reportsMadeCount}
+              </span>
+            ) : (
+              <span className="text-[13px] text-on-surface-variant">—</span>
+            )}
             <span
               className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold"
               style={c.isSuspended ? { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" } : { background: "rgba(12,174,83,0.12)", color: "#0A8F42" }}

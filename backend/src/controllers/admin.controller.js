@@ -567,7 +567,12 @@ export async function revokeBusinessPlan(req, res) {
 export async function listCustomers(req, res) {
   const customers = await prisma.user.findMany({
     where: { role: "CUSTOMER", deletedAt: null },
-    include: { province: true, _count: { select: { orders: true } } },
+    // Feature B (pedido explícito): "cliente de alto riesgo" es DERIVADO —
+    // cuántos reportes de fraude hizo (reportsMade), sin campo booleano
+    // nuevo que pueda desincronizarse. No filtra por status del reporte
+    // (un reporte descartado también cuenta para el patrón de uso, es
+    // información para el admin, no una acusación).
+    include: { province: true, _count: { select: { orders: true, reportsMade: true } } },
     orderBy: { createdAt: "desc" },
   });
   res.json({
@@ -578,6 +583,7 @@ export async function listCustomers(req, res) {
       phone: c.phone,
       province: c.province?.name ?? null,
       orderCount: c._count.orders,
+      reportsMadeCount: c._count.reportsMade,
       isSuspended: c.isSuspended,
     })),
   });
