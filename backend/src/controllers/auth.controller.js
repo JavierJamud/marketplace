@@ -83,11 +83,11 @@ const E164_REGEX = /^\+\d{7,15}$/;
 // Bloque 11: todos los campos de creación de cuenta son obligatorios (antes
 // phone/country quedaban opcionales) — validado acá y en el frontend.
 const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-  fullName: z.string().min(2),
+  email: z.string().email("Ingresá un correo electrónico válido."),
+  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres."),
+  fullName: z.string().min(2, "Ingresá tu nombre completo."),
   phone: z.string().regex(E164_REGEX, "El teléfono debe incluir código de país (ej. +5355512345)."),
-  country: z.string().length(2),
+  country: z.string().length(2, "Seleccioná tu país."),
 });
 
 // Bloque 59 (pedido explícito): antes de crear la cuenta de verdad (cliente
@@ -131,8 +131,8 @@ export async function register(req, res) {
 }
 
 const verifyRegistrationSchema = z.object({
-  email: z.string().email(),
-  code: z.string().length(REGISTER_CODE_LENGTH),
+  email: z.string().email("Ingresá un correo electrónico válido."),
+  code: z.string().length(REGISTER_CODE_LENGTH, `El código debe tener ${REGISTER_CODE_LENGTH} dígitos.`),
   browserId: z.string().nullish(),
 });
 
@@ -186,8 +186,8 @@ export async function verifyRegistration(req, res) {
 }
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().email("Ingresá un correo electrónico válido."),
+  password: z.string().min(1, "Ingresá tu contraseña."),
   // .nullish() (no solo .optional()) — bug real encontrado en vivo: cuando
   // el navegador nunca guardó nada, localStorage.getItem() devuelve `null`,
   // no `undefined`, y .optional() por sí solo rechaza null ("Expected
