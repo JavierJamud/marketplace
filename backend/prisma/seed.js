@@ -26,14 +26,28 @@ function slugify(text) {
 async function main() {
   const devPasswordHash = await bcrypt.hash(DEV_PASSWORD, 10);
 
+  // --- País (Cuba) ------------------------------------------------------------
+  // Fix (AUDITORIA.md, Crítico #2): sin ningún país cargado, ninguna
+  // provincia puede tener countryId poblado, y el checkout no puede resolver
+  // "Provincia / Estado" para direcciones cubanas. En producción esto se
+  // carga a mano desde /admin/ubicaciones (dato real de negocio, no algo que
+  // el seed deba decidir) — acá solo se asegura que el entorno de desarrollo
+  // arranque completo, sin el mismo hueco.
+  console.log("Sembrando país (Cuba)...");
+  const cuba = await prisma.country.upsert({
+    where: { code: "CU" },
+    update: { name: "Cuba" },
+    create: { code: "CU", name: "Cuba" },
+  });
+
   // --- Provincias -----------------------------------------------------------
   console.log("Sembrando provincias...");
   const provinceIdByCode = {};
   for (const p of seedData.provinces) {
     const province = await prisma.province.upsert({
       where: { code: p.code },
-      update: { name: p.name },
-      create: { code: p.code, name: p.name },
+      update: { name: p.name, countryId: cuba.id },
+      create: { code: p.code, name: p.name, countryId: cuba.id },
     });
     provinceIdByCode[p.code] = province.id;
   }
