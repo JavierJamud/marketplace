@@ -261,8 +261,8 @@ export async function sendVendorSuspendedEmail(vendor, reason) {
 // tienda) — reciben el User real (vendor.user o CustomerListing.owner) y
 // vendorId aparte, solo para el log (null si no hay tienda de por medio).
 // Ver fraudReportNotify.service.js para quién llama a cuál.
-export async function sendFraudReportEvidenceRequestedEmail(user, vendorId, { targetLabel, message, deadlineDays, ctaUrl }) {
-  const { subject, html } = await fraudReportEvidenceRequestedEmail({ fullName: user.fullName, targetLabel, message, deadlineDays, ctaUrl });
+export async function sendFraudReportEvidenceRequestedEmail(user, vendorId, { targetLabel, message, deadlineDays, ctaUrl, isLastReminder }) {
+  const { subject, html } = await fraudReportEvidenceRequestedEmail({ fullName: user.fullName, targetLabel, message, deadlineDays, ctaUrl, isLastReminder });
   const result = await sendViaResend({ to: user.email, subject, html });
   await logEmail({ vendorId, orderId: null, type: "FRAUD_REPORT_EVIDENCE_REQUESTED", to: user.email, subject, result });
   return result;

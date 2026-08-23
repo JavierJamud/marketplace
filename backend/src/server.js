@@ -3,6 +3,7 @@ import { env } from "./config/env.js";
 import { startVendorLifecycleJob } from "./jobs/vendorLifecycle.job.js";
 import { startVerificationPaymentJob } from "./jobs/verificationPayment.job.js";
 import { startCustomerListingExpiryJob } from "./jobs/customerListingExpiry.job.js";
+import { startFraudReportsJob } from "./jobs/fraudReports.job.js";
 
 app.listen(env.port, () => {
   console.log(`API escuchando en http://localhost:${env.port}`);
@@ -18,3 +19,6 @@ startVendorLifecycleJob();
 // Bloque 64: segundo cron — recordatorio y vencimiento del cobro recurrente
 // CUP de la verificación (Stripe se maneja solo, vía webhook).
 startVerificationPaymentJob();
+// Feature B: recordatorio y vencimiento del plazo de evidencia de un
+// reporte de fraude — 9:00am, después de los otros 3 crons diarios.
+startFraudReportsJob();

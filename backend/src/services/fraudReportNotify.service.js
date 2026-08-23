@@ -16,7 +16,7 @@ function ctaUrlFor(target) {
   return target.kind === "VENDOR" ? `${env.frontendUrl}/vendedor/reportes` : `${env.frontendUrl}/cuenta/panel?tab=quick-sale`;
 }
 
-export async function notifyEvidenceRequested(report, deadlineDays) {
+export async function notifyEvidenceRequested(report, deadlineDays, { isLastReminder = false } = {}) {
   const target = await resolveReportTarget(report);
   const ctaUrl = ctaUrlFor(target);
   const tasks = [
@@ -25,9 +25,13 @@ export async function notifyEvidenceRequested(report, deadlineDays) {
       message: report.message,
       deadlineDays,
       ctaUrl,
+      isLastReminder,
     }),
   ];
-  if (target.kind === "VENDOR") {
+  // El recordatorio (isLastReminder) no duplica la fila de VendorNotification
+  // — ya quedó la del pedido original, y la campanita no distingue "nuevo
+  // aviso" de "recordatorio del mismo aviso" (el correo sí lo aclara).
+  if (target.kind === "VENDOR" && !isLastReminder) {
     tasks.push(
       prisma.vendorNotification.create({
         data: {

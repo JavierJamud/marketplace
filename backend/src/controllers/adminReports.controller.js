@@ -86,33 +86,40 @@ export async function dismissFraudReport(req, res) {
 
 const resolveSchema = z.object({ resolutionNote: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.") });
 
-// Confirma el fraude y aplica la consecuencia mínima que pidió el usuario,
-// una por tipo de objetivo — reusa los campos que YA existen para
-// suspender (nunca borra nada de verdad, ver Vendor.isBlocked/Product.isActive
-// y el criterio de "no reimplementar" del comentario de arriba).
+// Aplica la consecuencia mínima que pidió el usuario, una por tipo real de
+// objetivo — reusa los campos que YA existen para suspender (nunca borra
+// nada de verdad, ver Vendor.isBlocked/Product.isActive y el criterio de
+// "no reimplementar" del comentario de arriba). Exportada aparte de
+// resolveFraudReport para que fraudReports.job.js la reuse tal cual cuando
+// vence el plazo de evidencia sin respuesta — misma consecuencia sin
+// importar si la decide un admin a mano o el cron solo.
+export async function applyFraudConsequence(report, reason) {
+  if (report.productId) {
+    await prisma.product.update({ where: { id: report.productId }, data: { isActive: false } });
+  } else if (report.vendorId) {
+    await prisma.vendor.update({ where: { id: report.vendorId }, data: { isBlocked: true, blockReason: reason, blockedAt: new Date() } });
+  } else {
+    const listing = await prisma.customerListing.findUnique({ where: { id: report.customerListingId }, select: { ownerId: true } });
+    await prisma.$transaction([
+      prisma.customerListing.update({ where: { id: report.customerListingId }, data: { isActive: false } }),
+      prisma.user.update({ where: { id: listing.ownerId }, data: { isSuspended: true } }),
+    ]);
+  }
+}
+
+// Confirma el fraude a mano (el cron de FB-5 es quien confirma solo, sin
+// admin, cuando vence el plazo sin respuesta).
 export async function resolveFraudReport(req, res) {
   const { id } = req.params;
   const { resolutionNote } = resolveSchema.parse(req.body);
-  const report = await prisma.report.findUnique({
-    where: { id },
-    include: { customerListing: { select: { ownerId: true } } },
-  });
+  const report = await prisma.report.findUnique({ where: { id } });
   if (!report) throw new AppError("Reporte no encontrado.", 404);
   if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) {
     throw new AppError("Este reporte ya fue resuelto.", 400);
   }
 
   const reason = `Fraude confirmado por reporte de un cliente: ${resolutionNote}`;
-  if (report.productId) {
-    await prisma.product.update({ where: { id: report.productId }, data: { isActive: false } });
-  } else if (report.vendorId) {
-    await prisma.vendor.update({ where: { id: report.vendorId }, data: { isBlocked: true, blockReason: reason, blockedAt: new Date() } });
-  } else {
-    await prisma.$transaction([
-      prisma.customerListing.update({ where: { id: report.customerListingId }, data: { isActive: false } }),
-      prisma.user.update({ where: { id: report.customerListing.ownerId }, data: { isSuspended: true } }),
-    ]);
-  }
+  await applyFraudConsequence(report, reason);
 
   const updated = await prisma.report.update({
     where: { id },
