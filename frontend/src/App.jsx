@@ -73,6 +73,7 @@ import AdminOffers from "./pages/admin/AdminOffers.jsx";
 import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
 import AdminStoreOffers from "./pages/admin/AdminStoreOffers.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
+import AdminCustomerListings from "./pages/admin/AdminCustomerListings.jsx";
 
 export default function App() {
   return (
@@ -160,6 +161,7 @@ export default function App() {
         <Route path="tiendas" element={<AdminVendors />} />
         <Route path="tiendas-suspendidas" element={<AdminSuspendedVendors />} />
         <Route path="productos" element={<AdminProducts />} />
+        <Route path="ventas-rapidas" element={<AdminCustomerListings />} />
         <Route path="verificaciones" element={<AdminVerifications />} />
         <Route path="clientes" element={<AdminCustomers />} />
         <Route path="actividad" element={<AdminActivityLog />} />

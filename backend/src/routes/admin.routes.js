@@ -16,6 +16,7 @@ import * as discountCodesController from "../controllers/discountCodes.controlle
 import * as storeOffersController from "../controllers/storeOffers.controller.js";
 import * as adminOffersController from "../controllers/adminOffers.controller.js";
 import * as adminProductsController from "../controllers/adminProducts.controller.js";
+import * as adminCustomerListingsController from "../controllers/adminCustomerListings.controller.js";
 import * as verificationArchiveController from "../controllers/verificationArchive.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -39,6 +40,12 @@ router.get("/vendors/:id/table-orders", adminController.getVendorTableOrders);
 // + reactivación manual con motivo obligatorio.
 router.get("/vendors/suspended", adminController.listSuspendedVendors);
 router.post("/vendors/:id/reactivate", adminController.reactivateVendor);
+
+// Venta rápida: qué clientes SIN tienda tienen anuncios activos, agrupado
+// por dueño (pedido explícito).
+router.get("/customer-listings", adminCustomerListingsController.listCustomerListingsByOwner);
+router.patch("/customer-listings/:id", adminCustomerListingsController.updateAdminCustomerListing);
+router.delete("/customer-listings/:id", adminCustomerListingsController.deleteAdminCustomerListing);
 
 // Bloque 52: supervisión/edición de productos de cualquier vendedor.
 router.get("/products", adminProductsController.listAllProducts);
