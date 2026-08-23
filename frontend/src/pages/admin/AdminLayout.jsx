@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -12,6 +12,9 @@ const NAV = [
   { to: "/admin/tiendas-suspendidas", label: "Tiendas suspendidas", icon: Ban },
   { to: "/admin/productos", label: "Productos", icon: Package },
   { to: "/admin/ventas-rapidas", label: "Venta rápida", icon: Zap },
+  // Feature B (pedido explícito): badge propio (fraudReportsCount), mismo
+  // criterio que "Errores" (errorCount) más abajo.
+  { to: "/admin/reportes-fraude", label: "Reportes de fraude", icon: ShieldAlert, badge: "fraudReportsCount" },
   { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck },
   { to: "/admin/clientes", label: "Clientes", icon: Users },
   // Bloque 70 (pedido explícito): récord de todo lo que hacen vendedores y
@@ -230,6 +233,16 @@ export default function AdminLayout() {
     refetchInterval: 20000,
   });
   const errorCount = errorCountData?.count ?? 0;
+
+  // Feature B: cuántos reportes de fraude siguen sin resolver (PENDING +
+  // EVIDENCE_REQUESTED) — mismo patrón de polling que errorCount de arriba.
+  const { data: fraudReportsCountData } = useQuery({
+    queryKey: ["admin-fraud-reports-count"],
+    queryFn: async () => (await api.get("/admin/reports/pending-count")).data,
+    enabled: !!user && user.role === "ADMIN",
+    refetchInterval: 20000,
+  });
+  const fraudReportsCount = fraudReportsCountData?.count ?? 0;
   const { siteName, logoUrl } = usePlatformSettings();
 
   // Bloque 20: el drawer mobile se cierra solo al navegar a otra sección —
@@ -313,6 +326,11 @@ export default function AdminLayout() {
               {badge === "errorCount" && errorCount > 0 && (
                 <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
                   {errorCount}
+                </span>
+              )}
+              {badge === "fraudReportsCount" && fraudReportsCount > 0 && (
+                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
+                  {fraudReportsCount}
                 </span>
               )}
             </NavLink>
