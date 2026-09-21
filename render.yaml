@@ -1,0 +1,81 @@
+# Blueprint de Render — crea de una sola vez los 3 recursos que necesita el
+# proyecto (backend, frontend y base de datos) conectados entre sí. Pensado
+# para el plan gratuito, como entorno de PRUEBA/demo, no para producción real
+# (ver las notas de cada sección más abajo y DEPLOY.md).
+#
+# Cómo usarlo: en el dashboard de Render, "New" -> "Blueprint", elegir este
+# repositorio — Render lee este archivo solo y arma los 3 recursos.
+#
+# Los nombres de servicio de acá abajo (zeudin-backend/zeudin-frontend)
+# definen la URL pública que les toca (https://<name>.onrender.com) SOLO si
+# ese nombre está libre — si Render le agrega un sufijo por estar ocupado,
+# hay que actualizar a mano las 3 env vars marcadas con "(ajustar si el
+# nombre cambió)" más abajo, en el dashboard de cada servicio, después del
+# primer deploy.
+
+databases:
+  - name: zeudin-db
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"
+
+services:
+  # --- Backend (API Express + Prisma) ---------------------------------------
+  - type: web
+    name: zeudin-backend
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate
+    # migrate deploy corre en cada arranque (no solo la primera vez) — es
+    # seguro porque solo aplica migraciones NUEVAS, nunca reaplica las viejas.
+    startCommand: npx prisma migrate deploy && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zeudin-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # AES-256 en hex (32 bytes = 64 caracteres) — generateValue de Render
+      # NO garantiza ese formato exacto, así que este SÍ hay que generarlo a
+      # mano (ver DEPLOY.md) y pegarlo en el dashboard al crear el Blueprint.
+      - key: INTEGRATIONS_ENCRYPTION_KEY
+        sync: false
+      # (ajustar si el nombre cambió) — URL pública del frontend, una vez
+      # creado (ver DEPLOY.md paso 4).
+      - key: FRONTEND_URL
+        value: https://zeudin-frontend.onrender.com
+      # (ajustar si el nombre cambió) — URL pública de ESTE mismo backend,
+      # para armar links absolutos en emails/PDFs.
+      - key: BACKEND_URL
+        value: https://zeudin-backend.onrender.com
+
+  # --- Frontend (React + Vite, build estático) ------------------------------
+  - type: web
+    name: zeudin-frontend
+    runtime: static
+    plan: free
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      # (ajustar si el nombre del backend cambió) — sin esto, api.js no
+      # tiene forma de adivinar la URL del backend (front y back quedan en
+      # dominios *.onrender.com distintos, no el mismo host).
+      - key: VITE_API_URL
+        value: https://zeudin-backend.onrender.com
+    routes:
+      # SPA de React Router — cualquier ruta que no sea un archivo real
+      # (ej. /tienda/sabor-criollo) tiene que caer en index.html, sino
+      # Render devuelve 404 al recargar cualquier página que no sea la raíz.
+      - type: rewrite
+        source: /*
+        destination: /index.html
