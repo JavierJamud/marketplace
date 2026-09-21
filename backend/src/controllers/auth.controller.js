@@ -351,7 +351,23 @@ export async function login(req, res) {
     const twoFactorCodeHash = await bcrypt.hash(code, 10);
     const twoFactorCodeExpiresAt = new Date(Date.now() + TWO_FACTOR_CODE_TTL_MINUTES * 60 * 1000);
     await prisma.user.update({ where: { id: user.id }, data: { twoFactorCodeHash, twoFactorCodeExpiresAt } });
-    await sendTwoFactorCodeEmail(user, code);
+    const emailResult = await sendTwoFactorCodeEmail(user, code);
+    // Bug real reportado en vivo — primer arranque en un hosting nuevo, sin
+    // ninguna integración de correo configurada todavía: el código se
+    // generaba y guardaba bien, pero el correo real nunca salía (Resend sin
+    // configurar o con una clave inválida) y no había NINGUNA forma de leer
+    // ese código — el propio admin quedaba trabado afuera de su cuenta, sin
+    // poder entrar para configurar el correo que hace falta para poder
+    // entrar. Fallback SOLO cuando el envío realmente falló: mismo código
+    // real (aleatorio, vence en 10 min, se usa una sola vez) que ya se
+    // generó arriba — nunca un código fijo/adivinable — quedó en el log del
+    // servidor (visible solo desde el dashboard de Render, nunca en la
+    // respuesta HTTP ni en ningún lugar público) para que el propio dueño
+    // de la infraestructura pueda leerlo a mano mientras arregla el envío
+    // real. Nunca se activa si el correo salió bien.
+    if (!emailResult.ok) {
+      console.warn(`[2FA] No se pudo enviar el código por correo (${emailResult.error}) — código de emergencia para ${user.email}: ${code} (vence en ${TWO_FACTOR_CODE_TTL_MINUTES} min)`);
+    }
     return res.json({ requiresTwoFactor: true, email: user.email });
   }
 
