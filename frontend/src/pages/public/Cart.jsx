@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Minus, Plus, Trash2, MessageCircle, Tag, X } from "lucide-react";
+import { Minus, Plus, Trash2, ShoppingBag, Tag, X, ImageOff } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";
 import { useCart } from "../../context/CartContext.jsx";
@@ -10,6 +10,12 @@ import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ShareCartButton } from "../../components/ShareCartButton.jsx";
+
+// Bloque 147: mismo patrón que CartDrawer.jsx/ProductCard.jsx/SharedCart.jsx.
+function imgUrl(path) {
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
+}
 
 // Bloque 52: solo tiene sentido si TODOS los ítems del carrito están en la
 // misma moneda (el carrito ya es de un solo vendedor, pero un vendedor puede
@@ -23,8 +29,9 @@ function singleCurrencySubtotal(items) {
 }
 
 export default function Cart() {
-  const { items, vendorId, vendorName, vendorSlug, vendorColor, vendorVerified, updateQuantity, removeItem, discount, setDiscount, clearDiscount } = useCart();
+  const { items, vendorId, vendorName, vendorSlug, vendorColor, vendorVerified, updateQuantity, removeItem, clearCart, discount, setDiscount, clearDiscount } = useCart();
   const [itemToRemove, setItemToRemove] = useState(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const subtotal = singleCurrencySubtotal(items);
 
@@ -49,13 +56,12 @@ export default function Cart() {
   const locationLabel = location ? `${location.municipality?.name ?? ""}, ${location.province?.name}` : "";
   const color = vendor?.color ?? vendorColor ?? "#232F3E";
   const isVerified = vendor?.isVerified ?? vendorVerified;
-  // Bloque 68 (pedido explícito): el destino elegido por la tienda ya NO
-  // decide si se salta el formulario (siempre se pasa por /checkout) — solo
-  // cambia el color/label del botón, para que el cliente sepa qué esperar
+  // Bloque 68 (pedido explícito): el destino elegido por la tienda decide
+  // el texto de ayuda bajo el botón, para que el cliente sepa qué esperar
   // después de confirmar (ver Checkout.jsx, que arma el mensaje real de
-  // WhatsApp recién con los datos ya completos).
+  // WhatsApp recién con los datos ya completos). Bloque 231: ya NO decide
+  // el color/ícono del botón — ver el comentario junto al <Link> de abajo.
   const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
-  const emphasizeWhatsapp = orderDestination !== "PANEL";
 
   if (items.length === 0) {
     return (
@@ -77,7 +83,25 @@ export default function Cart() {
     <div className="container-app max-w-[1080px] py-9">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-headline-lg text-on-surface">Tu carrito</h1>
-        <ShareCartButton className="flex items-center gap-1.5 rounded-md border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50" />
+        <div className="flex flex-wrap items-center gap-2">
+          <ShareCartButton className="flex items-center gap-1.5 rounded-md border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50" />
+          {/* Bloque 147 (pedido explícito): mismo `clearCart()` que ya existía
+              en CartContext.jsx (usado por el bot de tienda al pedir "vaciá
+              el carrito" por chat) — acá se suma un botón real y visible.
+              Bloque 148 (pedido explícito — "contenedor transparente, con
+              borde fino de un color redondeado"): mismo criterio de píldora
+              que `CartDrawer.jsx` — fondo transparente, borde fino en el
+              mismo color que el texto (antes un borde gris neutro, igual
+              al de "Compartir", que no comunicaba que era una acción
+              destructiva distinta). */}
+          <button
+            type="button"
+            onClick={() => setConfirmingClear(true)}
+            className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-error/35 px-3.5 py-2 text-[12.5px] font-bold text-error transition-colors hover:bg-error/10"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Vaciar carrito
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-7 lg:grid-cols-[1fr_340px] lg:items-start">
@@ -101,12 +125,32 @@ export default function Cart() {
             {items.map((it) => {
               const unitPrice = resolveUnitPrice(it.price, it.priceTiers, it.quantity);
               const savings = calcSavings(it.price, it.priceTiers, it.quantity);
+              // Bloque 147 (bug real reportado en vivo, con captura — sin
+              // fotos y sin clic a la ficha del producto): un ítem viejo ya
+              // persistido en localStorage puede no tener `slug` todavía —
+              // se degrada a texto/imagen sin clic en vez de armar un link roto.
+              const productHref = it.slug && vendorSlug ? `/producto/${vendorSlug}/${it.slug}` : null;
+              const thumb = (
+                <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-container">
+                  {it.image ? (
+                    <img src={imgUrl(it.image)} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <ImageOff className="h-5 w-5 text-outline/50" />
+                  )}
+                </div>
+              );
               return (
                 <div key={`${it.productId}-${it.size ?? ""}`} className="flex flex-wrap items-center gap-3.5 border-b border-surface-container px-[18px] py-4 last:border-b-0">
-                  <div className="h-16 w-16 flex-shrink-0 rounded-md bg-surface-container" />
+                  {productHref ? <Link to={productHref}>{thumb}</Link> : thumb}
                   <div className="min-w-[140px] flex-1">
                     <div className="flex items-center gap-1.5 text-body-md font-semibold text-on-surface">
-                      {it.name}
+                      {productHref ? (
+                        <Link to={productHref} className="hover:underline">
+                          {it.name}
+                        </Link>
+                      ) : (
+                        it.name
+                      )}
                       {it.size && (
                         <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">Talla {it.size}</span>
                       )}
@@ -118,19 +162,37 @@ export default function Cart() {
                   </div>
                   <div className="flex w-full items-center justify-between gap-3.5 sm:w-auto sm:justify-end">
                     <div className="flex items-center rounded border border-outline-variant">
-                      <button onClick={() => updateQuantity(it.productId, Math.max(1, it.quantity - 1), it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <div className="w-[34px] text-center text-body-md font-semibold">{it.quantity}</div>
+                      {/* Bloque 215 (pedido explícito, con Amazon de
+                          referencia): antes esto SIEMPRE era "-" (clampeado
+                          a un mínimo de 1, nunca sacaba el producto del
+                          carrito) y el bote de basura vivía aparte, junto al
+                          precio — quedaban 2 formas de "borrar" y una de
+                          ellas parecía rota (bajaba y se quedaba pegado en
+                          1). Con 1 sola unidad, este mismo botón pasa a ser
+                          la papelera (misma confirmación de siempre, ver
+                          setItemToRemove/ConfirmDeleteModal más abajo); con
+                          2+ vuelve a ser el "-" de siempre. */}
+                      {it.quantity <= 1 ? (
+                        <button onClick={() => setItemToRemove(it)} title="Eliminar del carrito" className="flex h-9 w-8 items-center justify-center text-error">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <button onClick={() => updateQuantity(it.productId, it.quantity - 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {/* min-w en vez de w fijo (Bloque 143): un producto
+                          "disponible siempre" no tiene techo de cantidad —
+                          un número de varios dígitos no debe romper el
+                          layout (mismo criterio ya aplicado en
+                          CartDrawer.jsx). */}
+                      <div className="min-w-[34px] px-1 text-center text-body-md font-semibold">{it.quantity}</div>
                       <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
                         <Plus className="h-3.5 w-3.5" />
                       </button>
                     </div>
                     <div className="flex items-center gap-1">
-                      <div className="w-20 flex-shrink-0 text-right text-body-md font-bold text-on-surface sm:w-24">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
-                      <button onClick={() => setItemToRemove(it)} className="p-1.5 text-error">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="min-w-20 flex-shrink-0 text-right text-body-md font-bold text-on-surface sm:min-w-24">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
                     </div>
                   </div>
                 </div>
@@ -199,13 +261,15 @@ export default function Cart() {
             <span>Total</span>
             <span>{discount && subtotal != null ? formatPrice(Math.max(0, subtotal - discount.amount)) : formatMixedTotal(items)}</span>
           </div>
+          {/* Bloque 231 (pedido explícito — mismo cambio que CartDrawer.jsx:
+              siempre navy de marca + ícono de compra, nunca el verde de
+              WhatsApp — el checkout es una pantalla de este sitio, no de
+              WhatsApp). */}
           <Link
             to="/checkout"
-            className={`flex h-12 items-center justify-center gap-2 rounded text-label-md font-bold text-white ${
-              emphasizeWhatsapp ? "bg-[#25D366]" : "bg-primary-container"
-            }`}
+            className="flex h-12 items-center justify-center gap-2 rounded bg-primary text-label-md font-bold text-white hover:brightness-110"
           >
-            {emphasizeWhatsapp && <MessageCircle className="h-[18px] w-[18px]" />}
+            <ShoppingBag className="h-[18px] w-[18px]" />
             Completar pedido
           </Link>
           <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
@@ -228,6 +292,19 @@ export default function Cart() {
             setItemToRemove(null);
           }}
           onCancel={() => setItemToRemove(null)}
+        />
+      )}
+
+      {confirmingClear && (
+        <ConfirmDeleteModal
+          title="¿Vaciar el carrito?"
+          description="Se van a sacar todos los productos que agregaste."
+          confirmLabel="Vaciar carrito"
+          onConfirm={() => {
+            clearCart();
+            setConfirmingClear(false);
+          }}
+          onCancel={() => setConfirmingClear(false)}
         />
       )}
     </div>

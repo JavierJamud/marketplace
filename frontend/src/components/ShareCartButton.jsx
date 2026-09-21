@@ -10,7 +10,7 @@ import { copyToClipboard } from "../lib/clipboard.js";
 // guarda precio/nombre, se resuelven contra el catálogo real recién cuando
 // el otro cliente abre el link (así nunca muestra un precio vencido). Se
 // reusa igual en Cart.jsx (página completa) y CartDrawer.jsx (mini-carrito).
-export function ShareCartButton({ className, iconOnly = false, animated = false }) {
+export function ShareCartButton({ className, iconOnly = false }) {
   const { vendorId, items } = useCart();
 
   const share = useMutation({
@@ -41,16 +41,11 @@ export function ShareCartButton({ className, iconOnly = false, animated = false 
         "flex items-center gap-1.5 text-[12.5px] font-semibold text-tertiary-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
       }
     >
-      <span className="relative inline-flex h-3.5 w-3.5 flex-shrink-0">
-        {/* Anillo pulsante detrás del ícono — "esto se puede compartir",
-            sin ser tan invasivo como animar el ícono en sí. Se apaga solo
-            mientras se genera el enlace (share.isPending), para no seguir
-            "invitando a hacer clic" en un botón ya ocupado. */}
-        {animated && !share.isPending && (
-          <span className="absolute inset-0 animate-ping rounded-full bg-tertiary-accent/50" />
-        )}
-        <Share2 className="relative h-3.5 w-3.5" />
-      </span>
+      {/* Bloque 149 (pedido explícito — "elimina la animación del botón de
+          compartir"): antes tenía un anillo pulsante (`animate-ping`) detrás
+          del ícono cuando se usaba con `animated` (solo en CartDrawer.jsx) —
+          se saca del todo, sin dejar la prop muerta. */}
+      <Share2 className="h-3.5 w-3.5 flex-shrink-0" />
       {!iconOnly && <span>{share.isPending ? "Generando enlace..." : "Compartir carrito"}</span>}
     </button>
   );

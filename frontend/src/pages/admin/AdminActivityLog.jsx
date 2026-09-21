@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Store, User } from "lucide-react";
+import { Store, User, Activity } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 
 const PERIODS = [
@@ -63,7 +64,10 @@ export default function AdminActivityLog() {
 
   return (
     <div className="max-w-[980px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Actividad</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Activity} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Actividad</h1>
+      </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Registro de las acciones que hacen vendedores y clientes en sus paneles, y qué tiendas/clientes más usan la plataforma.
       </p>
@@ -83,7 +87,7 @@ export default function AdminActivityLog() {
       </div>
 
       <div className="mb-6 grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5">
+        <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5">
           <div className="mb-3 flex items-center gap-1.5 text-[14px] font-bold text-on-surface">
             <Store className="h-4 w-4" /> Tiendas con más actividad
           </div>
@@ -96,7 +100,7 @@ export default function AdminActivityLog() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5">
+        <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5">
           <div className="mb-3 flex items-center gap-1.5 text-[14px] font-bold text-on-surface">
             <User className="h-4 w-4" /> Clientes con más actividad
           </div>
@@ -130,7 +134,7 @@ export default function AdminActivityLog() {
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
       {!isLoading && !logsData?.logs?.length && <p className="text-body-md text-on-surface-variant">Todavía no hay actividad registrada.</p>}
 
-      <div className="flex flex-col gap-2 rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="flex flex-col gap-2 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {logsData?.logs?.map((log) => (
           <div key={log.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-surface-container px-4 py-3 last:border-b-0">
             <div>

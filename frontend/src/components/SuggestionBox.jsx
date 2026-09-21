@@ -28,7 +28,7 @@ export function SuggestionBox() {
         <Lightbulb className="h-[18px] w-[18px] text-secondary" />
         <div className="text-[15px] font-bold text-on-surface">Sugerencias para {siteName}</div>
       </div>
-      <p className="mb-3.5 text-[12.5px] text-outline">¿Algo que podríamos mejorar? Contanos, lo lee el equipo de {siteName}.</p>
+      <p className="mb-3.5 text-[12.5px] text-outline">¿Algo que podríamos mejorar? Cuéntanos, lo lee el equipo de {siteName}.</p>
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}

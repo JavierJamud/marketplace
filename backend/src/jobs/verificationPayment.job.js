@@ -4,15 +4,21 @@ import { sendVerificationPaymentReminderEmail } from "../lib/email.js";
 import { transitionVendorVerification } from "../services/vendorVerification.service.js";
 
 // Bloque 64: segundo cron del proyecto (el primero fue vendorLifecycle.job.js
-// en Bloque 62) — cobro recurrente por transferencia CUP. A diferencia de
+// en Bloque 62) — cobro recurrente. A diferencia de una suscripción real de
 // Stripe (que vence sus propias facturas solo, vía webhook), acá no hay
-// pasarela que avise nada — el único reloj que existe es este. Cubre solo
-// CUP_TRANSFER: una tienda que paga por Stripe nunca entra en ninguno de los
-// pasos de abajo (su `nextPaymentDueDate` la actualiza el webhook de
-// Stripe, es puramente informativa, y su cancelación diferida la resuelve
-// customer.subscription.deleted — ver handleSubscriptionDeleted).
-// Corre 1 vez al día, 3 pasos en orden: cancelaciones diferidas que ya
-// llegaron a su fecha -> recordatorio a 7 días del vencimiento ->
+// pasarela que avise nada — el único reloj que existe es este.
+// Bloque 150: antes cubría solo CUP_TRANSFER (el pago con tarjeta era una
+// Subscription real de Stripe, que vencía sola). Ahora CARD también es un
+// pago ÚNICO por un bloque de N meses (1..24, elegidos por el vendedor) —
+// sin ninguna suscripción real detrás, así que también necesita este mismo
+// reloj para el recordatorio/vencimiento. El filtro real para separar los 2
+// mundos es `stripeSubscriptionId: null` — una tienda con una Subscription
+// de Stripe REAL (creada antes de este bloque, `mode:"subscription"`)
+// sigue gobernada 100% por los webhooks (invoice.payment_succeeded/failed,
+// customer.subscription.deleted), nunca por este cron; cualquier otra
+// (CUP_TRANSFER de siempre, o CARD nuevo estilo "pago único de N meses")
+// entra acá. Corre 1 vez al día, 3 pasos en orden: cancelaciones diferidas
+// que ya llegaron a su fecha -> recordatorio a 7 días del vencimiento ->
 // vencimiento real (PAYMENT_FAILED) si nadie confirmó un pago nuevo antes de
 // la fecha.
 
@@ -39,7 +45,7 @@ async function processDeferredCancellations() {
       verificationStatus: "VERIFIED",
       cancelAtPeriodEnd: true,
       nextPaymentDueDate: { lt: new Date() },
-      verification: { paymentMethod: "CUP_TRANSFER" },
+      stripeSubscriptionId: null,
     },
   });
 
@@ -61,7 +67,7 @@ async function sendPaymentReminders() {
     where: {
       verificationStatus: "VERIFIED",
       nextPaymentDueDate: dayRange(REMINDER_DAYS_BEFORE),
-      verification: { paymentMethod: "CUP_TRANSFER" },
+      stripeSubscriptionId: null,
     },
     include: { user: true },
   });
@@ -83,7 +89,7 @@ async function expireOverduePayments() {
       // a propósito) — esto es solo para renovaciones que nadie confirmó.
       cancelAtPeriodEnd: false,
       nextPaymentDueDate: { lt: new Date() },
-      verification: { paymentMethod: "CUP_TRANSFER" },
+      stripeSubscriptionId: null,
     },
   });
 
@@ -91,8 +97,49 @@ async function expireOverduePayments() {
   for (const vendor of vendors) {
     await transitionVendorVerification(vendor.id, "PAYMENT_FAILED", {
       source: "CRON_EXPIRATION",
-      reason: "Venció el ciclo de pago CUP sin una confirmación nueva.",
+      reason: "Venció el ciclo de pago sin una confirmación nueva.",
       notify: { type: "VERIFICATION_PAYMENT_FAILED" },
+    });
+    expired++;
+  }
+  return expired;
+}
+
+// --- 4: vencimiento de la APROBACIÓN inicial (24h) --------------------------
+// Bloque 145 (pedido explícito — "las solicitudes demorarán 24 horas luego de
+// ser aprobada... si no se selecciona la forma de pago adecuada y no se
+// realiza el pago y se confirma, automáticamente se deberán enviar nuevos
+// datos al sistema"): distinto de expireOverduePayments de arriba (esa es la
+// RENOVACIÓN mensual de una tienda YA verificada) — esto es la primera vez,
+// entre que un admin aprueba los documentos (PENDING_PAYMENT) y el vendedor
+// de verdad completa el pago (VERIFIED). Sin este paso, un vendedor podía
+// quedarse en PENDING_PAYMENT indefinidamente sin ninguna presión de tiempo
+// real, contra lo pedido explícitamente. "Cuándo se aprobó" se lee del
+// historial real (VerificationStatusLog, ya existía desde Bloque 64) — la
+// entrada MÁS RECIENTE con toStatus:"PENDING_PAYMENT" de cada tienda, nunca
+// un campo aparte que se podría desincronizar.
+const PENDING_PAYMENT_DEADLINE_MS = 24 * 60 * 60 * 1000;
+
+export async function expireStalePendingPaymentApprovals() {
+  const vendors = await prisma.vendor.findMany({
+    where: { verificationStatus: "PENDING_PAYMENT" },
+    include: {
+      verificationStatusLogs: { where: { toStatus: "PENDING_PAYMENT" }, orderBy: { at: "desc" }, take: 1 },
+    },
+  });
+
+  let expired = 0;
+  for (const vendor of vendors) {
+    const enteredAt = vendor.verificationStatusLogs[0]?.at;
+    // Sin registro de cuándo entró (no debería pasar nunca) — no se toca,
+    // mejor no expirar por las dudas a que se expire de más por un dato
+    // faltante.
+    if (!enteredAt || Date.now() - enteredAt.getTime() < PENDING_PAYMENT_DEADLINE_MS) continue;
+
+    await transitionVendorVerification(vendor.id, "REJECTED", {
+      source: "CRON_EXPIRATION",
+      reason: "No se eligió un método de pago ni se confirmó el pago dentro de las 24 horas luego de la aprobación de documentos.",
+      notify: { type: "VERIFICATION_APPROVAL_EXPIRED" },
     });
     expired++;
   }
@@ -120,4 +167,17 @@ export function startVerificationPaymentJob() {
     },
     { timezone: "America/Havana" }
   );
+}
+
+// Bloque 145: cada hora, aparte del cron diario de arriba a propósito — un
+// plazo de "24 horas" chequeado una vez al día (como el resto de este
+// archivo) podría hacerse cumplir hasta casi 48h tarde en el peor caso
+// (aprobado justo después de correr el cron de ese día). Cada hora mantiene
+// el vencimiento real dentro de máximo ~1h del plazo prometido.
+export function startVerificationApprovalExpiryJob() {
+  cron.schedule("0 * * * *", () => {
+    expireStalePendingPaymentApprovals().then((expired) => {
+      if (expired > 0) console.log(`[verificationApprovalExpiryJob] aprobaciones vencidas=${expired}`);
+    }).catch((err) => console.error("[verificationApprovalExpiryJob] error:", err));
+  });
 }

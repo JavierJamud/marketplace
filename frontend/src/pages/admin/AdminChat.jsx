@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Send, ShieldCheck, Store as StoreIcon, Mail, Search, X, MessageCircle } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 
 function fmtTime(iso) {
   return new Date(iso).toLocaleString("es-CU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -75,7 +76,7 @@ function DirectEmailPanel() {
   });
 
   return (
-    <div className="flex-1 overflow-y-auto rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+    <div className="flex-1 overflow-y-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
       <div className="mb-4 max-w-md">
         <div className="mb-4 flex rounded-full bg-surface-container p-1">
           <button
@@ -116,7 +117,7 @@ function DirectEmailPanel() {
             )}
           </div>
           {showResults && !selected && matches.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
+            <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
               {matches.map((p) => (
                 <button
                   key={p.id}
@@ -229,6 +230,10 @@ export default function AdminChat() {
 
   return (
     <div className="flex h-[calc(100vh-60px)] flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <IconCircle icon={MessageCircle} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mensajes</h1>
+      </div>
       <div className="flex flex-shrink-0 gap-1.5 rounded-full bg-surface-container p-1" style={{ width: "fit-content" }}>
         <button
           onClick={() => {
@@ -255,7 +260,7 @@ export default function AdminChat() {
         <DirectEmailPanel />
       ) : (
     <div className="flex flex-1 gap-5 overflow-hidden">
-      <div className="flex w-[320px] flex-shrink-0 flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="flex w-[320px] flex-shrink-0 flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         <div className="border-b border-surface-container-high p-4">
           <h1 className="font-display text-[17px] font-bold text-on-surface">Mensajes</h1>
           <p className="text-[12px] text-outline">Conversaciones con tiendas</p>
@@ -289,7 +294,7 @@ export default function AdminChat() {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {!activeVendorId ? (
           <div className="flex flex-1 items-center justify-center text-body-md text-on-surface-variant">
             Elige una tienda para ver la conversación.

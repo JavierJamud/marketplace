@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Tag, Plus, X, Search, Clock, Trash2, ShieldAlert, Pencil, ImagePlus, Layers } from "lucide-react";
+import { Tag, Plus, X, Search, Clock, Trash2, ShieldAlert, Pencil, ImagePlus, Layers, RotateCcw } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
-import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -76,7 +78,12 @@ function ProductPickerModal({ onSelect, onClose }) {
   const filtered = (products ?? []).filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    // Bloque 196: solo selecciona (onSelect dispara de inmediato) — sin
+    // ningún borrador propio, cierra directo al hacer clic afuera.
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Elige un producto</h3>
@@ -126,7 +133,12 @@ function ProductPickerModal({ onSelect, onClose }) {
 // oferta — el HTML insertado queda reservado al admin (pedido explícito).
 function TypeChoiceModal({ onChoose, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    // Bloque 196: elección inmediata de 2 botones, sin borrador — cierra
+    // directo al hacer clic afuera.
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Nueva oferta</h3>
@@ -169,14 +181,56 @@ function OfferFormModal({ mode, product, offer, canCreateNow, nextAvailableAt, o
   const [description, setDescription] = useState(isEdit ? offer.description ?? "" : "");
   const [tagline, setTagline] = useState(isEdit ? offer.tagline ?? "" : "");
   const [discountLabel, setDiscountLabel] = useState(isEdit ? offer.discountLabel ?? "" : "");
+  // Bloque 153 (pedido explícito — "ya las imágenes vienen con un tamaño
+  // así que se debe publicar de ese mismo tamaño y acomodarse en forma de
+  // ladrillos como está ya configurado, sin dimensiones específicas"): antes
+  // el vendedor elegía Horizontal/Vertical A MANO y `ImageCropUploader` lo
+  // forzaba a recortar la imagen a un aspect ratio fijo (900×1200 o
+  // 1200×675) — el propio sistema de "ladrillos" (OffersSlider.jsx,
+  // `VERTICAL_SPANS`/`HORIZONTAL_SPANS`) ya está pensado para acomodar
+  // cajas de forma distinta con `object-cover`, no hace falta forzar un
+  // recorte exacto. `orientation` sigue existiendo (ese grid lo necesita
+  // para elegir el set de spans correcto) pero ahora se AUTO-DETECTA de las
+  // dimensiones reales del archivo que el vendedor sube, nunca se le pide
+  // que elija ni que recorte — la imagen se publica tal cual la subió.
   const [orientation, setOrientation] = useState(isEdit ? offer.orientation : "HORIZONTAL");
   const [durationDays, setDurationDays] = useState(isEdit ? "" : "30");
   const [productImageUrl, setProductImageUrl] = useState(isEdit && contentType === "PRODUCT" ? offer.imageUrl : product?.images?.[0] ?? "");
   const [customBlob, setCustomBlob] = useState(null);
+  const [customPreview, setCustomPreview] = useState(null);
   const [republish, setRepublish] = useState(false);
 
-  const aspect = orientation === "VERTICAL" ? 3 / 4 : 16 / 9;
   const existingImagePreview = isEdit && contentType === "CUSTOM" ? imgUrl(offer.imageUrl) : null;
+
+  // Sin recorte: se lee el archivo tal cual y se detecta orientación real
+  // (ancho vs. alto) para que el grid de "ladrillos" siga sabiendo qué set
+  // de spans usar — nunca se le pide al vendedor que elija ni que ajuste
+  // nada.
+  function handleCustomFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      setOrientation(img.naturalWidth >= img.naturalHeight ? "HORIZONTAL" : "VERTICAL");
+      setCustomBlob(file);
+      setCustomPreview(url);
+    };
+    img.src = url;
+    e.target.value = "";
+  }
+
+  // Mismo criterio para una oferta de PRODUCTO (usa una foto YA subida del
+  // producto, nunca un File nuevo) — se carga esa URL para leer sus
+  // dimensiones reales apenas se elige o cambia cuál foto usar.
+  useEffect(() => {
+    if (contentType !== "PRODUCT" || !productImageUrl) return;
+    const img = new Image();
+    img.onload = () => setOrientation(img.naturalWidth >= img.naturalHeight ? "HORIZONTAL" : "VERTICAL");
+    img.src = imgUrl(productImageUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentType, productImageUrl]);
+
   const aiProductName = isEdit ? offer.product?.name : product?.name;
 
   const save = useMutation({
@@ -209,8 +263,23 @@ function OfferFormModal({ mode, product, offer, canCreateNow, nextAvailableAt, o
   const missingImage = contentType === "CUSTOM" && !customBlob && !existingImagePreview;
   const disabledSubmit = save.isPending || !title.trim() || (contentType === "PRODUCT" && !productImageUrl) || missingImage;
 
+  // Bloque 196: mismo mecanismo de snapshot-en-ref que ProductModal —
+  // customBlob es un File (no serializa de forma útil con JSON.stringify),
+  // así que se compara su sola presencia, no su contenido.
+  const draftSnapshot = () =>
+    JSON.stringify({ title, description, tagline, discountLabel, orientation, durationDays, productImageUrl, hasCustomImage: !!customBlob, republish });
+  const initialFormSnapshot = useRef(draftSnapshot());
+  const isDirty = draftSnapshot() !== initialFormSnapshot.current;
+  // Misma condición que ya deshabilita el botón "Guardar"/"Publicar" normal
+  // de más abajo, menos save.isPending (transitorio, no de validez).
+  const canSaveNow = !!title.trim() && (contentType !== "PRODUCT" || !!productImageUrl) && !missingImage;
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">
@@ -252,14 +321,24 @@ function OfferFormModal({ mode, product, offer, canCreateNow, nextAvailableAt, o
           </>
         ) : (
           <div className="mb-4">
-            <ImageCropUploader
-              value={existingImagePreview}
-              aspect={aspect}
-              recommendedLabel={
-                orientation === "VERTICAL" ? "Tamaño recomendado: 900×1200px (vertical)" : "Tamaño recomendado: 1200×675px (horizontal)"
-              }
-              onFileReady={setCustomBlob}
-            />
+            <span className="mb-1.5 block text-label-md text-on-surface-variant">Imagen de la oferta</span>
+            <label className="relative flex aspect-[7/4] w-full max-w-[280px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-outline-variant bg-surface-container">
+              {customPreview ?? existingImagePreview ? (
+                <img src={customPreview ?? existingImagePreview} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex flex-col items-center gap-1.5 text-outline">
+                  <ImagePlus className="h-6 w-6" />
+                  <span className="text-[12px] font-semibold">Subir imagen</span>
+                </span>
+              )}
+              {(customPreview ?? existingImagePreview) && (
+                <span className="absolute inset-x-0 bottom-0 bg-inverse-surface/60 py-1 text-center text-[11px] font-semibold text-white">
+                  Cambiar imagen
+                </span>
+              )}
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCustomFile} className="hidden" />
+            </label>
+            <p className="mt-1.5 text-[11.5px] text-outline">Se publica con el mismo tamaño que subas — se acomoda sola en la grilla.</p>
           </div>
         )}
 
@@ -294,27 +373,6 @@ function OfferFormModal({ mode, product, offer, canCreateNow, nextAvailableAt, o
             value={discountLabel}
             onChange={(e) => setDiscountLabel(e.target.value)}
           />
-
-          <div>
-            <span className="mb-1.5 block text-label-md text-on-surface-variant">Orientación</span>
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                { v: "HORIZONTAL", l: "Horizontal" },
-                { v: "VERTICAL", l: "Vertical" },
-              ].map((o) => (
-                <button
-                  key={o.v}
-                  type="button"
-                  onClick={() => setOrientation(o.v)}
-                  className={`rounded-xl border-2 py-2.5 text-[12.5px] font-bold ${
-                    orientation === o.v ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant"
-                  }`}
-                >
-                  {o.l}
-                </button>
-              ))}
-            </div>
-          </div>
 
           <div>
             <span className="mb-1.5 block text-label-md text-on-surface-variant">
@@ -356,6 +414,14 @@ function OfferFormModal({ mode, product, offer, canCreateNow, nextAvailableAt, o
           </div>
         </form>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -377,6 +443,28 @@ export default function VendorOffers() {
   });
 
   const cooldownRemaining = useLiveRemainingLabel(data?.canCreateNow ? null : data?.nextAvailableAt);
+
+  // Bloque 231 (pedido explícito — "quiero que en las ofertas esté un botón
+  // en cada oferta para... reactivar o publicar nuevamente... sin tener que
+  // acceder a la oferta"): antes la ÚNICA forma de republicar una oferta
+  // EXPIRED/REMOVED era abrir "Editar" y tildar el checkbox de ahí adentro
+  // (ver OfferFormModal → needsRepublish/republish). El backend ya acepta un
+  // PATCH parcial (updateOfferSchema tiene todo opcional salvo `republish`),
+  // así que este botón manda exactamente lo mínimo — nada de título/imagen,
+  // solo la bandera — reusando la misma validación de cooldown que ya corre
+  // del lado del servidor.
+  const republish = useMutation({
+    mutationFn: async (id) => {
+      const form = new FormData();
+      form.append("republish", "true");
+      return (await api.patch(`/offers/${id}`, form, { headers: { "Content-Type": "multipart/form-data" } })).data;
+    },
+    onSuccess: () => {
+      toast.success("Oferta publicada de nuevo — ya se muestra en el Home.");
+      queryClient.invalidateQueries({ queryKey: ["my-offers"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo volver a publicar la oferta."),
+  });
 
   const remove = useMutation({
     mutationFn: async (id) => (await api.patch(`/offers/${id}/remove`)).data,
@@ -414,7 +502,10 @@ export default function VendorOffers() {
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-[25px] font-bold text-on-surface">Ofertas</h1>
+        <div className="flex items-center gap-3">
+          <IconCircle icon={Tag} tone="orange" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Ofertas</h1>
+        </div>
         <div title={!vendor?.isVerified ? "Disponible solo para tiendas verificadas" : undefined}>
           <Button
             className="rounded-xl font-bold"
@@ -509,9 +600,23 @@ export default function VendorOffers() {
                           <Trash2 className="h-3.5 w-3.5" /> Retirar
                         </button>
                       )}
+                      {(o.status === "EXPIRED" || o.status === "REMOVED") && (
+                        <button
+                          onClick={() => republish.mutate(o.id)}
+                          disabled={!canCreateNow || republish.isPending}
+                          title={!canCreateNow ? "Ya usaste tu publicación de esta semana" : undefined}
+                          className="flex items-center gap-1.5 text-[12px] font-semibold text-verified-dark hover:underline disabled:cursor-not-allowed disabled:text-outline disabled:no-underline"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          {republish.isPending && republish.variables === o.id ? "Publicando..." : "Reactivar"}
+                        </button>
+                      )}
                     </div>
                     {o.status === "SUSPENDED" && (
                       <p className="mt-2 text-[11px] text-error">Suspendida por el equipo de la plataforma.</p>
+                    )}
+                    {(o.status === "EXPIRED" || o.status === "REMOVED") && !canCreateNow && data?.nextAvailableAt && (
+                      <p className="mt-2 text-[11px] text-outline">Podrás reactivarla desde el {fmtDate(data.nextAvailableAt)}.</p>
                     )}
                   </div>
                 </div>

@@ -2,14 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { MessageCircle, ShieldAlert, Share2, Heart, Check, ShieldCheck, Star, Tag, Clock, Camera, X as XIcon } from "lucide-react";
+import { ShieldAlert, Star, Tag, Clock, Camera, Zap, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
-import { waLink } from "../../lib/whatsapp.js";
+import { describeReviewLimit } from "../../lib/reviewPolicy.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { AddToCartControl } from "../../components/AddToCartControl.jsx";
 import { PageLoader } from "../../components/ui/PageLoader.jsx";
@@ -22,7 +21,22 @@ import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
-import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
+// Bloque 45 (pedido explícito — "en el lugar donde iba la imagen... pon el
+// espacio para una imagen estática"): ahora que StoreOffer ya no tiene
+// imagen propia (el vendedor no sube nada), este mismo dibujo fijo se
+// muestra en TODAS las ofertas de TODAS las tiendas — es puramente
+// decorativo, no representa el producto/servicio real de la oferta.
+import ofertImage from "../../assets/images/ofert.webp";
+// Bloque 166 (pedido explícito — banner de la tienda idéntico entre
+// Store.jsx y TableOrder.jsx): extraído a un componente propio, reusado en
+// ambos lugares — ver components/StoreHeaderBanner.jsx.
+import { StoreHeaderBanner } from "../../components/StoreHeaderBanner.jsx";
+// Bloque 209 (pedido explícito, con captura de referencia — solo para el
+// menú digital, NO para el resto de la tienda): misma tarjeta horizontal
+// que usa TableOrder.jsx, reusada acá únicamente en la pestaña "Menú del
+// local" (menuProducts) — "Otros productos" y el resto de la página siguen
+// con ProductGrid tal cual estaban.
+import { DigitalMenuProductCard, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
 
 const MAX_REVIEW_IMAGES = 4;
 
@@ -57,45 +71,175 @@ function useLiveCountdown(expiresAt) {
   return label;
 }
 
-function StoreOfferCard({ offer, vendorName }) {
-  const countdown = useLiveCountdown(offer.isLimitedTime ? offer.expiresAt : null);
+// Bloque 232 (pedido explícito, con imagen de referencia — "las ofertas
+// dentro de las tiendas deben verse algo así como esta imagen"): la
+// referencia muestra 4 cajitas DÍAS/HRS/MIN/SEG que corren en vivo —
+// distinto de useLiveCountdown de arriba (un solo texto, recalculado cada
+// minuto), acá se necesitan los 4 números por separado y con precisión de
+// segundo real para que se sientan "vivos" como en la referencia.
+function useLiveCountdownParts(expiresAt) {
+  const [parts, setParts] = useState(null);
+  useEffect(() => {
+    if (!expiresAt) {
+      setParts(null);
+      return;
+    }
+    function compute() {
+      const ms = new Date(expiresAt).getTime() - Date.now();
+      if (ms <= 0) return null;
+      return {
+        days: Math.floor(ms / 86400000),
+        hours: Math.floor((ms % 86400000) / 3600000),
+        minutes: Math.floor((ms % 3600000) / 60000),
+        seconds: Math.floor((ms % 60000) / 1000),
+      };
+    }
+    setParts(compute());
+    const id = setInterval(() => setParts(compute()), 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return parts;
+}
 
-  function handleCopyCode() {
+// Bloque 231 (pedido explícito, con captura — "no se muestra toda la
+// descripción y eso está mal, se debe poder ver toda la descripción o un
+// botón para ver la oferta completa responsiva levantada en una ventana en
+// medio con estilos modernos"): mismo shell de modal que ya usa el resto
+// del panel (`fixed inset-0 ... bg-inverse-surface/40` + `rounded-2xl
+// bg-surface-container-lowest`), no uno nuevo — la imagen y el botón de
+// código se repiten tal cual la tarjeta, solo que acá la descripción nunca
+// se recorta.
+function StoreOfferDetailModal({ offer, onClose, onCopyCode }) {
+  const countdown = useLiveCountdown(offer.isLimitedTime ? offer.expiresAt : null);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest shadow-xl">
+        {/* Bloque 45 (pedido explícito — "elimina que a las ofertas dentro
+            de la tienda se puedan agregar imágenes, no quiero imágenes en
+            esas ofertas"): antes esta cabecera era una foto banner 16:9 con
+            degradado encima para que el botón cerrar/badge se leyeran bien
+            — sin imagen, es una fila normal. */}
+        <div className="flex items-start justify-between gap-3 p-5 pb-0">
+          <span className="rounded-full bg-error px-2.5 py-1 text-[11px] font-bold text-white">
+            {discountBadgeLabel(offer.discountCode)}
+          </span>
+          <button onClick={onClose} aria-label="Cerrar" className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
+            <XIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5">
+          <div className="font-display text-xl font-extrabold leading-tight text-on-surface">{offer.title}</div>
+          {offer.isLimitedTime && countdown && (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-error">
+              <Clock className="h-3.5 w-3.5" /> {countdown}
+            </div>
+          )}
+          {offer.description && <p className="mt-3 whitespace-pre-line text-[13.5px] leading-5 text-on-surface-variant">{offer.description}</p>}
+          <button
+            onClick={onCopyCode}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-tertiary-accent/10 py-3 text-[13px] font-bold text-tertiary-accent hover:bg-tertiary-accent/15"
+          >
+            <Tag className="h-4 w-4" /> Código: {offer.discountCode.code} · {discountBadgeLabel(offer.discountCode)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Bloque 232 (pedido explícito, con imagen de referencia — "las ofertas
+// dentro de las tiendas deben verse algo así como esta imagen"): banner
+// horizontal (foto en caja blanca + título/precio a la izquierda, reloj de
+// DÍAS/HRS/MIN/SEG a la derecha) en vez de la tarjeta vertical de antes.
+// Tiene más sentido ahora que antes: desde que solo se puede mantener una
+// oferta activa por tienda por default (Bloque 232, configurable por el
+// admin), esta sección casi siempre muestra 1 sola — un banner ancho la
+// jerarquiza mejor que una tarjeta angosta compitiendo en una grilla.
+function CountdownBox({ value, label }) {
+  return (
+    <div className="flex h-14 w-14 flex-shrink-0 flex-col items-center justify-center rounded-xl bg-white/15 sm:h-16 sm:w-16">
+      <span className="font-display text-lg font-extrabold text-white sm:text-xl">{String(value).padStart(2, "0")}</span>
+      <span className="text-[8.5px] font-bold uppercase tracking-wide text-white/70">{label}</span>
+    </div>
+  );
+}
+
+function StoreOfferCard({ offer, vendorName }) {
+  const countdownParts = useLiveCountdownParts(offer.isLimitedTime ? offer.expiresAt : null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  function handleCopyCode(e) {
+    e.stopPropagation();
     copyToClipboard(offer.discountCode.code)
       .then(() => toast.success(`¡Código "${offer.discountCode.code}" copiado!`))
       .catch(() => toast.error("No se pudo copiar el código."));
   }
 
-  // Bloque 68 (pedido explícito): mismo lenguaje visual que OfferCard del
-  // Home (OffersSlider.jsx) — imagen a sangre completa con degradado desde
-  // abajo y título/descripción superpuestos en vez de un panel blanco
-  // separado debajo. El botón de copiar código queda aparte (no puede ir
-  // superpuesto a la imagen, necesita su propio área táctil clara).
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-3xl bg-surface-container-lowest shadow-lg transition-shadow hover:shadow-xl">
-      <div className="relative aspect-[16/9] w-full overflow-hidden bg-surface-container">
-        <img src={imgUrl(offer.imageUrl)} alt={offer.title} className="h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-        <span className="absolute right-3 top-3 rounded-full bg-error px-2.5 py-1 text-[11px] font-bold text-white shadow">
-          {discountBadgeLabel(offer.discountCode)}
-        </span>
-        {offer.isLimitedTime && countdown && (
-          <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[10.5px] font-bold text-white backdrop-blur-sm">
-            <Clock className="h-3 w-3" /> {countdown}
-          </span>
-        )}
-        <div className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
-          <div className="font-display text-lg font-extrabold leading-tight text-white sm:text-xl">{offer.title}</div>
-          {offer.description && <p className="line-clamp-2 text-[12px] text-white/85">{offer.description}</p>}
+    <>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary-container p-4 shadow-lg sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
+          {/* Bloque 232 (bug real encontrado en vivo — React advertía
+              "<button> cannot appear as a descendant of <button>" en la
+              consola): el botón de copiar código vive ADENTRO de esta área
+              clickeable — un <button> real no puede anidar otro <button>
+              (HTML inválido, comportamiento de click impredecible entre
+              navegadores). div con role="button" cumple lo mismo
+              (clickeable + accesible por teclado) sin esa restricción;
+              handleCopyCode ya cortaba la propagación, así que el
+              comportamiento visual no cambia en nada. */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setDetailOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setDetailOpen(true);
+              }
+            }}
+            title="Ver oferta completa"
+            className="flex flex-1 cursor-pointer items-center gap-3.5 text-left sm:gap-4"
+          >
+            <div className="flex h-[92px] w-[92px] flex-shrink-0 items-center justify-center sm:h-[112px] sm:w-[112px]">
+              <img src={ofertImage} alt="" className="h-full w-full object-contain" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wide text-white/70">
+                <Zap className="h-3 w-3 fill-secondary text-secondary" /> Oferta de {vendorName}
+              </div>
+              <div className="mt-0.5 font-display text-[15px] font-extrabold leading-tight text-white sm:text-lg">{offer.title}</div>
+              {offer.description && <p className="mt-0.5 line-clamp-1 text-[11.5px] text-white/75 sm:line-clamp-2">{offer.description}</p>}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-primary">Ver oferta</span>
+                <span className="rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">{discountBadgeLabel(offer.discountCode)}</span>
+                <button
+                  type="button"
+                  onClick={handleCopyCode}
+                  className="flex items-center gap-1 rounded-full border border-white/30 px-2.5 py-1 text-[10.5px] font-bold text-white/90 hover:bg-white/10"
+                >
+                  <Tag className="h-3 w-3" /> {offer.discountCode.code}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {offer.isLimitedTime && countdownParts && (
+            <div className="flex flex-shrink-0 items-center justify-center gap-2 border-t border-white/15 pt-3 sm:justify-end sm:border-t-0 sm:border-l sm:pl-5 sm:pt-0">
+              <CountdownBox value={countdownParts.days} label="Días" />
+              <CountdownBox value={countdownParts.hours} label="Hrs" />
+              <CountdownBox value={countdownParts.minutes} label="Min" />
+              <CountdownBox value={countdownParts.seconds} label="Seg" />
+            </div>
+          )}
         </div>
       </div>
-      <button
-        onClick={handleCopyCode}
-        className="flex items-center justify-center gap-2 border-t border-surface-container-high py-2.5 text-[12.5px] font-bold text-tertiary-accent hover:bg-tertiary-accent/[0.06]"
-      >
-        <Tag className="h-3.5 w-3.5" /> Código: {offer.discountCode.code} · {discountBadgeLabel(offer.discountCode)}
-      </button>
-    </div>
+
+      {detailOpen && <StoreOfferDetailModal offer={offer} onClose={() => setDetailOpen(false)} onCopyCode={handleCopyCode} />}
+    </>
   );
 }
 
@@ -124,25 +268,46 @@ function ExpandableDescription({ text }) {
   );
 }
 
-// Bloque 22: confirmación de "Compartir" más elaborada que un toast.success
-// de una línea — ícono propio + título + instrucción, con cierre manual.
-function showLinkCopiedToast() {
-  toast.custom(
-    (t) => (
-      <div className={`flex max-w-sm items-start gap-3 rounded-lg border border-surface-container-high bg-surface-container-lowest p-4 shadow-lg ${t.visible ? "animate-fade-up" : "opacity-0"}`}>
-        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-verified/15">
-          <Check className="h-5 w-5 text-verified-dark" />
-        </span>
-        <div className="flex-1">
-          <div className="text-label-md font-bold text-on-surface">¡Enlace copiado!</div>
-          <p className="mt-0.5 text-[12.5px] text-on-surface-variant">Pegalo donde quieras — WhatsApp, redes sociales o mensaje directo — para compartir esta tienda.</p>
+// Bloque 141 (pedido explícito): extraído de la sección "PRODUCTOS" de
+// abajo (antes una sola grilla inline) para poder reusarla sin duplicar
+// 30+ líneas de JSX cuando una tienda-restaurante separa su menú de su
+// catálogo fijo en 2 secciones (ver más abajo, "Productos" splitea en
+// menuProducts/catalogProducts cuando corresponde).
+function ProductGrid({ products, vendor }) {
+  return (
+    <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+      {products.map((p) => (
+        <div
+          key={p.id}
+          className="group overflow-hidden rounded-[26px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
+        >
+          <Link to={`/producto/${vendor.slug}/${p.slug}`} className="block p-2.5 pb-0">
+            <div className="aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
+              {p.images?.[0] ? (
+                <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
+              )}
+            </div>
+          </Link>
+          <div className="p-3.5 pt-2.5">
+            <Link to={`/producto/${vendor.slug}/${p.slug}`} className="mb-1 block text-[13.5px] font-bold leading-[18px] text-on-surface">
+              {p.name}
+            </Link>
+            <ExpandableDescription text={p.description} />
+            {!p.unlimitedStock && p.stock <= LOW_STOCK_THRESHOLD && (
+              <span className="mb-1.5 inline-block w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
+                ¡Últimas {p.stock} unidades!
+              </span>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
+              <AddToCartControl product={{ ...p, vendorId: vendor.id, vendor }} size="sm" />
+            </div>
+          </div>
         </div>
-        <button onClick={() => toast.dismiss(t.id)} className="flex-shrink-0 text-outline hover:text-on-surface-variant">
-          ✕
-        </button>
-      </div>
-    ),
-    { duration: 5000 }
+      ))}
+    </div>
   );
 }
 
@@ -186,10 +351,6 @@ function imgUrl(path) {
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
-}
-
 // Mismo umbral que LOW_STOCK_THRESHOLD en ProductCard.jsx/VendorProducts.jsx.
 const LOW_STOCK_THRESHOLD = 3;
 
@@ -197,8 +358,16 @@ export default function Store() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { siteName } = usePlatformSettings();
+  const { siteName, reviewDedupHours, maxReviewsPerStorePerPeriod } = usePlatformSettings();
   const queryClient = useQueryClient();
+  // Bloque 208 (pedido explícito — "el menú no debe aparecer mezclado con
+  // los productos de venta... debe aparecer un botón para cambiar de
+  // sección"): antes ambas secciones se apilaban una debajo de la otra en
+  // la misma página; ahora es un selector que muestra una sola a la vez.
+  // Bloque 210 (pedido explícito — "el menú del local no debe ser visible a
+  // la primera, primero deben verse los otros productos"): arranca en
+  // "catalogo", no en "menu".
+  const [catalogTab, setCatalogTab] = useState("catalogo");
   const [commentText, setCommentText] = useState("");
   const [commentRating, setCommentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
@@ -210,38 +379,12 @@ export default function Store() {
   // de cualquier cliente logueado (nunca el propio, ver ReviewsMarquee.jsx).
   const [reportTarget, setReportTarget] = useState(null);
   const [reportReason, setReportReason] = useState("");
-  // Feature B (pedido explícito): reportar ESTA tienda por fraude —
-  // distinto de reportTarget/reportReason de arriba (eso es un comentario).
-  const [reportFraudOpen, setReportFraudOpen] = useState(false);
   const trackedVisitRef = useRef(null);
   const reviewsRef = useRef(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vendor", slug],
     queryFn: async () => (await api.get(`/vendors/${slug}`)).data.vendor,
-  });
-
-  // Bloque 22: se reusa la misma query que CustomerPanel.jsx (misma
-  // queryKey) — favoritear una tienda desde acá y verla ya listada en el
-  // panel (o al revés) no pide un segundo fetch, React Query comparte el
-  // cache.
-  const { data: favorites } = useQuery({
-    queryKey: ["my-favorites"],
-    queryFn: async () => (await api.get("/customers/me/favorites")).data.favorites,
-    enabled: !!user,
-  });
-  const myFavorite = favorites?.find((f) => f.vendorId === data?.id);
-
-  const toggleFavorite = useMutation({
-    mutationFn: async () =>
-      myFavorite
-        ? (await api.delete(`/customers/me/favorites/${myFavorite.id}`)).data
-        : (await api.post("/customers/me/favorites", { vendorId: data.id })).data,
-    onSuccess: () => {
-      toast.success(myFavorite ? "Se quitó de tus favoritos." : "¡Agregada a tus favoritos!");
-      queryClient.invalidateQueries({ queryKey: ["my-favorites"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar tus favoritos."),
   });
 
   // Tracking mínimo para "clientes potenciales" del dashboard de vendedor —
@@ -319,12 +462,10 @@ export default function Store() {
     setReviewImages((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function handleShare() {
-    copyToClipboard(window.location.href)
-      .then(showLinkCopiedToast)
-      .catch(() => toast.error("No se pudo copiar el enlace."));
-  }
-
+  // Bloque 137 (pedido explícito — "cuando se comparte el enlace de una
+  // tienda, debe previsualizarse en ese link los datos e imágenes de ESA
+  // tienda, y no lo del sitio web en general"): antes copiaba
+  // window.location.href tal cual — el link real de la SPA, cuyo
   // Si venimos de /cuenta?next=...#resenas tras loguearnos, llevar la vista
   // directo a la sección de comentarios.
   useEffect(() => {
@@ -371,9 +512,6 @@ export default function Store() {
   }
 
   const v = data;
-  const location = v.locations?.[0];
-  const locationLabel = location ? `${location.municipality?.name ?? ""}, ${location.province?.name}` : "Cuba";
-  const joinedYear = new Date(v.createdAt).getFullYear();
   // Bloque 23: la grilla principal solo muestra lo que se puede comprar ya
   // mismo — lo agotado se separa en "Próximamente disponibles" más abajo,
   // con botón "Solicitar" en vez de "Agregar al carrito".
@@ -382,209 +520,33 @@ export default function Store() {
   const availableProducts = v.products?.filter((p) => p.unlimitedStock || p.stock > 0) ?? [];
   const outOfStockProducts = v.products?.filter((p) => !p.unlimitedStock && p.stock <= 0) ?? [];
 
+  // Bloque 141: menú del local (availableForTableMenu, el mismo flag que ya
+  // filtra qué se ve al escanear el QR de mesa — ver getTableByToken,
+  // tables.controller.js) vs. cualquier otro producto fijo/externo. Splitea
+  // en 2 secciones SOLO si la tienda es restaurante Y de verdad tiene AMBAS
+  // cosas — si tiene solo una, seguir con la grilla única de siempre evita
+  // una sección vacía al lado de otra para la mayoría de las tiendas.
+  const menuProducts = availableProducts.filter((p) => p.availableForTableMenu);
+  const catalogProducts = availableProducts.filter((p) => !p.availableForTableMenu);
+  const isRestaurantWithMixedCatalog = v.isRestaurant && menuProducts.length > 0 && catalogProducts.length > 0;
+
   return (
     <div>
-      {/* BANNER PROFESIONAL — tarjeta unificada separada de bordes y navbar */}
-      <div className="container-app mt-5 mb-1">
-        <div
-          className="relative overflow-hidden rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
-          style={{
-            background: `linear-gradient(150deg, ${v.color ?? "#232F3E"} 0%, ${v.color ? v.color + "dd" : "#1a2632"} 55%, #111827 100%)`,
-          }}
-        >
-          {/* Círculo decorativo de fondo — profundidad */}
-          <div
-            className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full opacity-10"
-            style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
-          />
-          <div
-            className="pointer-events-none absolute -bottom-10 -left-10 h-48 w-48 rounded-full opacity-[0.07]"
-            style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
-          />
+      <StoreHeaderBanner vendor={v} />
 
-          {/* ── ZONA SUPERIOR: avatar + nombre + acciones ── */}
-          <div className="relative flex flex-col gap-5 px-5 pb-5 pt-5 sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:pt-6">
-
-            {/* Avatar + info de tienda */}
-            <div className="flex items-center gap-4 sm:gap-5">
-              {/* Avatar circular grande */}
-              <div
-                className="relative flex h-[76px] w-[76px] flex-shrink-0 items-center justify-center rounded-full font-display text-[32px] font-extrabold text-white shadow-xl ring-[3px] ring-white/20 sm:h-[92px] sm:w-[92px] sm:text-[40px]"
-                style={{ background: "rgba(255,255,255,0.12)", backdropFilter: "blur(8px)" }}
-              >
-                {v.companyName[0]}
-                {/* Dot de estado encima del avatar */}
-                <span
-                  className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-2 border-white shadow ${
-                    v.isOpenNow ? "bg-verified" : "bg-outline"
-                  }`}
-                />
-              </div>
-
-              {/* Nombre, categoría, descripción */}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start gap-1.5">
-                  <h1 className="font-display text-[22px] font-extrabold leading-tight text-white sm:text-[26px]">
-                    {v.companyName}
-                  </h1>
-                  {v.isVerified && (
-                    <span className="mt-0.5 flex-shrink-0 self-start">
-                      <VerifiedBadge size="md" />
-                    </span>
-                  )}
-                </div>
-
-                {/* Sub-badges: estado · categoría */}
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                      v.isOpenNow
-                        ? "bg-verified/20 text-verified-light"
-                        : "bg-white/10 text-white/60"
-                    }`}
-                  >
-                    {v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
-                  </span>
-                  {v.category?.name && (
-                    <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white/80">
-                      {v.category.name}
-                    </span>
-                  )}
-                  {v.isRestaurant && (
-                    <span className="inline-flex items-center rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-[11px] font-semibold text-secondary-container">
-                      Restaurante
-                    </span>
-                  )}
-
-                </div>
-
-                {/* Descripción */}
-                {v.description && (
-                  <p className="mt-2 line-clamp-2 max-w-[500px] text-[13px] leading-relaxed text-white/65">
-                    {v.description}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Botones de acción — alineados a la derecha */}
-            <div className="flex flex-shrink-0 items-center gap-2 sm:self-start sm:pt-1">
-              <button
-                onClick={handleShare}
-                aria-label="Compartir tienda"
-                title="Compartir tienda"
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-white/20"
-              >
-                <Share2 className="h-[18px] w-[18px]" />
-              </button>
-              {/* Pedido explícito: solo visible para clientes logueados. */}
-              {user?.role === "CUSTOMER" && (
-                <button
-                  onClick={() => setReportFraudOpen(true)}
-                  aria-label="Reportar estafa"
-                  title="Reportar estafa"
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-sm transition-colors hover:bg-error/80 hover:text-white"
-                >
-                  <ShieldAlert className="h-[18px] w-[18px]" />
-                </button>
-              )}
-              {user && (
-                <button
-                  onClick={() => toggleFavorite.mutate()}
-                  disabled={toggleFavorite.isPending}
-                  aria-label={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-                  title={myFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-sm transition-colors disabled:opacity-60 ${
-                    myFavorite ? "bg-white/20 text-white" : "bg-white/10 text-white/80 hover:bg-white/20"
-                  }`}
-                >
-                  <Heart className={`h-[18px] w-[18px] ${myFavorite ? "fill-white" : "fill-none"}`} />
-                </button>
-              )}
-              <a
-                href={waLink(v.whatsapp, `Hola ${v.companyName}, tengo una consulta sobre sus productos.`)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-label-md font-bold text-white shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
-              >
-                <MessageCircle className="h-[17px] w-[17px]" />
-                Contactar
-              </a>
-            </div>
-          </div>
-
-          {/* ── FRANJA INFERIOR: stats sobre fondo oscuro semitransparente ── */}
-          <div className="relative border-t border-white/10 bg-black/25 px-5 py-3.5 sm:px-8">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5">
-
-              {/* Rating */}
-              <div className="flex items-center gap-1.5">
-                <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue className="text-white" />
-                {v.reviewStats?.total > 0 && (
-                  <span className="text-[12px] text-white/50">
-                    ({v.reviewStats.total} reseña{v.reviewStats.total === 1 ? "" : "s"})
-                  </span>
-                )}
-              </div>
-
-              <span className="h-3.5 w-px bg-white/15" />
-
-              {/* Ventas */}
-              <span className="text-[12.5px] text-white/70">
-                <span className="font-bold text-white">{v.salesCount}</span> ventas
-              </span>
-
-              <span className="h-3.5 w-px bg-white/15" />
-
-              {/* Productos */}
-              <span className="text-[12.5px] text-white/70">
-                <span className="font-bold text-white">{v.products?.length ?? 0}</span>{" "}
-                producto{(v.products?.length ?? 0) === 1 ? "" : "s"}
-              </span>
-
-              <span className="h-3.5 w-px bg-white/15" />
-
-              {/* Ubicación */}
-              <span className="text-[12.5px] text-white/70">📍 {locationLabel}</span>
-
-              <span className="h-3.5 w-px bg-white/15" />
-
-              {/* Año */}
-              <span className="text-[12.5px] text-white/70">
-                Desde <span className="font-bold text-white">{joinedYear}</span>
-              </span>
-
-              {/* Métodos de pago — al extremo derecho si hay espacio */}
-              {v.acceptedPaymentMethods?.length > 0 && (
-                <>
-                  <span className="h-3.5 w-px bg-white/15" />
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {v.acceptedPaymentMethods.slice(0, 3).map((methodId) => {
-                      const method = resolvePaymentMethod(methodId);
-                      const Icon = method.icon;
-                      return (
-                        <span
-                          key={methodId}
-                          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/75"
-                        >
-                          <Icon className="h-2.5 w-2.5" />
-                          {method.label}
-                        </span>
-                      );
-                    })}
-                    {v.acceptedPaymentMethods.length > 3 && (
-                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/55">
-                        +{v.acceptedPaymentMethods.length - 3}
-                      </span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
+      {/* HOJA DE CONTENIDO — esquinas superiores redondeadas (pedido
+          explícito, con captura: "redondea más las esquinas" — 28px subió a
+          40px), superpuesta sobre el "colchón" de color vacío que
+          StoreHeaderBanner.jsx reserva de más al final de su último
+          elemento visible (ver el comentario largo ahí — el colchón hereda
+          el mismo fondo oscuro semitransparente de la franja de stats,
+          para que no haya costura de color entre la franja y el colchón).
+          -mt-10/rounded-t-[40px]: mismo valor en los 2 lados, siempre en
+          sync — si uno cambia, el otro tiene que cambiar igual. Envuelve
+          TODO el contenido de acá para abajo (Ofertas, Productos, Países de
+          entrega, Comentarios, Otras tiendas) — un solo fondo, una sola
+          curva, no una por sección. */}
+      <div className="relative -mt-10 rounded-t-[40px] bg-background">
       {/* Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes
           acá había un link directo a `/mesa/:qrToken` ("Menú de mesa con
           QR") — cualquier visitante de la tienda pública llegaba al pedido
@@ -601,7 +563,11 @@ export default function Store() {
         <div className="container-app pt-8">
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Ofertas</h2>
           <p className="mb-5 text-label-sm text-outline">Descuentos exclusivos de {v.companyName} — aplica el código en el carrito.</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Bloque 232: banners horizontales apilados, no una grilla — por
+              default solo hay 1 oferta activa a la vez por tienda (el admin
+              puede subir ese límite, ver AdminStoreOffers.jsx), así que un
+              ancho completo la jerarquiza mejor que competir en columnas. */}
+          <div className="flex flex-col gap-4">
             {v.storeOffers.map((offer) => (
               <StoreOfferCard key={offer.id} offer={offer} vendorName={v.companyName} />
             ))}
@@ -609,51 +575,90 @@ export default function Store() {
         </div>
       )}
 
-      {/* PRODUCTOS */}
-      <div className="container-app pt-8">
-        <h2 className="mb-5 font-display text-title-lg text-on-surface">Productos de {v.companyName}</h2>
-        {availableProducts.length ? (
-          <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-            {availableProducts.map((p) => (
-              <div
-                key={p.id}
-                className="group overflow-hidden rounded-[26px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
-              >
-                <Link to={`/producto/${v.slug}/${p.slug}`} className="block p-2.5 pb-0">
-                  <div className="aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
-                    {p.images?.[0] ? (
-                      <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
-                    )}
-                  </div>
-                </Link>
-                <div className="p-3.5 pt-2.5">
-                  <Link to={`/producto/${v.slug}/${p.slug}`} className="mb-1 block text-[13.5px] font-bold leading-[18px] text-on-surface">
-                    {p.name}
-                  </Link>
-                  <ExpandableDescription text={p.description} />
-                  {!p.unlimitedStock && p.stock <= LOW_STOCK_THRESHOLD && (
-                    <span className="mb-1.5 inline-block w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
-                      ¡Últimas {p.stock} unidades!
-                    </span>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-                    <AddToCartControl product={{ ...p, vendorId: v.id, vendor: v }} size="sm" />
-                  </div>
-                </div>
-              </div>
-            ))}
+      {/* PRODUCTOS — Bloque 141/208 (pedido explícito: secciones distintas
+          para el menú de mesa (availableForTableMenu) y el catálogo fijo,
+          SIN mezclarlos — Bloque 208 lo pasa de 2 secciones apiladas a un
+          selector, así el cliente ve una sola grilla a la vez. Solo aplica
+          si la tienda es restaurante Y de verdad tiene una mezcla real de
+          las 2 (si tiene nada más que una, sería un selector con una sola
+          opción real — se muestra como antes, una sola grilla). */}
+      {isRestaurantWithMixedCatalog ? (
+        <div className="container-app pt-8">
+          <div className="mb-5 inline-flex rounded-full border border-surface-container-high bg-surface-container-lowest p-1">
+            {/* Bloque 210 (pedido explícito): "Otros productos" pasa a
+                llamarse "Productos de la tienda", y va primero (izquierda) —
+                "Menú del local" queda segundo (derecha). */}
+            <button
+              onClick={() => setCatalogTab("catalogo")}
+              className={`rounded-full px-4 py-2 text-label-md font-bold transition-colors ${
+                catalogTab === "catalogo" ? "bg-primary text-on-primary" : "text-on-surface-variant"
+              }`}
+            >
+              Productos de la tienda
+            </button>
+            <button
+              onClick={() => setCatalogTab("menu")}
+              className={`rounded-full px-4 py-2 text-label-md font-bold transition-colors ${
+                catalogTab === "menu" ? "bg-primary text-on-primary" : "text-on-surface-variant"
+              }`}
+            >
+              Menú del local
+            </button>
           </div>
-        ) : (
-          <p className="text-body-md text-on-surface-variant">
-            {outOfStockProducts.length
-              ? "Todos los productos de esta tienda están agotados por ahora — mira “Próximamente disponibles” más abajo."
-              : "Esta tienda todavía no publicó productos."}
-          </p>
-        )}
-      </div>
+          {catalogTab === "menu" ? (
+            <>
+              <p className="mb-5 text-label-sm text-outline">Para comer en el local o pedir por acá mismo.</p>
+              <div className={DIGITAL_MENU_GRID_CLASS}>
+                {menuProducts.map((p) => (
+                  <DigitalMenuProductCard
+                    key={p.id}
+                    to={`/producto/${v.slug}/${p.slug}`}
+                    image={p.images?.[0] ? imgUrl(p.images[0]) : null}
+                    imageAlt={p.name}
+                    name={p.name}
+                    description={p.description}
+                    rating={Number(p.rating)}
+                    reviewCount={p.reviewCount}
+                    badge={
+                      !p.unlimitedStock && p.stock <= LOW_STOCK_THRESHOLD ? (
+                        <span className="flex-shrink-0 rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
+                          ¡Últimas {p.stock}!
+                        </span>
+                      ) : null
+                    }
+                    price={formatPrice(p.price, p.currency)}
+                    oldPrice={p.oldPrice ? formatPrice(p.oldPrice, p.currency) : null}
+                    discountPercent={p.oldPrice ? Math.round(100 - (Number(p.price) / Number(p.oldPrice)) * 100) : null}
+                    action={
+                      <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} onMouseDown={(e) => e.stopPropagation()}>
+                        <AddToCartControl product={{ ...p, vendorId: v.id, vendor: v }} size="sm" variant="circle" />
+                      </div>
+                    }
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mb-5 text-label-sm text-outline">Catálogo aparte del menú del local.</p>
+              <ProductGrid products={catalogProducts} vendor={v} />
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="container-app pt-8">
+          <h2 className="mb-5 font-display text-title-lg text-on-surface">Productos de {v.companyName}</h2>
+          {availableProducts.length ? (
+            <ProductGrid products={availableProducts} vendor={v} />
+          ) : (
+            <p className="text-body-md text-on-surface-variant">
+              {outOfStockProducts.length
+                ? "Todos los productos de esta tienda están agotados por ahora — mira “Próximamente disponibles” más abajo."
+                : "Esta tienda todavía no publicó productos."}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* PRÓXIMAMENTE DISPONIBLES (Bloque 23) — productos sin stock, con
           botón "Solicitar" en vez de "Agregar al carrito". */}
@@ -759,7 +764,10 @@ export default function Store() {
       {/* COMENTARIOS */}
       <div ref={reviewsRef} id="resenas" className="container-app pt-11">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Comentarios de compradores</h2>
-        <p className="mb-5 text-label-sm text-outline">Públicos y visibles para todos. Solo compradores registrados pueden comentar.</p>
+        <p className="mb-5 text-label-sm text-outline">
+          Públicos y visibles para todos. Solo compradores registrados pueden comentar —{" "}
+          {describeReviewLimit(reviewDedupHours, maxReviewsPerStorePerPeriod, "tienda")}.
+        </p>
 
         <RatingBreakdown rating={v.rating} stats={v.reviewStats} />
 
@@ -868,6 +876,7 @@ export default function Store() {
           ))}
         </div>
       </div>
+      </div>
 
       {/* Bloque 25: aiAvailable = Gemini o Groq activo/configurado en
           AdminIntegrations — sin ninguno de los dos, el widget ni se monta
@@ -896,14 +905,6 @@ export default function Store() {
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
       </ConfirmModal>
-
-      <ReportFraudModal
-        open={reportFraudOpen}
-        onClose={() => setReportFraudOpen(false)}
-        targetField="vendorId"
-        targetId={v.id}
-        targetLabel={`la tienda "${v.companyName}"`}
-      />
     </div>
   );
 }

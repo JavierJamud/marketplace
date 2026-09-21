@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Percent, Power, Trash2 } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
@@ -50,7 +51,10 @@ export default function AdminDiscountCodes() {
 
   return (
     <div className="max-w-[900px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Códigos de descuento</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Percent} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Códigos de descuento</h1>
+      </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Códigos de descuento de todos los vendedores. Puedes desactivar uno abusivo, o eliminarlo si nunca se usó.
       </p>

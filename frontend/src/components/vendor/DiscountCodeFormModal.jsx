@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { X } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../ui/Button.jsx";
 import { Input } from "../ui/Input.jsx";
+import { UnsavedChangesModal } from "../UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 function fmtDateInput(iso) {
   // datetime-local necesita "YYYY-MM-DDTHH:mm" en hora local, sin offset —
@@ -65,8 +67,21 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
   const disabledSubmit =
     save.isPending || !value.trim() || invalidRange || invalidPurchaseRange || invalidPercentage || (hasExpiry && (!startsAt || !expiresAt));
 
+  // Bloque 196: snapshot del borrador con el que se abrió el modal.
+  const draftSnapshot = () =>
+    JSON.stringify({ manualCode, type, value, minPurchase, maxPurchase, maxUses, hasExpiry, startsAt, expiresAt });
+  const initialFormSnapshot = useRef(draftSnapshot());
+  const isDirty = draftSnapshot() !== initialFormSnapshot.current;
+  // Misma condición que ya deshabilita "Guardar"/"Crear" más abajo, menos
+  // save.isPending (transitorio, no de validez).
+  const canSaveNow = !!value.trim() && !invalidRange && !invalidPurchaseRange && !invalidPercentage && !(hasExpiry && (!startsAt || !expiresAt));
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">{isEdit ? "Editar código de descuento" : "Crear código de descuento"}</h3>
@@ -212,6 +227,14 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
           </div>
         </form>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }

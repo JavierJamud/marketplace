@@ -705,7 +705,7 @@ function toVendorCard(v) {
 // que pertenezcan a este cliente (por su email de sesión si está logueado,
 // o el email/código que escriba). Mismo criterio de privacidad: nunca se
 // exponen teléfono/dirección, solo código/estado/ítems/total/fecha.
-const ORDER_STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido/Confirmado", READY: "Listo", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
+const ORDER_STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido/Confirmado", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 const ORDER_CODE_REGEX = /\bZ-[A-Z0-9]{4,}\b/i;
 
@@ -738,10 +738,34 @@ async function resolveSessionEmail(userId) {
 // igual, sin importar las palabras alrededor (señal inequívoca).
 const ORDER_INTENT_REGEX = /pedido|orden(?!ar)|compra|confirmaci[oó]n|env[ií]o|entrega/i;
 
+// Bloque 184 (auditoría de seguridad — hallazgo confirmado): esta ruta es
+// PÚBLICA (assistant.routes.js, sin authenticate). Antes, el email escrito a
+// mano en el texto tenía PRIORIDAD sobre el email de la sesión y se usaba
+// tal cual en el `where`, sin compararlo con quién está preguntando. Es
+// decir: cualquiera, sin login, escribiendo "estado del pedido de
+// victima@gmail.com" recibía los últimos 5 pedidos de esa persona —
+// código, tienda, estado, total y fecha — en cualquier tienda del
+// marketplace, además de servir de oráculo para saber si un correo tiene
+// cuenta acá. De ahora en más un email SOLO consulta pedidos si es el de la
+// propia sesión; para un invitado, la única llave válida es el código de
+// pedido (que es el dato secreto que recibió por correo).
+function resolveOrderLookupEmail(message, sessionEmail) {
+  const typedEmail = message.match(EMAIL_REGEX)?.[0]?.toLowerCase() ?? null;
+  const ownEmail = sessionEmail?.trim().toLowerCase() ?? null;
+
+  if (typedEmail) {
+    return typedEmail === ownEmail ? { email: ownEmail } : { email: null, foreign: true };
+  }
+  return { email: ORDER_INTENT_REGEX.test(message) ? ownEmail : null };
+}
+
 async function lookupOrderContext(message, sessionEmail) {
-  const emailMatch = message.match(EMAIL_REGEX);
   const codeMatch = message.match(ORDER_CODE_REGEX);
-  const email = emailMatch?.[0] ?? (ORDER_INTENT_REGEX.test(message) ? sessionEmail : null);
+  const { email, foreign } = resolveOrderLookupEmail(message, sessionEmail);
+
+  if (foreign && !codeMatch) {
+    return `CONSULTA DE PEDIDO: el cliente escribió un correo que NO es el de la sesión con la que está hablando, así que no se consultó nada — los pedidos de otra persona no se muestran nunca. Pedile amablemente que inicie sesión con ese correo y revise "Mis Pedidos", o que te pase el número de pedido (formato Z-XXXX) que le llegó por correo. No inventes ningún estado.`;
+  }
   if (!email && !codeMatch) return null;
 
   const or = [];
@@ -756,7 +780,7 @@ async function lookupOrderContext(message, sessionEmail) {
   });
 
   if (orders.length === 0) {
-    return `CONSULTA DE PEDIDO: el cliente preguntó por un pedido (email/número "${email ?? codeMatch[0]}") pero NO se encontró ningún pedido con ese dato en ninguna tienda. Decilo claramente — recién ahí, y solo ahí, sugerí revisar "Mis Pedidos" en su cuenta o contactar soporte. Nunca inventes un estado.`;
+    return `CONSULTA DE PEDIDO: el cliente preguntó por un pedido (email/número "${email ?? codeMatch[0]}") pero NO se encontró ningún pedido con ese dato en ninguna tienda. Dilo claramente — recién ahí, y solo ahí, sugiere revisar "Mis Pedidos" en su cuenta o contactar soporte. Nunca inventes un estado.`;
   }
 
   // Bloque 31: bug real encontrado en vivo — con VARIOS pedidos (este bot
@@ -908,7 +932,9 @@ function resolveOptionalUserId(req) {
   const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
   if (!token) return null;
   try {
-    return jwt.verify(token, env.jwtSecret).sub;
+    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
+    // el algoritmo esperado en vez de confiar en el "alg" del propio token.
+    return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }).sub;
   } catch {
     return null;
   }

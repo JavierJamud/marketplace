@@ -9,11 +9,41 @@ import { slugify } from "../utils/slugify.js";
 // "Todos" nunca es una fila acá — es solo la opción de filtro sin filtro
 // real, resuelta enteramente en el frontend.
 
-function isValidLucideIcon(name) {
+// Bloque 112 (bug real reportado en vivo, con captura): el admin copió
+// "users" tal cual aparece en la URL/título de lucide.dev/icons/users —
+// pero el export real de lucide-react para ESE ícono es "Users" (PascalCase,
+// mayúscula inicial). La validación exigía coincidencia exacta y rechazaba
+// "users" como "no existe", aunque el ícono sí existe con ese nombre
+// aproximado. Se agrega una normalización tolerante: si el nombre exacto no
+// matchea, se separa por cualquier separador no alfanumérico (guiones,
+// espacios) y se arma la versión PascalCase esperada por lucide-react antes
+// de darlo por inválido — cubre "users"→"Users", "shopping-bag"→"ShoppingBag",
+// "circle check big"→"CircleCheckBig", etc. Devuelve el nombre CANÓNICO real
+// (nunca el que escribió el admin) para que lo que se guarda en la base
+// siempre sea exactamente lo que CategoryIcon.jsx puede resolver después —
+// alguna normalización floja del lado de guardado sin esto habría dejado el
+// mismo problema, solo que invisible hasta la próxima vez que se intentara
+// RENDERIZAR el ícono guardado.
+function toPascalCase(name) {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join("");
+}
+
+function resolveLucideIconName(name) {
+  if (typeof name !== "string" || !name.trim()) return null;
+  const exact = name.trim();
   // lucide-react también exporta alias "*Icon" (ej. "GiftIcon") por cada
   // ícono — se acepta el nombre "canónico" (sin sufijo) para que el admin
   // siempre guarde el mismo nombre que ve documentado en tokens-cheatsheet.md.
-  return typeof name === "string" && !!Icons[name] && !name.endsWith("Icon");
+  if (Icons[exact] && !exact.endsWith("Icon")) return exact;
+  const pascal = toPascalCase(exact);
+  if (Icons[pascal] && !pascal.endsWith("Icon")) return pascal;
+  return null;
 }
 
 // Público — solo activas, ya ordenadas para el Home/filtro de Tiendas.
@@ -57,7 +87,8 @@ const createSchema = z.object({
 
 export async function createBusinessCategory(req, res) {
   const data = createSchema.parse(req.body);
-  if (!isValidLucideIcon(data.icon)) throw new AppError(`"${data.icon}" no es un ícono válido de lucide-react.`, 400);
+  const icon = resolveLucideIconName(data.icon);
+  if (!icon) throw new AppError(`"${data.icon}" no es un ícono válido de lucide-react.`, 400);
 
   let slug = slugify(data.name);
   const slugTaken = await prisma.businessCategory.findUnique({ where: { slug } });
@@ -69,7 +100,7 @@ export async function createBusinessCategory(req, res) {
     sortOrder = (last?.sortOrder ?? -1) + 1;
   }
 
-  const category = await prisma.businessCategory.create({ data: { name: data.name, slug, icon: data.icon, sortOrder } });
+  const category = await prisma.businessCategory.create({ data: { name: data.name, slug, icon, sortOrder } });
   res.status(201).json({ category });
 }
 
@@ -87,7 +118,11 @@ export async function updateBusinessCategory(req, res) {
   const existing = await prisma.businessCategory.findUnique({ where: { id } });
   if (!existing) throw new AppError("Categoría no encontrada.", 404);
 
-  if (data.icon && !isValidLucideIcon(data.icon)) throw new AppError(`"${data.icon}" no es un ícono válido de lucide-react.`, 400);
+  if (data.icon) {
+    const icon = resolveLucideIconName(data.icon);
+    if (!icon) throw new AppError(`"${data.icon}" no es un ícono válido de lucide-react.`, 400);
+    data.icon = icon;
+  }
 
   const category = await prisma.businessCategory.update({ where: { id }, data });
   res.json({ category });

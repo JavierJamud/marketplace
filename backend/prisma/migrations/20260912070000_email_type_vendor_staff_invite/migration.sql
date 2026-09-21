@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "EmailType" ADD VALUE 'VENDOR_STAFF_INVITE';

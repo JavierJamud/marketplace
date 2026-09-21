@@ -2,9 +2,11 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
-import { listNvidiaModels } from "../lib/nvidia.js";
-import { listGroqModels } from "../lib/groq.js";
-import { listGeminiModels } from "../lib/gemini.js";
+import { listNvidiaModels, generateWithNvidia, DEFAULT_MODEL as NVIDIA_DEFAULT_MODEL } from "../lib/nvidia.js";
+import { listGroqModels, generateWithGroq, DEFAULT_MODEL as GROQ_DEFAULT_MODEL } from "../lib/groq.js";
+import { listGeminiModels, generateWithGemini, DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from "../lib/gemini.js";
+import { sendAdminDirectEmail } from "../lib/email.js";
+import { getAiModelOverrides } from "./settings.controller.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
 // Stripe, lo que se agregue después) — primeros 4 + últimos 4 caracteres a
@@ -185,6 +187,73 @@ export async function listProviderModels(req, res) {
 
   const models = await lister({ apiKey });
   res.json({ models });
+}
+
+// Bloque 86 (pedido explícito, con reporte real en vivo de "el correo no
+// salió aunque la key es correcta"): mismo criterio que "Actualizar lista"
+// de arriba para los proveedores de IA (ejercita la API real, no un chequeo
+// de formato) — pero para Resend no hay "listar modelos", así que la prueba
+// real es mandar un correo de verdad. Va SIEMPRE al correo del propio
+// admin (nunca a un cliente/vendedor real ni a una dirección escrita a
+// mano) — mismo destinatario "seguro" que ya usa notifyAdminActionNeeded, y
+// reusa sendAdminDirectEmail tal cual (mismo template, mismo registro en
+// EmailLog) en vez de armar un envío aparte. El resultado real de Resend
+// (nunca un "enviado" optimista) es lo que decide si esto responde 200 o
+// error — mismo criterio anti-falso-positivo del Bloque 5.
+export async function testResendIntegration(_req, res) {
+  const integration = await prisma.integration.findUnique({ where: { name: "resend" } });
+  if (!integration || !decryptIntegration(integration)) throw new AppError("Guarda la clave de Resend primero.", 400);
+
+  const admin = await prisma.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } });
+  if (!admin?.email) throw new AppError("No hay ninguna cuenta de administrador para mandar el correo de prueba.", 400);
+
+  const result = await sendAdminDirectEmail({
+    to: admin.email,
+    subject: "✅ Correo de prueba — Resend conectado",
+    message:
+      "Este es un correo de prueba enviado a mano desde Admin → Integraciones para confirmar que la clave de Resend guardada funciona de verdad.\n\n" +
+      "Si estás leyendo esto, la integración está funcionando correctamente.",
+    recipientName: admin.fullName,
+  });
+
+  if (!result.ok) throw new AppError(`Resend rechazó el envío: ${result.error}`, 502, { detail: result.error });
+  res.json({ ok: true, to: admin.email });
+}
+
+// Bloque 90 (pedido explícito, tras 2 correos reales de "la integración de
+// X no responde" en la misma noche): mismo criterio anti-falso-positivo que
+// testResendIntegration de arriba, pero para Gemini/Groq/NVIDIA — ejercita
+// la MISMA función generateWithX y el MISMO modelo configurado (o su
+// default) que ya usa aiHealthCheck.job.js y el chat/generador reales, así
+// que "Probar" le da al admin la misma verdad que el cron nocturno sin
+// tener que esperar a las 3am ni leer el correo del día siguiente.
+const AI_TEST_PROVIDERS = {
+  gemini: { generate: generateWithGemini, defaultModel: GEMINI_DEFAULT_MODEL, settingsField: "aiModelGemini" },
+  groq: { generate: generateWithGroq, defaultModel: GROQ_DEFAULT_MODEL, settingsField: "aiModelGroq" },
+  nvidia: { generate: generateWithNvidia, defaultModel: NVIDIA_DEFAULT_MODEL, settingsField: "aiModelNvidia" },
+};
+const AI_TEST_PROMPT = "Responde solo con la palabra: listo";
+
+export async function testAiProviderIntegration(req, res) {
+  const { name } = req.params;
+  const provider = AI_TEST_PROVIDERS[name];
+  if (!provider) throw new AppError("Este proveedor no es de IA.", 400);
+
+  const integration = await prisma.integration.findUnique({ where: { name } });
+  const apiKey = integration ? decryptIntegration(integration) : null;
+  if (!apiKey) throw new AppError(`Guarda la clave de ${name} primero.`, 400);
+
+  const overrides = await getAiModelOverrides();
+  const model = overrides[name] || provider.defaultModel;
+
+  const start = Date.now();
+  try {
+    await provider.generate({ apiKey, prompt: AI_TEST_PROMPT, model });
+  } catch (err) {
+    const detail = err?.details?.detail || err?.message || "Error desconocido";
+    throw new AppError(`${name} no respondió con el modelo "${model}": ${detail}`, 502, { detail });
+  }
+  res.json({ ok: true, model, ms: Date.now() - start });
 }
 
 // Uso interno (otros servicios, ej. campaigns.controller.js) — nunca expuesto

@@ -15,6 +15,15 @@ enum Role {
   CUSTOMER
   VENDOR
   ADMIN
+  // Bloque 183 (pedido explícito — "quiero que el vendedor... pueda crear
+  // usuarios con roles dentro de su negocio... solo va a tener acceso a la
+  // sección que él designe"): un User real, con su propia sesión/login,
+  // pero SIN ser dueño de ninguna tienda — su acceso vive en VendorStaff
+  // (a qué vendor pertenece, a qué secciones del panel puede entrar).
+  // authenticate()/requireRole() lo tratan como cualquier otro rol; el
+  // recorte real de qué puede tocar pasa por requireVendorAccess(section)
+  // en las rutas del panel de vendedor, nunca solo en el frontend.
+  VENDOR_STAFF
 }
 
 enum PlanType {
@@ -183,6 +192,27 @@ enum EmailType {
   FRAUD_REPORT_EVIDENCE_REQUESTED
   FRAUD_REPORT_DISMISSED
   FRAUD_REPORT_SUSPENDED
+  // Bloque 183: aviso al usuario de sistema recién creado (ver
+  // vendorStaff.controller.js) de que ya tiene una cuenta esperándolo.
+  VENDOR_STAFF_INVITE
+  // Bloque 194 (pedido explícito — "notificación por correo... para
+  // notificar sobre bajo stock en productos antes que se agoten"): aviso
+  // operativo automático (lowStock.job.js), no cuenta contra el límite
+  // mensual de MANUAL del vendedor — mismo criterio que el resto del enum.
+  LOW_STOCK_ALERT
+  // Bloque 198 (pedido explícito — "se enviará un correo a los usuarios que
+  // ese día tienen que ir y reportar todas las ventas"): aviso operativo
+  // automático (cashCloseReminder.job.js), mismo criterio que
+  // LOW_STOCK_ALERT — no cuenta contra el límite mensual de MANUAL.
+  CASH_CLOSE_REMINDER
+  // Bloque 211 (pedido explícito — auto-eliminación de cuenta con 30 días de
+  // gracia): 4 tipos propios, ninguno cuenta contra el límite mensual de
+  // MANUAL del vendedor (son necesidad operativa/de la plataforma, mismo
+  // criterio que el resto del enum).
+  ACCOUNT_DELETION_REQUESTED
+  ACCOUNT_DELETION_REMINDER
+  ACCOUNT_DELETION_REACTIVATED
+  ACCOUNT_DELETION_COMPLETED
 }
 
 enum EmailStatus {
@@ -199,6 +229,11 @@ enum ErrorOrigin {
   EMAIL_RESEND
   STRIPE
   TRANSCRIPCION_AUDIO
+  // Bloque 85: verificación diaria automática de los proveedores de IA
+  // (aiHealthCheck.job.js) — un modelo dado de baja o un proveedor entero
+  // sin responder, distinto de BOT_TIENDA/BOT_GENERAL (esos son fallos en
+  // vivo de una charla real, este es el chequeo programado de fondo).
+  AI_HEALTH_CHECK
   OTRO
 }
 
@@ -227,6 +262,12 @@ model Country {
   vendorDeliveries VendorDeliveryCountry[]
   // Bloque 66: tiendas cuyo país de registro LEGAL es este (Vendor.registrationCountryId).
   vendorsRegisteredHere Vendor[]
+  // Bloque 113: clientes/vendedores cuyo país de REGISTRO (persona, no
+  // tienda) es este (User.registrationCountryId).
+  registeredUsers User[]
+  // Bloque 114: ubicaciones de tienda (VendorLocation) fuera de Cuba, donde
+  // ya no hay una Province real y este es el único vínculo al catálogo.
+  vendorLocations VendorLocation[]
 }
 
 // Países a los que un vendedor puntual entrega (además/aparte de las
@@ -283,6 +324,9 @@ model Municipality {
   addresses       Address[]
   // Bloque 66: tiendas cuyo municipio de registro LEGAL es este (Vendor.legalMunicipalityId).
   vendorsLegal    Vendor[]
+  // Bloque 113: clientes/vendedores cuyo municipio de REGISTRO (persona, no
+  // tienda) es este (User.municipalityId).
+  users           User[]
 
   @@unique([provinceId, name])
 }
@@ -384,6 +428,25 @@ model Product {
   // Bloque 16: independiente de isActive/paymentMethods — un producto puede
   // vender en la tienda normal, en el menú QR de mesa, en ambos o en ninguno.
   availableForTableMenu Boolean @default(false)
+  // Bloque 157 (pedido explícito — "el vendedor podrá si desea ocultar ese
+  // producto de la vista de la tienda y solo será para pedido de la mesa"):
+  // independiente de isActive (que sigue controlando si el producto existe
+  // "en venta" en absoluto) — con esto en true, un producto que SÍ está
+  // activo y disponible para el menú QR deja de aparecer en la tienda
+  // pública/catálogo/búsqueda/destacados, pero sigue pidiéndose normal desde
+  // la mesa. Sin relación con availableForTableMenu a nivel de dato (nada
+  // impide technically marcarlo sin ese otro en true), pero solo tiene
+  // sentido real combinado con él — la UI (VendorProducts.jsx) solo lo
+  // ofrece cuando availableForTableMenu ya está tildado.
+  hiddenFromStore Boolean @default(false)
+  // Bloque 157 (pedido explícito — "se podrá configurar si algunos productos
+  // son para todas las mesas o para mesas en específico"): false (default) =
+  // disponible en TODAS las mesas del vendedor con availableForTableMenu — ni
+  // siquiera se consulta restrictedTables en ese caso. true = solo las mesas
+  // en restrictedTables pueden pedirlo (ver getTableByToken/createTableOrder,
+  // tables.controller.js, que validan esto en ambos sentidos: qué se MUESTRA
+  // en el menú de esa mesa y qué se ACEPTA si igual llega en el pedido).
+  tableRestricted Boolean @default(false)
   createdAt   DateTime @default(now())
   // Bloque 66: se setea la PRIMERA vez que el producto pasa a isActive:true
   // (ver addProductImages/addProductImageLink en products.controller.js, que
@@ -391,6 +454,55 @@ model Product {
   // es el ancla real de "cuántos días lleva activo" para la etiqueta "Nuevo"
   // automática, en vez de createdAt (que existe desde antes de tener fotos).
   activatedAt DateTime?
+
+  // Bloque 98 (pedido explícito): señales reales para el algoritmo de
+  // "Destacados" (ver lib/productRanking.js) — contadores agregados en vez
+  // de una tabla de eventos aparte (ProductView/ProductClick), a propósito:
+  // lo único que hace falta para rankear es el TOTAL acumulado de cada
+  // señal, nunca el historial completo evento por evento, y un contador
+  // simple escala mucho mejor en cada carga de Home/catálogo que agregar
+  // sobre una tabla de eventos cada vez.
+  viewCount        Int @default(0) // se abre la página del producto (interés real)
+  clickCount       Int @default(0) // clic en la tarjeta desde cualquier listado
+  searchClickCount Int @default(0) // de los de arriba, cuántos vinieron de una búsqueda puntual
+  // Int, no BigInt (evita el problema real de que `res.json()`/JSON.stringify
+  // no sabe serializar BigInt — hubiera roto TODOS los endpoints que
+  // devuelven un Product apenas se agregara esta columna). Con el techo de
+  // 30 min por vista (MAX_DWELL_MS, products.controller.js), el límite de
+  // Int (~2.147 millones de segundos acumulados) alcanza para más de 71 mil
+  // vistas de un mismo producto — más que suficiente para la escala real de
+  // este proyecto.
+  totalDwellMs Int @default(0) // suma de ms en la página del producto — junto con viewCount da el promedio
+  salesCount   Int @default(0) // unidades vendidas CONFIRMADAS (ver confirmOrderSale en orders.controller.js) — nunca solo "pedidas"
+
+  // Bloque 230 (Fase 3 del blindaje del ranking — pedido explícito:
+  // "decaimiento temporal en Destacados — 'destacado' pasa a significar
+  // 'relevante ahora'"): última vez que hubo un clic real (deduplicado por
+  // ip, ver trackProductClick) o una venta confirmada — productRanking.js la
+  // usa para bajarle peso a la parte de tráfico/ventas del score cuanto más
+  // vieja sea. NO se toca en cada vista/dwell (ver comentario en
+  // trackProductClick) — solo señales con algún gate real.
+  lastActivityAt DateTime?
+
+  // Bloque 194 (pedido explícito — "notificación por correo... para
+  // notificar sobre bajo stock en productos antes que se agoten"): null =
+  // todavía no se le avisó al vendedor por este bajón puntual de stock (ver
+  // lowStock.job.js). Se marca la primera vez que cae en el rango bajo, así
+  // el cron diario no manda el mismo aviso todos los días mientras siga
+  // bajo — y se limpia solo (vuelve a null) apenas el stock sube de nuevo
+  // por encima del umbral (reponer, o el vendedor sube la cantidad a mano),
+  // para que la PRÓXIMA vez que vuelva a bajar sí dispare un aviso nuevo.
+  lowStockNotifiedAt DateTime?
+
+  // Bloque 116 (pedido explícito): calificación propia del PRODUCTO (no la de
+  // la tienda) para mostrar estrellas + cantidad de reseñas en la tarjeta de
+  // cada producto — mismo criterio denormalizado que Vendor.rating (recalculado
+  // en reviews.controller.js cada vez que cambia una reseña CON productId),
+  // en vez de un aggregate en cada listado: así cualquier endpoint que ya
+  // devuelve el Product (Home, catálogo, tienda, búsqueda) lo trae gratis, sin
+  // tocar cada uno para sumar una query aparte.
+  rating      Decimal @default(0) @db.Decimal(2, 1)
+  reviewCount Int     @default(0)
 
   vendor   Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -403,8 +515,106 @@ model Product {
   offers     Offer[]
   priceTiers ProductPriceTier[]
   reports    Report[]
+  // Bloque 157: solo tiene efecto real cuando tableRestricted:true (ver
+  // arriba) — many-to-many implícita, cada mesa puede tener varios productos
+  // restringidos a ella y cada producto puede restringirse a varias mesas.
+  restrictedTables Table[] @relation("ProductTableRestriction")
+  // Bloque 198: ventas manuales — ver VendorStaffAllocation/VendorStaffSale.
+  staffAllocations VendorStaffAllocation[]
+  staffSales       VendorStaffSale[]
+  // Bloque 228 (Fase 1, "blindar el ranking" — pedido explícito): ver
+  // ProductClickEvent más abajo. Vive aparte de clickCount/searchClickCount
+  // (arriba) a propósito — es el único registro evento-por-evento de este
+  // modelo, pero su función es exclusivamente deduplicar ANTES de sumarle a
+  // esos contadores, nunca se lee para rankear (el ranking sigue leyendo
+  // solo los contadores agregados, tal como ya explica el comentario del
+  // Bloque 98 más arriba).
+  clickEvents ProductClickEvent[]
+  // Bloque 229 (Fase 2): anomalías de ranking detectadas contra este
+  // producto — ver RankingAnomaly más abajo.
+  rankingAnomalies RankingAnomaly[]
 
   @@unique([vendorId, slug])
+}
+
+// Bloque 228 (pedido explícito — Fase 1 del blindaje del ranking: "sin esto,
+// el 30% de clics es falsificable", los pesos de clickCount+searchClickCount
+// en productRanking.js suman justo 0.30): antes trackProductClick sumaba 1
+// SIEMPRE, sin ningún control — cualquiera (o un script) podía spamear el
+// endpoint público y mandar el score del producto para arriba a mano. Esta
+// tabla guarda solo lo mínimo para poder preguntar "¿esta IP ya clickeó este
+// producto hace poco?" antes de sumar — se limpia sola (ver
+// jobs/clickAnomaly.job.js, Fase 2) en vez de crecer para siempre.
+model ProductClickEvent {
+  id        String   @id @default(cuid())
+  productId String
+  // Nunca la IP en texto plano — mismo criterio que refreshTokenHash en
+  // Session (hashToken, sha256): no hace falta poder "leer" la IP de vuelta,
+  // solo comparar igualdad para el dedup, así que un hash rápido e
+  // indexable alcanza y de paso no guarda un dato personal identificable
+  // en texto claro.
+  ipHash    String
+  source    String? // "search" | "home" | "catalog" | "store" — igual que trackClickSchema
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Índice compuesto: es exactamente la consulta que hace el dedup
+  // ("¿existe un evento de este producto+IP después de tal hora?") en cada
+  // clic público — sin este índice, esa consulta escanearía la tabla entera
+  // a medida que crece.
+  @@index([productId, ipHash, createdAt])
+  // Aparte, para que la limpieza periódica (borrar filas viejas) y el cron
+  // de picos de clics (Fase 2) puedan barrer por fecha sin escanear todo.
+  @@index([createdAt])
+}
+
+// Bloque 229 (pedido explícito — Fase 2, "visibilidad para el admin...
+// reutiliza las señales de la Fase 1"): cola de cosas raras que detectan
+// los crons de reseñas/clics — SOLO levanta bandera, nunca decide ni actúa
+// sola (mismo espíritu que la máquina de estados de Report, pero Report en
+// sí no sirve para esto: exige reporterId + screenshotUrl reales, pensado
+// para un reporte humano, no para algo que detecta un cron sin ningún
+// usuario ni captura de por medio). Un admin la revisa y decide —
+// DISMISSED (falsa alarma) o ACTIONED (ya hizo algo al respecto, a mano,
+// en Tiendas/Productos/Comentarios — esta tabla nunca ejecuta ninguna
+// consecuencia por sí sola).
+enum RankingAnomalyKind {
+  REVIEW_BURST
+  CLICK_SPIKE
+}
+
+enum RankingAnomalyStatus {
+  PENDING
+  DISMISSED
+  ACTIONED
+}
+
+model RankingAnomaly {
+  id         String               @id @default(cuid())
+  kind       RankingAnomalyKind
+  status     RankingAnomalyStatus @default(PENDING)
+  productId  String?
+  vendorId   String?
+  // Texto legible armado por el propio cron (mismo criterio que
+  // buildSignalsText en vendorDailyTips.service.js) — nunca un número
+  // suelto sin contexto, el admin tiene que poder entender QUÉ vio el cron
+  // sin tener que ir a leer el código.
+  details    String               @db.Text
+  detectedAt DateTime             @default(now())
+
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?   @db.Text
+
+  product    Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendor     Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewedBy User?    @relation("RankingAnomalyReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([kind])
+  @@index([productId])
+  @@index([vendorId])
 }
 
 // Bloque 55: precios por cantidad (mayoreo) — 100% opcional, el vendedor
@@ -452,6 +662,23 @@ model User {
   phone        String?
   address      String?
   provinceId   String?
+  // Bloque 113 (pedido explícito): dónde vive/opera de verdad el cliente,
+  // elegido en el registro contra el catálogo REAL de países del admin
+  // ("Países y provincias") — distinto de `country` de abajo, que es solo
+  // el código ISO del teléfono (puede diferir: alguien puede tener número
+  // +1 pero vivir en Cuba). `registrationCountryOther` guarda el nombre
+  // tal cual lo escribió si su país real no estaba en la lista (nunca se
+  // fuerza a elegir uno que no es el suyo).
+  registrationCountryId    String?
+  registrationCountryOther String?
+  municipalityId           String?
+  // Bloque 114 (pedido explícito): fuera de Cuba ya no se elige una
+  // provincia/estado del catálogo (`Province` con type=STATE) — se escribe
+  // a mano, junto con `address` (arriba, ya existía sin usar) como la
+  // dirección. Solo tiene sentido cuando `registrationCountryId` apunta a
+  // un país real que NO es Cuba (con Cuba, `provinceId`/`municipalityId`
+  // de arriba mandan; con "otro país" ninguno de los dos aplica).
+  stateOther   String?
   country      String? // ISO 3166-1 alpha-2 (ej. "CU"), usado para el código de marcado del teléfono
   isSuspended  Boolean  @default(false)
   // Bloque 12: soft-delete — nunca se borra la fila (los pedidos históricos
@@ -459,6 +686,21 @@ model User {
   // realmente bloquea el login (ver auth.controller.js); deletedAt es solo
   // el flag de auditoría que distingue "eliminado" de "suspendido a mano".
   deletedAt    DateTime?
+  // Bloque 211 (pedido explícito — auto-eliminación de cuenta con 30 días de
+  // gracia, clientes/vendedores/personal): distinto de isSuspended/deletedAt
+  // de arriba a propósito — esos son del borrado INSTANTÁNEO que dispara un
+  // admin. Acá, mientras dure el período de gracia, el login sigue andando
+  // normal (nunca se gatea en auth.controller.js); lo único que cambia es
+  // que el panel muestra el aviso de baja en vez del panel real (mismo
+  // criterio ya usado para Vendor.isBlocked, ver VendorLayout.jsx). Pasados
+  // 30 días sin reactivar, el cron (accountDeletion.job.js) recién ahí pone
+  // deletedAt de verdad, vía el mismo finalizeUserDeletion() que usa el
+  // borrado manual de un admin.
+  deletionRequestedAt   DateTime?
+  // Marca de "ya se mandó el aviso de 7 días antes" — evita mandarlo 2 veces
+  // si el cron se cae un día y corre tarde (mismo criterio que
+  // vendorLifecycle.job.js/lowStock.job.js).
+  deletionReminderSentAt DateTime?
   createdAt    DateTime @default(now())
   // Bloque 62: se actualiza en cada login exitoso (auth.controller.js) —
   // clientes, vendedores y admin por igual, una sola tabla. Para un
@@ -492,7 +734,23 @@ model User {
   emailChangeCodeHash      String?
   emailChangeCodeExpiresAt DateTime?
 
+  // Bloque 183 (pedido explícito — "el usuario deberá ingresar el correo...
+  // el sistema detecta que ese usuario no tiene una contraseña válida
+  // aún... se le enviará un código... podrá ingresar su nueva contraseña"):
+  // se crea con passwordHash puesto a un valor aleatorio inservible (nunca
+  // null — la columna sigue siendo NOT NULL) y este flag en true. login()
+  // lo chequea ANTES de comparar la contraseña — si está en true, ni
+  // siquiera se intenta el bcrypt.compare(), se responde
+  // `requiresPasswordSetup` directo (mismo criterio que requiresTwoFactor).
+  // Reusa el flujo de "olvidé mi contraseña" ya existente (resetCodeHash/
+  // forgotPassword/resetPassword) — es literalmente el mismo problema
+  // ("no hay una contraseña utilizable, hay que probar el correo y poner
+  // una nueva"), así que resetPassword también apaga este flag al usarse.
+  mustSetPassword Boolean @default(false)
+
   province  Province?  @relation(fields: [provinceId], references: [id], onDelete: SetNull)
+  municipality         Municipality? @relation(fields: [municipalityId], references: [id], onDelete: SetNull)
+  registrationCountry  Country?      @relation(fields: [registrationCountryId], references: [id], onDelete: SetNull)
   vendor    Vendor?
   addresses Address[]
   orders    Order[]
@@ -519,6 +777,8 @@ model User {
   verificationStatusChangesMade VerificationStatusLog[]
   activityLogs ActivityLog[]
   verificationArchivesReviewed VerificationArchive[] @relation("VerificationArchiveReviewedBy")
+  subscriptionPaymentsConfirmed SubscriptionPayment[] @relation("SubscriptionPaymentConfirmedBy")
+  vendorChangeRequestsReviewed  VendorChangeRequest[] @relation("VendorChangeRequestReviewedBy")
   // Anuncios de venta rápida propios (clientes sin tienda) — ver
   // CustomerListing más abajo.
   customerListings CustomerListing[]
@@ -527,6 +787,15 @@ model User {
   // que resolvió como admin — mismo criterio que reportResolvedReviews.
   reportsMade     Report[] @relation("ReportsMade")
   reportsResolved Report[] @relation("ReportsResolvedBy")
+  // Bloque 183: este User ES un usuario de sistema de un negocio (rol
+  // VENDOR_STAFF) — null para clientes/vendedores/admin normales.
+  vendorStaffProfile VendorStaff?
+  // Bloque 183: usuarios de sistema que ESTE usuario (vendedor/admin) dio
+  // de alta — puramente informativo/auditoría, nunca decide permisos.
+  vendorStaffCreated VendorStaff[] @relation("VendorStaffCreatedBy")
+  // Bloque 229 (Fase 2): anomalías de ranking que este admin revisó — ver
+  // RankingAnomaly más abajo.
+  rankingAnomaliesReviewed RankingAnomaly[] @relation("RankingAnomalyReviewedBy")
 }
 
 // Bloque 60: reemplaza el refresh token JWT sin estado por uno opaco
@@ -588,6 +857,18 @@ model PendingRegistration {
   fullName      String
   phone         String
   country       String
+  // Bloque 113 (pedido explícito): país/provincia/municipio elegidos en el
+  // registro (ver User.registrationCountryId/provinceId/municipalityId) —
+  // strings sueltos (no FK, mismo criterio que `country` de arriba) porque
+  // esta fila es efímera: se borra apenas se verifica el código y se crea
+  // el User real, donde sí quedan como relaciones reales.
+  registrationCountryId    String?
+  registrationCountryOther String?
+  provinceId               String?
+  municipalityId           String?
+  // Bloque 114: staging de lo mismo que User.stateOther/address — ver ahí.
+  stateOther    String?
+  address       String?
   codeHash      String
   codeExpiresAt DateTime
   createdAt     DateTime @default(now())
@@ -628,7 +909,6 @@ model Vendor {
   legalProvinceId       String?
   legalMunicipalityId   String?
   logoUrl     String?
-  coverUrl    String?
   color       String?
   categoryId  String?
   // Bloque 18: rubro/tipo de negocio elegido en el registro (obligatorio a
@@ -637,6 +917,15 @@ model Vendor {
   businessCategoryId String?
   isRestaurant Boolean @default(false)
   tableCount  Int?
+  // Bloque 208 (pedido explícito — "los negocios podrán seleccionar si sus
+  // menús digitales son ocultos, solo para pedidos escaneando la mesa, o
+  // serán públicos para cualquier persona con acceso a su página web"):
+  // default true preserva el comportamiento de siempre (el menú ya se
+  // mostraba en Store.jsx sin este toggle) — recién ahora el vendedor puede
+  // decidir ocultarlo. Solo afecta la tienda pública (getVendorBySlug);
+  // getTableByToken (QR real de la mesa) nunca lo consulta, siempre muestra
+  // el menú completo sin importar este valor.
+  menuPublic Boolean @default(true)
   planType    PlanType @default(REGULAR)
   orderDestination OrderDestination @default(WHATSAPP)
   // Bloque 64: reemplaza el booleano `isVerified` (guardado aparte,
@@ -683,6 +972,15 @@ model Vendor {
   // ocultan la tienda sin tocar cada uno) y se guarda deletedAt como marca
   // de auditoría/UI ("Eliminada" en vez de "Bloqueada", sin botón de revertir).
   deletedAt   DateTime?
+  // Bloque 211 (pedido explícito — el vendedor pide eliminar SU cuenta desde
+  // VendorProfile.jsx): espejo de User.deletionRequestedAt, seteado en la
+  // misma transacción — reusa isBlocked:true (con un blockReason fijo) para
+  // ocultar la tienda ya mismo con cero filtros nuevos (listVendors/
+  // getVendorBySlug ya excluyen isBlocked:true), y le sirve a VendorLayout.jsx
+  // para mostrarle el aviso de baja también al personal que entre mientras
+  // la tienda del dueño está en cuenta regresiva. `null` = no hay ninguna
+  // baja de cuenta en curso.
+  deletionRequestedAt DateTime?
   // Bloque 62: tercer estado, distinto de isBlocked (el admin bloquea a
   // mano, reversible en cualquier momento desde AdminVendors.jsx) y de
   // deletedAt (soft-delete, sin vuelta atrás) — SUSPENDED lo pone el cron de
@@ -714,15 +1012,10 @@ model Vendor {
   // se valida ni se procesa nada acá, es solo lo que se muestra en
   // Store.jsx para que cliente y vendedor coordinen directo entre ellos.
   acceptedPaymentMethods String[] @default([])
-  // Bloque 47: informativo, mismo criterio que acceptedPaymentMethods de
-  // arriba — qué monedas coordina la tienda con el cliente, sin conversión
-  // real ni tasa de cambio (Product.price sigue siendo siempre CUP).
-  acceptedCurrencies String[] @default(["CUP"])
   // Bloque 65 (pedido explícito): moneda operativa ÚNICA de la tienda —
-  // distinta de acceptedCurrencies de arriba (esa es informal/múltiple,
-  // "qué coordinás con el cliente"; esta es la moneda real en la que están
-  // expresados TODOS los precios de la tienda, elegida en el registro,
-  // editable después). Todo producto de esta tienda usa esta moneda —
+  // la moneda real en la que están expresados TODOS los precios de la
+  // tienda, elegida en el registro, editable después. Todo producto de
+  // esta tienda usa esta moneda —
   // createProduct/updateProduct la fuerzan server-side, nunca se acepta un
   // valor de currency distinto mandado por el cliente (ver products.controller.js).
   currency ProductCurrency @default(CUP)
@@ -741,6 +1034,17 @@ model Vendor {
   // (o el webhook customer.subscription.deleted de Stripe, que dispara solo
   // al llegar cancel_at_period_end) recién ahí transiciona a NOT_STARTED.
   cancelAtPeriodEnd Boolean @default(false)
+  // Bloque 198 (pedido explícito — "se podrán enviar recordatorios a los
+  // usuarios en caso de que el vendedor asigne un día que sea el día para
+  // cuadrar la caja"): null = recordatorio desactivado. DAILY no usa ningún
+  // día (se dispara todos los días); WEEKLY usa cashCloseDayOfWeek (1=lunes,
+  // ISO); MONTHLY usa cashCloseDayOfMonth. cashCloseReminderSentAt es la
+  // marca de "ya se mandó hoy" — mismo criterio anti-duplicado que
+  // lastInactivityEmailAt, más abajo.
+  cashCloseFrequency      CashCloseFrequency?
+  cashCloseDayOfWeek      Int?
+  cashCloseDayOfMonth     Int?
+  cashCloseReminderSentAt DateTime?
   createdAt   DateTime @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -775,6 +1079,298 @@ model Vendor {
   activityLogs     ActivityLog[]
   verificationArchives VerificationArchive[]
   reports          Report[]
+  // Bloque 153 (pedido explícito): pagos de RENOVACIÓN de la suscripción
+  // (meses extra mientras la tienda YA está VERIFIED) — historial completo,
+  // separado del ciclo inicial de verificación (VerificationRequest/
+  // VerificationArchive, Bloques 150-152), que sigue intacto tal cual.
+  subscriptionPayments SubscriptionPayment[]
+  // Bloque 153 (pedido explícito — "todos los datos de la tienda no se
+  // pueden modificar después de estar verificadas sin aprobación del
+  // admin"): solicitudes de cambio a datos de identidad de una tienda ya
+  // verificada.
+  changeRequests VendorChangeRequest[]
+  // Bloque 183: usuarios de sistema con acceso restringido a este negocio.
+  staff VendorStaff[]
+  // Bloque 194 (pedido explícito — "la IA vaya reconociendo el modo de uso
+  // del negocio y le recomiende consejos... consejos diarios"): un registro
+  // por día calendario, ver VendorDailyTip más abajo.
+  dailyTips VendorDailyTip[]
+  // Bloque 198: ventas manuales de los usuarios de sistema — ver
+  // VendorStaffSale más arriba.
+  staffSales VendorStaffSale[]
+  // Bloque 229 (Fase 2, pedido explícito — "visibilidad para el admin...
+  // reutiliza las señales de la Fase 1"): anomalías detectadas por los
+  // crons de reseñas/clics contra esta tienda, ver RankingAnomaly más abajo.
+  rankingAnomalies RankingAnomaly[]
+}
+
+// Bloque 194 (pedido explícito — "agregar una sección dentro del dashboard
+// para que, basado en cómo funciona el negocio, la IA vaya reconociendo el
+// modo de uso... y le recomiende consejos... ofertas en productos vendidos,
+// movimiento de inventarios para que los productos que no salen puedan
+// salir... consejos diarios"): se genera UNA vez por día calendario (nunca
+// en cada carga del Dashboard — sería IA de más sin necesidad real, ver
+// generateVendorDailyTips en vendors.controller.js) a partir de señales
+// reales del propio negocio (ventas, clics, stock quieto). `tips` es un
+// array de objetos { title, description } — Json y no filas propias porque
+// siempre se leen/regeneran juntos, nunca uno por uno.
+model VendorDailyTip {
+  id               String   @id @default(cuid())
+  vendorId         String
+  tips             Json
+  generatedForDate DateTime @db.Date
+  createdAt        DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, generatedForDate])
+}
+
+// Bloque 194 (pedido explícito — "ofertas autodirigidas... para clientes o
+// para vendedores, podrán ser enviadas por email o mostrarse en el panel o
+// en la cuenta cuando el cliente o vendedor se logeen como forma de popup,
+// o ambas... lanzar ofertas a vendedores específicos como los registrados
+// en el plan Business o los no registrados, y a uno en específico"):
+// distinta de Offer (carrusel público del Home) y de Campaign (correo
+// masivo sin estado de lectura) — esta SÍ se muestra como popup personal la
+// próxima vez que ese usuario entra a su cuenta, con estado de visto/
+// descartado por persona (ver TargetedOfferView más abajo), además de
+// poder mandarse por correo con la misma infraestructura que Campaign.
+//
+// `audience` es texto libre validado en el controller (mismo criterio que
+// Campaign.segment, arriba) — valores válidos: "all_customers" |
+// "all_vendors" | "regular_vendors" | "business_vendors" |
+// "unverified_vendors" | "specific_vendor" | "specific_customer".
+// `targetVendorId`/`targetUserId` SIN relación de Prisma a propósito
+// (mismo criterio que Campaign.provinceId — un id suelto, no una FK real)
+// — evita tocar los modelos Vendor/User solo por esto, y de cualquier
+// forma se valida su existencia a mano en el controller antes de guardar.
+model TargetedOffer {
+  id             String                @id @default(cuid())
+  title          String
+  message        String                @db.Text
+  imageUrl       String?
+  ctaLabel       String?
+  ctaUrl         String?
+  audience       String
+  targetVendorId String?
+  targetUserId   String?
+  delivery       TargetedOfferDelivery @default(BOTH)
+  status         TargetedOfferStatus   @default(ACTIVE)
+  emailSentCount Int                   @default(0)
+  emailSentAt    DateTime?
+  // null = el popup sigue mostrándose hasta que el admin la archive a mano.
+  expiresAt      DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  views TargetedOfferView[]
+
+  @@index([status, audience])
+}
+
+enum TargetedOfferDelivery {
+  EMAIL
+  POPUP
+  BOTH
+}
+
+enum TargetedOfferStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+// Bloque 194: un registro por (oferta, usuario) — `dismissedAt` null = el
+// popup todavía le corresponde mostrarse a ESE usuario en su próximo login;
+// seteado = ya lo cerró, nunca más se lo vuelve a mostrar aunque la oferta
+// siga ACTIVE. Sin relación a User a propósito (mismo criterio que arriba).
+model TargetedOfferView {
+  id              String    @id @default(cuid())
+  targetedOfferId String
+  userId          String
+  dismissedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  targetedOffer TargetedOffer @relation(fields: [targetedOfferId], references: [id], onDelete: Cascade)
+
+  @@unique([targetedOfferId, userId])
+  @@index([userId])
+}
+
+// Bloque 183 (pedido explícito — "quiero que el administrador, vendedor,
+// dueño del negocio... pueda crear usuarios con roles dentro de su
+// negocio... solo le va a salir la sección de pedidos o la que él
+// designe... podrá gestionar cada usuario y qué es lo que está haciendo en
+// la cuenta"): un usuario de sistema del panel de vendedor — User real
+// (role VENDOR_STAFF) + este perfil aparte con lo que es específico de
+// "acceso restringido a un negocio" (nunca mezclado con Vendor, que es el
+// DUEÑO). `allowedSections` son las mismas claves que usa el NAV del panel
+// (VendorLayout.jsx) y requireVendorAccess() del lado del backend — un solo
+// array de verdad para las 2 puntas, nunca solo cosmético en el frontend.
+model VendorStaff {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  vendorId        String
+  allowedSections String[] @default([])
+  // Bloque 185 (pedido explícito — "también debe seleccionar qué permisos
+  // tendrá el usuario en esa sección, si solo lectura o modificar, si leer
+  // o escribir"): mapa `{ [sectionKey]: "view" | "manage" }` — solo tiene
+  // sentido para las claves que además están en `allowedSections` (sin
+  // acceso a la sección, el nivel ni se consulta). Una sección presente en
+  // `allowedSections` pero AUSENTE acá (o creada antes de este bloque) se
+  // trata como "manage" — ver `sectionLevel()` en requireVendorAccess.js —
+  // así ningún usuario ya creado pierde funcionalidad de golpe con esta
+  // migración. Json y no una tabla aparte: son pocas claves, siempre se leen
+  // todas juntas, y así se puede ampliar más adelante a más de 2 niveles sin
+  // otra migración de columnas.
+  sectionPermissions Json   @default("{}")
+  // Foto tomada por el vendedor/admin al darlo de alta (pedido explícito:
+  // "esa foto saldrá en el perfil del usuario") — sube por el mismo
+  // middleware de archivos que ya usa el branding de tienda.
+  photoUrl        String?
+  // Bloque 198 (pedido explícito — "ventas manuales"): mismo criterio que
+  // photoUrl — un dato propio de ESTE usuario de sistema, nunca del User
+  // compartido. Hace falta para que la sugerencia de "este compañero
+  // todavía tiene stock" sea realmente accionable (poder llamarlo/
+  // escribirle), no solo un nombre.
+  phone           String?
+  // Bloque 200: null = sin tipo específico — ver el comentario largo en el
+  // enum VendorStaffType, más arriba en este archivo.
+  staffType       VendorStaffType?
+  // Bloque 205 (pedido explícito — "especificar si el usuario recibe las
+  // notificaciones de nuevos pedidos... los meseros la llevarán marcada
+  // predeterminadamente, pero los agentes de ventas no, salvo que el dueño
+  // lo habilite"): controla el gate de NewOrderPopup/StaleOrderAlert
+  // (VendorLayout.jsx) para este usuario puntual — el default de la
+  // COLUMNA es `false` a propósito (el "true si es mesero" es una decisión
+  // de UX al crear, no algo que la base de datos deba inventar sola); ver
+  // el default por staffType en CreateStaffModal, VendorUsers.jsx.
+  receivesOrderNotifications Boolean @default(false)
+  createdByUserId String
+  // Desactivar en vez de borrar — el historial de ActivityLog/Session de
+  // este usuario tiene que sobrevivir siempre (auditoría real, no se pierde
+  // nunca), aunque el vendedor le saque el acceso. login() lo chequea igual
+  // que isSuspended en User.
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor    Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("VendorStaffCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  allocations VendorStaffAllocation[]
+  sales       VendorStaffSale[]
+  cashCloses  VendorStaffCashClose[]
+
+  @@index([vendorId])
+}
+
+// Bloque 198 (pedido explícito — "cada usuario podrá controlar su stock por
+// usuario... los usuarios van a poder buscar entre los productos agregados
+// en la base de datos de la tienda, agregar un producto a su sección de
+// producto de usuario... la cantidad de inventario que no se agregue se
+// queda disponible y otro usuario puede agregarlo"): una fila por par
+// (usuario de sistema, producto) — `remainingQty` es SIEMPRE una porción
+// del Product.stock real, nunca un stock aparte. El "pool sin reclamar" de
+// un producto = Product.stock − SUMA(remainingQty de todas sus filas), se
+// calcula al vuelo (nunca se guarda), ver claimAllocation en el controller.
+model VendorStaffAllocation {
+  id            String   @id @default(cuid())
+  vendorStaffId String
+  productId     String
+  // Total histórico reclamado por este usuario (nunca baja) — remainingQty
+  // sí baja con cada venta/liberación. La diferencia entre ambos es cuánto
+  // ya vendió o devolvió, sin necesitar sumar VendorStaffSale para saberlo.
+  allocatedQty  Int      @default(0)
+  remainingQty  Int      @default(0)
+  // Bloque 199 (pedido explícito — el dueño reasignaba stock y el usuario
+  // destino tenía que "aceptar el lote" antes de poder venderlo, simulando
+  // "fue a buscar el lote físico y lo confirmó") — Bloque 206 (pedido
+  // explícito — "elimina que los usuarios deban aceptar lotes... pasa al
+  // inventario de ese usuario sin tomar acción"): revertido, reassignAllocation
+  // ya escribe directo en allocatedQty/remainingQty. Columna sin uso desde
+  // entonces (se mantiene solo para no romper filas viejas) — nunca debería
+  // quedar en > 0 de acá en adelante.
+  pendingQty    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  vendorStaff VendorStaff @relation(fields: [vendorStaffId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorStaffId, productId])
+  @@index([productId])
+}
+
+// Bloque 198 (pedido explícito — "los usuarios podrán registrar sus ventas
+// diarias manualmente... y así su inventario para ese usuario se va
+// rebajando, y la tienda va rebajando el inventario general también"): cada
+// fila es una venta fuera del sitio (puerta a puerta, mayoreo) que un
+// usuario de sistema carga a mano — descuenta a la vez su propia
+// VendorStaffAllocation.remainingQty Y Product.stock real, en la misma
+// transacción atómica (ver registerManualSale, controller). `productName`
+// es una copia congelada al momento de la venta — sobrevive aunque el
+// producto se borre o le cambien el nombre después.
+model VendorStaffSale {
+  id            String   @id @default(cuid())
+  vendorId      String
+  vendorStaffId String
+  productId     String?
+  productName   String
+  quantity      Int
+  unitPrice     Decimal  @db.Decimal(12, 2)
+  total         Decimal  @db.Decimal(12, 2)
+  note          String?
+  createdAt     DateTime @default(now())
+
+  vendor      Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorStaff VendorStaff @relation(fields: [vendorStaffId], references: [id], onDelete: Cascade)
+  product     Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, createdAt])
+  @@index([vendorStaffId, createdAt])
+}
+
+// Bloque 198 (pedido explícito — "se enviará un correo a los usuarios que
+// ese día tienen que ir y reportar todas las ventas... el administrador
+// podrá ver qué cantidad de dinero tiene que declarar el usuario"): un
+// usuario marca un período (día/semana/mes, según Vendor.cashCloseFrequency)
+// como ya reportado/depositado — `totalSales` queda congelado al momento
+// del reporte (una venta corregida después no debe desordenar un cuadre ya
+// hecho). Sirve para que el dueño vea, por período, quién reportó y quién
+// no (ver getCashCloseStatus, controller).
+model VendorStaffCashClose {
+  id            String   @id @default(cuid())
+  vendorStaffId String
+  periodStart   DateTime
+  periodEnd     DateTime
+  totalSales    Decimal  @db.Decimal(12, 2)
+  reportedAt    DateTime @default(now())
+  note          String?
+
+  vendorStaff VendorStaff @relation(fields: [vendorStaffId], references: [id], onDelete: Cascade)
+
+  @@index([vendorStaffId, periodStart])
+}
+
+enum CashCloseFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// Bloque 200 (pedido explícito — "al crear un usuario, este usuario se
+// puede crear como agente de ventas o mesero... cuando se crea un usuario
+// con agente de ventas, automáticamente se debe habilitar una sección en
+// el perfil del usuario"): clasificación opcional de un VendorStaff — null
+// = sin tipo específico (comportamiento de siempre, 100% manual). Elegir un
+// tipo es solo un ATAJO que precarga la(s) sección(es) que ese rol
+// normalmente necesita (ver STAFF_TYPE_DEFAULT_SECTIONS,
+// constants/vendorSections.js) — el dueño sigue pudiendo agregar/quitar
+// secciones a mano después, nunca queda forzado por el tipo.
+enum VendorStaffType {
+  SALES_AGENT
+  WAITER
 }
 
 // Bloque 62: auditoría de cada cambio de Vendor.status a través del tiempo
@@ -823,14 +1419,31 @@ enum VendorStatus {
 model VendorLocation {
   id             String  @id @default(cuid())
   vendorId       String
-  provinceId     String
+  // Bloque 114 (pedido explícito): fuera de Cuba ya no se elige una
+  // provincia/estado del catálogo — `provinceId` pasa a ser opcional y se
+  // suma `countryId` (siempre requerido) + `stateOther` (nombre del
+  // estado/provincia escrito a mano). Con Cuba: `countryId` apunta a CUBA,
+  // `provinceId`/`municipalityId` mandan y `stateOther` queda null. Con
+  // cualquier otro país real: `provinceId`/`municipalityId` quedan null,
+  // `stateOther` manda (la dirección en sí vive en Vendor.companyAddress,
+  // no hace falta duplicarla acá — un vendedor registra un solo local).
+  countryId      String?
+  provinceId     String?
   municipalityId String?
+  stateOther     String?
 
   vendor       Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  province     Province      @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  country      Country?      @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  province     Province?     @relation(fields: [provinceId], references: [id], onDelete: SetNull)
   municipality Municipality? @relation(fields: [municipalityId], references: [id], onDelete: SetNull)
 }
 
+// Bloque 171 (pedido explícito — "si hay varios horarios un mismo día", ej.
+// abre 9-12 y 2-6 con un cierre de mediodía): cada fila es UN tramo, no "el"
+// horario del día — un mismo (vendorId, dayOfWeek) puede tener varias filas
+// ahora (antes @@unique([vendorId, dayOfWeek]) obligaba a un solo tramo por
+// día). Un día cerrado se representa con una única fila isClosed:true (sin
+// tramos reales) — mismo criterio de siempre, ver isVendorOpenNow.
 model VendorSchedule {
   id        String  @id @default(cuid())
   vendorId  String
@@ -841,7 +1454,7 @@ model VendorSchedule {
 
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
-  @@unique([vendorId, dayOfWeek])
+  @@index([vendorId, dayOfWeek])
 }
 
 // ---------------------------------------------------------------------------
@@ -861,6 +1474,14 @@ model Order {
   shippingMunicipalityId String?
   total                  Decimal      @db.Decimal(12, 2)
   status                 OrderStatus  @default(NEW)
+  // Bloque 197 (pedido explícito — "quiero poder agregar una función para
+  // eliminar pedido... no se elimina y sigue quedando registrado pero no
+  // marcará diferencia de ventas ni inventario... esto se puede hacer para
+  // pedidos erróneos"): mismo criterio que TableOrder.cancelReason — nunca
+  // se borra la fila, solo se anula (status CANCELLED) con un motivo que
+  // queda visible tanto en el panel del vendedor como en "Mis pedidos" del
+  // cliente.
+  cancelReason           String?
   channel                OrderChannel
   // Snapshot de Vendor.orderDestination al momento del pedido — distinto del
   // método de pago (channel): esto es "a dónde le llega el aviso al
@@ -930,6 +1551,12 @@ model ErrorLog {
 enum ActivityActorRole {
   VENDOR
   CUSTOMER
+  // Bloque 183: acción hecha por un usuario del panel del vendedor que NO
+  // es el dueño — actorId ya distingue exactamente CUÁL (join a User/
+  // VendorStaff), este valor es lo que separa a simple vista "lo hizo el
+  // dueño" de "lo hizo un usuario con acceso" en Admin > Actividad y en el
+  // historial que ve el propio vendedor.
+  VENDOR_STAFF
 }
 
 // Bloque 70 (pedido explícito): registro general de acciones de vendedores y
@@ -988,9 +1615,14 @@ model Table {
   vendorId    String
   tableNumber Int
   qrToken     String @unique @default(cuid())
+  // Bloque 141: nombre propio opcional (ej. "Terraza 1") — si no se carga,
+  // se sigue mostrando "Mesa {tableNumber}" en todos lados.
+  label       String?
 
   vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   tableOrders TableOrder[]
+  // Bloque 157: lado inverso de Product.restrictedTables.
+  restrictedProducts Product[] @relation("ProductTableRestriction")
 
   @@unique([vendorId, tableNumber])
 }
@@ -998,24 +1630,111 @@ model Table {
 model TableOrder {
   id            String        @id @default(cuid())
   tableId       String
+  // Bloque 158 (pedido explícito — "los pedidos... se rastrearán por un
+  // número de pedido único"): autoincrement propio, GLOBAL (no por mesa ni
+  // por vendedor — no hace falta, alcanza con que sea único y fácil de leer
+  // en voz alta/mostrar en pantalla). `id` (cuid) sigue siendo la clave real
+  // para buscar el pedido (ver getTableOrderStatus) — esto es puramente para
+  // mostrarle al cliente/vendedor "Pedido #123" en vez de un cuid ilegible.
+  orderNumber   Int           @unique @default(autoincrement())
   items         Json
   total         Decimal       @db.Decimal(12, 2)
   kitchenStatus KitchenStatus @default(RECEIVED)
   // Bloque 16: nullable por compatibilidad con pedidos de mesa viejos sin
-  // email — los nuevos siempre lo piden (ver tables.controller.js) para
-  // poder avisar por correo cuando cambia kitchenStatus.
+  // email. Bloque 141 (pedido explícito — "el cliente solo debe poner su
+  // nombre y más nada"): dejó de ser obligatorio — ahora es 100% opcional,
+  // solo se usa para avisar por correo si el cliente lo da igual.
   customerEmail String?
+  // Bloque 141: obligatorio para cualquier pedido NUEVO (ver
+  // createTableOrderSchema, tables.controller.js) — nullable acá solo por
+  // compatibilidad con pedidos de mesa creados antes de este bloque.
+  customerName  String?
   createdAt     DateTime      @default(now())
+  // Bloque 158 (pedido explícito — "si el vendedor modifica su pedido, el
+  // cliente podrá ver el pedido modificado"): se actualiza sola en CUALQUIER
+  // cambio a esta fila (Prisma @updatedAt) — TableOrder.jsx (cliente) la usa
+  // para saber si lo que ve ahora es distinto de la última vez que consultó,
+  // sin necesitar una tabla de historial aparte.
+  updatedAt     DateTime      @updatedAt
   // "Ocupada"/"Libre" en VendorTables.jsx pasa de depender de kitchenStatus
   // (llegar a READY ya liberaba la mesa) a depender de esto: el vendedor
   // marca a mano que el cliente pagó y se retiró (ver clearTableOrder en
   // tables.controller.js). null = la mesa sigue ocupada aunque el pedido ya
   // esté en READY/"Listo".
   clearedAt DateTime?
+  // Bloque 163 (pedido explícito — "la mesa debe mantenerse ocupada... hasta
+  // que se entregue el pedido en la mesa... el camarero ponga en el sistema
+  // que el pedido fue entregado"): momento DISTINTO de clearedAt a
+  // propósito — clearedAt es "el cliente ya pagó y se fue" (bastante
+  // después, puede tardar toda la comida); deliveredAt es "el mesero ya le
+  // llevó el pedido a la mesa", el punto real donde otra persona de la
+  // MISMA mesa puede pedir algo más sin pisar un pedido todavía sin
+  // entregar. null = la mesa sigue bloqueada para pedidos nuevos de
+  // cualquier otro dispositivo (ver createTableOrder/getTableByToken).
+  deliveredAt DateTime?
+  // Bloque 167 (pedido explícito — "cuando se cancela un pedido no se debe
+  // borrar del todo, siempre los movimientos deben quedar registrados... se
+  // debe insertar un motivo y los clientes pueden ver ese motivo y quedará
+  // registrado en el panel del vendedor"): reemplaza el borrado real que
+  // hacía cancelTableOrder antes de este bloque — ahora es un estado más
+  // (no un enum nuevo en KitchenStatus a propósito: cancelar no es un paso
+  // de cocina, es una salida aparte del flujo normal), consultado en vez de
+  // deliveredAt en cualquier chequeo de "mesa ocupada"/"pedidos pendientes"
+  // (ver createTableOrder, getTableByToken, listPendingTableOrders) para
+  // que un pedido cancelado no siga bloqueando la mesa ni aparezca en el
+  // popup de pedido nuevo, pero SIGA visible en el historial de Pedidos.
+  cancelledAt  DateTime?
+  cancelReason String?
+  // Bloque 177 (bug real reportado en vivo — "un cliente con una mesa
+  // ocupada y una cuenta abierta agregó productos... eso no se notificó en
+  // el panel del vendedor, se registró en la cuenta pero no como un pedido
+  // nuevo — debe notificarse igual siempre que se pida desde la mesa,
+  // aunque la cuenta ya esté abierta"): createTableOrder (tables.controller.js)
+  // tiene 2 ramas — crear (kitchenStatus arranca en RECEIVED, YA dispara el
+  // popup/sonido vía listPendingTableOrders) y sumar a una cuenta ya
+  // aceptada (el kitchenStatus NO vuelve a RECEIVED a propósito, para no
+  // re-bloquear la mesa) — esa segunda rama nunca avisaba nada. Este campo
+  // es la señal de "el CLIENTE agregó algo que el vendedor todavía no vio"
+  // — se pone en la rama de sumar (nunca cuando el propio vendedor agrega
+  // consumo a mano, ver addTableOrderItem/createManualTableOrder) y se
+  // limpia cuando el vendedor lo reconoce (ackCustomerTableOrderUpdate).
+  customerUpdatedAt DateTime?
+  // Bloque 178 (pedido explícito — "se debe marcar de todos los pedidos
+  // cuál es el último que se agregó... no se puede confundir el
+  // camarero"): cuántos items del final del array `items` corresponden a
+  // la última ronda que agregó el CLIENTE (mismo momento que
+  // customerUpdatedAt de arriba, siempre juntos) — el frontend resalta
+  // `items.slice(-lastCustomerAddCount)` en vez de necesitar guardar una
+  // copia de esos items aparte. Mismo ciclo de vida que customerUpdatedAt:
+  // se pone en la rama de sumar de createTableOrder, se limpia en
+  // ackCustomerTableOrderUpdate.
+  lastCustomerAddCount Int?
+
+  // Bloque 188 (pedido explícito — "agregar alertas al sistema... cuando a
+  // un usuario o vendedor se le olvida cerrar una mesa o un pedido, es
+  // decir el pedido está aún en estado de preparando pero ya se entregó en
+  // la mesa"): momento del ÚLTIMO avance real de estado (aceptar, marcar
+  // listo, entregado) — a propósito, NUNCA `updatedAt` (ese campo cambia
+  // con CUALQUIER edición de la fila, incluido agregar un item o que el
+  // cliente sume consumo, lo que haría ver "reciente" un pedido cuyo
+  // estado de cocina en realidad lleva horas sin moverse). Es lo que
+  // listStaleTableOrders usa para decidir "hace cuánto está en este
+  // estado" — se resetea en updateKitchenStatus/markTableOrderDelivered
+  // (nunca en clearTableOrder, que ya saca al pedido del chequeo de
+  // "olvidado" vía `clearedAt`).
+  statusChangedAt DateTime @default(now())
+  // Bloque 188: el vendedor puede responder "sigue igual" a la alerta —
+  // esto pospone el próximo aviso por un rato en vez de mostrárselo de
+  // nuevo en el siguiente poll (ver snoozeStaleReminder). null = nunca
+  // pospuesto, o ya venció el plazo.
+  staleReminderSnoozedUntil DateTime?
 
   table Table @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
   @@index([tableId, clearedAt])
+  @@index([tableId, deliveredAt])
+  @@index([tableId, cancelledAt])
+  @@index([tableId, customerUpdatedAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -1038,6 +1757,13 @@ model VerificationRequest {
   idPhotoFrontUrl String?
   idPhotoBackUrl  String?
   selfieUrl       String?
+  // Bloque 146 (pedido explícito): video corto de liveness — el cliente gira
+  // la cabeza a la izquierda y a la derecha mientras se graba, además de la
+  // selfie frontal (ver CameraCapture.jsx). Opcional a nivel de columna: si
+  // el navegador no soporta detección de rostro/MediaRecorder (Safari/
+  // Firefox viejos), el trámite sigue funcionando solo con la foto, nunca
+  // bloquea el envío por esto.
+  selfieVideoUrl  String?
   notes           String?
   reviewedById    String?
   reviewedAt      DateTime?
@@ -1071,9 +1797,47 @@ model VerificationRequest {
   stripeCheckoutUrl       String?
   stripeCheckoutExpiresAt DateTime?
 
+  // Bloque 150 (pedido explícito): el vendedor elige cuántos meses paga por
+  // adelantado (1..24) — el monto total es precio mensual × meses, tanto en
+  // CUP (transferencia) como en USD (Stripe). paymentAmount/paymentCurrency
+  // es lo que el VENDEDOR declara haber pagado al subir el comprobante (lo
+  // que el admin compara contra el total esperado), no el precio de lista.
+  paymentMonths   Int?
+  paymentAmount   Decimal? @db.Decimal(12, 2)
+  paymentCurrency String?
+  // Datos de quién hizo el pago — obligatorios al subir el comprobante.
+  // payerName tiene que coincidir con el titular de la tarjeta / de la
+  // cuenta que transfirió. payerAccountNumber solo aplica a CUP.
+  // payerCardLast4: NUNCA el número completo de la tarjeta (PCI — este
+  // sistema no está certificado para guardarlo; Stripe ya lo tiene), solo
+  // los últimos 4 dígitos, suficientes para conciliar contra el dashboard.
+  payerName          String?
+  payerAccountNumber String?
+  payerPhone         String?
+  payerAddress       String?
+  payerCountry       String?
+  payerCardLast4     String?
+  // "No pude hacer la captura" — el comprobante deja de ser obligatorio a
+  // cambio de los datos adicionales de arriba (teléfono/dirección/país/
+  // últimos 4 dígitos), para que el admin igual pueda conciliar el pago.
+  paymentProofUnavailable Boolean @default(false)
+  // Bloque 150: Stripe confirma el cobro por webhook (checkout.session.
+  // completed) pero YA NO activa la verificación solo — deja esta marca, el
+  // vendedor sube su comprobante igual que con CUP, y un admin finaliza a
+  // mano viendo las 2 cosas juntas (ver confirmSubscriptionPayment).
+  stripePaidAt          DateTime?
+  stripePaymentIntentId String?
+  // Bloque 150: rama de archivo del CICLO EN CURSO — se crea al enviar los
+  // documentos (no al verificarse, como antes) y se va completando con cada
+  // paso (revisión, pago reclamado, confirmado, verificado/rechazado) — ver
+  // syncVerificationArchive en vendorVerification.service.js. Se reemplaza
+  // por una rama nueva en cada reenvío; la vieja queda intacta.
+  archiveId String? @unique
+
   vendor            Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   reviewedBy        User?  @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   paymentConfirmedBy User? @relation("PaymentConfirmedBy", fields: [paymentConfirmedById], references: [id], onDelete: SetNull)
+  archive           VerificationArchive? @relation("VerificationRequestArchive", fields: [archiveId], references: [id], onDelete: SetNull)
 }
 
 // Bloque 64: auditoría completa de cada cambio de Vendor.verificationStatus —
@@ -1132,18 +1896,146 @@ model VerificationArchive {
   selfieUrl       String?
   idPhotoFrontUrl String?
   idPhotoBackUrl  String?
+  // Bloque 146: mismo campo que VerificationRequest — se archiva junto con
+  // el resto si se capturó.
+  selfieVideoUrl  String?
 
   submittedAt DateTime?
   reviewedAt  DateTime?
   reviewedById String?
+
+  // Bloque 150 (pedido explícito — "debe quedar archivado todo el historial
+  // de todo lo que la tienda ha enviado, y toda actividad con hora y fecha,
+  // desde que el cliente envía la solicitud"): la rama ya no se crea recién
+  // al verificarse — se crea al ENVIAR los documentos y se completa paso a
+  // paso. Estos campos son el espejo del ciclo de pago de esa solicitud
+  // puntual (VerificationRequest se reinicia en cada reenvío; acá queda lo
+  // que pasó en ESTE ciclo, para siempre). verifiedAt/rejectedAt marcan
+  // cómo terminó el ciclo (null en los 2 = todavía en curso).
+  paymentMethod           VerificationPaymentMethod?
+  paymentMonths           Int?
+  paymentAmount           Decimal? @db.Decimal(12, 2)
+  paymentCurrency         String?
+  payerName               String?
+  payerAccountNumber      String?
+  payerPhone              String?
+  payerAddress            String?
+  payerCountry            String?
+  payerCardLast4          String?
+  paymentProofUrl         String?
+  paymentProofUnavailable Boolean @default(false)
+  paymentClaimedAt        DateTime?
+  stripePaidAt            DateTime?
+  paymentConfirmedAt      DateTime?
+  paymentConfirmedById    String?
+  verifiedAt              DateTime?
+  rejectedAt              DateTime?
 
   notes     String?
   archivedAt DateTime @default(now())
 
   vendor     Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   reviewedBy User?  @relation("VerificationArchiveReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  request    VerificationRequest? @relation("VerificationRequestArchive")
 
   @@index([vendorId, archivedAt])
+}
+
+// Bloque 153 (pedido explícito — "una vez el cliente esté verificado, en la
+// sección de suscripción podrá ver cuántos días vence... y podrá activar un
+// nuevo mes o varios... se guardará todo ese historial"): un pago de
+// RENOVACIÓN mientras la tienda YA está VERIFIED — a propósito un modelo
+// SEPARADO del ciclo inicial (VerificationRequest, que sigue intacto tal
+// cual quedó en los Bloques 150-152, nunca se reutiliza para esto) — cada
+// renovación es una fila propia e inmutable una vez confirmada, nunca se
+// pisa con la siguiente (a diferencia de VerificationRequest, que si se
+// reutiliza dentro de SU propio ciclo). Mismos campos/criterio que ya
+// probó el ciclo inicial (método, meses, quién pagó, comprobante,
+// reclamo/confirmación) para que el proceso se sienta "casi igual", como
+// se pidió.
+model SubscriptionPayment {
+  id       String @id @default(cuid())
+  vendorId String
+
+  paymentMethod VerificationPaymentMethod
+  months        Int
+  amount        Decimal? @db.Decimal(12, 2)
+  currency      String
+
+  payerName          String?
+  payerAccountNumber String?
+  payerPhone         String?
+  payerAddress       String?
+  payerCountry       String?
+  payerCardLast4     String?
+  proofUrl            String?
+  proofUnavailable    Boolean @default(false)
+
+  stripeCheckoutSessionId String?
+  stripeCheckoutUrl       String?
+  stripeCheckoutExpiresAt DateTime?
+  stripePaidAt            DateTime?
+  stripePaymentIntentId   String?
+
+  claimedAt    DateTime?
+  confirmedAt  DateTime?
+  confirmedById String?
+  // Bloque 153: período real que este pago cubre — periodStart es el
+  // vencimiento ANTERIOR (o el momento de la confirmación si no había
+  // ninguno vigente), periodEnd = periodStart + months. Pagar antes de que
+  // venza el ciclo actual extiende desde el vencimiento real, nunca desde
+  // "ahora" — así nunca se pierden días ya pagados por renovar temprano.
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  createdAt DateTime @default(now())
+
+  vendor      Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  confirmedBy User?  @relation("SubscriptionPaymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, createdAt])
+}
+
+enum VendorChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Bloque 153 (pedido explícito — "todos los datos de la tienda no se pueden
+// modificar después de estar verificadas sin aprobación del admin... si se
+// desea cambiar el nombre o el responsable se debe enviar la solicitud al
+// admin para prevenir fraudes y en caso dado subir fotos del nuevo
+// responsable y foto del ID"): campos de identidad propuestos como String
+// null = "sin cambio en este campo" (patch parcial, no todos los campos
+// tienen que reenviarse). Las fotos son opcionales — solo hacen falta
+// cuando cambia el RESPONSABLE (la persona, no solo el nombre en texto).
+model VendorChangeRequest {
+  id       String @id @default(cuid())
+  vendorId String
+
+  companyName    String?
+  ownerName      String?
+  ownerIdNumber  String?
+  companyTaxId   String?
+  companyAddress String?
+
+  newOwnerSelfieUrl String?
+  newOwnerIdPhotoUrl String?
+
+  reason String? @db.Text
+
+  status       VendorChangeRequestStatus @default(PENDING)
+  adminNotes   String?
+  reviewedById String?
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  vendor     Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("VendorChangeRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, createdAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -1220,14 +2112,20 @@ model Integration {
 }
 
 // ---------------------------------------------------------------------------
-// Configuración global del sitio (fila única) — hoy solo la imagen del hero
-// de Home.jsx; si no hay fila o heroImageUrl es null, el frontend usa el
-// placeholder actual (nunca rompe el layout).
+// Configuración global del sitio (fila única) — hoy solo las imágenes del
+// hero-slider de Home.jsx; si no hay fila o heroImages está vacío, el
+// frontend usa el placeholder actual (nunca rompe el layout).
 // ---------------------------------------------------------------------------
 
 model SiteSettings {
-  id           String   @id @default(cuid())
-  heroImageUrl String?
+  id String @id @default(cuid())
+  // Bloque 96 (pedido explícito): el hero de la Home pasa de una sola
+  // imagen fija a un slider — reemplaza a heroImageUrl (mismo patrón
+  // String[] que planFeaturesRegular/Business más abajo). Guarda rutas
+  // relativas completas ("/uploads/site/<archivo>"), mismo criterio que
+  // Product.images, así no hay que reconstruir el prefijo en cada lugar
+  // que lo lee. El orden del array es el orden real del slider.
+  heroImages String[] @default([])
   // Bloque 49: nombre y logo de la plataforma, editables desde "Marca de la
   // plataforma" en el admin — consumidos en todo el sitio (header, footer,
   // <title>, emails, PDFs, WhatsApp) vía usePlatformSettings() en vez de un
@@ -1296,6 +2194,32 @@ model SiteSettings {
   // cambiar el comportamiento visible al desplegar esta migración.
   offerCooldownDays        Int @default(7)
   offerDefaultDurationDays Int @default(30)
+  // Bloque 232 (pedido explícito — "quiero poder cambiar desde el panel de
+  // admin si los vendedores pueden tener una oferta activa en su tienda o
+  // pueden tener más de una... los vendedores podrán ver cuántas ofertas
+  // pueden tener activas"): a diferencia de offerCooldownDays/
+  // offerDefaultDurationDays de arriba (política de Offer/Home), esto es
+  // sobre StoreOffer (ofertas DENTRO de cada tienda) — cuántas puede
+  // mantener `active:true` a la vez un mismo vendedor. Default 1 = el
+  // comportamiento que pidió primero ("solo se podrá mantener una oferta
+  // activa por tienda"), ahora editable sin deploy.
+  maxActiveStoreOffersPerVendor Int @default(1)
+  // Bloque 118 (pedido explícito): política de comentarios/reseñas,
+  // editable desde "Comentarios" del admin — antes constantes hardcodeadas
+  // en reviews.controller.js (REVIEW_DEDUP_HOURS=24, 1 por producto y 1 por
+  // tienda fijos). reviewDedupHours es la ventana de tiempo (24 = "por
+  // día"); maxReviewsPerProductPerPeriod/maxReviewsPerStorePerPeriod son 2
+  // topes INDEPENDIENTES por esa ventana — reseñar un producto no consume
+  // el cupo de otro producto ni el de la reseña general de la tienda (ver
+  // Bloque 117). vendorsCanReview: si está en false, ninguna cuenta VENDOR
+  // puede comentar/reseñar ninguna tienda o producto (ni la propia ni
+  // ajena) — antes cualquier cuenta logueada podía, sin distinguir rol.
+  // Los defaults son los mismos valores que ya estaban hardcodeados, para
+  // no cambiar el comportamiento visible al desplegar esta migración.
+  reviewDedupHours              Int     @default(24)
+  maxReviewsPerProductPerPeriod Int     @default(1)
+  maxReviewsPerStorePerPeriod   Int     @default(1)
+  vendorsCanReview              Boolean @default(true)
   // Bloque 52: mostrar/ocultar el botón flotante del chatbot general
   // (MarketplaceChatWidget) en el Home público — antes montado sin
   // condición ninguna. Default true = mismo comportamiento visible de
@@ -1324,6 +2248,11 @@ model SiteSettings {
   cupBankAccountHolder String?
   cupBankInstructions  String? @db.Text
   cupSubscriptionPriceCup Int @default(2500)
+  // Bloque 150: precio mensual en USD del cobro con tarjeta vía Stripe —
+  // antes una constante hardcodeada (SUBSCRIPTION_PRICE_USD = 25 en
+  // lib/stripe.js), ahora editable junto al precio CUP desde el mismo lugar
+  // del admin (AdminSubscriptions.jsx). Default 25 = mismo valor de siempre.
+  cardSubscriptionPriceUsd Int @default(25)
   // Bloque 66 (pedido explícito): catálogo administrable de etiquetas que un
   // vendedor puede elegir para un producto (mismo patrón que
   // productPaymentMethods/availableCurrencies arriba) — "Nuevo" es un valor
@@ -1340,6 +2269,17 @@ model SiteSettings {
   // a un reporte de fraude antes de que fraudReports.job.js lo suspenda
   // solo — editable sin redeploy, mismo patrón que newBadgeDurationDays.
   fraudReportEvidenceDeadlineDays Int @default(5)
+  // Bloque 85 (pedido explícito): zona horaria IANA (ej. "America/Havana"),
+  // editable desde "Marca de la plataforma" en el admin — hoy solo la usa
+  // aiHealthCheck.job.js para saber cuándo son las 3:00am de verdad para
+  // este negocio (nunca hardcodeada a un solo país, a diferencia de
+  // vendorLifecycle.job.js/verificationPayment.job.js, que sí corren fijo
+  // en hora Cuba). lastAiHealthCheckAt evita que ese cron (que corre cada
+  // hora y se autochequea) dispare 2 veces el mismo día si la hora 3am
+  // coincide en más de un tick por cualquier motivo.
+  timezone             String    @default("America/Havana")
+  lastAiHealthCheckAt  DateTime?
+
   updatedAt    DateTime @updatedAt
 }
 
@@ -1445,12 +2385,46 @@ enum VendorNotificationType {
   // el ciclo de pago de la verificación).
   VERIFICATION_PAYMENT_FAILED
   VERIFICATION_SUSPENDED
+  // Bloque 145 (pedido explícito): la aprobación inicial de documentos
+  // vence a las 24h si no se completa el pago — ver
+  // expireStalePendingPaymentApprovals (verificationPayment.job.js).
+  VERIFICATION_APPROVAL_EXPIRED
+  // Bloque 150 (pedido explícito): Stripe confirmó el cobro (webhook) pero
+  // ya NO activa la verificación solo — el vendedor todavía tiene que subir
+  // la captura del pago (o marcar que no pudo) para que un admin finalice.
+  VERIFICATION_STRIPE_PAID
+  // Bloque 151 (pedido explícito — "también se podrá cambiar desde el panel
+  // de administrador... o restablecerlo para que él pueda seleccionar otro
+  // diferente"): el admin limpió el método de pago elegido — el vendedor
+  // tiene que volver a elegir desde su panel.
+  VERIFICATION_PAYMENT_METHOD_RESET
+  // Bloque 153 (pedido explícito): un admin confirmó el pago de una
+  // RENOVACIÓN (meses extra pagados mientras la tienda ya estaba
+  // verificada) — distinto de VERIFICATION_VERIFIED (esa es la primera
+  // activación real, con un mensaje que no aplica acá).
+  SUBSCRIPTION_RENEWAL_CONFIRMED
+  // Bloque 153 (pedido explícito — "si se desea cambiar el nombre o algo o
+  // responsable se debe enviar la solicitud al admin"): desenlace de una
+  // solicitud de cambio a datos de identidad de una tienda ya verificada
+  // (el aviso de que SE ENVIÓ, al admin, usa notifyAdminActionNeeded como
+  // el resto de "algo necesita revisión" — esto es solo la respuesta).
+  VENDOR_CHANGE_REQUEST_APPROVED
+  VENDOR_CHANGE_REQUEST_REJECTED
   // Feature B (pedido explícito): ciclo de un reporte de fraude sobre una
   // tienda o alguno de sus productos — 3 pasos visibles en la campanita del
   // vendedor, mismo criterio que el resto del ciclo de verificación/cobro.
   FRAUD_REPORT_EVIDENCE_REQUESTED
   FRAUD_REPORT_DISMISSED
   FRAUD_REPORT_SUSPENDED
+  // Bloque 199 (pedido explícito — "si se queda sin stock de un producto se
+  // le notifica al admin y podrá reasignar inventario nuevo"): un usuario de
+  // sistema intentó vender más de lo que le queda reclamado.
+  VENDOR_STAFF_OUT_OF_STOCK
+  // Bloque 231 (pedido explícito — "cuando un cliente envía un pedido se
+  // debe notificar en tiempo real en el panel del vendedor"): antes un
+  // pedido normal (no de mesa) nunca generaba ninguna VendorNotification —
+  // solo los pedidos de mesa tenían aviso propio (NewOrderPopup.jsx).
+  NEW_ORDER
 }
 
 model VendorNotification {
@@ -1908,6 +2882,18 @@ model Offer {
   // Bloque 51: EXCLUSIVO de ofertas creadas por el admin (contentType
   // HTML) — nunca aceptado desde el endpoint de vendedor.
   htmlContent    String?          @db.Text
+  // Bloque 192 (pedido explícito — "al crear una oferta desde admin, el
+  // admin puede agregar un botón a la oferta y un enlace también"):
+  // EXCLUSIVO de ofertas creadas por el admin, igual que htmlContent —
+  // nunca aceptado desde el endpoint de vendedor (offers.controller.js,
+  // createOfferSchema/updateOfferSchema no los incluyen). Ambos o ninguno
+  // en la práctica (el botón sin destino no tiene sentido) — se valida en
+  // adminOffers.controller.js, no acá. `buttonUrl` acepta tanto un link
+  // interno relativo ("/tienda/mi-tienda") como uno externo absoluto
+  // ("https://...") — OffersSlider.jsx decide cuál de los dos es al
+  // renderizar.
+  buttonLabel    String?
+  buttonUrl      String?
   createdByAdmin Boolean          @default(false)
   status         OfferStatus      @default(ACTIVE)
   startsAt       DateTime         @default(now())
@@ -1982,12 +2968,15 @@ model StoreOffer {
   // Puede escribirse a mano o mejorarse con IA (kind "offer" de
   // ai.controller.js/aiPrompts.js, ya usado por las ofertas del Home).
   description    String?  @db.Text
-  // Archivo subido o link externo (respeta SiteSettings.allowProductImageLinks,
-  // mismo criterio que las imágenes de producto del Bloque 49) — nunca null,
-  // a diferencia de Offer.imageUrl que puede serlo para el caso HTML.
-  imageUrl       String
   discountCodeId String
   isLimitedTime  Boolean  @default(false)
+  // Bloque 232 (pedido explícito — "se puede programar cuándo empieza una
+  // y cuándo termina"): null = arranca apenas se activa (comportamiento de
+  // siempre); con fecha, la oferta puede crearse/activarse de antemano pero
+  // no se muestra en la tienda pública (ver getVendorBySlug,
+  // vendors.controller.js) hasta llegar a esa fecha. Igual que expiresAt,
+  // solo tiene sentido con isLimitedTime — nunca los dos por separado.
+  startsAt       DateTime?
   // Obligatorio si isLimitedTime es true (validado en storeOffers.controller.js).
   expiresAt      DateTime?
   // Bloque 52: true cuando el código se creó desde "Crear código nuevo para

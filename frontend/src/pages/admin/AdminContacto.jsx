@@ -1,3 +1,4 @@
+import { Mail } from "lucide-react";
 import { StaticPageEditor } from "../../components/admin/StaticPageEditor.jsx";
 
 // Bloque 53: sección propia (antes vivía junto a Términos/FAQ/Ayuda en la
@@ -12,6 +13,7 @@ export default function AdminContacto() {
       label="Contacto"
       publicPath="/contacto"
       helpText="Reemplaza la columna informativa de la página de Contacto (el formulario de envío sigue funcionando siempre, sin importar este contenido)."
+      icon={Mail}
     />
   );
 }

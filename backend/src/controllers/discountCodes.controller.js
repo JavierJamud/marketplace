@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
-import { logActivity } from "../lib/activityLog.js";
+import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 
 // Bloque 52: códigos de descuento del vendedor, aplicables por el cliente en
 // el carrito (ver resolveDiscountForOrder/createOrder en orders.controller.js).
@@ -108,7 +108,7 @@ export async function createDiscountCode(req, res) {
   });
   logActivity({
     actorId: req.user.id,
-    actorRole: "VENDOR",
+    actorRole: actorRoleForVendorAction(req),
     vendorId: vendor.id,
     action: "discount_code_created",
     description: `Creó el código de descuento "${discountCode.code}"`,

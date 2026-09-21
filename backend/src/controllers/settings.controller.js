@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { join, dirname } from "node:path";
+import { unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -31,7 +32,7 @@ export async function getSettings(_req, res) {
   const settings = await getOrCreateSettings();
   res.json({
     settings: {
-      heroImageUrl: settings.heroImageUrl ? `/uploads/site/${settings.heroImageUrl}` : null,
+      heroImages: settings.heroImages,
       maxDeliveryCountriesRegular: settings.maxDeliveryCountriesRegular,
       maxDeliveryCountriesBusiness: settings.maxDeliveryCountriesBusiness,
       maxProvincesRegular: settings.maxProvincesRegular,
@@ -50,6 +51,16 @@ export async function getSettings(_req, res) {
       supportWhatsapp: settings.supportWhatsapp,
       offerCooldownDays: settings.offerCooldownDays,
       offerDefaultDurationDays: settings.offerDefaultDurationDays,
+      // Bloque 232: para que VendorStoreOffers.jsx muestre "X/N activas"
+      // sin tener que pedir /admin/settings (esa ruta exige rol ADMIN).
+      maxActiveStoreOffersPerVendor: settings.maxActiveStoreOffersPerVendor,
+      // Bloque 118: expuesta públicamente para que Product.jsx/Store.jsx
+      // puedan mostrar el texto real ("1 comentario por día por producto")
+      // en vez de un valor fijo que se desactualiza si el admin la cambia.
+      reviewDedupHours: settings.reviewDedupHours,
+      maxReviewsPerProductPerPeriod: settings.maxReviewsPerProductPerPeriod,
+      maxReviewsPerStorePerPeriod: settings.maxReviewsPerStorePerPeriod,
+      vendorsCanReview: settings.vendorsCanReview,
       showChatWidget: settings.showChatWidget,
       productPaymentMethods: settings.productPaymentMethods,
       // Bloque 65: de qué conjunto puede elegir una tienda su moneda
@@ -62,11 +73,19 @@ export async function getSettings(_req, res) {
       cupBankAccountHolder: settings.cupBankAccountHolder,
       cupBankInstructions: settings.cupBankInstructions,
       cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup,
+      // Bloque 150: precio mensual del cobro con tarjeta (Stripe) — antes
+      // una constante hardcodeada, ahora editable junto al precio CUP.
+      cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd,
       // Bloque 66: catálogo de etiquetas que un vendedor puede elegir para
       // un producto — "Nuevo" es fijo del sistema, no viaja en esta lista
       // (ver assertBadgeAllowed en products.controller.js).
       availableProductBadges: settings.availableProductBadges,
       newBadgeDurationDays: settings.newBadgeDurationDays,
+      // Bloque 85: zona horaria del negocio — hoy solo la consume
+      // aiHealthCheck.job.js (ver getSiteTimezone más abajo), expuesta acá
+      // para que AdminBranding.jsx la lea/edite igual que el resto de esta
+      // pantalla.
+      timezone: settings.timezone,
     },
   });
 }
@@ -78,6 +97,39 @@ export async function getSettings(_req, res) {
 export async function getOfferPolicy() {
   const settings = await getOrCreateSettings();
   return { cooldownDays: settings.offerCooldownDays, defaultDurationDays: settings.offerDefaultDurationDays };
+}
+
+// Bloque 232 (pedido explícito — "quiero poder cambiar desde el panel de
+// admin si los vendedores pueden tener una oferta activa en su tienda o
+// pueden tener más de una"): mismo criterio que getOfferPolicy de arriba —
+// uso INTERNO (storeOffers.controller.js), nunca una ruta HTTP directa.
+// Distinta política: esto es sobre StoreOffer (ofertas DENTRO de la
+// tienda), no sobre Offer (Home).
+export async function getStoreOfferPolicy() {
+  const settings = await getOrCreateSettings();
+  return { maxActive: settings.maxActiveStoreOffersPerVendor };
+}
+
+// Bloque 150: uso INTERNO (verification.controller.js/admin.controller.js)
+// — mismo criterio que getBrandSettings/getReviewPolicy, nunca una ruta
+// HTTP directa. Único lugar que resuelve "precio por mes" para calcular el
+// monto esperado de una suscripción — así nunca se desincroniza del precio
+// vigente que el admin edita en AdminSubscriptions.jsx.
+export async function getSubscriptionPricing() {
+  const settings = await getOrCreateSettings();
+  return { cupPricePerMonth: settings.cupSubscriptionPriceCup, cardPricePerMonthUsd: settings.cardSubscriptionPriceUsd };
+}
+
+// Bloque 118: mismo criterio que getOfferPolicy de arriba — uso INTERNO
+// (reviews.controller.js), nunca una ruta HTTP directa.
+export async function getReviewPolicy() {
+  const settings = await getOrCreateSettings();
+  return {
+    dedupHours: settings.reviewDedupHours,
+    maxPerProduct: settings.maxReviewsPerProductPerPeriod,
+    maxPerStore: settings.maxReviewsPerStorePerPeriod,
+    vendorsCanReview: settings.vendorsCanReview,
+  };
 }
 
 const planLimitsSchema = z.object({
@@ -197,6 +249,48 @@ export async function updateOfferPolicy(req, res) {
   res.json({ settings: { offerCooldownDays: updated.offerCooldownDays, offerDefaultDurationDays: updated.offerDefaultDurationDays } });
 }
 
+const storeOfferPolicySchema = z.object({
+  maxActiveStoreOffersPerVendor: z.number().int().min(1).max(20),
+});
+
+// Admin (AdminStoreOffers.jsx) — cuántas ofertas de tienda puede mantener
+// `active:true` a la vez cada vendedor (ver assertActiveOfferLimit en
+// storeOffers.controller.js). Endpoint propio, mismo criterio que
+// updateOfferPolicy: es una política de StoreOffer, no de Offer/Home.
+export async function updateStoreOfferPolicy(req, res) {
+  const data = storeOfferPolicySchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({ settings: { maxActiveStoreOffersPerVendor: updated.maxActiveStoreOffersPerVendor } });
+}
+
+const reviewPolicySchema = z.object({
+  reviewDedupHours: z.number().int().min(1).max(720),
+  maxReviewsPerProductPerPeriod: z.number().int().min(1).max(100),
+  maxReviewsPerStorePerPeriod: z.number().int().min(1).max(100),
+  vendorsCanReview: z.boolean(),
+});
+
+// Admin (AdminReviews.jsx) — cada cuánto (horas) se resetea el tope de
+// comentarios/reseñas por cuenta, cuántos puede dejar por producto y por
+// tienda (general, sin producto) dentro de esa ventana, y si las cuentas
+// VENDOR pueden comentar/reseñar en absoluto (ver createReview en
+// reviews.controller.js, que llama getReviewPolicy en vez de tener esto
+// hardcodeado).
+export async function updateReviewPolicy(req, res) {
+  const data = reviewPolicySchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({
+    settings: {
+      reviewDedupHours: updated.reviewDedupHours,
+      maxReviewsPerProductPerPeriod: updated.maxReviewsPerProductPerPeriod,
+      maxReviewsPerStorePerPeriod: updated.maxReviewsPerStorePerPeriod,
+      vendorsCanReview: updated.vendorsCanReview,
+    },
+  });
+}
+
 const brandingSchema = z.object({
   siteName: z.string().trim().min(1).optional(),
   // "" borra el logo (vuelve a mostrar solo el nombre) — distinto de
@@ -213,6 +307,22 @@ const brandingSchema = z.object({
   // en formato E.164 — hace falta un número crudo, no un link, para poder
   // armarle un mensaje prellenado al botón "Contactar soporte".
   supportWhatsapp: z.union([z.string().regex(/^\+\d{7,15}$/, "Incluye el código de país (ej. +5355512345)."), z.literal("")]).optional().nullable(),
+  // Bloque 85: se valida que sea una zona IANA real intentando construir un
+  // Intl.DateTimeFormat con ella — un string cualquiera ("Cuba", "GMT-5"
+  // mal tipeado) rompería silenciosamente el cálculo de "son las 3am" en
+  // aiHealthCheck.job.js si se guardara tal cual.
+  timezone: z
+    .string()
+    .trim()
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Zona horaria inválida.")
+    .optional(),
 });
 
 // Admin ("Marca de la plataforma") — nombre de la plataforma y logo por
@@ -228,6 +338,7 @@ export async function updateBranding(req, res) {
   if (data.instagramUrl !== undefined) update.instagramUrl = data.instagramUrl || null;
   if (data.facebookUrl !== undefined) update.facebookUrl = data.facebookUrl || null;
   if (data.supportWhatsapp !== undefined) update.supportWhatsapp = data.supportWhatsapp || null;
+  if (data.timezone !== undefined) update.timezone = data.timezone;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
   res.json({
     settings: {
@@ -237,8 +348,16 @@ export async function updateBranding(req, res) {
       instagramUrl: updated.instagramUrl,
       facebookUrl: updated.facebookUrl,
       supportWhatsapp: updated.supportWhatsapp,
+      timezone: updated.timezone,
     },
   });
+}
+
+// Bloque 85: uso INTERNO (aiHealthCheck.job.js) — mismo criterio que
+// getBrandSettings/getAiModelOverrides de arriba, nunca una ruta HTTP.
+export async function getSiteTimezone() {
+  const settings = await getOrCreateSettings();
+  return settings.timezone || "America/Havana";
 }
 
 const cupPaymentSettingsSchema = z.object({
@@ -246,11 +365,15 @@ const cupPaymentSettingsSchema = z.object({
   cupBankAccountHolder: z.string().trim().optional().nullable(),
   cupBankInstructions: z.string().trim().optional().nullable(),
   cupSubscriptionPriceCup: z.number().int().positive().optional(),
+  // Bloque 150: mismo formulario ("Datos de pago de la suscripción" en
+  // AdminSubscriptions.jsx) — el precio CARD/Stripe se edita junto al CUP.
+  cardSubscriptionPriceUsd: z.number().int().positive().optional(),
 });
 
-// Admin — datos bancarios de la transferencia CUP + precio de la
-// suscripción, editables sin redeploy (Bloque 64, reemplaza el "CI: 9205-
-// XXXX-XXXX" que estaba a mano en VendorVerification.jsx).
+// Admin — datos bancarios de la transferencia CUP + precio mensual de la
+// suscripción en las 2 monedas, editables sin redeploy (Bloque 64, reemplaza
+// el "CI: 9205-XXXX-XXXX" que estaba a mano en VendorVerification.jsx;
+// Bloque 150 suma el precio USD que antes era una constante en lib/stripe.js).
 export async function updateCupPaymentSettings(req, res) {
   const data = cupPaymentSettingsSchema.parse(req.body);
   const settings = await getOrCreateSettings();
@@ -259,6 +382,7 @@ export async function updateCupPaymentSettings(req, res) {
   if (data.cupBankAccountHolder !== undefined) update.cupBankAccountHolder = data.cupBankAccountHolder || null;
   if (data.cupBankInstructions !== undefined) update.cupBankInstructions = data.cupBankInstructions || null;
   if (data.cupSubscriptionPriceCup !== undefined) update.cupSubscriptionPriceCup = data.cupSubscriptionPriceCup;
+  if (data.cardSubscriptionPriceUsd !== undefined) update.cardSubscriptionPriceUsd = data.cardSubscriptionPriceUsd;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
   res.json({
     settings: {
@@ -266,6 +390,7 @@ export async function updateCupPaymentSettings(req, res) {
       cupBankAccountHolder: updated.cupBankAccountHolder,
       cupBankInstructions: updated.cupBankInstructions,
       cupSubscriptionPriceCup: updated.cupSubscriptionPriceCup,
+      cardSubscriptionPriceUsd: updated.cardSubscriptionPriceUsd,
     },
   });
 }
@@ -290,8 +415,7 @@ export async function updateProductBadgeSettings(req, res) {
   res.json({ settings: { availableProductBadges: updated.availableProductBadges, newBadgeDurationDays: updated.newBadgeDurationDays } });
 }
 
-// Admin — subir el logo como archivo, alternativa a pegar link. Mismo patrón
-// que updateHeroImage.
+// Admin — subir el logo como archivo, alternativa a pegar link.
 export async function updateBrandingLogo(req, res) {
   if (!req.file) throw new AppError("Sube un archivo de logo.", 400);
   const settings = await getOrCreateSettings();
@@ -302,18 +426,39 @@ export async function updateBrandingLogo(req, res) {
   res.json({ settings: { logoUrl: formatLogoUrl(updated.logoUrl) } });
 }
 
-// Solo admin (ver admin.routes.js) — reemplaza la imagen del hero. A
-// diferencia de las fotos de KYC, esta imagen es pública por diseño (se
-// sirve vía express.static, ver app.js).
-export async function updateHeroImage(req, res) {
-  if (!req.file) throw new AppError("Sube una imagen para el hero.", 400);
+// Bloque 96 (pedido explícito): el hero pasa de 1 imagen fija a un slider —
+// mismo patrón que addProductImages (products.controller.js): agrega al
+// array existente, nunca lo reemplaza entero, para poder subir de a una o
+// varias juntas sin perder las que ya había. A diferencia de las fotos de
+// KYC, estas imágenes son públicas por diseño (se sirven vía express.static,
+// ver app.js).
+export async function addHeroImages(req, res) {
+  if (!req.files?.length) throw new AppError("Sube al menos una imagen para el hero.", 400);
 
+  const newUrls = req.files.map((f) => `/uploads/site/${f.filename}`);
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({
     where: { id: settings.id },
-    data: { heroImageUrl: req.file.filename },
+    data: { heroImages: [...settings.heroImages, ...newUrls] },
   });
-  res.json({ settings: { heroImageUrl: `/uploads/site/${updated.heroImageUrl}` } });
+  res.status(201).json({ settings: { heroImages: updated.heroImages } });
+}
+
+const removeHeroImageSchema = z.object({ url: z.string().min(1) });
+
+export async function removeHeroImage(req, res) {
+  const { url } = removeHeroImageSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  if (!settings.heroImages.includes(url)) throw new AppError("Esa imagen no está en el hero.", 404);
+
+  const nextImages = settings.heroImages.filter((u) => u !== url);
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: { heroImages: nextImages } });
+
+  // Best-effort: borra el archivo físico también, no bloquea la respuesta si falla.
+  const filename = url.split("/").pop();
+  unlink(join(SITE_UPLOAD_DIR, filename)).catch(() => {});
+
+  res.json({ settings: { heroImages: updated.heroImages } });
 }
 
 // Bloque 49: uso INTERNO (emails, PDFs, prompts de IA, mensajes de error) —

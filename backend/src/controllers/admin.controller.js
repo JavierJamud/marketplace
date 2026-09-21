@@ -1,9 +1,16 @@
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { transitionVendorVerification } from "../services/vendorVerification.service.js";
-import { SUBSCRIPTION_PRICE_USD, cancelStripeSubscription } from "../lib/stripe.js";
+import { transitionVendorVerification, syncVerificationArchive } from "../services/vendorVerification.service.js";
+import { notifyVerificationEvent } from "../services/verificationNotify.service.js";
+import { cancelStripeSubscription } from "../lib/stripe.js";
 import { sendAdminDirectEmail, sendVendorReactivatedEmail } from "../lib/email.js";
+import { getSubscriptionPricing } from "./settings.controller.js";
+import { logActivity } from "../lib/activityLog.js";
+import { finalizeUserDeletion } from "../lib/accountDeletion.js";
+import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -176,6 +183,26 @@ const updateVendorSchema = z.object({
   // nullable); sin este union, reenviar el form sin tocar el campo falla
   // la validación de .email() con un string vacío.
   email: z.union([z.string().email(), z.literal("")]).optional(),
+  // Bloque 165 (pedido explícito — "poder editar datos en tiendas y
+  // corregir errores... como cambiar... nombre o descripción o lo que sea
+  // que se pueda modificar"): el admin edita estos 4 SIN pasar por el
+  // candado de identidad de updateMyVendor (vendors.controller.js) — ese
+  // candado es justo para bloquear al VENDEDOR, el admin es la autoridad
+  // que ese mismo candado remite a usar ("solicita un cambio desde tu
+  // perfil" termina, del lado admin, aprobándose acá o en
+  // decideVendorChangeRequest). Nullable — un admin corrigiendo un dato
+  // vacío de una tienda vieja (ver Bloque 165 en verification.controller.js)
+  // necesita poder mandar el valor real sin que null rompa nada.
+  ownerName: z.string().trim().min(2).optional().nullable(),
+  ownerIdNumber: z.string().trim().min(1).optional().nullable(),
+  companyAddress: z.string().trim().min(1).optional().nullable(),
+  description: z.string().trim().optional().nullable(),
+  // Bloque 222 (pedido explícito — "elimina que los vendedores puedan
+  // cambiar el color de su tienda... solo el admin puede cambiar el color"):
+  // el sistema lo asigna solo al crear la tienda (ver pickVendorColor,
+  // vendors.controller.js); de ahí en más, solo este endpoint lo puede
+  // tocar — ya no existe en updateVendorSchema del propio vendedor.
+  color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "El color debe ser un código hex válido (ej. #232F3E).").optional(),
 });
 
 export async function updateVendor(req, res) {
@@ -211,6 +238,68 @@ export async function updateVendor(req, res) {
 
   const updated = await prisma.vendor.update({ where: { id }, data: vendorData });
   res.json({ vendor: updated });
+}
+
+// Bloque 165 (pedido explícito — "poder editar datos en tiendas... como
+// cambiar la contraseña y correo... desde el panel de admin"): a diferencia
+// del reset propio (auth.controller.js, resetPassword — pide un código
+// enviado por correo), acá el admin YA está autenticado y autorizado, así
+// que fija la contraseña nueva directo, sin ningún código de por medio —
+// mismo hash (bcrypt, 10 rounds) que el resto del sistema.
+const resetVendorPasswordSchema = z.object({
+  newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres."),
+});
+
+export async function resetVendorPassword(req, res) {
+  const { id } = req.params;
+  const { newPassword } = resetVendorPasswordSchema.parse(req.body);
+
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({ where: { id: vendor.userId }, data: { passwordHash } });
+
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: vendor.id,
+    action: "admin_reset_vendor_password",
+    description: `Un admin restableció la contraseña de "${vendor.companyName}"`,
+    meta: { vendorId: vendor.id },
+  });
+  res.json({ ok: true });
+}
+
+// Bloque 165: correo de LOGIN (User.email, único en toda la plataforma) —
+// distinto de Vendor.email (contacto público de la tienda, ya editable
+// desde updateVendor de arriba). Nunca se puede repetir un correo ya en uso
+// por otra cuenta.
+const updateVendorLoginEmailSchema = z.object({
+  email: z.string().email("Ingresa un correo válido."),
+});
+
+export async function updateVendorLoginEmail(req, res) {
+  const { id } = req.params;
+  const { email } = updateVendorLoginEmailSchema.parse(req.body);
+
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+
+  const taken = await prisma.user.findFirst({ where: { email, id: { not: vendor.userId } } });
+  if (taken) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+
+  await prisma.user.update({ where: { id: vendor.userId }, data: { email } });
+
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: vendor.id,
+    action: "admin_changed_vendor_login_email",
+    description: `Un admin cambió el correo de acceso de "${vendor.companyName}"`,
+    meta: { vendorId: vendor.id, newEmail: email },
+  });
+  res.json({ ok: true });
 }
 
 // Bloque 62/76: pantalla propia (AdminSuspendedVendors.jsx) — junta las 2
@@ -273,17 +362,7 @@ export async function deleteVendor(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor) throw new AppError("Tienda no encontrada.", 404);
 
-  const now = new Date();
-  await prisma.$transaction([
-    prisma.vendor.update({ where: { id }, data: { deletedAt: now, isBlocked: true } }),
-    // email se renombra para liberarlo: como la fila nunca se borra, "email
-    // @unique" seguía bloqueando ese correo para siempre (bug real reportado
-    // — el admin no podía reutilizarlo tras "eliminar" la cuenta).
-    prisma.user.update({
-      where: { id: vendor.userId },
-      data: { deletedAt: now, isSuspended: true, email: `deleted+${vendor.userId}@zeudin.invalid` },
-    }),
-  ]);
+  await finalizeUserDeletion(vendor.userId);
   res.status(204).end();
 }
 
@@ -343,6 +422,174 @@ export async function getVendorTableOrders(req, res) {
   res.json({ tableOrders });
 }
 
+// --- Usuarios de sistema de un vendedor (Bloque 183, pedido explícito —
+// "el administrador general del sistema también puede controlar y
+// verificar lo mismo que pueda hacer el vendedor... poder verificar cuáles
+// son los usuarios que ha creado ese vendedor, si están activos, podrá
+// modificarlos y ver todo el seguimiento de cada uno"): mismas
+// capacidades que vendorStaff.controller.js le da al propio dueño, pero
+// tomando el vendorId/staffId de la URL en vez de resolverlo desde
+// req.user — un admin puede tocar los usuarios de CUALQUIER tienda. -------
+
+function publicStaffAdmin(staff) {
+  const { user, vendor, ...rest } = staff;
+  return {
+    ...rest,
+    email: user.email,
+    fullName: user.fullName,
+    isSuspended: user.isSuspended,
+    lastLoginAt: user.lastLoginAt,
+    vendorId: vendor.id,
+    vendorName: vendor.companyName,
+  };
+}
+
+export async function listVendorStaff(req, res) {
+  const { id: vendorId } = req.params;
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+  if (!vendor) throw new AppError("Tienda no encontrada.", 404);
+
+  const staff = await prisma.vendorStaff.findMany({
+    where: { vendorId },
+    include: {
+      user: { select: { email: true, fullName: true, isSuspended: true, lastLoginAt: true } },
+      vendor: { select: { id: true, companyName: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json({ staff: staff.map(publicStaffAdmin) });
+}
+
+async function findVendorStaffOr404(staffId) {
+  const staff = await prisma.vendorStaff.findUnique({
+    where: { id: staffId },
+    include: {
+      user: { select: { id: true, email: true, fullName: true, isSuspended: true, lastLoginAt: true } },
+      vendor: { select: { id: true, companyName: true } },
+    },
+  });
+  if (!staff) throw new AppError("Usuario no encontrado.", 404);
+  return staff;
+}
+
+// Bloque 187 (bug real reportado en vivo — el admin no tenía forma de
+// guardar el nivel view/manage que sí existe del lado del vendedor desde
+// Bloque 185: `allowedSections` acá seguía siendo `z.array(z.string())`
+// suelto en vez del enum, y `sectionPermissions` no existía ni en el
+// schema ni en el `data` del update — cualquier intento de mandarlo se
+// descartaba en silencio): mismo criterio de paridad que el resto de este
+// archivo ("el admin puede controlar y verificar lo mismo que el
+// vendedor").
+const updateVendorStaffByAdminSchema = z.object({
+  fullName: z.string().trim().min(2).optional(),
+  email: z.string().email().optional(),
+  // Bloque 200: ya NO exige mínimo 1 — mismo criterio que
+  // vendorStaff.controller.js (un usuario sin ninguna sección es válido,
+  // solo ve "Mi perfil").
+  allowedSections: z.array(z.enum(VENDOR_SECTION_KEYS)).optional(),
+  sectionPermissions: z.record(z.enum(VENDOR_SECTION_KEYS), z.enum(["view", "manage"])).optional(),
+  isActive: z.boolean().optional(),
+  staffType: z.enum(["SALES_AGENT", "WAITER"]).nullable().optional(),
+});
+
+export async function updateVendorStaffByAdmin(req, res) {
+  const staff = await findVendorStaffOr404(req.params.id);
+  const data = updateVendorStaffByAdminSchema.parse(req.body);
+
+  if (data.email) {
+    const existing = await prisma.user.findUnique({ where: { email: data.email.trim().toLowerCase() } });
+    if (existing && existing.id !== staff.userId) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+  }
+
+  // Bloque 187/200: mismo criterio que updateMyStaff (vendorStaff.controller.js)
+  // — si esta llamada cambia allowedSections, sectionPermissions se
+  // recalcula contra la lista NUEVA, nunca la vieja; cambiar el tipo agrega
+  // sus secciones default (union, nunca reemplazo).
+  const sectionsBeforeTypeMerge = data.allowedSections ?? staff.allowedSections;
+  const nextSections =
+    data.staffType !== undefined ? withStaffTypeSections(sectionsBeforeTypeMerge, data.staffType) : sectionsBeforeTypeMerge;
+  const nextPermissions = data.sectionPermissions
+    ? { ...(staff.sectionPermissions ?? {}), ...data.sectionPermissions }
+    : staff.sectionPermissions;
+
+  const [updatedUser, updatedStaff] = await prisma.$transaction([
+    prisma.user.update({
+      where: { id: staff.userId },
+      data: {
+        ...(data.fullName ? { fullName: data.fullName.trim() } : {}),
+        ...(data.email ? { email: data.email.trim().toLowerCase() } : {}),
+      },
+    }),
+    prisma.vendorStaff.update({
+      where: { id: staff.id },
+      data: {
+        ...(data.allowedSections || data.staffType !== undefined ? { allowedSections: nextSections } : {}),
+        ...(data.isActive != null ? { isActive: data.isActive } : {}),
+        ...(data.staffType !== undefined ? { staffType: data.staffType } : {}),
+        sectionPermissions: pruneSectionPermissions(nextSections, nextPermissions),
+      },
+    }),
+  ]);
+
+  if (data.isActive === false) {
+    await prisma.session.updateMany({ where: { userId: staff.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  }
+
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: staff.vendorId,
+    action: "admin_updated_vendor_staff",
+    description: `Un admin actualizó al usuario "${updatedUser.fullName}" (${updatedUser.email}) de "${staff.vendor.companyName}"`,
+    meta: { staffUserId: staff.userId, changes: data },
+  });
+
+  res.json({ staff: publicStaffAdmin({ ...updatedStaff, user: updatedUser, vendor: staff.vendor }) });
+}
+
+// Bloque 183: mismo criterio que resetMyStaffPassword (vendorStaff.controller.js)
+// — nunca una contraseña que el admin escribe por la persona, siempre
+// mustSetPassword para que la elija ella misma por el flujo de código.
+export async function resetVendorStaffPasswordByAdmin(req, res) {
+  const staff = await findVendorStaffOr404(req.params.id);
+
+  const unusablePasswordHash = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+  await prisma.user.update({ where: { id: staff.userId }, data: { passwordHash: unusablePasswordHash, mustSetPassword: true } });
+  await prisma.session.updateMany({ where: { userId: staff.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: staff.vendorId,
+    action: "admin_reset_vendor_staff_password",
+    description: `Un admin restableció la contraseña de "${staff.user.fullName}" (${staff.user.email}) de "${staff.vendor.companyName}"`,
+    meta: { staffUserId: staff.userId },
+  });
+
+  res.json({ ok: true });
+}
+
+export async function getVendorStaffActivityByAdmin(req, res) {
+  const staff = await findVendorStaffOr404(req.params.id);
+  const activity = await prisma.activityLog.findMany({
+    where: { actorId: staff.userId },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+  res.json({ activity });
+}
+
+export async function getVendorStaffSessionsByAdmin(req, res) {
+  const staff = await findVendorStaffOr404(req.params.id);
+  const sessions = await prisma.session.findMany({
+    where: { userId: staff.userId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: { id: true, userAgent: true, createdAt: true, lastUsedAt: true, expiresAt: true, revokedAt: true },
+  });
+  res.json({ sessions });
+}
+
 // --- Verificaciones KYC + cobro de suscripción (Bloque 16) -----------------
 
 // Bloque 64: la lista es una fila por TIENDA (no por VerificationRequest —
@@ -364,18 +611,53 @@ export async function listVerifications(req, res) {
       registrationCountry: true,
       legalProvince: true,
       legalMunicipality: true,
+      // Bloque 145 (pedido explícito — "24 horas luego de ser aprobada"): el
+      // admin también ve cuánto le queda a cada solicitud en Pago pendiente,
+      // mismo cálculo real que usa el cron (expireStalePendingPaymentApprovals).
+      verificationStatusLogs: { where: { toStatus: "PENDING_PAYMENT" }, orderBy: { at: "desc" }, take: 1 },
     },
     orderBy: { createdAt: "desc" },
   });
+
+  // Bloque 153 (pedido explícito — "debe salir... desde cuándo se
+  // verificó"): la transición MÁS RECIENTE a VERIFIED por tienda — consulta
+  // aparte porque Prisma no permite 2 filtros distintos sobre la MISMA
+  // relación (verificationStatusLogs) dentro de un solo `include`.
+  // `distinct` + `orderBy` de más reciente a más viejo da, por vendorId,
+  // solo la entrada vigente (si perdió y recuperó la verificación varias
+  // veces, esta es la del ciclo actual, no la primera vez de todas).
+  const verifiedSinceLogs = await prisma.verificationStatusLog.findMany({
+    where: { vendorId: { in: vendors.map((v) => v.id) }, toStatus: "VERIFIED" },
+    orderBy: { at: "desc" },
+    distinct: ["vendorId"],
+  });
+  const verifiedSinceByVendor = new Map(verifiedSinceLogs.map((l) => [l.vendorId, l.at]));
+
   const verifications = vendors.map((v) => ({
     id: v.verification?.id ?? v.id,
     vendorId: v.id,
     verificationStatus: v.verificationStatus,
     nextPaymentDueDate: v.nextPaymentDueDate,
+    // Bloque 153: "desde cuándo se registró" (Vendor.createdAt, siempre
+    // real, nunca se pisa) y "desde cuándo está verificada" (la transición
+    // vigente a VERIFIED, null si nunca lo estuvo o la perdió) — separado
+    // del `createdAt` de más abajo, que es el de la SOLICITUD actual.
+    vendorCreatedAt: v.createdAt,
+    verifiedSince: verifiedSinceByVendor.get(v.id) ?? null,
+    // Bloque 145: solo tiene sentido mientras sigue en PENDING_PAYMENT — una
+    // vez que pasa a VERIFIED/REJECTED/etc. el plazo ya no aplica.
+    paymentDeadlineAt:
+      v.verificationStatus === "PENDING_PAYMENT" && v.verificationStatusLogs[0]
+        ? new Date(v.verificationStatusLogs[0].at.getTime() + 24 * 60 * 60 * 1000)
+        : null,
     vendor: {
       id: v.id,
       companyName: v.companyName,
       email: v.email,
+      // Bloque 145 (pedido explícito — "recopilar más información"): el
+      // admin no tenía forma de contactar a la tienda desde esta pantalla
+      // sin ir a buscarla a otro lado.
+      whatsapp: v.whatsapp,
       color: v.color,
       locations: v.locations,
       description: v.description,
@@ -391,10 +673,26 @@ export async function listVerifications(req, res) {
     idDocumentType: v.verification?.idDocumentType ?? null,
     selfieUrl: v.verification?.selfieUrl ?? null,
     idPhotoFrontUrl: v.verification?.idPhotoFrontUrl ?? null,
+    selfieVideoUrl: v.verification?.selfieVideoUrl ?? null,
     notes: v.verification?.notes ?? null,
     paymentMethod: v.verification?.paymentMethod ?? null,
+    // Bloque 150: cuántos meses eligió pagar y lo que declaró al reclamar el
+    // pago — quién pagó, con qué cuenta/teléfono (CUP) o los datos de
+    // respaldo si no pudo subir captura (CARD), y el monto que dice haber
+    // pagado (lo que el admin compara contra lo esperado antes de confirmar).
+    paymentMonths: v.verification?.paymentMonths ?? null,
+    paymentCurrency: v.verification?.paymentCurrency ?? null,
+    paymentAmount: v.verification?.paymentAmount ?? null,
+    payerName: v.verification?.payerName ?? null,
+    payerAccountNumber: v.verification?.payerAccountNumber ?? null,
+    payerPhone: v.verification?.payerPhone ?? null,
+    payerAddress: v.verification?.payerAddress ?? null,
+    payerCountry: v.verification?.payerCountry ?? null,
+    payerCardLast4: v.verification?.payerCardLast4 ?? null,
     paymentProofUrl: v.verification?.paymentProofUrl ?? null,
+    paymentProofUnavailable: v.verification?.paymentProofUnavailable ?? false,
     paymentClaimedAt: v.verification?.paymentClaimedAt ?? null,
+    stripePaidAt: v.verification?.stripePaidAt ?? null,
     paymentConfirmedAt: v.verification?.paymentConfirmedAt ?? null,
     paymentConfirmedById: v.verification?.paymentConfirmedById ?? null,
     stripeCheckoutUrl: v.verification?.stripeCheckoutUrl ?? null,
@@ -426,10 +724,10 @@ const decideVerificationSchema = z.object({
 
 // Fase 1 (documentos): aprobar NO activa la verificación todavía — solo pasa
 // la solicitud a PENDING_PAYMENT. El badge/Plan Business se activan recién
-// en la fase 2 (ver confirmCupPayment más abajo, y handleStripeWebhookEvent
-// en verification.controller.js para el camino automático de tarjeta).
-// Rechazar sí es definitivo en esta fase. Nunca se puede aprobar sin las 2
-// fotos — submitVerification ya las exige juntas para poder llegar acá.
+// en la fase 2 (ver confirmSubscriptionPayment más abajo — desde el Bloque
+// 150 esa fase es SIEMPRE una confirmación manual del admin, tarjeta o CUP
+// por igual). Rechazar sí es definitivo en esta fase. Nunca se puede
+// aprobar sin las 2 fotos — submitVerification ya las exige juntas.
 export async function updateVerification(req, res) {
   const { id } = req.params;
   const { decision, notes } = decideVerificationSchema.parse(req.body);
@@ -448,6 +746,9 @@ export async function updateVerification(req, res) {
     where: { id },
     data: { notes: notes ?? null, reviewedById: req.user.id, reviewedAt: new Date() },
   });
+  // Bloque 150: refleja la revisión en la rama de archivo vigente — el
+  // rejectedAt (si aplica) ya lo cierra transitionVendorVerification abajo.
+  await syncVerificationArchive(verification.vendorId, { reviewedAt: new Date(), reviewedById: req.user.id, notes: notes ?? null });
 
   const toStatus = decision === "approve" ? "PENDING_PAYMENT" : "REJECTED";
   const updated = await transitionVendorVerification(verification.vendorId, toStatus, {
@@ -460,26 +761,38 @@ export async function updateVerification(req, res) {
   res.json({ verification: updated });
 }
 
-// Fase 2, vía B (transferencia CUP): no hay forma de confirmar sola una
-// transferencia bancaria nacional — el admin la confirma a mano después de
-// verificar el comprobante que subió el vendedor. También cubre la RENOVACIÓN
-// mensual (Bloque 64): una tienda CUP en PAYMENT_FAILED por vencimiento
-// puede volver a VERIFIED acá mismo, sin rehacer documentos.
-export async function confirmCupPayment(req, res) {
+// Fase 2 (Bloque 150, reescribe confirmCupPayment de antes): ahora cubre
+// CARD Y CUP_TRANSFER por igual — "el administrador reciba correctamente el
+// documento... y de allí pueda concluir y finalizar la aprobación". Ninguno
+// de los 2 métodos se confirma solo: Stripe deja `stripePaidAt` por webhook
+// (checkout.session.completed, ver verification.controller.js) pero el
+// admin igual revisa el comprobante/datos declarados por el vendedor antes
+// de activar — mismo criterio que ya regía para CUP desde el Bloque 16.
+// También cubre la RENOVACIÓN (Bloque 64): una tienda en PAYMENT_FAILED/
+// SUSPENDED por vencimiento puede volver a VERIFIED acá mismo, sin rehacer
+// documentos.
+export async function confirmSubscriptionPayment(req, res) {
   const { id } = req.params;
   const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
   if (!verification) throw new AppError("Solicitud no encontrada.", 404);
   const canConfirm = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(verification.vendor.verificationStatus);
-  if (!canConfirm || verification.paymentMethod !== "CUP_TRANSFER") {
-    throw new AppError("Esta solicitud no está esperando confirmación de transferencia CUP.", 409);
+  if (!canConfirm || !verification.paymentMethod) {
+    throw new AppError("Esta solicitud no está esperando confirmación de pago.", 409);
+  }
+  if (!verification.paymentClaimedAt) {
+    throw new AppError("El vendedor todavía no reclamó el pago (\"Ya pagué\") desde su panel.", 409);
   }
 
   await prisma.verificationRequest.update({
     where: { id },
     data: { paymentConfirmedAt: new Date(), paymentConfirmedById: req.user.id },
   });
+  await syncVerificationArchive(verification.vendorId, { paymentConfirmedAt: new Date(), paymentConfirmedById: req.user.id });
 
-  const nextPaymentDueDate = new Date(Date.now() + PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  // Bloque 150: el ciclo dura tantos días como meses eligió el vendedor
+  // (1..24), ya no un mes fijo siempre — mismo criterio para CARD y CUP.
+  const months = verification.paymentMonths ?? 1;
+  const nextPaymentDueDate = new Date(Date.now() + months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
   const updated = await transitionVendorVerification(verification.vendorId, "VERIFIED", {
     actorId: req.user.id,
     source: "ADMIN_ACTION",
@@ -488,6 +801,183 @@ export async function confirmCupPayment(req, res) {
   });
 
   res.json({ verification: updated });
+}
+
+// Bloque 151 (pedido explícito — "también se podrá cambiar desde el panel
+// de administrador... ver la solicitud de la tienda y cambiarle el método
+// de pago o restablecerlo para que él pueda seleccionar otro diferente"):
+// limpia el método elegido (y cualquier rastro de pago/reclamo/checkout de
+// ESE método) sin tocar el estado de verificación — la tienda sigue en
+// PENDING_PAYMENT/PAYMENT_FAILED/SUSPENDED como antes, pero
+// `chooseMyPaymentMethod` vuelve a mostrarse en el panel del vendedor
+// porque `paymentMethod` queda en null. No rechaza si ya se había
+// reclamado o incluso confirmado un pago viejo (eso ya se cerró en
+// `paymentConfirmedAt`/`verifiedAt` de la rama de archivo, este reset no
+// los toca) — solo limpia lo que hace falta para que el vendedor pueda
+// elegir un método distinto desde cero.
+export async function resetVerificationPaymentMethod(req, res) {
+  const { id } = req.params;
+  const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
+  if (!verification) throw new AppError("Solicitud no encontrada.", 404);
+  const canReset = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(verification.vendor.verificationStatus);
+  if (!canReset || !verification.paymentMethod) {
+    throw new AppError("Esta solicitud no tiene ningún método de pago elegido para restablecer.", 409);
+  }
+
+  const reset = {
+    paymentMethod: null,
+    paymentMonths: null,
+    paymentCurrency: null,
+    paymentClaimedAt: null,
+    paymentConfirmedAt: null,
+    paymentConfirmedById: null,
+    paymentProofUrl: null,
+    paymentProofUnavailable: false,
+    // stripeCheckoutSessionId/Url/ExpiresAt/stripePaymentIntentId: solo
+    // existen en VerificationRequest (estado operativo efímero del link de
+    // checkout — VerificationArchive nunca los tuvo, solo guarda
+    // `stripePaidAt` como hecho archivable), así que se limpian acá pero se
+    // excluyen del `archivePatch` de abajo para no romper el sync contra
+    // columnas que no existen en ese modelo.
+    stripeCheckoutSessionId: null,
+    stripeCheckoutUrl: null,
+    stripeCheckoutExpiresAt: null,
+    stripePaidAt: null,
+    stripePaymentIntentId: null,
+    payerName: null,
+    payerAccountNumber: null,
+    payerPhone: null,
+    payerAddress: null,
+    payerCountry: null,
+    payerCardLast4: null,
+  };
+  const { stripeCheckoutSessionId, stripeCheckoutUrl, stripeCheckoutExpiresAt, stripePaymentIntentId, ...archivePatch } = reset;
+  await prisma.verificationRequest.update({ where: { id }, data: reset });
+  await syncVerificationArchive(verification.vendorId, archivePatch);
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: verification.vendorId,
+    action: "verification_payment_method_reset",
+    description: `Restableció el método de pago (antes: ${verification.paymentMethod})`,
+  });
+  await notifyVerificationEvent(verification.vendor, "VERIFICATION_PAYMENT_METHOD_RESET").catch(() => {});
+
+  res.json({ ok: true });
+}
+
+// --- Renovaciones de suscripción (Bloque 153, pedido explícito) ------------
+// "Una vez el cliente esté verificado... podrá activar un nuevo mes o
+// varios... el admin debe aprobar los demás meses pagos... todo eso irá
+// quedando archivado en el historial de esa tienda" — cada renovación es
+// una fila propia de SubscriptionPayment (ver verification.controller.js),
+// nunca se pisa la anterior; acá solo vive la confirmación del admin.
+export async function listPendingSubscriptionPayments(_req, res) {
+  const payments = await prisma.subscriptionPayment.findMany({
+    where: { confirmedAt: null, claimedAt: { not: null } },
+    include: { vendor: { select: { id: true, companyName: true, color: true, email: true, whatsapp: true } } },
+    orderBy: { claimedAt: "asc" },
+  });
+  res.json({ payments });
+}
+
+// Bloque 153 (pedido explícito — "quiero que esas cuentas sean bien
+// estrictas"): el nuevo vencimiento se calcula desde el vencimiento REAL
+// vigente (si todavía no pasó) — nunca desde "ahora", que le regalaría
+// días de más a quien ya tenía tiempo pagado por delante, ni desde una
+// fecha vencida, que le robaría días a quien renovó tarde. Extiende
+// `Vendor.nextPaymentDueDate` (la misma fuente que ya usan el cron de
+// vencimiento y el resto del ciclo) — nunca un campo aparte.
+export async function confirmSubscriptionRenewal(req, res) {
+  const { id } = req.params;
+  const payment = await prisma.subscriptionPayment.findUnique({ where: { id }, include: { vendor: true } });
+  if (!payment) throw new AppError("Pago no encontrado.", 404);
+  if (payment.confirmedAt) throw new AppError("Este pago ya fue confirmado.", 409);
+  if (!payment.claimedAt) throw new AppError('El vendedor todavía no reclamó este pago ("Ya pagué").', 409);
+
+  const now = new Date();
+  const periodStart = payment.vendor.nextPaymentDueDate && payment.vendor.nextPaymentDueDate > now ? payment.vendor.nextPaymentDueDate : now;
+  const periodEnd = new Date(periodStart.getTime() + payment.months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+
+  const updated = await prisma.subscriptionPayment.update({
+    where: { id },
+    data: { confirmedAt: now, confirmedById: req.user.id, periodStart, periodEnd },
+  });
+  await prisma.vendor.update({ where: { id: payment.vendorId }, data: { nextPaymentDueDate: periodEnd } });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: payment.vendorId,
+    action: "subscription_renewal_confirmed",
+    description: `Confirmó la renovación (${payment.months} ${payment.months === 1 ? "mes" : "meses"}, hasta ${periodEnd.toLocaleDateString("es-CU")})`,
+  });
+  await notifyVerificationEvent(payment.vendor, "SUBSCRIPTION_RENEWAL_CONFIRMED", {
+    notes: `hasta el ${periodEnd.toLocaleDateString("es-CU")}`,
+  }).catch(() => {});
+
+  res.json({ payment: updated });
+}
+
+// --- Solicitudes de cambio de identidad (Bloque 153, pedido explícito) ----
+// "todos los datos de la tienda no se pueden modificar después de estar
+// verificadas sin aprobación del admin... si se desea cambiar el nombre o
+// el responsable se debe enviar la solicitud al admin para prevenir
+// fraudes."
+export async function listVendorChangeRequests(req, res) {
+  const { status } = req.query;
+  const requests = await prisma.vendorChangeRequest.findMany({
+    where: { status: status ? String(status).toUpperCase() : "PENDING" },
+    include: { vendor: { select: { id: true, companyName: true, color: true, email: true, whatsapp: true, verificationStatus: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  res.json({ requests });
+}
+
+const decideChangeRequestSchema = z.object({
+  decision: z.enum(["approve", "reject"]),
+  notes: z.string().optional(),
+});
+
+// Aprobar APLICA los cambios de verdad a Vendor (solo los campos que la
+// solicitud trae, nunca pisa los demás) — rechazar solo cierra la
+// solicitud con un motivo, la tienda queda tal cual estaba.
+export async function decideVendorChangeRequest(req, res) {
+  const { id } = req.params;
+  const { decision, notes } = decideChangeRequestSchema.parse(req.body);
+
+  const request = await prisma.vendorChangeRequest.findUnique({ where: { id }, include: { vendor: true } });
+  if (!request) throw new AppError("Solicitud no encontrada.", 404);
+  if (request.status !== "PENDING") throw new AppError("Esta solicitud ya fue resuelta.", 409);
+  if (decision === "reject" && !notes?.trim()) throw new AppError("Indica el motivo del rechazo.", 400);
+
+  if (decision === "approve") {
+    await prisma.vendor.update({
+      where: { id: request.vendorId },
+      data: {
+        ...(request.companyName ? { companyName: request.companyName } : {}),
+        ...(request.ownerName ? { ownerName: request.ownerName } : {}),
+        ...(request.ownerIdNumber ? { ownerIdNumber: request.ownerIdNumber } : {}),
+        ...(request.companyAddress ? { companyAddress: request.companyAddress } : {}),
+      },
+    });
+  }
+
+  const updated = await prisma.vendorChangeRequest.update({
+    where: { id },
+    data: { status: decision === "approve" ? "APPROVED" : "REJECTED", adminNotes: notes ?? null, reviewedById: req.user.id, reviewedAt: new Date() },
+  });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: request.vendorId,
+    action: decision === "approve" ? "vendor_change_approved" : "vendor_change_rejected",
+    description: decision === "approve" ? "Aprobó una solicitud de cambio de datos" : `Rechazó una solicitud de cambio de datos: ${notes}`,
+  });
+  await notifyVerificationEvent(request.vendor, decision === "approve" ? "VENDOR_CHANGE_REQUEST_APPROVED" : "VENDOR_CHANGE_REQUEST_REJECTED", {
+    notes,
+  }).catch(() => {});
+
+  res.json({ changeRequest: updated });
 }
 
 // --- Suscripciones Business (Bloque 46, recurrente desde Bloque 64) --------
@@ -534,9 +1024,13 @@ export async function listSubscriptions(_req, res) {
   const paymentFailed = subscriptions.filter((s) => s.status === "payment_failed").length;
   const suspended = subscriptions.filter((s) => s.status === "suspended").length;
 
+  // Bloque 150: precio dinámico (antes SUBSCRIPTION_PRICE_USD, constante
+  // fija) — mismo criterio que cupSubscriptionPriceCup, editable sin
+  // redeploy desde AdminSubscriptions.jsx.
+  const { cardPricePerMonthUsd } = await getSubscriptionPricing();
   res.json({
     subscriptions,
-    metrics: { active, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * SUBSCRIPTION_PRICE_USD },
+    metrics: { active, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * cardPricePerMonthUsd },
   });
 }
 
@@ -620,12 +1114,7 @@ export async function deleteCustomer(req, res) {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || user.role !== "CUSTOMER") throw new AppError("Cliente no encontrado.", 404);
 
-  // email se renombra para liberarlo — mismo motivo que deleteVendor: la fila
-  // nunca se borra, así que sin esto el correo quedaba tomado para siempre.
-  await prisma.user.update({
-    where: { id },
-    data: { deletedAt: new Date(), isSuspended: true, email: `deleted+${id}@zeudin.invalid` },
-  });
+  await finalizeUserDeletion(id);
   res.status(204).end();
 }
 
@@ -779,8 +1268,17 @@ export async function adminSearch(req, res) {
 // notificaciones propia ni estado de "leído" persistente: reusa las mismas
 // queries que ya alimentan cada sección (Verificaciones/Sugerencias/Errores/
 // Mensajes), solo junta el conteo y los últimos items acá.
+// Bloque 231 (pedido explícito — "cuando un cliente envía un pedido se
+// debe notificar en tiempo real en el panel de admin"): mismas 2 horas de
+// ventana que basta para que la campanita se sienta "en vivo" sin acumular
+// pedidos viejos ya vistos hace rato — un pedido no es algo que el admin
+// tenga que "resolver" como el resto de esta lista, pero igual entra acá
+// (mismo criterio que sugerencias/errores de abajo, que tampoco son
+// estrictamente "acción pendiente").
+const RECENT_ORDERS_WINDOW_MS = 2 * 60 * 60 * 1000;
+
 export async function listAdminNotifications(_req, res) {
-  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports] = await Promise.all([
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders] = await Promise.all([
     prisma.vendor.findMany({
       where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } },
       select: { id: true, companyName: true, createdAt: true },
@@ -823,6 +1321,12 @@ export async function listAdminNotifications(_req, res) {
       },
       take: 5,
     }),
+    prisma.order.findMany({
+      where: { createdAt: { gte: new Date(Date.now() - RECENT_ORDERS_WINDOW_MS) } },
+      select: { id: true, code: true, total: true, customerName: true, createdAt: true, vendor: { select: { companyName: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
   ]);
 
   const items = [
@@ -856,6 +1360,17 @@ export async function listAdminNotifications(_req, res) {
       to: "/admin/reportes-fraude",
       createdAt: r.createdAt,
     })),
+    // Bloque 231 (pedido explícito): visibilidad en tiempo real de pedidos
+    // nuevos — no hay una vista de detalle de pedido del lado admin, así
+    // que el destino es la tienda que lo recibió (mismo criterio que
+    // paymentClaims/pendingVerifications de arriba, que tampoco enlazan a
+    // un registro puntual).
+    ...recentOrders.map((o) => ({
+      id: `order-${o.id}`,
+      text: `Pedido nuevo ${o.code} — ${o.vendor.companyName} (${Number(o.total).toLocaleString("es-CU")} CUP)`,
+      to: "/admin/vendedores",
+      createdAt: o.createdAt,
+    })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
   if (newSuggestions > 0) {
@@ -872,7 +1387,8 @@ export async function listAdminNotifications(_req, res) {
     vendorsWithUnread.reduce((sum, v) => sum + v._count.messages, 0) +
     paymentClaims.length +
     reportedReviews.length +
-    pendingFraudReports.length;
+    pendingFraudReports.length +
+    recentOrders.length;
 
   res.json({ items: items.slice(0, 12), total });
 }
@@ -919,7 +1435,11 @@ export async function getActivityStats(req, res) {
   const [topVendorGroups, topCustomerGroups, totalActions] = await Promise.all([
     prisma.activityLog.groupBy({
       by: ["vendorId"],
-      where: { actorRole: "VENDOR", vendorId: { not: null }, createdAt: { gte: since } },
+      // Bloque 183: incluye acciones de usuarios de sistema (VENDOR_STAFF)
+      // del negocio, no solo del dueño — "cuánto se mueve este vendedor"
+      // tiene que contar toda la actividad de su panel, sin importar quién
+      // de su equipo la hizo.
+      where: { actorRole: { in: ["VENDOR", "VENDOR_STAFF"] }, vendorId: { not: null }, createdAt: { gte: since } },
       _count: { _all: true },
       orderBy: { _count: { vendorId: "desc" } },
       take: 10,

@@ -26,7 +26,7 @@ export async function buildFewShotBlock(botTipo) {
   });
   if (!examples.length) return "";
 
-  const header = "EJEMPLOS REALES REVISADOS POR EL ADMIN (guía de estilo/contenido real — aprendé el tono y el nivel de detalle, pero nunca copies uno literal si no responde exactamente lo que pide ESTE cliente; los datos reales de esta consulta puntual son siempre CANDIDATOS/TIENDAS/ZONAS/catálogo de arriba, no estos ejemplos):\n";
+  const header = "EJEMPLOS REALES REVISADOS POR EL ADMIN (guía de estilo/contenido real — aprende el tono y el nivel de detalle, pero nunca copies uno literal si no responde exactamente lo que pide ESTE cliente; los datos reales de esta consulta puntual son siempre CANDIDATOS/TIENDAS/ZONAS/catálogo de arriba, no estos ejemplos):\n";
   let body = "";
   for (const ex of examples) {
     const block = `Cliente: "${ex.entradaCliente}"\nRespuesta ideal: "${ex.respuestaIdeal}"\n\n`;

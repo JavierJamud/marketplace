@@ -1,6 +1,21 @@
 import axios from "axios";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+// Bloque 182 (bug real reportado en vivo — "tengo problemas al cargar mi
+// proyecto cuando la computadora no tiene internet o cuando está conectada
+// a otra red... no me carga el backend"): antes esto solo se resolvía a
+// una IP de LAN fija si `VITE_API_URL` (.env/.env.development) la
+// sobreescribía — y ESTABA sobreescrita con `http://192.168.1.79:4000`, la
+// IP de una red puntual. En cualquier otra red (o sin red, ej. WiFi
+// desconectado del todo) esa IP deja de existir y el frontend queda
+// apuntando a una dirección inalcanzable, aunque el backend esté corriendo
+// perfectamente en la misma máquina. La solución real es dejar de fijar
+// una IP a mano: `window.location.hostname` es SIEMPRE el host correcto
+// desde donde se está sirviendo el propio frontend (localhost en la PC,
+// automáticamente la IP de LAN real y ACTUAL si se abre el panel desde un
+// celular en esa red) — el backend corre en el mismo host, solo cambia el
+// puerto. `VITE_API_URL` queda como escape hatch explícito para
+// producción/casos raros (nunca debería estar seteada en dev).
+const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:4000`;
 
 export const api = axios.create({ baseURL: API_URL });
 
@@ -34,10 +49,11 @@ export async function getErrorMessage(err, fallback = "Ocurrió un error. Intent
   return data?.error ?? fallback;
 }
 
-// Adjunta el access token guardado a cada petición
+// Adjunta el access token guardado y bypass para localtunnel si aplica
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("accessToken");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers["bypass-tunnel-reminder"] = "true";
   return config;
 });
 

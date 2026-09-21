@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { CheckCircle2, MessageCircle, Globe2, MapPin } from "lucide-react";
+import { CheckCircle2, MessageCircle, Globe2, MapPin, Store, Tag, X } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -11,6 +11,22 @@ import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
+
+// Bloque 231: "Fecha y hora" del ticket de confirmación — mismo formato
+// corto que ya usa fmtDate en VendorOffers.jsx, con hora agregada.
+function fmtDateTime(iso) {
+  return new Date(iso).toLocaleString("es-CU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// Bloque 232: mismo criterio que Cart.jsx — un código de descuento en CUP
+// solo tiene sentido honesto si TODOS los ítems están en la misma moneda
+// (el carrito ya es de un solo vendedor, pero el vendedor puede cargar
+// productos en distintas monedas).
+function singleCurrencySubtotal(items) {
+  const currencies = new Set(items.map((i) => i.currency ?? "CUP"));
+  if (currencies.size > 1) return null;
+  return items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
+}
 
 const PAY_OPTIONS = [
   { id: "cod", title: "Pago contra entrega", sub: "Coordinado por WhatsApp con el vendedor" },
@@ -46,24 +62,56 @@ function buildOrderWhatsAppText(info) {
 
 export default function Checkout() {
   const { siteName } = usePlatformSettings();
-  const { items, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem, discount } = useCart();
+  const { items, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem, discount, setDiscount, clearDiscount } = useCart();
   const { user } = useAuth();
   const [done, setDone] = useState(false);
   const [confirmedInfo, setConfirmedInfo] = useState(null);
   const [pay, setPay] = useState("cod");
   const [selectedCountryId, setSelectedCountryId] = useState("");
+  // Bloque 232 (pedido explícito — "si la tienda tiene códigos de ofertas
+  // generados debe aparecer al cliente completar el pedido un input para
+  // introducir el código de su oferta si tiene uno"): antes el único lugar
+  // donde el cliente podía escribir un código era Cart.jsx (la página de
+  // carrito completo) — el mini-carrito y Checkout nunca lo ofrecían, así
+  // que un cliente que llegaba directo a /checkout (desde "Completar
+  // pedido" del carrito lateral) no tenía forma de aplicar uno. Mismo
+  // patrón exacto que ya usa Cart.jsx (POST /discount-codes/validate).
+  const [codeInput, setCodeInput] = useState("");
   const [form, setForm] = useState({
     customerName: user?.fullName ?? "",
     customerPhone: user?.phone ?? "",
     customerEmail: user?.email ?? "",
     provinceId: "",
-    municipalityName: "",
+    // Bloque 231 (pedido explícito, con captura — "la parte donde se
+    // muestran o se filtran las provincias... está bien, pero la que le
+    // sigue de municipio deben filtrarse los municipios... si selecciona
+    // una provincia de Cuba son municipios y si selecciona un estado de
+    // otro país ya no son municipios, serían ciudad"): antes un solo campo
+    // de texto libre ("Municipio *") servía para los dos casos — ahora
+    // `municipalityId` es el municipio REAL (FK, mismo catálogo filtrado
+    // por provincia que ya usa Account.jsx para la ubicación del cliente/
+    // tienda) cuando la provincia elegida es cubana, y `cityOther` es texto
+    // libre ("Ciudad") cuando lo elegido es un STATE de otro país — nunca
+    // los dos a la vez, mutuamente excluyentes según `isStateSelected` de
+    // abajo, igual que el propio backend ya distingue (Order.shippingMunicipalityId
+    // vs. el resto de shippingAddress en texto libre).
+    municipalityId: "",
+    cityOther: "",
     address: "",
   });
 
   const { data: provinces } = useQuery({
     queryKey: ["provinces"],
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
+  });
+
+  // Mismo endpoint/patrón que Account.jsx (municipalitiesForPersonProvince) —
+  // catálogo real, filtrado por la provincia elegida, nunca se pide sin una
+  // provincia cubana ya seleccionada.
+  const { data: municipalitiesForProvince = [] } = useQuery({
+    queryKey: ["municipalities-for-province", form.provinceId],
+    queryFn: async () => (await api.get(`/locations/provinces/${form.provinceId}/municipalities`)).data.municipalities,
+    enabled: !!form.provinceId,
   });
 
   const { data: vendor } = useQuery({
@@ -139,6 +187,17 @@ export default function Checkout() {
     return Array.from(provMap.values());
   }, [vendor, selectedCountryId, provinces]);
 
+  const discountSubtotal = singleCurrencySubtotal(items);
+  const applyDiscount = useMutation({
+    mutationFn: async () => (await api.post("/discount-codes/validate", { vendorId, code: codeInput.trim(), subtotal: discountSubtotal })).data,
+    onSuccess: ({ discount: applied }) => {
+      setDiscount(applied);
+      setCodeInput("");
+      toast.success(`Código "${applied.code}" aplicado — descuento de ${formatPrice(applied.amount)}.`);
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo aplicar el código."),
+  });
+
   const selectedProvince = useMemo(() => {
     if (!form.provinceId) return null;
     return provinces?.find((p) => p.id === form.provinceId) ?? vendorProvincesForCountry.find((p) => p.id === form.provinceId) ?? null;
@@ -146,12 +205,17 @@ export default function Checkout() {
 
   const isStateSelected = selectedProvince?.type === "STATE";
 
+  const selectedMunicipalityName = useMemo(() => {
+    if (!form.municipalityId) return null;
+    return municipalitiesForProvince.find((m) => m.id === form.municipalityId)?.name ?? null;
+  }, [form.municipalityId, municipalitiesForProvince]);
+
   const allFieldsFilled =
     form.customerName.trim() &&
     form.customerPhone.trim() &&
     form.customerEmail.trim() &&
     form.provinceId &&
-    (isStateSelected || form.municipalityName.trim()) &&
+    (isStateSelected ? form.cityOther.trim() : form.municipalityId) &&
     form.address.trim();
 
   const placeOrder = useMutation({
@@ -164,7 +228,8 @@ export default function Checkout() {
           customerPhone: form.customerPhone,
           customerEmail: form.customerEmail,
           shippingProvinceId: form.provinceId || undefined,
-          shippingAddress: [isStateSelected ? null : form.municipalityName, form.address].filter(Boolean).join(" — ") || undefined,
+          shippingMunicipalityId: !isStateSelected ? form.municipalityId || undefined : undefined,
+          shippingAddress: [isStateSelected ? form.cityOther : selectedMunicipalityName, form.address].filter(Boolean).join(" — ") || undefined,
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions, size: i.size ?? undefined })),
           discountCode: discount?.code ?? undefined,
         })
@@ -192,6 +257,7 @@ export default function Checkout() {
         orderDestination,
         vendorWhatsapp: vendor?.whatsapp,
         orderCode: order.code,
+        createdAt: order.createdAt,
         items: items.map((i) => ({
           name: i.name,
           quantity: i.quantity,
@@ -203,7 +269,7 @@ export default function Checkout() {
         discount,
         customerName: form.customerName,
         customerPhone: form.customerPhone,
-        address: [isStateSelected ? null : form.municipalityName, form.address].filter(Boolean).join(" — "),
+        address: [isStateSelected ? form.cityOther : selectedMunicipalityName, form.address].filter(Boolean).join(" — "),
         payTitle: PAY_OPTIONS.find((p) => p.id === pay)?.title ?? pay,
       });
       clearCart();
@@ -234,20 +300,72 @@ export default function Checkout() {
     const href = showWhatsappCta ? waLink(confirmedInfo.vendorWhatsapp, buildOrderWhatsAppText(confirmedInfo)) : null;
 
     return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-verified/10 text-verified">
-          <CheckCircle2 className="h-10 w-10" />
+      <div className="mx-auto max-w-md px-4 py-14">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-verified/10 text-verified">
+          <CheckCircle2 className="h-8 w-8" />
         </div>
-        <h1 className="text-display-sm font-extrabold text-on-surface">¡Pedido realizado!</h1>
-        <p className="mt-2 text-body-md text-on-surface-variant">
-          Tu código es <span className="font-mono font-bold text-on-surface">{confirmedInfo.orderCode}</span>.
-        </p>
+        <h1 className="text-center text-display-sm font-extrabold text-on-surface">¡Pedido realizado!</h1>
+        <p className="mt-1.5 text-center text-body-md text-on-surface-variant">Gracias por tu compra en {confirmedInfo.vendorName}.</p>
+
+        {/* Bloque 231 (pedido explícito, con imagen de referencia — "vamos a
+            mejorar esa ventana, debe mostrarse más moderno, usaremos este
+            estilo... que tiene el código de barras, solo que en mi página
+            no hará falta el código de barras así que lo cambiaremos por el
+            número del pedido"): tarjeta tipo "ticket" con 2 mitades y una
+            línea punteada con muescas circulares entre ellas — mismo truco
+            que la referencia (2 círculos del color de la página, `bg-background`,
+            mordiendo el borde de la tarjeta blanca `bg-surface-container-lowest`).
+            Donde la referencia tenía un código de barras (no aplica acá,
+            esto no es una entrada física), va el número de pedido en
+            grande, en vez de repetir el mismo dato ya mostrado arriba. */}
+        <div className="relative mx-auto mt-7 max-w-sm">
+          <div className="rounded-t-[28px] bg-surface-container-lowest px-6 pb-6 pt-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_20px_40px_-16px_rgba(15,23,42,0.18)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Código de pedido</div>
+                <div className="mt-0.5 font-mono text-[14.5px] font-extrabold text-on-surface">{confirmedInfo.orderCode}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Total</div>
+                <div className="mt-0.5 text-[14.5px] font-extrabold text-on-surface">{confirmedInfo.totalLabel}</div>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Fecha y hora</div>
+              <div className="mt-0.5 text-[13px] font-semibold text-on-surface">{fmtDateTime(confirmedInfo.createdAt)}</div>
+            </div>
+            <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-surface-container/60 p-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary text-on-primary">
+                <Store className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-[12.5px] font-bold text-on-surface">{confirmedInfo.vendorName}</div>
+                <div className="text-[11px] text-outline">Recibe y confirma tu pedido</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Muesca: 2 círculos del color de la página mordiendo el borde
+              izquierdo/derecho de la tarjeta, sobre una línea punteada. */}
+          <div className="relative">
+            <span className="absolute -left-3.5 top-0 h-7 w-7 -translate-y-1/2 rounded-full bg-background" />
+            <span className="absolute -right-3.5 top-0 h-7 w-7 -translate-y-1/2 rounded-full bg-background" />
+            <div className="border-t-2 border-dashed border-surface-container-high" />
+          </div>
+
+          <div className="rounded-b-[28px] bg-surface-container-lowest px-6 pb-7 pt-5 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_20px_40px_-16px_rgba(15,23,42,0.18)]">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-outline">Tu número de pedido</div>
+            <div className="mt-1.5 font-mono text-[22px] font-extrabold tracking-[0.3em] text-on-surface">{confirmedInfo.orderCode}</div>
+          </div>
+        </div>
 
         {/* Bloque 68: los 2 bloques de abajo ya no son mutuamente
             excluyentes — con orderDestination:"BOTH" se muestran los dos
-            (WhatsApp + panel), con "WHATSAPP"/"PANEL" solo el que corresponde. */}
+            (WhatsApp + panel), con "WHATSAPP"/"PANEL" solo el que corresponde.
+            Bloque 231: mismo radio (rounded-2xl) que la tarjeta de arriba —
+            antes era rounded-lg, un nivel distinto sin motivo. */}
         {showWhatsappCta && (
-          <div className="mt-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6 text-left">
+          <div className="mt-6 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-left">
             <p className="text-body-md text-on-surface-variant">
               Envíale tu pedido a <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> por WhatsApp para
               ultimar la entrega en {confirmedInfo.provinceName}.
@@ -257,7 +375,7 @@ export default function Checkout() {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#25D366] text-label-lg font-bold text-white shadow hover:opacity-90"
+                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-lg font-bold text-white shadow hover:opacity-90"
               >
                 <MessageCircle className="h-5 w-5" /> Enviar pedido por WhatsApp
               </a>
@@ -269,7 +387,7 @@ export default function Checkout() {
           </div>
         )}
         {showPanelNote && (
-          <div className="mt-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6 text-left">
+          <div className="mt-6 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-left">
             <p className="text-body-md text-on-surface-variant">
               Tu pedido ya quedó guardado en el panel de <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span>.
               Te van a contactar pronto para coordinar la entrega.
@@ -277,7 +395,7 @@ export default function Checkout() {
           </div>
         )}
 
-        <div className="mt-8">
+        <div className="mt-8 text-center">
           <Link to={`/tienda/${confirmedInfo.vendorSlug}`} className="text-label-lg font-bold text-tertiary-accent hover:underline">
             Volver a la tienda
           </Link>
@@ -354,7 +472,7 @@ export default function Checkout() {
                     value={selectedCountryId}
                     onChange={(e) => {
                       setSelectedCountryId(e.target.value);
-                      setForm({ ...form, provinceId: "", municipalityName: "" });
+                      setForm({ ...form, provinceId: "", municipalityId: "", cityOther: "" });
                     }}
                     className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
                   >
@@ -378,7 +496,7 @@ export default function Checkout() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <select
                   value={form.provinceId}
-                  onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityName: "" })}
+                  onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityId: "", cityOther: "" })}
                   className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
                 >
                   <option value="">Provincia / Estado *</option>
@@ -389,12 +507,31 @@ export default function Checkout() {
                   ))}
                 </select>
 
-                {/* Show municipality input ONLY if selected subdivision is a PROVINCE */}
-                {!isStateSelected && (
+                {/* Bloque 231 (pedido explícito — "si selecciona una
+                    provincia de Cuba son municipios y si selecciona un
+                    estado de otro país ya no son municipios, serían
+                    ciudad"): provincia cubana real → desplegable de
+                    municipios FILTRADO por esa provincia (mismo catálogo/
+                    endpoint que ya usa Account.jsx, nunca texto libre);
+                    estado de otro país → "Ciudad" en texto libre, porque no
+                    hay ningún catálogo de ciudades extranjeras cargado. */}
+                {form.provinceId && !isStateSelected && (
+                  <select
+                    value={form.municipalityId}
+                    onChange={(e) => setForm({ ...form, municipalityId: e.target.value })}
+                    className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
+                  >
+                    <option value="">Municipio *</option>
+                    {municipalitiesForProvince.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                )}
+                {form.provinceId && isStateSelected && (
                   <input
-                    placeholder="Municipio *"
-                    value={form.municipalityName}
-                    onChange={(e) => setForm({ ...form, municipalityName: e.target.value })}
+                    placeholder="Ciudad *"
+                    value={form.cityOther}
+                    onChange={(e) => setForm({ ...form, cityOther: e.target.value })}
                     className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
                   />
                 )}
@@ -460,12 +597,42 @@ export default function Checkout() {
                 );
               })}
             </div>
-            {discount && (
-              <div className="mb-2.5 flex items-center justify-between text-body-sm font-semibold text-verified-dark">
-                <span>Descuento ({discount.code})</span>
-                <span>-{formatPrice(discount.amount)}</span>
-              </div>
-            )}
+            {/* Bloque 232: mismo input que Cart.jsx, reusado acá para que un
+                cliente que llega directo a /checkout también pueda aplicar
+                un código sin tener que volver a la página del carrito. */}
+            {discountSubtotal != null &&
+              (discount ? (
+                <div className="mb-3 flex items-center justify-between rounded-md bg-verified/10 px-3 py-2 text-[12.5px] font-semibold text-verified-dark">
+                  <span className="flex items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount)})
+                  </span>
+                  <button onClick={clearDiscount} className="rounded-full p-1 hover:bg-verified/15" title="Quitar código">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="mb-3 flex gap-2">
+                  <input
+                    value={codeInput}
+                    onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (codeInput.trim()) applyDiscount.mutate();
+                      }
+                    }}
+                    placeholder="¿Tienes un código de oferta?"
+                    className="h-10 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+                  />
+                  <button
+                    onClick={() => applyDiscount.mutate()}
+                    disabled={!codeInput.trim() || applyDiscount.isPending}
+                    className="flex-shrink-0 rounded-md border border-outline-variant px-3.5 text-[12.5px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                  >
+                    {applyDiscount.isPending ? "..." : "Aplicar"}
+                  </button>
+                </div>
+              ))}
 
             <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
               <span>Total estimado</span>

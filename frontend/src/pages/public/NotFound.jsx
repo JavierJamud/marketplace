@@ -27,7 +27,7 @@ export default function NotFound() {
       <p className="font-display text-7xl font-extrabold leading-none text-secondary-container sm:text-8xl">404</p>
       <h1 className="mt-2 font-display text-[26px] font-bold text-white">Esta página no existe</h1>
       <p className="mt-2.5 max-w-[420px] text-body-md leading-[23px] text-white/60">
-        Puede que el enlace esté roto o la página se haya movido. Volvé al inicio y seguí explorando.
+        Puede que el enlace esté roto o la página se haya movido. Vuelve al inicio y sigue explorando.
       </p>
 
       <div className="mt-7 flex flex-wrap justify-center gap-3">

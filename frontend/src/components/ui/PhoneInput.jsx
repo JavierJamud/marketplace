@@ -54,46 +54,46 @@ export function PhoneInput({ label, value, onChange, onCountryChange, required, 
 
   const callingCode = options.find((c) => c.code === country)?.callingCode ?? "";
 
+  // Bloque 114 (pedido explícito): país + código + número, en UN solo
+  // contenedor con un único borde (antes eran 3 cajas separadas) — se ve y
+  // se comporta como un solo campo, no tres.
+  // Bloque 115 (pedido explícito): ver Input.jsx — mismo asterisco de
+  // obligatorio, mismo criterio.
   return (
     <div className="block">
-      {label && <span className="mb-1 block text-label-md text-on-surface-variant">{label}</span>}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_84px_1fr]">
-        <label className="block">
-          <span className="mb-1 block text-label-sm text-outline sm:hidden">País</span>
-          <select
-            required={required}
-            value={country}
-            onChange={(e) => handleCountryChange(e.target.value)}
-            className={`w-full rounded border bg-surface-container-lowest px-2.5 py-2.5 text-body-md text-on-surface outline-none focus:border-primary-container ${error ? "border-error" : "border-outline-variant"}`}
-          >
-            {options.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-label-sm text-outline sm:hidden">Código</span>
-          {/* Nunca editable a mano — solo reacciona a la selección de país. */}
-          <input
-            readOnly
-            disabled
-            tabIndex={-1}
-            value={`+${callingCode}`}
-            className="w-full cursor-not-allowed rounded border border-outline-variant bg-surface-container px-2.5 py-2.5 text-center text-body-md text-on-surface-variant outline-none"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-label-sm text-outline sm:hidden">Número</span>
-          <input
-            required={required}
-            value={national}
-            onChange={(e) => handleNationalChange(e.target.value)}
-            placeholder={placeholder ?? "5XXXXXXX"}
-            className={`w-full rounded border bg-surface-container-lowest px-4 py-2.5 text-body-md text-on-surface outline-none focus:border-primary-container ${error ? "border-error" : "border-outline-variant"}`}
-          />
-        </label>
+      {label && (
+        <span className="mb-1 block text-label-md text-on-surface-variant">
+          {label}
+          {required && <span className="text-error"> *</span>}
+        </span>
+      )}
+      <div
+        className={`flex items-stretch overflow-hidden rounded border bg-surface-container-lowest focus-within:border-primary-container ${error ? "border-error" : "border-outline-variant"}`}
+      >
+        <select
+          required={required}
+          value={country}
+          onChange={(e) => handleCountryChange(e.target.value)}
+          aria-label="País"
+          className="max-w-[6.5rem] shrink-0 border-r border-outline-variant bg-transparent px-2 py-2.5 text-body-md text-on-surface outline-none sm:max-w-[9rem]"
+        >
+          {options.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <span className="flex shrink-0 select-none items-center border-r border-outline-variant px-2 text-body-md text-on-surface-variant">
+          +{callingCode}
+        </span>
+        <input
+          required={required}
+          value={national}
+          onChange={(e) => handleNationalChange(e.target.value)}
+          placeholder={placeholder ?? "5XXXXXXX"}
+          aria-label="Número"
+          className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-body-md text-on-surface outline-none"
+        />
       </div>
     </div>
   );

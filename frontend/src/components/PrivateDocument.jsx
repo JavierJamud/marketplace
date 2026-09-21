@@ -12,7 +12,10 @@ import { api } from "../lib/api.js";
 // verificación sirve sus propias fotos desde /admin/verification-archive,
 // no desde la VerificationRequest en curso — mismo componente, otro path).
 // `downloadable` (Bloque 72) agrega un botón real de descarga, no solo ver.
-export function PrivateDocument({ vendorId, type, label, Icon, available, endpoint, downloadable }) {
+// `kind` (Bloque 146, default "image"): "video" pinta un <video controls>
+// en vez de un <img> — mismo blob autenticado de siempre, el video de
+// liveness (CameraCapture.jsx) usa este mismo componente/endpoint.
+export function PrivateDocument({ vendorId, type, label, Icon, available, endpoint, downloadable, kind = "image" }) {
   const [url, setUrl] = useState(null);
   const [failed, setFailed] = useState(false);
 
@@ -32,7 +35,9 @@ export function PrivateDocument({ vendorId, type, label, Icon, available, endpoi
   return (
     <div className="overflow-hidden rounded-md border border-surface-container-high">
       <div className="relative flex h-[150px] items-center justify-center bg-[repeating-linear-gradient(45deg,#e4e2e3,#e4e2e3_10px,#eae7e9_10px,#eae7e9_20px)]">
-        {url ? (
+        {url && kind === "video" ? (
+          <video src={url} controls className="h-full w-full object-cover" />
+        ) : url ? (
           <img src={url} alt={label} className="h-full w-full object-cover" />
         ) : (
           <Icon className="h-8 w-8 text-outline" strokeWidth={1.6} />
@@ -40,7 +45,7 @@ export function PrivateDocument({ vendorId, type, label, Icon, available, endpoi
         {url && downloadable && (
           <a
             href={url}
-            download={`${label.replace(/\s+/g, "-").toLowerCase()}.jpg`}
+            download={`${label.replace(/\s+/g, "-").toLowerCase()}.${kind === "video" ? "webm" : "jpg"}`}
             title="Descargar"
             className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/70"
           >

@@ -73,7 +73,7 @@ function translateIssue(issue) {
         return issue.minimum <= 1 ? `${label}: campo obligatorio.` : `${label} debe tener al menos ${issue.minimum} caracteres.`;
       }
       if (issue.type === "number") return `${label} debe ser mayor o igual a ${issue.minimum}.`;
-      if (issue.type === "array") return `${label}: seleccioná al menos ${issue.minimum}.`;
+      if (issue.type === "array") return `${label}: selecciona al menos ${issue.minimum}.`;
       return `${label}: falta contenido.`;
     case "too_big":
       if (issue.type === "string") {
@@ -101,7 +101,7 @@ function formatZodError(zodError) {
   const messages = [...new Set(zodError.errors.map(translateIssue))];
   if (messages.length === 0) return "Datos inválidos.";
   if (messages.length === 1) return messages[0];
-  return `Revisá estos datos — ${messages.join(" ")}`;
+  return `Revisa estos datos — ${messages.join(" ")}`;
 }
 
 // Bloque 33: a qué "origen" de Admin > Errores cae un 5xx que llega hasta

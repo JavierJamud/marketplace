@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma.js";
 import { correctSearchQuery } from "../lib/ai.js";
 import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from "./products.controller.js";
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
+import { rankFeaturedProducts } from "../lib/productRanking.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
 // "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
@@ -27,7 +28,7 @@ const NAME_MATCH_LIMIT = 500;
 async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true
+    WHERE "isActive" = true AND "hiddenFromStore" = false
       AND regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')
           ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
     LIMIT ${limit}
@@ -38,7 +39,7 @@ async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
 async function findProductIdsByNameOrDescription(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true
+    WHERE "isActive" = true AND "hiddenFromStore" = false
       AND (
         regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')
           ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
@@ -53,7 +54,7 @@ async function findProductIdsByNameOrDescription(q, limit) {
 async function findProductIdsByTag(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true AND EXISTS (
+    WHERE "isActive" = true AND "hiddenFromStore" = false AND EXISTS (
       SELECT 1 FROM unnest(tags) AS t
       WHERE regexp_replace(unaccent(lower(t)), '[^a-z0-9]+', ' ', 'g')
             ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
@@ -141,6 +142,9 @@ export async function structuredSearch(req, res) {
   // filter se agrega aparte en cada intento.
   const baseWhere = {
     isActive: true,
+    // Bloque 157: "solo para pedido de mesa" — nunca aparece en Home ni en
+    // el catálogo, sin importar qué tan bien rankee.
+    hiddenFromStore: false,
     categoryId: categoryIds ? { in: categoryIds } : undefined,
     price: minPrice || maxPrice ? { gte: minPrice ? Number(minPrice) : undefined, lte: maxPrice ? Number(maxPrice) : undefined } : undefined,
     paymentMethods: paymentMethods?.length ? { hasSome: paymentMethods } : undefined,
@@ -186,7 +190,11 @@ export async function structuredSearch(req, res) {
   let products;
   const cleanQ = q ? String(q).trim() : "";
   if (!cleanQ) {
-    products = await prisma.product.findMany({ where: baseWhere, include: includeOpts, take: 60, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }] });
+    // Bloque 98: el pool candidato sube de 60 a 300 — el orden real ya no lo
+    // decide este orderBy (queda solo como criterio de qué candidatos
+    // entran cuando hay más de 300 que calzan el filtro), lo decide
+    // rankFeaturedProducts más abajo con el catálogo completo disponible.
+    products = await prisma.product.findMany({ where: baseWhere, include: includeOpts, take: 300, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }] });
   } else {
     // Intento 1: literal, sin importar mayúsculas/tildes.
     products = await fetchByIds(await findProductIdsByName(cleanQ));
@@ -224,9 +232,27 @@ export async function structuredSearch(req, res) {
     const ratingByProduct = Object.fromEntries(agg.map((a) => [a.productId, a._avg.rating ?? 0]));
     products = [...products].sort((a, b) => (ratingByProduct[b.id] ?? 0) - (ratingByProduct[a.id] ?? 0));
   }
-  // Relevancia (default): tiendas verificadas primero, luego lo ya ordenado arriba.
+  // Bloque 98 (pedido explícito): "relevancia" (default, y lo que alimenta
+  // "Destacados" de la Home cuando no hay texto de búsqueda) deja de ser
+  // solo "tiendas verificadas primero" — ahora es el score compuesto real
+  // de lib/productRanking.js (ventas confirmadas, clics, clics desde
+  // búsqueda, tiempo promedio en la página, completitud del contenido y
+  // calificación, con piso de calidad — nunca promueve algo de mala
+  // calidad, más estricto todavía si la tienda no está verificada). Se
+  // recorta a 60 DESPUÉS de rankear, no antes — con el pool de 300 de
+  // arriba, un producto viejo con buen desempeño real no queda afuera solo
+  // por no ser de los 60 más recientes.
   if (!sort || sort === "relevance") {
-    products = [...products].sort((a, b) => (b.vendor.verificationStatus === "VERIFIED" ? 1 : 0) - (a.vendor.verificationStatus === "VERIFIED" ? 1 : 0));
+    const reviewAgg = await prisma.review.groupBy({
+      by: ["productId"],
+      where: { productId: { in: products.map((p) => p.id) }, rating: { not: null } },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+    const reviewStatsByProductId = new Map(
+      reviewAgg.map((a) => [a.productId, { avgRating: a._avg.rating ?? 0, reviewCount: a._count.rating }])
+    );
+    products = rankFeaturedProducts(products, reviewStatsByProductId).slice(0, 60);
   }
 
   // Si no hay resultados en la provincia elegida, sugerí provincias vecinas
@@ -291,7 +317,7 @@ export async function autocompleteSearch(req, res) {
     isBlocked: false,
     status: "ACTIVE",
     isPrivate: false,
-    products: { some: { isActive: true } },
+    products: { some: { isActive: true, hiddenFromStore: false } },
     ...(onlyVerified ? { verificationStatus: "VERIFIED" } : {}),
   };
 

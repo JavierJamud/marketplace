@@ -40,6 +40,18 @@ const CATALOG_SEARCH_POOL = 60;
 // para extraer términos de búsqueda reales de un mensaje conversacional —
 // duplicado a propósito acá (mismo criterio de todo este proyecto: los dos
 // bots son hermanos independientes, sin importar uno del otro).
+// Bloque 43 (bug real reportado en vivo: el cliente preguntó "¿qué tengo en
+// el carrito?" y el bot dijo que estaba vacío, con productos reales adentro):
+// "carrito"/"cesta" NO estaban acá — con un catálogo grande (>60 productos),
+// resolveCatalogSearchTerms las tomaba como término de búsqueda real, y como
+// ningún producto real se llama "carrito", searchVendorProductIdsByTerms
+// devolvía 0 resultados → catalogText([], ...) → "(Sin productos
+// publicados.)" → el modelo se quedaba SIN NINGÚN dato del carrito en el
+// prompt (ni siquiera la anotación "ya tiene X" por producto) y alucinó que
+// estaba vacío. Ver también cartText() más abajo — el fix real es que ahora
+// el carrito se resuelve SIEMPRE por su cuenta, sin depender de la búsqueda
+// de catálogo, pero estas palabras igual no tienen nada que hacer como
+// término de búsqueda de producto.
 const STOPWORDS = new Set([
   "busco", "necesito", "quiero", "quisiera", "estoy", "buscando", "buscar", "buscas", "buscá", "encontrar",
   "encuentro", "mostrar", "mostrame", "mostrarme", "muestrame", "muéstrame", "listar", "ver", "dame", "dime",
@@ -50,6 +62,7 @@ const STOPWORDS = new Set([
   "para", "por", "que", "qué", "con", "sin", "y", "o", "en", "al", "es", "son", "me", "te", "se", "mi", "tu", "este", "esta",
   "cual", "cuál", "cuales", "cuáles", "como", "cómo", "donde", "dónde", "cuando", "cuándo", "quien", "quién",
   "estan", "están", "esta", "está", "eres", "sos", "puedo", "puede", "pueden", "podria", "podría", "hace", "hacen",
+  "carrito", "carro", "cesta", "cesto",
 ]);
 
 function extractSearchTerms(rawText) {
@@ -163,13 +176,13 @@ const DAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Vierne
 // Bloque 30: mismas etiquetas que STATUS_LABEL de VendorOrders.jsx — el
 // cliente ve el mismo lenguaje que el vendedor usa en su panel para el
 // mismo estado real, nunca una traducción distinta inventada acá.
-const ORDER_STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido/Confirmado", READY: "Listo", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
+const ORDER_STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido/Confirmado", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
 
 // Bloque 39 (Parte 2): "message"/"history" ya no son opcionales — hacen
 // falta para decidir QUÉ buscar cuando el catálogo es grande (ver abajo).
 // Catálogos chicos (<= CATALOG_FULL_DUMP_THRESHOLD) siguen recibiendo el
 // volcado completo de siempre, sin este paso extra.
-async function loadVendorForChat(vendorId, message, history) {
+async function loadVendorForChat(vendorId, message, history, cartQuantities) {
   const vendor = await prisma.vendor.findUnique({
     where: { id: vendorId },
     include: {
@@ -217,11 +230,33 @@ async function loadVendorForChat(vendorId, message, history) {
     }
   }
 
+  // Bloque 43 (bug real reportado en vivo — ver el comentario largo en
+  // STOPWORDS): "products" de arriba es el catálogo que se le MUESTRA al
+  // modelo para la conversación (destacados, resultado de búsqueda, o el
+  // volcado completo) — pero el carrito del cliente es un dato DISTINTO,
+  // que tiene que estar SIEMPRE, sin importar si el producto cayó dentro de
+  // ese recorte o no (ej.: catálogo grande, el cliente buscó "zapatos" pero
+  // tiene una "camisa" en el carrito de una charla anterior — la búsqueda
+  // por "zapatos" nunca la iba a traer). Sin esto, cartText() más abajo
+  // podía toparse con un productId del carrito que no está en "products" y
+  // no tener nombre/precio para mostrarlo.
+  const cartProductIds = Object.entries(cartQuantities ?? {})
+    .filter(([, qty]) => qty > 0)
+    .map(([id]) => id);
+  const missingCartIds = cartProductIds.filter((id) => !products.some((p) => p.id === id));
+  if (missingCartIds.length) {
+    const missingProducts = await prisma.product.findMany({
+      where: { id: { in: missingCartIds }, vendorId },
+      select: PRODUCT_SELECT_FIELDS,
+    });
+    products = [...missingProducts, ...products];
+  }
+
   return { ...vendor, products };
 }
 
 function scheduleText(schedules) {
-  if (!schedules?.length) return "Horario: no cargado en el sistema — si preguntan, sugerí confirmar por WhatsApp.";
+  if (!schedules?.length) return "Horario: no cargado en el sistema — si preguntan, sugiere confirmar por WhatsApp.";
   const byDay = new Map(schedules.map((s) => [s.dayOfWeek, s]));
   const lines = DAY_NAMES.map((name, i) => {
     const s = byDay.get(i);
@@ -238,7 +273,7 @@ function locationText(locations) {
 }
 
 function paymentMethodsText(ids) {
-  if (!ids?.length) return "Métodos de pago: no cargados en el sistema — si preguntan, sugerí confirmar por WhatsApp.";
+  if (!ids?.length) return "Métodos de pago: no cargados en el sistema — si preguntan, sugiere confirmar por WhatsApp.";
   return `Métodos de pago que acepta: ${ids.map((id) => PAYMENT_METHOD_LABELS[id] ?? id).join(", ")}`;
 }
 
@@ -264,17 +299,34 @@ function messageNeedsDocument(message) {
 }
 
 // Campos deliberadamente acotados: código, estado, fecha, ítems y total —
-// nunca teléfono ni dirección de envío. El chat de una tienda no requiere
-// login, así que cualquiera puede escribir un email/código ajeno; esto
-// limita qué se puede llegar a filtrar sobre otra persona a lo mínimo
-// (nunca datos de contacto), aunque el brief no lo pida explícito.
-async function lookupOrderContext(vendorId, message) {
-  const emailMatch = message.match(EMAIL_REGEX);
+// nunca teléfono ni dirección de envío.
+//
+// Bloque 184 (auditoría de seguridad — mismo hallazgo que en
+// assistant.controller.js, acá con MÁS datos en juego porque este bot sí
+// enumera los productos): el chat de tienda es público, y antes alcanzaba
+// con escribir el correo de otra persona para que el bot recitara sus
+// pedidos en esta tienda, con nombre y cantidad de cada producto. Acotar los
+// campos no alcanzaba: ahora un email solo consulta si es el de la propia
+// sesión, y un invitado únicamente puede identificarse con el código del
+// pedido (el dato secreto que le llegó por correo).
+async function lookupOrderContext(vendorId, message, userId) {
   const codeMatch = message.match(ORDER_CODE_REGEX);
-  if (!emailMatch && !codeMatch) return null;
+  const typedEmail = message.match(EMAIL_REGEX)?.[0]?.toLowerCase() ?? null;
+
+  let ownEmail = null;
+  if (userId && typedEmail) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    ownEmail = user?.email?.trim().toLowerCase() ?? null;
+  }
+  const email = typedEmail && typedEmail === ownEmail ? typedEmail : null;
+
+  if (typedEmail && !email && !codeMatch) {
+    return `CONSULTA DE PEDIDO: el cliente escribió un correo que NO es el de la sesión con la que está hablando, así que no se consultó nada — los pedidos de otra persona no se muestran nunca. Pedile amablemente que inicie sesión con ese correo y revise "Mis Pedidos", o que te pase el número de pedido (formato Z-XXXX) que le llegó por correo. No inventes ningún estado.`;
+  }
+  if (!email && !codeMatch) return null;
 
   const or = [];
-  if (emailMatch) or.push({ customerEmail: { equals: emailMatch[0], mode: "insensitive" } });
+  if (email) or.push({ customerEmail: { equals: email, mode: "insensitive" } });
   if (codeMatch) or.push({ code: { equals: codeMatch[0].toUpperCase() } });
 
   const orders = await prisma.order.findMany({
@@ -285,7 +337,7 @@ async function lookupOrderContext(vendorId, message) {
   });
 
   if (orders.length === 0) {
-    return `CONSULTA DE PEDIDO: el cliente preguntó por un pedido (email/número "${emailMatch?.[0] ?? codeMatch[0]}") pero NO se encontró ningún pedido con ese dato en esta tienda. Decilo claramente — nunca inventes un estado ni asumas que existe.`;
+    return `CONSULTA DE PEDIDO: el cliente preguntó por un pedido (email/número "${email ?? codeMatch[0]}") pero NO se encontró ningún pedido con ese dato en esta tienda. Dilo claramente — nunca inventes un estado ni asumas que existe.`;
   }
 
   const lines = orders.map(
@@ -304,7 +356,9 @@ function resolveOptionalUserId(req) {
   const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
   if (!token) return null;
   try {
-    return jwt.verify(token, env.jwtSecret).sub;
+    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
+    // el algoritmo esperado en vez de confiar en el "alg" del propio token.
+    return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }).sub;
   } catch {
     return null;
   }
@@ -367,6 +421,32 @@ async function buildPurchaseHistoryContext(vendorId, userId) {
 // del bot prometa algo que no va a pasar — este cambio ataca el problema en
 // el origen, dándole al modelo el número correcto para razonar y para que
 // su propia respuesta ya sea precisa.
+// Bloque 43 (bug real reportado en vivo: cliente con productos reales en el
+// carrito, el bot dijo que estaba vacío): antes, la ÚNICA señal del carrito
+// que veía el modelo era la anotación "ya tiene X en el carrito" enterrada
+// dentro de la línea de CADA producto del catálogo (ver catalogText) — sin
+// ningún resumen agregado, y sin ninguna regla en REGLAS que le dijera qué
+// hacer con esos datos dispersos si preguntaban directo "¿qué tengo en el
+// carrito?". Un modelo chico (Groq 8B) no ata cabos solo de forma
+// confiable — mismo patrón ya resuelto para pedidos (CONSULTA DE PEDIDO) e
+// historial de compras (HISTORIAL DE COMPRAS): un bloque EXPLÍCITO,
+// dedicado, con la respuesta ya armada, en vez de esperar que el modelo la
+// infiera. products acá ya viene garantizado por loadVendorForChat para
+// incluir todo lo que haya en cartQuantities, así que nunca falta un
+// nombre/precio.
+function cartText(products, cartQuantities) {
+  const lines = Object.entries(cartQuantities ?? {})
+    .filter(([, qty]) => qty > 0)
+    .map(([productId, qty]) => {
+      const p = products.find((prod) => prod.id === productId);
+      if (!p) return null;
+      return `${qty}x ${p.name} (${fmtCUP(p.price)} c/u, subtotal ${fmtCUP(p.price * qty)})`;
+    })
+    .filter(Boolean);
+  if (!lines.length) return "TU CARRITO ACTUAL (en esta tienda): vacío — no tiene ningún producto agregado ahora mismo.";
+  return `TU CARRITO ACTUAL (en esta tienda, dato real y actual — única fuente de verdad, nunca lo contradigas):\n${lines.join("\n")}`;
+}
+
 function catalogText(products, cartQuantities) {
   if (!products.length) return "(Sin productos publicados.)";
   return products
@@ -423,7 +503,9 @@ async function buildSystemParts(vendor, cartQuantities, orderContext, purchaseHi
       // un hecho falso verificable". Subir este bloque a lo PRIMERO que lee
       // el modelo (antes que nada más) mejoró la adherencia en las pruebas
       // — un modelo chico le presta más atención a lo que lee primero.
-      text: `${orderContext ? `${orderContext}\n\n` : ""}${purchaseHistoryContext ? `${purchaseHistoryContext}\n\n` : ""}Eres el asistente de "${vendor.companyName}" (tienda verificada en ${siteName}, Cuba). ${vendor.description ?? ""}
+      // Bloque 43: mismo criterio para el carrito — TU CARRITO ACTUAL va acá
+      // arriba de todo, no enterrado en el catálogo (ver cartText).
+      text: `${cartText(vendor.products, cartQuantities)}\n\n${orderContext ? `${orderContext}\n\n` : ""}${purchaseHistoryContext ? `${purchaseHistoryContext}\n\n` : ""}Eres el asistente de "${vendor.companyName}" (tienda verificada en ${siteName}, Cuba). ${vendor.description ?? ""}
 
 DATOS DEL NEGOCIO (única fuente — nunca inventes ni cambies nada):
 ${scheduleText(vendor.schedules)}
@@ -453,6 +535,7 @@ REGLAS:
 - Venta natural: sugiere lo relacionado o con descuento (oldPrice = precio anterior) cuando aplique, sin forzar en cada mensaje — nunca para un producto agotado (ver regla de arriba).
 - Nunca digas "ya lo agregué", "ya está en tu carrito", "ya lo saqué" ni "ya vacié el carrito" — ninguna forma de pasado para una acción de carrito, esa confirmación la da la interfaz, no tú. Si el cliente pide agregar/sacar/vaciar, habla en presente/futuro ("te lo agrego ahora", "dale, lo saco", "listo, vacío el carrito") y usa "addToCart"/"removeFromCart"/"clearCart" (abajo) según corresponda — texto y acción SIEMPRE juntos, nunca uno sin el otro.
 - ACCIONES DE CARRITO (bug real ya visto: el cliente pidió vaciar el carrito, el bot dijo que sí pero el carrito real no cambió): "removeFromCart" y "clearCart" son las ÚNICAS formas reales de sacar/vaciar el carrito — decir "listo, lo saqué" o "ya está vacío" SIN incluir la acción correspondiente en el JSON no hace nada de verdad, el carrito real del cliente queda intacto. Si pide sacar un producto puntual del carrito, usa "removeFromCart" con su número de catálogo. Si pide vaciar/borrar TODO el carrito ("vacía el carrito", "borra todo", "empezar de cero"), usa "clearCart": true. Nunca uses estas acciones por iniciativa propia, solo cuando el cliente lo pida explícito.
+- CONTENIDO DEL CARRITO (bug real reportado en vivo: el cliente tenía productos reales en el carrito y el bot dijo que estaba vacío): si preguntan qué tienen en el carrito, cuánto llevan, o piden un resumen/total de lo que van a pagar, la ÚNICA fuente de verdad es "TU CARRITO ACTUAL" al principio de este mensaje — nunca lo que dijiste en un turno anterior, nunca el catálogo de abajo por su cuenta. Si ahí lista productos, dilos tal cual (nombre, cantidad, subtotal si preguntan) — NUNCA digas "está vacío" ni "no tienes nada" si esa lista tiene al menos un producto. Si dice "vacío", dilo así de claro — nunca inventes contenido que no está ahí.
 - STOCK ESTRICTO: nunca ofrezcas ni agregues más de "disponible para agregar" de un producto (ya descuenta el carrito actual). Si piden más de lo disponible, o agregas exactamente la cantidad máxima disponible aclarándolo en el texto ("solo tengo 2, te agrego esas 2"), o no agregas nada y explicas cuánto hay — nunca digas una cantidad y agregues otra. Si "disponible para agregar" es 0 (por AGOTADO o porque ya tiene todo el stock en el carrito), nunca uses addToCart para ese producto, y en "text" dilo así, SIN decir que lo vas a agregar: "Solo queda 1 unidad disponible y ya la tienes en el carrito — no puedo agregar más." Nunca digas "te lo agrego" si "disponible para agregar" es 0 o si pidieron más de lo que hay.
 - Si preguntan por el estado de un pedido (por email o número de confirmación): si arriba de todo aparece "CONSULTA DE PEDIDO", ESE es el resultado real y actual de esa búsqueda — úsalo tal cual, nunca digas "no encontré" si ahí hay pedido(s) listados, y nunca digas que encontraste algo si ahí dice que no hay nada. Si NO aparece "CONSULTA DE PEDIDO" arriba y preguntan por un pedido, pide el email o número de confirmación para buscarlo (tú no puedes inventar ese resultado).
 
@@ -547,7 +630,7 @@ export async function postChatMessage(req, res) {
   // loadVendorForChat se llamaba primero y no tenía ninguno de los dos) —
   // hacen falta para decidir la búsqueda real en catálogos grandes en vez
   // de volcar siempre los últimos N productos (ver dentro de la función).
-  const vendor = await loadVendorForChat(vendorId, message, history);
+  const vendor = await loadVendorForChat(vendorId, message, history, cartQuantities);
 
   await prisma.chatMessage.create({ data: { vendorId, sessionId, role: "user", content: message } });
 
@@ -566,8 +649,15 @@ export async function postChatMessage(req, res) {
   // texto — no hace falta ninguna lógica especial de reintento acá.
   let rawText, productIds, addToCart, removeFromCart, clearCart, suggestedFollowUps;
   try {
-    const orderContext = await lookupOrderContext(vendorId, message);
-    const purchaseHistoryContext = await buildPurchaseHistoryContext(vendorId, userId);
+    // Bloque 83 (pedido explícito de mejorar tiempo de respuesta): estas 2
+    // consultas son independientes entre sí (una mira pedidos por
+    // email/código en el mensaje, la otra el historial de compras del
+    // cliente logueado) — corrían una detrás de la otra sin ninguna razón,
+    // sumando su latencia en vez de superponerse.
+    const [orderContext, purchaseHistoryContext] = await Promise.all([
+      lookupOrderContext(vendorId, message, userId),
+      buildPurchaseHistoryContext(vendorId, userId),
+    ]);
     const systemParts = await buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext, message);
     ({ text: rawText, productIds, addToCart, removeFromCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
   } catch (err) {

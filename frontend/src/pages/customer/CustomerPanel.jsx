@@ -15,6 +15,8 @@ import { StoreCard } from "../../components/StoreCard.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { formatPrice } from "../../lib/format.js";
+import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
+import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -22,7 +24,7 @@ function fmtCUP(n) {
 
 // Mismos labels/colores que VendorOrders.jsx para consistencia visual, sin
 // los controles de gestión (ese panel es del vendedor, este es de lectura).
-const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "Listo", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
+const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#0A8F42", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
 const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
@@ -73,6 +75,7 @@ export default function CustomerPanel() {
     queryKey: ["my-customer-orders"],
     queryFn: async () => (await api.get("/customers/me/orders")).data.orders,
     enabled: !!user,
+    refetchInterval: tab === "orders" ? 8000 : false,
   });
 
   const { data: provinces } = useQuery({
@@ -162,7 +165,7 @@ export default function CustomerPanel() {
       setSavedListing(listing);
       setEditingListing(listing);
       queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
-      toast.success(editingListing ? "Anuncio actualizado." : "Anuncio creado — ahora subí al menos una foto.");
+      toast.success(editingListing ? "Anuncio actualizado." : "Anuncio creado — ahora sube al menos una foto.");
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el anuncio."),
   });
@@ -249,6 +252,14 @@ export default function CustomerPanel() {
     navigate(loginPathFor(location.pathname), { replace: true });
   }
 
+  // Bloque 211 (pedido explícito — auto-eliminación de cuenta, 30 días de
+  // gracia): tapa TODO el panel real mientras dure el período de gracia,
+  // con un botón para reactivar — mismo criterio que el gate de
+  // isBlocked/SUSPENDED en VendorLayout.jsx.
+  if (user?.deletionRequestedAt) {
+    return <AccountPendingDeletionNotice scheduledFor={deletionScheduledFor(user.deletionRequestedAt)} onLogout={handleLogout} />;
+  }
+
   return (
     <div className="container-app grid grid-cols-1 gap-8 py-9 lg:grid-cols-[250px_1fr] lg:items-start">
       {/* SIDEBAR */}
@@ -315,6 +326,14 @@ export default function CustomerPanel() {
                       {STATUS_LABEL[o.status]}
                     </span>
                   </div>
+                  {/* Bloque 197 (pedido explícito — "cuando un pedido es
+                      cancelado y el vendedor pone el motivo, ese motivo
+                      debe mostrarse al cliente en su página"): mismo
+                      criterio que la mesa (TableOrder.cancelReason) —
+                      ahora Order también lo guarda y lo devuelve. */}
+                  {o.status === "CANCELLED" && o.cancelReason && (
+                    <div className="mt-3 rounded-md bg-error/5 px-3 py-2 text-[12.5px] text-error">{o.cancelReason}</div>
+                  )}
                   <div className="mt-3 flex flex-col gap-1 border-t border-surface-container pt-3">
                     {o.items.map((it) => (
                       <div key={it.id} className="flex justify-between text-[12.5px] text-on-surface-variant">
@@ -335,7 +354,7 @@ export default function CustomerPanel() {
               <div>
                 <h1 className="font-display text-headline-md text-on-surface">Venta rápida</h1>
                 <p className="mt-1 text-[13px] text-on-surface-variant">
-                  Publicá hasta {MAX_LISTINGS} productos para vender sin abrir una tienda. Los compradores te piden por WhatsApp. Cada anuncio dura 30 días.
+                  Publica hasta {MAX_LISTINGS} productos para vender sin abrir una tienda. Los compradores te piden por WhatsApp. Cada anuncio dura 30 días.
                 </p>
               </div>
               <Button onClick={openCreateListing} disabled={(listings?.length ?? 0) >= MAX_LISTINGS}>
@@ -353,14 +372,14 @@ export default function CustomerPanel() {
                   <p className="mb-2 text-[13px] text-on-surface-variant">Un cliente dijo: "{r.message}"</p>
                   {r.evidenceDueAt && (
                     <p className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold text-error">
-                      <Clock className="h-3.5 w-3.5" /> Tenés hasta el {new Date(r.evidenceDueAt).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" })} para responder o se suspende automáticamente.
+                      <Clock className="h-3.5 w-3.5" /> Tienes hasta el {new Date(r.evidenceDueAt).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" })} para responder o se suspende automáticamente.
                     </p>
                   )}
                   <textarea
                     value={draft.message}
                     onChange={(e) => updateEvidenceDraft(r.id, { message: e.target.value })}
                     rows={3}
-                    placeholder="Explicá que tu producto es real (mínimo 10 caracteres)..."
+                    placeholder="Explica que tu producto es real (mínimo 10 caracteres)..."
                     className="mb-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent"
                   />
                   <div className="flex flex-wrap items-center gap-2">
@@ -377,7 +396,7 @@ export default function CustomerPanel() {
                     </label>
                     <button
                       onClick={() => {
-                        if (draft.message.trim().length < 10) return toast.error("Contanos qué pasó (mínimo 10 caracteres).");
+                        if (draft.message.trim().length < 10) return toast.error("Cuéntanos qué pasó (mínimo 10 caracteres).");
                         submitListingEvidence.mutate({ id: r.id, message: draft.message.trim(), files: draft.files });
                       }}
                       disabled={submitListingEvidence.isPending}
@@ -467,7 +486,7 @@ export default function CustomerPanel() {
                       <textarea
                         value={listingForm.description}
                         onChange={(e) => setListingForm({ ...listingForm, description: e.target.value })}
-                        placeholder="Contale al comprador qué es, el estado, etc. (mínimo 10 caracteres)"
+                        placeholder="Cuéntale al comprador qué es, el estado, etc. (mínimo 10 caracteres)"
                         className="min-h-[80px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
                       />
                     </div>
@@ -529,7 +548,7 @@ export default function CustomerPanel() {
                           </p>
                         </>
                       ) : (
-                        <p className="text-label-sm text-outline">Guardá el anuncio primero para poder subirle fotos.</p>
+                        <p className="text-label-sm text-outline">Guarda el anuncio primero para poder subirle fotos.</p>
                       )}
                     </div>
 
@@ -694,6 +713,10 @@ export default function CustomerPanel() {
             </div>
 
             {changingEmail && <ChangeEmailModal currentEmail={customer?.email} onClose={() => setChangingEmail(false)} />}
+
+            <div className="mt-5 max-w-[480px]">
+              <DeleteAccountCard />
+            </div>
           </div>
         )}
       </div>

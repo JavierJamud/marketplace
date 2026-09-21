@@ -125,14 +125,54 @@ async function withMinDelay(fn) {
   }
 }
 
-const emptyRegisterForm = { fullName: "", email: "", phone: "", country: "CU", password: "", confirmPassword: "" };
+// Bloque 114 (pedido explícito): "Nombre completo" se separa en Nombre +
+// Apellidos (se concatenan recién al mandar el registro, ver
+// buildRegisterPayload — el backend sigue guardando un solo fullName, no
+// hace falta duplicar la columna). país/provincia/municipio DE LA PERSONA
+// (dónde vive) solo aplica al CLIENTE (ver step === 3 más abajo) —
+// registrationCountryId (del catálogo real del admin) O
+// registrationCountryOther (texto libre, si su país todavía no está
+// cargado); con Cuba, provinceId/municipalityId (catálogo); con cualquier
+// otro país real, stateOther/address (texto libre — el admin ya no necesita
+// cargar provincias/estados de otros países para que el registro funcione).
+const emptyRegisterForm = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  country: "CU",
+  password: "",
+  confirmPassword: "",
+  registrationCountryId: "",
+  registrationCountryOther: "",
+  provinceId: "",
+  municipalityId: "",
+  stateOther: "",
+  address: "",
+};
+// Bloque 113/114: ownerName/storeEmail/whatsapp se sacan de acá — pedido
+// explícito de no repetir lo que la persona ya cargó en el paso 1
+// (firstName+lastName/email/phone respectivos) — ver handleVerifyRegistration,
+// que arma el POST /vendors con esos valores de `form`, no de `storeForm`.
+// countryId/provinceId/municipalityId/stateOther son la ubicación REAL de la
+// tienda (dónde presta servicio) — con Cuba, provincia+municipio del
+// catálogo; con cualquier otro país real, estado de texto libre +
+// companyAddress como dirección. Nunca admite "otro país" (la tienda tiene
+// que poder listarse/entregarse en un lugar real del catálogo). Bloque 114
+// (pedido explícito): este es ahora el ÚNICO lugar donde un vendedor elige
+// su ubicación — ya no hay un paso previo separado de "tu ubicación como
+// persona" (redundante con esta), esta misma respuesta se manda también
+// como la ubicación de registro de la persona (ver buildRegisterPayload).
 const emptyStoreForm = {
   companyName: "",
-  ownerName: "",
   description: "",
-  whatsapp: "",
-  storeEmail: "",
+  countryId: "",
   provinceId: "",
+  municipalityId: "",
+  stateOther: "",
+  // Solo obligatoria si el país elegido no es Cuba (ver isStoreCuba) — "el
+  // país, el estado y la dirección" tal cual se pidió.
+  companyAddress: "",
   businessCategoryId: "",
   isRestaurant: false,
   tableCount: "",
@@ -181,13 +221,58 @@ export default function Account({ mode = "customer" }) {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const isLogin = view === "login";
-  const totalSteps = accountType === "vendor" ? 3 : 2;
+  // Bloque 114 (pedido explícito): 3 pasos para los dos tipos de cuenta — el
+  // paso 3 del vendedor ("configuración de la tienda") reemplaza de una a
+  // los 2 pasos que había antes (ubicación de la persona + datos de la
+  // tienda, redundantes entre sí); el del cliente sigue siendo su propia
+  // ubicación.
+  const totalSteps = 3;
 
-  // Bloque 20: siempre habilitada (no solo para el paso 3 de vendedor) — el
+  // Bloque 20: siempre habilitada (no solo para el paso de ubicación) — el
   // panel de marca usa provinces.length como stat real de "provincias".
   const { data: provinces } = useQuery({
     queryKey: ["provinces"],
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
+  });
+
+  // Bloque 113/114: mismo patrón de selects en cascada país → provincia →
+  // municipio que ya usa VendorVerification.jsx/VendorSettings.jsx — acá
+  // sirve a la vez para la ubicación de la PERSONA (form.*, solo cliente) y
+  // la de la TIENDA (storeForm.*, solo vendedor). `?all=true` (a diferencia
+  // de esos otros 2 usos) trae TODOS los países activos del admin, tengan o
+  // no provincias/estados cargados — acá un país sin ninguna sigue siendo
+  // elegible porque fuera de Cuba el estado/dirección se escriben a mano
+  // (nunca se elige de un select vacío, callejón sin salida real reportado
+  // en vivo: con España/Estados Unidos recién agregados sin subdivisiones,
+  // el selector viejo solo mostraba Cuba).
+  const { data: countries = [] } = useQuery({
+    queryKey: ["active-countries-all"],
+    queryFn: async () => (await api.get("/locations/countries?all=true")).data.countries,
+    enabled: !isLogin,
+  });
+  const personCountry = countries.find((c) => c.id === form.registrationCountryId);
+  const isPersonCuba = personCountry?.code === "CU";
+  const { data: provincesForPersonCountry = [] } = useQuery({
+    queryKey: ["provinces-for-country", form.registrationCountryId],
+    queryFn: async () => (await api.get(`/locations/countries/${form.registrationCountryId}/provinces`)).data.provinces,
+    enabled: !!form.registrationCountryId && isPersonCuba,
+  });
+  const { data: municipalitiesForPersonProvince = [] } = useQuery({
+    queryKey: ["municipalities-for-province", form.provinceId],
+    queryFn: async () => (await api.get(`/locations/provinces/${form.provinceId}/municipalities`)).data.municipalities,
+    enabled: !!form.provinceId && isPersonCuba,
+  });
+  const storeCountry = countries.find((c) => c.id === storeForm.countryId);
+  const isStoreCuba = storeCountry?.code === "CU";
+  const { data: provincesForStoreCountry = [] } = useQuery({
+    queryKey: ["provinces-for-country", storeForm.countryId],
+    queryFn: async () => (await api.get(`/locations/countries/${storeForm.countryId}/provinces`)).data.provinces,
+    enabled: !!storeForm.countryId && isStoreCuba,
+  });
+  const { data: municipalitiesForStoreProvince = [] } = useQuery({
+    queryKey: ["municipalities-for-province", storeForm.provinceId],
+    queryFn: async () => (await api.get(`/locations/provinces/${storeForm.provinceId}/municipalities`)).data.municipalities,
+    enabled: !!storeForm.provinceId && isStoreCuba,
   });
 
   // Bloque 18: rubro obligatorio de la tienda.
@@ -197,15 +282,6 @@ export default function Account({ mode = "customer" }) {
     enabled: !isLogin && accountType === "vendor",
   });
   const selectedBusinessCategory = businessCategories?.find((c) => c.id === storeForm.businessCategoryId);
-
-  // Prellena el correo de la tienda con el correo personal recién cargado en
-  // el paso 1 — el usuario puede reusarlo o cambiarlo antes de enviar.
-  useEffect(() => {
-    if (step === 3 && !storeForm.storeEmail) {
-      setStoreForm((s) => ({ ...s, storeEmail: form.email }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
 
   function switchView(next) {
     setView(next);
@@ -220,9 +296,12 @@ export default function Account({ mode = "customer" }) {
   const nextPath = searchParams.get("next");
   const isSafeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//");
 
+  // Bloque 183: un usuario de sistema (VENDOR_STAFF) entra por la MISMA
+  // puerta que el dueño — mismo destino /vendedor (VendorLayout.jsx decide
+  // qué ve adentro según su rol/secciones, nunca esto de acá).
   function destinationAfterLogin(role) {
     if (role === "CUSTOMER" && isSafeNextPath) return nextPath;
-    return role === "ADMIN" ? "/admin" : role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
+    return role === "ADMIN" ? "/admin" : role === "VENDOR" || role === "VENDOR_STAFF" ? "/vendedor" : "/cuenta/panel";
   }
 
   // /cuenta (mode="customer") acepta cualquier rol (comportamiento de
@@ -230,7 +309,7 @@ export default function Account({ mode = "customer" }) {
   // devuelto coincida con la URL usada.
   function roleAllowedForMode(role) {
     if (mode === "admin") return role === "ADMIN";
-    if (mode === "vendor") return role === "VENDOR";
+    if (mode === "vendor") return role === "VENDOR" || role === "VENDOR_STAFF";
     return true;
   }
 
@@ -246,7 +325,21 @@ export default function Account({ mode = "customer" }) {
           setTwoFactorEmail(result.email);
           setTwoFactorCode("");
           setView("two-factor");
-          toast.success("Te mandamos un código a tu correo.");
+          toast.success("Te enviamos un código a tu correo.");
+          return;
+        }
+        // Bloque 183 (pedido explícito — primer ingreso de un usuario de
+        // sistema sin contraseña todavía: "el sistema automáticamente
+        // detecte... se le enviará un código... podrá ingresar su nueva
+        // contraseña dos veces"): el backend YA mandó el código en esta
+        // misma llamada (login() reusa forgotPassword internamente) — se
+        // salta derecho a "forgot-code" (nunca a "forgot-email", que
+        // volvería a pedir un correo que ya tenemos) con ese mismo correo.
+        if (result?.requiresPasswordSetup) {
+          setResetEmail(result.email);
+          setResetCode("");
+          setView("forgot-code");
+          toast.success("Es tu primera vez por acá — te mandamos un código para crear tu contraseña.");
           return;
         }
         // login() ya emitió tokens y seteó el user antes de que podamos
@@ -303,23 +396,112 @@ export default function Account({ mode = "customer" }) {
     handleFinalSubmit();
   }
 
+  // Bloque 114 (pedido explícito): arma el payload de POST /auth/register
+  // según el tipo de cuenta — el cliente manda SU propia ubicación
+  // (form.*, admite "otro país"); el vendedor manda la ubicación de SU
+  // TIENDA como si fuera la de la persona (storeForm.*, nunca "otro país")
+  // en vez de preguntarla dos veces. `fullName` se arma acá, uniendo
+  // Nombre+Apellidos — el backend sigue guardando un solo campo.
+  function buildRegisterPayload() {
+    const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
+    const base = { email: form.email, password: form.password, fullName, phone: form.phone, country: form.country };
+    if (accountType === "vendor") {
+      return {
+        ...base,
+        registrationCountryId: storeForm.countryId || undefined,
+        provinceId: storeForm.provinceId || undefined,
+        municipalityId: storeForm.municipalityId || undefined,
+        stateOther: storeForm.stateOther.trim() || undefined,
+        address: storeForm.companyAddress.trim() || undefined,
+      };
+    }
+    return {
+      ...base,
+      registrationCountryId: form.registrationCountryId || undefined,
+      registrationCountryOther: form.registrationCountryOther.trim() || undefined,
+      provinceId: form.provinceId || undefined,
+      municipalityId: form.municipalityId || undefined,
+      stateOther: form.stateOther.trim() || undefined,
+      address: form.address.trim() || undefined,
+    };
+  }
+
   // Bloque 59 (pedido explícito): ya no crea la cuenta acá — manda el código
   // de verificación de correo y pasa al paso de "ingresa el código"
   // (handleVerifyRegistration, abajo, es quien de verdad crea la cuenta y,
   // si es vendedor, la tienda).
   async function handleFinalSubmit() {
-    if (accountType === "vendor" && storeForm.isRestaurant && !storeForm.tableCount) {
-      toast.error("Indica la cantidad de mesas de tu restaurante.");
-      return;
-    }
-    if (accountType === "vendor" && !storeForm.businessCategoryId) {
-      toast.error("Elige el tipo de negocio de tu tienda.");
-      return;
+    // Bloque 114 (pedido explícito): paso 3, distinto según el tipo de
+    // cuenta — "tu ubicación" (cliente) o "configuración de la tienda"
+    // (vendedor, incluye su propia ubicación — no se pregunta 2 veces).
+    if (accountType === "customer") {
+      if (!form.registrationCountryId && !form.registrationCountryOther.trim()) {
+        toast.error('Selecciona tu país (o "Otro país" si no está en la lista).');
+        return;
+      }
+      if (form.registrationCountryId) {
+        if (isPersonCuba) {
+          if (!form.provinceId) {
+            toast.error("Selecciona tu provincia.");
+            return;
+          }
+          if (!form.municipalityId) {
+            toast.error("Selecciona tu municipio.");
+            return;
+          }
+        } else {
+          if (!form.stateOther.trim()) {
+            toast.error("Indica tu estado/provincia.");
+            return;
+          }
+          if (!form.address.trim()) {
+            toast.error("Indica tu dirección.");
+            return;
+          }
+        }
+      }
+    } else {
+      // Bloque 113/114 (pedido explícito — "antes de empezar a vender"):
+      // dónde presta servicio la tienda es obligatorio, siempre un lugar
+      // REAL del catálogo (a diferencia del país de la persona, acá no hay
+      // "otro país" — el marketplace no puede listar una tienda en un sitio
+      // que no tiene cargado).
+      if (!storeForm.countryId) {
+        toast.error("Elige el país donde va a operar tu tienda.");
+        return;
+      }
+      if (isStoreCuba) {
+        if (!storeForm.provinceId) {
+          toast.error("Elige la provincia donde va a operar tu tienda.");
+          return;
+        }
+        if (!storeForm.municipalityId) {
+          toast.error("Elige el municipio donde va a operar tu tienda.");
+          return;
+        }
+      } else {
+        if (!storeForm.stateOther.trim()) {
+          toast.error("Indica el estado donde va a operar tu tienda.");
+          return;
+        }
+        if (!storeForm.companyAddress.trim()) {
+          toast.error("Indica la dirección de tu tienda.");
+          return;
+        }
+      }
+      if (storeForm.isRestaurant && !storeForm.tableCount) {
+        toast.error("Indica la cantidad de mesas de tu restaurante.");
+        return;
+      }
+      if (!storeForm.businessCategoryId) {
+        toast.error("Elige el tipo de negocio de tu tienda.");
+        return;
+      }
     }
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        await register({ email: form.email, password: form.password, fullName: form.fullName, phone: form.phone, country: form.country });
+        await register(buildRegisterPayload());
         setRegisterCode("");
         setView("register-verify");
         toast.success("Te mandamos un código de verificación a tu correo.");
@@ -361,14 +543,29 @@ export default function Account({ mode = "customer" }) {
         if (accountType === "vendor") {
           await api.post("/vendors", {
             companyName: storeForm.companyName,
-            ownerName: storeForm.ownerName,
+            // Bloque 113/114 (pedido explícito): ya no se piden de nuevo en
+            // el paso de la tienda — son los mismos que la persona cargó en
+            // el paso 1 (Nombre+Apellidos/email/phone), con el aviso de que
+            // el nombre debe coincidir con su identificación.
+            ownerName: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
             description: storeForm.description || undefined,
-            whatsapp: storeForm.whatsapp,
-            email: storeForm.storeEmail,
+            whatsapp: form.phone,
+            email: form.email,
+            companyAddress: storeForm.companyAddress.trim() || undefined,
             isRestaurant: storeForm.isRestaurant,
             tableCount: storeForm.isRestaurant ? Number(storeForm.tableCount) : undefined,
             businessCategoryId: storeForm.businessCategoryId,
-            locations: [{ provinceId: storeForm.provinceId }],
+            // Bloque 114: countryId siempre real (nunca "otro país");
+            // provinceId/municipalityId solo con Cuba, stateOther solo con
+            // cualquier otro país real.
+            locations: [
+              {
+                countryId: storeForm.countryId,
+                provinceId: storeForm.provinceId || undefined,
+                municipalityId: storeForm.municipalityId || undefined,
+                stateOther: storeForm.stateOther.trim() || undefined,
+              },
+            ],
           });
           // El accessToken recién emitido por verifyRegistration() todavía
           // dice role CUSTOMER — sin refrescarlo, /vendedor/* devolvería 403
@@ -397,7 +594,7 @@ export default function Account({ mode = "customer" }) {
   async function handleResendRegistrationCode() {
     setResendingCode(true);
     try {
-      await register({ email: form.email, password: form.password, fullName: form.fullName, phone: form.phone, country: form.country });
+      await register(buildRegisterPayload());
       toast.success("Te mandamos un nuevo código.");
     } catch (err) {
       toast.error(err.response?.data?.error ?? "No se pudo reenviar el código.");
@@ -648,9 +845,18 @@ export default function Account({ mode = "customer" }) {
             </p>
             <form onSubmit={handleLogin} className="space-y-4">
               <Input label="Correo" type="email" required value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} />
+              {/* Bloque 183 (pedido explícito — "el usuario podrá solo
+                  ingresar su correo... el sistema automáticamente detecte
+                  que ese usuario no tiene una contraseña válida aún"): sin
+                  `required` a propósito — un usuario de sistema recién
+                  creado legítimamente no tiene ninguna contraseña que
+                  escribir todavía, y la validación nativa del navegador
+                  bloquearía el submit antes de que handleLogin() llegue a
+                  detectar ese caso. El backend sigue pidiendo la
+                  contraseña igual para cualquier cuenta que sí la tenga
+                  (login(), auth.controller.js). */}
               <PasswordInput
                 label="Contraseña"
-                required
                 value={loginForm.password}
                 onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
               />
@@ -665,7 +871,7 @@ export default function Account({ mode = "customer" }) {
         ) : (
           <>
             <h1 className="mb-1 text-headline-md text-on-surface">
-              {mode === "vendor" ? `Creá tu tienda en ${siteName}` : `Creá tu cuenta ${siteName}`}
+              {mode === "vendor" ? `Crea tu tienda en ${siteName}` : `Crea tu cuenta ${siteName}`}
             </h1>
             <p className="mb-4 text-label-sm text-outline">
               Paso {step} de {totalSteps}
@@ -680,15 +886,25 @@ export default function Account({ mode = "customer" }) {
             <form onSubmit={goNext} className="space-y-4">
               {step === 1 && (
                 <div key="step-1" className="animate-step-in space-y-4">
-                  <Input label="Nombre completo" required value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+                  {/* Bloque 114 (pedido explícito): nombre y apellidos por
+                      separado, no un solo "Nombre completo". */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input label="Nombre" required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+                    <Input label="Apellidos" required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                  </div>
                   <Input label="Correo" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-                  <PhoneInput
-                    label="Teléfono (WhatsApp)"
-                    required
-                    value={form.phone}
-                    onChange={(phone) => setForm({ ...form, phone })}
-                    onCountryChange={(country) => setForm({ ...form, country })}
-                  />
+                  <div>
+                    <PhoneInput
+                      label="Teléfono (WhatsApp)"
+                      required
+                      value={form.phone}
+                      onChange={(phone) => setForm({ ...form, phone })}
+                      onCountryChange={(country) => setForm({ ...form, country })}
+                    />
+                    <p className="mt-1.5 rounded-lg bg-surface-container px-3 py-2 text-label-sm text-on-surface-variant">
+                      Este es el número por el que los clientes te contactarán para comprar productos o hacer preguntas.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -705,6 +921,108 @@ export default function Account({ mode = "customer" }) {
                 </div>
               )}
 
+              {/* Bloque 114 (pedido explícito): país/provincia/municipio DE
+                  LA PERSONA — SOLO cliente (el vendedor manda directo al
+                  paso de la tienda, ver abajo, sin preguntarle su ubicación
+                  dos veces). Con Cuba: provincia+municipio del catálogo; con
+                  cualquier otro país real: estado+dirección de texto libre
+                  (ya no un select de provincia que podía quedar vacío); con
+                  "otro país", solo el nombre escrito a mano — nunca se le
+                  exige elegir un país que no es el suyo. */}
+              {step === 3 && accountType === "customer" && (
+                <div key="step-3" className="animate-step-in space-y-4">
+                  <Select
+                    label="País"
+                    required
+                    value={form.registrationCountryId}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        registrationCountryId: e.target.value,
+                        registrationCountryOther: "",
+                        provinceId: "",
+                        municipalityId: "",
+                        stateOther: "",
+                        address: "",
+                      })
+                    }
+                    disabled={!!form.registrationCountryOther}
+                  >
+                    <option value="">Selecciona tu país...</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </Select>
+
+                  <div>
+                    <Input
+                      label="¿Tu país no está en la lista? Escríbelo acá"
+                      value={form.registrationCountryOther}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          registrationCountryOther: e.target.value,
+                          registrationCountryId: "",
+                          provinceId: "",
+                          municipalityId: "",
+                          stateOther: "",
+                          address: "",
+                        })
+                      }
+                      placeholder="Nombre de tu país"
+                    />
+                    <p className="mt-1 text-label-sm text-outline">Completa esto SOLO si tu país no aparece en la lista de arriba.</p>
+                  </div>
+
+                  {form.registrationCountryId && isPersonCuba && (
+                    <>
+                      <Select
+                        label="Provincia"
+                        required
+                        value={form.provinceId}
+                        onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityId: "" })}
+                      >
+                        <option value="">Selecciona...</option>
+                        {provincesForPersonCountry.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </Select>
+                      <Select
+                        label="Municipio"
+                        required
+                        disabled={!form.provinceId}
+                        value={form.municipalityId}
+                        onChange={(e) => setForm({ ...form, municipalityId: e.target.value })}
+                      >
+                        <option value="">Selecciona...</option>
+                        {municipalitiesForPersonProvince.map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </Select>
+                    </>
+                  )}
+
+                  {form.registrationCountryId && !isPersonCuba && (
+                    <>
+                      <Input
+                        label="Estado/Provincia"
+                        required
+                        value={form.stateOther}
+                        onChange={(e) => setForm({ ...form, stateOther: e.target.value })}
+                      />
+                      <Input label="Dirección" required value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Bloque 114 (pedido explícito): "configuración de la
+                  tienda" del vendedor — un solo paso que junta lo que antes
+                  eran 2 (su propia ubicación + la de la tienda, redundantes
+                  entre sí). País/provincia/municipio de acá se manda a la
+                  vez como la ubicación de registro de la PERSONA (ver
+                  buildRegisterPayload) y como VendorLocation — nunca se
+                  pregunta dos veces. */}
               {step === 3 && accountType === "vendor" && (
                 <div key="step-3" className="animate-step-in space-y-4">
                   <Input
@@ -713,42 +1031,83 @@ export default function Account({ mode = "customer" }) {
                     value={storeForm.companyName}
                     onChange={(e) => setStoreForm({ ...storeForm, companyName: e.target.value })}
                   />
-                  <div>
-                    <Input
-                      label="Nombre del responsable del negocio"
-                      required
-                      value={storeForm.ownerName}
-                      onChange={(e) => setStoreForm({ ...storeForm, ownerName: e.target.value })}
-                    />
-                    <p className="mt-1 text-label-sm text-outline">Privado — solo lo ven admin y tú.</p>
+                  {/* Bloque 113 (pedido explícito): ya no se pide de nuevo un
+                      "nombre del responsable" — es el mismo nombre y
+                      apellidos que ya cargó en el paso 1. Solo un aviso de
+                      que debe coincidir con su identificación, ya que se
+                      puede llegar a verificar más adelante (KYC). */}
+                  <div className="rounded-lg border border-outline-variant bg-surface-container p-3.5">
+                    <p className="text-label-sm font-semibold text-on-surface">
+                      Responsable del negocio: <span className="font-bold">{`${form.firstName} ${form.lastName}`.trim() || "—"}</span>
+                    </p>
+                    <p className="mt-1 text-label-sm text-outline">
+                      Este nombre debe coincidir con tu documento de identidad — se puede llegar a verificar más adelante, de ser necesario.
+                    </p>
                   </div>
-                  <Input
-                    label="Correo de la tienda"
-                    type="email"
-                    required
-                    value={storeForm.storeEmail}
-                    onChange={(e) => setStoreForm({ ...storeForm, storeEmail: e.target.value })}
-                  />
-                  <p className="-mt-3 text-label-sm text-outline">Puedes usar el mismo correo de tu cuenta o uno distinto.</p>
-                  <PhoneInput
-                    label="WhatsApp de la tienda"
-                    required
-                    value={storeForm.whatsapp}
-                    onChange={(whatsapp) => setStoreForm({ ...storeForm, whatsapp })}
-                  />
+
                   <Select
-                    label="Provincia donde prestas servicio"
+                    label="País donde va a operar tu tienda"
                     required
-                    value={storeForm.provinceId}
-                    onChange={(e) => setStoreForm({ ...storeForm, provinceId: e.target.value })}
+                    value={storeForm.countryId}
+                    onChange={(e) =>
+                      setStoreForm({ ...storeForm, countryId: e.target.value, provinceId: "", municipalityId: "", stateOther: "" })
+                    }
                   >
-                    <option value="">Selecciona una provincia</option>
-                    {provinces?.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
+                    <option value="">Selecciona un país...</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </Select>
+
+                  {storeForm.countryId && isStoreCuba && (
+                    <>
+                      <Select
+                        label="Provincia donde prestas servicio"
+                        required
+                        value={storeForm.provinceId}
+                        onChange={(e) => setStoreForm({ ...storeForm, provinceId: e.target.value, municipalityId: "" })}
+                      >
+                        <option value="">Selecciona...</option>
+                        {provincesForStoreCountry.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </Select>
+                      <Select
+                        label="Municipio donde prestas servicio"
+                        required
+                        disabled={!storeForm.provinceId}
+                        value={storeForm.municipalityId}
+                        onChange={(e) => setStoreForm({ ...storeForm, municipalityId: e.target.value })}
+                      >
+                        <option value="">Selecciona...</option>
+                        {municipalitiesForStoreProvince.map((m) => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </Select>
+                    </>
+                  )}
+
+                  {/* Bloque 113/114: fuera de Cuba no hay provincia/municipio
+                      del catálogo — estado de texto libre + dirección real
+                      de la tienda ("el país, el estado y la dirección" tal
+                      cual se pidió). */}
+                  {storeForm.countryId && !isStoreCuba && (
+                    <Input
+                      label="Estado donde prestas servicio"
+                      required
+                      value={storeForm.stateOther}
+                      onChange={(e) => setStoreForm({ ...storeForm, stateOther: e.target.value })}
+                    />
+                  )}
+
+                  {storeForm.countryId && !isStoreCuba && (
+                    <Input
+                      label="Dirección de la tienda"
+                      required
+                      value={storeForm.companyAddress}
+                      onChange={(e) => setStoreForm({ ...storeForm, companyAddress: e.target.value })}
+                    />
+                  )}
 
                   <div>
                     <div className="flex items-center gap-2.5">

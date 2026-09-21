@@ -1,10 +1,55 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy } from "lucide-react";
+import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
+
+// Bloque 85 (pedido explícito): lista curada, no las ~400 zonas IANA
+// completas — Cuba primero (default del negocio), después las más
+// relevantes para Latinoamérica/España (mercado real de esta plataforma),
+// más UTC como referencia neutral. El backend valida igual con
+// Intl.DateTimeFormat, así que un valor fuera de esta lista (cargado antes
+// por otro medio) no rompe nada, solo no aparecería preseleccionado.
+const TIMEZONE_OPTIONS = [
+  { value: "America/Havana", label: "La Habana, Cuba (GMT-5/-4)" },
+  { value: "America/New_York", label: "Nueva York, EE.UU. (GMT-5/-4)" },
+  { value: "America/Mexico_City", label: "Ciudad de México (GMT-6)" },
+  { value: "America/Bogota", label: "Bogotá, Colombia (GMT-5)" },
+  { value: "America/Lima", label: "Lima, Perú (GMT-5)" },
+  { value: "America/Santiago", label: "Santiago, Chile (GMT-4/-3)" },
+  { value: "America/Argentina/Buenos_Aires", label: "Buenos Aires, Argentina (GMT-3)" },
+  { value: "America/Sao_Paulo", label: "São Paulo, Brasil (GMT-3)" },
+  { value: "Europe/Madrid", label: "Madrid, España (GMT+1/+2)" },
+  { value: "UTC", label: "UTC (sin ajuste horario)" },
+];
+
+// Vuelve a calcular la hora/fecha en vivo cada segundo — confirmación visual
+// de que la zona elegida es la correcta antes de guardarla.
+function useLiveClock(timezone) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  try {
+    return new Intl.DateTimeFormat("es-CU", {
+      timeZone: timezone,
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(now);
+  } catch {
+    return null;
+  }
+}
 
 function resolveLogoUrl(logoUrl) {
   if (!logoUrl) return null;
@@ -29,6 +74,9 @@ export default function AdminBranding() {
   // Bloque 75 (pedido explícito): número crudo (no un link) para el botón
   // "Contactar soporte" que ve un vendedor con la tienda bloqueada/suspendida.
   const [supportWhatsapp, setSupportWhatsapp] = useState("");
+  // Bloque 85 (pedido explícito): zona horaria del negocio — hoy la usa
+  // aiHealthCheck.job.js para saber cuándo son las 3:00am de verdad.
+  const [timezone, setTimezone] = useState("America/Havana");
 
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -47,6 +95,7 @@ export default function AdminBranding() {
         facebookUrl: settings.facebookUrl ?? "",
       });
       setSupportWhatsapp(settings.supportWhatsapp ?? "");
+      setTimezone(settings.timezone ?? "America/Havana");
     }
   }, [settings]);
 
@@ -82,6 +131,15 @@ export default function AdminBranding() {
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el número."),
+  });
+
+  const saveTimezone = useMutation({
+    mutationFn: async () => (await api.patch("/admin/settings/branding", { timezone })).data,
+    onSuccess: () => {
+      toast.success("Zona horaria actualizada.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la zona horaria."),
   });
 
   const uploadLogoFile = useMutation({
@@ -133,9 +191,12 @@ export default function AdminBranding() {
   // Bloque 52: cuáles de los métodos de pago OPCIONALES ("cod"/"prepaid")
   // puede ofrecer un vendedor al cargar un producto — "whatsapp" es fijo,
   // siempre disponible, no vive en esta lista (ver products.controller.js).
+  // Bloque 199: mismas etiquetas que lib/productPaymentMethods.js (antes
+  // decía "Transferencia" acá, distinto de "Transferencia CUP" en
+  // Product.jsx/Shop.jsx — ninguno el significado real: pago anticipado).
   const OPTIONAL_METHODS = [
-    { id: "cod", label: "Contra entrega" },
-    { id: "prepaid", label: "Transferencia" },
+    { id: "cod", label: PRODUCT_PAYMENT_METHOD_LABEL.cod },
+    { id: "prepaid", label: PRODUCT_PAYMENT_METHOD_LABEL.prepaid },
   ];
   const toggleProductPaymentMethods = useMutation({
     mutationFn: async (next) => (await api.patch("/admin/settings/product-payment-methods", { productPaymentMethods: next })).data,
@@ -212,10 +273,11 @@ export default function AdminBranding() {
 
   const currentLogoUrl = filePreview ?? resolveLogoUrl(settings?.logoUrl);
   const previewName = name.trim() || "Nombre de la plataforma";
+  const liveClock = useLiveClock(timezone);
 
   return (
     <div className="max-w-[720px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Marca de la plataforma</h1>
+      <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Marca de la plataforma</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
         El nombre y el logo se usan en todo el sitio — header, footer, títulos de página, correos, PDFs y mensajes de
         WhatsApp — sin necesidad de un redespliegue.
@@ -237,9 +299,9 @@ export default function AdminBranding() {
         <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
           <Sparkles className="h-4 w-4 text-tertiary-accent" /> Nombre
         </div>
-        <p className="mb-4 text-[12.5px] text-outline">Reemplaza "ZeuDin" en toda la interfaz, los correos y los documentos generados.</p>
+        <p className="mb-4 text-[12.5px] text-outline">Este nombre se usa en toda la interfaz, los correos y los documentos generados.</p>
         <div className="flex gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: ZeuDin" className="flex-1" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Baznova" className="flex-1" />
           <Button
             className="rounded-xl px-5"
             disabled={saveName.isPending || !name.trim() || name.trim() === settings?.siteName}
@@ -359,6 +421,45 @@ export default function AdminBranding() {
         <Button className="mt-4 rounded-xl px-5" disabled={saveSupportWhatsapp.isPending} onClick={() => saveSupportWhatsapp.mutate()}>
           {saveSupportWhatsapp.isPending ? "Guardando..." : "Guardar número de soporte"}
         </Button>
+      </div>
+
+      {/* Bloque 85 (pedido explícito): la usa aiHealthCheck.job.js para
+          saber cuándo son las 3:00am de verdad para este negocio — el reloj
+          en vivo de abajo es la confirmación visual de que la zona elegida
+          es la correcta antes de guardarla. */}
+      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
+          <Clock className="h-4 w-4 text-tertiary-accent" /> Zona horaria
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Usada para la verificación automática diaria de los proveedores de IA (corre a las 3:00am de esta zona, el
+          horario de menos tráfico) y para cualquier otro proceso programado de la plataforma.
+        </p>
+        <div className="flex gap-2">
+          <select
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+            className="h-10 flex-1 rounded-xl border border-outline-variant bg-surface-container-lowest px-3.5 text-[13px] outline-none focus:border-tertiary-accent"
+          >
+            {TIMEZONE_OPTIONS.map((tz) => (
+              <option key={tz.value} value={tz.value}>
+                {tz.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            className="rounded-xl px-5"
+            disabled={saveTimezone.isPending || timezone === (settings?.timezone ?? "America/Havana")}
+            onClick={() => saveTimezone.mutate()}
+          >
+            {saveTimezone.isPending ? "Guardando..." : "Guardar"}
+          </Button>
+        </div>
+        {liveClock && (
+          <p className="mt-3 rounded-xl bg-surface-container px-3.5 py-2.5 text-[12.5px] font-semibold text-on-surface-variant">
+            Hora y fecha actual en esta zona: <span className="text-on-surface">{liveClock}</span>
+          </p>
+        )}
       </div>
 
       <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">

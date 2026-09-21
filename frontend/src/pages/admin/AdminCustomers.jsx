@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Search, Flag } from "lucide-react";
+import { Search, Flag, Users } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 const PALETTE = ["#337475", "#8A5100", "#003435", "#643900", "#232F3E", "#2c5b2e"];
 function colorFor(id) {
@@ -18,8 +21,20 @@ function colorFor(id) {
 function EditCustomerModal({ customer, onSave, onCancel, saving }) {
   const [form, setForm] = useState({ fullName: customer.fullName ?? "", email: customer.email, phone: customer.phone ?? "" });
 
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): mismo patrón de snapshot-en-ref que
+  // ProductModal (VendorProducts.jsx).
+  const initialFormSnapshot = useRef(JSON.stringify(form));
+  const isDirty = JSON.stringify(form) !== initialFormSnapshot.current;
+  const dirtyModal = useDirtyModal({ isDirty, onClose: onCancel, onSave: () => onSave(form) });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">Editar cliente</h2>
         <div className="flex flex-col gap-3.5">
@@ -28,7 +43,7 @@ function EditCustomerModal({ customer, onSave, onCancel, saving }) {
           <Input label="Teléfono" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         </div>
         <div className="mt-5 flex gap-2.5">
-          <button onClick={onCancel} disabled={saving} className="flex-1 rounded-md border border-outline-variant py-2.5 text-label-md font-semibold text-on-surface-variant">
+          <button onClick={onCancel} disabled={saving} className="flex-1 rounded-full border border-outline-variant py-2.5 text-label-md font-semibold text-on-surface-variant">
             Cancelar
           </button>
           <Button className="flex-1" onClick={() => onSave(form)} disabled={saving}>
@@ -36,6 +51,14 @@ function EditCustomerModal({ customer, onSave, onCancel, saving }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={dirtyModal.handleSaveAndClose}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -93,11 +116,14 @@ export default function AdminCustomers() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Clientes</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Users} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Clientes</h1>
+      </div>
       <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Puedes editar datos, suspender o eliminar cuentas.</p>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex h-[42px] max-w-[340px] flex-1 items-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-3">
+        <div className="flex h-[42px] max-w-[340px] flex-1 items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-3">
           <Search className="h-4 w-4 text-outline" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cliente..." className="w-full border-none bg-transparent text-[13.5px] outline-none" />
         </div>
@@ -107,7 +133,7 @@ export default function AdminCustomers() {
         </label>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         <div className="grid grid-cols-[2fr_1.4fr_1fr_1.3fr_1fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[720px]">
           <span>Cliente</span><span>Provincia</span><span>Pedidos</span><span>Reportes hechos</span><span>Estado</span><span className="text-right">Acción</span>
         </div>
@@ -171,7 +197,11 @@ export default function AdminCustomers() {
           customer={editing}
           saving={update.isPending}
           onCancel={() => setEditing(null)}
-          onSave={(form) => update.mutate({ id: editing.id, payload: form })}
+          // Bloque 196: mutateAsync (misma mutación `update`, solo la
+          // variante que devuelve una promesa) — hace falta para que
+          // useDirtyModal (dentro de EditCustomerModal) pueda esperar a que
+          // el guardado realmente termine antes de cerrar el modal.
+          onSave={(form) => update.mutateAsync({ id: editing.id, payload: form })}
         />
       )}
 

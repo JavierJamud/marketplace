@@ -1,13 +1,16 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Search, X, Pencil, Trash2, PackageSearch, Ruler } from "lucide-react";
+import { Search, X, Pencil, Trash2, PackageSearch, Ruler, Package } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -36,6 +39,14 @@ function ProductEditModal({ product, categories, onClose }) {
     isFeatured: product.isFeatured,
   });
 
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): mismo patrón de snapshot-en-ref que
+  // ProductModal (VendorProducts.jsx).
+  const initialFormSnapshot = useRef(JSON.stringify(form));
+  const isDirty = JSON.stringify(form) !== initialFormSnapshot.current;
+
   const save = useMutation({
     mutationFn: async () =>
       (
@@ -59,8 +70,15 @@ function ProductEditModal({ product, categories, onClose }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
 
+  // Bloque 196: sin ninguna validación extra más allá de save.isPending —
+  // "Guardar y salir" siempre está disponible acá.
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: () => save.mutateAsync() });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Editar producto</h3>
@@ -142,6 +160,14 @@ function ProductEditModal({ product, categories, onClose }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={dirtyModal.handleSaveAndClose}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -189,7 +215,10 @@ export default function AdminProducts() {
 
   return (
     <div className="max-w-[1080px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Productos</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Package} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos</h1>
+      </div>
       <p className="mb-[18px] text-[13.5px] text-outline">
         Supervisión de todo lo que cargan los vendedores — busca, edita precio/moneda/categoría/estado, o elimina un producto
         de cualquier tienda.
@@ -207,7 +236,7 @@ export default function AdminProducts() {
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {data?.map((p) => (
           <div key={p.id} className="flex items-center gap-3 border-b border-surface-container px-4 py-3 last:border-b-0">
             <div className="h-11 w-11 flex-shrink-0 overflow-hidden rounded-md bg-surface-container">

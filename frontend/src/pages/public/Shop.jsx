@@ -4,16 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
+import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
 }
 
-const PAY_OPTIONS = [
-  { id: "whatsapp", label: "WhatsApp" },
-  { id: "cod", label: "Contra entrega" },
-  { id: "prepaid", label: "Transferencia CUP" },
-];
+// Bloque 199: derivado del mismo mapa compartido que VendorProducts.jsx/
+// Product.jsx — antes decía "Transferencia CUP" acá para "prepaid", distinto
+// de lo que mostraba el propio formulario del vendedor ("Transferencia").
+const PAY_OPTIONS = Object.entries(PRODUCT_PAYMENT_METHOD_LABEL).map(([id, label]) => ({ id, label }));
 
 const SORT_OPTIONS = [
   { value: "relevance", label: "Más relevantes" },
@@ -188,7 +188,7 @@ export default function Shop() {
           {!isLoading && products.length > 0 && (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {products.map((p) => (
-                <ProductCard key={p.id} product={p} />
+                <ProductCard key={p.id} product={p} trackSource={q ? "search" : "catalog"} />
               ))}
             </div>
           )}

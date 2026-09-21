@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -8,7 +8,6 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Card } from "../../components/ui/Card.jsx";
-import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { PlanComparisonModal } from "../../components/PlanComparisonModal.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 
@@ -20,29 +19,42 @@ export default function VendorOnboarding() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     companyName: "",
-    ownerName: "",
     ownerIdNumber: "",
     companyAddress: "",
     description: "",
-    whatsapp: "",
-    email: "",
     isRestaurant: false,
     tableCount: "",
+    countryId: "",
     provinceId: "",
+    municipalityId: "",
+    stateOther: "",
     businessCategoryId: "",
   });
   const [showPlanModal, setShowPlanModal] = useState(false);
 
-  // El correo de la tienda es obligatorio (Bloque 11) — se prellena con el
-  // correo de la cuenta, el usuario puede reusarlo o cambiarlo.
-  useEffect(() => {
-    if (user?.email && !form.email) setForm((f) => ({ ...f, email: user.email }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email]);
-
-  const { data: provinces } = useQuery({
-    queryKey: ["provinces"],
-    queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
+  // Bloque 113/114 (pedido explícito): acá ya no se piden de nuevo nombre,
+  // correo ni WhatsApp — este usuario ya tiene cuenta (user.fullName/
+  // email/phone), a diferencia de Account.jsx donde son el mismo "paso 1"
+  // del registro. Mismo patrón país → provincia → municipio en cascada que
+  // Account.jsx/VendorVerification.jsx. `?all=true`: acá un país sin
+  // ninguna provincia/estado cargado sigue siendo elegible — fuera de Cuba
+  // el estado se escribe a mano (ver isCuba más abajo), nunca depende de
+  // que el admin haya cargado provincias para ese país.
+  const { data: countries = [] } = useQuery({
+    queryKey: ["active-countries-all"],
+    queryFn: async () => (await api.get("/locations/countries?all=true")).data.countries,
+  });
+  const selectedCountry = countries.find((c) => c.id === form.countryId);
+  const isCuba = selectedCountry?.code === "CU";
+  const { data: provincesForCountry = [] } = useQuery({
+    queryKey: ["provinces-for-country", form.countryId],
+    queryFn: async () => (await api.get(`/locations/countries/${form.countryId}/provinces`)).data.provinces,
+    enabled: !!form.countryId && isCuba,
+  });
+  const { data: municipalitiesForProvince = [] } = useQuery({
+    queryKey: ["municipalities-for-province", form.provinceId],
+    queryFn: async () => (await api.get(`/locations/provinces/${form.provinceId}/municipalities`)).data.municipalities,
+    enabled: !!form.provinceId && isCuba,
   });
 
   // Bloque 18: rubro obligatorio de la tienda, elegido una sola vez acá
@@ -67,16 +79,25 @@ export default function VendorOnboarding() {
       (
         await api.post("/vendors", {
           companyName: form.companyName,
-          ownerName: form.ownerName,
+          // Bloque 113: ya no se piden de nuevo — son los mismos datos de
+          // la cuenta con la que este usuario ya entró.
+          ownerName: user.fullName,
+          email: user.email,
+          whatsapp: user.phone,
           ownerIdNumber: form.ownerIdNumber,
           companyAddress: form.companyAddress,
           description: form.description || undefined,
-          whatsapp: form.whatsapp,
-          email: form.email,
           isRestaurant: form.isRestaurant,
           tableCount: form.isRestaurant ? Number(form.tableCount) : undefined,
           businessCategoryId: form.businessCategoryId,
-          locations: [{ provinceId: form.provinceId }],
+          locations: [
+            {
+              countryId: form.countryId,
+              provinceId: form.provinceId || undefined,
+              municipalityId: form.municipalityId || undefined,
+              stateOther: form.stateOther.trim() || undefined,
+            },
+          ],
         })
       ).data,
     onSuccess: async () => {
@@ -87,6 +108,32 @@ export default function VendorOnboarding() {
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo crear la tienda."),
   });
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.countryId) {
+      toast.error("Elige el país donde va a operar tu tienda.");
+      return;
+    }
+    if (isCuba) {
+      if (!form.provinceId) {
+        toast.error("Elige la provincia donde va a operar tu tienda.");
+        return;
+      }
+      if (!form.municipalityId) {
+        toast.error("Elige el municipio donde va a operar tu tienda.");
+        return;
+      }
+    } else if (!form.stateOther.trim()) {
+      toast.error("Elige el estado donde va a operar tu tienda.");
+      return;
+    }
+    if (!form.companyAddress.trim()) {
+      toast.error("Indica la dirección de la empresa.");
+      return;
+    }
+    createVendor.mutate();
+  }
 
   if (showPlanModal) {
     return (
@@ -116,11 +163,19 @@ export default function VendorOnboarding() {
           Empiezas en el Plan Regular: hasta 20 productos y ventas por WhatsApp. Puedes escalar a Business cuando quieras.
         </p>
 
-        <form onSubmit={(e) => { e.preventDefault(); createVendor.mutate(); }} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <Input label="Nombre de la tienda (público)" required value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
-          <div>
-            <Input label="Nombre del responsable del negocio" required value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
-            <p className="mt-1 text-label-sm text-outline">Privado — solo lo ven admin y tú. No se muestra en tu tienda pública.</p>
+          {/* Bloque 113 (pedido explícito): ya no se pide de nuevo el
+              nombre del responsable — es el mismo con el que ya tiene
+              cuenta (user.fullName). Solo el aviso de que debe coincidir
+              con su identificación, ya que se puede verificar más adelante. */}
+          <div className="rounded-lg border border-outline-variant bg-surface-container p-3.5">
+            <p className="text-label-sm font-semibold text-on-surface">
+              Responsable del negocio: <span className="font-bold">{user.fullName}</span>
+            </p>
+            <p className="mt-1 text-label-sm text-outline">
+              Este nombre debe coincidir con tu documento de identidad — se puede llegar a verificar más adelante, de ser necesario.
+            </p>
           </div>
           <div>
             <Input
@@ -142,16 +197,59 @@ export default function VendorOnboarding() {
             <p className="mt-1 text-label-sm text-outline">Privado — se usa para autocompletar facturas y garantías que generes desde Pedidos.</p>
           </div>
           <Input label="Descripción" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <PhoneInput label="WhatsApp de la tienda" required value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
-          <div>
-            <Input label="Correo de la tienda" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <p className="mt-1 text-label-sm text-outline">Puedes usar el mismo correo de tu cuenta o uno distinto.</p>
-          </div>
 
-          <Select label="Provincia donde prestas servicio" required value={form.provinceId} onChange={(e) => setForm({ ...form, provinceId: e.target.value })}>
-            <option value="">Selecciona una provincia</option>
-            {provinces?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {/* Bloque 113 (pedido explícito): país → provincia/estado →
+              municipio (Cuba) en cascada, solo con los agregados por el
+              admin — antes era un select plano de provincia, sin país ni
+              municipio. */}
+          <Select
+            label="País donde va a operar tu tienda"
+            required
+            value={form.countryId}
+            onChange={(e) => setForm({ ...form, countryId: e.target.value, provinceId: "", municipalityId: "", stateOther: "" })}
+          >
+            <option value="">Selecciona un país...</option>
+            {countries.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
           </Select>
+
+          {form.countryId && isCuba && (
+            <>
+              <Select
+                label="Provincia donde prestas servicio"
+                required
+                value={form.provinceId}
+                onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityId: "" })}
+              >
+                <option value="">Selecciona...</option>
+                {provincesForCountry.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+              <Select
+                label="Municipio donde prestas servicio"
+                required
+                disabled={!form.provinceId}
+                value={form.municipalityId}
+                onChange={(e) => setForm({ ...form, municipalityId: e.target.value })}
+              >
+                <option value="">Selecciona...</option>
+                {municipalitiesForProvince.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </Select>
+            </>
+          )}
+
+          {form.countryId && !isCuba && (
+            <Input
+              label="Estado donde prestas servicio"
+              required
+              value={form.stateOther}
+              onChange={(e) => setForm({ ...form, stateOther: e.target.value })}
+            />
+          )}
 
           <div>
             <div className="flex items-center gap-2.5">

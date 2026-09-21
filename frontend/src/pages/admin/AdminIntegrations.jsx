@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Copy, RefreshCw } from "lucide-react";
+import { Copy, RefreshCw, Plug } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
@@ -12,14 +13,19 @@ import { copyToClipboard } from "../../lib/clipboard.js";
 // Groq → NVIDIA NIM, cada uno solo entra si el anterior está inactivo o
 // falla una consulta puntual (ver lib/ai.js). Un proveedor desactivado
 // nunca se usa, ni siquiera como respaldo.
+// Bloque 83 (pedido explícito, medido en vivo): el orden fijo pasó de
+// Gemini→Groq→NVIDIA a Groq→Gemini→NVIDIA — Groq medido consistentemente
+// más rápido (~400-1500ms) que Gemini (~1-2.5s) y muchísimo más que NVIDIA
+// NIM (109s medidos una vez en vivo, el motivo real de por qué NVIDIA
+// sigue de último recurso).
 const SERVICE_META = {
-  gemini: { name: "Google AI Studio (Gemini)", desc: "Proveedor PRINCIPAL de IA (chatbot de tienda y 'Mejorar con IA')", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
-  groq: { name: "Groq", desc: "Primer respaldo de IA — entra si Gemini está inactivo o falla. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
-  nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA — entra si Gemini y Groq están inactivos o fallan", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
+  gemini: { name: "Google AI Studio (Gemini)", desc: "Primer respaldo de IA — entra si Groq está inactivo o falla", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
+  groq: { name: "Groq", desc: "Proveedor PRINCIPAL de IA (el más rápido medido) — chatbot de tienda y 'Mejorar con IA'. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
+  nvidia: { name: "NVIDIA NIM", desc: "Último recurso de IA — entra si Groq y Gemini están inactivos o fallan (mucho más lento que los otros dos)", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
   stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
-const ORDER = ["gemini", "groq", "nvidia", "resend", "stripe"];
+const ORDER = ["groq", "gemini", "nvidia", "resend", "stripe"];
 // Bloque 43/45: estos tres tienen modelo editable (campo nuevo) — Resend/Stripe no.
 const AI_PROVIDERS = ["gemini", "groq", "nvidia"];
 const DEFAULT_MODEL_BY_PROVIDER = { gemini: "gemini-flash-latest", groq: "llama-3.3-70b-versatile", nvidia: "meta/llama-3.3-70b-instruct" };
@@ -70,7 +76,7 @@ function CardHeader({ meta, hasIntegration, isActive, saving, onToggle }) {
   );
 }
 
-function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, onSaveModel, saving, savingModel }) {
+function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, onSaveModel, onTestResend, onTestAi, saving, savingModel, testingResend, testingAi }) {
   const [draft, setDraft] = useState("");
   const [fromDraft, setFromDraft] = useState(integration?.fromEmail ?? "");
   const showModelField = AI_PROVIDERS.includes(name);
@@ -161,6 +167,23 @@ function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, 
             Mientras no cargues un dominio verificado en Resend, los correos salen igual desde{" "}
             <span className="font-mono">onboarding@resend.dev</span>.
           </p>
+          {/* Bloque 86 (pedido explícito, con reporte real en vivo de "la
+              key es correcta pero el correo no sale"): mismo criterio que
+              "Actualizar lista" de los proveedores de IA — probar contra la
+              API real en vez de solo guardar un texto y asumir que
+              funciona. Manda un correo de prueba de verdad a la cuenta del
+              propio admin; solo disponible con la clave ya guardada (mismo
+              guard que el backend). */}
+          {integration && (
+            <button
+              onClick={onTestResend}
+              disabled={testingResend}
+              className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${testingResend ? "animate-spin" : ""}`} />
+              {testingResend ? "Mandando correo de prueba..." : "Probar — mandar correo de prueba"}
+            </button>
+          )}
         </div>
       )}
       {/* Bloque 43/44 (pedido explícito): modelo editable sin tocar código
@@ -223,6 +246,21 @@ function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, 
             Vacío = usa el default (<span className="font-mono">{DEFAULT_MODEL_BY_PROVIDER[name]}</span>).
           </p>
           {MODEL_NOTE_BY_PROVIDER[name] && <p className="mt-1 text-[11px] text-outline">⚠ {MODEL_NOTE_BY_PROVIDER[name]}</p>}
+          {/* Bloque 90 (pedido explícito, tras 2 correos reales de "la
+              integración de X no responde" la misma noche): mismo criterio
+              que "Probar" de Resend — ejercita la API real con el modelo
+              configurado ahora mismo, en vez de esperar al chequeo de las
+              3am para enterarse si la clave sigue viva. */}
+          {integration && (
+            <button
+              onClick={() => onTestAi(name)}
+              disabled={testingAi}
+              className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${testingAi ? "animate-spin" : ""}`} />
+              {testingAi ? "Probando conexión..." : "Probar conexión"}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -384,17 +422,50 @@ export default function AdminIntegrations() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el modelo."),
   });
 
+  // Bloque 86 (pedido explícito): prueba real contra la API de Resend — el
+  // backend responde con el detalle EXACTO que devolvió Resend si rechaza
+  // el envío (nunca un "no se pudo" genérico), para poder diagnosticar de
+  // verdad por qué una key "correcta" igual no manda correos.
+  const testResend = useMutation({
+    mutationFn: async () => (await api.post("/admin/integrations/resend/test")).data,
+    onSuccess: (result) => toast.success(`Correo de prueba enviado a ${result.to} — revisa esa bandeja.`),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo mandar el correo de prueba.", { duration: 8000 }),
+  });
+
+  // Bloque 90 (pedido explícito): mismo criterio que testResend de arriba,
+  // pero para Gemini/Groq/NVIDIA — "Probar conexión" ejercita el modelo real
+  // configurado ahora mismo. El mensaje de error trae el detalle exacto que
+  // devolvió el proveedor (nunca un "no se pudo" genérico), para diagnosticar
+  // en el momento en vez de esperar al correo del chequeo automático de 3am.
+  const testAi = useMutation({
+    mutationFn: async (name) => (await api.post(`/admin/integrations/${name}/test-ai`)).data,
+    onSuccess: (result) => toast.success(`Respondió en ${result.ms}ms con el modelo "${result.model}".`),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo probar la conexión.", { duration: 8000 }),
+  });
+
   const byName = Object.fromEntries((data ?? []).map((i) => [i.name, i]));
 
   return (
     <div className="max-w-[820px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Integraciones</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Plug} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Integraciones</h1>
+      </div>
       <p className="mb-2 text-[13.5px] text-outline">Configura las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        🔐 Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Gemini (principal) → Groq
-        → NVIDIA NIM — cada uno entra solo si el anterior está inactivo o falla una consulta puntual. Un proveedor
-        desactivado nunca se usa, ni siquiera como respaldo. El modelo de cada uno también es editable acá, sin
-        redesplegar.
+        🔐 Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (principal, el más
+        rápido) → Gemini → NVIDIA NIM — cada uno entra solo si el anterior está inactivo o falla una consulta puntual.
+        Un proveedor desactivado nunca se usa, ni siquiera como respaldo. El modelo de cada uno también es editable
+        acá, sin redesplegar.
+      </div>
+      {/* Bloque 85 (pedido explícito): transparencia sobre el chequeo
+          automático — el admin ve acá POR QUÉ el modelo de un proveedor
+          puede cambiar solo de un día para otro. */}
+      <div className="mb-[22px] rounded-[10px] bg-surface-container px-3.5 py-2.5 text-[12px] text-on-surface-variant">
+        🩺 Cada día, a las 3:00am (zona horaria configurada en "Marca de la plataforma"), el sistema verifica que el
+        modelo configurado de cada proveedor ACTIVO siga respondiendo. Si un modelo fue dado de baja, cambia solo al
+        modelo más rápido disponible que sí funcione — y si un proveedor entero no responde con ningún modelo, te
+        llega un correo con el detalle.
       </div>
 
       <div className="flex flex-col gap-4">
@@ -421,6 +492,10 @@ export default function AdminIntegrations() {
                 save.mutate({ name: n, credential, isActive: byName[n] ? currentActive : true, fromEmail })
               }
               onSaveModel={(n, value) => saveModel.mutate({ name: n, value })}
+              onTestResend={() => testResend.mutate()}
+              testingResend={testResend.isPending}
+              onTestAi={(n) => testAi.mutate(n)}
+              testingAi={testAi.isPending && testAi.variables === name}
             />
           )
         )}

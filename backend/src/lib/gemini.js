@@ -12,6 +12,9 @@ import { AppError } from "../utils/AppError.js";
 // es el fallback si ese setting está vacío/no configurado todavía.
 export const DEFAULT_MODEL = "gemini-flash-latest";
 
+// Bloque 83: mismo timeout defensivo que groq.js/nvidia.js.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 // Bloque 25 (latencia del chat): la documentación de Google presenta
 // "flash-lite" como la opción de menor latencia frente a "flash" estándar,
 // así que se probó acá para el chat — pero medido en vivo contra esta key
@@ -27,19 +30,54 @@ const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 // Gemini también lista modelos de audio/embeddings que no sirven acá).
 // AdminIntegrations.jsx los muestra como lista seleccionable en vez de un
 // input de texto libre.
+// Bloque 90 (bug real encontrado investigando 2 correos de "la integración
+// no responde" en la misma noche): antes este catch tiraba SIEMPRE el mismo
+// texto genérico sin importar la causa real (timeout de 20s, DNS caído, la
+// key rechazada a nivel de conexión, lo que sea) — el health check y el
+// nuevo botón "Probar conexión" leen `err.details.detail` para el correo/
+// toast, así que perder el motivo real acá es perder la única pista útil
+// para diagnosticar por qué un proveedor "no responde".
+function describeFetchFailure(err) {
+  if (err?.name === "TimeoutError" || err?.name === "AbortError") return "Se agotó el tiempo de espera (20s) sin respuesta.";
+  return err?.message || "Error de red desconocido.";
+}
+
+// Bloque 100 (bug real reportado en vivo, con captura de un modelo nuevo de
+// Google que no aparecía acá): esta función tenía 2 problemas reales.
+// (1) Sin ningún timeout — a diferencia de generateWithGemini/chatWithGemini
+// (que sí tienen REQUEST_TIMEOUT_MS desde el Bloque 83), un cuelgue de red
+// dejaba "Actualizar lista" (AdminIntegrations.jsx) girando para siempre sin
+// ningún error visible — fácil de confundir con "no se actualiza".
+// (2) Google pagina esta respuesta (confirmado en vivo: la cuenta de este
+// proyecto YA tiene más de 50 modelos, con "nextPageToken" en la primera
+// página) — se traía solo la página 1 y se dejaba de traer el resto en
+// silencio. Un modelo que cayera en la página 2+ nunca iba a aparecer en el
+// selector, aunque la key sí pudiera usarlo. Se agrega el timeout de
+// siempre y un loop que sigue "nextPageToken" hasta agotarlo, con pageSize
+// grande (200) para minimizar cuántas vueltas hacen falta en la práctica.
+const MODELS_PAGE_SIZE = 200;
+
 export async function listGeminiModels({ apiKey }) {
-  let res;
-  try {
-    res = await fetch(`${API_BASE}?key=${apiKey}`);
-  } catch {
-    throw new AppError("No se pudo conectar con Gemini para listar modelos.", 500);
-  }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new AppError(`Gemini devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
-  }
-  const data = await res.json();
-  return (data?.models ?? [])
+  const allModels = [];
+  let pageToken = "";
+  do {
+    const url = `${API_BASE}?key=${apiKey}&pageSize=${MODELS_PAGE_SIZE}${pageToken ? `&pageToken=${pageToken}` : ""}`;
+    let res;
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch (err) {
+      throw new AppError("No se pudo conectar con Gemini para listar modelos.", 500, { detail: describeFetchFailure(err) });
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new AppError(`Gemini devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
+    }
+    const data = await res.json();
+    allModels.push(...(data?.models ?? []));
+    pageToken = data?.nextPageToken ?? "";
+  } while (pageToken);
+
+  return allModels
     .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
     .map((m) => m.name.replace(/^models\//, ""))
     .sort();
@@ -75,9 +113,10 @@ export async function generateWithGemini({ apiKey, prompt, model }) {
         // maxOutputTokens (pensar + visible comparten el mismo pool).
         generationConfig: { temperature: 0.8, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 1 } },
       }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
-    throw new AppError("No se pudo conectar con el servicio de IA. Intenta de nuevo.", 500);
+  } catch (err) {
+    throw new AppError("No se pudo conectar con el servicio de IA. Intenta de nuevo.", 500, { detail: describeFetchFailure(err) });
   }
 
   if (!res.ok) {
@@ -199,9 +238,10 @@ export async function chatWithGemini({ apiKey, systemParts, history, message, mo
           },
         },
       }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
-    throw new AppError("No se pudo conectar con el asistente. Prueba de nuevo.", 500);
+  } catch (err) {
+    throw new AppError("No se pudo conectar con el asistente. Prueba de nuevo.", 500, { detail: describeFetchFailure(err) });
   }
 
   if (!res.ok) {

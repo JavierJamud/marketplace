@@ -113,9 +113,9 @@ export function Header() {
             {count > 0 && (
               <span
                 key={`badge-${bump}`}
-                className="absolute -right-2.5 -top-2 flex h-[17px] w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container text-[10px] font-bold text-white"
+                className="absolute -right-2.5 -top-2 flex h-[17px] min-w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container px-1 text-[10px] font-bold text-white"
               >
-                {count}
+                {count > 99 ? "99+" : count}
               </span>
             )}
           </button>

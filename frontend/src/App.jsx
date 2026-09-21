@@ -3,6 +3,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
+import { useAuth } from "./context/AuthContext.jsx";
 
 // Público
 import Home from "./pages/public/Home.jsx";
@@ -33,7 +35,6 @@ import VendorLayout from "./pages/vendor/VendorLayout.jsx";
 import VendorDashboard from "./pages/vendor/VendorDashboard.jsx";
 import VendorProducts from "./pages/vendor/VendorProducts.jsx";
 import VendorOffers from "./pages/vendor/VendorOffers.jsx";
-import VendorDiscountCodes from "./pages/vendor/VendorDiscountCodes.jsx";
 import VendorStoreOffers from "./pages/vendor/VendorStoreOffers.jsx";
 import VendorOrders from "./pages/vendor/VendorOrders.jsx";
 import VendorTables from "./pages/vendor/VendorTables.jsx";
@@ -44,6 +45,9 @@ import VendorReviews from "./pages/vendor/VendorReviews.jsx";
 import VendorSettings from "./pages/vendor/VendorSettings.jsx";
 import VendorProfile from "./pages/vendor/VendorProfile.jsx";
 import VendorFraudReports from "./pages/vendor/VendorFraudReports.jsx";
+import VendorManualSales from "./pages/vendor/VendorManualSales.jsx";
+import VendorUsers from "./pages/vendor/VendorUsers.jsx";
+import StaffProfile from "./pages/vendor/StaffProfile.jsx";
 
 // Admin
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
@@ -74,13 +78,27 @@ import AdminOffers from "./pages/admin/AdminOffers.jsx";
 import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
 import AdminStoreOffers from "./pages/admin/AdminStoreOffers.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
+import AdminManualSales from "./pages/admin/AdminManualSales.jsx";
 import AdminCustomerListings from "./pages/admin/AdminCustomerListings.jsx";
 import AdminFraudReports from "./pages/admin/AdminFraudReports.jsx";
+import AdminRankingAnomalies from "./pages/admin/AdminRankingAnomalies.jsx";
+
+// Bloque 183 (pedido explícito — "esa foto saldrá en el perfil del
+// usuario... podrá ver su foto con su nombre, su correo... y la sección a
+// la que tiene acceso"): "Mi perfil" es la MISMA URL para dueño y usuario
+// de sistema — el contenido de esa pantalla es lo único que cambia según
+// quién esté logueado, así el link del NAV no necesita ninguna lógica
+// especial (VendorLayout.jsx ya lo muestra igual para los 2 roles).
+function VendorProfileRoute() {
+  const { user } = useAuth();
+  return user?.role === "VENDOR_STAFF" ? <StaffProfile /> : <VendorProfile />;
+}
 
 export default function App() {
   return (
     <>
       <RouteLoader />
+      <ErrorBoundary>
       <Routes>
       {/* Sitio público (comprador + vendedor sin cuenta) */}
       <Route element={<PublicLayout />}>
@@ -122,11 +140,14 @@ export default function App() {
       <Route path="/vendedor/ingresar" element={<Account mode="vendor" />} />
       <Route path="/admin/ingresar" element={<Account mode="admin" />} />
 
-      {/* Panel de vendedor */}
+      {/* Panel de vendedor — Bloque 183 (pedido explícito): un usuario de
+          sistema (VENDOR_STAFF) entra por esta MISMA puerta que el dueño —
+          qué ve adentro (NAV filtrado + redirect de defensa en profundidad
+          por sección) lo decide VendorLayout.jsx, nunca esto de acá. */}
       <Route
         path="/vendedor"
         element={
-          <ProtectedRoute roles={["VENDOR"]} redirectTo="/vendedor/ingresar">
+          <ProtectedRoute roles={["VENDOR", "VENDOR_STAFF"]} redirectTo="/vendedor/ingresar">
             <VendorLayout />
           </ProtectedRoute>
         }
@@ -134,7 +155,14 @@ export default function App() {
         <Route index element={<VendorDashboard />} />
         <Route path="productos" element={<VendorProducts />} />
         <Route path="ofertas" element={<VendorOffers />} />
-        <Route path="codigos-descuento" element={<VendorDiscountCodes />} />
+        {/* Bloque 232 (pedido explícito — fusión de "Ofertas de tienda" y
+            "Códigos de descuento" en una sola sección con pestañas,
+            VendorStoreOffers.jsx): la ruta /codigos-descuento se retira
+            (sin alias) — mantenerla apuntando al mismo componente quedaría
+            SIN el chequeo de permisos por sección de VendorLayout.jsx (ese
+            chequeo busca la ruta actual dentro de NAV, y esta ya no tiene
+            su propia entrada ahí), un hueco de acceso real para un usuario
+            de sistema sin ninguna de las 2 secciones. */}
         <Route path="ofertas-tienda" element={<VendorStoreOffers />} />
         <Route path="pedidos" element={<VendorOrders />} />
         <Route path="mesas" element={<VendorTables />} />
@@ -143,12 +171,17 @@ export default function App() {
         <Route path="mensajes" element={<VendorChat />} />
         <Route path="resenas" element={<VendorReviews />} />
         <Route path="reportes" element={<VendorFraudReports />} />
+        <Route path="ventas-manuales" element={<VendorManualSales />} />
         <Route path="configuracion" element={<VendorSettings />} />
+        {/* Bloque 183: gestión de usuarios de sistema — nunca delegable
+            (VendorLayout.jsx la saca del NAV para un VENDOR_STAFF, y el
+            propio componente vuelve a chequear el rol por las dudas). */}
+        <Route path="usuarios" element={<VendorUsers />} />
         {/* Unificado en "verificacion" (verificación y plan eran dos páginas
             mostrando casi lo mismo) — se deja el redirect por si alguien
             tiene esta URL guardada. */}
         <Route path="suscripcion" element={<Navigate to="/vendedor/verificacion" replace />} />
-        <Route path="perfil" element={<VendorProfile />} />
+        <Route path="perfil" element={<VendorProfileRoute />} />
       </Route>
 
       {/* Panel de administración ZeuDin */}
@@ -164,8 +197,10 @@ export default function App() {
         <Route path="tiendas" element={<AdminVendors />} />
         <Route path="tiendas-suspendidas" element={<AdminSuspendedVendors />} />
         <Route path="productos" element={<AdminProducts />} />
+        <Route path="ventas-manuales" element={<AdminManualSales />} />
         <Route path="ventas-rapidas" element={<AdminCustomerListings />} />
         <Route path="reportes-fraude" element={<AdminFraudReports />} />
+        <Route path="anomalias-ranking" element={<AdminRankingAnomalies />} />
         <Route path="verificaciones" element={<AdminVerifications />} />
         <Route path="clientes" element={<AdminCustomers />} />
         <Route path="actividad" element={<AdminActivityLog />} />
@@ -194,6 +229,7 @@ export default function App() {
 
       <Route path="*" element={<NotFound />} />
       </Routes>
+      </ErrorBoundary>
     </>
   );
 }

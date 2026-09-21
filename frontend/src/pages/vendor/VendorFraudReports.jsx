@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { api, getErrorMessage } from "../../lib/api.js";
 import { ShieldAlert, Camera, CheckCircle2, Clock } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -24,7 +25,7 @@ function targetLabel(r) {
 const STATUS_META = {
   PENDING: { label: "Un cliente te reportó — el admin lo está revisando", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)" },
   EVIDENCE_REQUESTED: { label: "Necesitamos que respondas", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)" },
-  RESOLVED_NO_ACTION: { label: "Cerrado — sin ninguna acción contra vos", color: "#0CAE53", bg: "rgba(12,174,83,0.1)" },
+  RESOLVED_NO_ACTION: { label: "Cerrado — sin ninguna acción contra ti", color: "#0CAE53", bg: "rgba(12,174,83,0.1)" },
   RESOLVED_SUSPENDED: { label: "Suspendido por fraude", color: "#232F3E", bg: "rgba(35,47,62,0.1)" },
   DISMISSED: { label: "Descartado — no pasó nada", color: "#0CAE53", bg: "rgba(12,174,83,0.1)" },
 };
@@ -67,9 +68,12 @@ export default function VendorFraudReports() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Reportes de fraude</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={ShieldAlert} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Reportes de fraude</h1>
+      </div>
       <p className="mb-5 text-[13.5px] text-outline">
-        Si un cliente reportó tu tienda o un producto, lo ves acá. Respondé con una explicación (y una foto si tenés) antes de que se venza el plazo.
+        Si un cliente reportó tu tienda o un producto, lo ves acá. Responde con una explicación (y una foto si tienes) antes de que se venza el plazo.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
@@ -103,7 +107,7 @@ export default function VendorFraudReports() {
 
               {r.status === "EVIDENCE_REQUESTED" && r.evidenceDueAt && !r.evidenceSentAt && (
                 <p className="mb-3 flex items-center gap-1.5 text-[12.5px] font-semibold text-error">
-                  <Clock className="h-3.5 w-3.5" /> Tenés hasta el {fmtDate(r.evidenceDueAt)} para responder.
+                  <Clock className="h-3.5 w-3.5" /> Tienes hasta el {fmtDate(r.evidenceDueAt)} para responder.
                 </p>
               )}
 

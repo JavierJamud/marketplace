@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Mail, KeyRound } from "lucide-react";
+import { Mail, KeyRound, UserCog } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
@@ -65,7 +66,10 @@ export default function AdminProfile() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Mi perfil</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={UserCog} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mi perfil</h1>
+      </div>
       <p className="mb-4 text-[13.5px] text-outline">Tu cuenta de administrador y la marca de la plataforma.</p>
 
       <div className="mb-[22px] flex flex-wrap gap-1.5 border-b border-surface-container-high">

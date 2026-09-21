@@ -1,18 +1,41 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Icons from "lucide-react";
 import toast from "../../lib/toast.jsx";
-import { Check, X, Pencil, Trash2, Plus, GripVertical } from "lucide-react";
+import { Check, X, Pencil, Trash2, Plus, GripVertical, Tags } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
-// Mismo criterio de validación que el backend (businessCategories.controller.js):
-// nombre "canónico" de un export real de lucide-react, sin el alias "*Icon".
-function isValidIconName(name) {
-  return !!name && !!Icons[name] && !name.endsWith("Icon");
+// Bloque 112 (bug real reportado en vivo, con captura): "users" (el nombre
+// tal cual aparece en la URL de lucide.dev/icons/users) se rechazaba como
+// "no existe" porque el export real de lucide-react es "Users" (PascalCase).
+// Mismo resolver tolerante que el backend (businessCategories.controller.js)
+// — si el nombre exacto no matchea, arma la versión PascalCase esperada
+// antes de darlo por inválido. Se guarda siempre el nombre CANÓNICO
+// resuelto, nunca lo que escribió el admin tal cual.
+function toPascalCase(name) {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join("");
+}
+
+function resolveIconName(name) {
+  if (!name) return null;
+  const exact = name.trim();
+  if (Icons[exact] && !exact.endsWith("Icon")) return exact;
+  const pascal = toPascalCase(exact);
+  if (Icons[pascal] && !pascal.endsWith("Icon")) return pascal;
+  return null;
 }
 
 function CategoryModal({ category, onClose }) {
@@ -21,13 +44,22 @@ function CategoryModal({ category, onClose }) {
   const [icon, setIcon] = useState(category?.icon ?? "");
   const [sortOrder, setSortOrder] = useState(category?.sortOrder ?? 0);
 
-  const iconValid = isValidIconName(icon);
+  const resolvedIcon = resolveIconName(icon);
+  const iconValid = !!resolvedIcon;
+
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): mismo patrón de snapshot-en-ref que
+  // ProductModal (VendorProducts.jsx).
+  const initialCategorySnapshot = useRef(JSON.stringify({ name, icon, sortOrder }));
+  const isDirty = JSON.stringify({ name, icon, sortOrder }) !== initialCategorySnapshot.current;
 
   const save = useMutation({
     mutationFn: async () =>
       category
-        ? (await api.patch(`/admin/business-categories/${category.id}`, { name, icon, sortOrder: Number(sortOrder) })).data
-        : (await api.post("/admin/business-categories", { name, icon, sortOrder: Number(sortOrder) })).data,
+        ? (await api.patch(`/admin/business-categories/${category.id}`, { name, icon: resolvedIcon, sortOrder: Number(sortOrder) })).data
+        : (await api.post("/admin/business-categories", { name, icon: resolvedIcon, sortOrder: Number(sortOrder) })).data,
     onSuccess: () => {
       toast.success(category ? "Categoría actualizada." : "Categoría creada.");
       queryClient.invalidateQueries({ queryKey: ["admin-business-categories"] });
@@ -36,8 +68,20 @@ function CategoryModal({ category, onClose }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la categoría."),
   });
 
+  // Bloque 196: misma condición que ya deshabilita "Guardar" más abajo (sin
+  // save.isPending).
+  const canSaveNow = !!name.trim() && iconValid;
+  const dirtyModal = useDirtyModal({
+    isDirty,
+    onClose,
+    onSave: canSaveNow ? () => save.mutateAsync() : undefined,
+  });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{category ? "Editar categoría" : "Agregar categoría"}</h2>
 
@@ -52,7 +96,7 @@ function CategoryModal({ category, onClose }) {
                   icon ? (iconValid ? "border-verified bg-verified/10" : "border-error bg-error/10") : "border-outline-variant"
                 }`}
               >
-                <CategoryIcon name={iconValid ? icon : undefined} className="h-5 w-5 text-on-surface-variant" />
+                <CategoryIcon name={resolvedIcon ?? undefined} className="h-5 w-5 text-on-surface-variant" />
               </div>
               <input
                 value={icon}
@@ -84,6 +128,14 @@ function CategoryModal({ category, onClose }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -119,7 +171,10 @@ export default function AdminCategories() {
 
   return (
     <div className="max-w-[820px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Categorías de tipo de negocio</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Tags} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de tipo de negocio</h1>
+      </div>
       <p className="mb-2 text-[13.5px] text-outline">
         Rubro que elige cada tienda al registrarse (restaurante, belleza, ferretería...). Se muestran en el Home y como
         filtro de búsqueda de Tiendas.
@@ -132,7 +187,7 @@ export default function AdminCategories() {
       <div className="mb-[18px] flex justify-end">
         <button
           onClick={() => setModalState({})}
-          className="flex items-center gap-1.5 rounded-md bg-secondary-container px-3.5 py-2 text-[12.5px] font-bold text-on-secondary-container"
+          className="flex items-center gap-1.5 rounded-full bg-secondary-container px-3.5 py-2 text-[12.5px] font-bold text-on-secondary-container"
         >
           <Plus className="h-3.5 w-3.5" /> Agregar categoría
         </button>
@@ -140,7 +195,7 @@ export default function AdminCategories() {
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {categories?.map((c) => (
           <div key={c.id} className="flex items-center gap-3 border-b border-surface-container px-4 py-3 last:border-b-0">
             <GripVertical className="h-4 w-4 flex-shrink-0 text-outline/40" />

@@ -4,17 +4,23 @@ import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { getBrandSettings } from "./settings.controller.js";
+import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { getBrandSettings, getReviewPolicy } from "./settings.controller.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
-import { logActivity } from "../lib/activityLog.js";
+import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 
-// Bloque 69 (pedido explícito): un mismo usuario logueado solo puede dejar
-// UN comentario por día EN UNA MISMA TIENDA — sin importar si ese comentario
-// es general (Store.jsx, sin producto) o sobre un producto puntual
-// (Product.jsx): "por tienda" agrupa los dos, así que el tope se chequea
-// contra vendorId+userId, nunca contra productId. Mismo criterio/idioma que
+// Bloque 117/118 (pedido explícito): un mismo usuario logueado puede dejar
+// hasta `maxPerProduct` comentarios por ventana de tiempo POR PRODUCTO
+// (Product.jsx) — cada producto es su propio tope, sin importar si son de
+// la misma tienda o no, así que puede reseñar 2 productos distintos de una
+// misma tienda el mismo día. La reseña GENERAL de una tienda (Store.jsx, sin
+// producto) tiene su propio tope aparte, `maxPerStore`, que nunca comparte
+// balde con el de sus productos. Los 3 valores (ventana en horas, tope por
+// producto, tope por tienda) más si las cuentas VENDOR pueden comentar en
+// absoluto son configurables desde el admin (AdminReviews.jsx →
+// getReviewPolicy/updateReviewPolicy en settings.controller.js) — antes
+// eran constantes hardcodeadas acá. Mismo criterio/idioma que
 // PRODUCT_REQUEST_DEDUP_HOURS en products.controller.js.
-const REVIEW_DEDUP_HOURS = 24;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Bloque 52: fotos de reseñas — públicas (se muestran junto al comentario en
@@ -39,6 +45,16 @@ const createReviewSchema = z.object({
 export async function createReview(req, res) {
   try {
     const data = createReviewSchema.parse(req.body);
+    const policy = await getReviewPolicy();
+
+    // Bloque 118 (pedido explícito): "los vendedores no pueden agregar
+    // comentarios a ninguna tienda ni producto" — habilitable/deshabilitable
+    // desde el admin (default: sí pueden, mismo comportamiento de siempre).
+    // Bloquea a CUALQUIER cuenta VENDOR, incluida la del dueño de esta misma
+    // tienda (no hay excepción "puede reseñarse a sí mismo").
+    if (req.user.role === "VENDOR" && !policy.vendorsCanReview) {
+      throw new AppError("Las cuentas de vendedor no pueden comentar ni reseñar tiendas o productos.", 403);
+    }
 
     const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
     if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
@@ -47,15 +63,22 @@ export async function createReview(req, res) {
       throw new AppError("Adjuntar fotos a una reseña solo está disponible en tiendas verificadas.", 403);
     }
 
-    // Bloque 69 (pedido explícito): 1 comentario por día por tienda, sin
-    // importar si es general o sobre un producto puntual de esa tienda.
-    const since = new Date(Date.now() - REVIEW_DEDUP_HOURS * 60 * 60 * 1000);
-    const alreadyCommentedToday = await prisma.review.findFirst({
-      where: { vendorId: data.vendorId, userId: req.user.id, createdAt: { gte: since } },
-      select: { id: true },
+    // Bloque 117/118: hasta `maxPerProduct` comentarios por ventana POR
+    // PRODUCTO — reseñar el producto A no consume el cupo del producto B de
+    // la misma tienda. La reseña general de la tienda (sin producto) tiene
+    // su propio tope aparte, `maxPerStore`.
+    const since = new Date(Date.now() - policy.dedupHours * 60 * 60 * 1000);
+    const max = data.productId ? policy.maxPerProduct : policy.maxPerStore;
+    const commentsInWindow = await prisma.review.count({
+      where: { vendorId: data.vendorId, productId: data.productId ?? null, userId: req.user.id, createdAt: { gte: since } },
     });
-    if (alreadyCommentedToday) {
-      throw new AppError("Ya dejaste un comentario hoy en esta tienda — puedes volver a comentar mañana.", 429);
+    if (commentsInWindow >= max) {
+      throw new AppError(
+        data.productId
+          ? "Ya alcanzaste el límite de reseñas para este producto por ahora — puedes volver a intentarlo más tarde."
+          : "Ya alcanzaste el límite de comentarios para esta tienda por ahora — puedes volver a intentarlo más tarde.",
+        429
+      );
     }
 
     const author = await prisma.user.findUnique({ where: { id: req.user.id } });
@@ -98,6 +121,7 @@ export async function createReview(req, res) {
         where: { id: data.vendorId },
         data: { rating: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0 },
       });
+      if (data.productId) await recalculateProductRating(data.productId);
     }
 
     logActivity({
@@ -126,9 +150,10 @@ export async function createReview(req, res) {
 // pero sí responder públicamente — la respuesta se muestra en Store.jsx
 // pegada al comentario, como una respuesta de la tienda.
 
+// Bloque 183: resolveMyVendor — soporta usuarios de sistema con la
+// sección "resenas" asignada (ver vendors.routes.js).
 export async function listMyReviews(req, res) {
-  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  const vendor = await resolveMyVendor(req.user.id);
 
   // Bloque 69: ya NO filtra isHidden:false — el vendedor necesita ver el
   // estado real de lo que reportó (oculto esperando revisión, mantenido de
@@ -148,8 +173,7 @@ export async function replyToReview(req, res) {
   const { id } = req.params;
   const { reply } = replySchema.parse(req.body);
 
-  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
-  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  const vendor = await resolveMyVendor(req.user.id);
 
   const review = await prisma.review.findUnique({ where: { id } });
   if (!review || review.vendorId !== vendor.id) throw new AppError("Comentario no encontrado.", 404);
@@ -160,7 +184,7 @@ export async function replyToReview(req, res) {
   });
   logActivity({
     actorId: req.user.id,
-    actorRole: "VENDOR",
+    actorRole: actorRoleForVendorAction(req),
     vendorId: vendor.id,
     action: "review_replied",
     description: `Respondió una reseña en "${vendor.companyName}"`,
@@ -214,6 +238,7 @@ export async function reportReview(req, res) {
     },
   });
   if (updated.vendorId && updated.rating) await recalculateVendorRating(updated.vendorId);
+  if (updated.productId && updated.rating) await recalculateProductRating(updated.productId);
 
   // Bloque 69 (pedido explícito): "el admin siempre debe estar notificado de
   // todas estas acciones de los vendedores y clientes también" — cubre los
@@ -268,6 +293,26 @@ async function recalculateVendorRating(vendorId) {
   });
 }
 
+// Bloque 116 (pedido explícito): mismo criterio que recalculateVendorRating
+// de arriba, pero acotado a las reseñas de ESTE producto puntual (no todas
+// las de la tienda) — es lo que alimenta las estrellas + "(N)" de
+// ProductCard.jsx. También guarda reviewCount (a diferencia del rating de
+// tienda, acá la tarjeta necesita mostrar la cantidad, no solo el promedio).
+async function recalculateProductRating(productId) {
+  const agg = await prisma.review.aggregate({
+    where: { productId, rating: { not: null }, isHidden: false },
+    _avg: { rating: true },
+    _count: { rating: true },
+  });
+  await prisma.product.update({
+    where: { id: productId },
+    data: {
+      rating: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0,
+      reviewCount: agg._count.rating,
+    },
+  });
+}
+
 const toggleHiddenSchema = z.object({ isHidden: z.boolean() });
 
 export async function setReviewHidden(req, res) {
@@ -279,6 +324,7 @@ export async function setReviewHidden(req, res) {
 
   const review = await prisma.review.update({ where: { id }, data: { isHidden } });
   if (review.vendorId && review.rating) await recalculateVendorRating(review.vendorId);
+  if (review.productId && review.rating) await recalculateProductRating(review.productId);
 
   res.json({ review });
 }
@@ -310,6 +356,7 @@ export async function resolveReviewReport(req, res) {
     },
   });
   if (review.vendorId && review.rating) await recalculateVendorRating(review.vendorId);
+  if (review.productId && review.rating) await recalculateProductRating(review.productId);
 
   res.json({ review });
 }
@@ -321,6 +368,7 @@ export async function deleteReview(req, res) {
 
   await prisma.review.delete({ where: { id } });
   if (existing.vendorId && existing.rating) await recalculateVendorRating(existing.vendorId);
+  if (existing.productId && existing.rating) await recalculateProductRating(existing.productId);
 
   res.json({ ok: true });
 }

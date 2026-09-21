@@ -6,7 +6,10 @@ import { KYC_UPLOAD_DIR } from "../controllers/verification.controller.js";
 
 mkdirSync(KYC_UPLOAD_DIR, { recursive: true });
 
-const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".pdf", ".webp"]);
+// Bloque 146: .webm/.mp4 sumados para el video corto de liveness (selfie
+// girando la cabeza) — mismo middleware que ya sirve fotos/comprobantes,
+// nunca hace falta uno aparte para esto.
+const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".pdf", ".webp", ".webm", ".mp4"]);
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, KYC_UPLOAD_DIR),
@@ -20,7 +23,10 @@ const storage = multer.diskStorage({
 
 export const kycUpload = multer({
   storage,
-  limits: { fileSize: 8 * 1024 * 1024 },
+  // Bloque 146: subido de 8MB a 20MB — el video de liveness (unos segundos,
+  // baja resolución) puede pesar más que una foto sola, aunque siga siendo
+  // chico. Las fotos nunca se acercan a este límite de todas formas.
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = extname(file.originalname).toLowerCase();
     cb(null, ALLOWED_EXT.has(ext));

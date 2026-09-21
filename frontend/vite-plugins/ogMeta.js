@@ -12,7 +12,13 @@
 // de abajo es reutilizable tal cual desde un middleware Express que haga lo
 // mismo contra el `dist/index.html` ya buildeado.
 
-const FALLBACK_SITE_NAME = "ZeuDin";
+// Bloque 212 (pedido explícito, bug real reportado en vivo — el fallback
+// decía "ZeuDin", la marca de la empresa de desarrollo, nunca el nombre de
+// esta plataforma): "Baznova" es el nombre real (SiteSettings.siteName en
+// la base) — este valor solo se usa si el backend no responde al pedir
+// /settings, así que no puede leerlo de ahí; se actualiza a mano acá si el
+// nombre de la plataforma cambia algún día.
+const FALLBACK_SITE_NAME = "Baznova";
 const DEFAULT_DESCRIPTION =
   "Comprá y vendé en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp.";
 
@@ -33,6 +39,19 @@ function esc(str) {
 function truncate(str, max) {
   const clean = String(str ?? "").trim();
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+}
+
+// Bloque 115: index.html ahora trae meta tags estáticas de fallback (piso
+// genérico para cuando este plugin no corre — build de producción servido
+// tal cual, sin middleware equivalente). Este plugin SIGUE siendo quien
+// manda en dev — hay que sacar esas tags estáticas antes de inyectar las
+// resueltas, o quedarían duplicadas (2 <title>, 2 og:title, etc.).
+function stripExistingMeta(html) {
+  return html
+    .replace(/<title>[\s\S]*?<\/title>\s*/i, "")
+    .replace(/<meta\s+name="description"[^>]*\/?>\s*/i, "")
+    .replace(/<meta\s+property="og:[a-z:]+"[^>]*\/?>\s*/gi, "")
+    .replace(/<meta\s+name="twitter:[a-z:]+"[^>]*\/?>\s*/gi, "");
 }
 
 function buildMetaHtml(meta) {
@@ -70,7 +89,7 @@ export function ogMetaPlugin(env = {}) {
   // Bloque 49: nombre de la plataforma editable desde el admin (SiteSettings)
   // — un crawler no ejecuta JS ni lee usePlatformSettings(), así que este
   // plugin de servidor necesita su propio fetch. Si el backend no responde,
-  // cae a "ZeuDin" (nunca rompe la carga de la página por esto).
+  // cae a FALLBACK_SITE_NAME de arriba (nunca rompe la carga de la página).
   async function fetchSiteName() {
     try {
       const res = await fetch(`${apiUrl}/settings`);
@@ -101,12 +120,11 @@ export function ogMetaPlugin(env = {}) {
           const { vendor } = await res.json();
           return {
             title: `${vendor.companyName} — ${siteName}`,
-            description: truncate(vendor.description, 200) || `Mirá los productos de ${vendor.companyName} en ${siteName}.`,
-            // Bloque 23: Store.jsx todavía no tiene un banner-imagen real
-            // (el header de la tienda es un color sólido + inicial, ver
-            // Store.jsx) — coverUrl existe en el modelo para el día que lo
-            // tenga. Hasta entonces cae al placeholder de marca.
-            image: absoluteImage(apiUrl, vendor.coverUrl) ?? defaultImage,
+            description: truncate(vendor.description, 200) || `Mira los productos de ${vendor.companyName} en ${siteName}.`,
+            // Bloque 207: el banner de la tienda es color + patrón de
+            // íconos, nunca una foto real — el logo es lo más cercano a una
+            // imagen de marca real que tiene cada tienda.
+            image: absoluteImage(apiUrl, vendor.logoUrl) ?? defaultImage,
             url: `${siteUrl}${path}`,
             type: "website",
             siteName,
@@ -149,7 +167,8 @@ export function ogMetaPlugin(env = {}) {
       order: "pre",
       handler: async (html, ctx) => {
         const meta = await resolveMeta(ctx.originalUrl ?? ctx.path);
-        return html.replace("</head>", `    ${buildMetaHtml(meta)}\n  </head>`);
+        const stripped = stripExistingMeta(html);
+        return stripped.replace("</head>", `    ${buildMetaHtml(meta)}\n  </head>`);
       },
     },
   };

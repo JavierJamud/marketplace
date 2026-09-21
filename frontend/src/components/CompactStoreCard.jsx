@@ -1,13 +1,21 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, UtensilsCrossed } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
+import { getBannerIconPattern } from "../lib/vendorBannerIcons.js";
+import { api } from "../lib/api.js";
 
 const PALETTE = ["#232F3E", "#337475", "#8A5100", "#643900", "#0e1a28", "#003435"];
 function colorFor(id) {
   let hash = 0;
   for (const ch of String(id)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return PALETTE[hash % PALETTE.length];
+}
+
+function imgUrl(path) {
+  if (!path) return null;
+  return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
 const DESCRIPTION_LIMIT = 90;
@@ -28,6 +36,12 @@ export function CompactStoreCard({ vendor }) {
   const color = vendor.color ?? colorFor(vendor.id);
   const location = vendor.locations?.[0];
   const description = vendor.description ? truncateDescription(vendor.description) : null;
+  // Bloque 207 (pedido explícito): mismo patrón de íconos del banner grande
+  // (Store.jsx), a menor densidad — esta tarjeta es mucho más chica.
+  const iconPattern = useMemo(
+    () => getBannerIconPattern(vendor, { cols: 7, rows: 4, minSize: 12, maxSize: 24 }),
+    [vendor.id, vendor.isRestaurant, vendor.businessCategory?.slug]
+  );
 
   return (
     <Link
@@ -35,13 +49,16 @@ export function CompactStoreCard({ vendor }) {
       className="group flex h-full flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
     >
       <div className="relative h-[104px] w-full overflow-hidden" style={{ background: color }}>
-        {vendor.coverUrl && (
-          <img
-            src={vendor.coverUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        )}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          {iconPattern.map(({ key, Icon, top, left, size, rotate, opacity, strokeWidth }) => (
+            <Icon
+              key={key}
+              strokeWidth={strokeWidth}
+              className="absolute text-white"
+              style={{ top, left, width: size, height: size, transform: `translate(-50%, -50%) rotate(${rotate}deg)`, opacity }}
+            />
+          ))}
+        </div>
         <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-primary/10 to-transparent" />
         {vendor.isVerified && (
           <div className="absolute right-2.5 top-2.5 flex items-center gap-1 rounded-full bg-white/95 py-1 pl-1 pr-2">
@@ -51,10 +68,14 @@ export function CompactStoreCard({ vendor }) {
         )}
         <div className="absolute bottom-2.5 left-3 right-3 flex items-center gap-2">
           <span
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 border-white font-display text-[15px] font-bold text-white shadow"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white font-display text-[15px] font-bold text-white shadow"
             style={{ background: color }}
           >
-            {vendor.companyName?.[0]}
+            {vendor.logoUrl ? (
+              <img src={imgUrl(vendor.logoUrl)} alt={vendor.companyName} className="h-full w-full object-cover" />
+            ) : (
+              vendor.companyName?.[0]
+            )}
           </span>
           <div className="min-w-0">
             <div className="truncate text-[13px] font-bold text-white drop-shadow">{vendor.companyName}</div>

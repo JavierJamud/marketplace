@@ -11,6 +11,33 @@ import { resolveUnitPrice } from "../lib/pricing.js";
 const CartContext = createContext(null);
 const STORAGE_KEY = "zeudin_cart";
 
+// Bloque 143 (pedido explícito — corrige el criterio del Bloque 140: "a
+// los productos se le pueda agregar más de 99 unidades, el monto a
+// agregar es ilimitado dependiendo del stock del producto"): el Bloque 140
+// diagnosticó mal el bug real (captura de un carrito con ~2147483671
+// unidades) — asumió que un `stock` faltante era un descuido y agregó un
+// techo DURO de 99 para TODOS los productos. Pero el producto de esa
+// captura (Champú, `unlimitedStock:true`) SIEMPRE estuvo pensado para no
+// tener techo — `AddToCartControl.jsx`/`Product.jsx`/`StoreChatWidget.jsx`
+// ya mandaban `stock:null` a propósito para señalar justo eso ("`null`
+// (no un número) le dice a CartContext que no hay techo real que
+// respetar" — comentario que ya estaba ahí desde antes). Con `??`, `null`
+// dispara el fallback igual que `undefined` — el Bloque 140 reemplazó ese
+// `?? Infinity` (correcto, respeta el sentinel) por `?? MAX_CART_QUANTITY`,
+// rompiendo la función real de "disponible siempre" para CUALQUIER
+// producto ilimitado, no solo para el caso roto. `resolveStockCap` es el
+// único lugar que decide el techo real, ahora sí correcto: `null` (el
+// sentinel real) = sin techo; cualquier otro valor no-numérico (bug de
+// verdad, no una decisión del vendedor) = 0, nunca "sin límite" por
+// accidente — el techo real de un producto CON stock sigue siendo su
+// stock real (puede ser mayor a 99 sin problema, ej. una tienda que vende
+// 500 unidades de algo).
+function resolveStockCap(stock) {
+  if (stock === null) return Infinity;
+  const n = Number(stock);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 function vendorMeta(product) {
   return {
     vendorId: product.vendorId,
@@ -25,7 +52,18 @@ function vendorMeta(product) {
 function readStored() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-    return parsed && typeof parsed === "object" ? parsed : { vendor: {}, items: [], discount: null };
+    if (!parsed || typeof parsed !== "object") return { vendor: {}, items: [], discount: null };
+    // Bloque 140/143: auto-cura una cantidad guardada que no sea un número
+    // válido (NaN, negativa, etc. — un carrito de verdad corrupto) contra
+    // el techo REAL del producto (resolveStockCap: sin techo si es
+    // ilimitado, su stock real si no) — nunca contra un techo arbitrario.
+    const items = Array.isArray(parsed.items)
+      ? parsed.items.map((i) => ({
+          ...i,
+          quantity: Math.max(1, Math.min(Number(i.quantity) || 1, resolveStockCap(i.stock))),
+        }))
+      : [];
+    return { vendor: parsed.vendor ?? {}, items, discount: parsed.discount ?? null };
   } catch {
     return { vendor: {}, items: [], discount: null };
   }
@@ -152,7 +190,12 @@ export function CartProvider({ children }) {
   // comportándose exactamente igual que antes).
   const addItem = useCallback(
     (product, quantity = 1, selectedOptions = {}) => {
-      if (vendor.vendorId && vendor.vendorId !== product.vendorId) {
+      // Bloque 107: además de comparar vendedores, se exige que el carrito
+      // realmente tenga algo — refuerzo defensivo para que un `vendor`
+      // viejo que quedara pegado por cualquier otro camino futuro (no solo
+      // el de removeItem, ya arreglado arriba) nunca dispare un conflicto
+      // falso sobre un carrito que en los hechos está vacío.
+      if (items.length > 0 && vendor.vendorId && vendor.vendorId !== product.vendorId) {
         setPendingConflict({ product, quantity, selectedOptions });
         return { conflict: true };
       }
@@ -163,7 +206,7 @@ export function CartProvider({ children }) {
       // sentido (bug reportado: quedaba en 0 en vez de 1 en el primer
       // agregado); Math.max(1, ...) lo hace matemáticamente imposible sin
       // importar qué valor traiga stock/quantity.
-      const stock = product.stock ?? Infinity;
+      const stock = resolveStockCap(product.stock);
       const size = product.size ?? null;
       const currency = product.currency ?? "CUP";
       setVendor(vendorMeta(product));
@@ -175,7 +218,16 @@ export function CartProvider({ children }) {
           // vendedor los cambió desde la última visita) en vez de conservar
           // lo que ya había en el carrito.
           return prev.map((i) =>
-            i.productId === product.id && i.size === size ? { ...i, quantity: nextQty, stock, priceTiers: product.priceTiers ?? i.priceTiers } : i
+            i.productId === product.id && i.size === size
+              ? {
+                  ...i,
+                  quantity: nextQty,
+                  stock,
+                  priceTiers: product.priceTiers ?? i.priceTiers,
+                  image: product.image ?? i.image ?? null,
+                  slug: product.slug ?? i.slug ?? null,
+                }
+              : i
           );
         }
         return [
@@ -183,6 +235,14 @@ export function CartProvider({ children }) {
           {
             productId: product.id,
             name: product.name,
+            // Bloque 147 (bug real reportado en vivo — el carrito no
+            // mostraba la foto del producto ni linkeaba a su ficha):
+            // `image`/`slug` viajan desde cada punto de entrada
+            // (AddToCartControl.jsx/Product.jsx/StoreChatWidget.jsx) — acá
+            // solo se guardan tal cual llegan, mismo criterio que el resto
+            // de los campos de este objeto.
+            image: product.image ?? null,
+            slug: product.slug ?? null,
             price: product.price,
             priceTiers: product.priceTiers ?? [],
             currency,
@@ -196,7 +256,7 @@ export function CartProvider({ children }) {
       setBump((b) => b + 1);
       return { conflict: false };
     },
-    [vendor.vendorId]
+    [vendor.vendorId, items.length]
   );
 
   const resolveConflict = useCallback(
@@ -212,6 +272,8 @@ export function CartProvider({ children }) {
           {
             productId: product.id,
             name: product.name,
+            image: product.image ?? null,
+            slug: product.slug ?? null,
             price: product.price,
             priceTiers: product.priceTiers ?? [],
             currency,
@@ -232,8 +294,26 @@ export function CartProvider({ children }) {
     [pendingConflict]
   );
 
+  // Bloque 107 (bug real reportado en vivo: "el carrito está vacío pero me
+  // dice que tiene otra tienda"): quitar productos DE A UNO (a diferencia
+  // de clearCart, el botón "Vaciar") solo tocaba `items` — si el cliente
+  // terminaba en 0 productos sacándolos manualmente uno por uno, `vendor`
+  // se quedaba con el vendedor viejo pegado. addItem (más abajo) chequea
+  // conflicto mirando SOLO `vendor.vendorId`, nunca si `items` está vacío
+  // de verdad — con el carrito vacío pero `vendor` viejo todavía puesto, el
+  // próximo producto de OTRA tienda disparaba el modal de conflicto sobre
+  // un carrito que en los hechos no tenía nada. Mismo criterio que
+  // clearCart: si sacar este ítem deja el carrito en 0, se resetea vendor
+  // (y el código de descuento, que es de la tienda vigente) junto con items.
   const removeItem = (productId, size = null) => {
-    setItems((prev) => prev.filter((i) => !(i.productId === productId && i.size === size)));
+    setItems((prev) => {
+      const next = prev.filter((i) => !(i.productId === productId && i.size === size));
+      if (next.length === 0) {
+        setVendor({});
+        setDiscount(null);
+      }
+      return next;
+    });
     toast.success("Producto eliminado del carrito");
   };
 
@@ -241,7 +321,7 @@ export function CartProvider({ children }) {
     setItems((prev) => {
       const existing = prev.find((i) => i.productId === productId && i.size === size);
       if (!existing) return prev;
-      const clamped = Math.max(1, Math.min(quantity, existing.stock ?? Infinity));
+      const clamped = Math.max(1, Math.min(quantity, resolveStockCap(existing.stock)));
       // Sube el número de a poco desde el stepper (+) también cuenta como
       // "agregar" a efectos visuales: reinicia la animación del ícono.
       if (clamped > existing.quantity) setBump((b) => b + 1);

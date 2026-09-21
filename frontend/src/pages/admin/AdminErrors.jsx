@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Check } from "lucide-react";
+import { Check, AlertTriangle } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 
 // Bloque 33: el backend solo conoce los 6 valores reales de ErrorOrigin —
@@ -61,7 +62,10 @@ export default function AdminErrors() {
 
   return (
     <div className="max-w-[900px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Errores</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={AlertTriangle} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Errores</h1>
+      </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Fallas técnicas reales registradas automáticamente (bots, emails, pagos, transcripción de audio, y cualquier otra
         del backend) — este es el único lugar del sitio donde se ve el detalle real, nunca se expone al cliente/vendedor.
@@ -101,7 +105,7 @@ export default function AdminErrors() {
         {data?.map((e) => (
           <div
             key={e.id}
-            className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5"
+            className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5"
             style={{ opacity: e.resolved ? 0.65 : 1 }}
           >
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">

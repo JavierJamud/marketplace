@@ -19,6 +19,9 @@ import * as adminProductsController from "../controllers/adminProducts.controlle
 import * as adminCustomerListingsController from "../controllers/adminCustomerListings.controller.js";
 import * as adminReportsController from "../controllers/adminReports.controller.js";
 import * as verificationArchiveController from "../controllers/verificationArchive.controller.js";
+import * as targetedOffersController from "../controllers/targetedOffers.controller.js";
+import * as adminVendorStaffSalesController from "../controllers/adminVendorStaffSales.controller.js";
+import * as adminRankingAnomaliesController from "../controllers/adminRankingAnomalies.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { siteUpload } from "../middleware/siteUpload.js";
@@ -33,9 +36,25 @@ router.get("/dashboard", adminController.getDashboard);
 
 router.get("/vendors", adminController.listVendors);
 router.patch("/vendors/:id", adminController.updateVendor);
+// Bloque 165: acciones de cuenta directas desde el admin — contraseña y
+// correo de LOGIN del vendedor (distinto de Vendor.email, ya cubierto por
+// updateVendor de arriba).
+router.post("/vendors/:id/reset-password", adminController.resetVendorPassword);
+router.patch("/vendors/:id/login-email", adminController.updateVendorLoginEmail);
 router.delete("/vendors/:id", adminController.deleteVendor);
 router.get("/vendors/:id/stats", adminController.getVendorStats);
 router.get("/vendors/:id/table-orders", adminController.getVendorTableOrders);
+
+// Bloque 183 (pedido explícito — "el administrador general del sistema
+// también puede controlar y verificar lo mismo que pueda hacer el
+// vendedor... poder verificar cuáles son los usuarios que ha creado ese
+// vendedor"): mismas capacidades de vendorStaff.routes.js, tomando el
+// vendorId/staffId de la URL en vez de resolverlo del propio dueño.
+router.get("/vendors/:id/staff", adminController.listVendorStaff);
+router.patch("/vendor-staff/:id", adminController.updateVendorStaffByAdmin);
+router.post("/vendor-staff/:id/reset-password", adminController.resetVendorStaffPasswordByAdmin);
+router.get("/vendor-staff/:id/activity", adminController.getVendorStaffActivityByAdmin);
+router.get("/vendor-staff/:id/sessions", adminController.getVendorStaffSessionsByAdmin);
 
 // Bloque 62: suspensión automática por inactividad (vendorLifecycle.job.js)
 // + reactivación manual con motivo obligatorio.
@@ -57,14 +76,33 @@ router.post("/reports/:id/request-evidence", adminReportsController.requestEvide
 router.post("/reports/:id/dismiss", adminReportsController.dismissFraudReport);
 router.post("/reports/:id/resolve", adminReportsController.resolveFraudReport);
 
+// Bloque 229 (Fase 2 del blindaje del ranking — pedido explícito): cola de
+// anomalías detectadas por reviewAnomaly.job.js/clickAnomaly.job.js. Mismo
+// patrón de rutas que /reports de arriba (pending-count literal primero).
+router.get("/ranking-anomalies/pending-count", adminRankingAnomaliesController.getRankingAnomaliesPendingCount);
+router.get("/ranking-anomalies", adminRankingAnomaliesController.listRankingAnomalies);
+router.post("/ranking-anomalies/:id/dismiss", adminRankingAnomaliesController.dismissRankingAnomaly);
+router.post("/ranking-anomalies/:id/action", adminRankingAnomaliesController.actionRankingAnomaly);
+
 // Bloque 52: supervisión/edición de productos de cualquier vendedor.
 router.get("/products", adminProductsController.listAllProducts);
 router.patch("/products/:id", adminProductsController.updateAdminProduct);
 router.delete("/products/:id", adminProductsController.deleteAdminProduct);
 
+// Bloque 198: supervisión/edición de ventas manuales (usuarios de sistema)
+// de cualquier vendedor.
+router.get("/vendor-staff-sales", adminVendorStaffSalesController.listAllStaffSales);
+router.get("/vendor-staff-sales/vendors", adminVendorStaffSalesController.listVendorsWithStaffSales);
+router.patch("/vendor-staff-sales/:id", adminVendorStaffSalesController.updateStaffSale);
+router.delete("/vendor-staff-sales/:id", adminVendorStaffSalesController.deleteStaffSale);
+
 router.get("/verifications", adminController.listVerifications);
 router.patch("/verifications/:id", adminController.updateVerification);
-router.patch("/verifications/:id/confirm-payment", adminController.confirmCupPayment);
+router.patch("/verifications/:id/confirm-payment", adminController.confirmSubscriptionPayment);
+// Bloque 151 (pedido explícito): "restablecerlo para que él pueda
+// seleccionar otro diferente" — limpia el método elegido, el vendedor
+// vuelve a ver el selector desde su panel.
+router.patch("/verifications/:id/reset-payment-method", adminController.resetVerificationPaymentMethod);
 // Bloque 64: "abrir para revisar" — PENDING_DOCS -> IN_REVIEW.
 router.post("/verifications/:id/start-review", adminController.startVerificationReview);
 
@@ -82,6 +120,16 @@ router.get("/verification-archive/:id/file/:type", verificationArchiveController
 // vendedor, ver retryMyStripeCheckout en verification.routes.js).
 router.get("/subscriptions", adminController.listSubscriptions);
 router.post("/vendors/:id/revoke-business", adminController.revokeBusinessPlan);
+
+// Bloque 153 (pedido explícito — "el admin debe aprobar los demás meses
+// pagos"): renovaciones de suscripción mientras la tienda ya está VERIFIED.
+router.get("/subscription-payments/pending", adminController.listPendingSubscriptionPayments);
+router.patch("/subscription-payments/:id/confirm", adminController.confirmSubscriptionRenewal);
+
+// Bloque 153 (pedido explícito — "si se desea cambiar el nombre o algo o
+// responsable se debe enviar la solicitud al admin para prevenir fraudes").
+router.get("/change-requests", adminController.listVendorChangeRequests);
+router.patch("/change-requests/:id", adminController.decideVendorChangeRequest);
 
 router.get("/customers", adminController.listCustomers);
 router.patch("/customers/:id", adminController.updateCustomer);
@@ -119,6 +167,17 @@ router.post("/integrations/stripe", integrationsController.upsertStripeIntegrati
 // usar — lista seleccionable en AdminIntegrations.jsx en vez de texto
 // libre (evita typos como el que tumbó Groq con 404 model_not_found).
 router.get("/integrations/:name/models", integrationsController.listProviderModels);
+// Bloque 86: manda un correo de prueba real (a la cuenta del propio admin)
+// con la clave de Resend ya guardada — mismo criterio de "probar contra la
+// API real" que /integrations/:name/models de arriba usa para los
+// proveedores de IA.
+router.post("/integrations/resend/test", integrationsController.testResendIntegration);
+// Bloque 90: mismo botón "Probar" pero para Gemini/Groq/NVIDIA — llama al
+// modelo real configurado con un prompt trivial. Ruta literal de Resend
+// arriba SIEMPRE se declara primero: Express prueba las rutas en el orden
+// en que se registran, así que "/integrations/resend/test" nunca cae en
+// este :name genérico aunque calce con el patrón.
+router.post("/integrations/:name/test-ai", integrationsController.testAiProviderIntegration);
 router.patch("/integrations/:id", integrationsController.toggleIntegration);
 
 router.get("/locations/countries", locationsController.listCountries);
@@ -143,11 +202,16 @@ router.post("/business-categories", businessCategoriesController.createBusinessC
 router.patch("/business-categories/:id", businessCategoriesController.updateBusinessCategory);
 router.delete("/business-categories/:id", businessCategoriesController.deleteBusinessCategory);
 
-router.post("/settings/hero-image", siteUpload.single("image"), settingsController.updateHeroImage);
+// Bloque 96: slider de varias imágenes en el hero — agregar (una o varias
+// juntas) y quitar una puntual, mismo patrón que /products/:id/images.
+router.post("/settings/hero-images", siteUpload.array("images", 6), settingsController.addHeroImages);
+router.delete("/settings/hero-images", settingsController.removeHeroImage);
 router.patch("/settings/plan-limits", settingsController.updatePlanLimits);
 router.patch("/settings/plan-features", settingsController.updatePlanFeatures);
 router.patch("/settings/product-settings", settingsController.updateProductSettings);
 router.patch("/settings/offer-policy", settingsController.updateOfferPolicy);
+router.patch("/settings/store-offer-policy", settingsController.updateStoreOfferPolicy);
+router.patch("/settings/review-policy", settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
 router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);
 router.patch("/settings/branding", settingsController.updateBranding);
@@ -209,6 +273,17 @@ router.get("/offers", adminOffersController.listAllOffers);
 router.post("/offers", offerUpload.single("image"), adminOffersController.createAdminOffer);
 router.patch("/offers/:id", offerUpload.single("image"), adminOffersController.updateAdminOffer);
 router.delete("/offers/:id", adminOffersController.deleteAdminOffer);
+
+// Bloque 194 (pedido explícito — "ofertas autodirigidas... para clientes o
+// para vendedores... por email o... popup, o ambas... a vendedores en
+// específico"): montadas acá mismo, junto a /offers y /campaigns de
+// arriba (mismo criterio — sin router propio para el lado admin), con
+// siteUpload para la imagen opcional (mismo middleware que /campaigns).
+router.get("/targeted-offers", targetedOffersController.listAdminTargetedOffers);
+router.post("/targeted-offers", siteUpload.single("image"), targetedOffersController.createTargetedOffer);
+router.patch("/targeted-offers/:id", siteUpload.single("image"), targetedOffersController.updateTargetedOffer);
+router.post("/targeted-offers/:id/resend-email", targetedOffersController.resendTargetedOfferEmail);
+router.delete("/targeted-offers/:id", targetedOffersController.deleteTargetedOffer);
 
 // Bloque 37: revisión de conversaciones reales + ejemplos curados de
 // entrenamiento (ver chatTraining.controller.js).

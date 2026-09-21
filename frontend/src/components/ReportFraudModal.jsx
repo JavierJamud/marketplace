@@ -63,7 +63,7 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
 
   async function handleSubmit() {
     if (!screenshot) return toast.error("La captura de pantalla es obligatoria.");
-    if (message.trim().length < 10) return toast.error("Contanos qué pasó (mínimo 10 caracteres).");
+    if (message.trim().length < 10) return toast.error("Cuéntanos qué pasó (mínimo 10 caracteres).");
 
     setSubmitting(true);
     try {
@@ -101,7 +101,7 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
 
         <h2 className="mb-1 text-[16px] font-bold text-on-surface">Reportar estafa</h2>
         <p className="mb-4 text-[13.5px] leading-relaxed text-on-surface-variant">
-          Contanos qué pasó con {targetLabel}. Un admin revisa cada reporte — captura y mensaje son obligatorios para poder evaluarlo.
+          Cuéntanos qué pasó con {targetLabel}. Un admin revisa cada reporte — captura y mensaje son obligatorios para poder evaluarlo.
         </p>
 
         <label className="mb-3 flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-outline-variant p-4 text-center hover:bg-surface-variant/40">
@@ -121,7 +121,7 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
           onChange={(e) => setMessage(e.target.value)}
           rows={4}
           maxLength={1000}
-          placeholder="Explicá qué pasó (mínimo 10 caracteres)..."
+          placeholder="Explica qué pasó (mínimo 10 caracteres)..."
           className="mb-4 w-full resize-none rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13.5px] text-on-surface outline-none focus:border-primary"
         />
 

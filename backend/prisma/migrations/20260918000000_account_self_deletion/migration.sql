@@ -1,0 +1,10 @@
+-- Bloque 211: auto-eliminación de cuenta con 30 días de gracia.
+ALTER TABLE "User" ADD COLUMN     "deletionRequestedAt" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN     "deletionReminderSentAt" TIMESTAMP(3);
+ALTER TABLE "Vendor" ADD COLUMN     "deletionRequestedAt" TIMESTAMP(3);
+
+-- AlterEnum
+ALTER TYPE "EmailType" ADD VALUE 'ACCOUNT_DELETION_REQUESTED';
+ALTER TYPE "EmailType" ADD VALUE 'ACCOUNT_DELETION_REMINDER';
+ALTER TYPE "EmailType" ADD VALUE 'ACCOUNT_DELETION_REACTIVATED';
+ALTER TYPE "EmailType" ADD VALUE 'ACCOUNT_DELETION_COMPLETED';

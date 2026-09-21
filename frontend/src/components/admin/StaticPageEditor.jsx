@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { ExternalLink, RotateCcw } from "lucide-react";
+import { ExternalLink, RotateCcw, FileText } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../ui/Button.jsx";
 import { ConfirmModal } from "../ConfirmModal.jsx";
+import { IconCircle } from "../dashboard/DashboardCard.jsx";
 
 // Bloque 53: editor de una sola página estática (Contacto, Centro de ayuda)
 // — antes vivían mezcladas en la lista genérica de AdminPages.jsx junto con
@@ -14,7 +15,7 @@ import { ConfirmModal } from "../ConfirmModal.jsx";
 // "admin-static-pages" que AdminPages.jsx — es el mismo endpoint
 // (GET /admin/static-pages trae las 4 slugs restantes), así que ambas
 // pantallas comparten caché sin pedirlo dos veces.
-export function StaticPageEditor({ slug, label, publicPath, helpText }) {
+export function StaticPageEditor({ slug, label, publicPath, helpText, icon = FileText }) {
   const queryClient = useQueryClient();
   const [html, setHtml] = useState("");
   const [confirmingRestore, setConfirmingRestore] = useState(false);
@@ -54,7 +55,10 @@ export function StaticPageEditor({ slug, label, publicPath, helpText }) {
   return (
     <div className="max-w-[820px]">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="font-display text-[25px] font-bold text-on-surface">{label}</h1>
+        <div className="flex items-center gap-3">
+          <IconCircle icon={icon} tone="teal" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">{label}</h1>
+        </div>
         <a
           href={publicPath}
           target="_blank"

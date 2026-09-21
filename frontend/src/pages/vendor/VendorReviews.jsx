@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { ShieldCheck, MessageSquare, Flag } from "lucide-react";
+import { ShieldCheck, MessageSquare, Flag, Star } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { StarRating } from "../../components/ui/StarRating.jsx";
@@ -103,7 +104,10 @@ export default function VendorReviews() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Reseñas</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Star} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Reseñas</h1>
+      </div>
       <p className="mb-[26px] text-[13.5px] text-outline">
         Comentarios y calificaciones que dejaron tus clientes. Puedes responder públicamente o reportar uno que te parezca abusivo/falso — no
         puedes ocultarlo ni borrarlo directamente (eso lo decide el equipo de {siteName} al revisar el reporte).
@@ -149,8 +153,14 @@ export default function VendorReviews() {
 
               {r.images?.length > 0 && (
                 <div className="mt-2.5 flex flex-wrap gap-2">
-                  {r.images.map((img, i) => (
-                    <a key={i} href={`${api.defaults.baseURL}${img}`} target="_blank" rel="noreferrer" className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-surface-container-high">
+                  {/* Bloque 195 (bug real encontrado en auditoría — key
+                      inestable: usaba el índice del array en vez de la URL,
+                      que ya es única por foto, mismo criterio que
+                      VendorFraudReports.jsx para sus evidenceImages): con
+                      index como key, reordenar/quitar fotos podía reusar mal
+                      el DOM de otra foto entre renders. */}
+                  {r.images.map((img) => (
+                    <a key={img} href={`${api.defaults.baseURL}${img}`} target="_blank" rel="noreferrer" className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-surface-container-high">
                       <img src={`${api.defaults.baseURL}${img}`} alt="" className="h-full w-full object-cover" />
                     </a>
                   ))}

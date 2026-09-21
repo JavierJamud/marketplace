@@ -26,19 +26,20 @@ function imgUrl(path) {
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
-// Bloque 28: mismo "asset" que el avatar de Store.jsx (círculo con el
-// color de marca de la tienda + su inicial) — hoy no existe un logo/imagen
-// real subible para tiendas (ver Vendor.logoUrl/coverUrl, sin UI de carga
-// en ningún lado del proyecto), así que esto ES el avatar real de la
-// tienda en toda la app, no un placeholder de este bloque puntual. Bloque
-// 38: ya NO se usa junto a los mensajes del chat (pedido explícito de sacar
-// el avatar de ahí) — queda solo como branding del header del panel y de
-// la burbuja proactiva.
+// Bloque 223 (bug real reportado en vivo, con captura — "en el ícono del
+// bot debe mostrarse también la foto de perfil subida por cada tienda"):
+// el comentario original de este bloque ya no es cierto — VendorProfile.jsx
+// (StoreBrandingCard) sí tiene subida real de logo desde hace rato
+// (Vendor.logoUrl). Antes esto SIEMPRE pintaba el círculo de color + inicial
+// sin mirar si la tienda ya tenía un logo real cargado. Mismo criterio que
+// VendorLayout.jsx/VendorDashboard.jsx: si hay logoUrl, se muestra esa
+// imagen; si no, el mismo círculo de color + inicial de siempre.
 function VendorAvatar({ vendor, className }) {
   const color = vendor.color ?? "#232F3E";
+  const logoUrl = imgUrl(vendor.logoUrl);
   return (
-    <div style={{ background: color }} className={`flex flex-shrink-0 items-center justify-center rounded-full font-display font-extrabold text-white ${className}`}>
-      {vendor.companyName[0]}
+    <div style={{ background: logoUrl ? undefined : color }} className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-display font-extrabold text-white ${className}`}>
+      {logoUrl ? <img src={logoUrl} alt="" className="h-full w-full object-cover" /> : vendor.companyName[0]}
     </div>
   );
 }
@@ -386,6 +387,13 @@ export function StoreChatWidget({ vendor }) {
             {
               id: item.id,
               name: item.name,
+              // Bloque 147: `toCardProduct` (chat.controller.js) ya manda
+              // `images`/`slug` en cada item de addToCart — solo faltaba
+              // pasarlos al carrito real (bug real: sin esto, un producto
+              // agregado desde el chat quedaba sin foto ni link en el
+              // carrito, igual que el resto de los puntos de entrada).
+              image: item.images?.[0] ?? null,
+              slug: item.slug ?? null,
               price: Number(item.price),
               // Bloque 56: `null` (no un número) le dice a CartContext que
               // este producto no tiene techo real de stock que respetar.
@@ -620,12 +628,24 @@ export function StoreChatWidget({ vendor }) {
             // de la pantalla, se ve como tarjeta flotante a propósito, no
             // como una hoja pegada al borde con un corte recto abajo.
             "fixed inset-x-0 bottom-[86px] z-[60] mx-2.5 flex h-[75dvh] max-h-[560px] flex-col rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up " +
-            // Desktop: alto por top+bottom (no un h-[…] fijo) — así el panel
-            // se achica solo en pantallas bajas (ej. 1366x768, la resolución
-            // de laptop más común) en vez de invadir el header de la tienda
-            // por arriba. max-h-[560px] (heredado de la clase base) sigue
-            // poniendo un techo en monitores muy altos.
-            "sm:inset-x-auto sm:inset-y-auto sm:mx-0 sm:top-6 sm:bottom-24 sm:right-6 sm:h-auto sm:w-[368px] sm:border sm:border-surface-container-high"
+            // Bloque 155 (bug real reportado en vivo, con captura de un
+            // iPad — mismo bug ya corregido en MarketplaceChatWidget.jsx):
+            // top+bottom con h-auto estira un elemento fixed para llenar
+            // ESE espacio entero — a partir de sm (640px) eso agarraba
+            // también a las tablets (portrait, ~768-834px de ancho), que
+            // terminaban con el panel pegado contra el borde superior en
+            // vez de compacto arriba del botón. Ahora sm-only (640-1023px,
+            // tablets) usa altura acotada igual que mobile; el estirado
+            // top+bottom que sí se quiere a propósito en desktop real (para
+            // achicarse solo en pantallas bajas como 1366x768, ver abajo)
+            // se corre a lg (≥1024px) — ahí ya no hay tablets en portrait.
+            "sm:inset-x-auto sm:mx-0 sm:bottom-24 sm:right-6 sm:h-[70dvh] sm:max-h-[560px] sm:w-[368px] sm:border sm:border-surface-container-high " +
+            // Desktop real (lg+): alto por top+bottom (no un h-[…] fijo) —
+            // así el panel se achica solo en pantallas bajas (ej. 1366x768,
+            // la resolución de laptop más común) en vez de invadir el
+            // header de la tienda por arriba. max-h-[560px] (heredado de
+            // arriba) sigue poniendo un techo en monitores muy altos.
+            "lg:top-6 lg:h-auto"
           }
         >
           <div className="flex items-center gap-2.5 rounded-t-2xl bg-tertiary px-4 py-3.5 text-white">

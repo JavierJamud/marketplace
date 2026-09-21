@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import toast from "../lib/toast.jsx";
 import { FileText, ShieldCheck, Download, Mail } from "lucide-react";
 import { api, getErrorMessage } from "../lib/api.js";
 import { Input } from "./ui/Input.jsx";
 import { Button } from "./ui/Button.jsx";
+import { UnsavedChangesModal } from "./UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../lib/useDirtyModal.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -70,8 +72,22 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
     setSelectedItemIds((ids) => (checked ? [...ids, id] : ids.filter((x) => x !== id)));
   }
 
+  // Bloque 196: snapshot del borrador con el que se abrió el modal — no hay
+  // un único botón "Guardar" (hay "Descargar PDF" y "Enviar por email"),
+  // así que "Guardar y salir" reusa la misma mutación/condición que ya usa
+  // el botón "Descargar PDF" (el primero de los dos, mismo mutation que ya
+  // existía, sin inventar un camino nuevo) — bajarlo ya deja el documento
+  // en manos del vendedor antes de cerrar.
+  const draftSnapshot = () => JSON.stringify({ customerName, customerIdNumber, customerPhone, sendTo, selectedItemIds, warrantyDays });
+  const initialFormSnapshot = useRef(draftSnapshot());
+  const isDirty = draftSnapshot() !== initialFormSnapshot.current;
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canGenerate ? () => download.mutateAsync() : undefined });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center gap-2">
           {isWarranty ? <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> : <FileText className="h-5 w-5 text-tertiary-accent" />}
@@ -137,6 +153,14 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canGenerate ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }

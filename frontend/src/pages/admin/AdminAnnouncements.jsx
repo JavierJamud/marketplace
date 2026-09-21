@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Plus, Pencil, Trash2, ImagePlus } from "lucide-react";
+import { Plus, Pencil, Trash2, ImagePlus, Image } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 const PAGE_LABEL = { HOME: "Inicio", STORES: "Tiendas", ALL: "Todo el sitio" };
 const POSITION_LABEL = { HERO: "Hero", TOP_BAR: "Franja superior" };
@@ -57,6 +60,19 @@ function AnnouncementModal({ announcement, onClose }) {
     setPreview(URL.createObjectURL(f));
   }
 
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): mismo patrón de snapshot-en-ref que
+  // ProductModal (VendorProducts.jsx). Se usa `preview` (string,
+  // serializable) en vez de `file` (un File) para detectar una imagen
+  // nueva elegida.
+  const initialAnnouncementSnapshot = useRef(
+    JSON.stringify({ title, body, page, position, startAt, endAt, isActive, preview })
+  );
+  const isDirty =
+    JSON.stringify({ title, body, page, position, startAt, endAt, isActive, preview }) !== initialAnnouncementSnapshot.current;
+
   const save = useMutation({
     mutationFn: async () => {
       const form = new FormData();
@@ -81,9 +97,20 @@ function AnnouncementModal({ announcement, onClose }) {
   });
 
   const invalidRange = new Date(endAt) <= new Date(startAt);
+  // Bloque 196: misma condición que ya deshabilita "Guardar" más abajo (sin
+  // save.isPending).
+  const canSaveNow = !!title.trim() && !invalidRange;
+  const dirtyModal = useDirtyModal({
+    isDirty,
+    onClose,
+    onSave: canSaveNow ? () => save.mutateAsync() : undefined,
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{announcement ? "Editar anuncio" : "Nuevo anuncio"}</h2>
 
@@ -159,6 +186,14 @@ function AnnouncementModal({ announcement, onClose }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -195,7 +230,10 @@ export default function AdminAnnouncements() {
 
   return (
     <div className="max-w-[900px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Anuncios</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Image} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Anuncios</h1>
+      </div>
       <p className="mb-2 text-[13.5px] text-outline">
         Banners programados para el Home o Tiendas del sitio público — solo se muestran dentro de su rango de fechas y con "Activo" encendido.
       </p>
@@ -206,7 +244,7 @@ export default function AdminAnnouncements() {
       <div className="mb-[18px] flex justify-end">
         <button
           onClick={() => setModalState({})}
-          className="flex items-center gap-1.5 rounded-md bg-secondary-container px-3.5 py-2 text-[12.5px] font-bold text-on-secondary-container"
+          className="flex items-center gap-1.5 rounded-full bg-secondary-container px-3.5 py-2 text-[12.5px] font-bold text-on-secondary-container"
         >
           <Plus className="h-3.5 w-3.5" /> Nuevo anuncio
         </button>
@@ -214,7 +252,7 @@ export default function AdminAnnouncements() {
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {announcements?.map((a) => {
           const state = computeState(a);
           return (

@@ -37,18 +37,34 @@ export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
 const API_BASE = "https://api.groq.com/openai/v1/chat/completions";
 const MODELS_API_BASE = "https://api.groq.com/openai/v1/models";
 
+// Bloque 83: mismo timeout defensivo que nvidia.js — Groq responde rápido
+// en la práctica (medido en vivo, ~400-800ms), pero sin esto un cuelgue de
+// red no tendría ningún techo.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 // Bloque 44 (pedido explícito — bug real que esto hubiera evitado: un typo
 // en el campo de texto libre del modelo, "llama-3.3.70b-versatile" en vez
 // de "-70b-", tumbó el proveedor con 404 model_not_found): en vez de que
 // el admin tipee el nombre a mano, se listan los modelos REALES que esta
 // key puede usar — AdminIntegrations.jsx los muestra como lista
 // seleccionable en vez de un input de texto libre.
+// Bloque 90: ver la nota larga equivalente en gemini.js — antes este catch
+// perdía el motivo real del fallo de red (timeout/DNS/etc.) detrás de un
+// texto genérico; ahora el health check y el botón "Probar conexión" lo ven.
+function describeFetchFailure(err) {
+  if (err?.name === "TimeoutError" || err?.name === "AbortError") return "Se agotó el tiempo de espera (20s) sin respuesta.";
+  return err?.message || "Error de red desconocido.";
+}
+
+// Bloque 100: mismo timeout defensivo que generateWithGroq — sin esto, un
+// cuelgue de red dejaba "Actualizar lista" (AdminIntegrations.jsx) girando
+// para siempre sin ningún error visible.
 export async function listGroqModels({ apiKey }) {
   let res;
   try {
-    res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` } });
-  } catch {
-    throw new AppError("No se pudo conectar con Groq para listar modelos.", 500);
+    res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (err) {
+    throw new AppError("No se pudo conectar con Groq para listar modelos.", 500, { detail: describeFetchFailure(err) });
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -84,9 +100,10 @@ export async function generateWithGroq({ apiKey, prompt, model }) {
         // product/store porque eso lo sigue limitando el prompt (OUTPUT_RULES).
         max_tokens: 900,
       }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
-    throw new AppError("No se pudo conectar con el servicio de IA. Intenta de nuevo.", 500);
+  } catch (err) {
+    throw new AppError("No se pudo conectar con el servicio de IA. Intenta de nuevo.", 500, { detail: describeFetchFailure(err) });
   }
 
   if (!res.ok) {
@@ -169,9 +186,17 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
         // suggestedFollowUps (3 strings nuevos) y se vio en vivo al modelo
         // devolver basura de sintaxis JSON pegada al final de un follow-up
         // (ej. "Buscar otra]}:") — más margen reduce que el modelo sienta
-        // que tiene que apurar el cierre. Sigue bien por debajo del 350
-        // original.
-        max_tokens: 260,
+        // que tiene que apurar el cierre.
+        // Bloque 83 (bug real medido en vivo, probando el modelo nuevo
+        // openai/gpt-oss-120b tras el cambio de modelo default de Groq):
+        // con 260 tokens, este modelo devolvió `json_validate_failed` /
+        // "max completion tokens reached before generating a valid
+        // document" — a diferencia del modelo viejo, gpt-oss-120b es un
+        // modelo de "razonamiento" (misma familia que ya dio este mismo
+        // problema en Gemini, ver thinkingBudget en gemini.js) y gasta
+        // parte del techo de tokens antes de llegar al JSON final. Subido a
+        // 500 para darle margen real de terminar el objeto completo.
+        max_tokens: 500,
         // json_object (no json_schema): más simple y más confiable en
         // Groq para este modelo — la forma exacta ({text, productIds}) ya
         // se le pide en texto plano dentro del prompt de sistema, y el
@@ -179,9 +204,10 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
         // suelto en vez de JSON.
         response_format: { type: "json_object" },
       }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
-    throw new AppError("No se pudo conectar con el asistente. Prueba de nuevo.", 500);
+  } catch (err) {
+    throw new AppError("No se pudo conectar con el asistente. Prueba de nuevo.", 500, { detail: describeFetchFailure(err) });
   }
 
   if (!res.ok) {
@@ -246,8 +272,8 @@ export async function transcribeAudioWithGroq({ apiKey, audioBuffer, mimeType, f
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
     });
-  } catch {
-    throw new AppError("No se pudo conectar con el servicio de transcripción. Prueba de nuevo.", 500);
+  } catch (err) {
+    throw new AppError("No se pudo conectar con el servicio de transcripción. Prueba de nuevo.", 500, { detail: describeFetchFailure(err) });
   }
 
   if (!res.ok) {

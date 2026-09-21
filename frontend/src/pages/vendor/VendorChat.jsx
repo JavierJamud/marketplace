@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Lock, Send, ShieldCheck } from "lucide-react";
+import { Lock, Send, ShieldCheck, MessageSquare } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
@@ -56,7 +57,10 @@ export default function VendorChat() {
   if (!isApproved) {
     return (
       <div>
-        <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Mensajes</h1>
+        <div className="mb-1 flex items-center gap-3">
+          <IconCircle icon={MessageSquare} tone="teal" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mensajes</h1>
+        </div>
         <p className="mb-[26px] text-[13.5px] text-outline">Chat directo con el equipo de {siteName}.</p>
         <div className="max-w-[520px] rounded-lg bg-gradient-to-br from-primary to-primary-container p-[22px] text-white">
           <div className="mb-2 flex items-center gap-2">
@@ -80,13 +84,16 @@ export default function VendorChat() {
   return (
     <div className="flex h-[calc(100vh-60px)] flex-col">
       <div className="mb-[18px]">
-        <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Mensajes</h1>
+        <div className="mb-1 flex items-center gap-3">
+          <IconCircle icon={MessageSquare} tone="teal" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mensajes</h1>
+        </div>
         <p className="flex items-center gap-1.5 text-[13.5px] text-outline">
           <ShieldCheck className="h-3.5 w-3.5 text-verified-dark" /> Chat directo con el equipo de {siteName}
         </p>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-5">
           {messages?.length ? (
             messages.map((m) => (

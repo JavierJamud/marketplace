@@ -74,6 +74,11 @@ export async function getSharedCart(req, res) {
         productId: product.id,
         name: product.name,
         image: product.images?.[0] ?? null,
+        // Bloque 147: hace falta para que el carrito (CartDrawer.jsx/
+        // Cart.jsx) pueda linkear este ítem a su ficha real una vez
+        // importado — mismo campo que ya usan todos los demás puntos de
+        // entrada al carrito.
+        slug: product.slug,
         price: product.price,
         priceTiers: product.priceTiers,
         currency: product.currency,

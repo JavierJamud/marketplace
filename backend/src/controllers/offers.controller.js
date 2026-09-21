@@ -7,7 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getOfferPolicy } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
-import { logActivity } from "../lib/activityLog.js";
+import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Igual criterio que PRODUCT_UPLOAD_DIR (products.controller.js): imágenes
@@ -36,6 +36,8 @@ export const offerSummarySelect = {
   discountLabel: true,
   imageUrl: true,
   htmlContent: true,
+  buttonLabel: true,
+  buttonUrl: true,
   createdByAdmin: true,
   status: true,
   startsAt: true,
@@ -71,20 +73,33 @@ async function expireStaleOffers() {
 }
 
 // Cuándo puede el vendedor publicar/republicar su PRÓXIMA oferta — contra su
-// Offer más reciente (createdAt desc), sin importar el status. `excludeId`
-// se usa al republicar: la oferta que se está por reactivar es, ella misma,
-// la más reciente del vendedor, así que hay que ignorarla o el cooldown se
-// dispararía siempre contra sí misma.
+// Offer más reciente (createdAt desc). `excludeId` se usa al republicar: la
+// oferta que se está por reactivar es, ella misma, la más reciente del
+// vendedor, así que hay que ignorarla o el cooldown se dispararía siempre
+// contra sí misma.
+//
+// Bloque 191 (pedido explícito — "si el vendedor tiene una oferta activa,
+// para publicar otra debe esperar el tiempo establecido; pero si la retira
+// y ya no tiene ofertas visibles en la página principal, entonces sí puede
+// publicar una nueva ya mismo — el tiempo de espera solo aplica mientras
+// tiene una oferta activa"): REVIERTE a propósito una decisión anterior
+// (Bloque 51 — "retirar no libera el límite semanal, sigue contando"). El
+// cooldown ahora solo se dispara si la ÚLTIMA oferta del vendedor sigue
+// ACTIVE (visible en el Home) — REMOVED (retirada a mano) o EXPIRED
+// (vencida sola) dejan de bloquear de inmediato, sin importar cuánto
+// tiempo pasó. La oferta NUEVA que publique arranca su propio cooldown
+// normal desde su propio createdAt — el reloj no se "salta" ni se hereda.
 async function cooldownStatus(vendorId, { excludeId, cooldownDays } = {}) {
   const lastOffer = await prisma.offer.findFirst({
     where: { vendorId, ...(excludeId ? { id: { not: excludeId } } : {}) },
     orderBy: { createdAt: "desc" },
-    select: { createdAt: true },
+    select: { createdAt: true, status: true },
   });
-  const nextAvailableAt = lastOffer
-    ? new Date(lastOffer.createdAt.getTime() + cooldownDays * 24 * 60 * 60 * 1000)
-    : null;
-  return { nextAvailableAt, canCreateNow: !nextAvailableAt || nextAvailableAt <= new Date() };
+  if (!lastOffer || lastOffer.status !== "ACTIVE") {
+    return { nextAvailableAt: null, canCreateNow: true };
+  }
+  const nextAvailableAt = new Date(lastOffer.createdAt.getTime() + cooldownDays * 24 * 60 * 60 * 1000);
+  return { nextAvailableAt, canCreateNow: nextAvailableAt <= new Date() };
 }
 
 async function assertCooldownOk(vendorId, opts) {
@@ -200,7 +215,7 @@ export async function createOffer(req, res) {
     });
     logActivity({
       actorId: req.user.id,
-      actorRole: "VENDOR",
+      actorRole: actorRoleForVendorAction(req),
       vendorId: vendor.id,
       action: "offer_created",
       description: `Creó la oferta "${offer.title}"`,
@@ -287,8 +302,10 @@ export async function updateOffer(req, res) {
   }
 }
 
-// El vendedor la retira antes de tiempo — no libera el límite semanal
-// (sigue contando como la oferta de esa semana, pedido explícito del bloque).
+// El vendedor la retira antes de tiempo. Bloque 191: a diferencia de antes,
+// esto SÍ libera el cooldown de inmediato — en cuanto status pasa a
+// REMOVED, cooldownStatus() deja de bloquear (ver el comentario largo ahí),
+// así que el vendedor puede publicar la próxima ya mismo si quiere.
 export async function removeOffer(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;

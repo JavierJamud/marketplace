@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { HelpCircle, Plus, Pencil, Trash2, X } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 const AUDIENCE_LABEL = { CUSTOMER: "Clientes", VENDOR: "Vendedores" };
 
@@ -15,6 +18,14 @@ function FaqFormModal({ item, defaultAudience, onClose, onSaved }) {
   const [audience, setAudience] = useState(item?.audience ?? defaultAudience);
   const [question, setQuestion] = useState(item?.question ?? "");
   const [answer, setAnswer] = useState(item?.answer ?? "");
+
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): mismo patrón de snapshot-en-ref que
+  // ProductModal (VendorProducts.jsx).
+  const initialSnapshot = useRef(JSON.stringify({ audience, question, answer }));
+  const isDirty = JSON.stringify({ audience, question, answer }) !== initialSnapshot.current;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -29,8 +40,20 @@ function FaqFormModal({ item, defaultAudience, onClose, onSaved }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
 
+  // Bloque 196: misma condición que ya deshabilita el botón de submit más
+  // abajo (sin save.isPending).
+  const canSaveNow = !!question.trim() && !!answer.trim();
+  const dirtyModal = useDirtyModal({
+    isDirty,
+    onClose,
+    onSave: canSaveNow ? () => save.mutateAsync() : undefined,
+  });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">{isEdit ? "Editar pregunta" : "Nueva pregunta"}</h3>
@@ -87,6 +110,14 @@ function FaqFormModal({ item, defaultAudience, onClose, onSaved }) {
           </div>
         </form>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -129,7 +160,10 @@ export default function AdminFaq() {
   return (
     <div className="max-w-[820px]">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-[25px] font-bold text-on-surface">Preguntas frecuentes</h1>
+        <div className="flex items-center gap-3">
+          <IconCircle icon={HelpCircle} tone="teal" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Preguntas frecuentes</h1>
+        </div>
         <Button className="rounded-xl font-bold" onClick={() => setFormTarget({})}>
           <Plus className="mr-1 h-4 w-4" /> Agregar pregunta
         </Button>
@@ -165,7 +199,7 @@ export default function AdminFaq() {
 
       <div className="flex flex-col gap-3">
         {filtered.map((item) => (
-          <div key={item.id} className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-4">
+          <div key={item.id} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-4">
             <div className="mb-1.5 text-[14px] font-bold text-on-surface">{item.question}</div>
             <p className="mb-3 text-[13px] leading-5 text-on-surface-variant">{item.answer}</p>
             <div className="flex items-center gap-3.5 border-t border-surface-container pt-2.5">

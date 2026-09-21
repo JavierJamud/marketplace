@@ -17,15 +17,22 @@ const OUTPUT_RULES = `IMPORTANTE sobre el formato de tu respuesta:
 // producto o tienda desde cero. Por eso el prompt siempre incluye el texto
 // tal cual lo escribió el vendedor como punto de partida obligatorio.
 export const PROMPTS = {
+  // Bloque 230 (pedido explícito, con captura del formulario de producto —
+  // "que la descripción generada con IA sea más corta para los productos y
+  // más específica y llamativa"): bajado de 3-5 oraciones a 2-3, mismo
+  // criterio de longitud que ya usa el prompt `offer` de abajo (se lee
+  // rápido en la tarjeta del producto, no es el lugar para un párrafo
+  // largo). "Llamativa" no es sinónimo de exagerada: sigue prohibido
+  // inventar nada que el vendedor no haya sugerido ya.
   product: ({ currentText, vendorName, productName, siteName }) => `Eres un copywriter experto en e-commerce para ${siteName}, un marketplace multivendedor de Cuba.
 La tienda "${vendorName}"${productName ? ` está publicando el producto "${productName}"` : " está publicando un producto"} y escribió este borrador de descripción:
 "${currentText}"
 
-Tu tarea: reescribe y mejora ese borrador para convertirlo en la descripción final de la ficha de producto — persuasiva, con un estilo moderno y descriptivo que ayude al cliente a imaginarse usando el producto, no un resumen telegráfico.
+Tu tarea: reescribe ese borrador para convertirlo en la descripción final de la ficha de producto. Tiene que ser corta, específica y llamativa: engancha al cliente en la primera frase, en vez de sonar a resumen genérico de catálogo.
 
 Reglas de contenido:
 - Español neutro/cubano, tono profesional, cercano y moderno.
-- 3 a 5 oraciones — desarrolla al menos 2 beneficios o detalles concretos ya sugeridos en el borrador, no te quedes en una sola frase genérica.
+- 2 a 3 oraciones, no más. Destaca 1 o 2 beneficios o detalles concretos ya sugeridos en el borrador (material, uso, para quién es), nunca una frase vacía tipo "producto de excelente calidad".
 - Nunca inventes características, materiales, tallas o precios que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
@@ -57,6 +64,23 @@ Reglas de contenido:
 - Nunca inventes porcentajes de descuento, plazos ni condiciones que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
+  // Bloque 192 (pedido explícito — "en admin la descripción no tiene el
+  // botón para mejorar con IA"): misma tarjeta que `offer` de arriba, pero
+  // para una oferta OFICIAL creada por el admin (AdminOffers.jsx) — nunca
+  // hay una tienda puntual detrás (offer.vendorId es null en estas), así
+  // que el prompt no depende de vendorName, a diferencia de `offer`.
+  "admin-offer": ({ currentText, productName, siteName }) => `Eres un copywriter experto en marketing de ofertas para ${siteName}, un marketplace multivendedor de Cuba.
+El equipo de administración de ${siteName} está armando una oferta oficial destacada${productName ? ` sobre el producto "${productName}"` : ""} y escribió este borrador:
+"${currentText}"
+
+Tu tarea: reescribe y mejora ese borrador para convertirlo en el texto final de una tarjeta de oferta — directo, persuasivo y con un estilo moderno, pensado para leerse rápido sobre una imagen pero sin sonar telegráfico.
+
+Reglas de contenido:
+- Español neutro/cubano, tono entusiasta, moderno y creíble (nunca exagerado o falso).
+- 2 a 3 oraciones cortas.
+- Nunca inventes porcentajes de descuento, plazos ni condiciones que no estén ya sugeridos en el borrador.
+
+${OUTPUT_RULES}`,
   // Bloque 66 (pedido explícito): "Mejorar con IA" para el cuerpo de una
   // campaña de correo masivo (AdminCampaigns.jsx) — a diferencia de
   // product/store/offer, no hay una tienda/producto puntual detrás (lo manda
@@ -74,6 +98,30 @@ Reglas de contenido:
 - Nunca inventes fechas, descuentos, promociones ni datos concretos que no estén ya sugeridos en el borrador.
 
 ${OUTPUT_RULES}`,
+  // Bloque 194 (pedido explícito — "la IA vaya reconociendo el modo de uso
+  // del negocio y le recomiende consejos... que recomiende ofertas en
+  // productos vendidos, movimiento de inventarios para que los productos
+  // que no salen puedan salir... consejos diarios para que los vendedores
+  // sean más productivos"): a diferencia de TODOS los demás prompts de
+  // arriba, este NO "mejora un borrador" — genera contenido nuevo a partir
+  // de señales reales del negocio (ver getOrGenerateVendorDailyTips,
+  // services/vendorDailyTips.service.js), por eso `currentText` no existe
+  // acá, en su lugar `signals` ya viene armado como texto legible. Formato
+  // de salida MUY estricto (una línea por consejo) porque se parsea a mano
+  // después, no queda en un solo bloque de texto libre como el resto.
+  "vendor-tips": ({ vendorName, siteName, signals }) => `Eres un consultor de negocios experto en comercio electrónico para ${siteName}, un marketplace multivendedor de Cuba.
+Estás analizando el negocio "${vendorName}" con estos datos reales de los últimos 30 días:
+${signals}
+
+Tu tarea: da exactamente 3 consejos CONCRETOS y ACCIONABLES para que este vendedor sea más productivo — basados ÚNICAMENTE en los datos de arriba. Nunca inventes cifras, productos o situaciones que no estén en esos datos; si un dato clave falta (ej. no hay ventas todavía), dalo por dato también y aconseja en consecuencia.
+
+Formato de tu respuesta — EXACTAMENTE 3 líneas, una por consejo, cada una así:
+Título corto: descripción de 1-2 oraciones con la acción concreta a tomar.
+
+Reglas de contenido:
+- Español neutro/cubano, tono directo y práctico, como un consultor real, nunca genérico de manual.
+- Nunca uses viñetas, numeración, ni ningún otro formato — solo las 3 líneas "Título: descripción".
+- Nunca agregues una intro, cierre, ni nada antes/después de las 3 líneas.`,
   // Sección "Garantías" de VendorSettings.jsx — a diferencia de product/store,
   // el resultado no es marketing sino un texto legal/operativo real que se va
   // a imprimir tal cual en el certificado de garantía (ver generateWarrantyPdf

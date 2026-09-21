@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import toast from "../../lib/toast.jsx";
+import { Zap } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -51,21 +53,24 @@ export default function AdminCustomerListings() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Venta rápida</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Zap} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Venta rápida</h1>
+      </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Clientes sin tienda con anuncios de venta rápida publicados, agrupados por dueño. Vencen solos a los 30 días.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
       {!isLoading && owners.length === 0 && (
-        <p className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5 text-body-md text-on-surface-variant">
+        <p className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5 text-body-md text-on-surface-variant">
           Ningún cliente tiene anuncios de venta rápida por ahora.
         </p>
       )}
 
       <div className="flex flex-col gap-4">
         {owners.map((owner) => (
-          <div key={owner.id} className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+          <div key={owner.id} className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
             <div className="flex flex-wrap items-center justify-between gap-2 bg-surface-container-low px-[22px] py-3">
               <div>
                 <span className="text-[14px] font-bold text-on-surface">{owner.fullName ?? owner.email}</span>

@@ -43,4 +43,12 @@ router.post("/me/email/request-code", authenticate, passwordResetRateLimit, auth
 router.post("/me/email/confirm", authenticate, passwordResetRateLimit, authController.confirmMyEmailChange);
 router.patch("/me/password", authenticate, authController.updateMyPassword);
 
+// Bloque 211 (pedido explícito — auto-eliminación de cuenta, cliente/
+// vendedor/personal, 30 días de gracia): pedir la baja re-verifica la
+// contraseña en el body, mismo rate limit que el resto de acciones
+// sensibles de la propia cuenta; reactivar no pide contraseña de nuevo (ya
+// alcanza con tener una sesión activa dentro del período de gracia).
+router.post("/delete-account", authenticate, passwordResetRateLimit, authController.requestAccountDeletion);
+router.post("/reactivate-account", authenticate, authController.cancelAccountDeletion);
+
 export default router;

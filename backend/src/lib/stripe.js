@@ -6,12 +6,12 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 25: reemplaza el checkout simulado (PaymentLink.jsx) por un
 // Checkout Session real de Stripe. CUP no es una moneda soportada por
-// Stripe (no es convertible internacionalmente) — el cobro real es en USD,
-// mismo precio de referencia que ya se mostraba en la pantalla simulada
-// anterior; el "2 500 CUP/mes" sigue siendo el precio informativo que ve el
-// vendedor en VendorVerification.jsx.
-// Bloque 46: exportado — AdminSubscriptions.jsx (MRR estimado) usa este
-// mismo valor real en vez de inventar un precio de lista aparte.
+// Stripe (no es convertible internacionalmente) — el cobro real es en USD.
+// Bloque 150: el precio ya NO es una constante — es editable desde el admin
+// (SiteSettings.cardSubscriptionPriceUsd, ver getSubscriptionPricing en
+// settings.controller.js). Este valor queda solo como FALLBACK de último
+// recurso (si por lo que sea la consulta a settings fallara en algún punto
+// que todavía no se migró a leerlo de ahí).
 export const SUBSCRIPTION_PRICE_USD = 25;
 
 export async function getStripeClient() {
@@ -27,38 +27,47 @@ export async function isStripeConfigured() {
 // metadata.verificationId es lo que el webhook usa para saber qué
 // solicitud activar — nunca se confía en "el vendedor dice que pagó" del
 // lado del cliente (ver stripeWebhook.controller.js).
-// Bloque 64: pasa de `mode:"payment"` (cobro único, nunca vencía) a
-// `mode:"subscription"` — Stripe crea el Customer + la Subscription solos al
-// completar el checkout, y desde ahí cobra cada mes de verdad, disparando
-// invoice.payment_succeeded/payment_failed sin que este backend tenga que
-// llevar la cuenta de fechas (ver handleStripeWebhookEvent). `price_data`
-// inline con `recurring` evita depender de un Price pre-creado a mano en el
-// dashboard de Stripe.
-export async function createVerificationCheckoutSession({ verification, vendor }) {
+// Bloque 150 (pedido explícito — "el cliente podrá seleccionar cuántos
+// meses desea pagar... se generará un enlace directamente para que el
+// cliente pague esa cantidad de meses"): pasa de `mode:"subscription"`
+// (cobro recurrente automático mes a mes, Bloque 64) a `mode:"payment"` —
+// un cobro ÚNICO por el monto total de los `months` elegidos (precio
+// mensual × months, ya calculado por quien llama). Stripe ya NO crea una
+// Subscription ni vuelve a cobrar solo cuando ese bloque de meses se
+// termina — renovar es elegir método de pago de nuevo (mismo flujo que ya
+// usa CUP_TRANSFER, ver chooseMyPaymentMethod). Además, confirmar el cobro
+// (checkout.session.completed) ya NO activa la verificación por sí solo —
+// deja la marca `stripePaidAt` y el vendedor sube su comprobante igual que
+// con CUP, un admin finaliza a mano (ver confirmSubscriptionPayment).
+// Bloque 153: extraído a una base compartida — el ciclo INICIAL
+// (verificationId en metadata) y una RENOVACIÓN mientras ya está VERIFIED
+// (subscriptionPaymentId en metadata, ver SubscriptionPayment) arman un
+// Checkout Session idéntico salvo la metadata/redirect, así que comparten
+// esta función en vez de duplicar la llamada al SDK dos veces.
+async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam }) {
   const stripe = await getStripeClient();
   const { siteName } = await getBrandSettings();
   if (!stripe) throw new AppError(`El pago con tarjeta no está disponible en este momento — contacta al equipo de ${siteName}.`, 503);
 
   try {
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: "payment",
       payment_method_types: ["card"],
       line_items: [
         {
           price_data: {
             currency: "usd",
             product_data: {
-              name: `Suscripción ${siteName} — Plan Business`,
-              description: `Verificación y Plan Business para ${vendor.companyName}`,
+              name: `Suscripción ${siteName} — Plan Business (${months} ${months === 1 ? "mes" : "meses"})`,
+              description,
             },
-            unit_amount: SUBSCRIPTION_PRICE_USD * 100,
-            recurring: { interval: "month" },
+            unit_amount: Math.round(amountUsd * 100),
           },
           quantity: 1,
         },
       ],
-      metadata: { verificationId: verification.id, vendorId: vendor.id },
-      success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=success`,
+      metadata: { ...metadata, vendorId: vendor.id, months: String(months) },
+      success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=${successParam}`,
       cancel_url: `${env.frontendUrl}/vendedor/verificacion?stripe=cancel`,
     });
 
@@ -71,6 +80,49 @@ export async function createVerificationCheckoutSession({ verification, vendor }
     console.error("Error creando Checkout Session de Stripe:", err.message);
     throw new AppError("No se pudo generar el link de pago con Stripe. Prueba de nuevo en un momento.", 502, { detail: err.message });
   }
+}
+
+// metadata.verificationId es lo que el webhook usa para saber qué
+// solicitud activar — nunca se confía en "el vendedor dice que pagó" del
+// lado del cliente (ver stripeWebhook.controller.js).
+// Bloque 150 (pedido explícito — "el cliente podrá seleccionar cuántos
+// meses desea pagar... se generará un enlace directamente para que el
+// cliente pague esa cantidad de meses"): pasa de `mode:"subscription"`
+// (cobro recurrente automático mes a mes, Bloque 64) a `mode:"payment"` —
+// un cobro ÚNICO por el monto total de los `months` elegidos (precio
+// mensual × months, ya calculado por quien llama). Stripe ya NO crea una
+// Subscription ni vuelve a cobrar solo cuando ese bloque de meses se
+// termina — renovar es elegir método de pago de nuevo (mismo flujo que ya
+// usa CUP_TRANSFER, ver chooseMyPaymentMethod). Además, confirmar el cobro
+// (checkout.session.completed) ya NO activa la verificación por sí solo —
+// deja la marca `stripePaidAt` y el vendedor sube su comprobante igual que
+// con CUP, un admin finaliza a mano (ver confirmSubscriptionPayment).
+export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd }) {
+  return createSubscriptionCheckoutSession({
+    vendor,
+    months,
+    amountUsd,
+    metadata: { verificationId: verification.id },
+    description: `Verificación y Plan Business para ${vendor.companyName} — ${months} ${months === 1 ? "mes" : "meses"}`,
+    successParam: "success",
+  });
+}
+
+// Bloque 153 (pedido explícito — "en la sección de suscripción... podrá
+// activar un nuevo mes o varios... el proceso será casi igual"): mismo
+// Checkout Session de un pago único, pero para una RENOVACIÓN mientras la
+// tienda YA está VERIFIED — metadata.subscriptionPaymentId (no
+// verificationId) es lo que el webhook usa para saber qué fila de
+// SubscriptionPayment marcar como pagada (ver handleCheckoutCompleted).
+export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd }) {
+  return createSubscriptionCheckoutSession({
+    vendor,
+    months,
+    amountUsd,
+    metadata: { subscriptionPaymentId: subscriptionPayment.id },
+    description: `Renovación del Plan Business para ${vendor.companyName} — ${months} ${months === 1 ? "mes" : "meses"}`,
+    successParam: "renew-success",
+  });
 }
 
 // Bloque 64: cuando un admin revoca el Plan Business a mano (revokeBusinessPlan

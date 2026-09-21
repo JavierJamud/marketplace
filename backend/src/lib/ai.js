@@ -5,15 +5,48 @@ import { generateWithGemini, chatWithGemini } from "./gemini.js";
 import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq } from "./groq.js";
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
+import { repairProviderModel, PROVIDERS as REPAIR_PROVIDERS } from "./aiModelRepair.js";
 
-// Bloque 45: Cerebras sale del sistema (su cuenta gratuita devolvía 402
-// Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
-// como tercer proveedor. Orden de prioridad fijo, confirmado explícitamente
-// por el pedido: Gemini (principal) → Groq → NVIDIA NIM.
-// getActiveProviders() solo devuelve los que están con el switch en
-// "Activo" en AdminIntegrations, en ESTE orden — con uno inactivo, el
-// fallback simplemente lo salta (nunca se llama a un proveedor apagado).
-const PROVIDER_NAMES = ["gemini", "groq", "nvidia"];
+// Bloque 83 (pedido explícito, con medición real): benchmark inicial en
+// vivo contra los 3 proveedores reales de esta cuenta — Groq ~400-800ms,
+// Gemini ~1-2.5s, NVIDIA NIM 109 SEGUNDOS. getActiveProviders() solo
+// devuelve los que están con el switch en "Activo" en AdminIntegrations —
+// con uno inactivo, el fallback simplemente lo salta (nunca se llama a un
+// proveedor apagado).
+//
+// Bloque 99 (pedido explícito — "analizará cuál está respondiendo más
+// rápido y utilizaremos para texto los modelos que respondan más rápido
+// siempre"): el orden YA NO es este array fijo — abajo (sortByMeasuredSpeed)
+// se reordenan los proveedores activos por su latencia REAL medida en vivo,
+// actualizada en cada pedido real que responde bien. Este array pasa a ser
+// solo la LISTA de proveedores conocidos (qué nombres existen), no su orden
+// de prioridad — y las latencias de referencia de acá arriba quedan como
+// semilla inicial (DEFAULT_LATENCY_MS) para cuando el servidor recién
+// arrancó y todavía no hay ninguna medición real propia.
+const PROVIDER_NAMES = ["groq", "gemini", "nvidia"];
+const DEFAULT_LATENCY_MS = { groq: 600, gemini: 2000, nvidia: 15000 };
+
+// Media móvil exponencial simple — le da más peso a lo reciente sin
+// descartar de golpe la historia previa (un solo pedido lento no debe
+// hacer que un proveedor rápido de siempre pierda su lugar de un tirón).
+// Vive en memoria del proceso a propósito: es una señal de "cómo viene
+// respondiendo AHORA", no algo que necesite sobrevivir un reinicio — con
+// tráfico real se vuelve a aprender solo en los primeros pedidos.
+const EMA_ALPHA = 0.3;
+const latencyByProvider = new Map();
+
+function recordLatency(providerName, ms) {
+  const prev = latencyByProvider.get(providerName);
+  latencyByProvider.set(providerName, prev == null ? ms : prev + EMA_ALPHA * (ms - prev));
+}
+
+function getMeasuredLatency(providerName) {
+  return latencyByProvider.get(providerName) ?? DEFAULT_LATENCY_MS[providerName] ?? 5000;
+}
+
+function sortByMeasuredSpeed(providers) {
+  return [...providers].sort((a, b) => getMeasuredLatency(a.name) - getMeasuredLatency(b.name));
+}
 
 // Bloque 25: único punto de entrada público para IA de todo el backend —
 // ai.controller.js y chat.controller.js importan de ACÁ (antes importaban
@@ -33,7 +66,9 @@ async function getActiveProviders() {
     const apiKey = await getDecryptedCredential(name);
     if (apiKey) providers.push({ name, apiKey, model: modelOverrides[name] });
   }
-  return providers;
+  // Bloque 99: orden por velocidad real medida, no por la posición en
+  // PROVIDER_NAMES — ver sortByMeasuredSpeed arriba.
+  return sortByMeasuredSpeed(providers);
 }
 
 function callGenerate(provider, prompt) {
@@ -79,14 +114,34 @@ async function callWithFallbackChain(providers, callFn, genericErrorMessage) {
   let lastErr;
   for (let i = 0; i < providers.length; i++) {
     const provider = providers[i];
+    const start = Date.now();
     try {
       const result = await callFn(provider);
+      // Bloque 99: cada respuesta buena retroalimenta el orden de la
+      // próxima vez (ver sortByMeasuredSpeed/getActiveProviders) — "el más
+      // rápido" deja de ser una medición congelada de una vez, se actualiza
+      // solo con tráfico real.
+      recordLatency(provider.name, Date.now() - start);
       logProviderSuccess(provider);
       return result;
     } catch (err) {
       lastErr = err;
       const next = providers[i + 1];
       logProviderFailure(`[ai] ${provider.name} falló${next ? `, reintentando con ${next.name}` : " (era el último proveedor activo)"}:`, err);
+      // Bloque 99 (pedido explícito — "apenas se desconecte, que el sistema
+      // lo detecte y busque el modelo adecuado"): dispara la reparación en
+      // segundo plano, SIN esperarla — el pedido actual ya sigue probando
+      // el siguiente proveedor de la cadena, la reparación es para que el
+      // PRÓXIMO pedido ya no tenga que volver a fallar contra este mismo
+      // modelo roto. repairProviderModel tiene su propio cooldown por
+      // proveedor, así que una ráfaga de fallos simultáneos no dispara
+      // búsquedas repetidas.
+      // provider.model puede venir null (sin override en AdminIntegrations,
+      // "usa el default del archivo") — hay que resolver el nombre REAL que
+      // se acaba de usar (mismo criterio que generateWithX: model || DEFAULT_MODEL)
+      // para que la reparación pruebe/excluya el modelo correcto, no "null".
+      const brokenModel = provider.model || REPAIR_PROVIDERS[provider.name]?.defaultModel;
+      void repairProviderModel(provider.name, provider.apiKey, brokenModel, err?.details?.detail || err?.message).catch(() => {});
     }
   }
   throw new AppError(genericErrorMessage, 500, { detail: lastErr?.details?.detail });

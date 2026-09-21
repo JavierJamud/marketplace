@@ -1,12 +1,15 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Globe2, MapPin, Plus, Pencil, SlidersHorizontal, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 function PlanLimitsPanel() {
   const queryClient = useQueryClient();
@@ -132,7 +135,7 @@ function ProductImageLinksPanel() {
         <ImageIcon className="h-4 w-4 text-tertiary-accent" /> Imágenes de producto por link
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Permite que los vendedores agreguen fotos de producto pegando un link externo, además de subir el archivo. Desactivalo
+        Permite que los vendedores agreguen fotos de producto pegando un link externo, además de subir el archivo. Desactívalo
         si prefieres que todas las imágenes pasen únicamente por la subida de archivos del servidor.
       </p>
       <label className="flex w-fit cursor-pointer items-center gap-2.5 rounded-xl border border-surface-container-high bg-surface-container/30 p-3.5 text-[13.5px] font-semibold text-on-surface">
@@ -149,9 +152,16 @@ function ProductImageLinksPanel() {
   );
 }
 
-function Modal({ title, onClose, children }) {
+// Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+// mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+// y si necesita que guarden datos debe preguntar si desea guardar o
+// descartar antes de cerrar"): `onBackdropClick` es opcional — lo pasan los
+// 3 formularios (CountryModal/ProvinceModal/MunicipalityModal) como
+// `dirtyModal.handleBackdropClick`; `onClose` se deja tal cual estaba (sin
+// uso directo acá — cada formulario ya maneja su propio botón Cancelar).
+function Modal({ title, onClose, onBackdropClick, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onBackdropClick}>
       <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{title}</h2>
         {children}
@@ -164,6 +174,9 @@ function CountryModal({ country, onClose }) {
   const queryClient = useQueryClient();
   const [code, setCode] = useState(country?.code ?? "");
   const [name, setName] = useState(country?.name ?? "");
+
+  const initialSnapshot = useRef(JSON.stringify({ code, name }));
+  const isDirty = JSON.stringify({ code, name }) !== initialSnapshot.current;
 
   const save = useMutation({
     mutationFn: async () =>
@@ -178,8 +191,11 @@ function CountryModal({ country, onClose }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el país."),
   });
 
+  const canSaveNow = !!name.trim() && !!code.trim();
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
+
   return (
-    <Modal title={country ? "Editar país" : "Agregar país disponible"} onClose={onClose}>
+    <Modal title={country ? "Editar país" : "Agregar país disponible"} onClose={onClose} onBackdropClick={dirtyModal.handleBackdropClick}>
       <div className="mb-4 flex flex-col gap-4">
         <Input label="Nombre del País" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Estados Unidos, Cuba, España" />
         <Input label="Código ISO corto" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Ej: US, CU, ES" maxLength={5} />
@@ -190,6 +206,14 @@ function CountryModal({ country, onClose }) {
           {save.isPending ? "Guardando..." : "Guardar País"}
         </Button>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </Modal>
   );
 }
@@ -201,6 +225,9 @@ function ProvinceModal({ province, countries, preselectedCountryId, onClose }) {
   const [countryId, setCountryId] = useState(province?.country?.id ?? preselectedCountryId ?? countries?.[0]?.id ?? "");
   const [type, setType] = useState(province?.type ?? "PROVINCE");
   const [isActive, setIsActive] = useState(province?.isActive ?? true);
+
+  const initialSnapshot = useRef(JSON.stringify({ code, name, countryId, type, isActive }));
+  const isDirty = JSON.stringify({ code, name, countryId, type, isActive }) !== initialSnapshot.current;
 
   const save = useMutation({
     mutationFn: async () =>
@@ -215,8 +242,15 @@ function ProvinceModal({ province, countries, preselectedCountryId, onClose }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
 
+  const canSaveNow = !!name.trim() && !!code.trim() && !!countryId;
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
+
   return (
-    <Modal title={province?.id ? "Editar Estado / Provincia" : "Agregar Estado o Provincia"} onClose={onClose}>
+    <Modal
+      title={province?.id ? "Editar Estado / Provincia" : "Agregar Estado o Provincia"}
+      onClose={onClose}
+      onBackdropClick={dirtyModal.handleBackdropClick}
+    >
       <div className="mb-4 flex flex-col gap-4">
         <Select label="País Vinculado" value={countryId} onChange={(e) => setCountryId(e.target.value)}>
           {countries?.map((c) => (
@@ -242,6 +276,14 @@ function ProvinceModal({ province, countries, preselectedCountryId, onClose }) {
           {save.isPending ? "Guardando..." : "Guardar Subdivisión"}
         </Button>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </Modal>
   );
 }
@@ -250,6 +292,9 @@ function MunicipalityModal({ province, municipality, onClose }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(municipality?.name ?? "");
   const [isActive, setIsActive] = useState(municipality?.isActive ?? true);
+
+  const initialSnapshot = useRef(JSON.stringify({ name, isActive }));
+  const isDirty = JSON.stringify({ name, isActive }) !== initialSnapshot.current;
 
   const save = useMutation({
     mutationFn: async () =>
@@ -264,8 +309,15 @@ function MunicipalityModal({ province, municipality, onClose }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el municipio."),
   });
 
+  const canSaveNow = !!name.trim();
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
+
   return (
-    <Modal title={municipality?.id ? "Editar Municipio" : `Agregar Municipio a ${province.name}`} onClose={onClose}>
+    <Modal
+      title={municipality?.id ? "Editar Municipio" : `Agregar Municipio a ${province.name}`}
+      onClose={onClose}
+      onBackdropClick={dirtyModal.handleBackdropClick}
+    >
       <div className="mb-4 flex flex-col gap-4">
         <Input label="Nombre del Municipio" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Plaza de la Revolución, Centro Habana" />
         {municipality?.id && (
@@ -281,6 +333,14 @@ function MunicipalityModal({ province, municipality, onClose }) {
           {save.isPending ? "Guardando..." : "Guardar Municipio"}
         </Button>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </Modal>
   );
 }
@@ -378,11 +438,14 @@ export default function AdminLocations() {
     <div className="mx-auto max-w-7xl px-4 py-8">
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-surface-container-high pb-6">
-        <div>
-          <h1 className="text-display-sm font-extrabold text-on-surface">Ubicaciones y Territorios</h1>
-          <p className="text-body-md text-outline">
-            Configuración global de países, estados, provincias y municipios disponibles para venta y entregas.
-          </p>
+        <div className="flex items-center gap-3">
+          <IconCircle icon={Globe2} tone="teal" />
+          <div>
+            <h1 className="text-display-sm font-extrabold text-on-surface">Ubicaciones y Territorios</h1>
+            <p className="text-body-md text-outline">
+              Configuración global de países, estados, provincias y municipios disponibles para venta y entregas.
+            </p>
+          </div>
         </div>
         <Button className="rounded-xl font-bold shadow-sm" onClick={() => setCountryModal({})}>
           <Plus className="h-4 w-4 mr-1" /> Nuevo País
@@ -603,7 +666,7 @@ export default function AdminLocations() {
                               {p.municipalities.map((m) => (
                                 <div
                                   key={m.id}
-                                  className="flex items-center justify-between rounded-lg border border-surface-container-high bg-surface-container-lowest px-3 py-2"
+                                  className="flex items-center justify-between rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] px-3 py-2"
                                 >
                                   <span className="text-[12.5px] font-semibold text-on-surface">{m.name}</span>
                                   <div className="flex items-center gap-1.5">

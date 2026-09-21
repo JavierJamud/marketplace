@@ -2,8 +2,10 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
+import { Ban } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -59,13 +61,16 @@ export default function AdminSuspendedVendors() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Tiendas suspendidas</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Ban} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Tiendas suspendidas</h1>
+      </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Tiendas bloqueadas a mano por un admin o suspendidas automáticamente por 90 días sin acceso al panel de vendedor.
         Ocultas de todo el sitio hasta desbloquearlas/reactivarlas.
       </p>
 
-      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         <div className="grid grid-cols-[1.6fr_1fr_1.3fr_1.3fr_2fr_1.2fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[820px]">
           <span>Tienda</span><span>Tipo</span><span>Desde</span><span>Último acceso</span><span>Motivo</span><span className="text-right">Acción</span>
         </div>

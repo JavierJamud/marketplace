@@ -52,7 +52,7 @@ export default function AdminAssistant() {
     <div className="max-w-[760px]">
       <div className="mb-1 flex items-center gap-2.5">
         <Bot className="h-6 w-6 text-tertiary-accent" />
-        <h1 className="font-display text-[25px] font-bold text-on-surface">Asistente del marketplace</h1>
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Asistente del marketplace</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         El bot general de {siteName} (botón flotante en el Home) usa estos documentos como fuente de verdad para preguntas institucionales —
@@ -60,7 +60,7 @@ export default function AdminAssistant() {
         cargados, el asistente sigue funcionando solo con el catálogo.
       </p>
 
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+      <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
         <div className="mb-1 text-[15px] font-bold text-on-surface">Subir documento</div>
         <p className="mb-3.5 text-[12.5px] text-outline">
           Sube uno para clientes (cómo comprar, políticas generales) y otro para vendedores (cómo vender, verificación, planes) — o los que
@@ -85,14 +85,14 @@ export default function AdminAssistant() {
         </label>
       </div>
 
-      <div className="mb-5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+      <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
         <div className="mb-3.5 text-[15px] font-bold text-on-surface">Documentos cargados</div>
         {isLoading ? (
           <p className="text-[13px] text-outline">Cargando...</p>
         ) : data?.length > 0 ? (
           <div className="flex flex-col gap-2">
             {data.map((doc) => (
-              <div key={doc.id} className="flex items-center gap-3 rounded-md border border-outline-variant px-3.5 py-2.5">
+              <div key={doc.id} className="flex items-center gap-3 rounded-xl border border-outline-variant px-3.5 py-2.5">
                 <FileText className="h-4 w-4 flex-shrink-0 text-tertiary-accent" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-semibold text-on-surface">{doc.originalName}</div>
@@ -197,7 +197,7 @@ function ChatReviewSection() {
   }
 
   return (
-    <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+    <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
       <div className="mb-1 flex items-center gap-2.5">
         <GraduationCap className="h-5 w-5 text-tertiary-accent" />
         <div className="text-[15px] font-bold text-on-surface">Aprendizaje por ejemplos</div>
@@ -231,7 +231,7 @@ function ChatReviewSection() {
         ) : conversations?.length > 0 ? (
           <div className="flex flex-col gap-3">
             {conversations.map((conv) => (
-              <div key={conv.id} className="rounded-md border border-outline-variant p-3.5">
+              <div key={conv.id} className="rounded-xl border border-outline-variant p-3.5">
                 {conv.vendorName && <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-tertiary-accent">{conv.vendorName}</div>}
                 <div className="mb-1.5 text-[12.5px] text-on-surface-variant">
                   <span className="font-semibold text-on-surface">Cliente: </span>
@@ -249,7 +249,7 @@ function ChatReviewSection() {
                       onChange={(e) => setDraft(e.target.value)}
                       rows={3}
                       placeholder="Escribe la respuesta ideal para este mensaje del cliente..."
-                      className="w-full rounded-md border border-outline-variant p-2.5 text-[12.5px] text-on-surface"
+                      className="w-full rounded-lg border border-outline-variant p-2.5 text-[12.5px] text-on-surface"
                     />
                     <div className="flex gap-2">
                       <button
@@ -305,7 +305,7 @@ function ChatReviewSection() {
         ) : examples?.length > 0 ? (
           <div className="flex flex-col gap-2">
             {examples.map((ex) => (
-              <div key={ex.id} className={`rounded-md border border-outline-variant p-3 ${ex.activo ? "" : "opacity-50"}`}>
+              <div key={ex.id} className={`rounded-xl border border-outline-variant p-3 ${ex.activo ? "" : "opacity-50"}`}>
                 <div className="mb-1 text-[12px] text-on-surface-variant">
                   <span className="font-semibold text-on-surface">Cliente:</span> {ex.entradaCliente}
                 </div>

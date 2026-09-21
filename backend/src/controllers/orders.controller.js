@@ -7,7 +7,8 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { sendOrderConfirmationEmail, sendOrderStatusEmail, sendManualOrderEmail } from "../lib/email.js";
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
-import { logActivity } from "../lib/activityLog.js";
+import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -71,6 +72,39 @@ export async function createOrder(req, res) {
 
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+
+  // Bloque 206 (pedido explícito): Checkout.jsx ya filtra el desplegable de
+  // provincias/países a la cobertura que el vendedor configuró, pero un
+  // llamado directo a la API podía mandar cualquier provincia igual — acá
+  // se hace cumplir de verdad. Cada eje (provincia cubana / país) solo
+  // restringe si el vendedor configuró algo en ESE eje — sin nada
+  // configurado, sin restricción (mismo criterio que ya usa el frontend).
+  if (data.shippingProvinceId) {
+    const province = await prisma.province.findUnique({ where: { id: data.shippingProvinceId } });
+    if (!province) throw new AppError("La provincia/estado indicado no existe.", 400);
+
+    const [vendorLocations, vendorDeliveryCountries] = await Promise.all([
+      prisma.vendorLocation.findMany({ where: { vendorId: data.vendorId }, select: { provinceId: true, countryId: true } }),
+      prisma.vendorDeliveryCountry.findMany({ where: { vendorId: data.vendorId }, select: { countryId: true } }),
+    ]);
+
+    const configuredProvinceIds = new Set(vendorLocations.map((l) => l.provinceId).filter(Boolean));
+    // Un país queda "configurado" si aparece en cualquiera de las dos
+    // fuentes — VendorLocation modela tanto zonas de Cuba (provinceId) como
+    // locales fuera de Cuba (countryId + stateOther), VendorDeliveryCountry
+    // es la lista aparte de países enteros a los que se hace envíos.
+    const configuredCountryIds = new Set([
+      ...vendorDeliveryCountries.map((d) => d.countryId),
+      ...vendorLocations.map((l) => l.countryId).filter(Boolean),
+    ]);
+
+    if (province.type !== "STATE" && configuredProvinceIds.size > 0 && !configuredProvinceIds.has(province.id)) {
+      throw new AppError("Esta tienda no entrega en la provincia seleccionada.", 400);
+    }
+    if (configuredCountryIds.size > 0 && province.countryId && !configuredCountryIds.has(province.countryId)) {
+      throw new AppError("Esta tienda no entrega en el país seleccionado.", 400);
+    }
+  }
 
   const productIds = data.items.map((i) => i.productId);
   const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { priceTiers: true } });
@@ -142,7 +176,9 @@ export async function createOrder(req, res) {
   const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
   if (token) {
     try {
-      const payload = jwt.verify(token, env.jwtSecret);
+      // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
+      // el algoritmo esperado en vez de confiar en el "alg" del propio token.
+      const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
       customerId = payload.sub;
     } catch {
       // token inválido/expirado: seguimos como pedido de invitado
@@ -209,12 +245,49 @@ export async function createOrder(req, res) {
         discountAmount,
         items: { create: orderItems },
       },
-      include: { items: true, vendor: { select: { companyName: true, whatsapp: true, orderDestination: true } } },
+      include: {
+        // Bloque 231: product.images acá alimenta la foto de cada artículo
+        // en orderConfirmationEmail (ver itemsTable, templates/_shared.js).
+        items: { include: { product: { select: { images: true } } } },
+        vendor: { select: { companyName: true, whatsapp: true, orderDestination: true, logoUrl: true } },
+      },
     });
   });
 
   // Confirmación al cliente — best-effort, nunca bloquea ni revierte el pedido.
   await sendOrderConfirmationEmail(order);
+
+  // Bloque 231 (pedido explícito — "cuando un cliente envía un pedido se
+  // debe llegar y notificar en tiempo real en el panel del vendedor, y de
+  // no estar logeado se debe notificar vía email al admin del nuevo pedido
+  // y de su estado"): antes un pedido normal (no de mesa) nunca generaba
+  // ninguna VendorNotification — solo los pedidos de mesa tenían aviso
+  // propio (NewOrderPopup.jsx). La campanita del vendedor (VendorNotificationBell.jsx)
+  // ya poll-ea /vendors/me/notifications cada 20s, así que basta con crear
+  // la fila acá para que aparezca sola; el popup+sonido en vivo los detecta
+  // por separado desde NewRegularOrderPopup.jsx (poll de /orders/me).
+  const totalLabel = `${Number(order.total).toLocaleString("es-CU")} CUP`;
+  await prisma.vendorNotification.create({
+    data: {
+      vendorId: order.vendorId,
+      type: "NEW_ORDER",
+      title: "Pedido nuevo",
+      body: `Pedido ${order.code} de ${order.customerName ?? "un cliente"} por ${totalLabel} — está en tu sección de Pedidos.`,
+    },
+  });
+  // Mismo mecanismo que "algo necesita revisión" (verificaciones, pagos
+  // reclamados, etc. — ver el comentario de notifyAdminActionNeeded): un
+  // correo directo al admin, best-effort, nunca bloquea la respuesta al
+  // cliente. No hay forma real de saber si el admin "está logeado" en un
+  // sistema sin sesión persistente del lado del servidor — el envío siempre
+  // sale, igual que el resto de estos avisos; si el admin ya está mirando
+  // el panel, la campanita (ver listAdminNotifications) se lo muestra ahí
+  // también, sin esperar a que abra el correo.
+  await notifyAdminActionNeeded(
+    `Pedido nuevo: ${order.code}`,
+    `${order.vendor.companyName} recibió un pedido nuevo (${order.code}) de ${order.customerName ?? "un cliente"} por ${totalLabel}. Estado: Nuevo (pendiente de confirmar).`,
+    order.vendorId
+  );
 
   // Solo se registra si el pedido se hizo logueado — un pedido de invitado no
   // tiene ningún User al que atarle la fila de ActivityLog.
@@ -288,16 +361,42 @@ async function incrementSizeStock(tx, productId, size, quantity) {
   await tx.product.update({ where: { id: productId }, data: { sizeStock: nextSizeStock, stock: nextTotal } });
 }
 
+const updateOrderStatusSchema = z.object({
+  status: z.enum(["NEW", "PREPARING", "READY", "DELIVERED", "CANCELLED"]),
+  // Bloque 197 (pedido explícito — "eliminar pedido... esto se puede hacer
+  // para pedidos erróneos"): solo se exige (y solo se guarda) cuando el
+  // destino es CANCELLED — ver el chequeo manual más abajo, igual que
+  // cancelTableOrderSchema en tables.controller.js.
+  reason: z.string().trim().optional(),
+});
+
 export async function updateOrderStatus(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
-  const { status } = z.object({ status: z.enum(["NEW", "PREPARING", "READY", "DELIVERED", "CANCELLED"]) }).parse(req.body);
+  const { status, reason } = updateOrderStatusSchema.parse(req.body);
 
   const order = await prisma.order.findUnique({ where: { id }, include: { items: true } });
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
+  // Bloque 231: precio total ya vive en `order`, se reusa tal cual para el
+  // correo de abajo — nunca se recalcula desde los items.
 
-  if (!VALID_TRANSITIONS[order.status].includes(status)) {
+  // Bloque 197 (pedido explícito — "quiero poder agregar una función para
+  // eliminar pedido, eso [en realidad] no elimina el pedido, lo marca como
+  // tachado... no se elimina y sigue quedando registrado pero no marcará
+  // diferencia de ventas ni inventario... esto se puede hacer para pedidos
+  // erróneos"): CANCELLED es una salida APARTE del flujo normal de
+  // VALID_TRANSITIONS — antes solo se podía cancelar desde NEW o PREPARING
+  // (READY/DELIVERED eran terminales), pero un pedido erróneo puede
+  // notarse recién después de marcarlo Listo o Entregado. Se permite desde
+  // cualquier estado que no sea ya CANCELLED, sin tocar el resto del mapa
+  // (nunca se puede "revivir" un pedido cancelado, ni saltarse pasos para
+  // cualquier otro destino).
+  const isValidTransition = status === "CANCELLED" ? order.status !== "CANCELLED" : VALID_TRANSITIONS[order.status].includes(status);
+  if (!isValidTransition) {
     throw new AppError(`No se puede pasar un pedido de "${order.status}" a "${status}".`, 400);
+  }
+  if (status === "CANCELLED" && (!reason || reason.length < 3)) {
+    throw new AppError("Escribe el motivo de la cancelación.", 400);
   }
 
   // Bloque 29: si el pedido YA estaba confirmado (PREPARING/READY — el stock
@@ -325,8 +424,29 @@ export async function updateOrderStatus(req, res) {
         else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
     }
-    return tx.order.update({ where: { id }, data: { status }, include: { vendor: { select: { companyName: true } } } });
+    return tx.order.update({
+      where: { id },
+      data: { status, ...(status === "CANCELLED" ? { cancelReason: reason.trim() } : {}) },
+      // Bloque 231: items+product.images acá alimentan la tabla de
+      // artículos que ahora también lleva statusUpdateEmail (antes este
+      // correo no mostraba ningún artículo).
+      include: {
+        vendor: { select: { companyName: true, logoUrl: true } },
+        items: { include: { product: { select: { images: true } } } },
+      },
+    });
   });
+
+  if (status === "CANCELLED") {
+    logActivity({
+      actorId: req.user.id,
+      actorRole: actorRoleForVendorAction(req),
+      vendorId: vendor.id,
+      action: "order_cancelled",
+      description: `Anuló el pedido ${order.code} — ${reason.trim()}`,
+      meta: { orderId: id, reason: reason.trim() },
+    });
+  }
 
   // "Tiempo real" = disparado en el momento del cambio, no un cron/batch.
   await sendOrderStatusEmail(updated);
@@ -356,6 +476,22 @@ export async function confirmOrderSale(req, res) {
   const updated = await prisma.$transaction(async (tx) => {
     for (const item of order.items) {
       if (!item.productId) continue; // producto borrado después del pedido — nada que descontar
+
+      // Bloque 98 (pedido explícito): señal real de "ventas" para el
+      // algoritmo de "Destacados" — acá, no en createOrder, porque acá es
+      // donde el vendedor confirma que la venta es real (mismo momento que
+      // ya descuenta stock de verdad). Cuenta SIEMPRE, incluso con
+      // unlimitedStock (esos productos igual se venden, solo no se les
+      // sigue el stock) — si más abajo algo falla, toda la transacción
+      // (este increment incluido) se revierte junto con el resto.
+      // Bloque 230 (Fase 3): misma ancla de recencia que trackProductClick
+      // (products.controller.js) — una venta confirmada también cuenta como
+      // actividad real reciente para el decay del ranking.
+      await tx.product.updateMany({
+        where: { id: item.productId },
+        data: { salesCount: { increment: item.quantity }, lastActivityAt: new Date() },
+      });
+
       if (isUnlimited.get(item.productId)) continue; // sin seguimiento de stock — nunca bloquea la confirmación.
 
       // Bloque 52: si el ítem lleva talla, decrementar ESA talla (con lock de
@@ -374,7 +510,14 @@ export async function confirmOrderSale(req, res) {
         );
       }
     }
-    return tx.order.update({ where: { id }, data: { status: "PREPARING" }, include: { items: true, vendor: { select: { companyName: true } } } });
+    return tx.order.update({
+      where: { id },
+      data: { status: "PREPARING" },
+      include: {
+        items: { include: { product: { select: { images: true } } } },
+        vendor: { select: { companyName: true, logoUrl: true } },
+      },
+    });
   });
 
   // El stock de estos productos ya bajó de verdad — ver si algún OTRO

@@ -3,23 +3,434 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
-    <!-- Auditoría 2026-08-06: favicon estático (inicial "Z", mismo estilo
-         navy+naranja que el fallback de logo en Header.jsx/VendorLayout.jsx)
-         — no puede seguir el logo real subido desde /admin/marca sin generar
-         el archivo en build time; queda como default razonable. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Bloque 214 (pedido explícito): favicon real de la marca, subido a
+         mano en public/ (favicon.svg/favicon.ico/apple-touch-icon.png) — ya
+         no el placeholder de la Auditoría 2026-08-06 (inicial "Z"/"B" sobre
+         un cuadrado). Los 3 comparten el mismo fondo #1b2733 (el color real
+         de apple-touch-icon.png) para verse consistentes sin importar cuál
+         use cada navegador. favicon.svg manda en los navegadores modernos
+         (Chrome/Firefox/Edge/Safari, todos soportan SVG); favicon.ico es el
+         respaldo para el resto; apple-touch-icon.png es el ícono al
+         agregar el sitio a la pantalla de inicio en iOS.
+         `?v=2` (bug real reportado en vivo — "arreglé los archivos pero la
+         pestaña sigue mostrando el viejo"): el favicon es lo más agresivo
+         que cachea un navegador, más que el resto de la página — sobrevive
+         incluso a un refresco fuerte (Ctrl+Shift+R) en pestañas que ya lo
+         habían cargado antes con esta misma URL. Cambiar la URL (acá, con
+         un query string) es la única forma confiable de forzar a CUALQUIER
+         visitante a pedir los bytes nuevos — subí este número cada vez que
+         el archivo cambie de contenido. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&family=Fredoka:wght@600;700&display=swap"
       rel="stylesheet"
     />
-    <!-- Bloque 23: <title> y las meta Open Graph/Twitter Card se inyectan
-         server-side por vite-plugins/ogMeta.js (distintas por tienda/producto
-         cuando corresponde) — no van hardcodeadas acá para no duplicarlas. -->
+    <!-- Bloque 123 (pedido explícito — "que el estilo de la fuente de las
+         letras [del nombre del preloader] tenga bordes redondeados"):
+         Fredoka sumada SOLO para el nombre del preloader (ver
+         #app-preloader-name más abajo) — nunca reemplaza Montserrat/Inter
+         del resto del sitio (tailwind.config.js sigue intacto), es de
+         terminales redondeadas de fábrica (a diferencia de Montserrat, que
+         corta en ángulo recto) y combina con los trazos `stroke-linecap:
+         round` que ya usa el logo del <logo-loader>. -->
+
+    <!-- Bloque 115 (pedido explícito — "que se muestre la previsualización de
+         la tienda, no la del marketplace, al compartir su link"): antes esto
+         estaba vacío a propósito ("no van hardcodeadas acá para no
+         duplicarlas") confiando en que vite-plugins/ogMeta.js SIEMPRE las
+         inyectara — cierto en dev (Vite corre ese plugin), pero un build
+         estático de producción sin un servidor que reproduzca esa inyección
+         (todavía no existe, ver nota en ogMeta.js) serviría este HTML tal
+         cual, sin ningún meta tag — ni siquiera la vista previa genérica del
+         marketplace. Estos son el piso: SIEMPRE la vista genérica del sitio
+         (nunca vacío); ogMeta.js las reemplaza (no las duplica, ver
+         stripExistingMeta) cuando corre en dev y la URL es de una
+         tienda/producto puntual.
+         Bloque 212 (pedido explícito): "Baznova" acá es el nombre REAL de
+         la plataforma (SiteSettings.siteName en la base), no "ZeuDin" —
+         ZeuDin es la marca de la empresa de desarrollo de software del
+         dueño, nunca el nombre de este sitio. Sigue siendo un valor fijo
+         a propósito (este archivo se sirve tal cual, sin poder consultar la
+         base) — si el nombre de la plataforma cambia algún día desde
+         Admin → Marca, este piso estático hay que actualizarlo a mano acá. -->
+    <title>Baznova — Marketplace multivendedor de Cuba</title>
+    <meta
+      name="description"
+      content="Comprá y vendé en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Baznova" />
+    <meta property="og:title" content="Baznova — Marketplace multivendedor de Cuba" />
+    <meta
+      property="og:description"
+      content="Comprá y vendé en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp."
+    />
+    <meta property="og:image" content="/og-placeholder.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Baznova — Marketplace multivendedor de Cuba" />
+    <meta
+      name="twitter:description"
+      content="Comprá y vendé en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp."
+    />
+    <meta name="twitter:image" content="/og-placeholder.png" />
+    <!-- Bloque 125 (pedido explícito — reemplaza los Bloques 121-124 de
+         raíz): "convertido a paths (una <path> por letra)... animación CSS
+         de 'stroke draw-on': cada letra dibujada como escritura a mano,
+         fill:none, stroke blanco, stroke-linecap/linejoin:round,
+         pathLength='1', stroke-dashoffset de 1 a 0... al terminar el trazo,
+         aparece el relleno con una transición de opacidad". Ya NO es CSS
+         puro sobre texto (los bloques anteriores animaban `color`/
+         `clip-path` sobre <span> de HTML) — el nombre real es dinámico
+         (se elige desde el admin, nunca un texto fijo), así que hace falta
+         convertir CADA letra a su contorno vectorial real en tiempo de
+         carga: `opentype.min.js` (build UMD de la librería open-source
+         "opentype.js" — https://github.com/opentype/opentype.js, MIT,
+         copiado tal cual a public/, nunca vía CDN externo — mismo criterio
+         que logo-loader.js: público, auto-hosteado, cero dependencia de
+         terceros en tiempo de ejecución) parsea `public/fonts/Fredoka.ttf`
+         (la fuente variable real de Fredoka, bajada del repo oficial
+         google/fonts, licencia OFL — el mismo look redondeado ya elegido
+         en el Bloque 123, pero ahora como CONTORNO VECTORIAL real, no solo
+         como font-family de texto) y genera un `<path>` real por carácter
+         (`font.getPath()` + `toPathData()`) — ver el script de abajo,
+         `buildNameSVG()`. Se arma el SVG completo recién cuando la fuente
+         YA cargó y el nombre YA se conoce (nunca antes — si /settings no
+         responde a tiempo, ver Bloque 212, se queda sin nombre, solo el
+         logo). Si
+         `opentype.min.js` no llega a cargar (red lenta/backend caído), cae
+         a texto plano sin animar — un preloader nunca debe romperse por
+         esto. 2 animaciones por `<path>` (mismo `pathLength="1"` +
+         `stroke-dasharray:1 1"` que ya usa logo-loader.js para dibujarse a
+         sí mismo — mismo truco, ahora aplicado a letras reales en vez de al
+         ícono de tiendita):
+         - `preloader-letter-stroke`: `stroke-dashoffset` de 1 a 0 — dibuja
+           el contorno de la letra, sin relleno (fill:none mientras dibuja).
+         - `preloader-letter-fill-in`: `fill-opacity` de 0 a 1, arrancando
+           justo cuando el trazo ya casi terminó — "al terminar el trazo,
+           aparece el relleno".
+         Las 2 comparten el mismo `animation-delay` por letra (0.12s más que
+         la anterior, tal cual pedido) — el escalonado chico es el
+         "hormigueo": todas dibujan casi juntas, con un desfase mínimo. Las
+         2 corren sobre el MISMO reloj de 4.25s que el logo (no uno propio
+         de ~1.5s aparte) — el dibujado+relleno completo de una letra ocupa
+         ~1.5s ADENTRO de ese ciclo de 4.25s (los puntos de tiempo de abajo
+         están calculados para eso: 21%≈0.9s, 35%≈1.5s), se sostiene
+         dibujada hasta el 92% (mismo punto donde el logo/grupo empiezan a
+         desvanecerse) y se resetea sola al llegar al 100%, lista para el
+         siguiente loop. El CONTENEDOR (`preloader-name-pulse`, sin
+         cambios) sigue con su propio fade+translateY de grupo, en el mismo
+         compás que el logo completo. -->
+    <style>
+      @keyframes preloader-name-pulse {
+        0% { opacity: 0; transform: translateY(8px); }
+        9% { opacity: 1; transform: translateY(0); }
+        17%, 92% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(8px); }
+      }
+      @keyframes preloader-letter-stroke {
+        0%, 100% { stroke-dashoffset: 1; }
+        21%, 92% { stroke-dashoffset: 0; }
+      }
+      @keyframes preloader-letter-fill-in {
+        0%, 19%, 100% { fill-opacity: 0; }
+        35%, 92% { fill-opacity: 1; }
+      }
+
+      /* Bloque 134 (pedido explícito — "quiero que bloquees el zoom por
+         completo de la página, así el cliente por error no perderá el
+         contexto de la página"): el <meta name="viewport"> de arriba ya
+         trae maximum-scale=1/user-scalable=no, pero Safari de iOS (desde
+         iOS 10) lo IGNORA a propósito — es una decisión de accesibilidad
+         de Apple, ningún meta tag lo puede evitar. touch-action:manipulation
+         es la vía estándar que sí funciona en iOS/Android modernos: le
+         dice al navegador que este elemento solo espera pan/click, nunca
+         un doble-tap-para-zoom (el pinch-zoom de 2 dedos se bloquea aparte
+         con JS, ver el <script> de más abajo, porque no hay ningún
+         equivalente CSS para eso). */
+      html, body {
+        touch-action: manipulation;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- Bloque 134 (pedido explícito — "bloquea el zoom por completo de la
+         página, así el cliente por error no perderá el contexto"): va acá,
+         plano, apenas arranca el <body> — antes incluso de que React exista
+         — para que el bloqueo esté activo desde el primer frame, igual que
+         el preloader de abajo. Cubre las 3 formas reales de hacer zoom:
+         (1) pinch de 2 dedos (touchmove con más de 1 dedo, el equivalente
+         universal a los eventos gesturestart/gesturechange de WebKit, que
+         son propietarios de Safari/iOS); (2) doble-tap-para-zoom (ya cubierto
+         por touch-action:manipulation del <style> de arriba, en navegadores
+         modernos que lo respetan); (3) Ctrl+rueda del mouse en desktop (el
+         atajo de zoom del navegador, WHATWG permite preventDefault() en
+         "wheel" para esto). Nunca toca pan/scroll normal (1 dedo, sin Ctrl)
+         — { passive:false } es obligatorio en los 2 listeners para que
+         preventDefault() tenga efecto real. -->
+    <script>
+      (function () {
+        document.addEventListener(
+          "touchmove",
+          function (e) {
+            if (e.touches.length > 1) e.preventDefault();
+          },
+          { passive: false }
+        );
+        document.addEventListener(
+          "wheel",
+          function (e) {
+            if (e.ctrlKey) e.preventDefault();
+          },
+          { passive: false }
+        );
+      })();
+    </script>
+
+    <!-- Bloque 119/120 (pedido explícito — "el loader debe mostrarse hasta
+         que dé toda su animación completa Y hasta que la página haya
+         cargado del todo — lo que tarde más"): va ACÁ, fuera de React, a
+         propósito — es la única forma real de taparle al visitante el hueco
+         en blanco mientras el bundle de React todavía se está
+         descargando/parseando (nunca podría hacer eso si viviera adentro de
+         App.jsx, que es lo primero que este splash tiene que cubrir). Por
+         eso el archivo se movió de src/assets/images/ a public/: cualquier
+         cosa adentro de src/ pasa por el bundler de Vite — un <script
+         type="module" src="/src/..."> lo hubiera fusionado en el mismo
+         chunk que main.jsx, perdiendo justo la propiedad que hace falta acá
+         (que se ejecute SOLO, de una, sin esperar a que TODO React termine
+         de descargar y parsear). public/ se sirve tal cual, sin pasar por
+         el bundler, en dev y en build — por eso acá es un <script> normal,
+         sin type="module". -->
+    <script src="/logo-loader.js"></script>
+    <!-- Bloque 125: opentype.js (MIT), copia local del build UMD — ver el
+         comentario largo del <style> de arriba. Tiene que cargar ANTES del
+         <script> de abajo que lo usa (`window.opentype`), por eso va acá,
+         en orden, no con `defer`/`async`. -->
+    <script src="/opentype.min.js"></script>
+    <div
+      id="app-preloader"
+      style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#0e1a28;transition:opacity 400ms ease;"
+    >
+      <logo-loader ink="#FFFFFF" accent="#FE9800" pale-ink="rgba(255,255,255,.28)" pale-accent="rgba(254,152,0,.3)" duration="4.25" size="140"></logo-loader>
+      <!-- Bloque 125 (pedido explícito — ver el comentario largo del <style>
+           de arriba): arranca vacío (Bloque 212 — nunca "ZeuDin") y se
+           reconstruye con el nombre real apenas responde GET /settings.
+           `buildNameSVG()`
+           en el script de abajo arma acá adentro un <svg> con un <path> real
+           por letra (contorno vectorial de Fredoka.ttf, ver
+           public/fonts/Fredoka.ttf) — si opentype.js no llega a cargar, cae
+           a texto plano sin animar (nunca se rompe el preloader por esto). -->
+      <div id="app-preloader-name" style="font-family:'Fredoka','Montserrat',sans-serif;font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;white-space:nowrap;animation:preloader-name-pulse 4.25s ease-in-out infinite;"></div>
+    </div>
+    <script>
+      // Bloque 120 (pedido explícito): el splash de arriba se apaga acá
+      // mismo, en JS plano — NO desde React (ver Bloque 119, donde vivía en
+      // un componente montado por App.jsx: el reloj arrancaba recién cuando
+      // React montaba, que ya es tarde — el SVG de arriba empieza a
+      // animarse ANTES de eso, apenas se inserta en el DOM). Se apaga solo
+      // cuando se cumplen LAS DOS cosas a la vez, lo que tarde más:
+      // (1) pasó una vuelta completa de la animación del logo (ANIM_MS,
+      // tiene que coincidir con duration="4.25" de arriba); (2) la página
+      // terminó de cargar de verdad — `window.load` (no DOMContentLoaded:
+      // ese dispara con el HTML parseado nomás, antes de que las imágenes/
+      // el bundle de React terminen de bajar — `load` es la señal real del
+      // navegador de "esta página ya cargó por completo").
+      (function () {
+        var ANIM_MS = 4250;
+        var startedAt = Date.now();
+        var pageLoaded = document.readyState === "complete";
+
+        // Bloque 126 (pedido explícito — "quiero que el loader el logo se
+        // vea más responsivo y pequeño en dispositivos móviles"): el
+        // tamaño del <logo-loader> lo controla el atributo `size` (ver
+        // public/logo-loader.js) y no CSS —no hay una vía CSS pura para
+        // achicarlo en pantallas angostas—, así que se ajusta acá con JS,
+        // reactivo a resize (por si el usuario gira el teléfono o achica la
+        // ventana del navegador).
+        var logoEl = document.querySelector("#app-preloader logo-loader");
+        function applyResponsiveLogoSize() {
+          if (!logoEl) return;
+          // Bloque 131 (pedido explícito — "en pantallas grandes se ve un
+          // poco muy grande, un poquito menos, no tanto"): 140 -> 118, una
+          // reducción moderada a propósito (~16%), no drástica — el pedido
+          // fue específico en que no quería un cambio grande. El tamaño de
+          // 92 en móvil (Bloque 126) no se tocó, no fue parte de este pedido.
+          logoEl.setAttribute("size", window.innerWidth <= 480 ? "92" : "118");
+        }
+        applyResponsiveLogoSize();
+        window.addEventListener("resize", applyResponsiveLogoSize);
+
+        // Bloque 125 (pedido explícito): mismos 2 colores exactos del
+        // <logo-loader> de arriba — "siempre utilizará los colores que
+        // tiene el loader", nunca una paleta propia para el nombre. La
+        // primera letra siempre ACCENT (naranja), el resto siempre INK
+        // (blanco) — sin importar cuál sea el nombre real.
+        var INK = "#FFFFFF";
+        var ACCENT = "#FE9800";
+        // Milisegundos de diferencia entre el animation-delay de una letra
+        // y la siguiente — "un animation-delay escalonado de ~0.12s entre
+        // cada una", pedido explícito.
+        var LETTER_STAGGER_S = 0.12;
+        var FONT_SIZE = 22;
+        var STROKE_WIDTH = 2.6;
+
+        var loadedFont = null;
+        // fontSettled: true una vez que opentype.js terminó de intentar
+        // cargar Fredoka.ttf (con éxito o sin él) — o de una si
+        // window.opentype ni siquiera existe (nunca va a cargar). Junto con
+        // resolvedName (más abajo), evita el flash de "ZeuDin" seguido del
+        // nombre real: no se pinta NADA hasta saber las dos cosas a la vez
+        // (pedido explícito del usuario — "no debería poner ZeuDin al
+        // principio y luego flashear rápido y poner el nombre real").
+        var fontSettled = !window.opentype;
+        var resolvedName = null;
+
+        function escapeHtml(s) {
+          return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        // Arma el <svg> real — un <path> por letra (contorno vectorial de
+        // Fredoka.ttf vía opentype.js), cada uno con pathLength="1" y las
+        // 2 animaciones (`preloader-letter-stroke` dibuja el trazo,
+        // `preloader-letter-fill-in` aparece el relleno al terminar) —
+        // ver el <style> de arriba para el porqué completo. Los espacios
+        // (nombres de 2+ palabras) no generan <path> — no tienen contorno,
+        // solo avanzan el cursor — pero SÍ cuentan como una letra más para
+        // el escalonado, para que el ritmo del "hormigueo" no se acelere
+        // después de un espacio.
+        function buildNameSVG(font, name) {
+          var ascent = (font.ascender / font.unitsPerEm) * FONT_SIZE;
+          var descent = (Math.abs(font.descender) / font.unitsPerEm) * FONT_SIZE;
+          var height = ascent + descent;
+          var x = 0;
+          var paths = "";
+          for (var i = 0; i < name.length; i++) {
+            var ch = name.charAt(i);
+            var advance = font.getAdvanceWidth(ch, FONT_SIZE);
+            if (ch !== " ") {
+              var d = font.getPath(ch, x, ascent, FONT_SIZE).toPathData(2);
+              var color = i === 0 ? ACCENT : INK;
+              var delay = (i * LETTER_STAGGER_S).toFixed(2);
+              paths +=
+                '<path pathLength="1" d="' + d + '" fill="' + color + '" stroke="' + color + '" ' +
+                'stroke-width="' + STROKE_WIDTH + '" stroke-linecap="round" stroke-linejoin="round" ' +
+                'style="fill-opacity:0;stroke-dasharray:1 1;stroke-dashoffset:1;' +
+                "animation:preloader-letter-stroke 4.25s ease-in-out infinite,preloader-letter-fill-in 4.25s ease-in-out infinite;" +
+                'animation-delay:' + delay + 's;"></path>';
+            }
+            x += advance;
+          }
+          var w = Math.ceil(x);
+          var h = Math.ceil(height);
+          return (
+            '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '" ' +
+            'style="display:block;overflow:visible;" role="img" aria-label="' + escapeHtml(name) + '">' + paths + "</svg>"
+          );
+        }
+
+        function renderPreloaderName(name) {
+          var el = document.getElementById("app-preloader-name");
+          if (!el) return;
+          if (loadedFont) {
+            try {
+              el.innerHTML = buildNameSVG(loadedFont, name);
+              return;
+            } catch (e) {
+              // Si algo sale mal armando el SVG (nombre con un carácter que
+              // la fuente no tiene, etc.), cae al texto plano de abajo —
+              // un preloader nunca debe romperse por esto.
+            }
+          }
+          el.textContent = name;
+        }
+
+        // Recién pinta algo cuando las DOS cosas ya se resolvieron: el
+        // nombre real (fetch de abajo) Y si la fuente cargó o no (arriba).
+        // Así se pinta UNA sola vez, directo con el nombre correcto — nunca
+        // "ZeuDin" primero como placeholder.
+        function renderIfReady() {
+          if (resolvedName === null || !fontSettled) return;
+          renderPreloaderName(resolvedName);
+        }
+
+        // Bloque 125: opentype.js parsea la fuente real UNA sola vez. Si
+        // opentype.min.js no cargó (script bloqueado/red lenta), `opentype`
+        // no existe (fontSettled ya arrancó en true) — se queda con el
+        // texto plano sin animar.
+        if (window.opentype) {
+          opentype.load("/fonts/Fredoka.ttf", function (err, font) {
+            if (!err && font) loadedFont = font;
+            fontSettled = true;
+            renderIfReady();
+          });
+        }
+
+        // Bloque 182 (bug real reportado en vivo — "no me carga el backend
+        // cuando cambio de red o no tengo internet"): antes usaba el
+        // reemplazo de variables de entorno de Vite en el HTML, apuntando a
+        // una IP de LAN fija — rota en cualquier otra red. Este es un
+        // <script> plano
+        // (no un módulo, no puede usar import.meta.env), pero SÍ tiene
+        // `window.location` como cualquier script de página — mismo
+        // criterio dinámico que ahora usa lib/api.js para todo el resto del
+        // sitio, sin depender de ninguna variable de entorno.
+        // Bloque 212 (pedido explícito, bug real reportado en vivo con
+        // captura — "cuando el backend falla sale el nombre ZeuDin... eso
+        // no debe ser así, ZeuDin es la marca de mi empresa de desarrollo de
+        // software, no el nombre de esta plataforma"): si el backend no
+        // responde (o tarda), el fallback YA NO es un nombre de marca
+        // ajeno — es string vacío, que renderPreloaderName()/buildNameSVG()
+        // ya interpretan como "no hay nada que dibujar" (0 letras, el <svg>
+        // queda con ancho 0), así que solo se ve el logo solo, animando,
+        // sin ningún nombre debajo. Sin caché ni reintento: nunca bloquea el
+        // apagado del preloader (las 2 condiciones de arriba no dependen de
+        // esto).
+        fetch("http://" + window.location.hostname + ":4000/settings")
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (data) {
+            var name = data && data.settings && data.settings.siteName;
+            resolvedName = name || "";
+            renderIfReady();
+          })
+          .catch(function () {
+            resolvedName = "";
+            renderIfReady();
+          });
+
+        function hidePreloader() {
+          var el = document.getElementById("app-preloader");
+          if (!el) return;
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
+          setTimeout(function () {
+            el.remove();
+          }, 400);
+        }
+
+        function maybeHide() {
+          if (!pageLoaded) return;
+          var elapsed = Date.now() - startedAt;
+          var remaining = Math.max(0, ANIM_MS - elapsed);
+          setTimeout(hidePreloader, remaining);
+        }
+
+        if (pageLoaded) {
+          maybeHide();
+        } else {
+          window.addEventListener("load", function () {
+            pageLoaded = true;
+            maybeHide();
+          });
+        }
+      })();
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -19,6 +19,19 @@ import { withComputedVendorFields } from "../services/vendorVerification.service
 
 const statusFilterSchema = z.enum(["ACTIVE", "EXPIRED", "REMOVED", "SUSPENDED"]).optional();
 
+// Bloque 192 (pedido explícito — "al crear una oferta desde admin, el admin
+// puede agregar un botón a la oferta y un enlace también"): interno
+// ("/tienda/mi-tienda", "/producto/x/y") o externo absoluto
+// ("https://...") — OffersSlider.jsx decide con cuál de los 2 armar el
+// click (Link interno vs. <a> externo con target _blank).
+const buttonUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v.startsWith("/") || /^https?:\/\//.test(v), {
+    message: "El enlace debe empezar con / (interno) o con http(s):// (externo).",
+  });
+
 export async function listAllOffers(req, res) {
   const status = statusFilterSchema.parse(req.query.status);
   const offers = await prisma.offer.findMany({
@@ -32,20 +45,29 @@ export async function listAllOffers(req, res) {
   res.json({ offers: offers.map((o) => ({ ...o, vendor: withComputedVendorFields(o.vendor) })) });
 }
 
-const createAdminOfferSchema = z.object({
-  contentType: z.enum(["PRODUCT", "CUSTOM", "HTML"]),
-  orientation: z.enum(["VERTICAL", "HORIZONTAL"]).default("HORIZONTAL"),
-  title: z.string().trim().min(2, "El título es obligatorio."),
-  description: z.string().trim().max(300).optional().nullable(),
-  tagline: z.string().trim().max(120).optional().nullable(),
-  discountLabel: z.string().trim().max(30).optional().nullable(),
-  productId: z.string().optional(),
-  imageUrl: z.string().optional(),
-  htmlContent: z.string().optional(),
-  // Sin duración = no vence (default de las ofertas de admin). Si el admin
-  // sí quiere que venza sola, manda esto.
-  durationDays: z.coerce.number().int().min(1).max(365).optional(),
-});
+const createAdminOfferSchema = z
+  .object({
+    contentType: z.enum(["PRODUCT", "CUSTOM", "HTML"]),
+    orientation: z.enum(["VERTICAL", "HORIZONTAL"]).default("HORIZONTAL"),
+    title: z.string().trim().min(2, "El título es obligatorio."),
+    description: z.string().trim().max(300).optional().nullable(),
+    tagline: z.string().trim().max(120).optional().nullable(),
+    discountLabel: z.string().trim().max(30).optional().nullable(),
+    productId: z.string().optional(),
+    imageUrl: z.string().optional(),
+    htmlContent: z.string().optional(),
+    buttonLabel: z.string().trim().max(30).optional().nullable(),
+    buttonUrl: buttonUrlSchema.optional().nullable(),
+    // Sin duración = no vence (default de las ofertas de admin). Si el admin
+    // sí quiere que venza sola, manda esto.
+    durationDays: z.coerce.number().int().min(1).max(365).optional(),
+  })
+  // Bloque 192: botón sin destino (o viceversa) no tiene sentido — los dos
+  // juntos o ninguno.
+  .refine((d) => !!d.buttonLabel === !!d.buttonUrl, {
+    message: "Si agregas un botón, también necesita un enlace (y viceversa).",
+    path: ["buttonUrl"],
+  });
 
 export async function createAdminOffer(req, res) {
   try {
@@ -89,6 +111,8 @@ export async function createAdminOffer(req, res) {
         discountLabel: data.discountLabel || null,
         imageUrl,
         htmlContent,
+        buttonLabel: data.buttonLabel || null,
+        buttonUrl: data.buttonUrl || null,
         createdByAdmin: true,
         startsAt,
         expiresAt,
@@ -110,6 +134,8 @@ const updateAdminOfferSchema = z.object({
   orientation: z.enum(["VERTICAL", "HORIZONTAL"]).optional(),
   imageUrl: z.string().optional(),
   htmlContent: z.string().optional(),
+  buttonLabel: z.string().trim().max(30).optional().nullable(),
+  buttonUrl: z.union([buttonUrlSchema, z.literal("")]).optional().nullable(),
   // El admin puede mover el status de CUALQUIER oferta — así se implementa
   // "modificar, eliminar, suspender y ocultar" tanto propias como de
   // vendedores que no cumplan las políticas (SUSPENDED = oculta, reversible).
@@ -133,6 +159,19 @@ export async function updateAdminOffer(req, res) {
     if (data.discountLabel !== undefined) patch.discountLabel = data.discountLabel || null;
     if (data.orientation !== undefined) patch.orientation = data.orientation;
     if (data.status !== undefined) patch.status = data.status;
+    if (data.buttonLabel !== undefined) patch.buttonLabel = data.buttonLabel || null;
+    if (data.buttonUrl !== undefined) patch.buttonUrl = data.buttonUrl || null;
+
+    // Bloque 192: botón sin destino (o viceversa) no tiene sentido — se
+    // valida contra el estado FINAL (lo que trae este patch + lo que ya
+    // tenía la fila), no contra los 2 campos sueltos del body — un PATCH
+    // parcial que solo toca uno de los dos también tiene que quedar
+    // consistente.
+    const finalButtonLabel = "buttonLabel" in patch ? patch.buttonLabel : existing.buttonLabel;
+    const finalButtonUrl = "buttonUrl" in patch ? patch.buttonUrl : existing.buttonUrl;
+    if (!!finalButtonLabel !== !!finalButtonUrl) {
+      throw new AppError("Si agregas un botón, también necesita un enlace (y viceversa).", 400);
+    }
 
     if (existing.contentType === "HTML" && data.htmlContent !== undefined) {
       patch.htmlContent = data.htmlContent.trim() ? DOMPurify.sanitize(data.htmlContent) : null;

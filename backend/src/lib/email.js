@@ -22,6 +22,10 @@ import { vendorWinbackEmail } from "../templates/vendorWinback.js";
 import { fraudReportEvidenceRequestedEmail } from "../templates/fraudReportEvidenceRequested.js";
 import { fraudReportDismissedEmail } from "../templates/fraudReportDismissed.js";
 import { fraudReportSuspendedEmail } from "../templates/fraudReportSuspended.js";
+import { vendorStaffInviteEmail } from "../templates/vendorStaffInvite.js";
+import { lowStockAlertEmail } from "../templates/lowStockAlert.js";
+import { cashCloseReminderEmail } from "../templates/cashCloseReminder.js";
+import { accountDeletionEmail } from "../templates/accountDeletion.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -111,6 +115,17 @@ export async function sendManualOrderEmail({ order, vendorName, subject, message
   return result;
 }
 
+// Best-effort (Bloque 183) — el usuario de sistema igual puede entrar sin
+// haber leído este correo (la propia pantalla de login lo guía si hace
+// falta crear la contraseña), así que un fallo acá nunca debe bloquear la
+// creación del usuario en createMyStaff.
+export async function sendVendorStaffInviteEmail(user, vendorName) {
+  const { subject, html } = await vendorStaffInviteEmail(user, vendorName);
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "VENDOR_STAFF_INVITE", to: user.email, subject, result });
+  return result;
+}
+
 // El resultado SÍ importa acá: forgot-password no debe fingir éxito si el
 // código nunca pudo salir (el usuario quedaría trabado sin poder resetear).
 export async function sendPasswordResetEmail(user, code) {
@@ -144,12 +159,17 @@ export async function sendVerificationUpdateEmail({ vendor, type, title, message
 // se re-envía siempre desde verificationPayment.job.js cuando corresponda.
 export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue) {
   if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  // Bloque 150: el CTA ya no apunta directo a /vendedor/pago-manual (esa
+  // página es solo para CUP) — ahora el recordatorio también cubre CARD
+  // (pago único de N meses, sin renovación automática) — "Verificación y
+  // plan" (VendorVerification.jsx) es la pantalla correcta para los 2, ya
+  // muestra lo que corresponda según el método que la tienda tenga elegido.
   const { subject, html } = await verificationUpdateEmail({
     type: "VERIFICATION_PAYMENT_REMINDER",
     vendorName: vendor.companyName,
     title: "Tu pago de suscripción vence pronto",
-    message: `Tu transferencia CUP del Plan Business vence en ${daysUntilDue} días. Súbela desde tu panel para no perder el badge de verificación.`,
-    ctaHref: `${env.frontendUrl}/vendedor/pago-manual`,
+    message: `Tu suscripción del Plan Business vence en ${daysUntilDue} días. Renueva desde tu panel para no perder el badge de verificación.`,
+    ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VERIFICATION_PAYMENT_REMINDER", to: vendor.user.email, subject, result });
@@ -248,6 +268,31 @@ export async function sendVendorInactivityReminderEmail(vendor, daysInactive) {
   return result;
 }
 
+// Bloque 194 (pedido explícito — "notificación por correo... sobre bajo
+// stock en productos antes que se agoten"): best-effort, disparado por
+// lowStock.job.js — mismo criterio que el resto de este archivo, nunca
+// bloquea ni revierte nada si el envío falla.
+export async function sendLowStockAlertEmail(vendor, products) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await lowStockAlertEmail({ vendor, products });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "LOW_STOCK_ALERT", to: vendor.user.email, subject, result });
+  return result;
+}
+
+// Bloque 198 (pedido explícito — "se enviará un correo a los usuarios que
+// ese día tienen que ir y reportar todas las ventas"): un correo por
+// usuario de sistema (no por vendedor, a diferencia de sendLowStockAlertEmail)
+// — cada quien recibe SU propio total, disparado por
+// cashCloseReminder.job.js.
+export async function sendCashCloseReminderEmail({ vendor, staffUser, totalSales, currency, frequencyLabel }) {
+  if (!staffUser?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await cashCloseReminderEmail({ vendor, staffFullName: staffUser.fullName, totalSales, currency, frequencyLabel });
+  const result = await sendViaResend({ to: staffUser.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "CASH_CLOSE_REMINDER", to: staffUser.email, subject, result });
+  return result;
+}
+
 export async function sendVendorSuspendedEmail(vendor, reason) {
   if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
   const { subject, html } = await vendorSuspendedEmail({ vendor, reason });
@@ -298,5 +343,62 @@ export async function sendVendorWinbackEmail({ customer, vendor, offers }) {
   const { subject, html } = await vendorWinbackEmail({ customer, vendor, offers });
   const result = await sendViaResend({ to: customer.email, subject, html, fromName: vendor.companyName });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_WINBACK", to: customer.email, subject, result });
+  return result;
+}
+
+// Bloque 211 (auto-eliminación de cuenta, 30 días de gracia) — los 4
+// destinos de "a dónde volver a entrar" según el rol de la cuenta, mismo
+// criterio que loginPathFor en el frontend (Header.jsx/Account.jsx).
+function accountUrlFor(role) {
+  if (role === "VENDOR" || role === "VENDOR_STAFF") return `${env.frontendUrl}/vendedor`;
+  return `${env.frontendUrl}/cuenta`;
+}
+
+export async function sendAccountDeletionRequestedEmail(user, scheduledFor) {
+  if (!user.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await accountDeletionEmail({
+    type: "REQUESTED",
+    fullName: user.fullName,
+    scheduledFor,
+    accountUrl: accountUrlFor(user.role),
+  });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "ACCOUNT_DELETION_REQUESTED", to: user.email, subject, result });
+  return result;
+}
+
+export async function sendAccountDeletionReminderEmail(user, scheduledFor) {
+  if (!user.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await accountDeletionEmail({
+    type: "REMINDER_7_DAYS",
+    fullName: user.fullName,
+    scheduledFor,
+    accountUrl: accountUrlFor(user.role),
+  });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "ACCOUNT_DELETION_REMINDER", to: user.email, subject, result });
+  return result;
+}
+
+export async function sendAccountDeletionReactivatedEmail(user) {
+  if (!user.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await accountDeletionEmail({
+    type: "REACTIVATED",
+    fullName: user.fullName,
+    accountUrl: accountUrlFor(user.role),
+  });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "ACCOUNT_DELETION_REACTIVATED", to: user.email, subject, result });
+  return result;
+}
+
+// Se manda a la dirección REAL antes de que finalizeUserDeletion() la
+// reescriba por la anonimizada — el llamador (accountDeletion.job.js) tiene
+// que invocar esto ANTES, nunca después.
+export async function sendAccountDeletionCompletedEmail(user) {
+  if (!user.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await accountDeletionEmail({ type: "COMPLETED", fullName: user.fullName });
+  const result = await sendViaResend({ to: user.email, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "ACCOUNT_DELETION_COMPLETED", to: user.email, subject, result });
   return result;
 }

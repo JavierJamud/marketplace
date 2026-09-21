@@ -4,15 +4,23 @@ import clsx from "clsx";
 
 // Input de contraseña con ojito de mostrar/ocultar — mismo look que Input.jsx,
 // se usa en todos los campos de contraseña del sitio (login, registro, reset).
-export const PasswordInput = forwardRef(function PasswordInput({ label, error, className, ...props }, ref) {
+// Bloque 115 (pedido explícito): ver Input.jsx — mismo asterisco de
+// obligatorio, mismo criterio.
+export const PasswordInput = forwardRef(function PasswordInput({ label, error, required, className, ...props }, ref) {
   const [visible, setVisible] = useState(false);
 
   return (
     <label className="block">
-      {label && <span className="mb-1 block text-label-md text-on-surface-variant">{label}</span>}
+      {label && (
+        <span className="mb-1 block text-label-md text-on-surface-variant">
+          {label}
+          {required && <span className="text-error"> *</span>}
+        </span>
+      )}
       <div className="relative">
         <input
           ref={ref}
+          required={required}
           type={visible ? "text" : "password"}
           className={clsx(
             "w-full rounded border border-outline-variant bg-surface-container-lowest px-4 py-2.5 pr-11 text-body-md text-on-surface outline-none transition-colors",

@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AnimatePresence, motion } from "motion/react";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";
@@ -35,19 +34,6 @@ function useCountdownLabel(expiresAt) {
   return label;
 }
 
-// Bloque 52 (follow-up, pedido explícito): contenedores más chicos que antes
-// (auto-rows bajó de 110px a 84px, se sacó el row-span-4) — sigue variando
-// tamaño/forma según orientación y posición, pero de forma más comedida, "no
-// tan grandes". Los spans se quedan dentro de col-span-2 a propósito (nunca
-// 3/4) para no desbordar la grilla de 2 columnas en mobile.
-const VERTICAL_SPANS = ["col-span-1 row-span-2", "col-span-1 row-span-3", "col-span-2 row-span-3"];
-const HORIZONTAL_SPANS = ["col-span-2 row-span-2", "col-span-1 row-span-2", "col-span-2 row-span-2"];
-
-function spanFor(offer, index) {
-  const spans = offer.orientation === "VERTICAL" ? VERTICAL_SPANS : HORIZONTAL_SPANS;
-  return spans[index % spans.length];
-}
-
 // PRODUCT: el link tiene que armarse con el slug del vendedor DUEÑO DEL
 // PRODUCTO, no el de la oferta — en una oferta PRODUCT creada por el admin,
 // offer.vendor es null (no la creó ningún vendedor) pero el producto sigue
@@ -55,7 +41,14 @@ function spanFor(offer, index) {
 // justo para esto). CUSTOM: lleva a la tienda si la creó un vendedor: una
 // CUSTOM del admin (sin producto ni tienda propia) no es clickeable. HTML:
 // nunca es un <Link> — el propio HTML del admin trae sus links/CTA.
+//
+// Bloque 192 (pedido explícito — "al crear una oferta desde admin, el
+// admin puede agregar un botón a la oferta y un enlace también"):
+// `offer.buttonUrl` (exclusivo de ofertas de admin) tiene PRIORIDAD sobre
+// este auto-detectado — es justo lo que le da destino real a una CUSTOM del
+// admin (que si no, no era clickeable, como dice el comentario de arriba).
 function offerLinkTo(offer) {
+  if (offer.buttonUrl) return offer.buttonUrl;
   if (offer.contentType === "PRODUCT" && offer.product) {
     const vendorSlug = offer.vendor?.slug ?? offer.product.vendor?.slug;
     if (vendorSlug) return `/producto/${vendorSlug}/${offer.product.slug}`;
@@ -66,12 +59,14 @@ function offerLinkTo(offer) {
   return null;
 }
 
-// Ya no recibe `className` con el span — eso ahora vive en el motion.div
-// contenedor (OffersSlider de abajo), así el layout de framer-motion anima
-// el tamaño/posición del contenedor mientras esta tarjeta solo llena 100%.
+function isExternalUrl(url) {
+  return /^https?:\/\//.test(url);
+}
+
 function OfferCard({ offer }) {
   const countdown = useCountdownLabel(offer.expiresAt);
   const to = offerLinkTo(offer);
+  const external = to && isExternalUrl(to);
 
   if (offer.contentType === "HTML") {
     return <div className="relative h-full w-full overflow-hidden rounded-3xl shadow-lg" dangerouslySetInnerHTML={{ __html: offer.htmlContent }} />;
@@ -83,6 +78,7 @@ function OfferCard({ offer }) {
         src={imgUrl(offer.imageUrl)}
         alt={offer.title}
         className="h-full w-full object-cover"
+        draggable={false}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
       {offer.discountLabel && (
@@ -102,70 +98,134 @@ function OfferCard({ offer }) {
         </div>
         <div className="font-display text-lg font-extrabold leading-tight text-white sm:text-xl">{offer.title}</div>
         {offer.tagline && <p className="line-clamp-1 text-[12px] text-white/85">{offer.tagline}</p>}
+        {/* Bloque 192 (bug real reportado en vivo — "la descripción de las
+            ofertas que se crean en el panel de admin no se muestran en las
+            ofertas ya publicadas"): antes NUNCA se renderizaba en ningún
+            lado, ni para ofertas de admin ni de vendedor — la tarjeta solo
+            mostraba tagline. line-clamp-2 porque la tarjeta es chica (12:5),
+            un texto largo la desbordaría. */}
+        {offer.description && <p className="mt-0.5 line-clamp-2 text-[11.5px] text-white/75">{offer.description}</p>}
+        {offer.buttonLabel && offer.buttonUrl && (
+          <span className="mt-2 inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11.5px] font-bold text-on-surface shadow">
+            {offer.buttonLabel}
+          </span>
+        )}
       </div>
     </>
   );
 
   const cardClass = "group relative block h-full w-full overflow-hidden rounded-3xl shadow-lg";
 
-  return to ? (
+  if (!to) return <div className={cardClass}>{content}</div>;
+  // Bloque 192: un enlace externo (http/https) nunca es un <Link> de
+  // react-router — sería tratarlo como una ruta interna inexistente. `<a>`
+  // normal, con target _blank + rel de seguridad de siempre.
+  return external ? (
+    <a href={to} target="_blank" rel="noopener noreferrer" className={cardClass}>
+      {content}
+    </a>
+  ) : (
     <Link to={to} className={cardClass}>
       {content}
     </Link>
-  ) : (
-    <div className={cardClass}>{content}</div>
   );
 }
 
-const MAX_VISIBLE = 6;
-const ROTATE_INTERVAL_MS = 6000;
+// Bloque 154 (pedido explícito): "Ofertas de la semana" deja de ser una
+// grilla tipo ladrillos con rotación por ventana y pasa a ser un carrusel
+// que se desliza solo, infinito — 1 tarjeta a la vez en mobile, 2 o 3 en
+// pantallas más grandes según el ancho (puramente por CSS con anchos
+// responsivos, sin JS escuchando resize). AUTOPLAY_MS de cada sentido es
+// distinto a propósito (ver más abajo, componente reverse=true) para que
+// las dos secciones del Home no queden nunca sincronizadas mostrando lo
+// mismo en el mismo instante.
+const AUTOPLAY_MS = 4200;
+const AUTOPLAY_MS_REVERSE = 4900;
+const SLIDE_TRANSITION_MS = 600;
+// Cuántas copias de la lista de ofertas arma el "riel" del carrusel — da
+// colchón de sobra para el máximo de 3 tarjetas visibles a la vez en
+// cualquiera de los 2 sentidos, incluso con muy pocas ofertas activas
+// (probado con 1, 2 y 5). No depende del breakpoint actual: es fijo y de
+// sobra para cualquier ancho de pantalla soportado.
+const RAIL_COPIES = 4;
 
-// Bloque 52 (pedido explícito): "si hay más [ofertas] y no caben se irán
-// intercambiando" — con más de MAX_VISIBLE activas, en vez de amontonarlas
-// todas se muestra una ventana rotativa de MAX_VISIBLE que avanza sola cada
-// pocos segundos. AnimatePresence+layout anima tanto la entrada/salida de la
-// tarjeta que cambia como el reacomodo (tamaño/posición) de las que se
-// quedan, porque spanFor() depende del índice DENTRO de la ventana visible,
-// no de un id fijo — así cada rotación también les puede tocar otra forma.
-export function OffersSlider({ offers }) {
-  const [offset, setOffset] = useState(0);
-  const needsRotation = offers.length > MAX_VISIBLE;
+// Avanza/retrocede un índice sobre un riel de `RAIL_COPIES` copias idénticas
+// de la lista y, al llegar al borde de una copia, "teletransporta" el índice
+// a la posición equivalente de la copia anterior/siguiente SIN transición —
+// como el contenido en esa posición es idéntico (es la misma lista
+// repetida), el salto es invisible y el loop se siente infinito de verdad.
+function useRailIndex(length, reverse, intervalMs) {
+  const [index, setIndex] = useState(() => (reverse ? length : 0));
+  const [smooth, setSmooth] = useState(true);
 
   useEffect(() => {
-    if (!needsRotation) return;
-    const id = setInterval(() => setOffset((o) => (o + 1) % offers.length), ROTATE_INTERVAL_MS);
+    if (length <= 1) return undefined;
+    const id = setInterval(() => setIndex((i) => (reverse ? i - 1 : i + 1)), intervalMs);
     return () => clearInterval(id);
-  }, [needsRotation, offers.length]);
+  }, [length, reverse, intervalMs]);
 
-  if (!offers.length) return null;
+  useEffect(() => {
+    if (smooth) return undefined;
+    const raf = requestAnimationFrame(() => setSmooth(true));
+    return () => cancelAnimationFrame(raf);
+  }, [smooth]);
 
-  if (offers.length === 1) {
+  function handleTransitionEnd(e) {
+    // Ignora transitionend que burbujea desde algo adentro de una tarjeta —
+    // solo interesa la transición del propio riel (transform).
+    if (e.target !== e.currentTarget) return;
+    if (!reverse && index === length) {
+      setSmooth(false);
+      setIndex(0);
+    } else if (reverse && index === 0) {
+      setSmooth(false);
+      setIndex(length);
+    }
+  }
+
+  return { index, smooth, handleTransitionEnd };
+}
+
+// reverse=true: misma lista de ofertas pero en orden invertido Y
+// deslizándose hacia el sentido contrario (pedido explícito, para la
+// sección duplicada debajo de "Abre tu tienda online gratis") — así ninguna
+// de las 2 secciones del Home muestra la misma oferta en la misma posición
+// en el mismo momento.
+export function OffersSlider({ offers, reverse = false }) {
+  const length = offers?.length ?? 0;
+  const base = useMemo(() => (reverse ? [...offers].reverse() : offers), [offers, reverse]);
+  const rail = useMemo(() => Array.from({ length: RAIL_COPIES }, () => base).flat(), [base]);
+  const intervalMs = reverse ? AUTOPLAY_MS_REVERSE : AUTOPLAY_MS;
+  const { index, smooth, handleTransitionEnd } = useRailIndex(length, reverse, intervalMs);
+
+  if (!length) return null;
+
+  if (length === 1) {
     return (
-      <div className="h-[280px] w-full">
+      <div className="aspect-[12/5] w-full">
         <OfferCard offer={offers[0]} />
       </div>
     );
   }
 
-  const visible = needsRotation ? Array.from({ length: MAX_VISIBLE }, (_, i) => offers[(offset + i) % offers.length]) : offers;
-
   return (
-    <div className="grid auto-rows-[84px] grid-cols-2 gap-3.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
-      <AnimatePresence mode="popLayout">
-        {visible.map((o, i) => (
-          <motion.div
-            key={o.id}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.45, ease: "easeOut" }}
-            className={spanFor(o, i)}
-          >
-            <OfferCard offer={o} />
-          </motion.div>
+    <div className="overflow-hidden [--slide-step:100%] sm:[--slide-step:50%] lg:[--slide-step:33.3333%]">
+      <div
+        className="flex"
+        onTransitionEnd={handleTransitionEnd}
+        style={{
+          transform: `translateX(calc(var(--slide-step) * ${-index}))`,
+          transition: smooth ? `transform ${SLIDE_TRANSITION_MS}ms ease` : "none",
+        }}
+      >
+        {rail.map((o, i) => (
+          <div key={`${o.id}-${i}`} className="w-full flex-none px-1.5 sm:w-1/2 sm:px-2 lg:w-1/3">
+            <div className="aspect-[12/5]">
+              <OfferCard offer={o} />
+            </div>
+          </div>
         ))}
-      </AnimatePresence>
+      </div>
     </div>
   );
 }

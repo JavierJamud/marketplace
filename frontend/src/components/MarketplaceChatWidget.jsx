@@ -26,15 +26,33 @@ function imgUrl(path) {
 
 // Bloque 30: bot GENERAL del marketplace — distinto del bot por tienda
 // (StoreChatWidget.jsx). No representa a ninguna tienda puntual, así que
-// usa la marca de la plataforma (mismo círculo/letra que Logo() en
+// usa la marca de la plataforma (mismo círculo/logo que Logo() en
 // Header.jsx) en vez de un color de vendedor. Bloque 38: ya NO se usa junto
 // a los mensajes del chat (pedido explícito de sacar el avatar de ahí) —
 // queda solo como branding del header del panel y de la burbuja proactiva.
+// Bloque 126 (pedido explícito — "debería mostrar el ícono del sitio web,
+// y por detrás el círculo en color naranja tal como está"): mismo patrón
+// exacto que Logo() en Header.jsx — si el admin subió un logo
+// (`logoUrl`, panel Marca), se muestra esa imagen adentro del círculo;
+// si no, se mantiene la letra inicial de siempre como fallback (nunca un
+// círculo vacío). El círculo (`bg-secondary-container` = naranja ZeuDin,
+// ver tailwind.config.js) no cambia.
+// Bloque 129 (pedido explícito, con captura — "el ícono se ve muy pegado a
+// los bordes del círculo, debería estar separado y un poco más chico"):
+// el Bloque 126 dejaba el logo en `h-full w-full`, pintando borde a borde
+// contra el círculo — se le suma `p-1` (padding en el propio <img>, que
+// con `object-cover` sí deja ver el naranja de fondo como margen, en vez
+// de recortarse) para separarlo de los bordes; la letra de fallback no
+// cambia, ya tenía su propio aire natural por el tamaño de fuente.
 function PlatformAvatar({ className }) {
-  const { siteName } = usePlatformSettings();
+  const { siteName, logoUrl } = usePlatformSettings();
   return (
-    <div className={`flex flex-shrink-0 items-center justify-center rounded-full bg-secondary-container font-display font-extrabold text-primary ${className}`}>
-      {siteName.charAt(0).toUpperCase()}
+    <div className={`flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary-container font-display font-extrabold text-primary ${className}`}>
+      {logoUrl ? (
+        <img src={logoUrl} alt={siteName} className="h-full w-full object-cover p-1" />
+      ) : (
+        siteName.charAt(0).toUpperCase()
+      )}
     </div>
   );
 }
@@ -526,8 +544,20 @@ export function MarketplaceChatWidget() {
             // arriba) — con el panel ya despegado del borde inferior de la
             // pantalla, una esquina inferior recta se vería como un corte,
             // no como una tarjeta flotante a propósito.
+            // Bloque 155 (bug real reportado en vivo, con captura de un
+            // iPad): antes sm:top-6 + sm:bottom-24 con sm:h-auto — un
+            // elemento fixed con TOP y BOTTOM fijados y altura automática se
+            // estira para llenar ese espacio entero (comportamiento
+            // estándar de CSS), así que en cualquier pantalla ≥640px
+            // (tablets incluidas, no solo desktops anchos) el panel subía
+            // hasta pegarse contra el borde superior en vez de quedarse
+            // compacto arriba del botón. Se saca sm:top-6 y se le da una
+            // altura acotada (mismo criterio que mobile: hasta 70dvh, tope
+            // 560px) — así en TODAS las pantallas ≥640px queda pegado justo
+            // encima del botón (sm:bottom-24, el mismo hueco de siempre)
+            // con una separación chica, nunca estirado hacia arriba.
             "fixed inset-x-0 bottom-[86px] z-[60] mx-2.5 flex h-[75dvh] max-h-[560px] flex-col rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up " +
-            "sm:inset-x-auto sm:inset-y-auto sm:mx-0 sm:top-6 sm:bottom-24 sm:right-6 sm:h-auto sm:w-[368px] sm:border sm:border-surface-container-high"
+            "sm:inset-x-auto sm:mx-0 sm:bottom-24 sm:right-6 sm:h-[70dvh] sm:max-h-[560px] sm:w-[368px] sm:border sm:border-surface-container-high"
           }
         >
           <div className="flex items-center gap-2.5 rounded-t-2xl bg-primary px-4 py-3.5 text-white">

@@ -6,7 +6,15 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { hashToken } from "../utils/hashToken.js";
-import { sendPasswordResetEmail, sendTwoFactorCodeEmail, sendRegistrationCodeEmail, sendEmailChangeCodeEmail } from "../lib/email.js";
+import {
+  sendPasswordResetEmail,
+  sendTwoFactorCodeEmail,
+  sendRegistrationCodeEmail,
+  sendEmailChangeCodeEmail,
+  sendAccountDeletionRequestedEmail,
+  sendAccountDeletionReactivatedEmail,
+} from "../lib/email.js";
+import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rodante (se extiende en cada refresh)
 const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rodante (se extiende en cada login saltado)
@@ -82,12 +90,26 @@ const E164_REGEX = /^\+\d{7,15}$/;
 
 // Bloque 11: todos los campos de creación de cuenta son obligatorios (antes
 // phone/country quedaban opcionales) — validado acá y en el frontend.
+// Bloque 113 (pedido explícito): registro reforzado — además del código ISO
+// del teléfono (`country`, sin tocar, sigue siendo solo para el marcado),
+// ahora se pide el país REAL del catálogo del admin (o "otro país" como
+// texto libre) y, si es Cuba, provincia+municipio reales donde vive/va a
+// operar; si es otro país ya cargado, provincia/estado. Vale tanto para
+// cliente como para vendedor — el registro de vendedor es este mismo
+// endpoint + un POST /vendors después (ver el comentario más abajo).
 const registerSchema = z.object({
-  email: z.string().email("Ingresá un correo electrónico válido."),
+  email: z.string().email("Ingresa un correo electrónico válido."),
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres."),
-  fullName: z.string().min(2, "Ingresá tu nombre completo."),
+  fullName: z.string().min(2, "Ingresa tu nombre completo."),
   phone: z.string().regex(E164_REGEX, "El teléfono debe incluir código de país (ej. +5355512345)."),
-  country: z.string().length(2, "Seleccioná tu país."),
+  country: z.string().length(2, "Selecciona tu país."),
+  registrationCountryId: z.string().min(1).optional(),
+  registrationCountryOther: z.string().trim().min(2).max(80).optional(),
+  provinceId: z.string().min(1).optional(),
+  municipalityId: z.string().min(1).optional(),
+  // Bloque 114: fuera de Cuba, en vez de provinceId/municipalityId reales.
+  stateOther: z.string().trim().min(1).max(80).optional(),
+  address: z.string().trim().min(1).max(300).optional(),
 });
 
 // Bloque 59 (pedido explícito): antes de crear la cuenta de verdad (cliente
@@ -111,6 +133,18 @@ export async function register(req, res) {
     throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
   }
 
+  // Bloque 113: valida el país/provincia/municipio ANTES de mandar ningún
+  // código — un dato mal armado nunca debe llegar a ocupar un envío de
+  // correo real.
+  const location = await resolvePersonRegistrationLocation({
+    countryId: data.registrationCountryId,
+    countryOther: data.registrationCountryOther,
+    provinceId: data.provinceId,
+    municipalityId: data.municipalityId,
+    stateOther: data.stateOther,
+    address: data.address,
+  });
+
   const passwordHash = await bcrypt.hash(data.password, 10);
   const code = String(Math.floor(Math.random() * 10 ** REGISTER_CODE_LENGTH)).padStart(REGISTER_CODE_LENGTH, "0");
   const codeHash = await bcrypt.hash(code, 10);
@@ -120,10 +154,18 @@ export async function register(req, res) {
   // algún campo, reenviar el formulario simplemente pisa el intento anterior
   // con datos y código frescos — nunca queda "ya hay un registro pendiente"
   // como error que trabe un segundo intento.
+  const pendingLocation = {
+    registrationCountryId: location.registrationCountryId,
+    registrationCountryOther: location.registrationCountryOther,
+    provinceId: location.provinceId,
+    municipalityId: location.municipalityId,
+    stateOther: location.stateOther,
+    address: location.address,
+  };
   await prisma.pendingRegistration.upsert({
     where: { email: data.email },
-    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, codeHash, codeExpiresAt },
-    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, codeHash, codeExpiresAt },
+    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt },
+    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt },
   });
 
   await sendRegistrationCodeEmail({ fullName: data.fullName, email: data.email }, code);
@@ -131,7 +173,7 @@ export async function register(req, res) {
 }
 
 const verifyRegistrationSchema = z.object({
-  email: z.string().email("Ingresá un correo electrónico válido."),
+  email: z.string().email("Ingresa un correo electrónico válido."),
   code: z.string().length(REGISTER_CODE_LENGTH, `El código debe tener ${REGISTER_CODE_LENGTH} dígitos.`),
   browserId: z.string().nullish(),
 });
@@ -161,6 +203,14 @@ export async function verifyRegistration(req, res) {
         fullName: pending.fullName,
         phone: pending.phone,
         country: pending.country,
+        // Bloque 113: país/provincia/municipio ya validados en register() —
+        // acá solo se copian tal cual quedaron en el staging.
+        registrationCountryId: pending.registrationCountryId,
+        registrationCountryOther: pending.registrationCountryOther,
+        provinceId: pending.provinceId,
+        municipalityId: pending.municipalityId,
+        stateOther: pending.stateOther,
+        address: pending.address,
         lastLoginAt: new Date(),
       },
     });
@@ -186,8 +236,14 @@ export async function verifyRegistration(req, res) {
 }
 
 const loginSchema = z.object({
-  email: z.string().email("Ingresá un correo electrónico válido."),
-  password: z.string().min(1, "Ingresá tu contraseña."),
+  email: z.string().email("Ingresa un correo electrónico válido."),
+  // Bloque 183 (pedido explícito — "el usuario podrá solo ingresar su
+  // correo... el sistema detecta que ese usuario no tiene una contraseña
+  // válida aún"): un usuario de sistema recién creado todavía no tiene
+  // ninguna contraseña que escribir — el formulario manda el campo vacío,
+  // y login() de abajo corta ANTES de pedir una (chequea mustSetPassword
+  // primero) — nunca llega a exigirla acá.
+  password: z.string().nullish(),
   // .nullish() (no solo .optional()) — bug real encontrado en vivo: cuando
   // el navegador nunca guardó nada, localStorage.getItem() devuelve `null`,
   // no `undefined`, y .optional() por sí solo rechaza null ("Expected
@@ -211,12 +267,20 @@ const loginSchema = z.object({
   context: z.enum(["admin", "vendor"]).nullish(),
 });
 
-// Mismo mensaje genérico que una contraseña incorrecta — un admin probando
-// el formulario de vendedor (o viceversa) nunca debe poder distinguir "no
-// existe esta cuenta" de "existe pero no con ese rol".
+// Bloque 88 (pedido explícito, con el trade-off de seguridad ya explicado
+// al usuario: esto habilita enumeración de correos — se probó primero, se
+// entendió el riesgo, y aun así se prefirió el detalle): antes tiraba el
+// mismo "Correo o contraseña incorrectos." que un login mal — ahora cada
+// causa tiene su propio mensaje para que el que se equivoca sepa exactamente
+// qué corregir.
+// Bloque 183: un usuario de sistema (VENDOR_STAFF) entra por la MISMA
+// puerta que el dueño — /vendedor/ingresar, context "vendor" — nunca un
+// login separado. Ambos roles son "de vendedor" a los ojos de este check.
 function assertRoleMatchesContext(user, context) {
-  if (context === "admin" && user.role !== "ADMIN") throw new AppError("Correo o contraseña incorrectos.", 401);
-  if (context === "vendor" && user.role !== "VENDOR") throw new AppError("Correo o contraseña incorrectos.", 401);
+  if (context === "admin" && user.role !== "ADMIN") throw new AppError("Esta cuenta no tiene permisos de administrador.", 401);
+  if (context === "vendor" && user.role !== "VENDOR" && user.role !== "VENDOR_STAFF") {
+    throw new AppError("Esta cuenta no es de vendedor.", 401);
+  }
 }
 
 // Bloque 47/60: mismo largo/TTL que el reset de contraseña, pero en campos
@@ -225,16 +289,46 @@ function assertRoleMatchesContext(user, context) {
 const TWO_FACTOR_CODE_LENGTH = 6;
 const TWO_FACTOR_CODE_TTL_MINUTES = 10;
 
+// Bloque 60/183: mismo código de 6 dígitos que usa el reset de contraseña
+// (forgotPassword más abajo) — login() lo reusa tal cual para el primer
+// ingreso de un usuario de sistema (mustSetPassword), en vez de armar un
+// segundo generador redundante.
+const RESET_CODE_LENGTH = 6;
+const RESET_CODE_TTL_MINUTES = 15;
+
+function generateResetCode() {
+  return String(Math.floor(Math.random() * 10 ** RESET_CODE_LENGTH)).padStart(RESET_CODE_LENGTH, "0");
+}
+
 export async function login(req, res) {
   const data = loginSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { email: data.email } });
-  if (!user) throw new AppError("Correo o contraseña incorrectos.", 401);
-
-  const valid = await bcrypt.compare(data.password, user.passwordHash);
-  if (!valid) throw new AppError("Correo o contraseña incorrectos.", 401);
+  if (!user) throw new AppError("No existe ninguna cuenta con ese correo.", 401);
 
   assertRoleMatchesContext(user, data.context);
+
+  // Bloque 183 (pedido explícito — "el sistema automáticamente detecte que
+  // ese usuario no tiene una contraseña válida aún, y se le enviará un
+  // código... para ingresar su nueva contraseña"): se chequea ANTES que la
+  // contraseña — su passwordHash es un valor aleatorio que nadie conoce
+  // (ver createMyStaff/resetMyStaffPassword, vendorStaff.controller.js), un
+  // bcrypt.compare contra eso siempre falla igual, así que ni tiene sentido
+  // intentarlo. Reusa el flujo YA existente de "olvidé mi contraseña"
+  // (mismo resetCodeHash, mismo email, mismo verify-reset-code/reset-password)
+  // — nunca un sistema de códigos paralelo.
+  if (user.mustSetPassword) {
+    const code = generateResetCode();
+    const resetCodeHash = await bcrypt.hash(code, 10);
+    const resetCodeExpiresAt = new Date(Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000);
+    await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt } });
+    await sendPasswordResetEmail(user, code);
+    return res.json({ requiresPasswordSetup: true, email: user.email });
+  }
+
+  if (!data.password) throw new AppError("Ingresa tu contraseña.", 400);
+  const valid = await bcrypt.compare(data.password, user.passwordHash);
+  if (!valid) throw new AppError("La contraseña es incorrecta.", 401);
 
   // isSuspended ya existía (Bloque 4, "Suspender" en AdminCustomers.jsx) pero
   // nunca se chequeaba acá — el botón no bloqueaba nada de verdad. Bloque 12
@@ -378,15 +472,82 @@ export async function logoutAllDevices(req, res) {
   res.json({ ok: true });
 }
 
+// --- Bloque 211 (pedido explícito — auto-eliminación de cuenta, cliente,
+// vendedor o personal, con 30 días de gracia) -------------------------------
+// A propósito NUNCA toca isSuspended (ese campo sigue siendo 100% del
+// borrado instantáneo que dispara un admin, ver admin.controller.js) — acá
+// solo se guarda deletionRequestedAt, así que el login/refresh de siempre
+// sigue funcionando sin cambios durante todo el período de gracia; lo que
+// cambia es que el panel (VendorLayout.jsx/CustomerPanel.jsx/
+// StaffProfile.jsx) le muestra el aviso de baja en vez del panel real
+// mientras ese campo esté seteado.
+const GRACE_PERIOD_DAYS = 30;
+
+const deleteAccountSchema = z.object({ password: z.string().min(1, "Escribe tu contraseña.") });
+
+export async function requestAccountDeletion(req, res) {
+  const { password } = deleteAccountSchema.parse(req.body);
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { vendor: true } });
+  if (!user) throw new AppError("Usuario no encontrado.", 404);
+  if (user.deletedAt) throw new AppError("Esta cuenta no está disponible.", 403);
+  if (user.deletionRequestedAt) throw new AppError("Ya habías pedido eliminar tu cuenta.", 400);
+
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) throw new AppError("Contraseña incorrecta.", 401);
+
+  const now = new Date();
+  const scheduledFor = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { deletionRequestedAt: now } }),
+    ...(user.vendor
+      ? [
+          prisma.vendor.update({
+            where: { id: user.vendor.id },
+            data: {
+              isBlocked: true,
+              blockReason: user.vendor.blockReason ?? "El vendedor solicitó eliminar su cuenta.",
+              blockedAt: user.vendor.blockedAt ?? now,
+              deletionRequestedAt: now,
+            },
+          }),
+        ]
+      : []),
+  ]);
+
+  await sendAccountDeletionRequestedEmail(user, scheduledFor);
+  res.json({ scheduledFor });
+}
+
+export async function cancelAccountDeletion(req, res) {
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { vendor: true } });
+  if (!user) throw new AppError("Usuario no encontrado.", 404);
+  if (!user.deletionRequestedAt) throw new AppError("Tu cuenta no está en proceso de eliminación.", 400);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { deletionRequestedAt: null, deletionReminderSentAt: null } }),
+    // Solo se desbloquea la tienda si el bloqueo lo causó esta misma baja —
+    // si un admin la había bloqueado por otro motivo real, deletionRequestedAt
+    // de Vendor nunca se llegó a setear y esta rama ni se toca.
+    ...(user.vendor?.deletionRequestedAt
+      ? [
+          prisma.vendor.update({
+            where: { id: user.vendor.id },
+            data: { isBlocked: false, blockReason: null, blockedAt: null, deletionRequestedAt: null },
+          }),
+        ]
+      : []),
+  ]);
+
+  await sendAccountDeletionReactivatedEmail(user);
+  res.json({ ok: true });
+}
+
 // --- Reset de contraseña por código (cliente, vendedor y admin comparten la
 // misma tabla User/flujo — no hay un sistema paralelo por rol) -------------
-
-const RESET_CODE_LENGTH = 6;
-const RESET_CODE_TTL_MINUTES = 15;
-
-function generateResetCode() {
-  return String(Math.floor(Math.random() * 10 ** RESET_CODE_LENGTH)).padStart(RESET_CODE_LENGTH, "0");
-}
+// RESET_CODE_LENGTH/RESET_CODE_TTL_MINUTES/generateResetCode ahora viven
+// arriba, junto a login() (Bloque 183) — la primera vez que este archivo
+// necesitó ese código fue de ahí para abajo, ahora también lo usa login().
 
 async function isResetCodeValid(user, code) {
   if (!user || !user.resetCodeHash || !user.resetCodeExpiresAt) return false;
@@ -443,8 +604,15 @@ export async function resetPassword(req, res) {
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
   const passwordHash = await bcrypt.hash(data.newPassword, 10);
-  // El código se invalida al usarlo — no se puede reutilizar para un segundo reset.
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash, resetCodeHash: null, resetCodeExpiresAt: null } });
+  // El código se invalida al usarlo — no se puede reutilizar para un segundo
+  // reset. Bloque 183: mustSetPassword:false acá es lo que cierra el ciclo
+  // del primer login de un usuario de sistema — a partir de este momento
+  // esa contraseña recién puesta es la real, login() ya no vuelve a mandar
+  // por este mismo camino la próxima vez.
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, resetCodeHash: null, resetCodeExpiresAt: null, mustSetPassword: false },
+  });
 
   res.json({ ok: true });
 }

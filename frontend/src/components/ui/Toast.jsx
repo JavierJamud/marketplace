@@ -12,12 +12,21 @@
 import React from "react";
 
 // ─── Colores por tipo ─────────────────────────────────────────────────────────
+// Bloque 216 (pedido explícito, con captura de referencia — "los claros se
+// ven modernos"): antes la descripción siempre iba en gris plano
+// (#6b7280), sin importar el tipo — se agrega `text`, un tono más oscuro
+// del mismo color que ya usa el ícono (mismo criterio que la tarjeta de
+// referencia: el subtítulo toma el color de su categoría, no un gris
+// genérico). Un poco más oscuro que `main` a propósito — el `main` de cada
+// tipo está pensado para un ícono/acento chico, no para texto de 12.5px
+// (varios, sobre todo warning, no llegan al contraste mínimo de WCAG AA en
+// texto normal si se usan tal cual sobre blanco).
 const TYPE_COLORS = {
-  success: { main: "#10b981", bg: "rgba(16,185,129,0.10)" },
-  error:   { main: "#ef4444", bg: "rgba(239,68,68,0.10)" },
-  warning: { main: "#f59e0b", bg: "rgba(245,158,11,0.10)" },
-  info:    { main: "#3b82f6", bg: "rgba(59,130,246,0.10)" },
-  loading: { main: "#6b7280", bg: "rgba(107,114,128,0.10)" },
+  success: { main: "#10b981", bg: "rgba(16,185,129,0.10)", text: "#047857" },
+  error:   { main: "#ef4444", bg: "rgba(239,68,68,0.10)", text: "#b91c1c" },
+  warning: { main: "#f59e0b", bg: "rgba(245,158,11,0.10)", text: "#92400e" },
+  info:    { main: "#3b82f6", bg: "rgba(59,130,246,0.10)", text: "#1d4ed8" },
+  loading: { main: "#6b7280", bg: "rgba(107,114,128,0.10)", text: "#4b5563" },
 };
 
 // ─── Biblioteca de íconos SVG inline ─────────────────────────────────────────
@@ -92,14 +101,35 @@ function ToastIcon({ name, size = 20, color }) {
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 export function Toast({ type = "success", title, description, visible, duration = 3000, icon: iconProp }) {
-  const colors = TYPE_COLORS[type] ?? TYPE_COLORS.info;
   const iconName = iconProp ?? type;
+  // Bloque 217 (pedido explícito, con captura): "producto eliminado" es un
+  // success técnico (la acción terminó sin error), pero eliminar/quitar es
+  // destructivo — no debe leerse como algo positivo en verde. Cualquier
+  // toast con ícono de papelera pasa a los colores de advertencia (ámbar/
+  // naranja), sin importar el `type` real que lo disparó.
+  const colors =
+    iconName === "delete" || iconName === "trash"
+      ? TYPE_COLORS.warning
+      : TYPE_COLORS[type] ?? TYPE_COLORS.info;
   const hasDesc = Boolean(description);
+  // Bloque 89 (pedido explícito): antes la barra de progreso era una
+  // animación CSS puramente cosmética, ajena al hover — seguía llenándose
+  // (y "terminando") aunque react-hot-toast SÍ pausa el cierre real al
+  // pasar el mouse por encima (pausa nativa de la librería vía
+  // onMouseEnter/onMouseLeave en su wrapper, con startPause/endPause).
+  // Resultado: la barra se veía llena mucho antes de que el toast
+  // realmente desapareciera. Ahora este mismo hover pausa también la
+  // animación CSS de la barra (animationPlayState), en el mismo elemento
+  // — al pausar, CSS conserva el punto exacto donde iba (no la resetea),
+  // y sigue desde ahí al sacar el mouse, en sincronía con la pausa real.
+  const [isHovered, setIsHovered] = React.useState(false);
 
   return (
     <div
       role="alert"
       aria-live="polite"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         /* Layout */
         display: "flex",
@@ -166,7 +196,7 @@ export function Toast({ type = "success", title, description, visible, duration 
               style={{
                 margin: "3px 0 0",
                 fontSize: 12.5,
-                color: "#6b7280",
+                color: colors.text,
                 lineHeight: 1.5,
                 wordBreak: "break-word",
               }}
@@ -193,6 +223,10 @@ export function Toast({ type = "success", title, description, visible, duration 
             transform: "scaleX(0)",
             /* La animación CSS lleva de scaleX(0)→scaleX(1) en `duration` ms */
             animation: `toastProgress ${duration}ms linear forwards`,
+            // Debe ir DESPUÉS de `animation` en el objeto: el shorthand ya
+            // trae implícito "running", y esta declaración explícita es la
+            // que gana al final (mismo orden que en una hoja CSS normal).
+            animationPlayState: isHovered ? "paused" : "running",
           }}
         />
       </div>

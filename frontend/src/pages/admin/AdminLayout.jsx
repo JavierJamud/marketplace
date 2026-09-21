@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 const NAV = [
-  { to: "/admin", label: "Resumen", icon: LayoutDashboard, end: true },
+  // Bloque 194 (pedido explícito — "cambiarla por el nombre Dashboard,
+  // tanto en vendedores como en admin").
+  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/admin/tiendas", label: "Tiendas", icon: Store },
   { to: "/admin/tiendas-suspendidas", label: "Tiendas suspendidas", icon: Ban },
   { to: "/admin/productos", label: "Productos", icon: Package },
@@ -15,8 +17,12 @@ const NAV = [
   // Feature B (pedido explícito): badge propio (fraudReportsCount), mismo
   // criterio que "Errores" (errorCount) más abajo.
   { to: "/admin/reportes-fraude", label: "Reportes de fraude", icon: ShieldAlert, badge: "fraudReportsCount" },
+  // Bloque 229 (Fase 2 del blindaje del ranking): badge propio
+  // (rankingAnomaliesCount), mismo criterio que "Reportes de fraude" arriba.
+  { to: "/admin/anomalias-ranking", label: "Anomalías del ranking", icon: Radar, badge: "rankingAnomaliesCount" },
   { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck },
   { to: "/admin/clientes", label: "Clientes", icon: Users },
+  { to: "/admin/ventas-manuales", label: "Agentes de Ventas", icon: Wallet },
   // Bloque 70 (pedido explícito): récord de todo lo que hacen vendedores y
   // clientes en sus paneles + gráfica de uso por día/semana/mes.
   { to: "/admin/actividad", label: "Actividad", icon: Activity },
@@ -94,7 +100,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
   const notifTotal = notifications?.total ?? 0;
 
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-surface-container-high bg-surface-container-lowest px-4 py-3 lg:px-[38px]">
+    <div className="sticky top-4 z-30 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
       <button
         onClick={onOpenSidebar}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container lg:hidden"
@@ -124,7 +130,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
         </div>
 
         {searchOpen && debouncedQ.length >= 2 && (
-          <div className="absolute z-10 mt-1.5 w-full overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
+          <div className="absolute z-10 mt-1.5 w-full overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
             {!hasResults && <p className="p-3.5 text-[12.5px] text-outline">Sin resultados para "{debouncedQ}".</p>}
             {results?.vendors.length > 0 && (
               <div className="border-b border-surface-container py-1.5">
@@ -178,7 +184,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 z-10 mt-1.5 w-[300px] overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-lg">
+            <div className="absolute right-0 z-10 mt-1.5 w-[300px] overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
               <div className="border-b border-surface-container-high px-3.5 py-2.5 text-[12.5px] font-bold text-on-surface">Notificaciones</div>
               <div className="max-h-[360px] overflow-y-auto">
                 {!notifications?.items?.length && <p className="p-3.5 text-[12.5px] text-outline">No hay nada pendiente.</p>}
@@ -243,6 +249,15 @@ export default function AdminLayout() {
     refetchInterval: 20000,
   });
   const fraudReportsCount = fraudReportsCountData?.count ?? 0;
+
+  // Bloque 229: mismo patrón de polling que fraudReportsCount de arriba.
+  const { data: rankingAnomaliesCountData } = useQuery({
+    queryKey: ["admin-ranking-anomalies-count"],
+    queryFn: async () => (await api.get("/admin/ranking-anomalies/pending-count")).data,
+    enabled: !!user && user.role === "ADMIN",
+    refetchInterval: 20000,
+  });
+  const rankingAnomaliesCount = rankingAnomaliesCountData?.count ?? 0;
   const { siteName, logoUrl } = usePlatformSettings();
 
   // Bloque 20: el drawer mobile se cierra solo al navegar a otra sección —
@@ -260,7 +275,12 @@ export default function AdminLayout() {
   }
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[248px_1fr]">
+    // Bloque 220 (pedido explícito, con imagen de referencia — "rediseña
+    // los paneles... estructura como la de la imagen"): mismo criterio que
+    // VendorLayout.jsx — el sidebar pasa a ser una tarjeta flotante (margen +
+    // esquinas redondeadas + sombra) sobre un fondo gris parejo, sin tocar
+    // ninguna clase de mobile (fixed/inset-y-0/translate-x).
+    <div className="min-h-dvh bg-surface-container lg:grid lg:grid-cols-[248px_1fr] lg:gap-4 lg:p-4">
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 animate-overlay-in bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
@@ -277,7 +297,7 @@ export default function AdminLayout() {
         // (una ventana de prueba dejada en tamaño de celular por error, no
         // un bug real). El scroll vuelve al nav — el logo de arriba queda
         // fijo, solo el nav se desliza internamente cuando hace falta.
-        className={`fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col bg-tertiary px-3.5 py-[22px] transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col bg-tertiary px-3.5 py-[22px] transition-transform duration-300 ease-out lg:sticky lg:top-4 lg:h-[calc(100dvh-32px)] lg:translate-x-0 lg:rounded-3xl lg:shadow-[0_20px_50px_-20px_rgba(0,29,30,0.4)] ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -333,14 +353,25 @@ export default function AdminLayout() {
                   {fraudReportsCount}
                 </span>
               )}
+              {badge === "rankingAnomaliesCount" && rankingAnomaliesCount > 0 && (
+                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
+                  {rankingAnomaliesCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
       </aside>
 
-      <div className="flex min-h-dvh flex-1 flex-col">
+      {/* Bloque 220: header y contenido comparten el MISMO padding horizontal
+          (antes el header iba pegado al borde del todo mientras el contenido
+          de abajo quedaba indentado 38px — dos alineaciones distintas una
+          debajo de la otra, se veía "cortado"). Ahora los dos viven dentro
+          del mismo contenedor con padding, así el borde de la tarjeta del
+          header queda exactamente alineado con las tarjetas del dashboard. */}
+      <div className="flex min-h-dvh flex-1 flex-col px-4 py-6 lg:px-[38px] lg:py-4">
         <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} onLogout={handleLogout} />
-        <main className="flex-1 bg-surface-container px-4 py-6 lg:px-[38px] lg:py-[30px]">
+        <main className="flex-1">
           <Outlet />
         </main>
       </div>

@@ -36,14 +36,19 @@ import cartRoutes from "./routes/cart.routes.js";
 import sharedCartsRoutes from "./routes/sharedCarts.routes.js";
 import customerListingsRoutes from "./routes/customerListings.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
+import vendorStaffRoutes from "./routes/vendorStaff.routes.js";
+import vendorStaffSalesRoutes from "./routes/vendorStaffSales.routes.js";
+import targetedOffersRoutes from "./routes/targetedOffers.routes.js";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
 import { PRODUCT_UPLOAD_DIR } from "./controllers/products.controller.js";
+import { VENDOR_BRANDING_DIR } from "./controllers/vendors.controller.js";
+import { STAFF_PHOTO_UPLOAD_DIR } from "./controllers/vendorStaff.controller.js";
 import { CUSTOMER_LISTING_UPLOAD_DIR } from "./controllers/customerListings.controller.js";
 import { REPORT_UPLOAD_DIR } from "./controllers/reports.controller.js";
 import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
-import { STORE_OFFER_UPLOAD_DIR } from "./controllers/storeOffers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
+import { renderStoreOgPage } from "./controllers/og.controller.js";
 
 export const app = express();
 
@@ -55,13 +60,36 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 // admite una lista separada por comas sin tener que volver a tocar este
 // archivo. Nunca `origin: true`/"*" con `credentials: true` (el navegador lo
 // rechaza igual, pero es un error común a evitar).
-const allowedOrigins = env.frontendUrl.split(",").map((o) => o.trim());
+const allowedOrigins = env.frontendUrls;
+
+// Bloque 182 (bug real reportado en vivo — "no me carga el backend cuando
+// cambio de red"): FRONTEND_URL solía tener que incluir a mano la IP de LAN
+// exacta de la red del momento (ej. http://192.168.1.79:5173) para poder
+// abrir el panel desde un celular en esa red — rota apenas se cambia de
+// WiFi. En desarrollo, cualquier IP privada (RFC1918: 10.x, 172.16-31.x,
+// 192.168.x) en el puerto del frontend (5173/5174, Vite con --host) se
+// acepta sola, sin tocar FRONTEND_URL nunca más. Nunca se activa en
+// producción (nodeEnv !== "development"), donde el allowlist sigue siendo
+// estricto por diseño.
+function isPrivateLanDevOrigin(origin) {
+  const match = origin.match(/^http:\/\/(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}:(5173|5174)$/);
+  if (!match) return false;
+  const [, a, b] = match.map(Number);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
       // Sin header Origin (curl, apps nativas, health checks) — se permite,
       // igual que el comportamiento por default de cors() con un string fijo.
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        (env.nodeEnv === "development" && (origin.includes("loca.lt") || isPrivateLanDevOrigin(origin)))
+      ) {
+        return callback(null, true);
+      }
       // AppError (no un Error genérico): un origen rechazado es un 403
       // esperable del uso normal de la API, no un fallo real — con un Error
       // genérico, errorHandler.js lo trataba como 500 y lo registraba en
@@ -90,10 +118,12 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "zeudin-marketpl
 app.use("/uploads/site", express.static(SITE_UPLOAD_DIR));
 // Fotos de producto — públicas también, son parte del catálogo (Bloque 13).
 app.use("/uploads/products", express.static(PRODUCT_UPLOAD_DIR));
+// Logo/portada de tienda subidos por el vendedor (Bloque 133) — públicas,
+// mismo criterio que /uploads/products de arriba.
+app.use("/uploads/vendor-branding", express.static(VENDOR_BRANDING_DIR));
+app.use("/uploads/vendor-staff", express.static(STAFF_PHOTO_UPLOAD_DIR));
 // Imágenes de ofertas personalizadas (Bloque 51) — públicas, mismo criterio.
 app.use("/uploads/offers", express.static(OFFER_UPLOAD_DIR));
-// Imágenes de ofertas de tienda (Bloque 52) — públicas, mismo criterio.
-app.use("/uploads/store-offers", express.static(STORE_OFFER_UPLOAD_DIR));
 // Fotos de reseñas (Bloque 52) — públicas, son parte del comentario visible.
 app.use("/uploads/reviews", express.static(REVIEW_UPLOAD_DIR));
 // Fotos de anuncios de venta rápida de clientes — públicas, mismo criterio.
@@ -101,6 +131,11 @@ app.use("/uploads/customer-listings", express.static(CUSTOMER_LISTING_UPLOAD_DIR
 // Capturas de reportes de fraude — públicas para que el admin abra el link
 // directo desde AdminFraudReports.jsx, mismo criterio que las de reseña.
 app.use("/uploads/reports", express.static(REPORT_UPLOAD_DIR));
+
+// Bloque 137: HTML con meta tags reales de la tienda, para que un link
+// compartido se previsualice con SUS datos — ver el comentario largo en
+// og.controller.js (incluye la pieza de hosting que falta para producción).
+app.get("/og/tienda/:slug", renderStoreOgPage);
 
 app.use("/auth", authRoutes);
 app.use("/vendors", vendorsRoutes);
@@ -130,6 +165,15 @@ app.use("/cart", cartRoutes);
 app.use("/shared-carts", sharedCartsRoutes);
 app.use("/customer-listings", customerListingsRoutes);
 app.use("/reports", reportsRoutes);
+app.use("/vendor-staff", vendorStaffRoutes);
+// Bloque 198: "Ventas manuales" — router propio, mismo criterio que
+// vendor-staff de arriba (no cuelga de /vendors/me para no mezclar el
+// modelo de permisos por sección con el resto de ese archivo).
+app.use("/vendor-staff-sales", vendorStaffSalesRoutes);
+// Bloque 194: "mis ofertas dirigidas" (popup) + descartar — top-level,
+// mismo criterio que vendor-staff de arriba (router propio, no colgado de
+// /admin porque lo consume el usuario final, no el admin).
+app.use("/targeted-offers", targetedOffersRoutes);
 
 app.use((req, res) => res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` }));
 

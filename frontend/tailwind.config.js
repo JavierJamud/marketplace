@@ -156,6 +156,16 @@ export default {
           "0%": { transform: "translateX(0)" },
           "100%": { transform: "translateX(-50%)" },
         },
+        // Bloque 178 (pedido explícito — "se debe marcar... verde claro
+        // parpadeando... no se puede confundir el camarero y darle
+        // nuevamente pedidos que ya le había dado"): a propósito un
+        // parpadeo de COLOR de fondo (no solo opacidad, como kyc-pulse de
+        // arriba) — tiene que leerse inequívocamente como "recién
+        // agregado", no como una animación de carga genérica.
+        "new-item-blink": {
+          "0%, 100%": { backgroundColor: "rgba(12,174,83,0.28)" },
+          "50%": { backgroundColor: "rgba(12,174,83,0.06)" },
+        },
       },
       animation: {
         "cart-bump": "cart-bump 0.45s ease-out",
@@ -173,6 +183,7 @@ export default {
         // index.css) nunca se sienta como un salto — la animación siempre
         // retoma exactamente donde se quedó.
         marquee: "marquee 100s linear infinite",
+        "new-item-blink": "new-item-blink 1s ease-in-out infinite",
       },
     },
   },

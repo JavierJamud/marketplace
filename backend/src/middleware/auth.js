@@ -19,7 +19,12 @@ export async function authenticate(req, _res, next) {
 
   let payload;
   try {
-    payload = jwt.verify(token, env.jwtSecret);
+    // `algorithms` fijo a propósito (auditoría de seguridad): sin esto,
+    // jwt.verify() confía en el campo "alg" que venga DENTRO del token para
+    // decidir cómo validarlo — acá la app firma todo con HS256 nada más,
+    // así que cualquier token que declare un algoritmo distinto (incluido
+    // "none") se rechaza de entrada, sin intentar validarlo siquiera.
+    payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
   } catch {
     throw new AppError("Sesión inválida o expirada.", 401);
   }

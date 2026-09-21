@@ -12,7 +12,8 @@
     "prisma:seed": "node prisma/seed.js",
     "prisma:studio": "prisma studio",
     "db:backup": "node scripts/backup.js",
-    "db:normalize-phones": "node scripts/normalize-phones.js"
+    "db:normalize-phones": "node scripts/normalize-phones.js",
+    "create-admin": "node scripts/create-admin.js"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

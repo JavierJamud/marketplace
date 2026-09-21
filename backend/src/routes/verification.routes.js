@@ -11,7 +11,10 @@ router.post(
   "/me",
   authenticate,
   requireRole("VENDOR", "ADMIN"),
-  kycUpload.fields([{ name: "selfie", maxCount: 1 }, { name: "idDocument", maxCount: 1 }]),
+  // Bloque 146: selfieVideo es opcional (maxCount 1, no falla si no llega
+  // — ver submitVerification) — video corto de liveness capturado junto
+  // con la selfie cuando el navegador soporta detección de rostro.
+  kycUpload.fields([{ name: "selfie", maxCount: 1 }, { name: "idDocument", maxCount: 1 }, { name: "selfieVideo", maxCount: 1 }]),
   verificationController.submitVerification
 );
 router.patch("/me/payment-method", authenticate, requireRole("VENDOR"), verificationController.chooseMyPaymentMethod);
@@ -27,5 +30,21 @@ router.post(
 );
 // Documento privado — solo dueño de la tienda o admin (nunca URL pública).
 router.get("/:vendorId/file/:type", authenticate, verificationController.getVerificationFile);
+
+// Bloque 153 (pedido explícito — "una vez verificado, en la sección de
+// suscripción podrá... activar un nuevo mes o varios"): renovación mientras
+// la tienda YA está VERIFIED — mismo patrón que el ciclo inicial de arriba,
+// sobre SubscriptionPayment en vez de VerificationRequest.
+router.get("/me/subscription", authenticate, requireRole("VENDOR", "ADMIN"), verificationController.getMySubscription);
+router.patch("/me/subscription/payment-method", authenticate, requireRole("VENDOR"), verificationController.chooseMyRenewalPayment);
+router.post("/me/subscription/stripe-checkout/retry", authenticate, requireRole("VENDOR"), verificationController.retryRenewalStripeCheckout);
+router.post(
+  "/me/subscription/payment-proof",
+  authenticate,
+  requireRole("VENDOR"),
+  kycUpload.single("proof"),
+  verificationController.claimRenewalPayment
+);
+router.get("/subscription-payment/:id/file", authenticate, verificationController.getSubscriptionPaymentFile);
 
 export default router;

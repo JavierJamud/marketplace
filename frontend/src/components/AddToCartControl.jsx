@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Minus, Plus, ShoppingCart, X } from "lucide-react";
+import { Minus, Plus, ShoppingBasket, ShoppingCart, Trash2, X } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -9,6 +9,14 @@ function toCartProduct(product, size = null) {
   return {
     id: product.id,
     name: product.name,
+    // Bloque 147 (bug real reportado en vivo, con captura — el carrito
+    // mostraba un cuadro gris vacío en vez de la foto del producto, y hacer
+    // clic en una línea del carrito no llevaba a la ficha del producto):
+    // `product.images`/`product.slug` nunca viajaban hasta CartContext —
+    // el ítem del carrito se armaba solo con lo que hacía falta para el
+    // precio/stock, nunca con lo necesario para mostrarlo o linkearlo.
+    image: product.images?.[0] ?? null,
+    slug: product.slug ?? null,
     price: Number(product.price),
     priceTiers: product.priceTiers ?? [],
     currency: product.currency,
@@ -30,10 +38,12 @@ function toCartProduct(product, size = null) {
 // producto ya está en el carrito, para que el cliente vea de un vistazo
 // cuánto tiene agregado sin tener que abrir el carrito.
 // Bloque 34: variant="circle" (usado por la tarjeta de producto del chat de
-// tienda) — mismo addItem/misma validación de stock de siempre, solo cambia
-// la forma (rounded-full + ícono "+" en vez del ShoppingCart cuadrado ya
-// usado en Store.jsx/Product.jsx) para no alterar el look ya shippeado en
-// el resto del sitio, que sigue usando el default ("square").
+// tienda y por DigitalMenuProductCard.jsx) — mismo addItem/misma validación
+// de stock de siempre, solo cambia la forma (rounded-full) y el ícono
+// (Bloque 213, pedido explícito, con imagen de referencia: ShoppingBasket
+// en vez de Plus, para que se lea de un vistazo como "agregar" — el
+// ShoppingCart cuadrado del default ("square") sigue igual en Store.jsx/
+// Product.jsx, sin cambios).
 // Bloque 66 (pedido explícito): un producto con tallas ya no redirige a la
 // ficha del producto — la talla se elige en la propia tarjeta con pills
 // compactas (mismo patrón visual que Product.jsx) y, una vez elegida, se
@@ -47,6 +57,17 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
   const activeSize = hasSizes ? selectedSize : null;
   const existing = items.find((i) => i.productId === product.id && i.size === activeSize);
   const dim = size === "sm" ? "h-[34px] w-[34px]" : "h-9 w-9";
+  // Bloque 116 (bug real reportado en vivo, con captura — "-512+" apretado
+  // y roto): el stepper (-/cantidad/+) reusaba `dim`, que fija un ANCHO
+  // cuadrado pensado para el botón de un solo ícono de arriba — con una
+  // cantidad de varios dígitos (2+ unidades en el carrito llega fácil a
+  // 3 dígitos), el centro no tenía espacio real y el número se superponía
+  // con los botones +/-. Acá solo se reusa la ALTURA de `dim`; el ancho
+  // queda libre (min-width razonable para 1-2 dígitos, crece solo con el
+  // contenido) y los botones +/- pasan a un ancho fijo en vez de 1/3 del
+  // cuadrado, para que sea SIEMPRE el número el que se estira, nunca ellos.
+  const stepperHeight = size === "sm" ? "h-[34px]" : "h-9";
+  const stepperBtnWidth = size === "sm" ? "w-7" : "w-8";
   const iconDim = size === "sm" ? "h-[15px] w-[15px]" : "h-4 w-4";
   const shape = variant === "circle" ? "rounded-full" : "rounded";
 
@@ -114,7 +135,7 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
           title="Sin stock"
           className={`flex ${dim} flex-shrink-0 cursor-not-allowed items-center justify-center ${shape} bg-surface-container text-outline/50`}
         >
-          {variant === "circle" ? <Plus className={iconDim} /> : <ShoppingCart className={iconDim} />}
+          {variant === "circle" ? <ShoppingBasket className={iconDim} /> : <ShoppingCart className={iconDim} />}
         </span>
       );
     }
@@ -125,7 +146,16 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            addItem(toCartProduct(product, activeSize));
+            // Bug real reportado en vivo (con captura): este toast salía
+            // SIEMPRE, incluso cuando `addItem` detecta que el carrito ya
+            // tiene otra tienda — en ese caso no agrega nada de verdad, solo
+            // abre CartConflictModal, así que "Agregado al carrito ✓" era
+            // mentira. Mismo chequeo que ya usa StoreChatWidget.jsx: el
+            // toast de éxito solo sale si `addItem` confirma que agregó de
+            // verdad (el conflicto lo confirma el modal al resolverse, ver
+            // CartConflictModal.jsx).
+            const result = addItem(toCartProduct(product, activeSize));
+            if (result.conflict) return;
             toast.success("Agregado al carrito ✓");
             // Tracking mínimo para "clientes potenciales" — solo el primer
             // agregado (no los +/- del stepper), solo clientes logueados.
@@ -137,18 +167,24 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
           title="Agregar al carrito"
           className={`flex ${dim} flex-shrink-0 items-center justify-center ${shape} bg-secondary-container text-on-secondary-container hover:brightness-95`}
         >
-          {variant === "circle" ? <Plus className={iconDim} /> : <ShoppingCart className={iconDim} />}
+          {variant === "circle" ? <ShoppingBasket className={iconDim} /> : <ShoppingCart className={iconDim} />}
         </button>
       </div>
     );
   }
 
+  // `existing.stock` es `null` cuando `toCartProduct` (arriba) marcó el
+  // producto como "disponible siempre" — con `??`, `null` cae al mismo
+  // fallback que `undefined` (Infinity, sin techo), que es justo el
+  // sentinel que se busca acá. Bloque 143 (corrige el Bloque 140, que
+  // rompió esto con un techo duro de 99 para CUALQUIER producto): el techo
+  // real vuelve a ser el stock real del producto, o ninguno si es ilimitado.
   const atStockLimit = existing.quantity >= (existing.stock ?? Infinity);
 
   return (
     <div className="flex items-center">
       {sizeChip}
-      <div className={`flex ${dim} flex-shrink-0 items-center ${shape} border border-secondary-container`}>
+      <div className={`flex ${stepperHeight} min-w-[76px] flex-shrink-0 items-stretch ${shape} border border-secondary-container`}>
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -157,11 +193,20 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
               ? removeItem(product.id, activeSize)
               : updateQuantity(product.id, existing.quantity - 1, activeSize);
           }}
-          className="flex h-full w-1/3 items-center justify-center text-secondary"
+          title={existing.quantity <= 1 ? "Eliminar del carrito" : undefined}
+          className={`flex ${stepperBtnWidth} flex-shrink-0 items-center justify-center ${existing.quantity <= 1 ? "text-error" : "text-secondary"}`}
         >
-          <Minus className="h-3 w-3" />
+          {/* Bloque 215 (pedido explícito, con captura — mismo criterio ya
+              aplicado en CartDrawer.jsx/Cart.jsx): el onClick de arriba YA
+              llamaba removeItem con 1 sola unidad — lo único que faltaba acá
+              era el ícono, que siempre quedaba en "-" así de verdad se
+              sacara el producto o no. Con 1 unidad se ve la papelera; con
+              2+ vuelve a ser el "-" de siempre. */}
+          {existing.quantity <= 1 ? <Trash2 className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
         </button>
-        <span className="flex-1 text-center text-[12px] font-bold text-on-surface">{existing.quantity}</span>
+        <span className="flex min-w-0 flex-1 items-center justify-center overflow-hidden whitespace-nowrap px-1 text-[12px] font-bold text-on-surface">
+          {existing.quantity}
+        </span>
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -171,7 +216,7 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
           }}
           disabled={atStockLimit}
           title={atStockLimit ? "No hay más stock disponible" : undefined}
-          className={`flex h-full w-1/3 items-center justify-center ${atStockLimit ? "cursor-not-allowed text-outline/40" : "text-secondary"}`}
+          className={`flex ${stepperBtnWidth} flex-shrink-0 items-center justify-center ${atStockLimit ? "cursor-not-allowed text-outline/40" : "text-secondary"}`}
         >
           <Plus className="h-3 w-3" />
         </button>

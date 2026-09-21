@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "../lib/toast.jsx";
 import { Trash2, Plus } from "lucide-react";
@@ -6,6 +6,8 @@ import { api } from "../lib/api.js";
 import { formatPrice, formatMixedTotal } from "../lib/format.js";
 import { Select } from "./ui/Select.jsx";
 import { Button } from "./ui/Button.jsx";
+import { UnsavedChangesModal } from "./UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../lib/useDirtyModal.js";
 
 // Bloque 29: modifica cantidades/productos de un pedido todavía Pendiente
 // (nunca confirmado) — el precio siempre se vuelve a tomar del catálogo
@@ -56,8 +58,18 @@ export function EditOrderModal({ order, onClose, onSaved }) {
     setAddingProductId("");
   }
 
+  // Bloque 196: único borrador real es la lista de items — mismo criterio
+  // que EditTableOrderModal (addingProductId es solo el picker transitorio).
+  const initialItemsSnapshot = useRef(JSON.stringify(items));
+  const isDirty = JSON.stringify(items) !== initialItemsSnapshot.current;
+  const canSaveNow = items.length > 0;
+  const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
         <h3 className="mb-1 text-title-lg text-on-surface">Modificar pedido</h3>
         <p className="mb-4 text-[12.5px] text-outline">Pedido {order.code} · todavía Pendiente, sin confirmar</p>
@@ -125,6 +137,14 @@ export function EditOrderModal({ order, onClose, onSaved }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }

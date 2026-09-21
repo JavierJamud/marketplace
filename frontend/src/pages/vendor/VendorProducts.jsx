@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Pencil, Trash2, ScanBarcode, X, ArrowUpDown, Star, Ruler, Layers } from "lucide-react";
+import { Pencil, Trash2, ScanBarcode, X, ArrowUpDown, Star, Ruler, Layers, Package } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { Button } from "../../components/ui/Button.jsx";
@@ -12,6 +13,9 @@ import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 
 // Bloque 52: presets rápidos de tallas de ropa — un click para agregar/quitar,
 // además del input libre (numéricas de calzado, "Talla única", etc.).
@@ -20,7 +24,11 @@ const PRESET_SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
 // canal que products.controller.js permite SIEMPRE (universal, no
 // desactivable); "cod"/"prepaid" recién se muestran si el admin los activó
 // (SiteSettings.productPaymentMethods, ver AdminBranding.jsx).
-const PAYMENT_METHOD_LABEL = { whatsapp: "WhatsApp", cod: "Contra entrega", prepaid: "Transferencia" };
+// Bloque 199: etiquetas movidas a lib/productPaymentMethods.js (única fuente
+// compartida — antes "prepaid" decía "Transferencia" acá pero "Transferencia
+// CUP" en Product.jsx/Shop.jsx, ninguno el significado real del campo:
+// "pago anticipado" acordado directo con el vendedor).
+const PAYMENT_METHOD_LABEL = PRODUCT_PAYMENT_METHOD_LABEL;
 
 // Bloque 49: `path` puede ser un link externo pegado por el vendedor (no solo
 // un archivo subido a nuestro server) — si ya es absoluto, se usa tal cual.
@@ -34,6 +42,17 @@ const MAX_TAGS = 5;
 // Bloque 23: mismo umbral que LOW_STOCK_THRESHOLD en
 // vendors.controller.js (getDashboard) — si cambia uno, cambiar el otro.
 const LOW_STOCK_THRESHOLD = 3;
+
+// Bloque 230 (pedido explícito, con captura — "quiero que todo el contenido
+// dentro de esta ventana y secciones tenga la misma estructura, ni pueden
+// haber bordes más redondeados que otros como los de 'Disponible para
+// pedir en mesa'"): un solo shell para cada grupo de configuración
+// opcional del formulario (antes cada uno tenía su propio radius/fondo a
+// mano — rounded-lg unos, rounded-full el de mesa QR). Mismo criterio que
+// ya usa VendorSettings.jsx para sus propias secciones agrupadas
+// (rounded-xl border border-surface-container-high bg-surface-container/30
+// p-4), reutilizado acá en vez de inventar un tercer estilo.
+const SECTION_BOX = "rounded-xl border border-surface-container-high bg-surface-container/30 p-4";
 
 const STATUS_STYLE = {
   active: { background: "rgba(12,174,83,0.12)", color: "#0A8F42" },
@@ -84,6 +103,9 @@ const EMPTY_FORM = {
   currency: "USD",
   paymentMethods: ["whatsapp"],
   availableForTableMenu: false,
+  hiddenFromStore: false,
+  tableRestricted: false,
+  restrictedTableIds: [],
   tags: [],
   sizes: [],
   sizeStock: {},
@@ -101,6 +123,15 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
   // porque se abrió en modo edición, o porque se acaba de crear) — recién
   // ahí se puede subir fotos, que necesitan un productId real.
   const [savedProduct, setSavedProduct] = useState(product);
+  // Bloque 157: mesas del vendedor, para el picker de "restringir a mesas
+  // específicas" — solo hace falta pedirlas si es un restaurante (única
+  // categoría con mesas), enabled evita el request de más para todos los
+  // demás vendedores que ni siquiera van a ver este bloque del formulario.
+  const { data: myTables } = useQuery({
+    queryKey: ["my-tables"],
+    queryFn: async () => (await api.get("/tables/me")).data.tables,
+    enabled: !!isRestaurant,
+  });
   const [removeImageTarget, setRemoveImageTarget] = useState(null); // url de la foto a eliminar
   const [linkInput, setLinkInput] = useState("");
   // Bloque 51: cada foto se sube de a una, con recorte — este contador fuerza
@@ -123,6 +154,9 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           currency: product.currency ?? "USD",
           paymentMethods: product.paymentMethods,
           availableForTableMenu: product.availableForTableMenu ?? false,
+          hiddenFromStore: product.hiddenFromStore ?? false,
+          tableRestricted: product.tableRestricted ?? false,
+          restrictedTableIds: (product.restrictedTables ?? []).map((t) => t.id),
           tags: product.tags ?? [],
           sizes: product.sizes ?? [],
           sizeStock: product.sizeStock ?? {},
@@ -139,6 +173,13 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
   // "apagar" el checkbox solo si el vendedor borra momentáneamente todos los
   // tramos mientras edita.
   const [priceTiersEnabled, setPriceTiersEnabled] = useState((product?.priceTiers ?? []).length > 0);
+  // Bloque 196: snapshot del borrador con el que se abrió el modal — se
+  // compara contra `form`/sizesEnabled/priceTiersEnabled en cada render
+  // para saber si hay algo sin guardar (nunca contra `savedProduct`, que sí
+  // cambia solo con guardados exitosos y con subidas de fotos, que no son
+  // parte de este borrador).
+  const initialFormSnapshot = useRef(JSON.stringify({ form, sizesEnabled, priceTiersEnabled }));
+  const isDirty = JSON.stringify({ form, sizesEnabled, priceTiersEnabled }) !== initialFormSnapshot.current;
 
   function addTag() {
     const clean = tagInput.trim().toLowerCase();
@@ -252,6 +293,13 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
         badge: form.badge || null,
         paymentMethods: form.paymentMethods,
         availableForTableMenu: form.availableForTableMenu,
+        // Bloque 157: solo tienen efecto real con availableForTableMenu — se
+        // mandan igual siempre en false/[] cuando no aplica, para que
+        // desactivar "disponible para mesa" también limpie una restricción
+        // vieja en vez de dejarla huérfana en el backend.
+        hiddenFromStore: form.availableForTableMenu ? form.hiddenFromStore : false,
+        tableRestricted: form.availableForTableMenu ? form.tableRestricted : false,
+        restrictedTableIds: form.availableForTableMenu && form.tableRestricted ? form.restrictedTableIds : [],
         tags: form.tags,
         sizes: sizesEnabled ? form.sizes : [],
         sizeStock: sizesEnabled ? form.sizeStock : {},
@@ -281,6 +329,20 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
       if (isEdit && data.product.images?.length > 0) onClose();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el producto."),
+  });
+
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): la descripción mínima de 10 caracteres es
+  // la misma condición que ya deshabilita el botón "Guardar" normal más
+  // abajo — reusada acá para no ofrecer "Guardar y salir" cuando el
+  // formulario ni siquiera pasaría esa validación.
+  const canSaveNow = form.description.trim().length >= 10;
+  const dirtyModal = useDirtyModal({
+    isDirty,
+    onClose,
+    onSave: canSaveNow ? () => save.mutateAsync() : undefined,
   });
 
   const uploadImages = useMutation({
@@ -323,7 +385,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
       setSavedProduct(data.product);
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
       setLinkInput("");
-      if (data.warning) toast(data.warning, { icon: "⚠️" });
+      if (data.warning) toast.warning(data.warning);
       else toast.success("Imagen agregada.");
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo agregar el link."),
@@ -383,18 +445,37 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
-        <h3 className="mb-4 text-title-lg text-on-surface">{savedProduct ? "Editar producto" : "Nuevo producto"}</h3>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
+      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <IconCircle icon={Package} tone="teal" />
+            <h3 className="text-title-lg font-bold text-on-surface">{savedProduct ? "Editar producto" : "Nuevo producto"}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={dirtyModal.requestClose}
+            aria-label="Cerrar"
+            className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-3.5">
           <Input label="Nombre" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
 
           <div>
-            <span className="mb-1 block text-label-md text-on-surface-variant">
-              Descripción <span className="text-error">*</span>
-            </span>
+            <div className="mb-1 flex items-end justify-between gap-2">
+              <span className="block text-label-md text-on-surface-variant">
+                Descripción <span className="text-error">*</span>
+              </span>
+              <span className="flex-shrink-0 text-label-sm text-outline">{form.description.length} caracteres</span>
+            </div>
             <p className="mb-1.5 text-label-sm text-outline">
-              Obligatoria — es la que ven los clientes resumida en la tarjeta del producto.
+              Obligatoria — es la que ven los clientes resumida en la tarjeta del producto. Cuanto más corta y concreta, mejor se lee.
             </p>
             <AiGenerateButton
               kind="product"
@@ -438,49 +519,55 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           <div className="grid grid-cols-[1fr_1fr_120px] gap-3">
             <Input label="Precio" type="number" min={1} required value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
             <Input label="Precio anterior (opcional)" type="number" min={1} value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })} />
-            <div>
-              <span className="mb-1 block text-label-md text-on-surface-variant">Moneda</span>
-              <select
-                value={form.currency}
-                onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                className="h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2 text-[13px] font-semibold text-on-surface focus:outline-none"
-              >
-                {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+            <Select label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+              {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </Select>
+          </div>
+
+          {/* Bloque 230 (pedido explícito — "una mejor experiencia... más
+              sencilla y se irán habilitando opciones si va configurando
+              algunas"): antes Stock/Código, "Disponible siempre" y "Tiene
+              tallas" eran 3 bloques sueltos sin relación visual, aunque los
+              3 responden la misma pregunta ("¿cómo llevas el inventario de
+              esto?"). Ahora es un solo módulo — activar un toggle revela su
+              contenido y oculta el que ya no aplica (mismo criterio de
+              antes, solo que ahora vive junto). */}
+          <div className={SECTION_BOX}>
+            <div className="mb-3 flex items-center gap-2">
+              <Ruler className="h-4 w-4 flex-shrink-0 text-tertiary-accent" />
+              <span className="text-[13px] font-bold text-on-surface">Inventario</span>
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {!sizesEnabled && !form.unlimitedStock && (
-              <Input label="Stock" type="number" min={0} required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
-            )}
-            <Input
-              label="Código de barras"
-              value={form.barcode}
-              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-              className={sizesEnabled || form.unlimitedStock ? "col-span-2" : ""}
-            />
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              {!sizesEnabled && !form.unlimitedStock && (
+                <Input label="Stock" type="number" min={0} required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+              )}
+              <Input
+                label="Código de barras"
+                value={form.barcode}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                className={sizesEnabled || form.unlimitedStock ? "col-span-2" : ""}
+              />
+            </div>
 
-          {!sizesEnabled && (
-            <label className="flex items-start gap-2 rounded-lg border border-outline-variant p-3.5 text-body-md font-semibold text-on-surface">
-              <input type="checkbox" className="mt-0.5" checked={form.unlimitedStock} onChange={(e) => toggleUnlimitedStock(e.target.checked)} />
-              <span>
-                Disponible siempre (sin stock definido)
-                <span className="mt-1 block text-label-sm font-normal text-outline">
-                  Para productos que no se agotan o que siempre repones al momento — el stock deja de ser obligatorio. Ojo: no vas a tener ningún
-                  seguimiento de este producto (no aparece en "stock bajo" ni "sin stock" aunque en algún momento se te termine de verdad).
+            {!sizesEnabled && (
+              <label className="mt-3 flex items-start gap-2 border-t border-surface-container-high/70 pt-3 text-body-md font-semibold text-on-surface">
+                <input type="checkbox" className="mt-0.5" checked={form.unlimitedStock} onChange={(e) => toggleUnlimitedStock(e.target.checked)} />
+                <span>
+                  Disponible siempre (sin stock definido)
+                  <span className="mt-1 block text-label-sm font-normal text-outline">
+                    Para productos que no se agotan o que siempre repones al momento — el stock deja de ser obligatorio. Ojo: no vas a tener ningún
+                    seguimiento de este producto (no aparece en "stock bajo" ni "sin stock" aunque en algún momento se te termine de verdad).
+                  </span>
                 </span>
-              </span>
-            </label>
-          )}
+              </label>
+            )}
 
-          <div className="rounded-lg border border-outline-variant p-3.5">
-            <label className="flex items-center gap-2 text-body-md font-semibold text-on-surface">
+            <label className="mt-3 flex items-center gap-2 border-t border-surface-container-high/70 pt-3 text-body-md font-semibold text-on-surface">
               <input type="checkbox" checked={sizesEnabled} onChange={(e) => toggleHasSizes(e.target.checked)} />
-              <Ruler className="h-4 w-4 text-tertiary-accent" /> Este producto tiene tallas (ropa, calzado, etc.)
+              Este producto tiene tallas (ropa, calzado, etc.)
             </label>
             {sizesEnabled && (
               <div className="mt-3">
@@ -510,7 +597,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                   <button
                     type="button"
                     onClick={addCustomSize}
-                    className="flex-shrink-0 rounded-md border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container"
+                    className="flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container"
                   >
                     +
                   </button>
@@ -544,7 +631,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
             )}
           </div>
 
-          <div className="rounded-lg border border-outline-variant p-3.5">
+          <div className={SECTION_BOX}>
             <label className="flex items-center gap-2 text-body-md font-semibold text-on-surface">
               <input type="checkbox" checked={priceTiersEnabled} onChange={(e) => togglePriceTiers(e.target.checked)} />
               <Layers className="h-4 w-4 text-tertiary-accent" /> Precios especiales por cantidad (mayoreo)
@@ -576,7 +663,12 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                         onChange={(e) => updatePriceTier(i, "price", e.target.value)}
                         className="h-9 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-2 text-[13px] outline-none focus:border-primary-container"
                       />
-                      <span className="flex-shrink-0 text-[12px] text-outline">{currency}</span>
+                      {/* Bloque 195 (bug real encontrado en auditoría — "currency" no
+                          existía en este scope, era un ReferenceError que
+                          tumbaba el modal entero apenas se activaban los
+                          precios por cantidad): la moneda real del formulario
+                          vive en form.currency. */}
+                      <span className="flex-shrink-0 text-[12px] text-outline">{form.currency}</span>
                       <button type="button" onClick={() => removePriceTier(i)} className="flex-shrink-0 text-outline hover:text-error">
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -587,14 +679,19 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                   type="button"
                   onClick={addPriceTier}
                   disabled={form.priceTiers.length >= 10}
-                  className="mt-2 rounded-md border border-outline-variant px-3 py-1.5 text-[12.5px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
+                  className="mt-2 rounded-full border border-outline-variant px-3 py-1.5 text-[12.5px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
                 >
                   + Agregar otro tramo
                 </button>
               </div>
             )}
           </div>
-          <div>
+          {/* Bloque 230: Etiqueta y Tags viven ambas de "cómo aparece el
+              producto en el catálogo" — mismo módulo, mismo shell que el
+              resto en vez de dos campos sueltos sin relación visual. */}
+          <div className={SECTION_BOX}>
+            <span className="mb-3 block text-[13px] font-bold text-on-surface">Presentación</span>
+
             <Select label="Etiqueta" value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })}>
               <option value="">Sin etiqueta</option>
               <option value="Nuevo">Nuevo</option>
@@ -608,65 +705,121 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                 cambiarla ahora.
               </p>
             )}
-          </div>
 
-          <div>
-            <span className="mb-1 block text-label-md text-on-surface-variant">Tags de búsqueda (opcional, hasta {MAX_TAGS})</span>
-            <p className="mb-2 text-label-sm text-outline">
-              Palabras sueltas para que el cliente encuentre este producto buscando algo que no está en el nombre ni la descripción.
-            </p>
-            {form.tags.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {form.tags.map((tag) => (
-                  <span key={tag} className="flex items-center gap-1 rounded-full bg-surface-container px-2.5 py-1 text-[12px] font-semibold text-on-surface-variant">
-                    {tag}
-                    <button type="button" onClick={() => removeTag(tag)} aria-label={`Quitar tag ${tag}`} className="text-outline hover:text-error">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            {form.tags.length < MAX_TAGS ? (
-              <div className="flex gap-2">
-                <input
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addTag();
-                    }
-                  }}
-                  placeholder="Escribe un tag y Enter..."
-                  className="h-9 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
-                />
-                <button
-                  type="button"
-                  onClick={addTag}
-                  className="flex-shrink-0 rounded-md border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container"
-                >
-                  +
-                </button>
-              </div>
-            ) : (
-              <p className="text-label-sm text-outline">Llegaste al máximo de {MAX_TAGS} tags.</p>
-            )}
+            <div className="mt-3 border-t border-surface-container-high/70 pt-3">
+              <span className="mb-1 block text-label-md text-on-surface-variant">Tags de búsqueda (opcional, hasta {MAX_TAGS})</span>
+              <p className="mb-2 text-label-sm text-outline">
+                Palabras sueltas para que el cliente encuentre este producto buscando algo que no está en el nombre ni la descripción.
+              </p>
+              {form.tags.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {form.tags.map((tag) => (
+                    <span key={tag} className="flex items-center gap-1 rounded-full bg-surface-container px-2.5 py-1 text-[12px] font-semibold text-on-surface-variant">
+                      {tag}
+                      <button type="button" onClick={() => removeTag(tag)} aria-label={`Quitar tag ${tag}`} className="text-outline hover:text-error">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {form.tags.length < MAX_TAGS ? (
+                <div className="flex gap-2">
+                  <input
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addTag();
+                      }
+                    }}
+                    placeholder="Escribe un tag y Enter..."
+                    className="h-9 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
+                  />
+                  <button
+                    type="button"
+                    onClick={addTag}
+                    className="flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container"
+                  >
+                    +
+                  </button>
+                </div>
+              ) : (
+                <p className="text-label-sm text-outline">Llegaste al máximo de {MAX_TAGS} tags.</p>
+              )}
+            </div>
           </div>
 
           {isRestaurant && (
-            <label className="flex items-center gap-2 text-body-md text-on-surface">
-              <input
-                type="checkbox"
-                checked={form.availableForTableMenu}
-                onChange={(e) => setForm({ ...form, availableForTableMenu: e.target.checked })}
-              />
-              Disponible para pedir en mesa (menú QR)
-            </label>
+            <div className={SECTION_BOX}>
+              <span className="mb-3 block text-[13px] font-bold text-on-surface">Menú QR de mesa</span>
+              <div className="flex flex-col gap-2.5">
+                <label className="flex items-center gap-2 text-body-md text-on-surface">
+                  <input
+                    type="checkbox"
+                    checked={form.availableForTableMenu}
+                    onChange={(e) => setForm({ ...form, availableForTableMenu: e.target.checked })}
+                  />
+                  Disponible para pedir en mesa (menú QR)
+                </label>
+
+                {/* Bloque 157 (pedido explícito): solo tienen sentido con el
+                    menú QR activado — ocultas mientras no lo esté, en vez de
+                    dejarlas ahí sin efecto y confundir. */}
+                {form.availableForTableMenu && (
+                  <>
+                    <label className="ml-5 flex items-center gap-2 text-body-md text-on-surface">
+                      <input
+                        type="checkbox"
+                        checked={form.hiddenFromStore}
+                        onChange={(e) => setForm({ ...form, hiddenFromStore: e.target.checked })}
+                      />
+                      Ocultar de la tienda — solo se pide desde la mesa
+                    </label>
+
+                    <label className="ml-5 flex items-center gap-2 text-body-md text-on-surface">
+                      <input
+                        type="checkbox"
+                        checked={form.tableRestricted}
+                        onChange={(e) => setForm({ ...form, tableRestricted: e.target.checked })}
+                      />
+                      Restringir a mesas específicas
+                    </label>
+
+                    {form.tableRestricted && (
+                      <div className="ml-5 flex flex-col gap-1.5 rounded-md bg-surface-container p-3">
+                        {myTables?.length ? (
+                          myTables.map((t) => (
+                            <label key={t.id} className="flex items-center gap-2 text-label-md text-on-surface">
+                              <input
+                                type="checkbox"
+                                checked={form.restrictedTableIds.includes(t.id)}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    restrictedTableIds: e.target.checked
+                                      ? [...f.restrictedTableIds, t.id]
+                                      : f.restrictedTableIds.filter((id) => id !== t.id),
+                                  }))
+                                }
+                              />
+                              {t.label || `Mesa ${t.tableNumber}`}
+                            </label>
+                          ))
+                        ) : (
+                          <p className="text-label-sm text-outline">Todavía no agregaste ninguna mesa en "Mesas y códigos QR".</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           )}
 
-          <div>
-            <span className="mb-1.5 block text-label-md text-on-surface-variant">Métodos de pago</span>
+          <div className={SECTION_BOX}>
+            <span className="mb-1.5 block text-[13px] font-bold text-on-surface">Métodos de pago</span>
             {planType === "REGULAR" ? (
               <p className="text-label-sm text-outline">Plan Regular: solo pedidos por WhatsApp.</p>
             ) : (
@@ -687,8 +840,8 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
             )}
           </div>
 
-          <div>
-            <span className="mb-1.5 block text-label-md text-on-surface-variant">
+          <div className={SECTION_BOX}>
+            <span className="mb-3 block text-[13px] font-bold text-on-surface">
               Fotos del producto <span className="text-error">*</span>
             </span>
             {savedProduct && !savedProduct.images?.length && (
@@ -763,7 +916,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
                       type="button"
                       onClick={submitImageLink}
                       disabled={addImageLink.isPending || !linkInput.trim()}
-                      className="flex-shrink-0 rounded-md border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                      className="flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
                     >
                       {addImageLink.isPending ? "..." : "Agregar link"}
                     </button>
@@ -808,6 +961,14 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
         danger
         onConfirm={() => removeImage.mutate(removeImageTarget)}
         onCancel={() => setRemoveImageTarget(null)}
+      />
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
       />
     </div>
   );
@@ -890,20 +1051,23 @@ export default function VendorProducts() {
   return (
     <div>
       <div className="mb-[22px] flex items-center justify-between">
-        <div>
-          <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Productos</h1>
-          <p className="text-[13.5px] text-outline">{products.length} productos publicados</p>
+        <div className="flex items-center gap-3">
+          <IconCircle icon={Package} tone="teal" />
+          <div>
+            <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos</h1>
+            <p className="text-[13.5px] text-outline">{products.length} productos publicados</p>
+          </div>
         </div>
         <div className="flex gap-2.5">
           <button
             onClick={handleScanBarcode}
-            className="flex items-center gap-2 rounded-md border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant"
+            className="flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant"
           >
             <ScanBarcode className="h-4 w-4" /> Escanear código
           </button>
           <button
             onClick={() => (atLimit ? toast.error(`Alcanzaste el límite de ${data.limit} productos del Plan Regular.`) : setModalState({ mode: "new" }))}
-            className="rounded-md bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
+            className="rounded-full bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
           >
             + Nuevo producto
           </button>
@@ -926,71 +1090,79 @@ export default function VendorProducts() {
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest">
-        <div className={`grid ${gridCols} gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline`}>
-          <span>Producto</span><span>Precio</span><span>Stock</span><span>Estado</span>
-          {stockFilter === "out" && (
-            <button
-              onClick={() => setRequestSortDesc((d) => !d)}
-              className="flex items-center gap-1 text-left normal-case text-tertiary-accent"
-              title="Ordenar por más solicitado"
-            >
-              Solicitudes <ArrowUpDown className="h-3 w-3" />
-            </button>
+      {/* Bloque 195 (bug real encontrado en auditoría — responsividad: el
+          contenedor tenía overflow-hidden con columnas de ancho fijo
+          (gridCols), así que en pantallas angostas el contenido se recortaba
+          en silencio en vez de poder verse; ahora el propio contenedor
+          scrollea horizontal, mismo patrón que ya usa VendorDiscountCodes.jsx
+          para su tabla) */}
+      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+        <div className="min-w-[720px]">
+          <div className={`grid ${gridCols} gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline`}>
+            <span>Producto</span><span>Precio</span><span>Stock</span><span>Estado</span>
+            {stockFilter === "out" && (
+              <button
+                onClick={() => setRequestSortDesc((d) => !d)}
+                className="flex items-center gap-1 text-left normal-case text-tertiary-accent"
+                title="Ordenar por más solicitado"
+              >
+                Solicitudes <ArrowUpDown className="h-3 w-3" />
+              </button>
+            )}
+            <span></span>
+          </div>
+          {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
+          {!isLoading && products.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Todavía no publicaste productos.</p>}
+          {!isLoading && products.length > 0 && visibleProducts.length === 0 && (
+            <p className="p-5 text-body-md text-on-surface-variant">Ningún producto coincide con este filtro.</p>
           )}
-          <span></span>
-        </div>
-        {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
-        {!isLoading && products.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Todavía no publicaste productos.</p>}
-        {!isLoading && products.length > 0 && visibleProducts.length === 0 && (
-          <p className="p-5 text-body-md text-on-surface-variant">Ningún producto coincide con este filtro.</p>
-        )}
-        {visibleProducts.map((p) => {
-          const status = stockStatus(p);
-          return (
-            <div
-              key={p.id}
-              className={`grid ${gridCols} items-center gap-3 border-t border-surface-container px-[22px] py-3.5 ${ROW_TINT[status]}`}
-            >
-              <div className="flex items-center gap-3">
-                {p.images?.[0] ? (
-                  <img src={imgUrl(p.images[0])} alt="" className="h-11 w-11 flex-shrink-0 rounded-[9px] object-cover" />
-                ) : (
-                  <div className="h-11 w-11 flex-shrink-0 rounded-[9px] bg-surface-container" />
-                )}
-                <div>
-                  <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-on-surface">
-                    {p.name}
-                    {p.sizes?.length > 0 && (
-                      <span title={`Tallas: ${p.sizes.join(", ")}`} className="rounded-full bg-tertiary-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold text-tertiary-accent">
-                        {p.sizes.length} tallas
-                      </span>
-                    )}
+          {visibleProducts.map((p) => {
+            const status = stockStatus(p);
+            return (
+              <div
+                key={p.id}
+                className={`grid ${gridCols} items-center gap-3 border-t border-surface-container px-[22px] py-3.5 ${ROW_TINT[status]}`}
+              >
+                <div className="flex items-center gap-3">
+                  {p.images?.[0] ? (
+                    <img src={imgUrl(p.images[0])} alt="" className="h-11 w-11 flex-shrink-0 rounded-[9px] object-cover" />
+                  ) : (
+                    <div className="h-11 w-11 flex-shrink-0 rounded-[9px] bg-surface-container" />
+                  )}
+                  <div>
+                    <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-on-surface">
+                      {p.name}
+                      {p.sizes?.length > 0 && (
+                        <span title={`Tallas: ${p.sizes.join(", ")}`} className="rounded-full bg-tertiary-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold text-tertiary-accent">
+                          {p.sizes.length} tallas
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11.5px] text-outline">Cód: {p.barcode ?? "—"}</div>
                   </div>
-                  <div className="text-[11.5px] text-outline">Cód: {p.barcode ?? "—"}</div>
+                </div>
+                <span className="text-[13.5px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
+                <span className="text-[13.5px] text-on-surface-variant">{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
+                <span className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={STATUS_STYLE[status]}>
+                  {STATUS_LABEL[status]}
+                </span>
+                {stockFilter === "out" && (
+                  <span className="text-[13.5px] font-bold text-on-surface">
+                    {p._count?.requests ?? 0} {p._count?.requests === 1 ? "pedido" : "pedidos"}
+                  </span>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setModalState({ mode: "edit", product: p })} aria-label={`Editar ${p.name}`} title="Editar producto" className="text-tertiary-accent">
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setDeleteTarget(p)} aria-label={`Eliminar ${p.name}`} title="Eliminar producto" className="text-error">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
-              <span className="text-[13.5px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-              <span className="text-[13.5px] text-on-surface-variant">{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
-              <span className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={STATUS_STYLE[status]}>
-                {STATUS_LABEL[status]}
-              </span>
-              {stockFilter === "out" && (
-                <span className="text-[13.5px] font-bold text-on-surface">
-                  {p._count?.requests ?? 0} {p._count?.requests === 1 ? "pedido" : "pedidos"}
-                </span>
-              )}
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setModalState({ mode: "edit", product: p })} aria-label={`Editar ${p.name}`} title="Editar producto" className="text-tertiary-accent">
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button onClick={() => setDeleteTarget(p)} aria-label={`Eliminar ${p.name}`} title="Eliminar producto" className="text-error">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       <div className="mt-4 flex items-center gap-2 rounded-md border border-secondary-container/25 bg-secondary-container/[0.08] px-[18px] py-3.5 text-[12.5px] text-secondary">

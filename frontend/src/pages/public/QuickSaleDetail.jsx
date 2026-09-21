@@ -8,6 +8,7 @@ import { waLink } from "../../lib/whatsapp.js";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Detalle público de un anuncio de venta rápida. A diferencia de Product.jsx
 // (que exige pasar por carrito/checkout, ver Bloque 68), acá el pedido es
@@ -17,6 +18,7 @@ import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 export default function QuickSaleDetail() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { siteName } = usePlatformSettings();
   const [reportFraudOpen, setReportFraudOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
 
@@ -46,7 +48,7 @@ export default function QuickSaleDetail() {
 
   const images = listing.images ?? [];
   const image = images[selectedImage] ? `${api.defaults.baseURL}${images[selectedImage]}` : null;
-  const message = `Hola, vi tu anuncio "${listing.name}" (${formatPrice(listing.price, listing.currency)}) en ZeuDin y me interesa.`;
+  const message = `Hola, vi tu anuncio "${listing.name}" (${formatPrice(listing.price, listing.currency)}) en ${siteName} y me interesa.`;
 
   return (
     <div className="container-app py-9">

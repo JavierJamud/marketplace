@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
@@ -6,10 +6,14 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode } from "lucide-react";
+import { Tabs } from "../../components/ui/Tabs.jsx";
+import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode, Clock } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
 
@@ -49,10 +53,23 @@ const DAY_ROWS = [
   { dayOfWeek: 0, name: "Domingo" },
 ];
 
-function Modal({ title, onClose, children }) {
+// Bloque 196: `onBackdropClick` opcional — por default cierra directo (sin
+// borrador propio), pero ManageVendorMunicipalitiesModal (el único uso real
+// hoy) pasa el handler de useDirtyModal para preguntar antes de cerrar si
+// hay municipios sin guardar.
+function Modal({ title, onClose, onBackdropClick, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onBackdropClick ?? ((e) => { if (e.target === e.currentTarget) onClose(); })}
+    >
+      {/* Bloque 195 (bug real encontrado en auditoría — responsividad: este
+          modal era el único del panel de vendedor sin max-h-[90vh]
+          overflow-y-auto, patrón usado en todo el resto del proyecto — en
+          una pantalla chica, con muchos municipios listados, se podía
+          cortar contra los bordes de la ventana sin forma de scrollear el
+          modal completo). */}
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{title}</h2>
         {children}
       </div>
@@ -106,8 +123,23 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
     }
   }
 
+  // Bloque 196: único borrador de este modal es la selección de municipios
+  // — el botón "Guardar Municipios" real solo se bloquea por isPending
+  // (cualquier selección, incluso vacía, es válida), así que acá siempre
+  // hay algo que ofrecer guardar. El propio "Guardar" de este modal ya
+  // dispara un segundo diálogo de confirmación en VendorSettings
+  // (openConfirm) — se reusa tal cual, sin inventar un atajo que se salte
+  // esa confirmación.
+  const initialSelectionSnapshot = useRef(JSON.stringify(selectedIds));
+  const isDirty = JSON.stringify(selectedIds) !== initialSelectionSnapshot.current;
+  const dirtyModal = useDirtyModal({
+    isDirty,
+    onClose,
+    onSave: () => onSave({ provinceId: province.id, municipalityIds: selectedIds }),
+  });
+
   return (
-    <Modal title={`Gestionar Municipios en ${province.name}`} onClose={onClose}>
+    <Modal title={`Gestionar Municipios en ${province.name}`} onClose={onClose} onBackdropClick={dirtyModal.handleBackdropClick}>
       <div className="mb-4 flex flex-col gap-3">
         <label className="flex items-center gap-2.5 rounded-xl border border-surface-container-high bg-surface-container/30 p-3 text-[13px] font-bold text-on-surface cursor-pointer">
           <input
@@ -161,6 +193,14 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
           {isPending ? "Guardando..." : "Guardar Municipios"}
         </Button>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={dirtyModal.handleSaveAndClose}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </Modal>
   );
 }
@@ -206,9 +246,21 @@ function VendorShareLink({ slug, isPrivate }) {
   );
 }
 
+// Bloque 115 (pedido explícito — "unir varias secciones en una sola ventana
+// con pestañas"): las 8 tarjetas que antes se apilaban una debajo de la otra
+// en una sola pantalla larga se agrupan en 3 pestañas — ninguna query,
+// mutación ni el guardado en bloque (handleSaveAll) cambia, esto es
+// puramente cómo se presenta el mismo formulario.
+const SETTINGS_TABS = [
+  { id: "general", label: "General", icon: Wallet },
+  { id: "cobertura", label: "Cobertura y visibilidad", icon: Globe2 },
+  { id: "facturacion", label: "Facturación y otros", icon: FileText },
+];
+
 export default function VendorSettings() {
   const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("general");
   const [form, setForm] = useState({
     ownerIdNumber: "",
     companyAddress: "",
@@ -221,8 +273,18 @@ export default function VendorSettings() {
     currency: "CUP",
     warrantyTerms: "",
     warrantyDefaultDays: "",
+    isRestaurant: false,
+    tableCount: "",
+    menuPublic: true,
   });
-  const [days, setDays] = useState(DAY_ROWS.map((d) => ({ ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false })));
+  // Bloque 174 (bug real reportado en vivo — "no encuentro esa función,
+  // verifica que esté y que funcione"): esta pantalla SÍ tenía el estado y
+  // la mutación de guardado ya armados (ver saveSchedule más abajo), pero
+  // nunca llegó a existir el formulario en el JSX — el vendedor no tenía
+  // forma real de tocar esto desde ningún lado. De paso, termina Bloque 171
+  // (varios tramos por día, ej. 9-12 y 14-18): cada día ahora guarda un
+  // ARRAY de tramos, no uno solo.
+  const [days, setDays] = useState(DAY_ROWS.map((d) => ({ ...d, isClosed: false, ranges: [{ opensAt: "09:00", closesAt: "18:00" }] })));
   const [customMethod, setCustomMethod] = useState("");
   const [newCountryForProvince, setNewCountryForProvince] = useState("");
   const [newProvinceId, setNewProvinceId] = useState("");
@@ -241,11 +303,6 @@ export default function VendorSettings() {
   const { data: vendor } = useQuery({
     queryKey: ["my-vendor-settings"],
     queryFn: async () => (await api.get("/vendors/me")).data.vendor,
-  });
-
-  const { data: provinces } = useQuery({
-    queryKey: ["provinces"],
-    queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
 
   const { data: provincesForSelectedCountry } = useQuery({
@@ -275,12 +332,25 @@ export default function VendorSettings() {
       currency: vendor.currency ?? "CUP",
       warrantyTerms: vendor.warrantyTerms ?? "",
       warrantyDefaultDays: vendor.warrantyDefaultDays != null ? String(vendor.warrantyDefaultDays) : "",
+      isRestaurant: vendor.isRestaurant ?? false,
+      tableCount: vendor.tableCount != null ? String(vendor.tableCount) : "",
+      menuPublic: vendor.menuPublic ?? true,
     });
     if (vendor.schedules?.length) {
       setDays(
         DAY_ROWS.map((d) => {
-          const s = vendor.schedules.find((x) => x.dayOfWeek === d.dayOfWeek);
-          return s ? { ...d, opensAt: s.opensAt, closesAt: s.closesAt, isClosed: s.isClosed } : { ...d, opensAt: "09:00", closesAt: "18:00", isClosed: false };
+          const rows = vendor.schedules.filter((x) => x.dayOfWeek === d.dayOfWeek && !x.isClosed);
+          if (rows.length === 0) {
+            // Sin tramos reales para este día (o solo la fila isClosed:true
+            // que lo marca como día de descanso) — arranca cerrado, con un
+            // tramo por defecto ya cargado por si lo vuelven a abrir.
+            return { ...d, isClosed: true, ranges: [{ opensAt: "09:00", closesAt: "18:00" }] };
+          }
+          return {
+            ...d,
+            isClosed: false,
+            ranges: rows.map((r) => ({ opensAt: r.opensAt, closesAt: r.closesAt })).sort((a, b) => a.opensAt.localeCompare(b.opensAt)),
+          };
         })
       );
     }
@@ -298,6 +368,7 @@ export default function VendorSettings() {
           companyAddress: form.companyAddress.trim() || null,
           warrantyTerms: form.warrantyTerms.trim() || null,
           warrantyDefaultDays: form.warrantyDefaultDays === "" ? null : Number(form.warrantyDefaultDays),
+          tableCount: form.tableCount === "" ? undefined : Number(form.tableCount),
         })
       ).data,
   });
@@ -326,8 +397,64 @@ export default function VendorSettings() {
 
   const saveSchedule = useMutation({
     mutationFn: async () =>
-      (await api.patch("/vendors/me/schedule", { days: days.map(({ dayOfWeek, opensAt, closesAt, isClosed }) => ({ dayOfWeek, opensAt, closesAt, isClosed })) })).data,
+      (
+        await api.patch("/vendors/me/schedule", {
+          days: days.map(({ dayOfWeek, isClosed, ranges }) => ({
+            dayOfWeek,
+            isClosed,
+            ranges: isClosed ? [] : ranges,
+          })),
+        })
+      ).data,
   });
+
+  function updateDayRange(dayOfWeek, rangeIndex, key, value) {
+    setDays((prev) =>
+      prev.map((d) =>
+        d.dayOfWeek === dayOfWeek
+          ? { ...d, ranges: d.ranges.map((r, i) => (i === rangeIndex ? { ...r, [key]: value } : r)) }
+          : d
+      )
+    );
+  }
+  function addDayRange(dayOfWeek) {
+    setDays((prev) =>
+      prev.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ranges: [...d.ranges, { opensAt: "14:00", closesAt: "18:00" }] } : d))
+    );
+  }
+  function removeDayRange(dayOfWeek, rangeIndex) {
+    setDays((prev) =>
+      prev.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ranges: d.ranges.filter((_, i) => i !== rangeIndex) } : d))
+    );
+  }
+  function toggleDayClosed(dayOfWeek) {
+    setDays((prev) => prev.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, isClosed: !d.isClosed } : d)));
+  }
+  // Bloque 176 (pedido explícito — "debajo de Cerrado debe haber una que
+  // diga siempre abierto, eso deshabilita agregar horarios personalizados
+  // y quiere decir que ese día el negocio trabaja 24 horas"): no hace
+  // falta ningún campo nuevo en la base — "todo el día" se guarda como un
+  // único tramo 00:00 a 24:00 (isVendorOpenNow ya compara con < closesAt en
+  // minutos, así que 24:00 = 1440 cubre el día completo sin casos
+  // especiales del lado del backend).
+  function isAlwaysOpenDay(d) {
+    return !d.isClosed && d.ranges.length === 1 && d.ranges[0].opensAt === "00:00" && d.ranges[0].closesAt === "24:00";
+  }
+  function toggleAlwaysOpen(dayOfWeek) {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.dayOfWeek !== dayOfWeek) return d;
+        if (isAlwaysOpenDay(d)) return { ...d, ranges: [{ opensAt: "09:00", closesAt: "18:00" }] };
+        return { ...d, isClosed: false, ranges: [{ opensAt: "00:00", closesAt: "24:00" }] };
+      })
+    );
+  }
+  function copyMondayToAll() {
+    const monday = days.find((d) => d.dayOfWeek === 1);
+    if (!monday) return;
+    setDays((prev) => prev.map((d) => (d.dayOfWeek === 1 ? d : { ...d, isClosed: monday.isClosed, ranges: monday.ranges.map((r) => ({ ...r })) })));
+    toast.success("Se copió el horario del lunes al resto de los días.");
+  }
 
   const invalidateVendor = () => {
     queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
@@ -381,6 +508,10 @@ export default function VendorSettings() {
 
   async function handleSaveAll() {
     setErrors({});
+    if (form.isRestaurant && !form.tableCount) {
+      toast.error("Indica cuántas mesas tiene tu restaurante.");
+      return;
+    }
     try {
       await Promise.all([saveProfile.mutateAsync(), saveSchedule.mutateAsync()]);
       toast.success("Cambios guardados.");
@@ -394,10 +525,6 @@ export default function VendorSettings() {
         toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios.");
       }
     }
-  }
-
-  function updateDay(dayOfWeek, field, value) {
-    setDays((d) => d.map((row) => (row.dayOfWeek === dayOfWeek ? { ...row, [field]: value } : row)));
   }
 
   const isBusiness = vendor?.planType === "BUSINESS";
@@ -452,16 +579,24 @@ export default function VendorSettings() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-display-sm font-extrabold text-on-surface">Configuración de la tienda</h1>
-          <p className="text-body-md text-on-surface-variant">
-            Datos públicos, zonas de cobertura y métodos de entrega.
-          </p>
+        <div className="flex items-center gap-3">
+          <IconCircle icon={Settings2} tone="teal" />
+          <div>
+            <h1 className="text-display-sm font-extrabold text-on-surface">Configuración de la tienda</h1>
+            <p className="text-body-md text-on-surface-variant">
+              Datos públicos, zonas de cobertura y métodos de entrega.
+            </p>
+          </div>
         </div>
         <Button onClick={handleSaveAll} disabled={saveProfile.isPending || saveSchedule.isPending} className="rounded-xl font-bold">
           {saveProfile.isPending || saveSchedule.isPending ? "Guardando..." : "Guardar cambios"}
         </Button>
       </div>
+
+      <Tabs tabs={SETTINGS_TABS} value={activeTab} onChange={setActiveTab} className="mb-5" />
+
+      {activeTab === "general" && (
+        <>
 
       {/* Bloque 47: "Información de la marca" se mudó a Mi perfil
           (VendorProfile.jsx, tarjeta "Datos de la tienda") — Configuración
@@ -497,6 +632,57 @@ export default function VendorSettings() {
         )}
       </div>
 
+      {/* Bloque 206 (pedido explícito): antes solo se elegía una vez al
+          registrar la tienda, sin forma de cambiarlo después. */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <Wallet className="h-5 w-5 text-tertiary-accent" /> Tipo de tienda
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Activa esto si atiendes en el local con mesas — habilita Mesas/QR en tu panel.
+        </p>
+        <label className="flex items-center gap-2 text-body-md text-on-surface">
+          <input
+            type="checkbox"
+            checked={form.isRestaurant}
+            onChange={(e) => setForm((f) => ({ ...f, isRestaurant: e.target.checked }))}
+          />
+          Soy un restaurante / cafetería / bar
+        </label>
+        {form.isRestaurant && (
+          <div className="mt-3 max-w-xs">
+            <Input
+              label="Número de mesas"
+              type="number"
+              min={1}
+              required
+              value={form.tableCount}
+              onChange={(e) => setForm((f) => ({ ...f, tableCount: e.target.value }))}
+            />
+            {!vendor?.isRestaurant && (
+              <p className="mt-1 text-label-sm text-outline">Generamos un código QR por cada mesa apenas guardes.</p>
+            )}
+          </div>
+        )}
+        {form.isRestaurant && (
+          <div className="mt-4 border-t border-surface-container-high pt-4">
+            <label className="flex items-center gap-2 text-body-md text-on-surface">
+              <input
+                type="checkbox"
+                checked={form.menuPublic}
+                onChange={(e) => setForm((f) => ({ ...f, menuPublic: e.target.checked }))}
+              />
+              Mostrar el menú digital en mi tienda pública
+            </label>
+            <p className="mt-1 text-label-sm text-outline">
+              {form.menuPublic
+                ? "Cualquiera que entre a tu tienda ve el menú, además de poder pedirlo escaneando el QR de la mesa."
+                : "El menú queda oculto de tu tienda pública — solo se ve escaneando el QR de la mesa."}
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Bloque 47: Métodos de pago (chips — el selector nunca se había
           terminado de conectar: el estado/endpoint ya existían pero no
           había ninguna forma de tocarlo desde acá). */}
@@ -504,9 +690,7 @@ export default function VendorSettings() {
           acá — ya redundante con "Moneda oficial de tu tienda" de arriba
           (Bloque 65, moneda única real de los precios). El cliente sigue
           pudiendo coordinar otra moneda manualmente por WhatsApp si hace
-          falta, no necesita configurarse acá. La columna
-          Vendor.acceptedCurrencies queda intacta en la base — solo deja de
-          editarse desde este formulario. */}
+          falta, no necesita configurarse acá. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
           <Wallet className="h-5 w-5 text-tertiary-accent" /> Métodos de pago
@@ -614,6 +798,93 @@ export default function VendorSettings() {
         </div>
       </div>
 
+      {/* Bloque 174 (pedido explícito — "al crear una cuenta se debe
+          ingresar los horarios de la tienda... esa configuración saldrá en
+          la configuración de la cuenta por si el vendedor desea modificar
+          sus horarios de apertura"): editor real de horario semanal, con
+          varios tramos por día (ej. 9-12 y 14-18, cierre al mediodía) —
+          viaja con el mismo "Guardar cambios" de arriba (handleSaveAll). */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
+            <Clock className="h-5 w-5 text-tertiary-accent" /> Horario de atención
+          </div>
+          <button type="button" onClick={copyMondayToAll} className="whitespace-nowrap text-[12px] font-semibold text-tertiary-accent hover:underline">
+            Copiar el lunes a todos los días
+          </button>
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Se usa para avisarle al cliente si estás abierto ahora mismo — si vendes por mesa (QR), también bloquea pedidos
+          nuevos fuera de este horario. Puedes cargar más de un tramo el mismo día (ej. mañana y tarde, con cierre al mediodía).
+        </p>
+        <div className="flex flex-col divide-y divide-surface-container-high">
+          {days.map((d) => (
+            <div key={d.dayOfWeek} className="flex flex-col gap-2.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start">
+              <div className="flex w-full flex-col gap-1 sm:w-40 sm:flex-shrink-0">
+                <span className="text-[13.5px] font-bold text-on-surface">{d.name}</span>
+                <label className="flex items-center gap-1.5 text-[12px] font-semibold text-on-surface-variant">
+                  <input type="checkbox" checked={d.isClosed} onChange={() => toggleDayClosed(d.dayOfWeek)} className="h-3.5 w-3.5" />
+                  Cerrado
+                </label>
+                <label className="flex items-center gap-1.5 text-[12px] font-semibold text-on-surface-variant">
+                  <input
+                    type="checkbox"
+                    checked={isAlwaysOpenDay(d)}
+                    disabled={d.isClosed}
+                    onChange={() => toggleAlwaysOpen(d.dayOfWeek)}
+                    className="h-3.5 w-3.5"
+                  />
+                  Siempre abierto
+                </label>
+              </div>
+              {!d.isClosed && (
+                <div className="flex flex-1 flex-col gap-2">
+                  {isAlwaysOpenDay(d) ? (
+                    <p className="text-[12.5px] font-semibold text-tertiary-accent">Abierto las 24 horas este día.</p>
+                  ) : (
+                    <>
+                      {d.ranges.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input
+                            type="time"
+                            value={r.opensAt}
+                            onChange={(e) => updateDayRange(d.dayOfWeek, i, "opensAt", e.target.value)}
+                            className="h-9 rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 text-[13px] outline-none focus:border-tertiary-accent"
+                          />
+                          <span className="text-[12px] text-outline">a</span>
+                          <input
+                            type="time"
+                            value={r.closesAt}
+                            onChange={(e) => updateDayRange(d.dayOfWeek, i, "closesAt", e.target.value)}
+                            className="h-9 rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 text-[13px] outline-none focus:border-tertiary-accent"
+                          />
+                          {d.ranges.length > 1 && (
+                            <button type="button" onClick={() => removeDayRange(d.dayOfWeek, i)} className="text-error hover:opacity-70">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => addDayRange(d.dayOfWeek)}
+                        className="flex w-fit items-center gap-1 text-[11.5px] font-semibold text-tertiary-accent hover:underline"
+                      >
+                        <Plus className="h-3 w-3" /> Agregar otro tramo
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+        </>
+      )}
+
+      {activeTab === "cobertura" && (
+        <>
       {/* Bloque 77 (pedido explícito): tienda privada — el toggle viaja con
           el resto del form (mismo "Guardar cambios" de arriba, igual que
           orderDestination). El link es SIEMPRE el mismo /tienda/:slug de
@@ -782,8 +1053,13 @@ export default function VendorSettings() {
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-[13.5px] font-bold text-on-surface">{province.name}</span>
+                            {/* Bloque 195 (bug real encontrado en auditoría —
+                                paleta inventada: bg-purple-100/blue-100 no son
+                                tokens de este proyecto, es la paleta cruda de
+                                Tailwind, distinta del resto del panel — se
+                                reemplaza por los tokens ya establecidos). */}
                             <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider ${
-                              province.type === "STATE" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                              province.type === "STATE" ? "bg-tertiary-accent/10 text-tertiary-accent" : "bg-surface-container-high text-on-surface-variant"
                             }`}>
                               {province.type === "STATE" ? "Estado" : "Provincia"}
                             </span>
@@ -878,7 +1154,11 @@ export default function VendorSettings() {
           )}
         </div>
       </div>
+        </>
+      )}
 
+      {activeTab === "facturacion" && (
+        <>
       {/* Bloque de auditoría (2026-08-06): estos 2 campos ya se mandaban en
           el payload de saveProfile pero nunca tuvieron un input visible en
           ningún panel — el vendedor no tenía forma de completarlos, y
@@ -893,6 +1173,27 @@ export default function VendorSettings() {
           Privados — nunca se muestran en tu tienda pública. Se usan para generar las facturas y certificados de garantía de
           tus pedidos.
         </p>
+        {/* Bloque 153 (pedido explícito — "todos los datos de la tienda no
+            se pueden modificar después de estar verificadas sin aprobación
+            del admin... para prevenir fraudes"): estos 2 son datos de
+            IDENTIDAD — igual que el nombre y el responsable en Perfil, se
+            bloquean acá una vez verificada (el backend ya lo rechaza
+            igual, esto solo evita el viaje al servidor para nada y explica
+            por qué). Corregirlos de verdad se hace desde la nueva tarjeta
+            "Solicitar cambio de datos" en Mi perfil. */}
+        {/* Bloque 165 (bug real reportado en vivo, con captura — "Expected
+            string, received null" en rojo sobre 2 campos vacíos y
+            bloqueados): el candado (companion del backend, ver
+            updateMyVendor) solo tiene sentido una vez que HAY algo real
+            cargado que proteger — antes se aplicaba también con el campo
+            vacío, dejando a una tienda vieja sin ID/dirección cargados (se
+            registró antes de que esto fuera obligatorio) sin ninguna forma
+            de completarlos ella misma. */}
+        {vendor?.verificationStatus === "VERIFIED" && (vendor?.ownerIdNumber || vendor?.companyAddress) && (
+          <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
+            Tienda verificada — el dato ya cargado no se edita acá. Para corregirlo, solicita un cambio desde "Mi perfil".
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input
             label="Identificación del responsable (carné de identidad)"
@@ -900,6 +1201,7 @@ export default function VendorSettings() {
             onChange={(e) => setForm((f) => ({ ...f, ownerIdNumber: e.target.value }))}
             error={errors.ownerIdNumber?.[0]}
             placeholder="Ej.: 90010112345"
+            disabled={vendor?.verificationStatus === "VERIFIED" && !!vendor?.ownerIdNumber}
           />
           <Input
             label="Dirección de la empresa"
@@ -907,6 +1209,7 @@ export default function VendorSettings() {
             onChange={(e) => setForm((f) => ({ ...f, companyAddress: e.target.value }))}
             error={errors.companyAddress?.[0]}
             placeholder="Ej.: Calle 23 #456, Vedado, La Habana"
+            disabled={vendor?.verificationStatus === "VERIFIED" && !!vendor?.companyAddress}
           />
         </div>
       </div>
@@ -999,6 +1302,8 @@ export default function VendorSettings() {
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Modals */}
       {managingProvince && (

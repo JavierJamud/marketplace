@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CreditCard, Landmark, Bot, Clock, X, Plus, ListChecks } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -111,7 +112,7 @@ function PlanFeaturesCard() {
   });
 
   return (
-    <div className="mb-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+    <div className="mb-6 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
         <ListChecks className="h-5 w-5 text-tertiary-accent" /> Qué incluye cada plan
       </div>
@@ -139,13 +140,22 @@ function PlanFeaturesCard() {
 // Bloque 64: cuenta/monto/instrucciones que ve el vendedor en /vendedor/pago-manual
 // al pagar por transferencia CUP — antes hardcodeado a mano en el frontend
 // ("CI: 9205-XXXX-XXXX"), ahora editable acá sin redeploy.
+// Bloque 150: suma el precio mensual del cobro con tarjeta (antes una
+// constante fija en lib/stripe.js) — mismo formulario, ambos precios se
+// usan para calcular el monto real (precio × meses elegidos).
 function CupPaymentSettingsCard() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
-  const [form, setForm] = useState({ cupBankAccountNumber: "", cupBankAccountHolder: "", cupBankInstructions: "", cupSubscriptionPriceCup: 2500 });
+  const [form, setForm] = useState({
+    cupBankAccountNumber: "",
+    cupBankAccountHolder: "",
+    cupBankInstructions: "",
+    cupSubscriptionPriceCup: 2500,
+    cardSubscriptionPriceUsd: 25,
+  });
 
   useEffect(() => {
     if (!settings) return;
@@ -154,32 +164,41 @@ function CupPaymentSettingsCard() {
       cupBankAccountHolder: settings.cupBankAccountHolder ?? "",
       cupBankInstructions: settings.cupBankInstructions ?? "",
       cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup ?? 2500,
+      cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd ?? 25,
     });
   }, [settings]);
 
   const save = useMutation({
     mutationFn: async () => (await api.patch("/admin/settings/cup-payment", form)).data,
     onSuccess: () => {
-      toast.success("Datos de pago CUP actualizados.");
+      toast.success("Datos de pago de la suscripción actualizados.");
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
 
   return (
-    <div className="mb-6 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6">
+    <div className="mb-6 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
-        <Landmark className="h-5 w-5 text-tertiary-accent" /> Datos de pago CUP
+        <Landmark className="h-5 w-5 text-tertiary-accent" /> Datos de pago de la suscripción
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Lo que ve el vendedor en "Pago por transferencia CUP" — vacío = le pedimos que contacte al equipo en su lugar.
+        Precios por mes en cada moneda — el vendedor elige cuántos meses paga (1 a 24) y el monto se calcula solo. Los datos de
+        transferencia CUP son lo que ve el vendedor en "Pago por transferencia" — vacío = le pedimos que contacte al equipo en su
+        lugar.
       </p>
       <div className="mb-3.5 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <Input
-          label="Monto mensual (CUP)"
+          label="Precio mensual — transferencia CUP"
           type="number"
           value={form.cupSubscriptionPriceCup}
           onChange={(e) => setForm({ ...form, cupSubscriptionPriceCup: Number(e.target.value) })}
+        />
+        <Input
+          label="Precio mensual — tarjeta (USD, Stripe)"
+          type="number"
+          value={form.cardSubscriptionPriceUsd}
+          onChange={(e) => setForm({ ...form, cardSubscriptionPriceUsd: Number(e.target.value) })}
         />
         <Input
           label="Número de cuenta"
@@ -192,7 +211,7 @@ function CupPaymentSettingsCard() {
           onChange={(e) => setForm({ ...form, cupBankAccountHolder: e.target.value })}
         />
       </div>
-      <label className="mb-1 block text-label-md font-semibold text-on-surface-variant">Instrucciones adicionales</label>
+      <label className="mb-1 block text-label-md font-semibold text-on-surface-variant">Instrucciones adicionales (CUP)</label>
       <textarea
         value={form.cupBankInstructions}
         onChange={(e) => setForm({ ...form, cupBankInstructions: e.target.value })}
@@ -249,7 +268,10 @@ export default function AdminSubscriptions() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Suscripciones Business</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={CreditCard} tone="teal" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Suscripciones Business</h1>
+      </div>
       <p className="mb-2 text-[13.5px] text-outline">
         Estado de cobro de cada tienda Business, calculado en vivo a partir del plan y su verificación — nunca un valor guardado aparte.
       </p>
@@ -264,7 +286,7 @@ export default function AdminSubscriptions() {
 
       <div className="mb-6 grid grid-cols-2 gap-[18px] lg:grid-cols-4">
         {metrics.map((m) => (
-          <div key={m.label} className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5">
+          <div key={m.label} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5">
             <div className="mb-2 text-[12.5px] text-outline">{m.label}</div>
             <div className="font-display text-2xl font-extrabold text-on-surface">{m.value}</div>
             {m.delta && <div className="mt-1 text-[11.5px] font-semibold text-verified-dark">{m.delta}</div>}
@@ -272,7 +294,7 @@ export default function AdminSubscriptions() {
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-surface-container-high bg-surface-container-lowest">
+      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         <div className="grid grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[640px]">
           <span>Tienda</span><span>Provincia</span><span>Estado</span><span>Pago</span><span className="text-right">Acciones</span>
         </div>

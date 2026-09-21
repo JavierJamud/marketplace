@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Pencil, RotateCcw, Trash2, Image as ImageIcon, MousePointerClick, X } from "lucide-react";
+import { Pencil, RotateCcw, Trash2, Image as ImageIcon, MousePointerClick, X, Megaphone } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
 const SEGMENTS = [
   { id: "all_customers", label: "Todos los clientes" },
@@ -182,6 +185,21 @@ function CampaignEditModal({ campaign, provinces, siteSettings, onClose }) {
 
   const ctaMismatch = !!ctaLabel !== !!ctaUrl;
 
+  // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
+  // mostrado como ventana o popup en el panel debe cerrarse automáticamente,
+  // y si necesita que guarden datos debe preguntar si desea guardar o
+  // descartar antes de cerrar"): mismo patrón de snapshot-en-ref que
+  // ProductModal (VendorProducts.jsx). `imageBlob` es un File — no
+  // serializa de forma útil con JSON.stringify — así que se compara solo
+  // si HAY uno nuevo elegido (`!!imageBlob`), igual criterio que
+  // OfferModal (AdminOffers.jsx) con su `customPreview`.
+  const initialCampaignSnapshot = useRef(
+    JSON.stringify({ subject, segment, provinceId, content, hasNewImage: !!imageBlob, imageLink, existingImageUrl, ctaLabel, ctaUrl })
+  );
+  const isDirty =
+    JSON.stringify({ subject, segment, provinceId, content, hasNewImage: !!imageBlob, imageLink, existingImageUrl, ctaLabel, ctaUrl }) !==
+    initialCampaignSnapshot.current;
+
   const save = useMutation({
     mutationFn: async () => {
       const form = new FormData();
@@ -204,8 +222,20 @@ function CampaignEditModal({ campaign, provinces, siteSettings, onClose }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la campaña."),
   });
 
+  // Bloque 196: misma condición que ya deshabilita "Guardar cambios" más
+  // abajo (sin save.isPending).
+  const canSaveNow = !!subject.trim() && !!content.trim() && !ctaMismatch;
+  const dirtyModal = useDirtyModal({
+    isDirty,
+    onClose,
+    onSave: canSaveNow ? () => save.mutateAsync() : undefined,
+  });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+      onClick={dirtyModal.handleBackdropClick}
+    >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Editar campaña</h3>
@@ -248,6 +278,14 @@ function CampaignEditModal({ campaign, provinces, siteSettings, onClose }) {
           </button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onSave={canSaveNow ? dirtyModal.handleSaveAndClose : undefined}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -357,7 +395,10 @@ export default function AdminCampaigns() {
 
   return (
     <div>
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Campañas</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={Megaphone} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Campañas</h1>
+      </div>
       <p className="mb-[22px] text-[13.5px] text-outline">Envía correos masivos (Resend) a clientes o vendedores segmentados.</p>
 
       <div className="grid grid-cols-1 items-start gap-[22px] lg:grid-cols-[1fr_340px]">

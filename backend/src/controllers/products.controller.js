@@ -10,7 +10,8 @@ import { slugify } from "../utils/slugify.js";
 import { env } from "../config/env.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
-import { logActivity } from "../lib/activityLog.js";
+import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { hashToken } from "../utils/hashToken.js";
 
 const REGULAR_PLAN_PRODUCT_LIMIT = 20;
 
@@ -59,6 +60,21 @@ export const productSchema = z.object({
   // Bloque 16: independiente de todo lo anterior — si el producto aparece en
   // el menú QR de mesa (ver tables.controller.js getTableByToken).
   availableForTableMenu: z.boolean().optional(),
+  // Bloque 157 (pedido explícito): oculta el producto de tienda/catálogo/
+  // búsqueda/destacados — sigue pidiéndose normal desde la mesa si
+  // availableForTableMenu es true. Ver getProduct/listProducts/autocompleteSearch
+  // (excluyen hiddenFromStore:true) y getTableByToken (que NO lo excluye, a
+  // propósito).
+  hiddenFromStore: z.boolean().optional(),
+  // Bloque 157: false (default) = todas las mesas; true = solo las mesas en
+  // restrictedTableIds. Se valida más abajo (assertTableRestrictionConsistent)
+  // que si viene en true, venga al menos 1 mesa — si no, el producto
+  // quedaría sin poder pedirse desde ninguna mesa por error.
+  tableRestricted: z.boolean().optional(),
+  // Relación (Product.restrictedTables), no una columna — se saca del objeto
+  // parseado antes de mandarlo a Prisma (ver extractRestrictedTableIds) y se
+  // valida que cada mesa sea de este mismo vendedor (assertTablesOwnedByVendor).
+  restrictedTableIds: z.array(z.string()).max(200).optional(),
   // Bloque 22: hasta 5, opcionales. Se guardan en minúscula/trim acá (no
   // solo en el frontend) para que un request directo a la API no se salte
   // la normalización que search.controller.js necesita para matchear bien.
@@ -93,6 +109,38 @@ export const productSchema = z.object({
   currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
 });
 
+// Bloque 143 (pedido explícito — "el stock siempre debe ponerse al crear
+// un producto, y si es ilimitado debe ponerse como ilimitado al crear un
+// producto"): `productSchema` de arriba tiene `stock`/`unlimitedStock` con
+// `.default(...)` — necesario para que updateProduct (`.partial()`, más
+// abajo) pueda editar SOLO otros campos sin tener que reenviar el stock
+// entero cada vez. Para CREAR un producto eso mismo es el problema: un
+// request que no mande ninguno de los 2 campos quedaría creado en silencio
+// como "stock 0, no ilimitado" — una decisión real tomada por default, no
+// por el vendedor. createProductSchema saca esos defaults (quedan
+// undefined si no llegan) y un `superRefine` exige una decisión EXPLÍCITA:
+// stock real, "disponible siempre", o tallas con su propio stock por talla
+// (sizeStock, que también define el stock real, ver reconcileStock). El
+// formulario (VendorProducts.jsx) ya fuerza esta misma elección en la UI
+// (input de stock `required` XOR el checkbox "Disponible siempre") — esto
+// la respalda también del lado del servidor, para cualquier request que no
+// pase por ese formulario.
+const createProductSchema = productSchema
+  .extend({
+    stock: z.number().int().min(0).optional(),
+    unlimitedStock: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasSizesWithStock = (data.sizes?.length ?? 0) > 0;
+    if (!data.unlimitedStock && data.stock === undefined && !hasSizesWithStock) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stock"],
+        message: 'Define el stock del producto, o márcalo como "Disponible siempre" si es ilimitado.',
+      });
+    }
+  });
+
 // Bloque 55: saca `priceTiers` del objeto ya parseado por zod (Prisma no
 // acepta un array plano bajo el nombre de una relación, necesita la sintaxis
 // de nested write `{ create: [...] }`) — se maneja aparte en cada
@@ -102,6 +150,38 @@ export function extractPriceTiers(data) {
   const priceTiers = data.priceTiers;
   delete data.priceTiers;
   return priceTiers;
+}
+
+// Bloque 157: mismo criterio que extractPriceTiers — restrictedTableIds
+// (Product.restrictedTables) es una relación, no una columna, así que se saca
+// del objeto parseado antes de mandarlo a Prisma directamente. `undefined` =
+// el payload no tocaba esto (update parcial); nunca se confunde con "[]"
+// (que sí significa "sacar todas las mesas restringidas").
+function extractRestrictedTableIds(data) {
+  const ids = data.restrictedTableIds;
+  delete data.restrictedTableIds;
+  return ids;
+}
+
+// Nunca se confía en que las mesas que mandó el cliente sean de verdad suyas
+// — mismo criterio que cualquier otra referencia cruzada en este archivo
+// (categoryId, etc.). Sin esto, un vendedor podría restringir su producto a
+// la mesa de OTRO vendedor con solo mandar su id a mano.
+async function assertTablesOwnedByVendor(vendorId, tableIds) {
+  if (!tableIds || tableIds.length === 0) return;
+  const count = await prisma.table.count({ where: { id: { in: tableIds }, vendorId } });
+  if (count !== tableIds.length) throw new AppError("Una o más mesas seleccionadas no existen.", 400);
+}
+
+// Recibe el estado FINAL (ya mezclado con lo existente si es un update
+// parcial, mismo criterio que assertStockModeConsistent) — con la
+// restricción activada, el producto necesita al menos 1 mesa asignada, si no
+// queda inaccesible desde cualquier mesa por un error de carga, no por una
+// decisión real del vendedor.
+function assertTableRestrictionConsistent(finalTableRestricted, finalRestrictedTableIds) {
+  if (finalTableRestricted && (!finalRestrictedTableIds || finalRestrictedTableIds.length === 0)) {
+    throw new AppError("Selecciona al menos una mesa para restringir este producto, o desactiva la restricción.", 400);
+  }
 }
 
 // Devuelve las monedas habilitadas por el admin (SiteSettings).
@@ -268,6 +348,38 @@ export async function attachBestSellerFlag(products) {
   return products.map((p) => ({ ...p, isBestSeller: bestSellerIds.has(p.id) }));
 }
 
+const RELATED_LIMIT = 4;
+
+// Bloque 230 (Fase 3, pedido explícito — "'también te puede interesar' —
+// co-compra por orderItem. Query simple, sin ML"): productos que clientes
+// reales compraron JUNTO con este, en el mismo pedido — señal de
+// comportamiento de compra real, mucho más fuerte que "misma categoría"
+// (el criterio único de antes, Bloque 98, que ahora queda solo como relleno
+// para cuando todavía no hay historial de pedidos suficiente). Dos consultas
+// simples (mismo estilo que attachBestSellerFlag más arriba: groupBy sobre
+// OrderItem), nunca una tabla/cálculo aparte. Solo pedidos CONFIRMADOS (ni
+// NEW ni CANCELLED — mismo criterio que salesCount, ver confirmOrderSale en
+// orders.controller.js): un carrito que nunca se confirmó no dice nada real
+// sobre qué compra la gente junto.
+async function findCoPurchasedProductIds(productId, limit) {
+  const coOrders = await prisma.orderItem.findMany({
+    where: { productId, order: { status: { notIn: ["NEW", "CANCELLED"] } } },
+    select: { orderId: true },
+    distinct: ["orderId"],
+  });
+  const orderIds = coOrders.map((o) => o.orderId);
+  if (orderIds.length === 0) return [];
+
+  const coItems = await prisma.orderItem.groupBy({
+    by: ["productId"],
+    where: { orderId: { in: orderIds }, AND: [{ productId: { not: null } }, { productId: { not: productId } }] },
+    _count: { productId: true },
+    orderBy: { _count: { productId: "desc" } },
+    take: limit,
+  });
+  return coItems.map((c) => c.productId);
+}
+
 export async function getProductBySlug(req, res) {
   const { vendorSlug, productSlug } = req.params;
 
@@ -275,7 +387,10 @@ export async function getProductBySlug(req, res) {
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Producto no encontrado.", 404);
 
   const product = await prisma.product.findFirst({
-    where: { vendorId: vendor.id, slug: productSlug, isActive: true },
+    // Bloque 157: hiddenFromStore:true significa "solo se pide desde la
+    // mesa" — la ficha pública de este mismo producto también queda 404,
+    // igual que uno inactivo, así una URL directa/compartida no lo expone.
+    where: { vendorId: vendor.id, slug: productSlug, isActive: true, hiddenFromStore: false },
     include: {
       options: true,
       category: true,
@@ -308,16 +423,46 @@ export async function getProductBySlug(req, res) {
     _count: { rating: true },
   });
 
-  const related = await prisma.product.findMany({
-    where: { categoryId: product.categoryId, isActive: true, id: { not: product.id } },
-    include: { vendor: { select: { companyName: true, slug: true, verificationStatus: true } } },
-    take: 4,
-  });
+  const RELATED_INCLUDE = { vendor: { select: { companyName: true, slug: true, verificationStatus: true } } };
+  const coPurchasedIds = await findCoPurchasedProductIds(product.id, RELATED_LIMIT);
+  let related = [];
+  if (coPurchasedIds.length > 0) {
+    const coPurchasedProducts = await prisma.product.findMany({
+      where: { id: { in: coPurchasedIds }, isActive: true, hiddenFromStore: false },
+      include: RELATED_INCLUDE,
+    });
+    // El orden de coPurchasedIds YA es "más comprado junto" primero — findMany
+    // no lo conserva, así que se reordena a mano contra esa lista.
+    related = coPurchasedIds.map((id) => coPurchasedProducts.find((p) => p.id === id)).filter(Boolean);
+  }
+  if (related.length < RELATED_LIMIT) {
+    // Arranque en frío (producto nuevo sin historial de pedidos todavía, o
+    // muy pocos) — se completa con el criterio anterior (misma categoría)
+    // para que la sección nunca quede vacía ni a medias.
+    const excludeIds = [product.id, ...related.map((p) => p.id)];
+    const fallback = await prisma.product.findMany({
+      where: { categoryId: product.categoryId, isActive: true, hiddenFromStore: false, id: { notIn: excludeIds } },
+      include: RELATED_INCLUDE,
+      take: RELATED_LIMIT - related.length,
+    });
+    related = [...related, ...fallback];
+  }
 
   // Bloque 25: mismo flag que getVendorBySlug — StoreChatWidget se monta
   // acá con product.vendor, así que necesita su propio aiAvailable en vez
   // de depender de que el cliente haya pasado antes por Store.jsx.
   const aiAvailable = product.vendor.verificationStatus === "VERIFIED" ? await isAIAvailable() : false;
+
+  // Bloque 109 (pedido explícito): ruta pública, así que el login es
+  // opcional acá (mismo mecanismo ya usado en chat/assistant/orders
+  // controller — decodifica el token si vino, nunca exige sesión para ver
+  // la ficha). Si el cliente está logueado y ya tiene una solicitud
+  // pendiente de este producto, el botón de RequestProductButton.jsx la
+  // muestra como ya enviada en vez de dejarlo mandar otra.
+  const optionalUserId = resolveOptionalUserId(req);
+  const alreadyRequested = optionalUserId
+    ? Boolean(await prisma.productRequest.findFirst({ where: { productId: product.id, customerId: optionalUserId } }))
+    : false;
 
   res.json({
     product: {
@@ -325,9 +470,127 @@ export async function getProductBySlug(req, res) {
       vendor: withComputedVendorFields({ ...product.vendor, aiAvailable }),
       rating: ratingAgg._avg.rating ? Math.round(ratingAgg._avg.rating * 10) / 10 : null,
       reviewCount: ratingAgg._count.rating,
+      alreadyRequested,
     },
     related: related.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })),
   });
+}
+
+// Bloque 109: mismo mecanismo opcional que assistant/chat/orders.controller.js
+// (resolveOptionalUserId) — nunca obligatorio, una ruta pública sigue
+// funcionando igual sin login, solo que sin poder saber "¿ya lo pidió?".
+function resolveOptionalUserId(req) {
+  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
+  if (!token) return null;
+  try {
+    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
+    // el algoritmo esperado en vez de confiar en el "alg" del propio token.
+    return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }).sub;
+  } catch {
+    return null;
+  }
+}
+
+// Bloque 98 (pedido explícito): señales reales para el algoritmo de
+// "Destacados" (ver lib/productRanking.js) — los 3 endpoints de acá abajo
+// son públicos (sin `authenticate`, cualquier visitante genera estas
+// señales) y nunca tiran 404/error visible: si el producto ya no existe o
+// el id es inválido, `updateMany` simplemente no actualiza nada y de
+// todos modos se responde 204 — nunca vale la pena romperle la
+// experiencia a un visitante real por culpa de un beacon de tracking.
+
+// Se abrió la ficha del producto — interés real, más fuerte que un clic
+// desde un listado (implica que de verdad entró a mirarlo).
+export async function trackProductView(req, res) {
+  const { id } = req.params;
+  await prisma.product.updateMany({ where: { id }, data: { viewCount: { increment: 1 } } });
+  res.status(204).end();
+}
+
+const trackClickSchema = z.object({ source: z.enum(["search", "home", "catalog", "store"]).optional() });
+
+// Bloque 228 (pedido explícito — Fase 1 del blindaje del ranking: "sin esto,
+// el 30% de clics es falsificable" — clicks+searchClicks pesan 0.15+0.15 en
+// productRanking.js): antes de este bloque, este endpoint sumaba 1 SIEMPRE,
+// sin ningún control — un script podía spamearlo y mandar el score de
+// cualquier producto para arriba a mano. Ventana de 30 min: alcanza para
+// que un script en bucle no pueda inflar nada, pero una persona real que
+// vuelve a mirar el mismo producto más tarde en el día SÍ vuelve a contar
+// (no es una sesión de por vida, es "no cuentes el mismo clic 50 veces
+// seguidas"). La dedup ignora `source` a propósito — si no, alternar el
+// parámetro (?source=search, luego ?source=home, ...) sería una forma
+// trivial de esquivarla.
+const CLICK_DEDUP_WINDOW_MS = 30 * 60 * 1000;
+
+// Clic en una tarjeta desde cualquier listado (Home/catálogo/tienda/
+// resultados de búsqueda) — `source` distingue cuáles vinieron puntualmente
+// de una búsqueda, la señal de "qué buscan más los clientes".
+export async function trackProductClick(req, res) {
+  const { id } = req.params;
+  const { source } = trackClickSchema.parse(req.body ?? {});
+
+  // Nota: `req.ip` es la IP del socket directo — este proyecto todavía no
+  // configura `trust proxy` en app.js (ninguno de los rate-limiters
+  // existentes tampoco lo hace), así que detrás de un proxy real en
+  // producción esto necesitaría la misma configuración que ya le hace
+  // falta a `middleware/rateLimit.js`. Mismo nivel de confianza que el
+  // resto del proyecto ya usa para `req.ip`, no una limitación nueva de
+  // este bloque puntual.
+  const ipHash = hashToken(req.ip || "unknown");
+  const since = new Date(Date.now() - CLICK_DEDUP_WINDOW_MS);
+
+  const recentClick = await prisma.productClickEvent.findFirst({
+    where: { productId: id, ipHash, createdAt: { gte: since } },
+    select: { id: true },
+  });
+
+  if (!recentClick) {
+    try {
+      await prisma.$transaction([
+        prisma.productClickEvent.create({ data: { productId: id, ipHash, source } }),
+        prisma.product.updateMany({
+          where: { id },
+          data: {
+            clickCount: { increment: 1 },
+            ...(source === "search" ? { searchClickCount: { increment: 1 } } : {}),
+            // Bloque 230 (Fase 3, "decaimiento temporal en Destacados —
+            // 'destacado' pasa a significar 'relevante ahora'"): ancla de
+            // recencia para productRanking.js. Solo esta señal y la venta
+            // confirmada (orders.controller.js) la mueven — no viewCount/
+            // dwell, que disparan en CADA carga de página sin ningún gate,
+            // lo que volvería "recencia" casi siempre 0 días para cualquier
+            // producto con tráfico accidental y vaciaría de sentido el decay.
+            lastActivityAt: new Date(),
+          },
+        }),
+      ]);
+    } catch {
+      // Bloque 228: mismo criterio que el resto de este bloque de 3
+      // endpoints (ver el comentario grande más arriba) — un `id` que ya no
+      // existe rompe la FK de ProductClickEvent (a diferencia del
+      // `updateMany` original, que solo no actualizaba nada en silencio).
+      // Nunca vale la pena romperle la experiencia a un visitante real por
+      // culpa de un beacon de tracking con un id viejo/inválido.
+    }
+  }
+
+  res.status(204).end();
+}
+
+// Techo defensivo: un solo valor de dwell corrupto (pestaña olvidada abierta
+// toda la noche, reloj del cliente mal) no debe poder inflar el promedio de
+// TODO el producto de un solo golpe.
+const MAX_DWELL_MS = 30 * 60 * 1000; // 30 min
+const trackDwellSchema = z.object({ ms: z.number().int().positive() });
+
+// Tiempo real en la página del producto (medido en el cliente, mount→unmount
+// o cambio de pestaña/cierre) — "se detienen más tiempo" del pedido
+// original. Se acumula en totalDwellMs; junto con viewCount da el promedio.
+export async function trackProductDwell(req, res) {
+  const { id } = req.params;
+  const { ms } = trackDwellSchema.parse(req.body ?? {});
+  await prisma.product.updateMany({ where: { id }, data: { totalDwellMs: { increment: Math.min(ms, MAX_DWELL_MS) } } });
+  res.status(204).end();
 }
 
 export async function lookupByBarcode(req, res) {
@@ -353,6 +616,10 @@ export async function listMyProducts(req, res) {
       // muestra en VendorProducts.jsx para priorizar qué producto agotado
       // reponer primero (ordenable por este número).
       _count: { select: { requests: true } },
+      // Bloque 157: para prellenar el picker de mesas al editar — solo los
+      // ids hacen falta, VendorProducts.jsx ya tiene la lista completa de
+      // mesas del vendedor por su cuenta (GET /tables/me).
+      restrictedTables: { select: { id: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -361,10 +628,19 @@ export async function listMyProducts(req, res) {
 
 export async function createProduct(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
-  const parsed = productSchema.parse(req.body);
+  const parsed = createProductSchema.parse(req.body);
   const rawTiers = extractPriceTiers(parsed);
+  const restrictedTableIds = extractRestrictedTableIds(parsed);
   const data = reconcileStock(parsed);
   assertStockModeConsistent(data.sizes, data.unlimitedStock);
+  assertTableRestrictionConsistent(data.tableRestricted, restrictedTableIds);
+  await assertTablesOwnedByVendor(vendor.id, restrictedTableIds);
+  // La columna Stock de la base no es nullable — a esta altura ya se
+  // validó (createProductSchema) que si stock sigue sin definir es porque
+  // el producto es ilimitado o tiene tallas (reconcileStock ya lo calculó
+  // en ese caso) — 0 es un valor de relleno seguro, nunca se lee cuando
+  // unlimitedStock es true.
+  data.stock = data.stock ?? 0;
 
   // Bloque 56 (pedido explícito): un producto recién creado todavía no tiene
   // fotos (necesita existir primero para poder subirlas, ver
@@ -412,12 +688,13 @@ export async function createProduct(req, res) {
       vendorId: vendor.id,
       slug,
       priceTiers: validTiers.length > 0 ? { create: validTiers } : undefined,
+      restrictedTables: restrictedTableIds?.length ? { connect: restrictedTableIds.map((id) => ({ id })) } : undefined,
     },
-    include: productPriceTiersInclude,
+    include: { ...productPriceTiersInclude, restrictedTables: { select: { id: true } } },
   });
   logActivity({
     actorId: req.user.id,
-    actorRole: "VENDOR",
+    actorRole: actorRoleForVendorAction(req),
     vendorId: vendor.id,
     action: "product_created",
     description: `Creó el producto "${product.name}"`,
@@ -430,14 +707,20 @@ export async function updateProduct(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
 
-  const existing = await prisma.product.findUnique({ where: { id } });
+  const existing = await prisma.product.findUnique({ where: { id }, include: { restrictedTables: { select: { id: true } } } });
   if (!existing || existing.vendorId !== vendor.id) throw new AppError("Producto no encontrado.", 404);
 
   const parsed = productSchema.partial().parse(req.body);
   const hasTiersInPayload = parsed.priceTiers !== undefined;
   const rawTiers = extractPriceTiers(parsed);
+  const restrictedTableIds = extractRestrictedTableIds(parsed);
   const data = reconcileStock(parsed);
   assertStockModeConsistent(data.sizes ?? existing.sizes, data.unlimitedStock ?? existing.unlimitedStock);
+  assertTableRestrictionConsistent(
+    data.tableRestricted ?? existing.tableRestricted,
+    restrictedTableIds ?? existing.restrictedTables.map((t) => t.id)
+  );
+  await assertTablesOwnedByVendor(vendor.id, restrictedTableIds);
   // Bloque 65: cada guardado re-sincroniza la moneda del producto con la de
   // la tienda — así un producto viejo que haya quedado con una moneda
   // distinta (ej. la tienda la cambió después) se normaliza solo la próxima
@@ -455,6 +738,21 @@ export async function updateProduct(req, res) {
 
   const basePrice = data.price ?? existing.price;
 
+  // Bloque 109 (pedido explícito): las solicitudes de "avisame cuando
+  // repongas" (ProductRequest) ya no expiran solas a las 24h — quedan
+  // pendientes hasta que el producto se repone DE VERDAD. Acá es donde se
+  // detecta ese momento: estaba sin stock real (ni ilimitado) y el guardado
+  // lo deja con stock de nuevo (numérico > 0, o pasa a ilimitado) — se
+  // borran las solicitudes viejas de este producto, dejando la cancha
+  // libre para un nuevo ciclo de solicitudes si vuelve a agotarse más
+  // adelante. `data.stock` ya viene recalculado por reconcileStock (suma de
+  // sizeStock si el producto usa tallas), así que este chequeo vale igual
+  // con o sin tallas.
+  const wasOutOfStock = !existing.unlimitedStock && existing.stock <= 0;
+  const finalUnlimited = data.unlimitedStock ?? existing.unlimitedStock;
+  const finalStock = data.stock ?? existing.stock;
+  const isRestocked = wasOutOfStock && (finalUnlimited || finalStock > 0);
+
   const product = await prisma.$transaction(async (tx) => {
     if (hasTiersInPayload) {
       // Reemplazo completo — mismo criterio que updateOrderItems (orders.controller.js).
@@ -469,7 +767,19 @@ export async function updateProduct(req, res) {
         assertValidPriceTiers(data.price, currentTiers.map((t) => ({ minQty: t.minQty, price: Number(t.price) })));
       }
     }
-    return tx.product.update({ where: { id }, data, include: productPriceTiersInclude });
+    if (isRestocked) await tx.productRequest.deleteMany({ where: { productId: id } });
+    return tx.product.update({
+      where: { id },
+      data: {
+        ...data,
+        // set (no connect) — reemplazo completo de la lista, mismo criterio
+        // que replacePriceTiers de arriba: lo que no venga en este payload
+        // deja de estar asignado. undefined (el payload no tocó este campo)
+        // deja la relación tal cual estaba.
+        restrictedTables: restrictedTableIds !== undefined ? { set: restrictedTableIds.map((tid) => ({ id: tid })) } : undefined,
+      },
+      include: { ...productPriceTiersInclude, restrictedTables: { select: { id: true } } },
+    });
   });
   res.json({ product });
 }
@@ -617,54 +927,31 @@ export async function reorderProductImages(req, res) {
   res.json({ product });
 }
 
-// --- "Solicitar este producto" (Bloque 23) ----------------------------------
-// Ruta pública (sin `authenticate`): un cliente logueado O anónimo puede
-// pedir que le avisen cuando repongan un producto sin stock. Se decodifica el
-// token a mano y sin lanzar, en vez de usar el middleware `authenticate`, que
-// exige sesión y cortaría el flujo para el visitante anónimo.
-
-function optionalUser(req) {
-  const header = req.headers.authorization;
-  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
-  if (!token) return null;
-  try {
-    const payload = jwt.verify(token, env.jwtSecret);
-    return { id: payload.sub, role: payload.role };
-  } catch {
-    return null;
-  }
-}
-
-const productRequestSchema = z.object({ guestId: z.string().trim().min(1).max(120).optional() });
-
-const PRODUCT_REQUEST_DEDUP_HOURS = 24;
-
+// --- "Solicitar este producto" (Bloque 23, endurecido en el Bloque 109) ----
+// Bloque 109 (pedido explícito): antes esta ruta era pública y aceptaba un
+// guestId anónimo (localStorage) — el vendedor recibía la solicitud sin
+// ningún dato real de contacto, inútil para "avisarle cuando lo tenga
+// disponible". Ahora exige `authenticate` (ver products.routes.js) — el
+// vendedor siempre puede identificar y contactar al cliente real que pidió
+// el producto (mismo User que ya tiene teléfono/nombre en su cuenta).
 export async function requestProductRestock(req, res) {
   const { id } = req.params;
-  const { guestId } = productRequestSchema.parse(req.body);
-  const user = optionalUser(req);
-  if (!user && !guestId) throw new AppError("Falta identificar la solicitud.", 400);
 
   const product = await prisma.product.findUnique({ where: { id } });
   if (!product || !product.isActive) throw new AppError("Producto no encontrado.", 404);
 
-  const since = new Date(Date.now() - PRODUCT_REQUEST_DEDUP_HOURS * 60 * 60 * 1000);
+  // Bloque 109: el dedup pasa de "no repetir dentro de 24h" a "no repetir
+  // NUNCA mientras siga sin stock" — una sola solicitud pendiente por
+  // cliente y producto alcanza; repetirla no le suma información nueva al
+  // vendedor. Se libera sola cuando el producto se repone de verdad (ver
+  // el borrado de ProductRequest en updateProduct, más abajo).
   const existing = await prisma.productRequest.findFirst({
-    where: {
-      productId: id,
-      createdAt: { gte: since },
-      ...(user ? { customerId: user.id } : { guestId }),
-    },
+    where: { productId: id, customerId: req.user.id },
   });
   if (existing) return res.status(200).json({ request: existing, duplicate: true });
 
   const request = await prisma.productRequest.create({
-    data: {
-      productId: id,
-      vendorId: product.vendorId,
-      customerId: user?.id ?? null,
-      guestId: user ? null : guestId,
-    },
+    data: { productId: id, vendorId: product.vendorId, customerId: req.user.id },
   });
   res.status(201).json({ request, duplicate: false });
 }

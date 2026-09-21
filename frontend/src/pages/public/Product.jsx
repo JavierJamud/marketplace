@@ -6,12 +6,14 @@ import { Minus, Plus, ShoppingCart, MapPin, ShieldCheck, ShieldAlert, ScanBarcod
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { describeReviewLimit } from "../../lib/reviewPolicy.js";
 import { resolveUnitPrice, calcSavings, buildPriceTierRanges } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { PageLoader } from "../../components/ui/PageLoader.jsx";
+import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 import { PackageSearch } from "lucide-react";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
@@ -30,7 +32,10 @@ function imgUrl(path) {
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
-const PAY_LABELS = { whatsapp: "WhatsApp", cod: "Contra entrega", prepaid: "Transferencia CUP" };
+// Bloque 199: mismo mapa compartido que VendorProducts.jsx/Shop.jsx — antes
+// decía "Transferencia CUP" acá, distinto de lo que mostraba el propio
+// formulario del vendedor ("Transferencia").
+const PAY_LABELS = PRODUCT_PAYMENT_METHOD_LABEL;
 
 export default function Product() {
   const { vendorSlug, productSlug } = useParams();
@@ -38,7 +43,7 @@ export default function Product() {
   const queryClient = useQueryClient();
   const { addItem, items } = useCart();
   const { user } = useAuth();
-  const { siteName } = usePlatformSettings();
+  const { siteName, reviewDedupHours, maxReviewsPerProductPerPeriod } = usePlatformSettings();
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
@@ -76,6 +81,45 @@ export default function Product() {
   useEffect(() => {
     setSelectedImage(0);
     setSelectedSize(null);
+  }, [data?.product?.id]);
+
+  // Bloque 98 (pedido explícito): señales reales para el algoritmo de
+  // "Destacados" (ver backend/src/lib/productRanking.js) — vista real
+  // (dedupeada por sessionStorage: recargar la misma ficha en la misma
+  // pestaña no infla el contador) y tiempo de permanencia. El efecto va con
+  // `data?.product?.id` como dependencia (no un mount vacío []) porque
+  // "También te puede interesar" navega a otro producto SIN desmontar este
+  // componente (mismo patrón que el useEffect de arriba) — así se dispara
+  // una vez por producto real, no una vez por vida del componente.
+  useEffect(() => {
+    const productId = data?.product?.id;
+    if (!productId) return;
+
+    const viewedKey = `zeudin_viewed_${productId}`;
+    if (!sessionStorage.getItem(viewedKey)) {
+      sessionStorage.setItem(viewedKey, "1");
+      api.post(`/products/${productId}/track-view`).catch(() => {});
+    }
+
+    let mountTime = Date.now();
+    function flushDwell() {
+      const ms = Date.now() - mountTime;
+      mountTime = Date.now();
+      if (ms < 500) return; // rebote casi instantáneo, no cuenta como visita real
+      const blob = new Blob([JSON.stringify({ ms })], { type: "application/json" });
+      navigator.sendBeacon(`${api.defaults.baseURL}/products/${productId}/track-dwell`, blob);
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === "hidden") flushDwell();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flushDwell);
+
+    return () => {
+      flushDwell();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flushDwell);
+    };
   }, [data?.product?.id]);
 
   // Helper para cambiar imagen con crossfade suave.
@@ -256,10 +300,20 @@ export default function Product() {
       toast.error("Elige una talla primero.");
       return;
     }
-    addItem(
+    // Bug real reportado en vivo (con captura, mismo bug que
+    // AddToCartControl.jsx): este toast salía siempre, incluso cuando
+    // `addItem` solo abrió CartConflictModal sin agregar nada de verdad
+    // (carrito con otra tienda) — el toast de éxito solo sale si `addItem`
+    // confirma que agregó de verdad.
+    const result = addItem(
       {
         id: product.id,
         name: product.name,
+        // Bloque 147: mismo campo que ya usa AddToCartControl.jsx/SharedCart
+        // — sin esto, el carrito nunca podía mostrar la foto ni linkear a
+        // la ficha del producto (bug real reportado en vivo).
+        image: product.images?.[0] ?? null,
+        slug: product.slug ?? null,
         price: Number(product.price),
         priceTiers: product.priceTiers ?? [],
         currency: product.currency,
@@ -276,6 +330,7 @@ export default function Product() {
       },
       Math.min(qty, remainingStock)
     );
+    if (result.conflict) return;
     toast.success("Agregado al carrito ✓");
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
@@ -534,7 +589,7 @@ export default function Product() {
             </div>
           )}
           {!product.unlimitedStock && product.stock === 0 ? (
-            <RequestProductButton productId={product.id} />
+            <RequestProductButton productId={product.id} alreadyRequested={product.alreadyRequested} />
           ) : (
             <button
               onClick={handleAddToCart}
@@ -583,7 +638,8 @@ export default function Product() {
       <section ref={reviewsRef} id="resenas" className="container-app pt-14">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Reseñas de clientes</h2>
         <p className="mb-5 text-label-sm text-outline">
-          Públicas y visibles para todos. Solo compradores registrados pueden reseñar — 1 comentario por día por tienda.
+          Públicas y visibles para todos. Solo compradores registrados pueden reseñar —{" "}
+          {describeReviewLimit(reviewDedupHours, maxReviewsPerProductPerPeriod, "producto")}.
         </p>
 
         <div className="mb-6 max-w-[720px] rounded-md border border-surface-container-high bg-surface-container-lowest p-4">

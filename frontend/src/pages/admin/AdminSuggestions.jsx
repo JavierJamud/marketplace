@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Store, User, Check } from "lucide-react";
+import { Store, User, Check, MessageSquare } from "lucide-react";
+import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 
 const FILTERS = [
@@ -38,7 +39,10 @@ export default function AdminSuggestions() {
 
   return (
     <div className="max-w-[820px]">
-      <h1 className="mb-1 font-display text-[25px] font-bold text-on-surface">Sugerencias</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <IconCircle icon={MessageSquare} tone="orange" />
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Sugerencias</h1>
+      </div>
       <p className="mb-4 text-[13.5px] text-outline">Buzón de mejoras enviadas por vendedores y clientes.</p>
 
       <div className="mb-[22px] flex gap-2">
@@ -64,7 +68,7 @@ export default function AdminSuggestions() {
           return (
             <div
               key={s.id}
-              className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5"
+              className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5"
               style={{ opacity: s.status === "REVIEWED" ? 0.65 : 1 }}
             >
               <div className="mb-2.5 flex items-start justify-between gap-3">

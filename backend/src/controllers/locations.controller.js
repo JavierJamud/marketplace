@@ -27,18 +27,34 @@ export async function listProvincesByCountry(req, res) {
   res.json({ provinces });
 }
 
-// Bloque 19: países activos — solo muestra países que tengan al menos una
-// subdivisión (Estado o Provincia con municipios) activa.
-export async function listActiveCountries(_req, res) {
+// Bloque 19: países activos — por defecto solo muestra países que tengan al
+// menos una subdivisión (Estado o Provincia con municipios) activa (uso:
+// VendorVerification.jsx/VendorSettings.jsx, donde el país SIEMPRE se
+// resuelve eligiendo una Province real del catálogo, así que un país sin
+// ninguna cargada sería un selector con una lista vacía adentro, un
+// callejón sin salida).
+// Bloque 114 (pedido explícito): el registro (Account.jsx/VendorOnboarding.jsx)
+// ya NO depende de que el país tenga provincias cargadas — fuera de Cuba el
+// estado/dirección se escriben a mano (ver registrationLocation.service.js)
+// — así que ahí hace falta la lista SIN ese filtro (?all=true), para que un
+// país recién agregado por el admin (todavía sin ninguna provincia/estado
+// cargado) sea elegible de una, sin depender de que el admin cargue
+// provincias que ya no se van a usar para ese país.
+export async function listActiveCountries(req, res) {
+  const requireSubdivisions = req.query.all !== "true";
   const countries = await prisma.country.findMany({
     where: {
       isActive: true,
-      provinces: {
-        some: {
-          isActive: true,
-          OR: [{ type: "STATE" }, { municipalities: { some: { isActive: true } } }],
-        },
-      },
+      ...(requireSubdivisions
+        ? {
+            provinces: {
+              some: {
+                isActive: true,
+                OR: [{ type: "STATE" }, { municipalities: { some: { isActive: true } } }],
+              },
+            },
+          }
+        : {}),
     },
     orderBy: { name: "asc" },
     select: { id: true, name: true, code: true },

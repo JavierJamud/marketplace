@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { api, setSessionExpiredHandler } from "../lib/api.js";
 import { getBrowserId, getDeviceToken, setDeviceToken } from "../lib/deviceId.js";
 import { IdleWarningModal } from "../components/IdleWarningModal.jsx";
+import { queryClient, queryPersister } from "../lib/queryClient.js";
 
 const AuthContext = createContext(null);
 
@@ -80,6 +81,16 @@ export function AuthProvider({ children }) {
     // verifyRegistration), pero limpiar acá evita que quede flotando entre
     // el cierre y el próximo login.
     localStorage.removeItem(LAST_ACTIVITY_KEY);
+    // Bloque 136 (pedido explícito, junto con el caché persistido nuevo —
+    // ver queryClient.js): sin esto, el caché de React Query de la cuenta
+    // que se acaba de ir (pedidos, mensajes, datos de "/vendors/me", etc.)
+    // se quedaría vivo en memoria Y en localStorage, visible un instante
+    // (o filtrado del todo si el próximo login falla/tarda) a la PRÓXIMA
+    // cuenta que entre en este mismo navegador. Se limpian los 2: el
+    // caché en memoria (queryClient.clear()) y la copia en localStorage
+    // (queryPersister.removeClient()).
+    queryClient.clear();
+    queryPersister.removeClient();
     setUser(null);
     setIdleWarningActive(false);
   }, []);
@@ -177,6 +188,14 @@ export function AuthProvider({ children }) {
     // un código. Account.jsx detecta esta forma (sin accessToken) y muestra
     // el paso de "ingresa el código".
     if (data.requiresTwoFactor) return { requiresTwoFactor: true, email: data.email };
+    // Bloque 183 (pedido explícito — "el sistema automáticamente detecte
+    // que ese usuario no tiene una contraseña válida aún... se le enviará
+    // un código"): mismo patrón que requiresTwoFactor de arriba — el
+    // backend YA mandó el código de reset en esta misma llamada (reusa
+    // forgotPassword/resetPassword, ver login() en auth.controller.js),
+    // Account.jsx solo tiene que saltar directo al paso de "ingresa el
+    // código" en vez de pedirlo nuevo.
+    if (data.requiresPasswordSetup) return { requiresPasswordSetup: true, email: data.email };
     localStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
     // Toda sesión nueva sella su propia marca de actividad "ahora" — nunca
