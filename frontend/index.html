@@ -374,12 +374,26 @@
         // Bloque 182 (bug real reportado en vivo — "no me carga el backend
         // cuando cambio de red o no tengo internet"): antes usaba el
         // reemplazo de variables de entorno de Vite en el HTML, apuntando a
-        // una IP de LAN fija — rota en cualquier otra red. Este es un
-        // <script> plano
-        // (no un módulo, no puede usar import.meta.env), pero SÍ tiene
-        // `window.location` como cualquier script de página — mismo
-        // criterio dinámico que ahora usa lib/api.js para todo el resto del
-        // sitio, sin depender de ninguna variable de entorno.
+        // una IP de LAN fija — rota en cualquier otra red.
+        // Bloque 46 (bug real reportado en vivo, en producción — "cuando me
+        // carga el loader no me pone debajo el nombre del negocio"): el
+        // fetch de acá SIEMPRE apuntaba a `window.location.hostname:4000`,
+        // asumiendo que el backend vive en el MISMO host que el frontend,
+        // solo que en otro puerto — cierto en dev (los dos corren en
+        // localhost), pero falso apenas front y back quedan en dominios
+        // DISTINTOS de verdad (ej. Render: zeudin-frontend.onrender.com
+        // sirviendo el HTML, zeudin-backend.onrender.com el API) — el fetch
+        // pegaba contra un host que ni siquiera existe, fallaba siempre en
+        // silencio, y el nombre nunca se pintaba. `%VITE_API_URL%` es la
+        // sintaxis de Vite para inyectar una env var directo en el HTML en
+        // build time (mismo valor que ya usa lib/api.js vía
+        // import.meta.env, ver el comentario ahí) — funciona porque este
+        // reemplazo lo hace Vite ANTES de servir el archivo, no en runtime,
+        // así que un <script> plano (sin import.meta.env real) igual lo
+        // recibe ya resuelto. Sin esa variable seteada (dev normal, o el
+        // caso donde front/back sí comparten host), Vite deja el string
+        // vacío — ahí se sigue usando el mismo heurístico de siempre
+        // (mismo host, puerto 4000) como corresponde en ese escenario.
         // Bloque 212 (pedido explícito, bug real reportado en vivo con
         // captura — "cuando el backend falla sale el nombre ZeuDin... eso
         // no debe ser así, ZeuDin es la marca de mi empresa de desarrollo de
@@ -391,7 +405,11 @@
         // sin ningún nombre debajo. Sin caché ni reintento: nunca bloquea el
         // apagado del preloader (las 2 condiciones de arriba no dependen de
         // esto).
-        fetch("http://" + window.location.hostname + ":4000/settings")
+        var API_BASE = "%VITE_API_URL%";
+        if (!API_BASE || API_BASE.indexOf("%") === 0) {
+          API_BASE = "http://" + window.location.hostname + ":4000";
+        }
+        fetch(API_BASE + "/settings")
           .then(function (res) { return res.ok ? res.json() : null; })
           .then(function (data) {
             var name = data && data.settings && data.settings.siteName;

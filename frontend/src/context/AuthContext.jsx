@@ -187,7 +187,7 @@ export function AuthProvider({ children }) {
     // el backend NUNCA emite tokens acá si hace falta, solo avisa que mandó
     // un código. Account.jsx detecta esta forma (sin accessToken) y muestra
     // el paso de "ingresa el código".
-    if (data.requiresTwoFactor) return { requiresTwoFactor: true, email: data.email };
+    if (data.requiresTwoFactor) return { requiresTwoFactor: true, email: data.email, twoFactorExpiresAt: data.twoFactorExpiresAt };
     // Bloque 183 (pedido explícito — "el sistema automáticamente detecte
     // que ese usuario no tiene una contraseña válida aún... se le enviará
     // un código"): mismo patrón que requiresTwoFactor de arriba — el

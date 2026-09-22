@@ -12,6 +12,7 @@ import { isAIAvailable } from "../lib/ai.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { expireStaleStoreOffers, storeOfferSummarySelect } from "./storeOffers.controller.js";
 import { productPriceTiersInclude, expireNewBadges } from "./products.controller.js";
+import { rawSalesSeries, fillSeriesGaps, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
 import { withComputedVendorFields, withComputedVendorFieldsList, transitionVendorVerification } from "../services/vendorVerification.service.js";
 import { cancelStripeSubscription, scheduleStripeSubscriptionCancellation } from "../lib/stripe.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
@@ -1113,146 +1114,18 @@ export async function getDashboard(req, res) {
 // propio vendedor, ordenadas, en vez de solo usarse internamente.
 // ---------------------------------------------------------------------------
 
-const MONTH_LABEL = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-
-// Bloque 225 (pedido explícito, con captura — "que tu gráfica de ventas por
-// día y ventas por mes y ventas de los últimos 12 meses sea una sola con
-// varios botones de cambio... día, semana, mes, año... y también filtrar de
-// una fecha a otra"): reemplaza las 3 funciones fijas que había antes
-// (salesByWeekday/salesByDayThisMonth/salesByMonth, una gráfica cada una)
-// por UNA sola función paramétrica — mismo query base (Order + TableOrder,
-// nunca filtra por status salvo CANCELLED, mismo criterio de siempre), pero
-// la unidad de agrupado y el rango de fechas ahora son parámetros. `granularity`
-// SIEMPRE llega ya validado contra el enum de zod (getVendorSalesSeries, más
-// abajo) antes de tocar esta función — nunca es texto libre del cliente el
-// que decide qué truncar. DATE_TRUNC acepta su primer argumento como un
-// valor de texto normal en Postgres (no un identificador), así que va
-// interpolado vía el tagged template de Prisma como cualquier otro valor —
-// nunca concatenación de strings.
-async function rawSalesSeries(vendorId, granularity, from, to) {
-  const rows = await prisma.$queryRaw`
-    SELECT DATE_TRUNC(${granularity}, t."createdAt") AS bucket, COALESCE(SUM(t.total), 0)::numeric AS total, COUNT(*)::int AS orders
-    FROM (
-      SELECT "createdAt", total FROM "Order" WHERE "vendorId" = ${vendorId} AND "createdAt" >= ${from} AND "createdAt" < ${to} AND status != 'CANCELLED'
-      UNION ALL
-      SELECT o."createdAt", o.total FROM "TableOrder" o JOIN "Table" tb ON tb.id = o."tableId"
-      WHERE tb."vendorId" = ${vendorId} AND o."createdAt" >= ${from} AND o."createdAt" < ${to} AND o."cancelledAt" IS NULL
-    ) t
-    GROUP BY bucket
-  `;
-  return rows.map((r) => ({ bucket: new Date(r.bucket), total: Number(r.total), orders: r.orders }));
-}
-
-// Misma lógica de truncado que Postgres DATE_TRUNC (semana = lunes ISO) —
-// tiene que coincidir exacto con lo que ya agrupó la consulta de arriba,
-// para que cada fila real caiga en la misma casilla que se va a rellenar acá.
-// Bug real encontrado en la propia prueba de este bloque (smoke-test directo
-// contra datos reales, nunca solo "parece que compila"): acá abajo usaba
-// getDay()/getFullYear() en hora LOCAL del proceso de Node, pero Postgres
-// trunca "createdAt" en UTC (la sesión de la DB corre en GMT) — con un
-// servidor en cualquier timezone detrás de UTC, una venta de un lunes por
-// la madrugada (hora local) ya era martes en UTC, caía en la semana/año
-// SIGUIENTE del lado de Postgres pero en la actual acá, y esa fila real
-// desaparecía en silencio de la gráfica (nunca un error, solo el número
-// mal). Todo el cálculo de casillas pasa a ser 100% en UTC (getUTC*/setUTC*/
-// Date.UTC), sin importar en qué timezone corra el servidor.
-function bucketKey(date, granularity) {
-  const d = new Date(date);
-  if (granularity === "day") return d.toISOString().slice(0, 10);
-  if (granularity === "week") {
-    const dow = (d.getUTCDay() + 6) % 7; // 0 = lunes
-    d.setUTCDate(d.getUTCDate() - dow);
-    return d.toISOString().slice(0, 10);
-  }
-  if (granularity === "month") return d.toISOString().slice(0, 7);
-  return String(d.getUTCFullYear());
-}
-
-function bucketLabel(date, granularity) {
-  if (granularity === "day") return date.toLocaleDateString("es-CU", { day: "2-digit", month: "short", timeZone: "UTC" });
-  if (granularity === "week") return `Sem. ${date.toLocaleDateString("es-CU", { day: "2-digit", month: "short", timeZone: "UTC" })}`;
-  if (granularity === "month") return `${MONTH_LABEL[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
-  return String(date.getUTCFullYear());
-}
-
-function startOfBucket(date, granularity) {
-  const d = new Date(date);
-  if (granularity === "week") {
-    const dow = (d.getUTCDay() + 6) % 7;
-    d.setUTCDate(d.getUTCDate() - dow);
-    d.setUTCHours(0, 0, 0, 0);
-    return d;
-  }
-  if (granularity === "month") return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-  if (granularity === "year") return new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
-}
-
-function advanceBucket(date, granularity) {
-  const d = new Date(date);
-  if (granularity === "day") d.setUTCDate(d.getUTCDate() + 1);
-  else if (granularity === "week") d.setUTCDate(d.getUTCDate() + 7);
-  else if (granularity === "month") d.setUTCMonth(d.getUTCMonth() + 1);
-  else d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d;
-}
-
-// Bloque 225: nunca "salta" casillas vacías (mismo criterio que ya usaba
-// salesByMonth) — un día/semana/mes/año sin ninguna venta se ve en 0, para
-// que la gráfica nunca insinúe continuidad donde no la hay. Tope de 400
-// casillas (p.ej. "día" con un rango de años) — evita que un rango mal
-// armado devuelva una gráfica de miles de barras ilegible.
-function fillSeriesGaps(granularity, from, to, rows) {
-  const byKey = new Map(rows.map((r) => [bucketKey(r.bucket, granularity), r]));
-  const out = [];
-  let cursor = startOfBucket(from, granularity);
-  let guard = 0;
-  while (cursor < to && guard < 400) {
-    const key = bucketKey(cursor, granularity);
-    const match = byKey.get(key);
-    out.push({ key, label: bucketLabel(cursor, granularity), total: match?.total ?? 0, orders: match?.orders ?? 0 });
-    cursor = advanceBucket(cursor, granularity);
-    guard++;
-  }
-  return out;
-}
-
-const salesSeriesSchema = z.object({
-  granularity: z.enum(["day", "week", "month", "year"]).default("month"),
-  from: z.string().trim().optional(),
-  to: z.string().trim().optional(),
-});
-
-// Bloque 225: rango por default cuando el vendedor no filtra a mano —
-// suficiente historia para que la gráfica diga algo real apenas se entra,
-// sin tener que elegir fechas primero.
-const DEFAULT_SPAN = { day: 30, week: 12, month: 12, year: 5 };
-
+// Bloque 48: el motor de series (bucketKey/bucketLabel/rawSalesSeries/etc.,
+// originalmente Bloque 225) se movió a lib/salesSeries.js para poder
+// reusarlo desde el dashboard de admin (agregado, toda la plataforma) sin
+// duplicar estas ~90 líneas — acá solo queda el endpoint propio del
+// vendedor, que le pasa su vendorId.
 export async function getVendorSalesSeries(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { granularity, from, to } = salesSeriesSchema.parse(req.query);
 
-  // Mismo criterio UTC que bucketKey/startOfBucket de arriba — "from"/"to"
-  // arman el borde de la consulta, así que también tienen que estar en la
-  // misma referencia horaria que la truncación real de Postgres.
-  const now = new Date();
-  let fromDate;
-  let toDate;
-  if (from && to) {
-    fromDate = new Date(from);
-    toDate = new Date(to);
-    toDate.setUTCDate(toDate.getUTCDate() + 1); // el día "to" cuenta completo, no hasta las 00:00
-    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate >= toDate) {
-      throw new AppError("Rango de fechas inválido.", 400);
-    }
-  } else {
-    toDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-    if (granularity === "day") fromDate = new Date(toDate.getTime() - DEFAULT_SPAN.day * 24 * 60 * 60 * 1000);
-    else if (granularity === "week") fromDate = new Date(toDate.getTime() - DEFAULT_SPAN.week * 7 * 24 * 60 * 60 * 1000);
-    else if (granularity === "month") fromDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (DEFAULT_SPAN.month - 1), 1));
-    else fromDate = new Date(Date.UTC(now.getUTCFullYear() - (DEFAULT_SPAN.year - 1), 0, 1));
-  }
+  const range = resolveSeriesRange(granularity, from, to);
+  if (!range) throw new AppError("Rango de fechas inválido.", 400);
+  const { fromDate, toDate } = range;
 
   const rawRows = await rawSalesSeries(vendor.id, granularity, fromDate, toDate);
   const series = fillSeriesGaps(granularity, fromDate, toDate, rawRows);

@@ -33,6 +33,10 @@ const router = Router();
 router.use(authenticate, requireRole("ADMIN"));
 
 router.get("/dashboard", adminController.getDashboard);
+// Bloque 48: mismo criterio de rutas literales-antes-que-:id de arriba, pero
+// acá no aplica (no hay :id en /dashboard) — se deja junto a la de arriba
+// porque es la misma sección.
+router.get("/dashboard/sales-series", adminController.getDashboardSalesSeries);
 
 router.get("/vendors", adminController.listVendors);
 router.patch("/vendors/:id", adminController.updateVendor);
@@ -215,7 +219,6 @@ router.patch("/settings/review-policy", settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
 router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);
 router.patch("/settings/branding", settingsController.updateBranding);
-router.post("/settings/branding/logo", siteUpload.single("logo"), settingsController.updateBrandingLogo);
 router.patch("/settings/cup-payment", settingsController.updateCupPaymentSettings);
 router.patch("/settings/available-currencies", settingsController.updateAvailableCurrencies);
 router.patch("/settings/product-badges", settingsController.updateProductBadgeSettings);

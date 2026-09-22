@@ -11,6 +11,8 @@ import { getSubscriptionPricing } from "./settings.controller.js";
 import { logActivity } from "../lib/activityLog.js";
 import { finalizeUserDeletion } from "../lib/accountDeletion.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
+import { computeVendorHealthScore } from "./vendors.controller.js";
+import { rawSalesSeries, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -18,6 +20,58 @@ const E164_REGEX = /^\+\d{7,15}$/;
 // Bloque 64: mismo ciclo que verification.controller.js — cuánto dura un
 // pago CUP confirmado antes de pedir el siguiente.
 const PAYMENT_CYCLE_DAYS = 30;
+
+// Bloque 64: verificationStatus ES el estado — ya no hace falta derivarlo de
+// isVerified/status por separado (esa desincronía era justo el bug que
+// motivó este bloque). Bloque 48: se sube de adentro de listSubscriptions a
+// acá para que computeSubscriptionMetrics (usado también por getDashboard)
+// pueda reusar el MISMO mapeo, en vez de dos copias.
+const SUBSCRIPTION_STATUS_LABEL = {
+  VERIFIED: "active",
+  PAYMENT_FAILED: "payment_failed",
+  SUSPENDED: "suspended",
+  REJECTED: "rejected",
+};
+
+// Bloque 48: separado de listSubscriptions para que getDashboard pueda pedir
+// SOLO verificationStatus (sin los includes de verification/locations que
+// esa lista sí necesita) y de todas formas compartir el mismo criterio de
+// conteo/MRR — nunca dos copias del cálculo.
+async function computeSubscriptionMetrics(vendors) {
+  const statuses = vendors.map((v) => SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment");
+  const active = statuses.filter((s) => s === "active").length;
+  const pendingPayment = statuses.filter((s) => s === "pending_payment").length;
+  const rejected = statuses.filter((s) => s === "rejected").length;
+  const paymentFailed = statuses.filter((s) => s === "payment_failed").length;
+  const suspended = statuses.filter((s) => s === "suspended").length;
+  const { cardPricePerMonthUsd } = await getSubscriptionPricing();
+  return { active, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * cardPricePerMonthUsd };
+}
+
+// Bloque 48: embudo de verificación para el dashboard — NOT_STARTED es la
+// única etapa "sin trámite iniciado todavía", nunca se cuenta como problema;
+// las 3 últimas (PAYMENT_FAILED/SUSPENDED/REJECTED) son casos terminales/
+// especiales, se muestran aparte del flujo principal en el frontend.
+const VERIFICATION_FUNNEL_STAGES = [
+  "NOT_STARTED",
+  "PENDING_DOCS",
+  "IN_REVIEW",
+  "PENDING_PAYMENT",
+  "VERIFIED",
+  "PAYMENT_FAILED",
+  "SUSPENDED",
+  "REJECTED",
+];
+const VERIFICATION_STATUS_LABEL = {
+  NOT_STARTED: "Sin iniciar",
+  PENDING_DOCS: "Documentos subidos",
+  IN_REVIEW: "En revisión",
+  PENDING_PAYMENT: "Falta el pago",
+  VERIFIED: "Verificada",
+  PAYMENT_FAILED: "Pago fallido",
+  SUSPENDED: "Suspendida",
+  REJECTED: "Rechazada",
+};
 
 export async function getDashboard(_req, res) {
   const monthStart = new Date();
@@ -50,11 +104,36 @@ export async function getDashboard(_req, res) {
 
   const gmv = Number(orderSum._sum.total ?? 0) + Number(tableOrderSum._sum.total ?? 0);
   const ordersThisMonthTotal = ordersThisMonth + tableOrdersThisMonth;
-  // Estimado: no hay tabla de facturación real todavía, se calcula como
-  // tiendas Business × precio de lista del plan (Bloque 64: editable desde
-  // el admin, ya no una constante hardcodeada).
-  const { cupSubscriptionPriceCup } = (await prisma.siteSettings.findFirst()) ?? { cupSubscriptionPriceCup: 2500 };
-  const subscriptionRevenueEstimate = businessVendors * cupSubscriptionPriceCup;
+
+  // Bloque 47 (pedido explícito — "ingresos por suscripción, desglosados
+  // por moneda"): reemplaza el viejo estimado (tiendas Business × precio de
+  // lista en CUP, que asumía que TODAS pagan en CUP) por ingresos REALES
+  // confirmados este mes — dos fuentes, las mismas que ya usa el resto del
+  // ciclo de suscripción: el pago inicial (VerificationRequest.paymentConfirmedAt,
+  // primer mes al pasar a Business) y cada renovación propia
+  // (SubscriptionPayment.confirmedAt, ver confirmSubscriptionRenewal más
+  // abajo). Ambas fuentes ya guardan su propio monto Y moneda declarados
+  // (CUP por transferencia, USD por Stripe) — nunca se asume una sola.
+  const [initialPayments, renewalPayments] = await Promise.all([
+    prisma.verificationRequest.findMany({
+      where: { paymentConfirmedAt: { gte: monthStart } },
+      select: { paymentAmount: true, paymentCurrency: true },
+    }),
+    prisma.subscriptionPayment.findMany({
+      where: { confirmedAt: { gte: monthStart } },
+      select: { amount: true, currency: true },
+    }),
+  ]);
+  const revenueByCurrency = {};
+  for (const p of [...initialPayments, ...renewalPayments]) {
+    const amount = Number(p.paymentAmount ?? p.amount ?? 0);
+    const currency = p.paymentCurrency ?? p.currency;
+    if (!amount || !currency) continue;
+    revenueByCurrency[currency] = (revenueByCurrency[currency] ?? 0) + amount;
+  }
+  const subscriptionRevenueByCurrency = Object.entries(revenueByCurrency)
+    .map(([currency, amount]) => ({ currency, amount }))
+    .sort((a, b) => b.amount - a.amount);
 
   // --- Uso de la plataforma (Bloque 12) -------------------------------------
   // "Activo" = la tienda tiene al menos un pedido real (Order o TableOrder)
@@ -128,14 +207,96 @@ export async function getDashboard(_req, res) {
     .sort((a, b) => b.n - a.n)
     .slice(0, 5);
 
+  // Bloque 48 (pedido explícito — "que aproveche el algoritmo que ya tiene
+  // la plataforma para tiendas con alto potencial"): ticket promedio real, +
+  // MRR/estado de suscripciones (mismo criterio que ya usa
+  // listSubscriptions, ver computeSubscriptionMetrics más abajo) + embudo de
+  // verificación + un ranking de "alto potencial" que reusa
+  // computeVendorHealthScore (vendors.controller.js) — nunca un cálculo
+  // nuevo/paralelo de "qué tan bien va una tienda".
+  const aov = ordersThisMonthTotal > 0 ? gmv / ordersThisMonthTotal : 0;
+
+  const [subscriptionMetrics, verificationFunnelRaw] = await Promise.all([
+    computeSubscriptionMetrics(
+      await prisma.vendor.findMany({ where: { planType: "BUSINESS", deletedAt: null }, select: { verificationStatus: true } })
+    ),
+    prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
+  ]);
+  const funnelCountByStatus = Object.fromEntries(verificationFunnelRaw.map((r) => [r.verificationStatus, r._count._all]));
+  const verificationFunnel = VERIFICATION_FUNNEL_STAGES.map((status) => ({
+    status,
+    label: VERIFICATION_STATUS_LABEL[status],
+    count: funnelCountByStatus[status] ?? 0,
+  }));
+
+  // "Alto potencial" = salud ≥ 50 (mismo corte verde/amarillo que ya usa el
+  // semáforo del propio vendedor, nunca se muestra una tienda "roja") entre
+  // las que tuvieron ingresos reales este mes — sin pedidos recientes, no
+  // hay "desempeño" que evaluar, así que ni siquiera entran a la carrera.
+  const [orderRevenueByVendor, tableOrderRevenueRows] = await Promise.all([
+    prisma.order.groupBy({
+      by: ["vendorId"],
+      where: { createdAt: { gte: monthAgo }, status: { not: "CANCELLED" } },
+      _sum: { total: true },
+      _count: { _all: true },
+    }),
+    prisma.tableOrder.findMany({
+      where: { createdAt: { gte: monthAgo }, cancelledAt: null },
+      select: { total: true, table: { select: { vendorId: true } } },
+    }),
+  ]);
+  const revenueByVendor = new Map();
+  for (const r of orderRevenueByVendor) {
+    revenueByVendor.set(r.vendorId, { revenue: Number(r._sum.total ?? 0), orders: r._count._all });
+  }
+  for (const row of tableOrderRevenueRows) {
+    const vendorId = row.table.vendorId;
+    const cur = revenueByVendor.get(vendorId) ?? { revenue: 0, orders: 0 };
+    cur.revenue += Number(row.total);
+    cur.orders += 1;
+    revenueByVendor.set(vendorId, cur);
+  }
+  // Tope defensivo: nunca calcular el score de salud (8 queries c/u) para
+  // más de 50 tiendas candidatas, aunque la plataforma crezca mucho — se
+  // queda con las de más ingresos, que son justo las únicas con chance real
+  // de terminar en el top 6 de todas formas.
+  const candidateIds = [...revenueByVendor.entries()]
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .slice(0, 50)
+    .map(([vendorId]) => vendorId);
+  const candidateVendors = candidateIds.length
+    ? await prisma.vendor.findMany({
+        where: { id: { in: candidateIds }, deletedAt: null, isBlocked: false },
+        select: { id: true, companyName: true, slug: true, color: true },
+      })
+    : [];
+  const healthScores = await Promise.all(candidateVendors.map((v) => computeVendorHealthScore(v.id, monthAgo)));
+  const topPotentialVendors = candidateVendors
+    .map((v, i) => ({
+      vendorId: v.id,
+      companyName: v.companyName,
+      slug: v.slug,
+      color: v.color,
+      score: healthScores[i].score,
+      level: healthScores[i].level,
+      recentRevenue: revenueByVendor.get(v.id).revenue,
+      recentOrders: revenueByVendor.get(v.id).orders,
+    }))
+    .filter((v) => v.score >= 50)
+    .sort((a, b) => b.recentRevenue - a.recentRevenue)
+    .slice(0, 6);
+
   res.json({
     metrics: {
       activeVendors,
       totalCustomers,
       ordersThisMonth: ordersThisMonthTotal,
       gmv,
+      aov,
       businessVendors,
-      subscriptionRevenueEstimate,
+      subscriptionRevenueByCurrency,
+      mrrUsd: subscriptionMetrics.mrrUsd,
+      activeSubscriptions: subscriptionMetrics.active,
     },
     pendingVerifications,
     activity,
@@ -143,7 +304,44 @@ export async function getDashboard(_req, res) {
     vendorActivity,
     ordersByPeriod,
     newVendorsByPeriod,
+    verificationFunnel,
+    topPotentialVendors,
   });
+}
+
+// Bloque 48: misma consulta paramétrica de vendors.controller.js
+// (rawSalesSeries/fillSeriesGaps, lib/salesSeries.js), sin vendorId = toda
+// la plataforma — reemplaza el bar chart de 3 barras fijas (24h/7d/30d) del
+// dashboard por una gráfica única con selector de granularidad + rango,
+// mismo patrón ya probado en VendorDashboard.jsx (Bloque 225). Suma una
+// tercera serie ("tiendas nuevas") agrupada con el mismo DATE_TRUNC, para
+// que ventas/pedidos/crecimiento de tiendas queden en una sola gráfica
+// filtrable en vez de en tarjetas sueltas.
+export async function getDashboardSalesSeries(req, res) {
+  const { granularity, from, to } = salesSeriesSchema.parse(req.query);
+  const range = resolveSeriesRange(granularity, from, to);
+  if (!range) throw new AppError("Rango de fechas inválido.", 400);
+  const { fromDate, toDate } = range;
+
+  const [rawRows, vendorRows] = await Promise.all([
+    rawSalesSeries(null, granularity, fromDate, toDate),
+    prisma.$queryRaw`
+      SELECT DATE_TRUNC(${granularity}, "createdAt") AS bucket, COUNT(*)::int AS count
+      FROM "Vendor"
+      WHERE "createdAt" >= ${fromDate} AND "createdAt" < ${toDate} AND "deletedAt" IS NULL
+      GROUP BY bucket
+    `,
+  ]);
+
+  const series = fillSeriesGaps(granularity, fromDate, toDate, rawRows);
+  const vendorsByKey = new Map(vendorRows.map((r) => [bucketKey(new Date(r.bucket), granularity), Number(r.count)]));
+  const seriesWithVendors = series.map((s) => ({ ...s, vendors: vendorsByKey.get(s.key) ?? 0 }));
+
+  const total = series.reduce((sum, s) => sum + s.total, 0);
+  const orders = series.reduce((sum, s) => sum + s.orders, 0);
+  const vendors = seriesWithVendors.reduce((sum, s) => sum + s.vendors, 0);
+
+  res.json({ granularity, from: fromDate.toISOString(), to: toDate.toISOString(), series: seriesWithVendors, total, orders, vendors });
 }
 
 // --- Tiendas -----------------------------------------------------------
@@ -991,15 +1189,6 @@ export async function listSubscriptions(_req, res) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Bloque 64: verificationStatus ES el estado — ya no hace falta derivarlo
-  // de isVerified/status por separado (esa desincronía era justo el bug que
-  // motivó este bloque).
-  const STATUS_LABEL = {
-    VERIFIED: "active",
-    PAYMENT_FAILED: "payment_failed",
-    SUSPENDED: "suspended",
-    REJECTED: "rejected",
-  };
   const subscriptions = vendors.map((v) => {
     const ver = v.verification;
     return {
@@ -1008,7 +1197,7 @@ export async function listSubscriptions(_req, res) {
       slug: v.slug,
       color: v.color,
       province: v.locations?.[0]?.province?.name ?? null,
-      status: STATUS_LABEL[v.verificationStatus] ?? "pending_payment",
+      status: SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment",
       nextPaymentDueDate: v.nextPaymentDueDate,
       hasStripeSubscription: !!v.stripeSubscriptionId,
       paymentMethod: ver?.paymentMethod ?? null,
@@ -1018,20 +1207,11 @@ export async function listSubscriptions(_req, res) {
     };
   });
 
-  const active = subscriptions.filter((s) => s.status === "active").length;
-  const pendingPayment = subscriptions.filter((s) => s.status === "pending_payment").length;
-  const rejected = subscriptions.filter((s) => s.status === "rejected").length;
-  const paymentFailed = subscriptions.filter((s) => s.status === "payment_failed").length;
-  const suspended = subscriptions.filter((s) => s.status === "suspended").length;
-
-  // Bloque 150: precio dinámico (antes SUBSCRIPTION_PRICE_USD, constante
-  // fija) — mismo criterio que cupSubscriptionPriceCup, editable sin
-  // redeploy desde AdminSubscriptions.jsx.
-  const { cardPricePerMonthUsd } = await getSubscriptionPricing();
-  res.json({
-    subscriptions,
-    metrics: { active, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * cardPricePerMonthUsd },
-  });
+  // Bloque 48: cálculo de métricas movido a computeSubscriptionMetrics
+  // (reusado también por getDashboard) — mismo resultado de antes, ahora en
+  // un solo lugar.
+  const metrics = await computeSubscriptionMetrics(vendors);
+  res.json({ subscriptions, metrics });
 }
 
 // Manual — el admin decide revocar (impago, incumplimiento, pedido del

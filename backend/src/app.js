@@ -39,6 +39,8 @@ import reportsRoutes from "./routes/reports.routes.js";
 import vendorStaffRoutes from "./routes/vendorStaff.routes.js";
 import vendorStaffSalesRoutes from "./routes/vendorStaffSales.routes.js";
 import targetedOffersRoutes from "./routes/targetedOffers.routes.js";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
 import { PRODUCT_UPLOAD_DIR } from "./controllers/products.controller.js";
 import { VENDOR_BRANDING_DIR } from "./controllers/vendors.controller.js";
@@ -113,6 +115,17 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "zeudin-marketplace-api" }));
 
+// Bloque 46 (pedido explícito): el logo de la plataforma dejó de ser un
+// archivo subido desde Admin — ahora es un asset fijo del propio código
+// (backend/src/assets/logo.png, copia idéntica de
+// frontend/src/assets/images/logo.png — el backend no puede leer la
+// carpeta del frontend en runtime, corren como servicios separados en
+// producción). Se sirve acá para tener una URL pública estable
+// (${BACKEND_URL}/brand/logo.png) — usada como fallback de imagen en
+// og.controller.js; los correos (_shared.js) leen el mismo archivo
+// directo del disco en vez de pedírselo a esta ruta, así nunca dependen
+// de poder alcanzarse a sí mismos por HTTP.
+app.use("/brand", express.static(join(dirname(fileURLToPath(import.meta.url)), "assets")));
 // Imágenes del sitio (hero, etc.) — a diferencia de uploads/kyc, esto es
 // público por diseño: sin credenciales, solo marketing.
 app.use("/uploads/site", express.static(SITE_UPLOAD_DIR));

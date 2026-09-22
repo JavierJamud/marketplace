@@ -32,8 +32,8 @@ export function Footer() {
         <div>
           <div className="mb-4 text-label-md font-bold text-white">Vender</div>
           <div className="flex flex-col gap-2.5 text-[13.5px] text-white/55">
-            <Link to="/vender" className="hover:text-white">Registrarse gratis</Link>
-            <Link to="/vender" className="hover:text-white">Planes y verificación</Link>
+            <Link to="/vendedor/ingresar?tab=registro" className="hover:text-white">Registrarse gratis</Link>
+            <Link to="/vendedor/ingresar?tab=registro" className="hover:text-white">Planes y verificación</Link>
           </div>
         </div>
         {/* Bloque 48 (pedido explícito): sin ningún link a /admin ni /vendedor

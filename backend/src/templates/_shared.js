@@ -1,6 +1,33 @@
 import mjml2html from "mjml";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { env } from "../config/env.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
+
+// Bloque 46 (bug real reportado en vivo — "el ícono de la marca no se ve en
+// las plantillas de correos... ya está seleccionado un ícono en admin"): el
+// logo de la plataforma dejó de subirse/pegar por link desde Admin — ahora
+// es un archivo fijo del código (backend/src/assets/logo.png, copia de
+// frontend/src/assets/images/logo.png). Antes, emailShell() le pedía este
+// mismo archivo AL PROPIO BACKEND por HTTP (inlineIfSmall, ver abajo) para
+// poder incrustarlo — un fetch que fallaba en silencio apenas el backend no
+// podía alcanzarse a sí mismo por esa URL (típico sin BACKEND_URL público
+// en producción), cayendo siempre al círculo con la inicial aunque el logo
+// SÍ estuviera bien configurado. Leer el archivo directo del disco, una
+// sola vez al arrancar el proceso (nunca cambia en runtime, ya no es
+// editable desde Admin), elimina esa clase entera de bug — no hay red de
+// por medio, no hay forma de que falle.
+const PLATFORM_LOGO_DATA_URI = (() => {
+  try {
+    const filePath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "logo.png");
+    return `data:image/png;base64,${readFileSync(filePath).toString("base64")}`;
+  } catch {
+    // Nunca revienta el envío de un correo por esto — sin el archivo (caso
+    // raro, entorno mal armado), simplemente cae al círculo con la inicial.
+    return null;
+  }
+})();
 
 // Bloque 49 (pedido explícito): reemplaza el shell hecho a mano con <div>
 // (frágil en Outlook — el motor de Word de Outlook desktop no soporta bien
@@ -55,23 +82,13 @@ export function resolveAssetUrl(pathOrUrl) {
 // igual una vez que BACKEND_URL sea público). Nunca revienta el envío: si
 // el fetch falla o tarda, se cae a la URL sin inline.
 async function inlineIfSmall(url, { maxBytes = 60_000, timeoutMs = 3000 } = {}) {
-  console.log("[inlineIfSmall] url recibida:", url, "| backendUrl:", env.backendUrl);
-  if (!url || !url.startsWith(env.backendUrl)) {
-    console.log("[inlineIfSmall] SKIP — url no empieza con backendUrl, se devuelve tal cual");
-    return url;
-  }
+  if (!url || !url.startsWith(env.backendUrl)) return url;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    console.log("[inlineIfSmall] fetch status:", res.status, res.ok);
     if (!res.ok) return url;
     const buf = Buffer.from(await res.arrayBuffer());
-    console.log("[inlineIfSmall] tamaño del buffer:", buf.byteLength, "bytes | límite:", maxBytes);
-    if (buf.byteLength > maxBytes) {
-      console.log("[inlineIfSmall] SKIP — imagen demasiado grande, se deja la URL");
-      return url;
-    }
+    if (buf.byteLength > maxBytes) return url;
     const contentType = res.headers.get("content-type") || "image/png";
-    console.log("[inlineIfSmall] OK — incrustando como base64, contentType:", contentType);
     return `data:${contentType};base64,${buf.toString("base64")}`;
   } catch (err) {
     console.log("[inlineIfSmall] ERROR al hacer fetch:", err?.message ?? err);
@@ -290,17 +307,17 @@ function socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl }) {
 //   "vía {siteName}" a la derecha. Sin logo propio, el header sigue siendo
 //   el de la plataforma de siempre (logo real o el cuadrado con la inicial).
 export async function emailShell({ preview, title, bodyMjml, storeName, storeLogoUrl, accentColor = "#0e1a28", footerNote, badge }) {
-  // Bloque 49: nombre/logo de la plataforma, editable desde "Marca de la
-  // plataforma" en el admin. Bloque 61: sin logo propio, ya no se muestra
-  // solo el nombre suelto — cae al mismo cuadrado con inicial + subtítulo
-  // que usa Footer.jsx en el sitio (mismo criterio, reusado acá).
-  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
-  const [inlineStoreLogoUrl, inlineLogoUrl] = await Promise.all([inlineIfSmall(storeLogoUrl), inlineIfSmall(logoUrl)]);
+  // Bloque 49: nombre de la plataforma, editable desde "Marca de la
+  // plataforma" en el admin. Bloque 46: el LOGO ya no — es
+  // PLATFORM_LOGO_DATA_URI (arriba), leído del disco una sola vez, nunca
+  // más un fetch a sí mismo que podía fallar en silencio.
+  const { siteName, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
+  const inlineStoreLogoUrl = await inlineIfSmall(storeLogoUrl);
 
   const headerHtml = storeLogoUrl
     ? headerRowHtml(brandRowHtml({ imgSrc: inlineStoreLogoUrl, imgAlt: storeName, name: storeName }), viaPillHtml(siteName))
-    : logoUrl
-    ? headerRowHtml(brandRowHtml({ imgSrc: inlineLogoUrl, imgAlt: siteName, name: siteName }))
+    : PLATFORM_LOGO_DATA_URI
+    ? headerRowHtml(brandRowHtml({ imgSrc: PLATFORM_LOGO_DATA_URI, imgAlt: siteName, name: siteName }))
     : headerRowHtml(brandRowHtml({ name: siteName, subtitle: "Marketplace multivendedor de Cuba" }));
 
   const badgeMjml = badge ? statusBadge(badge.label, badge.color) : "";

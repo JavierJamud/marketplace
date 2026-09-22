@@ -1,11 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Sparkles, ImagePlus, Link2, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
+import { Sparkles, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
+// Bloque 46 (pedido explícito): el logo de la plataforma ya no se sube ni
+// se pega por link desde acá — ver el comentario largo en
+// usePlatformSettings.js sobre por qué. Esta página deja de tener ningún
+// control de logo; solo el nombre sigue siendo editable.
+import logo from "../../assets/images/logo.png";
 
 // Bloque 85 (pedido explícito): lista curada, no las ~400 zonas IANA
 // completas — Cuba primero (default del negocio), después las más
@@ -63,10 +68,7 @@ function resolveLogoUrl(logoUrl) {
 // pedido fue explícito por una sección nueva.
 export default function AdminBranding() {
   const queryClient = useQueryClient();
-  const fileRef = useRef(null);
   const [name, setName] = useState("");
-  const [linkInput, setLinkInput] = useState("");
-  const [filePreview, setFilePreview] = useState(null);
   // Bloque 61: usadas por la fila de íconos del footer de los correos — ver
   // emailShell() en backend/src/templates/_shared.js. "Sitio web" no
   // necesita un campo acá, siempre es la URL del propio sitio.
@@ -142,40 +144,6 @@ export default function AdminBranding() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la zona horaria."),
   });
 
-  const uploadLogoFile = useMutation({
-    mutationFn: async (file) => {
-      const form = new FormData();
-      form.append("logo", file);
-      return (await api.post("/admin/settings/branding/logo", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
-    },
-    onSuccess: () => {
-      toast.success("Logo actualizado.");
-      setFilePreview(null);
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => {
-      setFilePreview(null);
-      toast.error(err.response?.data?.error ?? "No se pudo subir el logo.");
-    },
-  });
-
-  const saveLogoLink = useMutation({
-    mutationFn: async (logoUrl) => (await api.patch("/admin/settings/branding", { logoUrl })).data,
-    onSuccess: () => {
-      toast.success("Logo actualizado.");
-      setLinkInput("");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el link."),
-  });
-
-  function handleFileChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFilePreview(URL.createObjectURL(file));
-    uploadLogoFile.mutate(file);
-    e.target.value = "";
-  }
 
   // Bloque 52: mostrar/ocultar el botón flotante del chatbot general del
   // Home (MarketplaceChatWidget) — antes montado sin ninguna condición.
@@ -271,7 +239,6 @@ export default function AdminBranding() {
     setBadgeDraft("");
   }
 
-  const currentLogoUrl = filePreview ?? resolveLogoUrl(settings?.logoUrl);
   const previewName = name.trim() || "Nombre de la plataforma";
   const liveClock = useLiveClock(timezone);
 
@@ -279,19 +246,13 @@ export default function AdminBranding() {
     <div className="max-w-[720px]">
       <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Marca de la plataforma</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        El nombre y el logo se usan en todo el sitio — header, footer, títulos de página, correos, PDFs y mensajes de
-        WhatsApp — sin necesidad de un redespliegue.
+        El nombre se usa en todo el sitio — header, footer, títulos de página, correos, PDFs y mensajes de WhatsApp —
+        sin necesidad de un redespliegue. El logo es fijo, parte del código de la plataforma.
       </p>
 
       {/* Vista previa en vivo, mismo tratamiento visual que el header real */}
       <div className="mb-6 flex items-center gap-2.5 rounded-2xl bg-primary px-5 py-4 shadow-sm">
-        {currentLogoUrl ? (
-          <img src={currentLogoUrl} alt={previewName} className="h-9 w-9 flex-shrink-0 rounded object-cover" />
-        ) : (
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded bg-secondary-container font-display text-lg font-extrabold text-primary">
-            {previewName.charAt(0).toUpperCase()}
-          </div>
-        )}
+        <img src={logo} alt={previewName} className="h-9 w-9 flex-shrink-0 rounded object-cover" />
         <span className="font-display text-xl font-bold tracking-tight text-white">{previewName}</span>
       </div>
 
@@ -308,57 +269,6 @@ export default function AdminBranding() {
             onClick={() => saveName.mutate()}
           >
             {saveName.isPending ? "Guardando..." : "Guardar"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
-          <ImagePlus className="h-4 w-4 text-tertiary-accent" /> Logo
-        </div>
-        <p className="mb-4 text-[12.5px] text-outline">Sube un archivo o pega el link de una imagen ya alojada en otro lugar. Sin logo, se muestra la inicial del nombre.</p>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploadLogoFile.isPending}
-            className="flex h-10 items-center gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest px-4 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
-          >
-            <ImagePlus className="h-4 w-4" /> {uploadLogoFile.isPending ? "Subiendo..." : "Subir archivo"}
-          </button>
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml" className="hidden" onChange={handleFileChange} />
-
-          {settings?.logoUrl && (
-            <button
-              type="button"
-              onClick={() => saveLogoLink.mutate("")}
-              disabled={saveLogoLink.isPending}
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-error/30 px-4 text-[13px] font-semibold text-error hover:bg-error/10 disabled:opacity-50"
-            >
-              <X className="h-3.5 w-3.5" /> Quitar logo
-            </button>
-          )}
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <div className="relative flex-1">
-            <Link2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-outline" />
-            <input
-              value={linkInput}
-              onChange={(e) => setLinkInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && linkInput.trim()) { e.preventDefault(); saveLogoLink.mutate(linkInput.trim()); } }}
-              placeholder="O pega el link de una imagen (https://...)"
-              className="h-10 w-full rounded-xl border border-outline-variant bg-surface-container-lowest pl-9 pr-3 text-[13px] outline-none focus:border-tertiary-accent"
-            />
-          </div>
-          <Button
-            variant="outline"
-            className="rounded-xl px-5"
-            disabled={saveLogoLink.isPending || !linkInput.trim()}
-            onClick={() => saveLogoLink.mutate(linkInput.trim())}
-          >
-            {saveLogoLink.isPending ? "Guardando..." : "Guardar link"}
           </Button>
         </div>
       </div>

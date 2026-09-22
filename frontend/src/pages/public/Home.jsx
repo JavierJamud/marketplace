@@ -408,7 +408,7 @@ export default function Home() {
             title="Todavía no hay tiendas verificadas en tu zona"
             description="Sé el primero en verificarte con el Plan Business."
             action={
-              <Link to="/vender" className="text-label-md font-semibold text-tertiary-accent hover:underline">
+              <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
                 Crear mi tienda →
               </Link>
             }

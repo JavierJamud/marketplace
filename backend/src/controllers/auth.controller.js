@@ -287,7 +287,12 @@ function assertRoleMatchesContext(user, context) {
 // propios (twoFactorCodeHash/twoFactorCodeExpiresAt) — un reset en curso y
 // un código de login en curso nunca se pisan entre sí.
 const TWO_FACTOR_CODE_LENGTH = 6;
-const TWO_FACTOR_CODE_TTL_MINUTES = 10;
+// Bloque 46 (pedido explícito — "la espera de vencimiento del código de 10
+// minutos la bajaremos a 5 minutos"): mostrado como cuenta regresiva real
+// en el frontend (Account.jsx) — al llegar a cero, se habilita un botón de
+// reenviar (vuelve a pegarle a este mismo endpoint de login, que siempre
+// genera un código nuevo).
+const TWO_FACTOR_CODE_TTL_MINUTES = 5;
 
 // Bloque 60/183: mismo código de 6 dígitos que usa el reset de contraseña
 // (forgotPassword más abajo) — login() lo reusa tal cual para el primer
@@ -359,16 +364,22 @@ export async function login(req, res) {
     // ese código — el propio admin quedaba trabado afuera de su cuenta, sin
     // poder entrar para configurar el correo que hace falta para poder
     // entrar. Fallback SOLO cuando el envío realmente falló: mismo código
-    // real (aleatorio, vence en 10 min, se usa una sola vez) que ya se
-    // generó arriba — nunca un código fijo/adivinable — quedó en el log del
-    // servidor (visible solo desde el dashboard de Render, nunca en la
-    // respuesta HTTP ni en ningún lugar público) para que el propio dueño
-    // de la infraestructura pueda leerlo a mano mientras arregla el envío
-    // real. Nunca se activa si el correo salió bien.
+    // real (aleatorio, vence en TWO_FACTOR_CODE_TTL_MINUTES, se usa una
+    // sola vez) que ya se generó arriba — nunca un código fijo/adivinable —
+    // quedó en el log del servidor (visible solo desde el dashboard de
+    // Render, nunca en la respuesta HTTP ni en ningún lugar público) para
+    // que el propio dueño de la infraestructura pueda leerlo a mano
+    // mientras arregla el envío real. Nunca se activa si el correo salió
+    // bien.
     if (!emailResult.ok) {
       console.warn(`[2FA] No se pudo enviar el código por correo (${emailResult.error}) — código de emergencia para ${user.email}: ${code} (vence en ${TWO_FACTOR_CODE_TTL_MINUTES} min)`);
     }
-    return res.json({ requiresTwoFactor: true, email: user.email });
+    // Bloque 46 (pedido explícito — "la espera... se mostrará como un
+    // contador regresivo"): expiresAt real (no solo "5 minutos" fijo en el
+    // frontend) — así la cuenta regresiva es exacta incluso si hay latencia
+    // de red entre que el backend generó el código y el navegador la
+    // arranca, y sigue siendo exacta después de un reenvío.
+    return res.json({ requiresTwoFactor: true, email: user.email, twoFactorExpiresAt: twoFactorCodeExpiresAt });
   }
 
   // Dispositivo de confianza válido — ventana rodante: se le extienden otros

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ShoppingCart, User, LogOut, Store } from "lucide-react";
+import { ShoppingCart, User, LogOut } from "lucide-react";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -41,10 +41,22 @@ function AccountMenu({ user, accountHref, panelLabel }) {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  // Bloque 46 (pedido explícito — "vamos a eliminar el botón de vender
+  // gratis... lo que haremos es mejorar el botón de iniciar sesión, lo
+  // encerraremos en un contenedor y le daremos color con el ícono que ya
+  // tiene"): antes era un ícono suelto sin texto ni fondo — mismo
+  // tratamiento visual que tenía "Vender gratis" (que ocupaba este mismo
+  // lugar de CTA principal del header), reusado acá en vez de inventar un
+  // estilo nuevo.
   if (!user) {
     return (
-      <Link to="/cuenta" aria-label="Iniciar sesión o crear cuenta" className="flex items-center text-white/85 hover:text-white">
-        <User className="h-5 w-5" />
+      <Link
+        to="/cuenta"
+        aria-label="Iniciar sesión o crear cuenta"
+        className="flex items-center gap-1.5 whitespace-nowrap rounded bg-secondary-container px-2.5 py-2.5 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
+      >
+        <User className="h-4 w-4" />
+        <span className="hidden sm:inline">Iniciar sesión</span>
       </Link>
     );
   }
@@ -120,14 +132,6 @@ export function Header() {
             )}
           </button>
           <AccountMenu user={user} accountHref={accountHref} panelLabel={panelLabel} />
-          <Link
-            to="/vender"
-            aria-label="Vender gratis"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded bg-secondary-container px-2.5 py-2.5 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
-          >
-            <Store className="h-4 w-4 sm:hidden" />
-            <span className="hidden sm:inline">Vender gratis</span>
-          </Link>
         </div>
       </div>
     </header>

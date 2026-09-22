@@ -125,6 +125,28 @@ async function withMinDelay(fn) {
   }
 }
 
+// Bloque 46 (pedido explícito): cuenta regresiva real para el vencimiento
+// de un código de un solo uso (2FA por ahora) — recibe el timestamp real
+// que manda el backend, nunca un contador fijo local que se desincroniza
+// del real. Retorna segundos restantes (0 cuando ya venció, nunca
+// negativo) y se re-renderiza cada segundo mientras `expiresAt` esté seteado.
+function useCountdownSeconds(expiresAt) {
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  useEffect(() => {
+    if (!expiresAt) {
+      setSecondsLeft(0);
+      return;
+    }
+    function tick() {
+      setSecondsLeft(Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000)));
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return secondsLeft;
+}
+
 // Bloque 114 (pedido explícito): "Nombre completo" se separa en Nombre +
 // Apellidos (se concatenan recién al mandar el registro, ver
 // buildRegisterPayload — el backend sigue guardando un solo fullName, no
@@ -202,6 +224,14 @@ export default function Account({ mode = "customer" }) {
   const [view, setView] = useState(mode === "admin" ? "login" : searchParams.get("tab") === "registro" ? "register" : "login");
   const [twoFactorEmail, setTwoFactorEmail] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
+  // Bloque 46 (pedido explícito — "vamos a corregir que en el inicio de
+  // sesión... agregar un botón de reenviar código... y la espera de
+  // vencimiento... se mostrará como un contador regresivo, si llega a cero
+  // se habilita un botón enviar código nuevamente"): timestamp real que
+  // manda el backend (auth.controller.js) — nunca "5 minutos" fijo acá, así
+  // la cuenta regresiva sigue siendo exacta después de un reenvío.
+  const [twoFactorExpiresAt, setTwoFactorExpiresAt] = useState(null);
+  const twoFactorSecondsLeft = useCountdownSeconds(twoFactorExpiresAt);
   // Bloque 59: código de verificación de correo (segundo paso del registro)
   // — el email pendiente de verificar es siempre form.email, no hace falta
   // duplicarlo en un estado propio.
@@ -324,6 +354,7 @@ export default function Account({ mode = "customer" }) {
         if (result?.requiresTwoFactor) {
           setTwoFactorEmail(result.email);
           setTwoFactorCode("");
+          setTwoFactorExpiresAt(result.twoFactorExpiresAt);
           setView("two-factor");
           toast.success("Te enviamos un código a tu correo.");
           return;
@@ -603,6 +634,27 @@ export default function Account({ mode = "customer" }) {
     }
   }
 
+  // Bloque 46 (pedido explícito — "agregar un botón de reenviar código de
+  // autenticación para todos los roles"): mismo endpoint de login de
+  // siempre — el backend YA genera y manda un código nuevo en CADA llamada
+  // (ver auth.controller.js), así que reenviar es simplemente repetir el
+  // mismo login con las credenciales que ya están en el formulario.
+  async function handleResendTwoFactorCode() {
+    setResendingCode(true);
+    try {
+      const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" ? mode : undefined);
+      if (result?.requiresTwoFactor) {
+        setTwoFactorExpiresAt(result.twoFactorExpiresAt);
+        setTwoFactorCode("");
+        toast.success("Te mandamos un nuevo código.");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "No se pudo reenviar el código.");
+    } finally {
+      setResendingCode(false);
+    }
+  }
+
   async function handleForgotEmail(e) {
     e.preventDefault();
     setLoading(true);
@@ -676,7 +728,19 @@ export default function Account({ mode = "customer" }) {
         <div key={view} className="animate-step-in">
           <h1 className="mb-2 text-headline-md text-on-surface">Verificación en dos pasos</h1>
           <p className="mb-6 text-body-md text-on-surface-variant">
-            Te mandamos un código de 6 dígitos a <strong>{twoFactorEmail}</strong>. Vence en 10 minutos.
+            Te mandamos un código de 6 dígitos a <strong>{twoFactorEmail}</strong>.{" "}
+            {twoFactorSecondsLeft > 0 ? (
+              <>
+                Vence en{" "}
+                <strong className="tabular-nums">
+                  {String(Math.floor(twoFactorSecondsLeft / 60)).padStart(2, "0")}:
+                  {String(twoFactorSecondsLeft % 60).padStart(2, "0")}
+                </strong>
+                .
+              </>
+            ) : (
+              "El código venció."
+            )}
           </p>
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
             <Input
@@ -691,6 +755,14 @@ export default function Account({ mode = "customer" }) {
               {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
             </Button>
           </form>
+          <button
+            type="button"
+            onClick={handleResendTwoFactorCode}
+            disabled={twoFactorSecondsLeft > 0 || resendingCode}
+            className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
+          >
+            {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
+          </button>
           <button onClick={() => switchView("login")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
             ← Volver al login
           </button>
@@ -758,6 +830,9 @@ export default function Account({ mode = "customer" }) {
                   {loading ? (<><Spinner className="text-white" /> Enviando...</>) : "Enviar código"}
                 </Button>
               </form>
+              <button onClick={() => switchView("login")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
+                ← Volver al login
+              </button>
             </>
           )}
 

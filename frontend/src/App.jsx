@@ -18,7 +18,6 @@ import Cart from "./pages/public/Cart.jsx";
 import SharedCart from "./pages/public/SharedCart.jsx";
 import Checkout from "./pages/public/Checkout.jsx";
 import Account from "./pages/public/Account.jsx";
-import VendorOnboarding from "./pages/public/VendorOnboarding.jsx";
 import TableOrder from "./pages/public/TableOrder.jsx";
 import Terms from "./pages/public/Terms.jsx";
 import Privacy from "./pages/public/Privacy.jsx";
@@ -120,7 +119,17 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/vender" element={<VendorOnboarding />} />
+        {/* Bloque 47 (pedido explícito — "eliminar el requisito de
+            registrarse primero como cliente para crear una tienda"): /vender
+            (VendorOnboarding.jsx) quedó obsoleto — exigía loguearse primero
+            (bouncing a /cuenta, la pantalla de CLIENTE) antes de mostrar el
+            formulario de tienda. El registro de vendedor ahora vive entero
+            en /vendedor/ingresar (Account.jsx mode="vendor"): datos
+            personales + datos de tienda en una sola pantalla, sin pasar
+            nunca por el login de cliente. Se retira la ruta entera en vez de
+            dejarla como redirect — no vale la pena mantener un componente
+            muerto solo para eso. */}
+        <Route path="/vender" element={<Navigate to="/vendedor/ingresar?tab=registro" replace />} />
         <Route path="/mesa/:qrToken" element={<TableOrder />} />
         <Route path="/terminos" element={<Terms />} />
         <Route path="/privacidad" element={<Privacy />} />

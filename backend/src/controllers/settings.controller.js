@@ -17,14 +17,6 @@ async function getOrCreateSettings() {
   return prisma.siteSettings.create({ data: {} });
 }
 
-// Bloque 49: logoUrl puede ser un archivo subido (nombre relativo, hay que
-// anteponer /uploads/site/) o un link externo pegado por el admin (ya
-// absoluto, se usa tal cual) — mismo criterio que las imágenes de producto.
-function formatLogoUrl(logoUrl) {
-  if (!logoUrl) return null;
-  return /^https?:\/\//.test(logoUrl) ? logoUrl : `/uploads/site/${logoUrl}`;
-}
-
 // Público — Home.jsx lo consulta sin autenticación para pintar el hero.
 // También expone los límites por plan (Bloque 19): el panel de vendedor los
 // necesita para deshabilitar "+ Agregar" al llegar al tope y mostrar "X/Y".
@@ -41,7 +33,6 @@ export async function getSettings(_req, res) {
       planFeaturesBusiness: settings.planFeaturesBusiness,
       allowProductImageLinks: settings.allowProductImageLinks,
       siteName: settings.siteName,
-      logoUrl: formatLogoUrl(settings.logoUrl),
       whatsappUrl: settings.whatsappUrl,
       instagramUrl: settings.instagramUrl,
       facebookUrl: settings.facebookUrl,
@@ -293,13 +284,10 @@ export async function updateReviewPolicy(req, res) {
 
 const brandingSchema = z.object({
   siteName: z.string().trim().min(1).optional(),
-  // "" borra el logo (vuelve a mostrar solo el nombre) — distinto de
-  // `undefined`, que significa "no tocar este campo".
-  logoUrl: z.string().trim().optional().nullable(),
-  // Bloque 61: mismo criterio ("" borra, undefined no toca) para las 3 redes
-  // — nunca se valida el formato estricto de URL acá (mismo criterio laxo
-  // que logoUrl) porque un link de WhatsApp puede ser wa.me/... o
-  // api.whatsapp.com/..., no hay un único formato "correcto" que validar.
+  // Bloque 61: "" borra, undefined no toca (mismo criterio para las 3) —
+  // nunca se valida el formato estricto de URL acá porque un link de
+  // WhatsApp puede ser wa.me/... o api.whatsapp.com/..., no hay un único
+  // formato "correcto" que validar.
   whatsappUrl: z.string().trim().optional().nullable(),
   instagramUrl: z.string().trim().optional().nullable(),
   facebookUrl: z.string().trim().optional().nullable(),
@@ -325,15 +313,14 @@ const brandingSchema = z.object({
     .optional(),
 });
 
-// Admin ("Marca de la plataforma") — nombre de la plataforma y logo por
-// link externo. Si el admin sube un archivo en su lugar, se usa
-// updateBrandingLogo (multipart) de abajo, no este endpoint JSON.
+// Admin ("Marca de la plataforma") — nombre de la plataforma. El logo ya
+// no se administra acá (ver el comentario largo en usePlatformSettings.js,
+// frontend) — es un asset fijo del código.
 export async function updateBranding(req, res) {
   const data = brandingSchema.parse(req.body);
   const settings = await getOrCreateSettings();
   const update = {};
   if (data.siteName !== undefined) update.siteName = data.siteName;
-  if (data.logoUrl !== undefined) update.logoUrl = data.logoUrl || null;
   if (data.whatsappUrl !== undefined) update.whatsappUrl = data.whatsappUrl || null;
   if (data.instagramUrl !== undefined) update.instagramUrl = data.instagramUrl || null;
   if (data.facebookUrl !== undefined) update.facebookUrl = data.facebookUrl || null;
@@ -343,7 +330,6 @@ export async function updateBranding(req, res) {
   res.json({
     settings: {
       siteName: updated.siteName,
-      logoUrl: formatLogoUrl(updated.logoUrl),
       whatsappUrl: updated.whatsappUrl,
       instagramUrl: updated.instagramUrl,
       facebookUrl: updated.facebookUrl,
@@ -415,17 +401,6 @@ export async function updateProductBadgeSettings(req, res) {
   res.json({ settings: { availableProductBadges: updated.availableProductBadges, newBadgeDurationDays: updated.newBadgeDurationDays } });
 }
 
-// Admin — subir el logo como archivo, alternativa a pegar link.
-export async function updateBrandingLogo(req, res) {
-  if (!req.file) throw new AppError("Sube un archivo de logo.", 400);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({
-    where: { id: settings.id },
-    data: { logoUrl: req.file.filename },
-  });
-  res.json({ settings: { logoUrl: formatLogoUrl(updated.logoUrl) } });
-}
-
 // Bloque 96 (pedido explícito): el hero pasa de 1 imagen fija a un slider —
 // mismo patrón que addProductImages (products.controller.js): agrega al
 // array existente, nunca lo reemplaza entero, para poder subir de a una o
@@ -468,14 +443,13 @@ export async function removeHeroImage(req, res) {
 // chatbot) llama esto en vez de hardcodear "ZeuDin".
 export async function getBrandSettings() {
   const settings = await getOrCreateSettings();
-  const relativeOrAbsolute = formatLogoUrl(settings.logoUrl);
-  // Distinto de formatLogoUrl tal cual (que devuelve rutas relativas para
-  // que el FRONTEND les anteponga su propio axios baseURL) — un correo o un
-  // PDF se abre fuera del navegador, sin ningún origin propio, así que acá
-  // la ruta local sí necesita el host de este backend antepuesto a mano.
-  const logoUrl = relativeOrAbsolute && !/^https?:\/\//.test(relativeOrAbsolute) ? `${env.backendUrl}${relativeOrAbsolute}` : relativeOrAbsolute;
-  // Bloque 61: consumido por emailShell() para la fila de íconos del footer
-  // — null si el admin nunca lo cargó, nunca un link inventado.
+  // Bloque 46: el logo ya no vive en la base — es un asset fijo, servido
+  // por app.js en /brand/logo.png (ver el comentario largo ahí). Siempre
+  // presente, nunca null — usado como fallback de og:image en
+  // og.controller.js. emailShell() (templates/_shared.js) NO usa este
+  // campo para el logo de la plataforma — lee el mismo archivo directo del
+  // disco para incrustarlo, en vez de pedírselo a esta URL.
+  const logoUrl = `${env.backendUrl}/brand/logo.png`;
   return {
     siteName: settings.siteName || "ZeuDin",
     logoUrl,
