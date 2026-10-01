@@ -1,28 +1,28 @@
 import { Clock, CheckCircle2, XCircle, AlertTriangle, Ban } from "lucide-react";
 
-// Verificación y Suscripción se unificaron en una sola página
-// (VendorVerification.jsx) por mostrar prácticamente lo mismo — este array
-// ya no se comparte entre dos archivos, pero se deja acá separado del
-// componente porque BENEFITS/PLANS son datos, no UI.
-export const BENEFITS = ["Badge de verificación", "Productos ilimitados", "Aparición en la home", "IA de empresa (chatbot)"];
+// Bloque 52 (pedido explícito — "debe haber una concordancia con todo...
+// una configuración correcta"): BENEFITS/PLANS vivían hardcodeados acá, sin
+// ninguna relación con lo que el backend realmente aplicaba (podían decir
+// cualquier cosa). Ahora todo viene de `settings.plans` (GET /settings,
+// PlanConfig del backend) — ver planFromSettings() más abajo, usado por
+// VendorVerification.jsx y PlanComparisonModal.jsx.
 
-// Bloque 16: la comparación Regular/Business se movió acá desde Home.jsx —
-// ya no es un gancho de marketing público, es algo que el vendedor explora
-// si quiere desde su propio panel.
-export const PLANS = [
-  {
-    id: "regular",
-    name: "Regular",
-    priceLabel: "Gratis",
-    features: ["Hasta 20 productos", "Pedidos por WhatsApp", "Perfil de tienda público", "Sin comisiones por venta"],
-  },
-  {
-    id: "business",
-    name: "Business",
-    priceLabel: "2 500 CUP/mes",
-    features: ["Productos ilimitados", "Sello de tienda verificada", "Destacada en la home", "Recomendaciones con IA", "Horarios de atención"],
-  },
-];
+// Arma el objeto de UN plan a partir de la fila real de PlanConfig que
+// devuelve /settings — único lugar que traduce esa forma a lo que las
+// pantallas de vendedor/comprador necesitan mostrar, para que las dos nunca
+// se desincronicen entre sí.
+export function planFromSettings(plans, planType) {
+  const p = plans?.find((p) => p.planType === planType);
+  if (!p) return null;
+  const isBusiness = planType === "BUSINESS";
+  return {
+    id: planType.toLowerCase(),
+    planType,
+    name: p.displayName,
+    priceLabel: isBusiness ? null : "Gratis", // el precio real de Premium lo arma quien lo use (varía CUP/USD)
+    features: p.features ?? [],
+  };
+}
 
 // Bloque 64: verificationStatus (Vendor.verificationStatus, fuente única de
 // verdad — ver vendorVerification.service.js) ES el ciclo completo, ya no

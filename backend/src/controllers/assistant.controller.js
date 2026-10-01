@@ -249,7 +249,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
   if (!terms?.length) {
     if (!broadListing) return [];
     return prisma.product.findMany({
-      where: { isActive: true, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
+      where: { isActive: true, overQuota: false, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
       include: CANDIDATE_INCLUDE,
       take: ZONE_POOL_LIMIT,
       orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -372,7 +372,7 @@ async function searchVendors({ terms, provinceId, municipalityId, onlyVerified }
     isPrivate: false,
     // Bloque 64: regla de visibilidad, independiente de verificationStatus
     // de abajo — el bot no debe ofrecer una tienda sin catálogo.
-    products: { some: { isActive: true } },
+    products: { some: { isActive: true, overQuota: false } },
     verificationStatus: onlyVerified ? "VERIFIED" : undefined,
     locations: locationFilter,
     id: idFilter,

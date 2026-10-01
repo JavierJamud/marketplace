@@ -286,9 +286,13 @@ function StoreOffersTab({ vendor }) {
     queryClient.invalidateQueries({ queryKey: ["my-discount-codes"] });
   }
 
-  const maxActive = siteSettings?.maxActiveStoreOffersPerVendor ?? 1;
+  // Bloque 52: el tope de ofertas de tienda activas pasó a ser un límite POR
+  // PLAN (PlanConfig.maxActiveStoreOffers) — antes era un único valor global
+  // en siteSettings. null = sin límite.
+  const planConfig = siteSettings?.plans?.find((p) => p.planType === vendor?.planType);
+  const maxActive = planConfig?.maxActiveStoreOffers ?? null;
   const activeCount = (storeOffers ?? []).filter((o) => o.active).length;
-  const atLimit = activeCount >= maxActive;
+  const atLimit = maxActive !== null && activeCount >= maxActive;
 
   return (
     <div>
@@ -301,7 +305,7 @@ function StoreOffersTab({ vendor }) {
             className="rounded-full px-3 py-1.5 text-[12px] font-bold"
             style={atLimit ? { background: "rgba(138,81,0,0.12)", color: "#8A5100" } : { background: "rgba(12,174,83,0.12)", color: "#0A8F42" }}
           >
-            {activeCount}/{maxActive} {maxActive === 1 ? "oferta activa" : "ofertas activas"}
+            {activeCount}/{maxActive ?? "∞"} {maxActive === 1 ? "oferta activa" : "ofertas activas"}
           </span>
         )}
         <div className="ml-auto" title={!vendor?.isVerified ? "Disponible solo para tiendas verificadas" : undefined}>

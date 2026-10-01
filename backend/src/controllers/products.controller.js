@@ -12,8 +12,7 @@ import { isAIAvailable } from "../lib/ai.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { hashToken } from "../utils/hashToken.js";
-
-const REGULAR_PLAN_PRODUCT_LIMIT = 20;
+import { getPlanLimit, swapProductQuota } from "../lib/planConfig.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // A diferencia de uploads/kyc (privado), las fotos de producto son públicas
@@ -390,7 +389,7 @@ export async function getProductBySlug(req, res) {
     // Bloque 157: hiddenFromStore:true significa "solo se pide desde la
     // mesa" — la ficha pública de este mismo producto también queda 404,
     // igual que uno inactivo, así una URL directa/compartida no lo expone.
-    where: { vendorId: vendor.id, slug: productSlug, isActive: true, hiddenFromStore: false },
+    where: { vendorId: vendor.id, slug: productSlug, isActive: true, hiddenFromStore: false, overQuota: false },
     include: {
       options: true,
       category: true,
@@ -428,7 +427,7 @@ export async function getProductBySlug(req, res) {
   let related = [];
   if (coPurchasedIds.length > 0) {
     const coPurchasedProducts = await prisma.product.findMany({
-      where: { id: { in: coPurchasedIds }, isActive: true, hiddenFromStore: false },
+      where: { id: { in: coPurchasedIds }, isActive: true, hiddenFromStore: false, overQuota: false },
       include: RELATED_INCLUDE,
     });
     // El orden de coPurchasedIds YA es "más comprado junto" primero — findMany
@@ -441,7 +440,7 @@ export async function getProductBySlug(req, res) {
     // para que la sección nunca quede vacía ni a medias.
     const excludeIds = [product.id, ...related.map((p) => p.id)];
     const fallback = await prisma.product.findMany({
-      where: { categoryId: product.categoryId, isActive: true, hiddenFromStore: false, id: { notIn: excludeIds } },
+      where: { categoryId: product.categoryId, isActive: true, hiddenFromStore: false, overQuota: false, id: { notIn: excludeIds } },
       include: RELATED_INCLUDE,
       take: RELATED_LIMIT - related.length,
     });
@@ -623,7 +622,21 @@ export async function listMyProducts(req, res) {
     },
     orderBy: { createdAt: "desc" },
   });
-  res.json({ products, planType: vendor.planType, limit: vendor.planType === "REGULAR" ? REGULAR_PLAN_PRODUCT_LIMIT : null });
+  const limit = await getPlanLimit(vendor, "maxProducts");
+  res.json({ products, planType: vendor.planType, limit });
+}
+
+// Bloque 52 (pedido explícito — al bajar el cupo de productos, "tal vez
+// hasta agregar un botón que luego de eliminar algunos solo deberá activar
+// otros para que sean visibles"): el vendedor elige explícitamente qué
+// producto EXCEDENTE (overQuota:true) pasa a ocupar el cupo — ver
+// swapProductQuota en lib/planConfig.js para la lógica real (incluye hacerle
+// lugar bajando al más viejo si ya no queda espacio libre).
+export async function activateQuotaProduct(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  const { id } = req.params;
+  await swapProductQuota(vendor.id, id);
+  res.status(204).end();
 }
 
 export async function createProduct(req, res) {
@@ -660,14 +673,17 @@ export async function createProduct(req, res) {
   // ignora cualquier valor que mande el cliente en este campo al crear.
   data.badge = "Nuevo";
 
-  if (vendor.planType === "REGULAR") {
+  const maxProducts = await getPlanLimit(vendor, "maxProducts");
+  if (maxProducts !== null) {
     const activeCount = await prisma.product.count({ where: { vendorId: vendor.id, isActive: true } });
-    if (activeCount >= REGULAR_PLAN_PRODUCT_LIMIT) {
+    if (activeCount >= maxProducts) {
       throw new AppError(
-        `Alcanzaste el límite de ${REGULAR_PLAN_PRODUCT_LIMIT} productos del Plan Regular. Verificate para pasar a Business y publicar sin límite.`,
+        `Alcanzaste el límite de ${maxProducts} productos de tu plan. Verificate para pasar a Premium y publicar sin límite.`,
         403
       );
     }
+  }
+  if (vendor.planType === "REGULAR") {
     // Plan Regular: solo WhatsApp como canal de pedido.
     data.paymentMethods = ["whatsapp"];
   } else {

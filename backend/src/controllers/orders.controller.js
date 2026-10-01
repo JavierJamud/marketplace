@@ -9,6 +9,7 @@ import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
+import { getPlanLimit } from "../lib/planConfig.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -632,8 +633,6 @@ export async function updateOrderItems(req, res) {
 
 // --- Emails manuales del vendedor ---------------------------------------
 
-const REGULAR_MONTHLY_EMAIL_LIMIT = 10;
-
 function monthStart() {
   const d = new Date();
   d.setDate(1);
@@ -649,11 +648,12 @@ async function countManualEmailsThisMonth(vendorId) {
 
 export async function getEmailUsage(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
-  if (vendor.planType === "BUSINESS") {
+  const limit = await getPlanLimit(vendor, "maxMonthlyOrderEmails");
+  if (limit === null) {
     return res.json({ unlimited: true, used: null, limit: null });
   }
   const used = await countManualEmailsThisMonth(vendor.id);
-  res.json({ unlimited: false, used, limit: REGULAR_MONTHLY_EMAIL_LIMIT });
+  res.json({ unlimited: false, used, limit });
 }
 
 const manualEmailSchema = z.object({
@@ -670,11 +670,12 @@ export async function sendManualEmail(req, res) {
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   if (!order.customerEmail) throw new AppError("Este pedido no tiene un correo de cliente registrado.", 400);
 
-  if (vendor.planType === "REGULAR") {
+  const monthlyEmailLimit = await getPlanLimit(vendor, "maxMonthlyOrderEmails");
+  if (monthlyEmailLimit !== null) {
     const used = await countManualEmailsThisMonth(vendor.id);
-    if (used >= REGULAR_MONTHLY_EMAIL_LIMIT) {
+    if (used >= monthlyEmailLimit) {
       throw new AppError(
-        `Alcanzaste el límite de ${REGULAR_MONTHLY_EMAIL_LIMIT} emails manuales del Plan Regular este mes. Verificate para pasar a Business y enviar sin límite.`,
+        `Alcanzaste el límite de ${monthlyEmailLimit} emails manuales de tu plan este mes. Verificate para pasar a Premium y enviar sin límite.`,
         403
       );
     }

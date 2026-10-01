@@ -60,8 +60,18 @@ const EVENTS = {
   // que siempre hay un motivo humano detrás de este evento.
   VERIFICATION_BUSINESS_REVOKED: {
     title: "Plan Business revocado",
-    body: () =>
-      "Tu tienda volvió al Plan Regular — perdiste el badge de verificación y las funciones Business (IA para clientes, destacado en home, productos ilimitados). Puedes volver a verificarte cuando quieras desde tu panel.",
+    body: (notes) =>
+      `Tu tienda volvió al Plan Regular — perdiste el badge de verificación y las funciones Premium. Motivo: ${notes?.trim() || "sin especificar"}. Puedes volver a verificarte cuando quieras desde tu panel.`,
+  },
+  // Bloque 52 (pedido explícito — "podemos activar la suscripción
+  // manualmente desde el panel de administrador... se debe justificar y
+  // poner el motivo"): activación manual, sin pasar por el ciclo normal de
+  // documentos/pago — siempre tiene un motivo humano detrás, igual que la
+  // revocación de arriba.
+  VERIFICATION_BUSINESS_GRANTED: {
+    title: "¡Tu tienda pasó a Plan Premium!",
+    body: (notes) =>
+      `El equipo activó el Plan Premium y el badge de verificación de tu tienda. Motivo: ${notes?.trim() || "sin especificar"}.`,
   },
   // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
   // nuevo reactiva sin rehacer documentos); SUSPENDED implica que la

@@ -18,6 +18,7 @@ import { cancelStripeSubscription, scheduleStripeSubscriptionCancellation } from
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertVendorLocationComplete } from "../services/registrationLocation.service.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
+import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { completenessScore } from "../lib/productRanking.js";
@@ -257,7 +258,7 @@ export async function getVendorBySlug(req, res) {
       // split ocurra del lado del cliente.
       // Bloque 157: hiddenFromStore:true = "solo por pedido de mesa" — no
       // aparece en esta lista pública de la tienda.
-      products: { where: { isActive: true, hiddenFromStore: false }, take: 48, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
+      products: { where: { isActive: true, hiddenFromStore: false, overQuota: false }, take: 48, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
       // Comentarios públicos de la tienda (sin producto asociado) — un
       // comentario oculto por el admin (isHidden) nunca llega acá.
       reviews: { where: { productId: null, isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
@@ -366,7 +367,7 @@ export async function listVendors(req, res) {
       // Bloque 64 (regla de visibilidad, INDEPENDIENTE de verificationStatus
       // de arriba): una tienda sin ningún producto publicado no aparece acá,
       // verificada o no, Plan Business o Regular.
-      products: { some: { isActive: true, hiddenFromStore: false } },
+      products: { some: { isActive: true, hiddenFromStore: false, overQuota: false } },
       isRestaurant: isRestaurant !== undefined ? isRestaurant === "true" : undefined,
       verificationStatus: isVerified !== undefined ? (isVerified === "true" ? "VERIFIED" : { not: "VERIFIED" }) : undefined,
       companyName: q ? { contains: String(q), mode: "insensitive" } : undefined,
@@ -383,7 +384,7 @@ export async function listVendors(req, res) {
       // Bloque 23: cantidad de productos/servicios activos — se muestra en
       // StoreCard.jsx. Filtrado por isActive (no cuenta lo pausado/oculto,
       // que el cliente no puede ver de todas formas).
-      _count: { select: { products: { where: { isActive: true, hiddenFromStore: false } } } },
+      _count: { select: { products: { where: { isActive: true, hiddenFromStore: false, overQuota: false } } } },
     },
     take: 50,
   });
@@ -648,6 +649,27 @@ export async function updateMyVendor(req, res) {
     }
   }
 
+  // Bloque 52 (pedido explícito — "si el perfil de la tienda van a ser
+  // públicos o privados... si los pedidos pueden ser por WhatsApp o solo el
+  // panel... configuraciones que llevarán las tiendas"): antes estos 3
+  // campos se guardaban tal cual los mandara el vendedor, sin ningún gate de
+  // plan — ahora se recortan contra lo que PlanConfig habilita para el plan
+  // ACTUAL de la tienda (nunca el que está pidiendo, si está cambiando de
+  // plan en este mismo guardado).
+  const planConfig = await getPlanConfig(planType ?? vendor.planType);
+  const isPrivate = data.isPrivate !== undefined ? (planConfig?.allowPublicProfile ? data.isPrivate : false) : undefined;
+  let orderDestination = data.orderDestination;
+  if (orderDestination !== undefined) {
+    const allowedDestinations = [
+      ...(planConfig?.allowWhatsappOrders ? ["WHATSAPP"] : []),
+      ...(planConfig?.allowPanelOrders ? ["PANEL"] : []),
+    ];
+    if (planConfig?.allowWhatsappOrders && planConfig?.allowPanelOrders) allowedDestinations.push("BOTH");
+    if (!allowedDestinations.includes(orderDestination)) {
+      throw new AppError(`Tu Plan ${planConfig?.displayName ?? vendor.planType} no permite ese destino de pedidos.`, 403);
+    }
+  }
+
   let updated = await prisma.vendor.update({
     where: { id: vendor.id },
     data: {
@@ -664,13 +686,13 @@ export async function updateMyVendor(req, res) {
       menuPublic: data.menuPublic,
       tables: seedTables ? { create: seedTables } : undefined,
       planType,
-      orderDestination: data.orderDestination,
+      orderDestination,
       acceptedPaymentMethods: data.acceptedPaymentMethods,
       currency: data.currency,
       businessCategoryId: data.businessCategoryId,
       warrantyTerms: data.warrantyTerms,
       warrantyDefaultDays: data.warrantyDefaultDays,
-      isPrivate: data.isPrivate,
+      isPrivate,
     },
   });
 
@@ -1082,7 +1104,7 @@ export async function getDashboard(req, res) {
     salesThisWeek: Number(salesAgg._sum.total ?? 0) + Number(tableSalesAgg._sum.total ?? 0),
     newOrdersCount: newOrdersCount + newTableOrdersCount,
     activeProducts,
-    maxProducts: vendor.planType === "REGULAR" ? 20 : null,
+    maxProducts: await getPlanLimit(vendor, "maxProducts"),
     rating: Number(vendor.rating),
     reviewCount: reviewAgg._count.rating,
     isVerified: vendor.verificationStatus === "VERIFIED",
@@ -1336,13 +1358,18 @@ export async function trackEngagement(req, res) {
 
 // --- Chat vendedor <-> admin (Bloque 15) ------------------------------------
 // Habilitado solo para vendedores con KYC APPROVED — se valida server-side
-// acá, no solo en el frontend (VendorChat.jsx también oculta la UI).
+// acá, no solo en el frontend (VendorChat.jsx también oculta la UI). Bloque
+// 52 (decisión confirmada — "las dos cosas"): además de estar verificada,
+// el plan actual de la tienda tiene que habilitarlo (allowAdminChat) — una
+// tienda Premium activada a mano SIN estar verificada no debe tener esto
+// prendido solo por el plan, y viceversa.
 async function requireApprovedVendor(userId) {
   const vendor = await resolveMyVendor(userId);
   if (vendor.verificationStatus !== "VERIFIED") {
     const { siteName } = await getBrandSettings();
     throw new AppError(`El chat con el equipo de ${siteName} se habilita al verificar tu tienda.`, 403);
   }
+  await assertPlanAllows(vendor, "allowAdminChat", "Tu plan actual no incluye el chat con el equipo.");
   return vendor;
 }
 
@@ -1399,13 +1426,9 @@ export async function markMyNotificationsRead(req, res) {
 
 // --- Países de entrega (Bloque 19) ------------------------------------------
 // Además de las provincias de Cuba donde vende (VendorLocation), un
-// vendedor puede declarar a qué OTROS países entrega. Tope según el plan,
-// configurable por el admin en SiteSettings — nunca una constante fija acá.
-
-async function getPlanLimits() {
-  const settings = (await prisma.siteSettings.findFirst()) ?? (await prisma.siteSettings.create({ data: {} }));
-  return settings;
-}
+// vendedor puede declarar a qué OTROS países entrega. Tope según el plan —
+// Bloque 52: ahora vive en PlanConfig (lib/planConfig.js), ya no en
+// columnas pareadas sueltas de SiteSettings.
 
 const deliveryCountrySchema = z.object({ countryId: z.string().min(1) });
 
@@ -1421,12 +1444,12 @@ export async function addMyDeliveryCountry(req, res) {
   const existing = await prisma.vendorDeliveryCountry.findUnique({ where: { vendorId_countryId: { vendorId: vendor.id, countryId } } });
   if (existing) throw new AppError("Ya agregaste ese país de entrega.", 409);
 
-  const limits = await getPlanLimits();
-  const max = vendor.planType === "BUSINESS" ? limits.maxDeliveryCountriesBusiness : limits.maxDeliveryCountriesRegular;
+  const planConfig = await getPlanConfig(vendor.planType);
+  const max = planConfig?.maxDeliveryCountries ?? null;
   const currentCount = await prisma.vendorDeliveryCountry.count({ where: { vendorId: vendor.id } });
-  if (currentCount >= max) {
+  if (max !== null && currentCount >= max) {
     throw new AppError(
-      `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite hasta ${max} país(es) de entrega. Quita uno o verifica tu tienda para ampliar el límite.`,
+      `Tu Plan ${planConfig.displayName} permite hasta ${max} país(es) de entrega. Quita uno o verifica tu tienda para ampliar el límite.`,
       403
     );
   }
@@ -1471,11 +1494,11 @@ export async function addMyLocation(req, res) {
   const isNewProvince = !existingLocations.some((l) => l.provinceId === provinceId);
 
   if (isNewProvince) {
-    const limits = await getPlanLimits();
-    const max = vendor.planType === "BUSINESS" ? limits.maxProvincesBusiness : limits.maxProvincesRegular;
+    const planConfig = await getPlanConfig(vendor.planType);
+    const max = planConfig?.maxProvinces ?? null;
     if (max !== null && distinctProvinceCount >= max) {
       throw new AppError(
-        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
+        `Tu Plan ${planConfig.displayName} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
         403
       );
     }
@@ -1514,11 +1537,11 @@ export async function syncProvinceLocations(req, res) {
   const isNewProvince = !existingLocations.some((l) => l.provinceId === provinceId);
 
   if (isNewProvince && (municipalityIds === null || municipalityIds.length > 0)) {
-    const limits = await getPlanLimits();
-    const max = vendor.planType === "BUSINESS" ? limits.maxProvincesBusiness : limits.maxProvincesRegular;
+    const planConfig = await getPlanConfig(vendor.planType);
+    const max = planConfig?.maxProvinces ?? null;
     if (max !== null && distinctProvinceCount >= max) {
       throw new AppError(
-        `Tu Plan ${vendor.planType === "BUSINESS" ? "Business" : "Regular"} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
+        `Tu Plan ${planConfig.displayName} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
         403
       );
     }

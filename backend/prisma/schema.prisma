@@ -439,6 +439,16 @@ model Product {
   // sentido real combinado con él — la UI (VendorProducts.jsx) solo lo
   // ofrece cuando availableForTableMenu ya está tildado.
   hiddenFromStore Boolean @default(false)
+  // Bloque 52 (pedido explícito — al bajar el cupo de productos de un plan,
+  // "se muestran solo los últimos productos del límite... los demás quedan
+  // en el panel del vendedor, el vendedor podrá verlos en su panel pero no
+  // públicos"): true = este producto excede el cupo de PlanConfig.maxProducts
+  // de su tienda — sigue existiendo y el vendedor lo administra normal desde
+  // su panel, pero queda fuera de todo listado público (mismo criterio de
+  // exclusión que hiddenFromStore, ver recalcVendorProductQuota en
+  // lib/planConfig.js). El vendedor elige qué producto ocupa el cupo con un
+  // intercambio explícito (endpoint propio), nunca automático por su cuenta.
+  overQuota Boolean @default(false)
   // Bloque 157 (pedido explícito — "se podrá configurar si algunos productos
   // son para todas las mesas o para mesas en específico"): false (default) =
   // disponible en TODAS las mesas del vendedor con availableForTableMenu — ni
@@ -872,6 +882,64 @@ model PendingRegistration {
   codeHash      String
   codeExpiresAt DateTime
   createdAt     DateTime @default(now())
+}
+
+// Bloque 52 (pedido explícito — "que todo esté bien agrupado en la sección
+// de suscripciones... configuración de las suscripciones, donde se podrá
+// configurar todo"): fuente ÚNICA de qué distingue a cada plan — antes
+// repartido entre constantes hardcodeadas en 3 controllers distintos
+// (REGULAR_PLAN_PRODUCT_LIMIT, REGULAR_MONTHLY_EMAIL_LIMIT) y columnas
+// pareadas sueltas de SiteSettings (maxProvincesRegular/Business, etc.), sin
+// ninguna conexión con lo que el frontend anunciaba como beneficio de cada
+// plan (frontend/src/lib/verificationMeta.js, PlanComparisonModal.jsx — esos
+// quedaban hardcodeados aparte y podían decir cualquier cosa). Una fila por
+// PlanType, leída/escrita entera desde lib/planConfig.js.
+//
+// `planType` es el valor interno de SIEMPRE (nunca cambia, ver enum arriba);
+// `displayName` es el nombre que ve el usuario — ahí es donde vive el cambio
+// de "Business" a "Premium" pedido, editable sin tocar código ni desplegar.
+//
+// Límites en null = sin límite (plan ilimitado en ese punto). Los
+// interruptores `allow*` deciden si una tienda de este plan puede usar esa
+// función EN ABSOLUTO — pero una función solo queda realmente activa cuando
+// además la tienda está verificada (ver isPremiumActive en lib/planConfig.js:
+// plan Premium Y verificada, las dos cosas, pedido explícito — la insignia
+// de verificado nunca deja de ser solo un sello de confianza).
+model PlanConfig {
+  id          String   @id @default(cuid())
+  planType    PlanType @unique
+  displayName String
+  // Lista de beneficios en texto libre que ve el vendedor/comprador — antes
+  // SiteSettings.planFeaturesRegular/Business.
+  features    String[] @default([])
+
+  // --- Límites numéricos (null = ilimitado) ---------------------------
+  maxProducts           Int?
+  maxProvinces          Int?
+  maxDeliveryCountries  Int?
+  maxMonthlyOrderEmails Int?
+  maxStaffUsers         Int?
+  maxTables             Int?
+  maxActiveStoreOffers  Int?
+  maxDiscountCodes      Int?
+
+  // --- Interruptores de función ----------------------------------------
+  allowAiChatbot      Boolean @default(true)
+  allowHomeOffers     Boolean @default(true)
+  allowStoreOffers    Boolean @default(true)
+  allowDiscountCodes  Boolean @default(true)
+  allowQrTables       Boolean @default(true)
+  allowStaffUsers     Boolean @default(true)
+  allowAdminChat      Boolean @default(true)
+  allowReviewPhotos   Boolean @default(true)
+  allowSchedules      Boolean @default(true)
+  allowPublicProfile  Boolean @default(true)
+  allowWhatsappOrders Boolean @default(true)
+  allowPanelOrders    Boolean @default(true)
+  featuredInHome      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Vendor {
@@ -2149,16 +2217,6 @@ model SiteSettings {
   // la tienda bloqueada o suspendida (VendorLayout.jsx) — cambiarlo acá
   // actualiza el botón en todos lados, sin tocar código.
   supportWhatsapp String?
-  // Límites por plan — cuántos países de entrega y provincias de Cuba puede
-  // tener cargados un vendedor a la vez. Nunca hardcodeados en el código:
-  // el admin los edita desde AdminLocations.jsx. null en el máximo de
-  // provincias Business = sin límite (Plan Business es "ilimitado" por
-  // definición del negocio, pero se deja como campo editable igual, no una
-  // constante, por si el admin algún día quiere ponerle un tope).
-  maxDeliveryCountriesRegular  Int  @default(1)
-  maxDeliveryCountriesBusiness Int  @default(5)
-  maxProvincesRegular          Int  @default(1)
-  maxProvincesBusiness         Int?
   // Bloque 43/45: nombre de modelo por proveedor de IA, editable desde
   // AdminIntegrations.jsx — null/vacío = usa el default hardcodeado en el
   // archivo del proveedor (lib/nvidia.js, groq.js, gemini.js). Antes esto
@@ -2170,15 +2228,6 @@ model SiteSettings {
   aiModelGroq   String?
   aiModelGemini String?
   aiModelNvidia String?
-  // Listas de qué incluye cada plan (Regular/Business), mostradas en
-  // VendorVerification.jsx/VendorSubscription.jsx — editable desde
-  // AdminSubscriptions.jsx. Antes era el array hardcodeado PLANS[].features
-  // en frontend/src/lib/verificationMeta.js; el default de acá es
-  // exactamente ese mismo array, para no cambiar el comportamiento al
-  // desplegar. Solo la lista de features es dinámica — id/nombre/priceLabel
-  // del plan siguen siendo estáticos (no forman parte de este pedido).
-  planFeaturesRegular  String[] @default(["Hasta 20 productos", "Pedidos por WhatsApp", "Perfil de tienda público", "Sin comisiones por venta"])
-  planFeaturesBusiness String[] @default(["Productos ilimitados", "Sello de tienda verificada", "Destacada en la home", "Recomendaciones con IA", "Horarios de atención"])
   // Bloque 49: si el vendedor puede agregar imágenes de producto pegando un
   // link externo, además de subir el archivo. Apagable desde el admin porque
   // un link roto o de mala calidad es más difícil de moderar que un archivo
@@ -2194,16 +2243,6 @@ model SiteSettings {
   // cambiar el comportamiento visible al desplegar esta migración.
   offerCooldownDays        Int @default(7)
   offerDefaultDurationDays Int @default(30)
-  // Bloque 232 (pedido explícito — "quiero poder cambiar desde el panel de
-  // admin si los vendedores pueden tener una oferta activa en su tienda o
-  // pueden tener más de una... los vendedores podrán ver cuántas ofertas
-  // pueden tener activas"): a diferencia de offerCooldownDays/
-  // offerDefaultDurationDays de arriba (política de Offer/Home), esto es
-  // sobre StoreOffer (ofertas DENTRO de cada tienda) — cuántas puede
-  // mantener `active:true` a la vez un mismo vendedor. Default 1 = el
-  // comportamiento que pidió primero ("solo se podrá mantener una oferta
-  // activa por tienda"), ahora editable sin deploy.
-  maxActiveStoreOffersPerVendor Int @default(1)
   // Bloque 118 (pedido explícito): política de comentarios/reseñas,
   // editable desde "Comentarios" del admin — antes constantes hardcodeadas
   // en reviews.controller.js (REVIEW_DEDUP_HOURS=24, 1 por producto y 1 por
@@ -2247,6 +2286,10 @@ model SiteSettings {
   cupBankAccountNumber String?
   cupBankAccountHolder String?
   cupBankInstructions  String? @db.Text
+  // Bloque 52 (pedido explícito): número de teléfono por el que el cliente
+  // puede verificar/notificar su pago — opcional igual que el resto de estos
+  // datos, el vendedor solo lo copia, nunca lo escribe.
+  cupBankPhone         String?
   cupSubscriptionPriceCup Int @default(2500)
   // Bloque 150: precio mensual en USD del cobro con tarjeta vía Stripe —
   // antes una constante hardcodeada (SUBSCRIPTION_PRICE_USD = 25 en
@@ -2376,6 +2419,10 @@ enum VendorNotificationType {
   // Bloque 46: el admin revoca el Plan Business desde Suscripciones — mismo
   // canal (email + campanita) que el resto del ciclo de verificación/cobro.
   VERIFICATION_BUSINESS_REVOKED
+  // Bloque 52 (pedido explícito): activación manual del Plan Premium desde
+  // Suscripciones, sin pasar por el ciclo normal de documentos/pago — mismo
+  // canal que el resto.
+  VERIFICATION_BUSINESS_GRANTED
   // Bloque 62: suspensión automática por inactividad (90 días) — así queda
   // visible en la campanita del panel si el vendedor vuelve a intentar
   // entrar, no solo en el correo que ya recibió.

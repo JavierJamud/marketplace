@@ -10,6 +10,7 @@ const META = {
   VERIFICATION_PAYMENT_LINK_SENT: { label: "Link de pago enviado", color: "#8A5100" },
   VERIFICATION_VERIFIED: { label: "Tienda verificada", color: "#0CAE53" },
   VERIFICATION_BUSINESS_REVOKED: { label: "Plan Business revocado", color: "#ba1a1a" },
+  VERIFICATION_BUSINESS_GRANTED: { label: "Plan Premium activado", color: "#0CAE53" },
   // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
   // nuevo reactiva sin rehacer documentos), SUSPENDED implica que la
   // suscripción de Stripe ya no existe (hace falta una nueva).

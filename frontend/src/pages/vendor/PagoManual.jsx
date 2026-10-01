@@ -2,10 +2,42 @@ import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Landmark, CreditCard, Upload, Check, ArrowLeft, Clock } from "lucide-react";
+import { Landmark, CreditCard, Upload, Check, ArrowLeft, Clock, Copy } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { copyToClipboard } from "../../lib/clipboard.js";
+
+// Bloque 52 (pedido explícito — "estos son datos que el cliente solo puede
+// copiar y pegarlos en otro lado"): mismo patrón que ya usa el admin para
+// copiar la URL del webhook de Stripe (AdminIntegrations.jsx) — un dato que
+// el vendedor nunca escribe a mano, solo copia y pega en su app del banco.
+function CopyRow({ label, value }) {
+  async function handleCopy() {
+    try {
+      await copyToClipboard(value);
+      toast.success("Copiado.");
+    } catch {
+      toast.error("No se pudo copiar — selecciona el texto a mano.");
+    }
+  }
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div>
+        <span className="text-outline">{label}: </span>
+        <strong className="text-on-surface">{value}</strong>
+      </div>
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={`Copiar ${label.toLowerCase()}`}
+        className="flex flex-shrink-0 items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-[11px] font-semibold text-on-surface-variant hover:bg-surface-container-high"
+      >
+        <Copy className="h-3 w-3" /> Copiar
+      </button>
+    </div>
+  );
+}
 
 const ELIGIBLE_STATUSES = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"];
 
@@ -201,16 +233,9 @@ export default function PagoManual() {
                 <span className="text-outline">Monto total a transferir: </span>
                 <strong className="text-on-surface">{(data.expectedAmount ?? 0).toLocaleString("es-CU")} CUP</strong>
               </div>
-              <div>
-                <span className="text-outline">Cuenta: </span>
-                <strong className="text-on-surface">{settings.cupBankAccountNumber}</strong>
-              </div>
-              {settings.cupBankAccountHolder && (
-                <div>
-                  <span className="text-outline">A nombre de: </span>
-                  <strong className="text-on-surface">{settings.cupBankAccountHolder}</strong>
-                </div>
-              )}
+              <CopyRow label="Cuenta" value={settings.cupBankAccountNumber} />
+              {settings.cupBankAccountHolder && <CopyRow label="A nombre de" value={settings.cupBankAccountHolder} />}
+              {settings.cupBankPhone && <CopyRow label="Teléfono" value={settings.cupBankPhone} />}
               {settings.cupBankInstructions && <p className="mt-1 whitespace-pre-line text-outline">{settings.cupBankInstructions}</p>}
             </div>
           ) : (

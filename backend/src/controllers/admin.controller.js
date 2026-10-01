@@ -13,6 +13,7 @@ import { finalizeUserDeletion } from "../lib/accountDeletion.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 import { computeVendorHealthScore } from "./vendors.controller.js";
 import { rawSalesSeries, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
+import { recalcVendorProductQuota } from "../lib/planConfig.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -435,6 +436,9 @@ export async function updateVendor(req, res) {
   }
 
   const updated = await prisma.vendor.update({ where: { id }, data: vendorData });
+  // Bloque 52: el cupo de productos depende del plan — si este guardado lo
+  // cambió, recalcula qué productos de ESTA tienda quedan dentro/fuera.
+  if (data.planType && data.planType !== vendor.planType) await recalcVendorProductQuota(id);
   res.json({ vendor: updated });
 }
 
@@ -997,6 +1001,7 @@ export async function confirmSubscriptionPayment(req, res) {
     extraData: { planType: "BUSINESS", nextPaymentDueDate },
     notify: { type: "VERIFICATION_VERIFIED" },
   });
+  await recalcVendorProductQuota(verification.vendorId);
 
   res.json({ verification: updated });
 }
@@ -1219,19 +1224,66 @@ export async function listSubscriptions(_req, res) {
 // disparan Stripe o el cron de vencimiento. Si la tienda pagaba por Stripe,
 // cancela la suscripción DE VERDAD ahí también — sin esto Stripe seguiría
 // cobrándole al vendedor cada mes por un plan que ya no tiene acá.
+const planReasonSchema = z.object({
+  reason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres."),
+});
+
+// Bloque 52 (pedido explícito — "se debe justificar y poner el motivo de
+// esta activación manual"): antes no pedía ningún motivo — ahora, igual que
+// reactivateVendor más arriba, queda obligatorio y auditado en
+// VerificationStatusLog (reason/actorId/source, ver transitionVendorVerification).
 export async function revokeBusinessPlan(req, res) {
   const { id } = req.params;
+  const { reason } = planReasonSchema.parse(req.body);
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
-  if (vendor.planType !== "BUSINESS") throw new AppError("Esta tienda no tiene el Plan Business activo.", 409);
+  if (vendor.planType !== "BUSINESS") throw new AppError("Esta tienda no tiene el Plan Premium activo.", 409);
 
   if (vendor.stripeSubscriptionId) await cancelStripeSubscription(vendor.stripeSubscriptionId);
 
   const updated = await transitionVendorVerification(id, "SUSPENDED", {
+    reason,
     actorId: req.user.id,
     source: "ADMIN_ACTION",
     extraData: { planType: "REGULAR", stripeSubscriptionId: null },
     notify: { type: "VERIFICATION_BUSINESS_REVOKED" },
+  });
+  await recalcVendorProductQuota(id);
+  res.json({ vendor: updated });
+}
+
+// Bloque 52 (pedido explícito — "podemos activar la suscripción
+// manualmente desde el panel de administrador para algunas tiendas... se
+// debe justificar y poner el motivo"): única vía para otorgar Premium SIN
+// pasar por el ciclo real de documentos/pago. A propósito transiciona a
+// VERIFIED igual que confirmSubscriptionPayment — el badge y las funciones
+// Premium (decisión confirmada: plan Y verificación) dependen de ese mismo
+// estado, nunca de un campo paralelo.
+export async function grantBusinessPlan(req, res) {
+  const { id } = req.params;
+  const { reason } = planReasonSchema.parse(req.body);
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (vendor.planType === "BUSINESS" && vendor.verificationStatus === "VERIFIED") {
+    throw new AppError("Esta tienda ya tiene el Plan Premium activo.", 409);
+  }
+
+  const now = new Date();
+  const periodEnd = new Date(now.getTime() + PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  const updated = await transitionVendorVerification(id, "VERIFIED", {
+    reason,
+    actorId: req.user.id,
+    source: "ADMIN_ACTION",
+    extraData: { planType: "BUSINESS", nextPaymentDueDate: periodEnd },
+    notify: { type: "VERIFICATION_BUSINESS_GRANTED" },
+  });
+  await recalcVendorProductQuota(id);
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: id,
+    action: "business_plan_granted_manually",
+    description: `Activó el Plan Premium a mano. Motivo: ${reason}`,
   });
   res.json({ vendor: updated });
 }

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
+import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SITE_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "site");
@@ -22,15 +23,19 @@ async function getOrCreateSettings() {
 // necesita para deshabilitar "+ Agregar" al llegar al tope y mostrar "X/Y".
 export async function getSettings(_req, res) {
   const settings = await getOrCreateSettings();
+  // Bloque 52 (pedido explícito — "debe haber una concordancia con todo...
+  // vamos a poder ver toda la configuración real que pueden y que van a
+  // tener los vendedores"): los 2 planes completos (límites, interruptores,
+  // beneficios, nombre visible) viajan acá — ÚNICA fuente que consume tanto
+  // el admin (AdminSubscriptions.jsx) como el vendedor/comprador
+  // (VendorVerification.jsx, PlanComparisonModal.jsx, Account.jsx). Antes
+  // cada pantalla tenía su propia copia hardcodeada (verificationMeta.js) que
+  // podía decir cualquier cosa sin relación con lo que el backend aplicaba.
+  const plans = await getAllPlanConfigs();
   res.json({
     settings: {
       heroImages: settings.heroImages,
-      maxDeliveryCountriesRegular: settings.maxDeliveryCountriesRegular,
-      maxDeliveryCountriesBusiness: settings.maxDeliveryCountriesBusiness,
-      maxProvincesRegular: settings.maxProvincesRegular,
-      maxProvincesBusiness: settings.maxProvincesBusiness,
-      planFeaturesRegular: settings.planFeaturesRegular,
-      planFeaturesBusiness: settings.planFeaturesBusiness,
+      plans,
       allowProductImageLinks: settings.allowProductImageLinks,
       siteName: settings.siteName,
       whatsappUrl: settings.whatsappUrl,
@@ -42,9 +47,6 @@ export async function getSettings(_req, res) {
       supportWhatsapp: settings.supportWhatsapp,
       offerCooldownDays: settings.offerCooldownDays,
       offerDefaultDurationDays: settings.offerDefaultDurationDays,
-      // Bloque 232: para que VendorStoreOffers.jsx muestre "X/N activas"
-      // sin tener que pedir /admin/settings (esa ruta exige rol ADMIN).
-      maxActiveStoreOffersPerVendor: settings.maxActiveStoreOffersPerVendor,
       // Bloque 118: expuesta públicamente para que Product.jsx/Store.jsx
       // puedan mostrar el texto real ("1 comentario por día por producto")
       // en vez de un valor fijo que se desactualiza si el admin la cambia.
@@ -63,6 +65,9 @@ export async function getSettings(_req, res) {
       cupBankAccountNumber: settings.cupBankAccountNumber,
       cupBankAccountHolder: settings.cupBankAccountHolder,
       cupBankInstructions: settings.cupBankInstructions,
+      // Bloque 52 (pedido explícito): teléfono por el que el cliente puede
+      // verificar/notificar su pago — opcional, solo para copiar.
+      cupBankPhone: settings.cupBankPhone,
       cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup,
       // Bloque 150: precio mensual del cobro con tarjeta (Stripe) — antes
       // una constante hardcodeada, ahora editable junto al precio CUP.
@@ -92,13 +97,14 @@ export async function getOfferPolicy() {
 
 // Bloque 232 (pedido explícito — "quiero poder cambiar desde el panel de
 // admin si los vendedores pueden tener una oferta activa en su tienda o
-// pueden tener más de una"): mismo criterio que getOfferPolicy de arriba —
-// uso INTERNO (storeOffers.controller.js), nunca una ruta HTTP directa.
-// Distinta política: esto es sobre StoreOffer (ofertas DENTRO de la
-// tienda), no sobre Offer (Home).
-export async function getStoreOfferPolicy() {
-  const settings = await getOrCreateSettings();
-  return { maxActive: settings.maxActiveStoreOffersPerVendor };
+// pueden tener más de una"): uso INTERNO (storeOffers.controller.js), nunca
+// una ruta HTTP directa. Distinta política: esto es sobre StoreOffer
+// (ofertas DENTRO de la tienda), no sobre Offer (Home). Bloque 52: el
+// límite pasó de un solo valor global (SiteSettings) a uno POR PLAN
+// (PlanConfig.maxActiveStoreOffers) — por eso ahora pide el planType.
+export async function getStoreOfferPolicy(planType) {
+  const config = await getPlanConfig(planType);
+  return { maxActive: config?.maxActiveStoreOffers ?? null };
 }
 
 // Bloque 150: uso INTERNO (verification.controller.js/admin.controller.js)
@@ -123,49 +129,71 @@ export async function getReviewPolicy() {
   };
 }
 
-const planLimitsSchema = z.object({
-  maxDeliveryCountriesRegular: z.number().int().min(0).optional(),
-  maxDeliveryCountriesBusiness: z.number().int().min(0).optional(),
-  maxProvincesRegular: z.number().int().min(0).optional(),
-  maxProvincesBusiness: z.number().int().min(0).optional().nullable(),
+// Bloque 52 (pedido explícito — "todo por el estilo... configuración de las
+// suscripciones, donde se podrá configurar todo"): reemplaza a
+// updatePlanLimits/updatePlanFeatures — un solo endpoint que guarda TODA la
+// fila de PlanConfig del plan indicado (límites, interruptores, beneficios,
+// nombre visible), en vez de 2 endpoints separados sobre columnas pareadas
+// sueltas de SiteSettings. `.optional()` en cada campo porque
+// AdminSubscriptions.jsx guarda cada tarjeta de plan por separado — un
+// request nunca manda las ~20 columnas, solo las que esa tarjeta edita.
+const planConfigSchema = z.object({
+  planType: z.enum(["REGULAR", "BUSINESS"]),
+  displayName: z.string().trim().min(1).max(40).optional(),
+  features: z.array(z.string().trim().min(1)).optional(),
+  maxProducts: z.number().int().min(0).optional().nullable(),
+  maxProvinces: z.number().int().min(0).optional().nullable(),
+  maxDeliveryCountries: z.number().int().min(0).optional().nullable(),
+  maxMonthlyOrderEmails: z.number().int().min(0).optional().nullable(),
+  maxStaffUsers: z.number().int().min(0).optional().nullable(),
+  maxTables: z.number().int().min(0).optional().nullable(),
+  maxActiveStoreOffers: z.number().int().min(0).optional().nullable(),
+  maxDiscountCodes: z.number().int().min(0).optional().nullable(),
+  allowAiChatbot: z.boolean().optional(),
+  allowHomeOffers: z.boolean().optional(),
+  allowStoreOffers: z.boolean().optional(),
+  allowDiscountCodes: z.boolean().optional(),
+  allowQrTables: z.boolean().optional(),
+  allowStaffUsers: z.boolean().optional(),
+  allowAdminChat: z.boolean().optional(),
+  allowReviewPhotos: z.boolean().optional(),
+  allowSchedules: z.boolean().optional(),
+  allowPublicProfile: z.boolean().optional(),
+  allowWhatsappOrders: z.boolean().optional(),
+  allowPanelOrders: z.boolean().optional(),
+  featuredInHome: z.boolean().optional(),
 });
 
-// Admin — nunca hardcodeado en el código, así el negocio puede ajustar
-// cuántos países/provincias puede cargar cada plan sin un deploy.
-export async function updatePlanLimits(req, res) {
-  const data = planLimitsSchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
-  res.json({
-    settings: {
-      maxDeliveryCountriesRegular: updated.maxDeliveryCountriesRegular,
-      maxDeliveryCountriesBusiness: updated.maxDeliveryCountriesBusiness,
-      maxProvincesRegular: updated.maxProvincesRegular,
-      maxProvincesBusiness: updated.maxProvincesBusiness,
-    },
-  });
+export async function listPlanConfigs(_req, res) {
+  res.json({ plans: await getAllPlanConfigs() });
 }
 
-const planFeaturesSchema = z.object({
-  planFeaturesRegular: z.array(z.string().trim().min(1)).optional(),
-  planFeaturesBusiness: z.array(z.string().trim().min(1)).optional(),
-});
+export async function updatePlanConfig(req, res) {
+  const { planType, ...data } = planConfigSchema.parse(req.body);
+  // Al menos un destino de pedido tiene que seguir habilitado — un plan sin
+  // WhatsApp NI panel dejaría a sus tiendas sin ninguna forma de recibir
+  // pedidos, un estado roto que ningún formulario debería poder guardar.
+  const current = await getPlanConfig(planType);
+  const nextWhatsapp = data.allowWhatsappOrders ?? current?.allowWhatsappOrders ?? true;
+  const nextPanel = data.allowPanelOrders ?? current?.allowPanelOrders ?? true;
+  if (!nextWhatsapp && !nextPanel) {
+    throw new AppError("Un plan necesita al menos un destino de pedidos habilitado (WhatsApp o panel).", 400);
+  }
 
-// Admin (AdminSubscriptions.jsx) — qué incluye cada plan, mostrado en
-// VendorVerification.jsx/VendorSubscription.jsx. Endpoint propio en vez de
-// sumarse a updatePlanLimits: ese schema es específicamente sobre topes
-// numéricos (países/provincias), mezclar listas de texto ahí le resta
-// claridad al nombre y al schema.
-export async function updatePlanFeatures(req, res) {
-  const data = planFeaturesSchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
-  res.json({
-    settings: {
-      planFeaturesRegular: updated.planFeaturesRegular,
-      planFeaturesBusiness: updated.planFeaturesBusiness,
-    },
-  });
+  const updated = await prisma.planConfig.update({ where: { planType }, data });
+  invalidatePlanConfigCache();
+
+  // Bloque 52 (pedido explícito — al bajar maxProducts, "se muestran solo
+  // los últimos productos del límite... los demás quedan en el panel"):
+  // recalcula el cupo de TODAS las tiendas de este plan — nunca solo al
+  // crear/editar un producto puntual, porque el límite cambió para todas a
+  // la vez acá.
+  if (data.maxProducts !== undefined) {
+    const vendorIds = await prisma.vendor.findMany({ where: { planType }, select: { id: true } });
+    for (const { id } of vendorIds) await recalcVendorProductQuota(id);
+  }
+
+  res.json({ plan: updated });
 }
 
 const productSettingsSchema = z.object({
@@ -238,21 +266,6 @@ export async function updateOfferPolicy(req, res) {
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
   res.json({ settings: { offerCooldownDays: updated.offerCooldownDays, offerDefaultDurationDays: updated.offerDefaultDurationDays } });
-}
-
-const storeOfferPolicySchema = z.object({
-  maxActiveStoreOffersPerVendor: z.number().int().min(1).max(20),
-});
-
-// Admin (AdminStoreOffers.jsx) — cuántas ofertas de tienda puede mantener
-// `active:true` a la vez cada vendedor (ver assertActiveOfferLimit en
-// storeOffers.controller.js). Endpoint propio, mismo criterio que
-// updateOfferPolicy: es una política de StoreOffer, no de Offer/Home.
-export async function updateStoreOfferPolicy(req, res) {
-  const data = storeOfferPolicySchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
-  res.json({ settings: { maxActiveStoreOffersPerVendor: updated.maxActiveStoreOffersPerVendor } });
 }
 
 const reviewPolicySchema = z.object({
@@ -350,6 +363,10 @@ const cupPaymentSettingsSchema = z.object({
   cupBankAccountNumber: z.string().trim().optional().nullable(),
   cupBankAccountHolder: z.string().trim().optional().nullable(),
   cupBankInstructions: z.string().trim().optional().nullable(),
+  // Bloque 52 (pedido explícito — "agregar también un número de teléfono...
+  // no será obligatorio"): mismo criterio opcional que el resto de estos
+  // datos — el vendedor solo lo copia, nunca lo escribe.
+  cupBankPhone: z.string().trim().optional().nullable(),
   cupSubscriptionPriceCup: z.number().int().positive().optional(),
   // Bloque 150: mismo formulario ("Datos de pago de la suscripción" en
   // AdminSubscriptions.jsx) — el precio CARD/Stripe se edita junto al CUP.
@@ -367,6 +384,7 @@ export async function updateCupPaymentSettings(req, res) {
   if (data.cupBankAccountNumber !== undefined) update.cupBankAccountNumber = data.cupBankAccountNumber || null;
   if (data.cupBankAccountHolder !== undefined) update.cupBankAccountHolder = data.cupBankAccountHolder || null;
   if (data.cupBankInstructions !== undefined) update.cupBankInstructions = data.cupBankInstructions || null;
+  if (data.cupBankPhone !== undefined) update.cupBankPhone = data.cupBankPhone || null;
   if (data.cupSubscriptionPriceCup !== undefined) update.cupSubscriptionPriceCup = data.cupSubscriptionPriceCup;
   if (data.cardSubscriptionPriceUsd !== undefined) update.cardSubscriptionPriceUsd = data.cardSubscriptionPriceUsd;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
@@ -375,6 +393,7 @@ export async function updateCupPaymentSettings(req, res) {
       cupBankAccountNumber: updated.cupBankAccountNumber,
       cupBankAccountHolder: updated.cupBankAccountHolder,
       cupBankInstructions: updated.cupBankInstructions,
+      cupBankPhone: updated.cupBankPhone,
       cupSubscriptionPriceCup: updated.cupSubscriptionPriceCup,
       cardSubscriptionPriceUsd: updated.cardSubscriptionPriceUsd,
     },

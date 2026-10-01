@@ -9,6 +9,7 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity } from "../lib/activityLog.js";
 import { sendVendorStaffInviteEmail } from "../lib/email.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
+import { assertPlanAllows, getPlanLimit } from "../lib/planConfig.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const STAFF_PHOTO_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "vendor-staff");
@@ -115,6 +116,17 @@ const createStaffSchema = z.object({
 // por ella.
 export async function createMyStaff(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
+  // Bloque 52 (pedido explícito — "si el chatbot de la tienda, si se lo
+  // podemos permitir o no... y todo por el estilo" aplicado a personal):
+  // antes cualquier tienda podía crear usuarios de sistema sin límite.
+  await assertPlanAllows(vendor, "allowStaffUsers", "Tu plan actual no incluye personal de tienda.");
+  const maxStaffUsers = await getPlanLimit(vendor, "maxStaffUsers");
+  if (maxStaffUsers !== null) {
+    const currentCount = await prisma.vendorStaff.count({ where: { vendorId: vendor.id } });
+    if (currentCount >= maxStaffUsers) {
+      throw new AppError(`Tu plan permite hasta ${maxStaffUsers} usuario(s) de sistema.`, 403);
+    }
+  }
   const data = createStaffSchema.parse(req.body);
   const email = data.email.trim().toLowerCase();
 

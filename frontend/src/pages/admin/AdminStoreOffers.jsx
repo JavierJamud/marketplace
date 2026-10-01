@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Gift, Power, SlidersHorizontal } from "lucide-react";
+import { Gift, Power } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -11,67 +11,10 @@ function discountLabel(code) {
   return code.type === "PERCENTAGE" ? `-${Number(code.value)}%` : `-${Number(code.value).toLocaleString("es-CU")} CUP`;
 }
 
-// Bloque 232 (pedido explícito — "quiero poder cambiar desde el panel de
-// admin si los vendedores pueden tener una oferta activa en su tienda o
-// pueden tener más de una... hablo de las ofertas de las tiendas, no de la
-// página principal"): mismo criterio/estilo que OfferPolicyCard en
-// AdminOffers.jsx (esa es la política de Offer/Home, esta es la de
-// StoreOffer — modelos y secciones distintas, tarjeta propia acá).
-function StoreOfferPolicyCard() {
-  const queryClient = useQueryClient();
-  const { data: settings } = useQuery({
-    queryKey: ["site-settings"],
-    queryFn: async () => (await api.get("/settings")).data.settings,
-  });
-  const [maxActive, setMaxActive] = useState("");
-
-  useEffect(() => {
-    if (settings) setMaxActive(String(settings.maxActiveStoreOffersPerVendor));
-  }, [settings]);
-
-  const save = useMutation({
-    mutationFn: async () => (await api.patch("/admin/settings/store-offer-policy", { maxActiveStoreOffersPerVendor: Number(maxActive) })).data,
-    onSuccess: () => {
-      toast.success("Política de ofertas de tienda actualizada.");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la política."),
-  });
-
-  const dirty = settings && maxActive !== "" && Number(maxActive) !== settings.maxActiveStoreOffersPerVendor;
-
-  return (
-    <div className="mb-[18px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
-      <div className="mb-3 flex items-center gap-2 text-[14px] font-bold text-on-surface">
-        <SlidersHorizontal className="h-4 w-4 text-tertiary-accent" /> Cuántas ofertas activas puede tener cada tienda
-      </div>
-      <div className="max-w-[280px]">
-        <span className="mb-1 block text-label-md text-on-surface-variant">Máximo de ofertas activas por tienda</span>
-        <input
-          type="number"
-          min={1}
-          max={20}
-          value={maxActive}
-          onChange={(e) => setMaxActive(e.target.value)}
-          className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
-        />
-      </div>
-      <p className="mt-2 text-[11.5px] text-outline">
-        En 1 (default), un vendedor tiene que desactivar su oferta actual antes de activar otra. Si lo subes, el vendedor
-        ve "X/N activas" en su panel y puede tener varias corriendo a la vez.
-      </p>
-      {dirty && (
-        <button
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-          className="mt-3 rounded-xl bg-secondary-container px-4 py-2 text-[12.5px] font-bold text-on-secondary-container disabled:opacity-50"
-        >
-          {save.isPending ? "Guardando..." : "Guardar"}
-        </button>
-      )}
-    </div>
-  );
-}
+// Bloque 52: "cuántas ofertas activas puede tener cada tienda" pasó a ser un
+// límite POR PLAN (PlanConfig.maxActiveStoreOffers, antes un único valor
+// global en SiteSettings) — se edita en Suscripciones → "Configuración de
+// planes", junto con el resto de los límites de cada plan.
 
 // Auditoría de seguridad: antes NO había ninguna supervisión de admin sobre
 // las ofertas de tienda de los vendedores (Bloque 52, distintas de las
@@ -102,8 +45,6 @@ export default function AdminStoreOffers() {
         Ofertas dentro de la tienda de cada vendedor (distintas de la sección "Ofertas" del Home) — puedes suspender
         cualquiera que incumpla políticas.
       </p>
-
-      <StoreOfferPolicyCard />
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 

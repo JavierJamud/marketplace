@@ -4,11 +4,13 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { assertPlanAllows, getPlanLimit } from "../lib/planConfig.js";
 
 // Bloque 52: códigos de descuento del vendedor, aplicables por el cliente en
 // el carrito (ver resolveDiscountForOrder/createOrder en orders.controller.js).
-// Sin gate de isVerified — a diferencia de Offer (Bloque 50), cualquier
-// vendedor puede crear y usar códigos de descuento.
+// Sin gate de isVerified — a diferencia de Offer (Bloque 50), no hace falta
+// estar verificado. Sí pasa a estar gateado por PLAN (allowDiscountCodes/
+// maxDiscountCodes en PlanConfig) — ver createDiscountCode más abajo.
 
 function generateCode() {
   return crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -87,6 +89,12 @@ const createDiscountCodeSchema = z
 
 export async function createDiscountCode(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
+  await assertPlanAllows(vendor, "allowDiscountCodes", "Tu plan actual no incluye códigos de descuento.");
+  const maxDiscountCodes = await getPlanLimit(vendor, "maxDiscountCodes");
+  if (maxDiscountCodes !== null) {
+    const currentCount = await prisma.discountCode.count({ where: { vendorId: vendor.id } });
+    if (currentCount >= maxDiscountCodes) throw new AppError(`Tu plan permite hasta ${maxDiscountCodes} código(s) de descuento.`, 403);
+  }
   const data = createDiscountCodeSchema.parse(req.body);
 
   const code = await uniqueCodeForVendor(vendor.id, data.code);

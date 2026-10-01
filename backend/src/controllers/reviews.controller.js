@@ -8,6 +8,7 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getBrandSettings, getReviewPolicy } from "./settings.controller.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { assertPlanAllows } from "../lib/planConfig.js";
 
 // Bloque 117/118 (pedido explícito): un mismo usuario logueado puede dejar
 // hasta `maxPerProduct` comentarios por ventana de tiempo POR PRODUCTO
@@ -59,8 +60,11 @@ export async function createReview(req, res) {
     const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
     if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
 
-    if (req.files?.length && vendor.verificationStatus !== "VERIFIED") {
-      throw new AppError("Adjuntar fotos a una reseña solo está disponible en tiendas verificadas.", 403);
+    if (req.files?.length) {
+      if (vendor.verificationStatus !== "VERIFIED") {
+        throw new AppError("Adjuntar fotos a una reseña solo está disponible en tiendas verificadas.", 403);
+      }
+      await assertPlanAllows(vendor, "allowReviewPhotos", "Esta tienda no admite fotos en sus reseñas.");
     }
 
     // Bloque 117/118: hasta `maxPerProduct` comentarios por ventana POR

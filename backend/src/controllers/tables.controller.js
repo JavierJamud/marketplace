@@ -8,6 +8,7 @@ import { sendTableOrderStatusEmail } from "../lib/email.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { env } from "../config/env.js";
+import { assertPlanAllows, getPlanLimit } from "../lib/planConfig.js";
 
 // Bloque 185 (pedido explícito — "se podrán identificar tanto para el
 // restaurante como para el cliente cuáles de los pedidos se realizaron
@@ -794,6 +795,14 @@ export async function createManualTableOrder(req, res) {
 export async function createTable(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   if (!vendor.isRestaurant) throw new AppError("Esta función es solo para tiendas tipo restaurante.", 403);
+  // Bloque 52 (pedido explícito): mesas QR configurables por plan — antes
+  // cualquier tienda restaurante podía crear mesas sin límite.
+  await assertPlanAllows(vendor, "allowQrTables", "Tu plan actual no incluye mesas con QR.");
+  const maxTables = await getPlanLimit(vendor, "maxTables");
+  if (maxTables !== null) {
+    const currentCount = await prisma.table.count({ where: { vendorId: vendor.id } });
+    if (currentCount >= maxTables) throw new AppError(`Tu plan permite hasta ${maxTables} mesa(s).`, 403);
+  }
 
   const last = await prisma.table.findFirst({ where: { vendorId: vendor.id }, orderBy: { tableNumber: "desc" } });
   const tableNumber = (last?.tableNumber ?? 0) + 1;

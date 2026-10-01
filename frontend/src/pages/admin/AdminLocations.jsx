@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Globe2, MapPin, Plus, Pencil, SlidersHorizontal, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
+import { Globe2, MapPin, Plus, Pencil, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
@@ -11,105 +11,10 @@ import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
-function PlanLimitsPanel() {
-  const queryClient = useQueryClient();
-  const { data: settings } = useQuery({
-    queryKey: ["site-settings"],
-    queryFn: async () => (await api.get("/settings")).data.settings,
-  });
-  const [form, setForm] = useState(null);
-
-  useEffect(() => {
-    if (settings && !form) {
-      setForm({
-        maxDeliveryCountriesRegular: settings.maxDeliveryCountriesRegular,
-        maxDeliveryCountriesBusiness: settings.maxDeliveryCountriesBusiness,
-        maxProvincesRegular: settings.maxProvincesRegular,
-        maxProvincesBusiness: settings.maxProvincesBusiness,
-      });
-    }
-  }, [settings]);
-
-  const save = useMutation({
-    mutationFn: async () => (await api.patch("/admin/settings/plan-limits", form)).data,
-    onSuccess: () => {
-      toast.success("Límites actualizados.");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
-  });
-
-  if (!form) return null;
-  const businessUnlimited = form.maxProvincesBusiness === null;
-
-  return (
-    <div className="mb-8 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
-        <SlidersHorizontal className="h-4 w-4 text-tertiary-accent" /> Límites de entrega por plan
-      </div>
-      <p className="mb-5 text-[12.5px] text-outline">
-        Define la cantidad de países y subdivisiones que cada tienda puede configurar según su nivel de suscripción.
-      </p>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-surface-container-high bg-surface-container/30 p-3.5">
-          <span className="mb-1.5 block text-label-md font-semibold text-on-surface-variant">Países de entrega · Plan Regular</span>
-          <input
-            type="number"
-            min={0}
-            value={form.maxDeliveryCountriesRegular}
-            onChange={(e) => setForm((f) => ({ ...f, maxDeliveryCountriesRegular: Number(e.target.value) }))}
-            className="h-10 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
-          />
-        </div>
-        <div className="rounded-xl border border-surface-container-high bg-surface-container/30 p-3.5">
-          <span className="mb-1.5 block text-label-md font-semibold text-on-surface-variant">Países de entrega · Plan Business</span>
-          <input
-            type="number"
-            min={0}
-            value={form.maxDeliveryCountriesBusiness}
-            onChange={(e) => setForm((f) => ({ ...f, maxDeliveryCountriesBusiness: Number(e.target.value) }))}
-            className="h-10 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
-          />
-        </div>
-        <div className="rounded-xl border border-surface-container-high bg-surface-container/30 p-3.5">
-          <span className="mb-1.5 block text-label-md font-semibold text-on-surface-variant">Provincias/Estados · Plan Regular</span>
-          <input
-            type="number"
-            min={0}
-            value={form.maxProvincesRegular}
-            onChange={(e) => setForm((f) => ({ ...f, maxProvincesRegular: Number(e.target.value) }))}
-            className="h-10 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
-          />
-        </div>
-        <div className="rounded-xl border border-surface-container-high bg-surface-container/30 p-3.5">
-          <span className="mb-1.5 block text-label-md font-semibold text-on-surface-variant">Provincias/Estados · Plan Business</span>
-          <div className="flex items-center gap-2.5">
-            <input
-              type="number"
-              min={0}
-              disabled={businessUnlimited}
-              value={form.maxProvincesBusiness ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, maxProvincesBusiness: e.target.value === "" ? 0 : Number(e.target.value) }))}
-              className="h-10 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none disabled:opacity-50 focus:border-tertiary-accent"
-            />
-            <label className="flex items-center gap-1.5 whitespace-nowrap text-[12px] font-semibold text-on-surface-variant">
-              <input
-                type="checkbox"
-                checked={businessUnlimited}
-                onChange={(e) => setForm((f) => ({ ...f, maxProvincesBusiness: e.target.checked ? null : 1 }))}
-                className="h-4 w-4 rounded accent-tertiary-accent"
-              />
-              Sin límite
-            </label>
-          </div>
-        </div>
-      </div>
-      <Button className="mt-5 rounded-xl px-5" onClick={() => save.mutate()} disabled={save.isPending}>
-        {save.isPending ? "Guardando..." : "Guardar cambios de límites"}
-      </Button>
-    </div>
-  );
-}
+// Bloque 52: el panel de "Límites de entrega por plan" que vivía acá se
+// movió a Suscripciones → "Configuración de planes" — ahí quedó junto con
+// el resto de los límites del plan (productos, provincias, etc.), en vez de
+// repartido en dos pantallas distintas.
 
 function ProductImageLinksPanel() {
   const queryClient = useQueryClient();
@@ -452,8 +357,6 @@ export default function AdminLocations() {
         </Button>
       </div>
 
-      {/* Plan Limits Card */}
-      <PlanLimitsPanel />
       <ProductImageLinksPanel />
 
       {/* Modern Master-Detail Layout */}

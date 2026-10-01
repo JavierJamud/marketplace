@@ -22,6 +22,8 @@ router.get("/me/list", authenticate, requireVendorAccess("productos", "mesas"), 
 router.post("/", authenticate, requireVendorWrite("productos"), productsController.createProduct);
 router.patch("/:id", authenticate, requireVendorWrite("productos"), productsController.updateProduct);
 router.delete("/:id", authenticate, requireVendorWrite("productos"), productsController.deleteProduct);
+// Bloque 52: intercambio manual de cupo (ver swapProductQuota, lib/planConfig.js).
+router.post("/:id/activate-quota", authenticate, requireVendorWrite("productos"), productsController.activateQuotaProduct);
 router.post(
   "/:id/images",
   authenticate,

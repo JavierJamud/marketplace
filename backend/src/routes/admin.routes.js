@@ -124,6 +124,8 @@ router.get("/verification-archive/:id/file/:type", verificationArchiveController
 // vendedor, ver retryMyStripeCheckout en verification.routes.js).
 router.get("/subscriptions", adminController.listSubscriptions);
 router.post("/vendors/:id/revoke-business", adminController.revokeBusinessPlan);
+// Bloque 52: activación manual del Plan Premium, con motivo obligatorio.
+router.post("/vendors/:id/grant-business", adminController.grantBusinessPlan);
 
 // Bloque 153 (pedido explícito — "el admin debe aprobar los demás meses
 // pagos"): renovaciones de suscripción mientras la tienda ya está VERIFIED.
@@ -210,11 +212,13 @@ router.delete("/business-categories/:id", businessCategoriesController.deleteBus
 // juntas) y quitar una puntual, mismo patrón que /products/:id/images.
 router.post("/settings/hero-images", siteUpload.array("images", 6), settingsController.addHeroImages);
 router.delete("/settings/hero-images", settingsController.removeHeroImage);
-router.patch("/settings/plan-limits", settingsController.updatePlanLimits);
-router.patch("/settings/plan-features", settingsController.updatePlanFeatures);
+// Bloque 52: reemplaza a plan-limits/plan-features (columnas pareadas
+// sueltas de SiteSettings) — un plan entero (límites, interruptores,
+// beneficios, nombre visible) por request, ver PlanConfig en schema.prisma.
+router.get("/plan-configs", settingsController.listPlanConfigs);
+router.patch("/plan-configs", settingsController.updatePlanConfig);
 router.patch("/settings/product-settings", settingsController.updateProductSettings);
 router.patch("/settings/offer-policy", settingsController.updateOfferPolicy);
-router.patch("/settings/store-offer-policy", settingsController.updateStoreOfferPolicy);
 router.patch("/settings/review-policy", settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
 router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);

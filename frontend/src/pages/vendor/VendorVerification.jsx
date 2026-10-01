@@ -10,7 +10,7 @@ import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { CameraCapture } from "../../components/CameraCapture.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
-import { BENEFITS, PLANS, STAGE_META } from "../../lib/verificationMeta.js";
+import { planFromSettings, STAGE_META } from "../../lib/verificationMeta.js";
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "long", year: "numeric" });
@@ -335,19 +335,25 @@ export default function VendorVerification() {
     refetchOnMount: "always",
   });
 
-  // Qué incluye cada plan (Regular/Business) — editable por el admin desde
-  // AdminSubscriptions.jsx (ver PlanFeaturesCard), ya no un array hardcodeado.
+  // Bloque 52 (pedido explícito — "debe haber una concordancia con todo"):
+  // nombre, precio y beneficios de cada plan vienen ENTEROS de
+  // settings.plans (PlanConfig del backend, editable en AdminSubscriptions.jsx
+  // → "Configuración de planes") — ya no hay ningún array hardcodeado acá
+  // que pueda desincronizarse de lo que el backend realmente aplica.
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
-  // id/nombre/priceLabel de PLANS siguen estáticos — solo el array de
-  // features viene ahora del backend.
-  const mergedPlans = PLANS.map((p) => ({
-    ...p,
-    features: settings ? (p.id === "regular" ? settings.planFeaturesRegular : settings.planFeaturesBusiness) : p.features,
-  }));
-  const currentPlanFeatures = settings && (vendor?.planType === "BUSINESS" ? settings.planFeaturesBusiness : settings.planFeaturesRegular);
+  const regularPlan = settings ? planFromSettings(settings.plans, "REGULAR") : null;
+  const businessPlan = settings
+    ? {
+        ...planFromSettings(settings.plans, "BUSINESS"),
+        priceLabel: `${fmtCup(settings.cupSubscriptionPriceCup)} ó $${settings.cardSubscriptionPriceUsd} USD/mes`,
+      }
+    : null;
+  const mergedPlans = [regularPlan, businessPlan].filter(Boolean);
+  const currentPlan = vendor?.planType === "BUSINESS" ? businessPlan : regularPlan;
+  const currentPlanFeatures = currentPlan?.features;
 
   // Bloque 66: mismo patrón de selects en cascada país → provincia →
   // municipio que ya usa VendorSettings.jsx para "países a los que entregas".
@@ -542,7 +548,7 @@ export default function VendorVerification() {
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <span className="text-[16.5px] font-bold text-on-surface">{meta.label}</span>
               <span className="rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
-                Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"}
+                Plan {currentPlan?.name ?? (vendor?.planType === "BUSINESS" ? "Premium" : "Regular")}
               </span>
             </div>
             <div className="text-[13px] text-on-surface-variant">
@@ -616,7 +622,7 @@ export default function VendorVerification() {
             <Sparkles className="h-4 w-4 text-tertiary-accent" /> Tu plan incluye
           </div>
           <p className="mb-3 text-[12.5px] text-outline">
-            Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"} — esto es lo que tienes disponible hoy.
+            Plan {currentPlan?.name} — esto es lo que tienes disponible hoy.
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {currentPlanFeatures.map((f) => (
@@ -647,7 +653,7 @@ export default function VendorVerification() {
           <div className="mb-5 rounded-lg bg-gradient-to-br from-primary to-primary-container p-6 text-white">
             <div className="mb-3.5 text-[15px] font-bold">Al verificarte obtienes</div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {BENEFITS.map((b) => (
+              {(businessPlan?.features ?? []).map((b) => (
                 <div key={b} className="flex items-center gap-2.5 text-[13px] text-white/85">
                   <Check className="h-[15px] w-[15px] flex-shrink-0 text-secondary-container" strokeWidth={2.5} />
                   {b}
@@ -1048,10 +1054,12 @@ export default function VendorVerification() {
 
       <ConfirmModal
         open={confirmingCancel}
-        title="¿Cancelar la suscripción Business?"
-        message={`No pierdes el acceso de inmediato — sigues con el badge, la IA para clientes, el destacado en la home y el límite de productos ilimitado hasta ${
+        title={`¿Cancelar la suscripción ${businessPlan?.name ?? "Premium"}?`}
+        message={`No pierdes el acceso de inmediato — sigues con el badge y todo lo que incluye tu plan${
+          businessPlan?.features?.length ? ` (${businessPlan.features.join(", ").toLowerCase()})` : ""
+        } hasta ${
           vendor?.nextPaymentDueDate ? fmtDate(vendor.nextPaymentDueDate) : "el vencimiento de tu ciclo actual"
-        }. Después de esa fecha vuelves al Plan Regular automáticamente. Puedes volver a verificarte cuando quieras.`}
+        }. Después de esa fecha vuelves al Plan ${regularPlan?.name ?? "Regular"} automáticamente. Puedes volver a verificarte cuando quieras.`}
         confirmLabel={cancelPlan.isPending ? "Cancelando..." : "Sí, cancelar"}
         danger
         onConfirm={() => cancelPlan.mutate()}

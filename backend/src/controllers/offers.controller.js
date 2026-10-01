@@ -8,6 +8,7 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getOfferPolicy } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { assertPlanAllows } from "../lib/planConfig.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Igual criterio que PRODUCT_UPLOAD_DIR (products.controller.js): imágenes
@@ -171,6 +172,7 @@ export async function createOffer(req, res) {
     if (vendor.verificationStatus !== "VERIFIED") {
       throw new AppError("Disponible solo para tiendas verificadas.", 403);
     }
+    await assertPlanAllows(vendor, "allowHomeOffers", "Tu plan actual no incluye ofertas en la home.");
 
     const data = createOfferSchema.parse(req.body);
     const policy = await getOfferPolicy();

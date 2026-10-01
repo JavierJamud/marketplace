@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { getStoreOfferPolicy } from "./settings.controller.js";
+import { assertPlanAllows } from "../lib/planConfig.js";
 
 // Bloque 232 (bug real encontrado de paso, probando el límite nuevo con un
 // scratch script — "active" nunca se desactivaba de verdad): FormData manda
@@ -34,13 +35,14 @@ export const storeOfferSummarySelect = {
 // Bloque 232 (pedido explícito — "solo se podrá mantener una oferta activa
 // por tienda"... "se podrá cambiar desde el panel de admin si los
 // vendedores pueden tener una oferta activa o pueden tener más de una"):
-// límite configurable (ver getStoreOfferPolicy, settings.controller.js),
-// nunca hardcodeado en 1. `excludeId` se usa al REACTIVAR una oferta que ya
-// existía — no debe contarse a sí misma contra su propio límite.
-async function assertActiveOfferLimit(vendorId, excludeId) {
-  const policy = await getStoreOfferPolicy();
+// límite configurable por PLAN (ver getStoreOfferPolicy, settings.controller.js
+// — Bloque 52), nunca hardcodeado en 1. `excludeId` se usa al REACTIVAR una
+// oferta que ya existía — no debe contarse a sí misma contra su propio límite.
+async function assertActiveOfferLimit(vendor, excludeId) {
+  const policy = await getStoreOfferPolicy(vendor.planType);
+  if (policy.maxActive === null) return;
   const activeCount = await prisma.storeOffer.count({
-    where: { vendorId, active: true, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { vendorId: vendor.id, active: true, ...(excludeId ? { id: { not: excludeId } } : {}) },
   });
   if (activeCount >= policy.maxActive) {
     throw new AppError(
@@ -111,6 +113,7 @@ export async function createStoreOffer(req, res) {
   if (vendor.verificationStatus !== "VERIFIED") {
     throw new AppError("Disponible solo para tiendas verificadas.", 403);
   }
+  await assertPlanAllows(vendor, "allowStoreOffers", "Tu plan actual no incluye ofertas de tienda.");
   const data = createStoreOfferSchema.parse(req.body);
 
   if (data.isLimitedTime && !data.expiresAt) {
@@ -119,7 +122,7 @@ export async function createStoreOffer(req, res) {
   if (data.isLimitedTime && data.startsAt && data.expiresAt && new Date(data.startsAt) >= new Date(data.expiresAt)) {
     throw new AppError("La fecha de inicio debe ser anterior a la de vencimiento.", 400);
   }
-  if (data.active) await assertActiveOfferLimit(vendor.id);
+  if (data.active) await assertActiveOfferLimit(vendor);
 
   const discountCode = await prisma.discountCode.findUnique({ where: { id: data.discountCodeId } });
   if (!discountCode || discountCode.vendorId !== vendor.id) throw new AppError("Código de descuento no encontrado.", 404);
@@ -176,7 +179,7 @@ export async function updateStoreOffer(req, res) {
     // Bloque 232: el límite solo aplica al ENCENDER — apagar siempre está
     // permitido, y volver a prender la MISMA oferta no debe contarse a sí
     // misma contra su propio cupo (excludeId).
-    if (data.active && !existing.active) await assertActiveOfferLimit(vendor.id, id);
+    if (data.active && !existing.active) await assertActiveOfferLimit(vendor, id);
     patch.active = data.active;
   }
 

@@ -3,6 +3,7 @@ import { correctSearchQuery } from "../lib/ai.js";
 import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from "./products.controller.js";
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
 import { rankFeaturedProducts } from "../lib/productRanking.js";
+import { getAllPlanConfigs } from "../lib/planConfig.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
 // "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
@@ -28,7 +29,7 @@ const NAME_MATCH_LIMIT = 500;
 async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true AND "hiddenFromStore" = false
+    WHERE "isActive" = true AND "hiddenFromStore" = false AND "overQuota" = false
       AND regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')
           ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
     LIMIT ${limit}
@@ -39,7 +40,7 @@ async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
 async function findProductIdsByNameOrDescription(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true AND "hiddenFromStore" = false
+    WHERE "isActive" = true AND "hiddenFromStore" = false AND "overQuota" = false
       AND (
         regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')
           ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
@@ -54,7 +55,7 @@ async function findProductIdsByNameOrDescription(q, limit) {
 async function findProductIdsByTag(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
-    WHERE "isActive" = true AND "hiddenFromStore" = false AND EXISTS (
+    WHERE "isActive" = true AND "hiddenFromStore" = false AND "overQuota" = false AND EXISTS (
       SELECT 1 FROM unnest(tags) AS t
       WHERE regexp_replace(unaccent(lower(t)), '[^a-z0-9]+', ' ', 'g')
             ILIKE '%' || regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g') || '%'
@@ -145,6 +146,9 @@ export async function structuredSearch(req, res) {
     // Bloque 157: "solo para pedido de mesa" — nunca aparece en Home ni en
     // el catálogo, sin importar qué tan bien rankee.
     hiddenFromStore: false,
+    // Bloque 52: excedente del cupo de productos del plan — sigue existiendo
+    // para el vendedor, nunca en un listado público (ver planConfig.js).
+    overQuota: false,
     categoryId: categoryIds ? { in: categoryIds } : undefined,
     price: minPrice || maxPrice ? { gte: minPrice ? Number(minPrice) : undefined, lte: maxPrice ? Number(maxPrice) : undefined } : undefined,
     paymentMethods: paymentMethods?.length ? { hasSome: paymentMethods } : undefined,
@@ -309,7 +313,7 @@ export async function autocompleteSearch(req, res) {
   if (q.length < AUTOCOMPLETE_MIN_CHARS) return res.json({ products: [], vendors: [], hasMore: false });
   const lowerQ = q.toLowerCase();
 
-  const vendorSelect = { companyName: true, slug: true, verificationStatus: true };
+  const vendorSelect = { companyName: true, slug: true, verificationStatus: true, planType: true };
   // Bloque 64: products:{some} es la regla de visibilidad (independiente de
   // verificationStatus) — sin productos publicados, ni la tienda ni sus
   // productos aparecen acá.
@@ -317,7 +321,7 @@ export async function autocompleteSearch(req, res) {
     isBlocked: false,
     status: "ACTIVE",
     isPrivate: false,
-    products: { some: { isActive: true, hiddenFromStore: false } },
+    products: { some: { isActive: true, hiddenFromStore: false, overQuota: false } },
     ...(onlyVerified ? { verificationStatus: "VERIFIED" } : {}),
   };
 
@@ -364,10 +368,17 @@ export async function autocompleteSearch(req, res) {
   // ordenados por similitud real, reordenarlos por tier de substring los
   // arruinaría (casi ninguno va a "incluir" literalmente lo que escribió el
   // cliente, es justo por eso que llegaron por este camino).
+  // Bloque 52 (decisión confirmada — "las dos cosas"): el empuje por
+  // "destacada" ya no es solo por estar verificada — el plan actual tiene
+  // que tener featuredInHome encendido. Los 2 planes se piden una sola vez
+  // (ya cacheados 5s en lib/planConfig.js) para no hacer N llamadas async
+  // dentro del .map() de abajo.
+  const plansByType = Object.fromEntries((await getAllPlanConfigs()).map((p) => [p.planType, p]));
+  const isFeaturedVendor = (vendor) => vendor.verificationStatus === "VERIFIED" && !!plansByType[vendor.planType]?.featuredInHome;
   const ranked = fuzzy
     ? candidates
     : candidates
-        .map((p) => ({ p, tier: matchTier(p, lowerQ), featured: p.isFeatured || p.vendor.verificationStatus === "VERIFIED" }))
+        .map((p) => ({ p, tier: matchTier(p, lowerQ), featured: p.isFeatured || isFeaturedVendor(p.vendor) }))
         .sort((a, b) => a.tier - b.tier || Number(b.featured) - Number(a.featured))
         .map((x) => x.p);
 

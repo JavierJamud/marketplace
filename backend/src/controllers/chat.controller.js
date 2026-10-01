@@ -10,6 +10,7 @@ import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { getBrandSettings } from "./settings.controller.js";
+import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planConfig.js";
 
 // Bloque 42 (optimización de tokens — bajado de 20 a 6): el modelo no
 // tiene memoria propia entre requests, así que ESTE historial es lo único
@@ -194,8 +195,11 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
   // Mismo gate que el widget del frontend (no lo muestra si no está
   // verificada) — pero acá es lo que de verdad importa: sin esto, cualquiera
-  // podría pegarle al endpoint directo sin pasar por la UI.
+  // podría pegarle al endpoint directo sin pasar por la UI. Bloque 52
+  // (decisión confirmada — "las dos cosas"): verificada Y el plan actual
+  // tiene que habilitar el chatbot (allowAiChatbot).
   if (vendor.verificationStatus !== "VERIFIED") throw new AppError("El chat con IA solo está disponible para tiendas verificadas.", 403);
+  await assertPlanAllows(vendor, "allowAiChatbot", "Tu plan actual no incluye el chat con IA.");
 
   const totalActive = vendor._count.products;
   let products;
@@ -790,8 +794,10 @@ export async function getChatHistory(req, res) {
   // A diferencia de postChatMessage, acá no tiene sentido tirar un error si
   // la tienda dejó de estar verificada entre que se abrió la página y se
   // pidió el historial — simplemente no hay nada que mostrar.
-  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { verificationStatus: true, isBlocked: true, status: true } });
-  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || vendor.verificationStatus !== "VERIFIED") return res.json({ messages: [] });
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { verificationStatus: true, isBlocked: true, status: true, planType: true } });
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || !isPremiumActive(vendor)) return res.json({ messages: [] });
+  const config = await getPlanConfig(vendor.planType);
+  if (!config?.allowAiChatbot) return res.json({ messages: [] });
 
   const messages = await prisma.chatMessage.findMany({ where: { vendorId, sessionId }, orderBy: { createdAt: "asc" } });
 
