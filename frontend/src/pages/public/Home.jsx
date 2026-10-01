@@ -186,8 +186,12 @@ export default function Home() {
           header, que ahí arriba está transparente), y el padding empuja el
           contenido de adentro exactamente la misma distancia hacia abajo —
           el resultado neto es que el contenido queda en el mismo lugar de
-          siempre, solo el color se extiende detrás del header. */}
-      <section className="-mt-[76px] rounded-b-[28px] bg-gradient-to-b from-primary-container to-primary pt-[76px]">
+          siempre, solo el color se extiende detrás del header. Bloque 53
+          (pedido explícito — "el color de la barra de menú y de la primera
+          sección debe ser igual al color del footer"): bg-primary sólido,
+          el MISMO color que Footer.jsx (bg-primary) — antes era un degradado
+          de primary-container a primary, un tono más claro arriba. */}
+      <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
         <div className="container-app grid grid-cols-1 items-center gap-10 py-14 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-16">
           <div>
             <span className="mb-5 inline-flex items-center gap-1.5 rounded-full bg-secondary-container/15 px-3.5 py-1.5 text-label-sm font-bold tracking-wide text-secondary-container">

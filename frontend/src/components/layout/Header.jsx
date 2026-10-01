@@ -105,9 +105,10 @@ function AccountMenu({ user, accountHref, panelLabel }) {
 // Producto, Tienda, Carrito, etc.) tienen fondo claro justo debajo del
 // header, donde un header transparente dejaría los íconos blancos casi
 // invisibles. El Home sí tiene un hero oscuro pegado arriba (Home.jsx,
-// gradiente from-primary-container to-primary — el mismo primary-container
-// que ya usa este header sólido), así que el color coincide sin ningún
-// salto al pasar de transparente a sólido. El header SIGUE siendo sticky
+// Bloque 53: bg-primary sólido, el MISMO color que el footer — antes era un
+// degradado de primary-container a primary) — mismo bg-primary que usa este
+// header sólido, así el color coincide sin ningún salto al pasar de
+// transparente a sólido. El header SIGUE siendo sticky
 // (reserva su espacio real de siempre, layout intacto en todas las demás
 // páginas) — lo que cambia es solo su fondo; Home.jsx compensa con un
 // margen negativo + padding igual a la altura del header para que el fondo
@@ -145,7 +146,7 @@ export function Header() {
   return (
     <header
       className={`sticky top-0 z-50 transition-colors duration-300 ${
-        transparent ? "bg-transparent shadow-none" : "bg-primary-container shadow-[0_2px_12px_rgba(0,0,0,0.12)]"
+        transparent ? "bg-transparent shadow-none" : "bg-primary shadow-[0_2px_12px_rgba(0,0,0,0.12)]"
       }`}
     >
       <div className="container-app flex h-[76px] items-center gap-4 lg:gap-[22px]">
