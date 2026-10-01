@@ -56,8 +56,13 @@
          dueño, nunca el nombre de este sitio. Sigue siendo un valor fijo
          a propósito (este archivo se sirve tal cual, sin poder consultar la
          base) — si el nombre de la plataforma cambia algún día desde
-         Admin → Marca, este piso estático hay que actualizarlo a mano acá. -->
-    <title>Baznova — Marketplace multivendedor de Cuba</title>
+         Admin → Marca, este piso estático hay que actualizarlo a mano acá.
+         Bloque 54 (pedido explícito — "dejarlo solo con el nombre de la
+         empresa... y luego un | Marketplace"): formato nuevo, antes era
+         "Baznova — Marketplace multivendedor de Cuba". App.jsx pisa este
+         título apenas React monta y /settings responde con el nombre real
+         (ver usePageTitle ahí) — esto es solo el piso del primer instante. -->
+    <title>Baznova | Marketplace</title>
     <meta
       name="description"
       content="Comprá y vendé en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp."

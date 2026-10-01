@@ -104,7 +104,10 @@ export function ogMetaPlugin(env = {}) {
     const path = (rawUrl ?? "/").split("?")[0].split("#")[0];
     const siteName = await fetchSiteName();
     const fallback = {
-      title: `${siteName} — Marketplace multivendedor de Cuba`,
+      // Bloque 54 (pedido explícito): mismo formato que el <title> estático
+      // de index.html y el que setea App.jsx del lado del cliente — antes
+      // decía "— Marketplace multivendedor de Cuba".
+      title: `${siteName} | Marketplace`,
       description: DEFAULT_DESCRIPTION,
       image: defaultImage,
       url: `${siteUrl}${path}`,

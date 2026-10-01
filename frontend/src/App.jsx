@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
@@ -5,6 +6,7 @@ import { RouteLoader } from "./components/layout/RouteLoader.jsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
+import { usePlatformSettings } from "./lib/usePlatformSettings.js";
 
 // Público
 import Home from "./pages/public/Home.jsx";
@@ -93,7 +95,27 @@ function VendorProfileRoute() {
   return user?.role === "VENDOR_STAFF" ? <StaffProfile /> : <VendorProfile />;
 }
 
+// Bloque 54 (pedido explícito — "el título de la página... vamos a dejarlo
+// solo con el nombre de la empresa asignado por el admin y luego un |
+// Marketplace"): antes el <title> de la pestaña era el string fijo de
+// index.html ("Baznova — Marketplace multivendedor de Cuba"), nunca
+// actualizado una vez que React montaba — si el admin cambiaba el nombre de
+// la plataforma en Marca, la pestaña del navegador seguía diciendo
+// "Baznova" para siempre. Acá arriba de todo (dentro de App, nunca en
+// Header.jsx/Footer.jsx: esas viven solo en PublicLayout, y esto tiene que
+// cubrir TAMBIÉN /admin y /vendedor, que usan layouts propios sin Header)
+// para que se actualice en cualquier pantalla del sitio, apenas llega el
+// nombre real desde /settings. El de index.html queda tal cual, como piso
+// estático para el primer instante antes de que React monte.
+function usePageTitle() {
+  const { siteName } = usePlatformSettings();
+  useEffect(() => {
+    document.title = `${siteName} | Marketplace`;
+  }, [siteName]);
+}
+
 export default function App() {
+  usePageTitle();
   return (
     <>
       <RouteLoader />
