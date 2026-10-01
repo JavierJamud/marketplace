@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { MapPin, Flame } from "lucide-react";
 import { api } from "../lib/api.js";
+import { imgUrl, thumbUrl } from "../lib/imgUrl.js";
 import { formatPrice } from "../lib/format.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
@@ -28,8 +29,13 @@ export function ProductCard({ product, trackSource = "catalog" }) {
   // servidos por el backend, no por el frontend — hay que anteponer el origin.
   // Bloque 49: también puede ser un link externo pegado por el vendedor — en
   // ese caso ya es absoluto y no hay que tocarlo.
+  // Bloque 51: acá se pide la MINIATURA, no la foto grande — esta tarjeta se
+  // ve a ~300px y una grilla de catálogo monta 12+ a la vez. `image` queda
+  // como respaldo del onError de abajo, para las fotos viejas (anteriores al
+  // Bloque 51) que no tienen miniatura generada.
   const firstImage = product.images?.[0];
-  const image = firstImage ? (/^https?:\/\//.test(firstImage) ? firstImage : `${api.defaults.baseURL}${firstImage}`) : null;
+  const image = imgUrl(firstImage);
+  const thumb = thumbUrl(firstImage);
   const discount = product.oldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : null;
   // Bloque 56: "disponible siempre" nunca se muestra como agotado/bajo stock.
   const isOutOfStock = !product.unlimitedStock && product.stock === 0;
@@ -64,8 +70,22 @@ export function ProductCard({ product, trackSource = "catalog" }) {
               <span className="truncate">Más vendido</span>
             </span>
           )}
-          {image ? (
-            <img src={image} alt={product.name} className="h-full w-full object-cover" />
+          {thumb ? (
+            <img
+              src={thumb}
+              alt={product.name}
+              loading="lazy"
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                // La miniatura no existe (foto vieja): se cae a la grande en
+                // vez de dejar el hueco. `onerror = null` evita un bucle si
+                // la grande también falla.
+                if (e.currentTarget.src !== image) {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = image;
+                }
+              }}
+            />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
           )}

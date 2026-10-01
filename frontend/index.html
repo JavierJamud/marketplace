@@ -227,6 +227,13 @@
            public/fonts/Fredoka.ttf) — si opentype.js no llega a cargar, cae
            a texto plano sin animar (nunca se rompe el preloader por esto). -->
       <div id="app-preloader-name" style="font-family:'Fredoka','Montserrat',sans-serif;font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;white-space:nowrap;animation:preloader-name-pulse 4.25s ease-in-out infinite;"></div>
+      <!-- Bloque 49 (pedido explícito — "si pasa más de 3-5 segundos, un
+           mensaje debajo del logo que vaya cambiando"): arranca invisible
+           (opacity:0) — solo aparece si /settings sigue sin responder pasado
+           STATUS_THRESHOLD_MS (ver el script de abajo). min-height evita que
+           el resto del preloader "salte" verticalmente en el instante en que
+           el mensaje aparece. -->
+      <div id="app-preloader-status" style="margin-top:2px;min-height:16px;font-size:12.5px;font-weight:500;color:rgba(255,255,255,.62);letter-spacing:.01em;text-align:center;opacity:0;transition:opacity 220ms ease;"></div>
     </div>
     <script>
       // Bloque 120 (pedido explícito): el splash de arriba se apaga acá
@@ -397,33 +404,88 @@
         // Bloque 212 (pedido explícito, bug real reportado en vivo con
         // captura — "cuando el backend falla sale el nombre ZeuDin... eso
         // no debe ser así, ZeuDin es la marca de mi empresa de desarrollo de
-        // software, no el nombre de esta plataforma"): si el backend no
-        // responde (o tarda), el fallback YA NO es un nombre de marca
-        // ajeno — es string vacío, que renderPreloaderName()/buildNameSVG()
-        // ya interpretan como "no hay nada que dibujar" (0 letras, el <svg>
-        // queda con ancho 0), así que solo se ve el logo solo, animando,
-        // sin ningún nombre debajo. Sin caché ni reintento: nunca bloquea el
-        // apagado del preloader (las 2 condiciones de arriba no dependen de
-        // esto).
+        // software, no el nombre de esta plataforma"): si /settings todavía
+        // no respondió, el fallback nunca es un nombre de marca ajeno — es
+        // string vacío, que renderPreloaderName()/buildNameSVG() ya
+        // interpretan como "no hay nada que dibujar" (0 letras, el <svg>
+        // queda con ancho 0), así que solo se ve el logo solo, animando.
         var API_BASE = "%VITE_API_URL%";
         if (!API_BASE || API_BASE.indexOf("%") === 0) {
           API_BASE = "http://" + window.location.hostname + ":4000";
         }
-        fetch(API_BASE + "/settings")
-          .then(function (res) { return res.ok ? res.json() : null; })
-          .then(function (data) {
-            var name = data && data.settings && data.settings.siteName;
-            resolvedName = name || "";
-            renderIfReady();
-          })
-          .catch(function () {
-            resolvedName = "";
-            renderIfReady();
-          });
+
+        // Bloque 49 (bug real reportado en vivo, en Render con el plan
+        // gratuito — "cuando el backend se duerme, se ve el logo sin
+        // nombre... y ABRE la página sin ningún dato de la base, solo el
+        // frontend vacío"): antes /settings era "mejor esfuerzo" (Bloque
+        // 212) — si fallaba, se resolvía con nombre vacío Y de todas formas
+        // dejaba que el preloader se apagara igual (maybeHide() solo
+        // dependía de pageLoaded, nunca de esto). El problema real: el
+        // frontend es un Static Site (carga al toque, sin cold start), pero
+        // el backend es un Web Service aparte que SÍ se suspende sin
+        // actividad — `window.load` (assets estáticos) no tiene ninguna
+        // relación con si el backend ya despertó. Ahora /settings es la
+        // señal real de "el backend está despierto y devolviendo datos de
+        // la base" — mientras no responda con éxito, se reintenta solo cada
+        // SETTINGS_RETRY_MS (cold start de Render gratis: puede tardar
+        // 30-60s+), y el preloader NUNCA se apaga hasta que se resuelva —
+        // "se quedará siempre cargando en el logo" tal cual se pidió. Pasado
+        // STATUS_THRESHOLD_MS sin respuesta, aparece un mensaje debajo del
+        // nombre que va rotando cada STATUS_ROTATE_MS (pedido explícito:
+        // "cargando tiendas... organizando los mejores negocios...").
+        var settingsLoaded = false;
+        var SETTINGS_RETRY_MS = 2500;
+        var STATUS_THRESHOLD_MS = 3500;
+        var STATUS_ROTATE_MS = 2600;
+        var STATUS_MESSAGES = [
+          "Cargando tiendas...",
+          "Organizando los mejores negocios...",
+          "Recopilando la mejor información para mostrarte...",
+          "Preparando tu catálogo de productos...",
+          "Ya casi está listo...",
+        ];
+        var statusTimer = null;
+
+        function showStatusMessages() {
+          var el = document.getElementById("app-preloader-status");
+          if (!el || statusTimer || settingsLoaded) return;
+          var i = 0;
+          el.textContent = STATUS_MESSAGES[i];
+          el.style.opacity = "1";
+          statusTimer = setInterval(function () {
+            i = (i + 1) % STATUS_MESSAGES.length;
+            el.style.opacity = "0";
+            setTimeout(function () {
+              el.textContent = STATUS_MESSAGES[i];
+              el.style.opacity = "1";
+            }, 220);
+          }, STATUS_ROTATE_MS);
+        }
+        setTimeout(showStatusMessages, STATUS_THRESHOLD_MS);
+
+        function fetchSettings() {
+          fetch(API_BASE + "/settings")
+            .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error("bad status")); })
+            .then(function (data) {
+              var name = data && data.settings && data.settings.siteName;
+              resolvedName = name || "";
+              settingsLoaded = true;
+              renderIfReady();
+              maybeHide();
+            })
+            .catch(function () {
+              setTimeout(fetchSettings, SETTINGS_RETRY_MS);
+            });
+        }
+        fetchSettings();
 
         function hidePreloader() {
           var el = document.getElementById("app-preloader");
           if (!el) return;
+          if (statusTimer) {
+            clearInterval(statusTimer);
+            statusTimer = null;
+          }
           el.style.opacity = "0";
           el.style.pointerEvents = "none";
           setTimeout(function () {
@@ -432,7 +494,7 @@
         }
 
         function maybeHide() {
-          if (!pageLoaded) return;
+          if (!pageLoaded || !settingsLoaded) return;
           var elapsed = Date.now() - startedAt;
           var remaining = Math.max(0, ANIM_MS - elapsed);
           setTimeout(hidePreloader, remaining);

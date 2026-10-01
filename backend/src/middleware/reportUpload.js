@@ -1,33 +1,18 @@
-import multer from "multer";
-import crypto from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { extname } from "node:path";
+import { createImageUpload } from "../lib/imageOptimizer.js";
 import { REPORT_UPLOAD_DIR } from "../controllers/reports.controller.js";
 
-mkdirSync(REPORT_UPLOAD_DIR, { recursive: true });
-
+// Capturas de pantalla adjuntas a un reporte de fraude (del denunciante) y
+// la evidencia que sube el denunciado. Bloque 51: acá se optimiza con la
+// mano MÁS suave de todo el proyecto (1800px, quality 90) a propósito — un
+// admin tiene que poder leer texto chico dentro de una captura para decidir
+// si confirma o descarta un fraude; ahorrar unos KB no vale arriesgar eso.
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 
-// Feature B (pedido explícito): la captura de pantalla del fraude es
-// OBLIGATORIA para poder crear un reporte — mismo criterio anti path-
-// traversal que reviewImageUpload.js (nombre generado server-side, nunca el
-// del cliente). Se reusa esta misma instancia para la evidencia que manda
-// el reportado (createReport usa .single("screenshot"), submitEvidence usa
-// .array("evidence", 4)) — de ahí el límite de 4 archivos acá, aunque
-// .single() en la práctica solo deja pasar uno para ese campo.
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, REPORT_UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, `${crypto.randomUUID()}${ALLOWED_EXT.has(ext) ? ext : ""}`);
-  },
-});
-
-export const reportUpload = multer({
-  storage,
-  limits: { fileSize: 6 * 1024 * 1024, files: 4 },
-  fileFilter: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, ALLOWED_EXT.has(ext));
-  },
+export const reportUpload = createImageUpload({
+  dir: REPORT_UPLOAD_DIR,
+  allowedExt: ALLOWED_EXT,
+  fileSize: 6 * 1024 * 1024,
+  maxFiles: 4,
+  maxWidth: 1800,
+  quality: 90,
 });

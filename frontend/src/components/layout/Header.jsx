@@ -99,16 +99,55 @@ function AccountMenu({ user, accountHref, panelLabel }) {
   );
 }
 
+// Bloque 50 (pedido explícito — "cuando cargue la página la barra de menú
+// será transparente... solo se le da color cuando se empieza a deslizar la
+// página hacia abajo"): SOLO en el Home — el resto de páginas (Catálogo,
+// Producto, Tienda, Carrito, etc.) tienen fondo claro justo debajo del
+// header, donde un header transparente dejaría los íconos blancos casi
+// invisibles. El Home sí tiene un hero oscuro pegado arriba (Home.jsx,
+// gradiente from-primary-container to-primary — el mismo primary-container
+// que ya usa este header sólido), así que el color coincide sin ningún
+// salto al pasar de transparente a sólido. El header SIGUE siendo sticky
+// (reserva su espacio real de siempre, layout intacto en todas las demás
+// páginas) — lo que cambia es solo su fondo; Home.jsx compensa con un
+// margen negativo + padding igual a la altura del header para que el fondo
+// del hero se extienda "detrás" del header transparente sin mover ni un
+// píxel el contenido real de adentro (ver el comentario en Home.jsx).
+const HEADER_SCROLL_THRESHOLD = 8;
+
 export function Header() {
   const { items, bump, openCart } = useCart();
   const { user } = useAuth();
+  const location = useLocation();
   const count = items.reduce((a, i) => a + i.quantity, 0);
+
+  const isHome = location.pathname === "/";
+  const [scrolled, setScrolled] = useState(!isHome);
+
+  useEffect(() => {
+    if (!isHome) {
+      setScrolled(true);
+      return;
+    }
+    setScrolled(window.scrollY > HEADER_SCROLL_THRESHOLD);
+    function onScroll() {
+      setScrolled(window.scrollY > HEADER_SCROLL_THRESHOLD);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isHome]);
+
+  const transparent = isHome && !scrolled;
 
   const accountHref = !user ? "/cuenta" : user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
   const panelLabel = user?.role === "ADMIN" ? "Panel de administración" : user?.role === "VENDOR" ? "Panel de vendedor" : "Mi cuenta";
 
   return (
-    <header className="sticky top-0 z-50 bg-primary-container shadow-[0_2px_12px_rgba(0,0,0,0.12)]">
+    <header
+      className={`sticky top-0 z-50 transition-colors duration-300 ${
+        transparent ? "bg-transparent shadow-none" : "bg-primary-container shadow-[0_2px_12px_rgba(0,0,0,0.12)]"
+      }`}
+    >
       <div className="container-app flex h-[76px] items-center gap-4 lg:gap-[22px]">
         <Logo />
 

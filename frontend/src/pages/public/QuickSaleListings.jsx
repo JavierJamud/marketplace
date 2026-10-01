@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Package } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { imgUrl, thumbUrl } from "../../lib/imgUrl.js";
 import { formatPrice } from "../../lib/format.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
@@ -28,7 +29,10 @@ export default function QuickSaleListings() {
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {listings?.map((l) => {
-          const image = l.images?.[0] ? `${api.defaults.baseURL}${l.images[0]}` : null;
+          // Bloque 51: la grilla pide la miniatura; `image` queda de respaldo
+          // para los anuncios viejos que no tienen una generada.
+          const image = imgUrl(l.images?.[0]);
+          const thumb = thumbUrl(l.images?.[0]);
           return (
             <Link
               key={l.id}
@@ -36,8 +40,19 @@ export default function QuickSaleListings() {
               className="overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
             >
               <div className="relative aspect-[7/4] w-full overflow-hidden bg-surface-container">
-                {image ? (
-                  <img src={image} alt={l.name} className="h-full w-full object-cover" />
+                {thumb ? (
+                  <img
+                    src={thumb}
+                    alt={l.name}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      if (e.currentTarget.src !== image) {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = image;
+                      }
+                    }}
+                  />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-outline">
                     <Package className="h-8 w-8" />

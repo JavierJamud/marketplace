@@ -1,30 +1,15 @@
-import multer from "multer";
-import crypto from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { extname } from "node:path";
+import { createImageUpload } from "../lib/imageOptimizer.js";
 import { STAFF_PHOTO_UPLOAD_DIR } from "../controllers/vendorStaff.controller.js";
 
-// Bloque 183 (pedido explícito — "al registrar ese nuevo usuario... el
-// vendedor o administrador deberá tomar una foto de ese usuario
-// registrado"): mismo criterio EXACTO que vendorBrandingUpload.js (logo de
-// la tienda) — nombre de archivo aleatorio, nunca el original.
-mkdirSync(STAFF_PHOTO_UPLOAD_DIR, { recursive: true });
-
+// Foto del personal de una tienda. Nunca se ve más grande que un avatar
+// (lista de usuarios del vendedor, perfil propio), así que 500px alcanza de
+// sobra incluso en retina — y con quality alto porque es una cara.
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, STAFF_PHOTO_UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, `${crypto.randomUUID()}${ALLOWED_EXT.has(ext) ? ext : ""}`);
-  },
-});
-
-export const staffPhotoUpload = multer({
-  storage,
-  limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, ALLOWED_EXT.has(ext));
-  },
+export const staffPhotoUpload = createImageUpload({
+  dir: STAFF_PHOTO_UPLOAD_DIR,
+  allowedExt: ALLOWED_EXT,
+  fileSize: 8 * 1024 * 1024,
+  maxWidth: 500,
+  quality: 85,
 });

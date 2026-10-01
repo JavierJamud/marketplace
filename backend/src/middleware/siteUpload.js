@@ -1,26 +1,18 @@
-import multer from "multer";
-import crypto from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { extname } from "node:path";
+import { createImageUpload } from "../lib/imageOptimizer.js";
 import { SITE_UPLOAD_DIR } from "../controllers/settings.controller.js";
 
-mkdirSync(SITE_UPLOAD_DIR, { recursive: true });
-
+// Imágenes del sitio subidas por el admin: hero de la Home, campañas,
+// anuncios y ofertas dirigidas. Bloque 51: se guardan siempre como WebP
+// optimizado (ver lib/imageOptimizer.js), sin importar el formato de origen.
 const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, SITE_UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, `${crypto.randomUUID()}${ALLOWED_EXT.has(ext) ? ext : ""}`);
-  },
-});
-
-export const siteUpload = multer({
-  storage,
-  limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, ALLOWED_EXT.has(ext));
-  },
+export const siteUpload = createImageUpload({
+  dir: SITE_UPLOAD_DIR,
+  allowedExt: ALLOWED_EXT,
+  fileSize: 8 * 1024 * 1024,
+  // El recuadro real del hero en Home.jsx es ~578×400 en escritorio y el
+  // propio panel de admin recomienda subir 1200×800 — 1600 deja margen para
+  // pantallas grandes sin guardar una foto de 4000px que nadie va a ver.
+  maxWidth: 1600,
+  quality: 82,
 });
