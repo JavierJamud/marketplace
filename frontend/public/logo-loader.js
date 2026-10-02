@@ -108,6 +108,38 @@
       this._svg.style.setProperty("--pale-opacity", this.getAttribute("pale-opacity") || ".28");
       this._svg.style.setProperty("--dur", (this.getAttribute("duration") || "4.25") + "s");
     }
+    // Bloque 224 (pedido explícito — "si necesita seguir cargando, solo
+    // se retrocede al igual como apareció hasta el punto inicial del
+    // logo y se repite toda la animación"): en modo `once` la animación
+    // CSS termina sostenida en su último cuadro (iteration-count:1,
+    // forwards) — no hay forma de "reiniciarla" solo con CSS, un navegador
+    // nunca vuelve a correr una animación ya terminada aunque el
+    // elemento siga en el DOM. El truco estándar: cancelar la animación
+    // inline (`animation:none`), forzar un reflow para que el navegador
+    // "vea" ese cambio antes de sacarlo (si no, colapsa los dos cambios
+    // en uno y nunca reinicia), y recién ahí borrar el inline para que la
+    // regla de la hoja de estilos (`:host([once]) .logo{...}`, etc.)
+    // vuelva a aplicarse desde 0%. index.html llama a esto antes de cada
+    // vuelta de la coreografía (ver startCycle()/resetChoreography()).
+    restart() {
+      if (!this._svg) return;
+      const animated = this._svg.querySelectorAll(".logo, .awning, .body, .door-clip, .bar");
+      animated.forEach((el) => {
+        el.style.animation = "none";
+        // Bloque 224: `getComputedStyle(...).animationName` (no
+        // `offsetWidth`) a propósito — probado en vivo que leer solo el
+        // ancho de un ancestro (el <svg>) no fuerza, de forma confiable,
+        // el recálculo de estilos de CADA hijo SVG animado por separado;
+        // a veces el `animation:none` nunca llegaba a "verse" antes de
+        // restaurarlo, y la animación se quedaba pegada en su cuadro
+        // final en vez de reiniciar. Leer el estilo computado de CADA
+        // elemento, uno por uno, es lo que de verdad lo fuerza siempre.
+        void getComputedStyle(el).animationName;
+      });
+      animated.forEach((el) => {
+        el.style.animation = "";
+      });
+    }
   }
 
   if (!customElements.get("logo-loader")) {
