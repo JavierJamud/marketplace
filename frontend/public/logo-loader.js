@@ -24,6 +24,34 @@
     @keyframes doorUp{0%,47%{transform:scaleY(0)}57.6%,100%{transform:scaleY(1)}}
     @keyframes barPop{0%,53%{transform:scale(0)}59%{transform:scale(1.08)}61.6%,75%{transform:scale(1)}78%,80%{transform:scale(1,.08)}86%,100%{transform:scale(1)}}
     @keyframes drain{0%,88%{opacity:1}96%,100%{opacity:0}}
+
+    /* Bloque 221 (pedido explícito — "quiero lograr... el ícono viene
+       hacia el frente, centrado... y cuando llega a su punto del frente se
+       desplazará hacia la izquierda, destapando el nombre"): el loop
+       enter/drain de arriba está pensado para repetirse para siempre (por
+       eso 100% vuelve a desvanecerse, para encadenar sin salto con el
+       próximo 0%) — eso es justo lo que NO queremos para la intro de una
+       sola vez. El atributo once (ver más abajo) activa un segundo juego
+       de keyframes que comparten el mismo dibujado (mismo "viene opaco,
+       empieza a rellenar los trazos al llegar al frente") pero SOSTIENEN
+       el cuadro final en vez de desvanecerlo — el ícono se queda dibujado
+       y quieto, listo para que index.html lo deslice y revele el nombre al
+       lado. El selector :host([once]) pesa más que la regla base de abajo
+       (misma cantidad de clases, pero con un selector de atributo de más),
+       así que no hace falta !important ni tocar las reglas de loop.
+       OJO al editar este bloque: esto vive ADENTRO del template literal de
+       CSS (las comillas invertidas de la declaración const CSS de arriba)
+       — un backtick suelto acá cerraría ese string a mitad de camino y
+       rompería todo el archivo (así se rompió la primera vez: un
+       comentario que citaba nombres entre comillas invertidas por error).
+       Nunca usar comillas invertidas en los comentarios de acá adentro. */
+    @keyframes enterOnce{0%{opacity:0;transform:scale(.82)}9%{opacity:1}13%{transform:scale(1.03)}17%,100%{opacity:1;transform:scale(1)}}
+    :host([once]) .logo{animation:enterOnce var(--dur) 1 forwards}
+    :host([once]) .solid{animation:none;opacity:1}
+    :host([once]) .awning{animation:drawAwning var(--dur) 1 forwards}
+    :host([once]) .body{animation:drawBody var(--dur) 1 forwards}
+    :host([once]) .door-clip{animation:doorUp var(--dur) 1 forwards}
+    :host([once]) .bar{animation:barPop var(--dur) 1 forwards}
   `;
 
   const AWNING = "M168,48 L344,48 Q380,48 394.3,81 L439.9,186.1 A50,50 0 1 1 348,225.6 A50,50 0 0 1 256,225.6 A50,50 0 0 1 164,225.6 A50,50 0 1 1 72.1,186.1 L117.7,81 Q132,48 168,48 Z";

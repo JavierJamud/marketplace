@@ -117,32 +117,54 @@
          - `preloader-letter-fill-in`: `fill-opacity` de 0 a 1, arrancando
            justo cuando el trazo ya casi terminó — "al terminar el trazo,
            aparece el relleno".
-         Las 2 comparten el mismo `animation-delay` por letra (0.12s más que
-         la anterior, tal cual pedido) — el escalonado chico es el
-         "hormigueo": todas dibujan casi juntas, con un desfase mínimo. Las
-         2 corren sobre el MISMO reloj de 4.25s que el logo (no uno propio
-         de ~1.5s aparte) — el dibujado+relleno completo de una letra ocupa
-         ~1.5s ADENTRO de ese ciclo de 4.25s (los puntos de tiempo de abajo
-         están calculados para eso: 21%≈0.9s, 35%≈1.5s), se sostiene
-         dibujada hasta el 92% (mismo punto donde el logo/grupo empiezan a
-         desvanecerse) y se resetea sola al llegar al 100%, lista para el
-         siguiente loop. El CONTENEDOR (`preloader-name-pulse`, sin
-         cambios) sigue con su propio fade+translateY de grupo, en el mismo
-         compás que el logo completo. -->
+         Bloque 221 (pedido explícito — rediseño completo de la coreografía
+         de entrada, ver el comentario largo sobre `#app-preloader-lockup`
+         más abajo): antes las 2 animaciones de letra corrían en loop
+         infinito, sincronizadas al mismo reloj de 4.25s del logo, con un
+         escalonado de 0.12s por letra y una meseta de 21%-92% antes de
+         desvanecerse y reiniciar. Ahora el nombre aparece UNA sola vez,
+         como parte del deslizamiento del ícono hacia la izquierda (nunca
+         más en loop) — las 2 animaciones usan `forwards` (sostienen el
+         último cuadro, letra dibujada y rellena, en vez de reiniciar) y un
+         escalonado más chico (ver LETTER_STAGGER_S en el script de abajo)
+         para que el "hormigueo" completo de nombres largos no se escape
+         del presupuesto de la revelación (REVEAL_MS). -->
     <style>
-      @keyframes preloader-name-pulse {
-        0% { opacity: 0; transform: translateY(8px); }
-        9% { opacity: 1; transform: translateY(0); }
-        17%, 92% { opacity: 1; transform: translateY(0); }
-        100% { opacity: 0; transform: translateY(8px); }
-      }
       @keyframes preloader-letter-stroke {
-        0%, 100% { stroke-dashoffset: 1; }
-        21%, 92% { stroke-dashoffset: 0; }
+        0% { stroke-dashoffset: 1; }
+        70%, 100% { stroke-dashoffset: 0; }
       }
       @keyframes preloader-letter-fill-in {
-        0%, 19%, 100% { fill-opacity: 0; }
-        35%, 92% { fill-opacity: 1; }
+        0%, 40% { fill-opacity: 0; }
+        100% { fill-opacity: 1; }
+      }
+      /* Bloque 221 (pedido explícito — "si el sitio sigue cargando... una
+         animación fija con el ícono y el nombre... un brillo pasando por
+         encima, como en forma de carga"): en vez de repetir toda la
+         entrada (ícono llegando de atrás) cuando el backend tarda, se
+         sostiene la composición final (ícono + nombre, lo que haya en ese
+         momento) y se le pasa por encima una franja de brillo en loop —
+         el motivo clásico de "esqueleto cargando", reutilizado tal cual
+         para el ícono solo (mientras se espera el nombre) y para el lockup
+         completo (mientras se espera que termine de cargar la página),
+         sin tener que coordinar nada extra: la franja cubre `inset:0` del
+         contenedor, que se agranda solo cuando el nombre se revela. */
+      @keyframes preloader-shine-sweep {
+        from { background-position: 160% 0; }
+        to { background-position: -60% 0; }
+      }
+      /* opacity:0 acá (no inline en el <div>) a propósito: un estilo
+         inline SIEMPRE gana por encima de cualquier regla de hoja de
+         estilos, sea cual sea su especificidad — si el opacity:0 base
+         estuviera en el atributo `style` del <div>, esta regla de abajo
+         (que sí necesita más especificidad que la de acá, por el
+         #id.clase) nunca podría subirlo a 1. */
+      #app-preloader-shine {
+        opacity: 0;
+      }
+      #app-preloader-shine.is-sweeping {
+        opacity: 1;
+        animation: preloader-shine-sweep 1.8s ease-in-out infinite;
       }
 
       /* Bloque 134 (pedido explícito — "quiero que bloquees el zoom por
@@ -222,16 +244,54 @@
       id="app-preloader"
       style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#0e1a28;transition:opacity 400ms ease;"
     >
-      <logo-loader ink="#FFFFFF" accent="#FE9800" pale-ink="rgba(255,255,255,.28)" pale-accent="rgba(254,152,0,.3)" duration="4.25" size="140"></logo-loader>
-      <!-- Bloque 125 (pedido explícito — ver el comentario largo del <style>
-           de arriba): arranca vacío (Bloque 212 — nunca "ZeuDin") y se
-           reconstruye con el nombre real apenas responde GET /settings.
-           `buildNameSVG()`
-           en el script de abajo arma acá adentro un <svg> con un <path> real
-           por letra (contorno vectorial de Fredoka.ttf, ver
-           public/fonts/Fredoka.ttf) — si opentype.js no llega a cargar, cae
-           a texto plano sin animar (nunca se rompe el preloader por esto). -->
-      <div id="app-preloader-name" style="font-family:'Fredoka','Montserrat',sans-serif;font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;white-space:nowrap;animation:preloader-name-pulse 4.25s ease-in-out infinite;"></div>
+      <!-- Bloque 221 (pedido explícito — coreografía nueva de principio a
+           fin: "el ícono viene hacia el frente, centrado... al llegar a su
+           punto del frente se desplazará hacia la izquierda... mientras se
+           van rellenando los trazados hacia la izquierda, de esa misma vez
+           van apareciendo, destapándose las letras del nombre"):
+           - Esta fila (`#app-preloader-lockup`) es un flex-row con
+             `justify-content:center`. El nombre arranca en `width:0`
+             (ocupa 0 espacio) — con el nombre en 0, el ÚNICO contenido con
+             ancho real es el ícono, así que el centrado de la fila lo deja
+             centrado en toda la pantalla, tal cual se pidió ("más
+             centrado"). Cuando `revealName()` (ver el script de abajo)
+             anima el `width` del nombre de 0 a su ancho real, el centrado
+             de la fila empuja el ícono hacia la izquierda SOLO —
+             no hace falta ningún transform/translate manual en el ícono,
+             el desplazamiento es un efecto secundario del layout, así que
+             nunca puede desincronizarse del ancho real del nombre
+             (distinto para cada sitio, el nombre es editable desde el
+             admin).
+           - El ícono mismo usa el atributo `once` nuevo de logo-loader.js:
+             en vez del loop infinito de siempre, dibuja una sola vez
+             (opaco -> rellena los trazos) y se queda quieto en el cuadro
+             final, listo para deslizarse.
+           - El nombre y el ícono SIEMPRE quedan en el DOM una vez
+             revelados (nunca se vuelve a armar la animación de entrada) —
+             si todavía falta cargar algo después de eso, `#app-preloader-
+             shine` (ver más abajo) es la única animación que sigue
+             corriendo, en vez de reiniciar el ícono. -->
+      <div id="app-preloader-lockup" style="position:relative;display:flex;align-items:center;justify-content:center;max-width:calc(100vw - 40px);">
+        <logo-loader once id="app-preloader-logo" ink="#FFFFFF" accent="#FE9800" pale-ink="rgba(255,255,255,.28)" pale-accent="rgba(254,152,0,.3)" duration="1.5" size="118"></logo-loader>
+        <!-- Bloque 125/221 (ver el comentario largo de arriba): arranca
+             vacío (Bloque 212 — nunca "ZeuDin") y en `width:0` (Bloque 221
+             — nada que revelar todavía). `buildNameSVG()` en el script de
+             abajo arma acá adentro un <svg> con un <path> real por letra
+             (contorno vectorial de Fredoka.ttf) recién cuando el ícono YA
+             terminó su entrada Y el nombre/la fuente YA se conocen — si
+             opentype.js no llega a cargar, cae a texto plano sin animar
+             (envuelto en un <span>, ver renderPreloaderName, para poder
+             escalarlo igual que al SVG si no entra en pantallas angostas). -->
+        <div id="app-preloader-name" style="width:0;margin-left:0;overflow:hidden;white-space:nowrap;opacity:0;font-family:'Fredoka','Montserrat',sans-serif;font-weight:700;font-size:26px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;transition-property:width,margin-left,opacity;transition-timing-function:cubic-bezier(.22,.9,.3,1),cubic-bezier(.22,.9,.3,1),ease;transition-duration:.5s;"></div>
+        <!-- Bloque 221: ver el comentario largo sobre `preloader-shine-sweep`
+             en el <style> de arriba — misma franja para "esperando el
+             nombre" (ícono solo) y "esperando que cargue la página"
+             (ícono + nombre), según lo que `#app-preloader-lockup` tenga
+             adentro en ese momento. Arranca apagada (opacity:0, sin la
+             clase que la anima) — `startShine()`/`stopShine()` en el
+             script de abajo la prenden/apagan. -->
+        <div id="app-preloader-shine" style="position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;background:linear-gradient(100deg, transparent 42%, rgba(255,255,255,.5) 50%, transparent 58%);background-size:260% 100%;background-position:160% 0;"></div>
+      </div>
       <!-- Bloque 49 (pedido explícito — "si pasa más de 3-5 segundos, un
            mensaje debajo del logo que vaya cambiando"): arranca invisible
            (opacity:0 en las 2 capas de abajo) — solo aparece si /settings
@@ -265,16 +325,14 @@
       // un componente montado por App.jsx: el reloj arrancaba recién cuando
       // React montaba, que ya es tarde — el SVG de arriba empieza a
       // animarse ANTES de eso, apenas se inserta en el DOM). Se apaga solo
-      // cuando se cumplen LAS DOS cosas a la vez, lo que tarde más:
-      // (1) pasó una vuelta completa de la animación del logo (ANIM_MS,
-      // tiene que coincidir con duration="4.25" de arriba); (2) la página
-      // terminó de cargar de verdad — `window.load` (no DOMContentLoaded:
-      // ese dispara con el HTML parseado nomás, antes de que las imágenes/
-      // el bundle de React terminen de bajar — `load` es la señal real del
-      // navegador de "esta página ya cargó por completo").
+      // cuando se cumplen TODAS estas cosas, lo que tarde más: (1) la
+      // coreografía de entrada terminó (ver Bloque 221 más abajo); (2) la
+      // página terminó de cargar de verdad — `window.load` (no
+      // DOMContentLoaded: ese dispara con el HTML parseado nomás, antes de
+      // que las imágenes/el bundle de React terminen de bajar — `load` es
+      // la señal real del navegador de "esta página ya cargó por
+      // completo").
       (function () {
-        var ANIM_MS = 4250;
-        var startedAt = Date.now();
         var pageLoaded = document.readyState === "complete";
 
         // Bloque 126 (pedido explícito — "quiero que el loader el logo se
@@ -284,15 +342,22 @@
         // achicarlo en pantallas angostas—, así que se ajusta acá con JS,
         // reactivo a resize (por si el usuario gira el teléfono o achica la
         // ventana del navegador).
-        var logoEl = document.querySelector("#app-preloader logo-loader");
-        function applyResponsiveLogoSize() {
-          if (!logoEl) return;
+        function currentIconSize() {
           // Bloque 131 (pedido explícito — "en pantallas grandes se ve un
           // poco muy grande, un poquito menos, no tanto"): 140 -> 118, una
           // reducción moderada a propósito (~16%), no drástica — el pedido
           // fue específico en que no quería un cambio grande. El tamaño de
-          // 92 en móvil (Bloque 126) no se tocó, no fue parte de este pedido.
-          logoEl.setAttribute("size", window.innerWidth <= 480 ? "92" : "118");
+          // 92 en móvil (Bloque 126) no se tocó, no fue parte de ese pedido.
+          // Bloque 221: factorizado a función (antes vivía solo adentro de
+          // applyResponsiveLogoSize) porque fitNameToViewport() de abajo
+          // también necesita saber cuánto mide el ícono para calcular
+          // cuánto espacio horizontal le queda libre al nombre.
+          return window.innerWidth <= 480 ? 92 : 118;
+        }
+        var logoEl = document.querySelector("#app-preloader logo-loader");
+        function applyResponsiveLogoSize() {
+          if (!logoEl) return;
+          logoEl.setAttribute("size", String(currentIconSize()));
         }
         applyResponsiveLogoSize();
         window.addEventListener("resize", applyResponsiveLogoSize);
@@ -304,12 +369,29 @@
         // (blanco) — sin importar cuál sea el nombre real.
         var INK = "#FFFFFF";
         var ACCENT = "#FE9800";
-        // Milisegundos de diferencia entre el animation-delay de una letra
-        // y la siguiente — "un animation-delay escalonado de ~0.12s entre
-        // cada una", pedido explícito.
-        var LETTER_STAGGER_S = 0.12;
-        var FONT_SIZE = 22;
-        var STROKE_WIDTH = 2.6;
+        // Bloque 221: antes 0.12s — ese valor asumía un loop de 4.25s con
+        // de sobra para que hasta el "hormigueo" de un nombre largo
+        // terminara. Ahora el nombre se dibuja UNA sola vez, sincronizado
+        // con el deslizamiento del ícono (REVEAL_MS más abajo) — con 0.12s
+        // por letra, un nombre de 8+ letras tardaría casi 1s solo en
+        // arrancar la última, mucho más que el resto de la coreografía.
+        // 0.035s mantiene el mismo "hormigueo" visual pero deja que
+        // incluso nombres largos terminen de dibujarse rápido.
+        var LETTER_STAGGER_S = 0.035;
+        // Cuánto tarda CADA letra en dibujarse + rellenarse (antes, en el
+        // loop, esto salía implícito de puntos fijos del 4.25s — acá es un
+        // valor propio porque revealName() necesita calcular la duración
+        // total del "hormigueo" para sincronizar con ella el ancho que se
+        // va revelando (ver REVEAL_MS/computeRevealSeconds más abajo).
+        var LETTER_ANIM_S = 0.45;
+        // Bloque 221 (pedido explícito — "el ícono grande al lado del
+        // nombre"): en el stack vertical de antes, 22px alcanzaba al lado
+        // de un ícono de ~140px. En el lockup horizontal nuevo (ícono a la
+        // izquierda, nombre al lado) el ícono es mucho más alto que una
+        // sola línea de texto — 26px balancea mejor esa diferencia de peso
+        // visual sin competir con el ícono.
+        var FONT_SIZE = 26;
+        var STROKE_WIDTH = 3;
 
         var loadedFont = null;
         // fontSettled: true una vez que opentype.js terminó de intentar
@@ -334,7 +416,10 @@
         // (nombres de 2+ palabras) no generan <path> — no tienen contorno,
         // solo avanzan el cursor — pero SÍ cuentan como una letra más para
         // el escalonado, para que el ritmo del "hormigueo" no se acelere
-        // después de un espacio.
+        // después de un espacio. Bloque 221: `forwards` en vez de
+        // `infinite` — cada letra dibuja una sola vez y se queda rellena
+        // (ver el <style> de arriba, las 2 keyframes ya no tienen cola de
+        // reinicio).
         function buildNameSVG(font, name) {
           var ascent = (font.ascender / font.unitsPerEm) * FONT_SIZE;
           var descent = (Math.abs(font.descender) / font.unitsPerEm) * FONT_SIZE;
@@ -352,7 +437,7 @@
                 '<path pathLength="1" d="' + d + '" fill="' + color + '" stroke="' + color + '" ' +
                 'stroke-width="' + STROKE_WIDTH + '" stroke-linecap="round" stroke-linejoin="round" ' +
                 'style="fill-opacity:0;stroke-dasharray:1 1;stroke-dashoffset:1;' +
-                "animation:preloader-letter-stroke 4.25s ease-in-out infinite,preloader-letter-fill-in 4.25s ease-in-out infinite;" +
+                "animation:preloader-letter-stroke " + LETTER_ANIM_S + "s ease-in-out forwards,preloader-letter-fill-in " + LETTER_ANIM_S + "s ease-in-out forwards;" +
                 'animation-delay:' + delay + 's;"></path>';
             }
             x += advance;
@@ -378,16 +463,28 @@
               // un preloader nunca debe romperse por esto.
             }
           }
-          el.textContent = name;
+          // Bloque 221: envuelto en un <span>, no texto suelto — fitName-
+          // ToViewport() de abajo necesita un elemento propio para poder
+          // escalarlo (transform) igual que haría con el <svg>, si el
+          // nombre no entra en una pantalla angosta.
+          el.innerHTML = "";
+          var span = document.createElement("span");
+          span.style.display = "inline-block";
+          span.textContent = name;
+          el.appendChild(span);
         }
 
-        // Recién pinta algo cuando las DOS cosas ya se resolvieron: el
-        // nombre real (fetch de abajo) Y si la fuente cargó o no (arriba).
-        // Así se pinta UNA sola vez, directo con el nombre correcto — nunca
-        // "ZeuDin" primero como placeholder.
+        // Recién intenta revelar el nombre cuando las DOS cosas ya se
+        // resolvieron: el nombre real (fetch de abajo) Y si la fuente
+        // cargó o no (arriba). Nunca pinta directo acá — Bloque 221:
+        // tryReveal() (más abajo) decide SI y CUÁNDO, según si la
+        // coreografía de entrada del ícono ya terminó o no. Esto evita que
+        // el nombre aparezca antes de tiempo (ej. si /settings responde
+        // mientras el ícono todavía está llegando) — nunca "ZeuDin" como
+        // placeholder, y tampoco el nombre real fuera de compás.
         function renderIfReady() {
           if (resolvedName === null || !fontSettled) return;
-          renderPreloaderName(resolvedName);
+          tryReveal();
         }
 
         // Bloque 125: opentype.js parsea la fuente real UNA sola vez. Si
@@ -493,6 +590,128 @@
         }
         setTimeout(showStatusMessages, STATUS_THRESHOLD_MS);
 
+        // Bloque 221 — máquina de estados de la coreografía completa:
+        //   1. INTRO: el <logo-loader once> de arriba dibuja solo, una vez
+        //      (duration="1.5"). INTRO_MS de abajo tiene que coincidir.
+        //   2. Al terminar la intro (introDone=true), tryReveal() decide:
+        //      si el nombre y la fuente YA se conocen, revela el nombre
+        //      (revealName()); si no, prende el brillo de espera SOLO
+        //      sobre el ícono (startShine()) hasta que lleguen.
+        //   3. revealName() anima el ancho del nombre de 0 a su ancho real
+        //      — el ícono se desliza a la izquierda solo, como efecto del
+        //      centrado del lockup (ver el comentario largo en el
+        //      <div id="app-preloader-lockup">). Al terminar, checkHide()
+        //      decide si ya se puede ocultar todo o si hay que prender el
+        //      brillo sobre el lockup completo mientras se termina de
+        //      cargar la página.
+        // Ningún paso de esto se repite: una vez que el ícono (y el
+        // nombre, si corresponde) quedaron dibujados, se quedan quietos
+        // para siempre — lo único que puede seguir animando es el brillo.
+        var INTRO_MS = 1500; // debe coincidir con duration="1.5" de arriba
+        var introDone = false;
+        var nameRevealed = false;
+        var shineActive = false;
+
+        function startShine() {
+          var shine = document.getElementById("app-preloader-shine");
+          if (!shine || shineActive) return;
+          shineActive = true;
+          shine.classList.add("is-sweeping");
+        }
+        function stopShine() {
+          var shine = document.getElementById("app-preloader-shine");
+          shineActive = false;
+          if (shine) shine.classList.remove("is-sweeping");
+        }
+
+        // Calcula cuánto espacio horizontal le queda libre al nombre (todo
+        // el ancho de la ventana, menos el ícono, menos el margen entre
+        // los dos, menos un respiro de los bordes) y, si el nombre real no
+        // entra ahí (nombres largos en pantallas angostas — R-03, nunca
+        // desbordar horizontal), lo escala hacia abajo con `transform`
+        // (no cambia el layout, así que el <div> contenedor puede seguir
+        // animando su `width` al valor ya escalado sin perder el recorte).
+        var NAME_MARGIN_PX = 14;
+        var NAME_SAFE_EDGE_PX = 20;
+        function fitNameToViewport(nameEl) {
+          var child = nameEl.firstElementChild;
+          if (!child) return 0;
+          var naturalWidth = child.scrollWidth;
+          var available = Math.max(40, window.innerWidth - currentIconSize() - NAME_MARGIN_PX - NAME_SAFE_EDGE_PX * 2);
+          if (naturalWidth > available) {
+            child.style.transformOrigin = "left center";
+            child.style.transform = "scale(" + (available / naturalWidth).toFixed(4) + ")";
+            return Math.ceil(available);
+          }
+          return Math.ceil(naturalWidth);
+        }
+
+        // La revelación (ancho + hormigueo de letras) dura lo mismo que
+        // tardan las letras en dibujarse — así el deslizamiento del ícono
+        // y el "destapado" del nombre siempre terminan juntos, sea cual
+        // sea el largo del nombre real (lo decide el admin, nunca es fijo).
+        function computeRevealSeconds(name) {
+          var letters = name.replace(/ /g, "").length;
+          if (letters === 0) return 0;
+          var seconds = (letters - 1) * LETTER_STAGGER_S + LETTER_ANIM_S;
+          return Math.min(1.2, Math.max(0.35, seconds));
+        }
+
+        function revealName() {
+          if (nameRevealed) return;
+          nameRevealed = true;
+          if (!resolvedName) {
+            // Nombre vacío (Bloque 212: /settings respondió pero sin
+            // siteName) — no hay nada que revelar, el ícono se queda solo.
+            checkHide();
+            return;
+          }
+          renderPreloaderName(resolvedName);
+          var nameEl = document.getElementById("app-preloader-name");
+          if (!nameEl) { checkHide(); return; }
+          var revealSeconds = computeRevealSeconds(resolvedName);
+          var targetWidth = fitNameToViewport(nameEl);
+          nameEl.style.transitionDuration = revealSeconds + "s";
+          // Fuerza un reflow entre fijar el estado inicial y el final —
+          // si el navegador colapsa ambos cambios en el mismo frame, el
+          // ancho salta de una sola vez en vez de animar.
+          void nameEl.offsetWidth;
+          nameEl.style.width = targetWidth + "px";
+          nameEl.style.marginLeft = NAME_MARGIN_PX + "px";
+          nameEl.style.opacity = "1";
+          setTimeout(checkHide, Math.round(revealSeconds * 1000));
+        }
+
+        function tryReveal() {
+          if (!introDone || nameRevealed) return;
+          if (resolvedName === null || !fontSettled) {
+            startShine(); // ícono solo, a la espera del nombre/la fuente
+            return;
+          }
+          stopShine();
+          revealName();
+        }
+        setTimeout(function () {
+          introDone = true;
+          tryReveal();
+        }, INTRO_MS);
+
+        function checkHide() {
+          if (!introDone) return;
+          if (resolvedName === null || !fontSettled) return; // tryReveal() se encarga cuando lleguen
+          if (!nameRevealed) { revealName(); return; }
+          if (pageLoaded && settingsLoaded) {
+            stopShine();
+            hidePreloader();
+          } else {
+            // El lockup (ícono + nombre, lo que haya quedado revelado) ya
+            // está en su composición final — en vez de reiniciar toda la
+            // entrada, se sostiene así y el brillo indica que se sigue
+            // trabajando, tal cual se pidió.
+            startShine();
+          }
+        }
+
         function fetchSettings() {
           fetch(API_BASE + "/settings")
             .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error("bad status")); })
@@ -501,7 +720,7 @@
               resolvedName = name || "";
               settingsLoaded = true;
               renderIfReady();
-              maybeHide();
+              checkHide();
             })
             .catch(function () {
               setTimeout(fetchSettings, SETTINGS_RETRY_MS);
@@ -523,19 +742,10 @@
           }, 400);
         }
 
-        function maybeHide() {
-          if (!pageLoaded || !settingsLoaded) return;
-          var elapsed = Date.now() - startedAt;
-          var remaining = Math.max(0, ANIM_MS - elapsed);
-          setTimeout(hidePreloader, remaining);
-        }
-
-        if (pageLoaded) {
-          maybeHide();
-        } else {
+        if (!pageLoaded) {
           window.addEventListener("load", function () {
             pageLoaded = true;
-            maybeHide();
+            checkHide();
           });
         }
       })();
