@@ -43,6 +43,15 @@ export function usePlatformSettings() {
     // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del
     // vendedor bloqueado/suspendido — null si el admin nunca lo cargó.
     supportWhatsapp: data?.supportWhatsapp || null,
+    // Bloque 223: mismos 3 links que ya usaba SOLO la fila de íconos del
+    // pie de los correos (ver emailShell() en backend/_shared.js) — el
+    // backend ya los devolvía en GET /settings, pero ningún componente del
+    // sitio los pedía todavía. null si el admin nunca los cargó en Marca →
+    // Redes sociales (el Footer los oculta uno por uno si vienen vacíos,
+    // nunca un ícono que apunte a ningún lado).
+    whatsappUrl: data?.whatsappUrl || null,
+    instagramUrl: data?.instagramUrl || null,
+    facebookUrl: data?.facebookUrl || null,
     // Bloque 118: política de comentarios/reseñas configurable desde el
     // admin (AdminReviews.jsx) — Product.jsx/Store.jsx la usan para mostrar
     // el texto real del límite en vez de un "1 por día" fijo que se
