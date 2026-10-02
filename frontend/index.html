@@ -620,7 +620,16 @@
         // tiempo para que el ojo siga cada paso (llega, rellena, desliza,
         // destapa el nombre) en vez de sentirlos todos encimados.
         var ICON_DURATION_MS = 3400; // debe coincidir con duration="3.4" de arriba
-        var SLIDE_TRIGGER_MS = Math.round(ICON_DURATION_MS * 0.22); // ~0.75s: justo cuando el ícono "llega al frente" y empieza a rellenar (ver drawAwning en logo-loader.js, arranca en 16.5%)
+        // Bloque 226 (pedido explícito — "la animación del logo en cuanto
+        // aparece debe moverse hacia la izquierda con la animación de las
+        // letras en el mismo tiempo"): 0.22 -> 0.12 — antes se esperaba a
+        // que el ícono ya estuviera rellenando los trazos (16.5%+) para
+        // recién arrancar el deslizamiento; ahora arranca apenas el ícono
+        // TERMINA de aparecer (enterOnce llega a opacity:1 en el 9%, ver
+        // public/logo-loader.js) — el deslizamiento y el dibujado de las
+        // letras corren junto con el relleno de los trazos desde el
+        // principio, no después.
+        var SLIDE_TRIGGER_MS = Math.round(ICON_DURATION_MS * 0.12); // ~0.41s
         var cycleToken = 0;
         var nameRevealedThisCycle = false;
 
@@ -631,7 +640,10 @@
         // desbordar horizontal), lo escala hacia abajo con `transform`
         // (no cambia el layout, así que el <div> contenedor puede seguir
         // animando su `width` al valor ya escalado sin perder el recorte).
-        var NAME_MARGIN_PX = 20;
+        // Bloque 226 (pedido explícito — "el logo y el nombre... deben
+        // estar más pegados, no debe existir tanta separación en el
+        // centro"): 20 -> 10.
+        var NAME_MARGIN_PX = 10;
         var NAME_SAFE_EDGE_PX = 20;
         function fitNameToViewport(nameEl) {
           var child = nameEl.firstElementChild;
