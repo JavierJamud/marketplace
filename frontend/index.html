@@ -258,7 +258,7 @@
            cuando se revela. Ya NO se "quedan en el DOM para siempre" si
            falta cargar algo: ver startCycle() en el script de abajo. -->
       <div id="app-preloader-lockup" style="position:relative;display:flex;align-items:center;justify-content:center;max-width:calc(100vw - 40px);">
-        <logo-loader once id="app-preloader-logo" ink="#FFFFFF" accent="#FE9800" pale-ink="rgba(255,255,255,.28)" pale-accent="rgba(254,152,0,.3)" duration="2.4" size="64"></logo-loader>
+        <logo-loader once id="app-preloader-logo" ink="#FFFFFF" accent="#FE9800" pale-ink="rgba(255,255,255,.28)" pale-accent="rgba(254,152,0,.3)" duration="3.4" size="64"></logo-loader>
         <!-- Bloque 125/221 (ver el comentario largo de arriba): arranca
              vacío (Bloque 212 — nunca "ZeuDin") y en `width:0` (Bloque 221
              — nada que revelar todavía). `buildNameSVG()` en el script de
@@ -364,14 +364,19 @@
         // Bloque 222 (pedido explícito — "más lenta... se vea más suave,
         // no tan rápido"): 0.035 -> 0.045, subido junto con LETTER_ANIM_S
         // de abajo — mismo "hormigueo" visual, un poco más pausado.
-        var LETTER_STAGGER_S = 0.045;
+        // Bloque 225 (pedido explícito — "se ve un poco apresurada y
+        // rápida... así se puede distinguir bien toda la animación"):
+        // 0.045 -> 0.06, junto con el resto de la coreografía (ver
+        // ICON_DURATION_MS más abajo) alargándose en la misma proporción.
+        var LETTER_STAGGER_S = 0.06;
         // Cuánto tarda CADA letra en dibujarse + rellenarse (antes, en el
         // loop, esto salía implícito de puntos fijos del 4.25s — acá es un
         // valor propio porque revealName() necesita calcular la duración
         // total del "hormigueo" para sincronizar con ella el ancho que se
         // va revelando (ver REVEAL_MS/computeRevealSeconds más abajo).
-        // Bloque 222: 0.45 -> 0.6, mismo pedido de "más lenta y suave".
-        var LETTER_ANIM_S = 0.6;
+        // Bloque 222: 0.45 -> 0.6. Bloque 225: 0.6 -> 0.85, mismo pedido
+        // de que se note cada paso en vez de sentirse apurado.
+        var LETTER_ANIM_S = 0.85;
         // Bloque 221 (pedido explícito — "el ícono grande al lado del
         // nombre"): en el stack vertical de antes, 22px alcanzaba al lado
         // de un ícono de ~140px.
@@ -608,8 +613,14 @@
         // `cycleToken` identifica de qué vuelta es cada timer pendiente —
         // si alguna vez se solaparan 2 ciclos, los timers del viejo se
         // reconocen como obsoletos (token !== cycleToken) y no hacen nada.
-        var ICON_DURATION_MS = 2400; // debe coincidir con duration="2.4" de arriba
-        var SLIDE_TRIGGER_MS = Math.round(ICON_DURATION_MS * 0.22); // ~0.53s: justo cuando el ícono "llega al frente" y empieza a rellenar (ver drawAwning en logo-loader.js, arranca en 16.5%)
+        // Bloque 225 (pedido explícito — "se ve un poco apresurada y
+        // rápida... quiero que sea un poco más suave, así se puede
+        // distinguir bien toda la animación"): 2400 -> 3400 (+42%, misma
+        // proporción que LETTER_ANIM_S/LETTER_STAGGER_S de arriba) — más
+        // tiempo para que el ojo siga cada paso (llega, rellena, desliza,
+        // destapa el nombre) en vez de sentirlos todos encimados.
+        var ICON_DURATION_MS = 3400; // debe coincidir con duration="3.4" de arriba
+        var SLIDE_TRIGGER_MS = Math.round(ICON_DURATION_MS * 0.22); // ~0.75s: justo cuando el ícono "llega al frente" y empieza a rellenar (ver drawAwning en logo-loader.js, arranca en 16.5%)
         var cycleToken = 0;
         var nameRevealedThisCycle = false;
 
@@ -639,11 +650,13 @@
         // tardan las letras en dibujarse — así el deslizamiento del ícono
         // y el "destapado" del nombre siempre terminan juntos, sea cual
         // sea el largo del nombre real (lo decide el admin, nunca es fijo).
+        // Bloque 225: piso y techo subieron en la misma proporción que
+        // LETTER_ANIM_S/LETTER_STAGGER_S (0.6-1.6s -> 0.85-2.3s).
         function computeRevealSeconds(name) {
           var letters = name.replace(/ /g, "").length;
           if (letters === 0) return 0;
           var seconds = (letters - 1) * LETTER_STAGGER_S + LETTER_ANIM_S;
-          return Math.min(1.6, Math.max(0.6, seconds));
+          return Math.min(2.3, Math.max(0.85, seconds));
         }
 
         // Bloque 224: vuelve el nombre a su estado de arranque SIN animar
