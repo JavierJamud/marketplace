@@ -120,7 +120,24 @@ export default function Stores() {
       </div>
 
       {!isLoading && (!vendors || vendors.length === 0) && (
-        <EmptyState icon={StoreIcon} title={isRestaurant ? "No hay restaurantes en esta provincia todavía" : "No hay tiendas en esta provincia todavía"} />
+        <EmptyState
+          icon={StoreIcon}
+          title={
+            // Bug real reportado en vivo, con captura — "pone 'en esta
+            // provincia' si no hay seleccionada ninguna provincia": el
+            // mensaje era fijo, sin mirar hasProvinceFilter. "Cuba" (el
+            // valor de provinceName sin filtro, ver el subtítulo de
+            // arriba) nunca es una provincia real, así que el texto no
+            // puede asumir que siempre hay una seleccionada.
+            hasProvinceFilter
+              ? isRestaurant
+                ? "No hay restaurantes en esta provincia todavía"
+                : "No hay tiendas en esta provincia todavía"
+              : isRestaurant
+                ? "No hay restaurantes todavía"
+                : "No hay tiendas todavía"
+          }
+        />
       )}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
