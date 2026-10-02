@@ -354,6 +354,10 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
     onSuccess: (data) => {
       setSavedProduct(data.product);
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
+      // Bloque 235: esta puede ser la foto que sacó al producto de la
+      // pausa forzada (ver addProductImages en el backend) — justo el
+      // último requisito del checklist del trial gratuito.
+      queryClient.invalidateQueries({ queryKey: ["vendor-trial"] });
       toast.success("Fotos subidas.");
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron subir las fotos."),
@@ -384,6 +388,8 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
     onSuccess: (data) => {
       setSavedProduct(data.product);
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
+      // Bloque 235: mismo motivo que uploadImages de arriba.
+      queryClient.invalidateQueries({ queryKey: ["vendor-trial"] });
       setLinkInput("");
       if (data.warning) toast.warning(data.warning);
       else toast.success("Imagen agregada.");

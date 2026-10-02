@@ -463,6 +463,11 @@ export default function VendorSettings() {
     queryClient.invalidateQueries({ queryKey: ["provinces"] });
     queryClient.invalidateQueries({ queryKey: ["provinces-for-country"] });
     queryClient.invalidateQueries({ queryKey: ["municipalities"] });
+    // Bloque 235: cualquier guardado acá puede haber completado el
+    // checklist del trial gratuito (descripción, logo, dirección legal,
+    // etc.) — así el banner/popup de bienvenida se actualizan al toque,
+    // sin esperar el staleTime.
+    queryClient.invalidateQueries({ queryKey: ["vendor-trial"] });
   };
 
   const syncProvince = useMutation({

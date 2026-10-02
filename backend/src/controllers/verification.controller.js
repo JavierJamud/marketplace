@@ -13,6 +13,7 @@ import { getBrandSettings, getSubscriptionPricing } from "./settings.controller.
 // segundo consumidor real de este mismo "avisar al admin ya" (ver lib/adminNotify.js).
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 
 // Bloque 150 (pedido explícito): cuántos meses puede elegir pagar de
 // adelanto el vendedor — el monto real (precio mensual × meses) se calcula
@@ -300,6 +301,14 @@ export async function submitVerification(req, res) {
     action: "verification_submitted",
     description: `Envió documentos de verificación`,
   });
+
+  // Bloque 235 (trial gratuito de 30 días): si este envío de KYC era lo
+  // último que faltaba del checklist del trial, la tienda pasa a VERIFIED
+  // acá mismo — SIN esperar la revisión del admin de arriba (decisión
+  // confirmada explícitamente: el trial se activa solo). El aviso de
+  // "pendiente de revisión" que ya se mandó queda obsoleto en ese caso
+  // puntual, pero no rompe nada.
+  await maybeAutoActivateTrial(vendor.id).catch(() => {});
 
   res.status(201).json({
     verification: { verificationStatus: "PENDING_DOCS", selfieReceived: true, idDocumentReceived: true },

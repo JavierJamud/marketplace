@@ -31,6 +31,13 @@ router.patch("/me", authenticate, requireRole("VENDOR"), vendorsController.updat
 // Bloque 133: logo como archivo — alternativa al link externo que ya
 // aceptaba PATCH /me (logoUrl como string plano).
 router.post("/me/logo", authenticate, requireRole("VENDOR"), vendorBrandingUpload.single("logo"), vendorsController.uploadVendorLogo);
+// Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
+// Premium): mismo criterio de auth que /me/logo arriba — solo el dueño,
+// nunca un usuario de sistema.
+router.get("/me/trial", authenticate, requireRole("VENDOR"), vendorsController.getMyTrial);
+router.post("/me/trial/accept", authenticate, requireRole("VENDOR"), vendorsController.acceptTrialOffer);
+router.post("/me/trial/decline", authenticate, requireRole("VENDOR"), vendorsController.declineTrialOffer);
+router.post("/me/trial/welcome-seen", authenticate, requireRole("VENDOR"), vendorsController.markTrialWelcomeSeen);
 // Bloque 153 (pedido explícito — "los datos de la tienda no se pueden
 // modificar después de estar verificadas sin aprobación del admin... en
 // caso dado subir fotos del nuevo responsable y foto del ID"): fotos

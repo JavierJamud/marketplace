@@ -10,6 +10,7 @@ import { startCashCloseReminderJob } from "./jobs/cashCloseReminder.job.js";
 import { startAccountDeletionJob } from "./jobs/accountDeletion.job.js";
 import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
+import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 
 app.listen(env.port, () => {
   console.log(`API escuchando en http://localhost:${env.port} y http://192.168.1.79:${env.port}`);
@@ -58,3 +59,8 @@ startReviewAnomalyJob();
 // ya viene filtrando. Corre cada 3h, no una vez al día, porque un pico de
 // tráfico pierde valor de detección si se espera hasta el día siguiente.
 startClickAnomalyJob();
+// Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
+// Premium): recordatorios de vencimiento + vencimiento real. 10:30am, el
+// siguiente cron diario fijo libre después de reviewAnomaly (10:00) —
+// clickAnomaly no cuenta, corre cada 3h, no una vez al día.
+startTrialExpiryJob();

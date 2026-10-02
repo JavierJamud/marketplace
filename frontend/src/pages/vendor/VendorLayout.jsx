@@ -8,6 +8,9 @@ import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { VendorNotificationBell } from "../../components/vendor/VendorNotificationBell.jsx";
 import { OffersAnnouncementPopup } from "../../components/vendor/OffersAnnouncementPopup.jsx";
+import { TrialOfferPopup } from "../../components/vendor/TrialOfferPopup.jsx";
+import { TrialChecklistBanner } from "../../components/vendor/TrialChecklistBanner.jsx";
+import { TrialWelcomePopup } from "../../components/vendor/TrialWelcomePopup.jsx";
 import { NewOrderPopup } from "../../components/vendor/NewOrderPopup.jsx";
 import { NewRegularOrderPopup } from "../../components/vendor/NewRegularOrderPopup.jsx";
 import { StaleOrderAlert } from "../../components/vendor/StaleOrderAlert.jsx";
@@ -565,6 +568,11 @@ export default function VendorLayout() {
           vendor={vendor}
           enabled={!isStaff || (!!mySections?.includes("pedidos") && !!staffProfile?.receivesOrderNotifications)}
         />
+        {/* Bloque 235 (pedido explícito — trial gratuito de 30 días del
+            Plan Premium): solo el dueño/admin decide sobre esto, nunca un
+            usuario de sistema (mismo criterio que OffersAnnouncementPopup
+            de abajo). */}
+        {!isStaff && <TrialChecklistBanner vendor={vendor} />}
         {/* Bloque 185: `sectionPermissions` (null para dueño/admin — sin
             restricción de nivel) viaja a cada página hija para que pueda
             ocultar/deshabilitar sus propios botones de escritura cuando el
@@ -583,6 +591,12 @@ export default function VendorLayout() {
       {/* Bloque 183: nudge de marketing (crear una oferta) — decisión del
           dueño, nunca se le muestra a un usuario de sistema. */}
       {!isStaff && <OffersAnnouncementPopup vendor={vendor} />}
+      {/* Bloque 235: mismo z-[80] que OffersAnnouncementPopup de arriba —
+          nunca compiten de verdad por pantalla, uno exige
+          trialStartedAt==null y el otro trialEndsAt!=null, mutuamente
+          excluyentes en la práctica. */}
+      {!isStaff && <TrialOfferPopup vendor={vendor} />}
+      {!isStaff && <TrialWelcomePopup vendor={vendor} />}
       {/* Bloque 164: montado a nivel de layout (como el de arriba) — así
           suena y aparece sin importar en qué sección del panel esté el
           vendedor, no solo dentro de "Pedidos". Bloque 183: un usuario de

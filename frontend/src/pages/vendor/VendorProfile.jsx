@@ -438,6 +438,11 @@ function StoreBrandingCard() {
   function invalidateVendor() {
     queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
     queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
+    // Bloque 235: el logo es un requisito del checklist del trial gratuito
+    // (ver uploadVendorLogo en el backend, que ya dispara
+    // maybeAutoActivateTrial ahí mismo) — podría ser justo lo último que
+    // faltaba.
+    queryClient.invalidateQueries({ queryKey: ["vendor-trial"] });
   }
 
   const uploadLogoFile = useMutation({

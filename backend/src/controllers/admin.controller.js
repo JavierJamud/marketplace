@@ -995,10 +995,16 @@ export async function confirmSubscriptionPayment(req, res) {
   // (1..24), ya no un mes fijo siempre — mismo criterio para CARD y CUP.
   const months = verification.paymentMonths ?? 1;
   const nextPaymentDueDate = new Date(Date.now() + months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  const extraData = { planType: "BUSINESS", nextPaymentDueDate };
+  // Bloque 235: si esta tienda venía de un trial gratuito activo, ya está
+  // pagando de verdad — limpiar trialEndsAt evita que el cron de
+  // vencimiento del trial (trialExpiry.job.js) la baje a Regular más
+  // adelante por error, aunque ya sea una suscripción real.
+  if (verification.vendor.trialEndsAt) extraData.trialEndsAt = null;
   const updated = await transitionVendorVerification(verification.vendorId, "VERIFIED", {
     actorId: req.user.id,
     source: "ADMIN_ACTION",
-    extraData: { planType: "BUSINESS", nextPaymentDueDate },
+    extraData,
     notify: { type: "VERIFICATION_VERIFIED" },
   });
   await recalcVendorProductQuota(verification.vendorId);
@@ -1270,11 +1276,16 @@ export async function grantBusinessPlan(req, res) {
 
   const now = new Date();
   const periodEnd = new Date(now.getTime() + PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  const grantExtraData = { planType: "BUSINESS", nextPaymentDueDate: periodEnd };
+  // Bloque 235: mismo guardrail que confirmSubscriptionPayment — si venía
+  // de un trial gratuito, esto ya lo reemplaza por Premium real, no debe
+  // quedar un trialEndsAt viejo que el cron de vencimiento procese después.
+  if (vendor.trialEndsAt) grantExtraData.trialEndsAt = null;
   const updated = await transitionVendorVerification(id, "VERIFIED", {
     reason,
     actorId: req.user.id,
     source: "ADMIN_ACTION",
-    extraData: { planType: "BUSINESS", nextPaymentDueDate: periodEnd },
+    extraData: grantExtraData,
     notify: { type: "VERIFICATION_BUSINESS_GRANTED" },
   });
   await recalcVendorProductQuota(id);

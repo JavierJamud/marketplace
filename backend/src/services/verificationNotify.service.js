@@ -73,6 +73,22 @@ const EVENTS = {
     body: (notes) =>
       `El equipo activó el Plan Premium y el badge de verificación de tu tienda. Motivo: ${notes?.trim() || "sin especificar"}.`,
   },
+  // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
+  // Premium): a diferencia de VERIFICATION_BUSINESS_GRANTED de arriba, acá
+  // nunca hay un admin detrás — lo disparó el propio vendedor al completar
+  // el checklist del trial (ver trialEligibility.service.js). TRIAL_EXPIRED
+  // aclara a propósito que el sello de verificado NO se pierde, solo las
+  // funciones Premium — para que no se sienta como una suspensión.
+  TRIAL_ACTIVATED: {
+    title: "¡Tu tienda pasó a Plan Premium — trial gratuito de 30 días!",
+    body: () =>
+      "Completaste todo lo necesario y tu tienda ya tiene el badge de verificación y el Plan Premium activo, sin costo, durante 30 días. Cuando falten pocos días te avisamos para que decidas si querés seguir.",
+  },
+  TRIAL_EXPIRED: {
+    title: "Tu trial Premium de 30 días terminó",
+    body: () =>
+      "Tu tienda vuelve al Plan Regular — perdiste las funciones Premium (asistente con IA, destacado en la home, etc.), pero tu badge de verificación sigue activo, eso no se pierde. Podés activar el Plan Premium cuando quieras desde tu panel.",
+  },
   // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
   // nuevo reactiva sin rehacer documentos); SUSPENDED implica que la
   // suscripción de Stripe ya no existe (necesita una nueva desde cero).

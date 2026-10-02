@@ -17,6 +17,12 @@ const META = {
   VERIFICATION_PAYMENT_FAILED: { label: "Pago fallido", color: "#ba1a1a" },
   VERIFICATION_SUSPENDED: { label: "Suscripción suspendida", color: "#ba1a1a" },
   VERIFICATION_PAYMENT_REMINDER: { label: "Recordatorio de pago", color: "#8A5100" },
+  // Bloque 235 (trial gratuito de 30 días del Plan Premium): TRIAL_EXPIRED
+  // a propósito NO es rojo como el resto de los "se acabó algo" de arriba
+  // — el trial termina como se esperaba, no es un fallo ni una suspensión.
+  TRIAL_ACTIVATED: { label: "Trial Premium activado", color: "#0CAE53" },
+  TRIAL_EXPIRING_SOON: { label: "Tu trial Premium vence pronto", color: "#8A5100" },
+  TRIAL_EXPIRED: { label: "Tu trial Premium terminó", color: "#337475" },
 };
 
 export async function verificationUpdateEmail({ type, vendorName, title, message, ctaHref }) {

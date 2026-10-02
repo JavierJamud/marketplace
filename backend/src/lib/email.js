@@ -176,6 +176,25 @@ export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue)
   return result;
 }
 
+// Bloque 235 (trial gratuito de 30 días del Plan Premium): mismo criterio
+// EXACTO que sendVerificationPaymentReminderEmail de arriba — aviso
+// proactivo, no un cambio de estado, así que email-only, sin pasar por
+// notifyVerificationEvent ni dejar rastro en la campanita. Re-enviado desde
+// trialExpiry.job.js a los 7/3/1 días antes del vencimiento.
+export async function sendTrialExpiringSoonEmail(vendor, daysLeft) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await verificationUpdateEmail({
+    type: "TRIAL_EXPIRING_SOON",
+    vendorName: vendor.companyName,
+    title: "Tu trial Premium vence pronto",
+    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} de Plan Premium gratis. Si te gustó, activá una suscripción desde tu panel antes de que venza para no perder las funciones Premium — tu badge de verificación nunca se pierde, pase lo que pase.`,
+    ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
+  });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "TRIAL_EXPIRING_SOON", to: vendor.user.email, subject, result });
+  return result;
+}
+
 // Bloque 29: factura/garantía en PDF — el resultado SÍ importa (el
 // controller responde 502 al vendedor si Resend falla, mismo criterio que
 // sendManualOrderEmail). Tipo DOCUMENT propio: no cuenta contra el límite

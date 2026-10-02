@@ -372,7 +372,14 @@ export default function VendorVerification() {
     enabled: !!legalProvinceId,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["my-verification"] });
+  // Bloque 235: enviar los documentos KYC puede ser justo el último
+  // requisito del checklist del trial gratuito (maybeAutoActivateTrial ya
+  // corre server-side en submitVerification) — invalida acá también para
+  // que el banner/popup de bienvenida lo reflejen sin esperar el staleTime.
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["my-verification"] });
+    queryClient.invalidateQueries({ queryKey: ["vendor-trial"] });
+  };
 
   // Bloque 25: Stripe redirige de vuelta acá con ?stripe=success|cancel.
   // Bloque 150 (pedido explícito — "automáticamente, después del pago, el

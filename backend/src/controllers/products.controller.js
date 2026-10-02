@@ -13,6 +13,7 @@ import { withComputedVendorFields } from "../services/vendorVerification.service
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { hashToken } from "../utils/hashToken.js";
 import { getPlanLimit, swapProductQuota } from "../lib/planConfig.js";
+import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // A diferencia de uploads/kyc (privado), las fotos de producto son públicas
@@ -842,6 +843,12 @@ export async function addProductImages(req, res) {
       ...(wasEmpty ? { isActive: true, activatedAt: req.uploadProduct.activatedAt ?? new Date() } : {}),
     },
   });
+  // Bloque 235: si esta fue la foto que sacó al producto de la pausa
+  // forzada (wasEmpty), puede ser justo el último requisito del checklist
+  // del trial — createProduct/updateProduct NUNCA activan un producto por
+  // sí solos (siempre arrancan en pausa hasta tener 1 foto), así que acá,
+  // no ahí, es el punto real donde "publicó su primer producto" pasa.
+  if (wasEmpty) await maybeAutoActivateTrial(req.uploadProduct.vendorId).catch(() => {});
   res.status(201).json({ product });
 }
 
@@ -916,6 +923,9 @@ export async function addProductImageLink(req, res) {
       ...(wasEmpty ? { isActive: true, activatedAt: existing.activatedAt ?? new Date() } : {}),
     },
   });
+  // Bloque 235: mismo criterio que addProductImages — este es el punto
+  // real donde el producto sale de la pausa, no createProduct/updateProduct.
+  if (wasEmpty) await maybeAutoActivateTrial(vendor.id).catch(() => {});
   res.status(201).json({
     product,
     warning: reachable ? null : "No pudimos confirmar que el link cargue una imagen. Se agregó igual, pero revisa que se vea bien en la tienda.",

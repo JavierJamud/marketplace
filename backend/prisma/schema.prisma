@@ -182,6 +182,10 @@ enum EmailType {
   // de VERIFICATION_UPDATE que sí cubre esos) — 7 días antes de que venza el
   // ciclo de pago CUP recurrente.
   VERIFICATION_PAYMENT_REMINDER
+  // Bloque 235: mismo criterio que VERIFICATION_PAYMENT_REMINDER de arriba
+  // — aviso proactivo del trial gratuito de 30 días (7/3/1 días antes de
+  // vencer), nunca un cambio de estado real.
+  TRIAL_EXPIRING_SOON
   // Bloque 71: código de verificación para cambiar el correo de la cuenta —
   // mismo criterio que TWO_FACTOR_CODE/REGISTRATION_CODE (tipo propio).
   EMAIL_CHANGE_CODE
@@ -1113,6 +1117,26 @@ model Vendor {
   cashCloseDayOfWeek      Int?
   cashCloseDayOfMonth     Int?
   cashCloseReminderSentAt DateTime?
+  // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
+  // Premium, gancho de lanzamiento): las 4 fechas viven en el vendor, nunca
+  // en localStorage, para que la oferta/el checklist/la bienvenida se vean
+  // igual entrando desde cualquier dispositivo. trialOfferDismissedAt
+  // controla el "se vuelve a mostrar, pero como mucho 1 vez por día" (ver
+  // getMyTrial en vendors.controller.js). trialStartedAt se pone al
+  // aceptar la oferta — no nulo para siempre, nunca se vuelve a ofrecer el
+  // trial dos veces a la misma tienda. trialEndsAt queda en null hasta que
+  // el checklist se completa de verdad (maybeAutoActivateTrial,
+  // trialEligibility.service.js) — ahí se pone a +30 días, y el cron de
+  // vencimiento (trialExpiry.job.js) lo vuelve a poner en null al
+  // expirar, sin tocar trialStartedAt (así nunca se vuelve a ofrecer).
+  // trialWelcomeSeenAt es el popup de bienvenida animado, mismo criterio
+  // server-side que los otros 3 — OffersAnnouncementPopup.jsx guarda su
+  // "ya lo vi" en localStorage y por eso reaparece en otro dispositivo, acá
+  // se evita ese mismo bug a propósito.
+  trialOfferDismissedAt DateTime?
+  trialStartedAt        DateTime?
+  trialEndsAt           DateTime?
+  trialWelcomeSeenAt    DateTime?
   createdAt   DateTime @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -2423,6 +2447,16 @@ enum VendorNotificationType {
   // Suscripciones, sin pasar por el ciclo normal de documentos/pago — mismo
   // canal que el resto.
   VERIFICATION_BUSINESS_GRANTED
+  // Bloque 235 (pedido explícito — trial gratuito de 30 días): mismo canal
+  // (email + campanita) que el resto del ciclo de verificación/cobro, pero
+  // disparado por el propio vendedor al completar el checklist del trial
+  // (transitionVendorVerification con source:"VENDOR_ACTION"), nunca por un
+  // admin. TRIAL_EXPIRING_SOON es la única de las 3 que NO pasa por una
+  // transición real — es un aviso proactivo del cron, mismo criterio que ya
+  // usa el recordatorio de pago (verificationPayment.job.js).
+  TRIAL_ACTIVATED
+  TRIAL_EXPIRING_SOON
+  TRIAL_EXPIRED
   // Bloque 62: suspensión automática por inactividad (90 días) — así queda
   // visible en la campanita del panel si el vendedor vuelve a intentar
   // entrar, no solo en el correo que ya recibió.

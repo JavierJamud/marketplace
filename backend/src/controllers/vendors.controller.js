@@ -20,6 +20,7 @@ import { assertVendorLocationComplete } from "../services/registrationLocation.s
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
+import { getTrialChecklist, maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { completenessScore } from "../lib/productRanking.js";
 
@@ -742,6 +743,14 @@ export async function updateMyVendor(req, res) {
     description: `Actualizó la configuración de "${vendor.companyName}"`,
   });
 
+  // Bloque 235: este guardado pudo haber completado el checklist del trial
+  // (descripción, dirección legal, etc.) — se espera (mismo criterio que
+  // archiveVerificationSubmission en verification.controller.js: await +
+  // catch mudo) para que la activación ya esté escrita en la base cuando
+  // el frontend vuelva a pedir el estado del trial, pero sin que una falla
+  // acá rompa el guardado normal.
+  await maybeAutoActivateTrial(vendor.id).catch(() => {});
+
   res.json({ vendor: withComputedVendorFields(updated) });
 }
 
@@ -872,7 +881,68 @@ export async function uploadVendorLogo(req, res) {
     where: { id: vendor.id },
     data: { logoUrl: `/uploads/vendor-branding/${req.file.filename}` },
   });
+  // Bloque 235: el logo es un requisito del checklist del trial (ver
+  // trialEligibility.service.js) — podría ser justo lo último que faltaba.
+  await maybeAutoActivateTrial(vendor.id).catch(() => {});
   res.json({ vendor: withComputedVendorFields(updated) });
+}
+
+// Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
+// Premium): 4 endpoints nuevos para el ciclo de vida del trial, todos
+// "/me/trial*" — mismo criterio de auth que uploadVendorLogo (solo el
+// dueño/admin de la tienda, nunca un usuario de sistema, ver vendors.routes.js).
+export async function getMyTrial(req, res) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  // eligibleForOffer: nunca aceptó el trial todavía, Y (nunca lo rechazó, O
+  // lo rechazó antes de hoy) — "se vuelve a mostrar, pero como mucho 1 vez
+  // por día", pedido explícito.
+  const eligibleForOffer =
+    !vendor.trialStartedAt && (!vendor.trialOfferDismissedAt || vendor.trialOfferDismissedAt < startOfToday);
+
+  const checklist = await getTrialChecklist(vendor.id);
+  res.json({
+    trial: {
+      eligibleForOffer,
+      trialStartedAt: vendor.trialStartedAt,
+      trialEndsAt: vendor.trialEndsAt,
+      trialWelcomeSeenAt: vendor.trialWelcomeSeenAt,
+      checklist,
+      checklistComplete: checklist.length > 0 && checklist.every((item) => item.done),
+    },
+  });
+}
+
+export async function declineTrialOffer(req, res) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  await prisma.vendor.update({ where: { id: vendor.id }, data: { trialOfferDismissedAt: new Date() } });
+  res.json({ ok: true });
+}
+
+export async function acceptTrialOffer(req, res) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  // Idempotente a propósito — un doble clic/doble request nunca pisa un
+  // trialStartedAt que ya existía.
+  if (!vendor.trialStartedAt) {
+    await prisma.vendor.update({ where: { id: vendor.id }, data: { trialStartedAt: new Date() } });
+    // Por si ya tenía TODO completo de antes (caso raro, pero posible: una
+    // tienda vieja que ya cumplía el checklist antes de que este feature
+    // existiera) — no hace falta esperar a la próxima escritura de perfil.
+    await maybeAutoActivateTrial(vendor.id).catch(() => {});
+  }
+  res.json({ ok: true });
+}
+
+export async function markTrialWelcomeSeen(req, res) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
+  if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  await prisma.vendor.update({ where: { id: vendor.id }, data: { trialWelcomeSeenAt: new Date() } });
+  res.json({ ok: true });
 }
 
 // Bloque 171: reemplaza el upsert por-día de antes (que asumía un solo
