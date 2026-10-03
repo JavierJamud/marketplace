@@ -63,6 +63,12 @@ export function Footer() {
               <Link to="/catalogo" className="hover:text-white">Catálogo</Link>
               <Link to="/tiendas" className="hover:text-white">Tiendas</Link>
               <Link to="/tiendas?isRestaurant=true" className="hover:text-white">Menú QR restaurantes</Link>
+              {/* Bloque 236 (pedido explícito — "debería existir un link
+                  para ventas rápidas"): bug real encontrado en la
+                  conversación anterior — la página /ventas-rapidas
+                  funcionaba perfecto pero no había NINGÚN link hacia ella
+                  en todo el sitio (ni Header, ni Home, ni este footer). */}
+              <Link to="/ventas-rapidas" className="hover:text-white">Ventas rápidas</Link>
             </div>
           </div>
           <div>
