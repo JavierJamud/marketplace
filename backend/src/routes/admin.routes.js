@@ -240,6 +240,9 @@ router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 // Bloque 43: modelo editable por proveedor de IA (AdminIntegrations.jsx).
 router.get("/settings/ai-models", settingsController.getAiModelSettings);
 router.patch("/settings/ai-models", settingsController.updateAiModels);
+// Bloque 238: estado real (healthy/down/inactive) de cada proveedor de IA,
+// para la línea de estado chica en AdminIntegrations.jsx.
+router.get("/ai-provider-health", settingsController.getAdminAiProviderHealth);
 
 // Bloque 48: páginas legales/ayuda editables (AdminPages.jsx, AdminContacto.jsx, AdminAyuda.jsx).
 router.get("/static-pages", staticPagesController.listStaticPagesAdmin);

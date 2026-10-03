@@ -89,10 +89,17 @@ export async function findFastestWorkingModel(providerName, apiKey, brokenModel)
 const REPAIR_COOLDOWN_MS = 5 * 60 * 1000;
 const lastRepairAttemptAt = new Map();
 
-export async function repairProviderModel(providerName, apiKey, brokenModel, errorDetail) {
+// Bloque 238: parámetro `trigger` ("live" default, o "proactive") solo
+// cambia el texto del correo/log para contar la verdad de quién disparó
+// esto — "live" = un pedido real de un cliente falló (ai.js); "proactive" =
+// el chequeo de fondo de aiChatbotAvailability.job.js lo detectó antes de
+// que ningún cliente llegara a usarlo. El valor de retorno (antes esta
+// función no devolvía nada) permite que ese cron sepa qué estado guardar en
+// AiProviderHealth sin tener que volver a probar el modelo una segunda vez.
+export async function repairProviderModel(providerName, apiKey, brokenModel, errorDetail, trigger = "live") {
   const now = Date.now();
   const last = lastRepairAttemptAt.get(providerName) ?? 0;
-  if (now - last < REPAIR_COOLDOWN_MS) return;
+  if (now - last < REPAIR_COOLDOWN_MS) return { outcome: "skipped_cooldown" };
   lastRepairAttemptAt.set(providerName, now);
 
   // Confirma que el modelo sigue roto ANTES de tocar nada — un timeout
@@ -102,7 +109,7 @@ export async function repairProviderModel(providerName, apiKey, brokenModel, err
   // todos modos, por si acaso).
   try {
     await probeModel(providerName, apiKey, brokenModel);
-    return;
+    return { outcome: "recovered", model: brokenModel };
   } catch {
     // Confirmado: sigue fallando de verdad, vale la pena buscar reemplazo.
   }
@@ -124,25 +131,27 @@ export async function repairProviderModel(providerName, apiKey, brokenModel, err
     // acción de su parte.
     await logError({
       origin: "AI_HEALTH_CHECK",
-      message: `Modelo de ${providerName} reparado automáticamente en vivo: "${brokenModel}" -> "${replacement.model}"`,
-      context: { provider: providerName, brokenModel, errorDetail, replacement, trigger: "live" },
+      message: `Modelo de ${providerName} reparado automáticamente (${trigger}): "${brokenModel}" -> "${replacement.model}"`,
+      context: { provider: providerName, brokenModel, errorDetail, replacement, trigger },
     });
-    console.log(`[aiModelRepair] ${providerName} reparado en vivo: "${brokenModel}" -> "${replacement.model}" (${fmtMs(replacement.ms)})`);
-    return;
+    console.log(`[aiModelRepair] ${providerName} reparado (${trigger}): "${brokenModel}" -> "${replacement.model}" (${fmtMs(replacement.ms)})`);
+    return { outcome: "repaired", model: replacement.model };
   }
 
   // Ni el modelo configurado ni ningún candidato de respaldo funcionó — esto
   // sí es un error persistente que amerita avisar de inmediato (pedido
   // explícito), no solo esperar al resumen de las 3am.
+  const triggerLabel = trigger === "proactive" ? "La verificación en segundo plano" : "Un pedido real";
   await notifyAdminActionNeeded(
     `🔴 IA: la integración de ${providerName} no responde`,
-    `Un pedido real detectó que ${providerName} no responde con NINGÚN modelo probado (ni el configurado "${brokenModel}", ni ningún candidato de respaldo).\n\n` +
+    `${triggerLabel} detectó que ${providerName} no responde con NINGÚN modelo probado (ni el configurado "${brokenModel}", ni ningún candidato de respaldo).\n\n` +
       `Motivo del fallo: ${errorDetail}\n\n` +
       `El resto de proveedores activos sigue cubriendo el chat/generador mientras tanto (ver el orden de respaldo en Admin → Integraciones), pero conviene revisar la clave de ${providerName} ahí — puede estar vencida, revocada, o la cuenta sin saldo/permisos.`
   );
   await logError({
     origin: "AI_HEALTH_CHECK",
-    message: `Proveedor ${providerName} no responde con ningún modelo probado (detectado en vivo)`,
-    context: { provider: providerName, brokenModel, errorDetail, trigger: "live" },
+    message: `Proveedor ${providerName} no responde con ningún modelo probado (${trigger})`,
+    context: { provider: providerName, brokenModel, errorDetail, trigger },
   });
+  return { outcome: "down" };
 }

@@ -52,7 +52,38 @@ function ToggleSwitch({ isActive, disabled, onToggle }) {
   );
 }
 
-function CardHeader({ meta, hasIntegration, isActive, saving, onToggle }) {
+// Bloque 238 (pedido explícito): cuánto hace que está caído, en texto corto
+// — "hace 3 min"/"hace 2h"/"hace 1d", nunca la fecha completa (esto es una
+// línea chica de un vistazo, no un log).
+function timeSince(date) {
+  const ms = Date.now() - new Date(date).getTime();
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "recién";
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours}h`;
+  return `hace ${Math.floor(hours / 24)}d`;
+}
+
+// Bloque 238 (pedido explícito — "verificar en segundo plano, avisar al
+// admin si hay un error"): estado real (no solo si hay una key configurada)
+// refrescado cada 2 minutos por aiChatbotAvailability.job.js — complementa
+// el badge "Activo/Inactivo" de arriba, que solo dice si HAY una key, no si
+// responde. No reemplaza el correo de aviso, es solo para confirmar de un
+// vistazo sin revisar la bandeja.
+function HealthLine({ health }) {
+  if (!health || health.status === "inactive") return null;
+  if (health.status === "healthy") {
+    return <div className="mt-1 text-[11.5px] font-semibold text-[#0A8F42]">✅ Respondiendo bien</div>;
+  }
+  return (
+    <div className="mt-1 text-[11.5px] font-semibold text-error">
+      🔴 Caído desde {timeSince(health.downSince ?? health.lastCheckedAt)} — se avisó por correo
+    </div>
+  );
+}
+
+function CardHeader({ meta, hasIntegration, isActive, saving, onToggle, health }) {
   return (
     <div className="mb-3.5 flex items-center gap-3.5">
       <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[11px] text-xl" style={{ background: meta.iconBg }}>
@@ -70,13 +101,14 @@ function CardHeader({ meta, hasIntegration, isActive, saving, onToggle }) {
           {!hasIntegration && <span className="rounded-full bg-surface-container px-2.5 py-0.5 text-[10.5px] font-bold text-outline">Sin configurar</span>}
         </div>
         <div className="mt-0.5 text-[12.5px] text-outline">{meta.desc}</div>
+        <HealthLine health={health} />
       </div>
       <ToggleSwitch isActive={isActive} disabled={!hasIntegration || saving} onToggle={onToggle} />
     </div>
   );
 }
 
-function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, onSaveModel, onTestResend, onTestAi, saving, savingModel, testingResend, testingAi }) {
+function ServiceCard({ name, meta, integration, currentModel, health, onToggle, onSave, onSaveModel, onTestResend, onTestAi, saving, savingModel, testingResend, testingAi }) {
   const [draft, setDraft] = useState("");
   const [fromDraft, setFromDraft] = useState(integration?.fromEmail ?? "");
   const showModelField = AI_PROVIDERS.includes(name);
@@ -127,7 +159,7 @@ function ServiceCard({ name, meta, integration, currentModel, onToggle, onSave, 
 
   return (
     <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
-      <CardHeader meta={meta} hasIntegration={!!integration} isActive={isActive} saving={saving} onToggle={() => onToggle(integration)} />
+      <CardHeader meta={meta} hasIntegration={!!integration} isActive={isActive} saving={saving} onToggle={() => onToggle(integration)} health={health} />
       <div className="flex gap-2.5">
         <input
           value={draft}
@@ -382,6 +414,16 @@ export default function AdminIntegrations() {
     queryFn: async () => (await api.get("/admin/settings/ai-models")).data.aiModels,
   });
 
+  // Bloque 238: estado real (healthy/down/inactive) refrescado cada 2
+  // minutos en segundo plano — refetchInterval acá mismo para que la línea
+  // de estado no se quede vieja mientras el admin tiene la pantalla abierta.
+  const { data: aiHealth } = useQuery({
+    queryKey: ["admin-ai-health"],
+    queryFn: async () => (await api.get("/admin/ai-provider-health")).data.health,
+    refetchInterval: 30_000,
+  });
+  const healthByProvider = Object.fromEntries((aiHealth ?? []).map((h) => [h.provider, h]));
+
   const save = useMutation({
     mutationFn: async ({ name, credential, isActive, fromEmail }) =>
       (await api.post("/admin/integrations", { name, credential, isActive, fromEmail })).data,
@@ -485,6 +527,7 @@ export default function AdminIntegrations() {
               meta={SERVICE_META[name]}
               integration={byName[name]}
               currentModel={aiModels?.[name]}
+              health={healthByProvider[name]}
               saving={save.isPending || toggle.isPending}
               savingModel={saveModel.isPending}
               onToggle={(integration) => toggle.mutate({ id: integration.id, isActive: !integration.isActive })}

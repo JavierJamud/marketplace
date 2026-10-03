@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
 import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
+import { getProviderHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SITE_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "site");
@@ -82,6 +83,12 @@ export async function getSettings(_req, res) {
       // para que AdminBranding.jsx la lea/edite igual que el resto de esta
       // pantalla.
       timezone: settings.timezone,
+      // Bloque 238 (pedido explícito): si al menos un proveedor de IA está
+      // respondiendo de verdad en este momento (estado cacheado, ver
+      // lib/aiProviderHealth.js) — Home.jsx lo usa para ocultar el botón de
+      // chat cuando los 3 proveedores están caídos, en vez de dejar que el
+      // cliente le escriba a un chat que ya se sabe que va a fallar.
+      chatbotAvailable: await isChatbotHealthy(),
       // Bloque 237: política de "Venta rápida" (anuncios clasificados de
       // clientes) — la necesitan tanto AdminOffers.jsx (tarjeta nueva) como
       // CustomerPanel.jsx (texto dinámico del ciclo de vida en 2 etapas).
@@ -569,4 +576,13 @@ export async function updateAiModels(req, res) {
   res.json({
     aiModels: { groq: updated.aiModelGroq || null, gemini: updated.aiModelGemini || null, nvidia: updated.aiModelNvidia || null },
   });
+}
+
+// Bloque 238 — Admin (AdminIntegrations.jsx): estado real de cada proveedor
+// de IA (healthy/down/inactive), para que el admin lo confirme de un
+// vistazo junto al badge "Activo/Inactivo" que ya existe — no reemplaza el
+// correo de aviso (notifyAdminActionNeeded), es solo para consulta visual.
+export async function getAdminAiProviderHealth(req, res) {
+  const health = await getProviderHealthRows();
+  res.json({ health });
 }

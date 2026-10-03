@@ -429,8 +429,12 @@ export default function Home() {
     </div>
     {/* Bloque 52: apagable desde el admin (Marca de la plataforma) — antes
         se montaba siempre, sin condición. Default true si el settings
-        todavía no cargó, para no hacerlo parpadear apagado un instante. */}
-    {(settings?.showChatWidget ?? true) && <MarketplaceChatWidget />}
+        todavía no cargó, para no hacerlo parpadear apagado un instante.
+        Bloque 238 (pedido explícito): además, oculto automáticamente si los
+        3 proveedores de IA están caídos (chatbotAvailable, estado cacheado
+        refrescado cada 2 min en segundo plano) — así nunca se le muestra al
+        cliente un chat que ya se sabe que va a responder con error. */}
+    {(settings?.showChatWidget ?? true) && (settings?.chatbotAvailable ?? true) && <MarketplaceChatWidget />}
     </>
   );
 }

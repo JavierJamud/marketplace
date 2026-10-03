@@ -2369,6 +2369,23 @@ model SiteSettings {
   updatedAt    DateTime @updatedAt
 }
 
+// Bloque 238 (pedido explícito — "antes de mostrar el chatbot, verificar que
+// la IA funciona; si hay un error, avisar al admin y ocultar el chatbot
+// hasta que se resuelva"): estado cacheado de salud de cada proveedor de IA
+// (gemini/groq/nvidia), refrescado cada 2 minutos por
+// aiChatbotAvailability.job.js — NUNCA se prueba la IA en el momento en que
+// un cliente visita el sitio, siempre se lee el último resultado ya
+// calculado acá. isAIAvailable() (lib/ai.js) y getSettings() lo consultan
+// para decidir si el botón de chat se muestra.
+model AiProviderHealth {
+  provider      String    @id // "gemini" | "groq" | "nvidia" — mismo nombre que PROVIDERS en lib/aiModelRepair.js
+  status        String // "healthy" | "down" | "inactive" (sin API key configurada)
+  model         String? // último modelo probado — null si "inactive"
+  lastError     String? // detalle del último fallo — null si "healthy"/"inactive"
+  downSince     DateTime? // desde cuándo está caído sin interrupción — null si no está caído
+  lastCheckedAt DateTime  @updatedAt
+}
+
 // ---------------------------------------------------------------------------
 // Buzón de sugerencias (vendedor/cliente -> admin)
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq } from "./groq.
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
 import { repairProviderModel, PROVIDERS as REPAIR_PROVIDERS } from "./aiModelRepair.js";
+import { isChatbotHealthy } from "./aiProviderHealth.js";
 
 // Bloque 83 (pedido explícito, con medición real): benchmark inicial en
 // vivo contra los 3 proveedores reales de esta cuenta — Groq ~400-800ms,
@@ -147,12 +148,18 @@ async function callWithFallbackChain(providers, callFn, genericErrorMessage) {
   throw new AppError(genericErrorMessage, 500, { detail: lastErr?.details?.detail });
 }
 
-// Usado por vendors.controller.js (getVendorBySlug) para decirle al
-// frontend si tiene sentido mostrar el widget de chat — sin esto, con
-// todos los proveedores apagados el cliente vería un botón que solo lleva a un
-// error 503 apenas escribe algo.
+// Usado por vendors.controller.js/products.controller.js (aiAvailable) para
+// decirle al frontend si tiene sentido mostrar el widget de chat — sin esto,
+// con todos los proveedores caídos el cliente vería un botón que solo lleva
+// a un error 503 apenas escribe algo.
+//
+// Bloque 238: antes solo miraba si había alguna API key ACTIVA configurada
+// (getActiveProviders().length > 0) — nunca si el proveedor respondía de
+// verdad. Pasa a leer el estado de salud real, cacheado en AiProviderHealth
+// y refrescado cada 2 minutos por aiChatbotAvailability.job.js (nunca
+// probado en el momento mismo de esta llamada).
 export async function isAIAvailable() {
-  return (await getActiveProviders()).length > 0;
+  return isChatbotHealthy();
 }
 
 export async function generateDescription(kind, context) {

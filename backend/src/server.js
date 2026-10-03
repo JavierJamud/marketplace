@@ -5,6 +5,7 @@ import { startVerificationPaymentJob, startVerificationApprovalExpiryJob } from 
 import { startCustomerListingExpiryJob } from "./jobs/customerListingExpiry.job.js";
 import { startFraudReportsJob } from "./jobs/fraudReports.job.js";
 import { startAiHealthCheckJob } from "./jobs/aiHealthCheck.job.js";
+import { startAiChatbotAvailabilityJob } from "./jobs/aiChatbotAvailability.job.js";
 import { startLowStockJob } from "./jobs/lowStock.job.js";
 import { startCashCloseReminderJob } from "./jobs/cashCloseReminder.job.js";
 import { startAccountDeletionJob } from "./jobs/accountDeletion.job.js";
@@ -38,6 +39,12 @@ startFraudReportsJob();
 // la plataforma (corre cada hora y se autochequea por dentro, ver el
 // archivo — nunca una hora fija capturada al arrancar el servidor).
 startAiHealthCheckJob();
+// Bloque 238 (pedido explícito — "verificar en segundo plano antes de
+// mostrar el chatbot, cada vez que se accede al sitio"): a diferencia del
+// anterior (profundo, una vez al día), este corre cada 2 minutos y es
+// liviano — decide casi en tiempo real si el chat se muestra o no, sin que
+// un cliente dispare nunca una prueba de IA con solo visitar la página.
+startAiChatbotAvailabilityJob();
 // Bloque 194 (pedido explícito — "notificación por correo... sobre bajo
 // stock en productos antes que se agoten"): 7:30am, entre el recordatorio
 // de inactividad (7:00) y el de pago (8:00).
