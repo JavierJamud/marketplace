@@ -4,14 +4,17 @@ import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
+import { startOfDayInTimezone } from "../lib/timezone.js";
 
-// Feature "venta rápida": un cliente SIN tienda publica hasta 5 anuncios
-// simples desde su panel. Mirror deliberadamente reducido de
+// Feature "venta rápida": un cliente SIN tienda publica un número limitado de
+// anuncios simples desde su panel. Mirror deliberadamente reducido de
 // products.controller.js — mismo estilo/convenciones, pero solo los 4
 // campos que el pedido original listó explícitamente (imagen/título/
 // descripción/precio), sin categoría/tags/stock/tallas/métodos de pago.
-export const MAX_LISTINGS_PER_USER = 5;
-export const LISTING_EXPIRY_DAYS = 30;
+// Bloque 237 (pedido explícito): tope activo, tope diario y días de vida ya
+// no son constantes acá — son configurables desde el admin (ver
+// getListingPolicy/updateListingPolicy en settings.controller.js).
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Públicas por diseño (igual que las de producto) — organizadas por carpeta
@@ -42,21 +45,54 @@ async function assertCurrencyAllowed(currency) {
 
 // --- Panel de cliente: mis anuncios -----------------------------------------
 
+// Cuántos anuncios creó este dueño desde que arrancó el día calendario
+// "hoy" en la zona horaria del negocio — misma cuenta que usa createListing
+// para el tope diario, reutilizada acá para que el panel pueda armar el
+// botón bloqueado + la cuenta regresiva sin duplicar la lógica de "qué día
+// es" del backend.
+async function countListingsCreatedToday(ownerId, timezone) {
+  const dayStart = startOfDayInTimezone(new Date(), timezone);
+  return prisma.customerListing.count({ where: { ownerId, createdAt: { gte: dayStart } } });
+}
+
 export async function listMyListings(req, res) {
-  const listings = await prisma.customerListing.findMany({
-    where: { ownerId: req.user.id },
-    orderBy: { createdAt: "desc" },
+  const [listings, policy, timezone] = await Promise.all([
+    prisma.customerListing.findMany({ where: { ownerId: req.user.id }, orderBy: { createdAt: "desc" } }),
+    getListingPolicy(),
+    getSiteTimezone(),
+  ]);
+  const dayStart = startOfDayInTimezone(new Date(), timezone);
+  const createdToday = await countListingsCreatedToday(req.user.id, timezone);
+  res.json({
+    listings,
+    limit: policy.maxActive,
+    dailyLimit: policy.maxNewPerDay,
+    createdToday,
+    // Instante en que el cupo diario vuelve a 0 — el frontend calcula
+    // horas/minutos restantes y la hora exacta a partir de esta fecha,
+    // nunca al revés (ver CustomerPanel.jsx).
+    nextDailyResetAt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000),
   });
-  res.json({ listings, limit: MAX_LISTINGS_PER_USER });
 }
 
 export async function createListing(req, res) {
   const data = customerListingSchema.parse(req.body);
   await assertCurrencyAllowed(data.currency);
 
+  const policy = await getListingPolicy();
+
   const activeCount = await prisma.customerListing.count({ where: { ownerId: req.user.id } });
-  if (activeCount >= MAX_LISTINGS_PER_USER) {
-    throw new AppError(`Alcanzaste el máximo de ${MAX_LISTINGS_PER_USER} anuncios de venta rápida. Elimina uno para publicar otro.`, 403);
+  if (activeCount >= policy.maxActive) {
+    throw new AppError(`Alcanzaste el máximo de ${policy.maxActive} anuncios de venta rápida. Elimina uno para publicar otro.`, 403);
+  }
+
+  // Tope diario (pedido explícito) — día calendario en la zona horaria del
+  // negocio, no una ventana fija de 24hs. Nunca se "acumula" cupo de un día
+  // para el siguiente: cada día calendario arranca en 0, sin guardar nada.
+  const timezone = await getSiteTimezone();
+  const createdToday = await countListingsCreatedToday(req.user.id, timezone);
+  if (createdToday >= policy.maxNewPerDay) {
+    throw new AppError(`Ya publicaste ${policy.maxNewPerDay} anuncio(s) hoy. Intenta de nuevo mañana.`, 429);
   }
 
   const now = new Date();
@@ -67,7 +103,10 @@ export async function createListing(req, res) {
       // Igual que Product: se crea siempre en pausa, sin fotos — la primera
       // imagen es lo que lo activa (ver addListingImages).
       isActive: false,
-      expiresAt: new Date(now.getTime() + LISTING_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+      // Fijados UNA sola vez con la política vigente en este instante — ver
+      // comentario largo de expiresAt/publicVisibleUntil en schema.prisma.
+      expiresAt: new Date(now.getTime() + policy.expiryDays * 24 * 60 * 60 * 1000),
+      publicVisibleUntil: new Date(now.getTime() + policy.publicVisibilityDays * 24 * 60 * 60 * 1000),
     },
   });
   res.status(201).json({ listing });
@@ -81,7 +120,8 @@ export async function updateListing(req, res) {
   const data = customerListingSchema.partial().parse(req.body);
   if (data.currency) await assertCurrencyAllowed(data.currency);
 
-  // expiresAt nunca se toca acá a propósito — se fija una sola vez al crear.
+  // expiresAt/publicVisibleUntil nunca se tocan acá a propósito — los dos se
+  // fijan una sola vez al crear, con la política vigente en ese momento.
   const listing = await prisma.customerListing.update({ where: { id }, data });
   res.json({ listing });
 }
@@ -171,7 +211,10 @@ export async function removeListingImage(req, res) {
 
 export async function listPublicListings(req, res) {
   const listings = await prisma.customerListing.findMany({
-    where: { isActive: true, isSold: false },
+    // Bloque 237: ciclo de vida en 2 etapas — a los publicVisibilityDays
+    // días el anuncio deja de mostrarse acá aunque siga existiendo y
+    // siga siendo del dueño (ver listMyListings, que no filtra por esto).
+    where: { isActive: true, isSold: false, publicVisibleUntil: { gte: new Date() } },
     include: { owner: { select: { fullName: true, phone: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -181,7 +224,7 @@ export async function listPublicListings(req, res) {
 export async function getPublicListing(req, res) {
   const { id } = req.params;
   const listing = await prisma.customerListing.findFirst({
-    where: { id, isActive: true },
+    where: { id, isActive: true, publicVisibleUntil: { gte: new Date() } },
     include: { owner: { select: { fullName: true, phone: true } } },
   });
   if (!listing) throw new AppError("Anuncio no encontrado.", 404);

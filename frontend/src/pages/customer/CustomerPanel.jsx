@@ -39,12 +39,24 @@ const TABS = [
   { id: "suggestions", label: "Sugerencias" },
 ];
 
-const MAX_LISTINGS = 5;
 const LISTING_EMPTY_FORM = { name: "", description: "", price: "", currency: "USD" };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function daysRemaining(expiresAt) {
-  return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / DAY_MS));
+function daysRemaining(dateStr) {
+  return Math.max(0, Math.ceil((new Date(dateStr).getTime() - Date.now()) / DAY_MS));
+}
+
+// Bloque 237 (pedido explícito): el backend ya manda horas/minutos
+// implícitos en nextDailyResetAt — acá solo se traduce a texto, nunca al
+// revés. "Podés publicar de nuevo en Xh Ymin, a las HH:MM" en vez de un
+// genérico "probá mañana".
+function dailyLimitMessage(dailyLimit, nextDailyResetAt) {
+  const diffMs = Math.max(0, new Date(nextDailyResetAt).getTime() - Date.now());
+  const hours = Math.floor(diffMs / (60 * 60 * 1000));
+  const minutes = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
+  const timeLabel = new Date(nextDailyResetAt).toLocaleTimeString("es-CU", { hour: "2-digit", minute: "2-digit" });
+  const parts = [hours > 0 ? `${hours}h` : null, `${minutes}min`].filter(Boolean).join(" ");
+  return `Ya publicaste tus ${dailyLimit} anuncios de hoy. Podés publicar de nuevo en ${parts}, a las ${timeLabel}.`;
 }
 
 export default function CustomerPanel() {
@@ -101,17 +113,39 @@ export default function CustomerPanel() {
   });
 
   // --- Venta rápida (clientes sin tienda) -----------------------------------
-  const { data: listings, isLoading: listingsLoading } = useQuery({
+  // Bloque 237: el endpoint ahora manda, junto a los anuncios, el tope
+  // activo/diario vigentes y cuántos ya publicó hoy — se guarda la
+  // respuesta completa (no solo .listings) para poder armar el botón
+  // bloqueado + la cuenta regresiva sin duplicar la lógica de "qué día es"
+  // del backend.
+  const { data: listingsData, isLoading: listingsLoading } = useQuery({
     queryKey: ["my-customer-listings"],
-    queryFn: async () => (await api.get("/customer-listings/me/list")).data.listings,
+    queryFn: async () => (await api.get("/customer-listings/me/list")).data,
     enabled: !!user && tab === "quick-sale",
   });
+  const listings = listingsData?.listings;
 
   const { data: siteSettings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
     enabled: tab === "quick-sale",
   });
+
+  const listingLimit = listingsData?.limit ?? siteSettings?.maxActiveListingsPerCustomer ?? 6;
+  const dailyLimit = listingsData?.dailyLimit ?? siteSettings?.maxNewListingsPerDay ?? 2;
+  const visibilityDays = siteSettings?.listingPublicVisibilityDays ?? 15;
+  const expiryDaysSetting = siteSettings?.listingExpiryDays ?? 30;
+  const canCreateToday = listingsData ? listingsData.createdToday < listingsData.dailyLimit : true;
+  const totalLimitReached = (listings?.length ?? 0) >= listingLimit;
+
+  function handleCreateListingClick() {
+    if (totalLimitReached) return;
+    if (!canCreateToday) {
+      toast.error(dailyLimitMessage(dailyLimit, listingsData.nextDailyResetAt));
+      return;
+    }
+    openCreateListing();
+  }
 
   // Feature B (pedido explícito): banner inline en esta misma tab (no una
   // tab nueva, para no inflar el panel con algo casi siempre vacío) si
@@ -353,12 +387,22 @@ export default function CustomerPanel() {
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h1 className="font-display text-headline-md text-on-surface">Venta rápida</h1>
-                <p className="mt-1 text-[13px] text-on-surface-variant">
-                  Publica hasta {MAX_LISTINGS} productos para vender sin abrir una tienda. Los compradores te piden por WhatsApp. Cada anuncio dura 30 días.
+                {/* Bloque 237 (pedido explícito — "toda esta información se
+                    le debe aclarar al vendedor"): el ciclo de vida en 2
+                    etapas, con los números reales vigentes (editables desde
+                    el admin, ver ListingPolicyCard en AdminOffers.jsx). */}
+                <p className="mt-1 max-w-[520px] text-[13px] text-on-surface-variant">
+                  Publica hasta {listingLimit} anuncios activos, hasta {dailyLimit} nuevos por día. Los compradores te piden por
+                  WhatsApp. A los {visibilityDays} días el anuncio deja de mostrarse al público, pero seguís pudiendo editarlo o
+                  eliminarlo acá — si no lo hacés, se borra solo a los {expiryDaysSetting} días.
                 </p>
               </div>
-              <Button onClick={openCreateListing} disabled={(listings?.length ?? 0) >= MAX_LISTINGS}>
-                Publicar anuncio ({listings?.length ?? 0}/{MAX_LISTINGS})
+              <Button
+                onClick={handleCreateListingClick}
+                disabled={totalLimitReached}
+                className={!totalLimitReached && !canCreateToday ? "opacity-50" : ""}
+              >
+                Publicar anuncio ({listings?.length ?? 0}/{listingLimit})
               </Button>
             </div>
 
@@ -427,18 +471,28 @@ export default function CustomerPanel() {
                         <Package className="h-8 w-8" />
                       </div>
                     )}
-                    {l.isSold && (
+                    {/* Bloque 237: 3 motivos distintos de "no visible al
+                        público" — mutuamente excluyentes, se muestra solo
+                        el de mayor prioridad para no amontonar insignias. */}
+                    {l.isSold ? (
                       <span className="absolute left-2 top-2 rounded-full bg-inverse-surface/80 px-2.5 py-1 text-[10.5px] font-bold text-white">Vendido</span>
-                    )}
-                    {!l.isActive && !l.isSold && (
+                    ) : !l.isActive ? (
                       <span className="absolute left-2 top-2 rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">Sin foto — no visible</span>
-                    )}
+                    ) : new Date(l.publicVisibleUntil).getTime() <= Date.now() ? (
+                      <span className="absolute left-2 top-2 rounded-full bg-tertiary-accent px-2.5 py-1 text-[10.5px] font-bold text-white">Ya no se muestra públicamente</span>
+                    ) : null}
                   </div>
                   <div className="p-3.5">
                     <div className="mb-0.5 truncate text-[13.5px] font-bold text-on-surface">{l.name}</div>
                     <div className="mb-2 text-[13.5px] font-bold text-secondary">{formatPrice(l.price, l.currency)}</div>
                     <div className="mb-3 text-[11.5px] text-outline">
-                      {daysRemaining(l.expiresAt) > 0 ? `Vence en ${daysRemaining(l.expiresAt)} días` : "Vence hoy"}
+                      {new Date(l.publicVisibleUntil).getTime() <= Date.now()
+                        ? daysRemaining(l.expiresAt) > 0
+                          ? `Se elimina en ${daysRemaining(l.expiresAt)} días`
+                          : "Se elimina hoy"
+                        : daysRemaining(l.publicVisibleUntil) > 0
+                          ? `Visible ${daysRemaining(l.publicVisibleUntil)} días más`
+                          : "Deja de mostrarse hoy"}
                     </div>
                     <div className="flex gap-1.5">
                       <button

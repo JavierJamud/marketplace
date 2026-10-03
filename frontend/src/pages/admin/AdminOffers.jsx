@@ -546,6 +546,122 @@ function OfferPolicyCard() {
   );
 }
 
+// Bloque 237 (pedido explícito — "todos los números de Venta rápida
+// configurables desde el admin, en la misma sección donde ya se configura
+// Ofertas"): mismo molde exacto que OfferPolicyCard de arriba. Venta rápida
+// es de clientes (no de vendedores) y conceptualmente no tiene mucho que ver
+// con "Ofertas" — convive acá igual porque el dueño pidió explícitamente
+// reusar esta sección en vez de inventar una página nueva para 4 números.
+// Se refleja de inmediato en CustomerPanel.jsx (mismo GET /settings).
+function ListingPolicyCard() {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const [maxActive, setMaxActive] = useState("");
+  const [maxPerDay, setMaxPerDay] = useState("");
+  const [visibilityDays, setVisibilityDays] = useState("");
+  const [expiryDays, setExpiryDays] = useState("");
+
+  useEffect(() => {
+    if (settings) {
+      setMaxActive(String(settings.maxActiveListingsPerCustomer));
+      setMaxPerDay(String(settings.maxNewListingsPerDay));
+      setVisibilityDays(String(settings.listingPublicVisibilityDays));
+      setExpiryDays(String(settings.listingExpiryDays));
+    }
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch("/admin/settings/listing-policy", {
+          maxActiveListingsPerCustomer: Number(maxActive),
+          maxNewListingsPerDay: Number(maxPerDay),
+          listingPublicVisibilityDays: Number(visibilityDays),
+          listingExpiryDays: Number(expiryDays),
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success("Política de venta rápida actualizada.");
+      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la política."),
+  });
+
+  const dirty =
+    settings &&
+    [maxActive, maxPerDay, visibilityDays, expiryDays].every((v) => v !== "") &&
+    (Number(maxActive) !== settings.maxActiveListingsPerCustomer ||
+      Number(maxPerDay) !== settings.maxNewListingsPerDay ||
+      Number(visibilityDays) !== settings.listingPublicVisibilityDays ||
+      Number(expiryDays) !== settings.listingExpiryDays);
+
+  return (
+    <div className="mb-[18px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
+      <div className="mb-3 flex items-center gap-2 text-[14px] font-bold text-on-surface">
+        <Tag className="h-4 w-4 text-tertiary-accent" /> Política de venta rápida (clientes)
+      </div>
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <div>
+          <span className="mb-1 block text-label-md text-on-surface-variant">Máximo de anuncios activos por cliente</span>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={maxActive}
+            onChange={(e) => setMaxActive(e.target.value)}
+            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
+          />
+        </div>
+        <div>
+          <span className="mb-1 block text-label-md text-on-surface-variant">Máximo de anuncios nuevos por día</span>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={maxPerDay}
+            onChange={(e) => setMaxPerDay(e.target.value)}
+            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
+          />
+        </div>
+        <div>
+          <span className="mb-1 block text-label-md text-on-surface-variant">Días visible públicamente</span>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={visibilityDays}
+            onChange={(e) => setVisibilityDays(e.target.value)}
+            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
+          />
+        </div>
+        <div>
+          <span className="mb-1 block text-label-md text-on-surface-variant">Días hasta eliminarse solo</span>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={expiryDays}
+            onChange={(e) => setExpiryDays(e.target.value)}
+            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
+          />
+        </div>
+      </div>
+      <p className="mt-2 text-[11.5px] text-outline">
+        Se refleja de inmediato en el panel de cada cliente: la pestaña "Venta rápida" (tope diario, cuenta regresiva
+        y el ciclo de vida de 2 etapas).
+      </p>
+      {dirty && (
+        <Button className="mt-3" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? "Guardando..." : "Guardar política"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // Bloque 194 (pedido explícito — "quiero agregar en el panel de admin en la
 // sección de ofertas ofertas autodirigidas... para clientes o para
 // vendedores... por email o... popup, o ambas... a vendedores en
@@ -1151,6 +1267,7 @@ export default function AdminOffers() {
           </div>
 
           <OfferPolicyCard />
+          <ListingPolicyCard />
 
           <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-1.5">

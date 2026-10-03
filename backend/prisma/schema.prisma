@@ -2283,6 +2283,25 @@ model SiteSettings {
   maxReviewsPerProductPerPeriod Int     @default(1)
   maxReviewsPerStorePerPeriod   Int     @default(1)
   vendorsCanReview              Boolean @default(true)
+  // Bloque 237 (pedido explícito): política de "Venta rápida" (anuncios
+  // clasificados de clientes sin tienda, ver CustomerListing), editable
+  // desde la misma sección "Ofertas" del admin — antes
+  // MAX_LISTINGS_PER_USER/LISTING_EXPIRY_DAYS eran constantes hardcodeadas
+  // en customerListings.controller.js, y no existía ningún tope diario.
+  // maxActiveListingsPerCustomer: cuántos anuncios puede tener un cliente a
+  // la vez (default 6, pedido explícito — sube del tope de 5 que regía
+  // antes). maxNewListingsPerDay: cuántos anuncios NUEVOS puede publicar
+  // por día calendario (zona horaria del negocio, ver timezone más abajo y
+  // lib/timezone.js) — nunca se "acumula" para el día siguiente.
+  // listingPublicVisibilityDays: a los cuántos días un anuncio deja de
+  // mostrarse en /ventas-rapidas (pero sigue en el panel del dueño).
+  // listingExpiryDays: a los cuántos días se borra solo si el dueño no lo
+  // eliminó antes (mismo valor, ahora configurable, que ya regía como
+  // LISTING_EXPIRY_DAYS=30).
+  maxActiveListingsPerCustomer Int @default(6)
+  maxNewListingsPerDay         Int @default(2)
+  listingPublicVisibilityDays  Int @default(15)
+  listingExpiryDays            Int @default(30)
   // Bloque 52: mostrar/ocultar el botón flotante del chatbot general
   // (MarketplaceChatWidget) en el Home público — antes montado sin
   // condición ninguna. Default true = mismo comportamiento visible de
@@ -2653,16 +2672,31 @@ model CustomerListing {
   // que además lo elimina (puede querer dejarlo un tiempo como referencia).
   isSold      Boolean         @default(false)
   createdAt   DateTime        @default(now())
-  // Fijado UNA sola vez al crear (createdAt + 30 días) — nunca se recalcula
-  // en un update. Si editar reseteara el plazo, el cliente podría evadir la
-  // rotación de 30 días editando en loop.
+  // Fijado UNA sola vez al crear (createdAt + listingExpiryDays vigente en
+  // ese momento, ver SiteSettings/getListingPolicy) — nunca se recalcula en
+  // un update, ni si el admin cambia la política después. Si editar
+  // reseteara el plazo, el cliente podría evadir la rotación editando en
+  // loop; si el admin cambiara el plazo de anuncios YA publicados, un
+  // cambio de política movería la fecha de borrado de todo lo existente de
+  // golpe, sin que el dueño lo haya pedido. Es el punto real de BORRADO
+  // (ver customerListingExpiry.job.js).
   expiresAt   DateTime
+  // Bloque 237 (pedido explícito — ciclo de vida en 2 etapas): mismo
+  // criterio que expiresAt (fijado una sola vez al crear, con
+  // listingPublicVisibilityDays vigente en ese momento) pero para la
+  // ventana de visibilidad PÚBLICA — pasado este punto el anuncio sigue
+  // existiendo y sigue siendo del dueño (listMyListings no lo filtra por
+  // esto), pero listPublicListings/getPublicListing dejan de mostrarlo.
+  // Antes de este bloque no existía ninguna ventana intermedia — un
+  // anuncio era público hasta el mismo día que se borraba del todo.
+  publicVisibleUntil DateTime
 
   owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   reports Report[]
 
   @@index([ownerId])
   @@index([expiresAt])
+  @@index([publicVisibleUntil])
 }
 
 // ---------------------------------------------------------------------------

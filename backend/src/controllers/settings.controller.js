@@ -82,6 +82,13 @@ export async function getSettings(_req, res) {
       // para que AdminBranding.jsx la lea/edite igual que el resto de esta
       // pantalla.
       timezone: settings.timezone,
+      // Bloque 237: política de "Venta rápida" (anuncios clasificados de
+      // clientes) — la necesitan tanto AdminOffers.jsx (tarjeta nueva) como
+      // CustomerPanel.jsx (texto dinámico del ciclo de vida en 2 etapas).
+      maxActiveListingsPerCustomer: settings.maxActiveListingsPerCustomer,
+      maxNewListingsPerDay: settings.maxNewListingsPerDay,
+      listingPublicVisibilityDays: settings.listingPublicVisibilityDays,
+      listingExpiryDays: settings.listingExpiryDays,
     },
   });
 }
@@ -266,6 +273,52 @@ export async function updateOfferPolicy(req, res) {
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
   res.json({ settings: { offerCooldownDays: updated.offerCooldownDays, offerDefaultDurationDays: updated.offerDefaultDurationDays } });
+}
+
+// Bloque 237 (pedido explícito): política de "Venta rápida" — mismo molde
+// que offerPolicySchema de arriba. El .refine() evita configurar una
+// visibilidad pública más larga que la vida total del anuncio, cosa que no
+// tendría sentido (el anuncio se borraría antes de dejar de ser público).
+const listingPolicySchema = z
+  .object({
+    maxActiveListingsPerCustomer: z.number().int().min(1).max(100),
+    maxNewListingsPerDay: z.number().int().min(1).max(50),
+    listingPublicVisibilityDays: z.number().int().min(1).max(365),
+    listingExpiryDays: z.number().int().min(1).max(365),
+  })
+  .refine((data) => data.listingPublicVisibilityDays <= data.listingExpiryDays, {
+    message: "La visibilidad pública no puede durar más que la vida total del anuncio.",
+    path: ["listingPublicVisibilityDays"],
+  });
+
+// Admin (AdminOffers.jsx, misma sección que la política de Ofertas) — tope
+// de anuncios activos y nuevos por día que puede tener un cliente en "Venta
+// rápida", y a los cuántos días deja de mostrarse al público / se borra solo
+// (ver getListingPolicy, uso interno de customerListings.controller.js).
+export async function updateListingPolicy(req, res) {
+  const data = listingPolicySchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({
+    settings: {
+      maxActiveListingsPerCustomer: updated.maxActiveListingsPerCustomer,
+      maxNewListingsPerDay: updated.maxNewListingsPerDay,
+      listingPublicVisibilityDays: updated.listingPublicVisibilityDays,
+      listingExpiryDays: updated.listingExpiryDays,
+    },
+  });
+}
+
+// Uso INTERNO (customerListings.controller.js) — mismo criterio que
+// getOfferPolicy de arriba.
+export async function getListingPolicy() {
+  const settings = await getOrCreateSettings();
+  return {
+    maxActive: settings.maxActiveListingsPerCustomer,
+    maxNewPerDay: settings.maxNewListingsPerDay,
+    publicVisibilityDays: settings.listingPublicVisibilityDays,
+    expiryDays: settings.listingExpiryDays,
+  };
 }
 
 const reviewPolicySchema = z.object({

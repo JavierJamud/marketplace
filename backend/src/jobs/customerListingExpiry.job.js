@@ -6,17 +6,24 @@ import { CUSTOMER_LISTING_UPLOAD_DIR } from "../controllers/customerListings.con
 
 // Primer cron de este proyecto que BORRA filas de verdad (los otros dos,
 // vendorLifecycle.job.js/verificationPayment.job.js, solo cambian estados).
-// Pedido explícito: un anuncio de venta rápida sin vender a los 30 días
-// "desaparece automáticamente y queda eliminado de la base de datos" — no
-// alcanza con marcarlo inactivo (patrón de expiración perezosa que sí usa
-// offers.controller.js), acá hay que borrar la fila y sus archivos.
+// Pedido explícito: un anuncio de venta rápida sin vender a los
+// listingExpiryDays días (configurable desde el admin, ver
+// getListingPolicy/updateListingPolicy en settings.controller.js —
+// expiresAt ya trae grabado el plazo correcto desde la creación, con la
+// política vigente en ese momento) "desaparece automáticamente y queda
+// eliminado de la base de datos" — no alcanza con marcarlo inactivo (patrón
+// de expiración perezosa que sí usa offers.controller.js), acá hay que
+// borrar la fila y sus archivos. Antes de esto deja de mostrarse al
+// público (ver publicVisibleUntil) pero sigue gestionable en el panel del
+// dueño — este job es la segunda y última etapa del ciclo de vida.
 //
 // A diferencia de deleteProduct (products.controller.js), que hoy NO borra
 // los archivos físicos al eliminar un producto entero — un gap real del
 // código existente — este job SÍ borra cada imagen del disco antes de
 // borrar la fila. Decisión deliberada, no un intento de igualar ese gap:
-// este flujo va a churnear constantemente (anuncios naciendo/muriendo cada
-// 30 días), así que dejar huérfanos en disco sería un problema real.
+// este flujo va a churnear constantemente (anuncios naciendo/muriendo
+// cada tantos días), así que dejar huérfanos en disco sería un problema
+// real.
 
 async function deleteExpiredListings() {
   const expired = await prisma.customerListing.findMany({

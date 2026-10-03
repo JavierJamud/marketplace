@@ -219,6 +219,9 @@ router.get("/plan-configs", settingsController.listPlanConfigs);
 router.patch("/plan-configs", settingsController.updatePlanConfig);
 router.patch("/settings/product-settings", settingsController.updateProductSettings);
 router.patch("/settings/offer-policy", settingsController.updateOfferPolicy);
+// Bloque 237: política de "Venta rápida" (anuncios de clientes), misma
+// sección del admin que la de Ofertas (pedido explícito del dueño).
+router.patch("/settings/listing-policy", settingsController.updateListingPolicy);
 router.patch("/settings/review-policy", settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
 router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);
