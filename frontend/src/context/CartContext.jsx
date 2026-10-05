@@ -120,14 +120,23 @@ export function CartProvider({ children }) {
   // uno; agrega el resto como líneas nuevas. Usado al restaurar el carrito
   // de cuenta cuando el dispositivo YA tenía algo de la misma tienda, y al
   // importar un carrito compartido de la misma tienda que ya se está viendo.
-  const mergeItems = useCallback((incoming) => {
+  //
+  // `mode` decide qué pasa cuando la misma línea ya existe en los dos lados:
+  //  - "sum" (carrito compartido de otra persona): se suman, porque se está
+  //    AGREGANDO lo de otro a lo mío.
+  //  - "max" (restaurar el carrito de la cuenta): se queda la cantidad mayor.
+  //    El snapshot de la cuenta casi siempre es el MISMO carrito que ya está
+  //    en este dispositivo (se guarda desde acá); sumarlos lo duplicaba en
+  //    cada recarga de página (bug real: 1 unidad pasaba a 2, 4, 8...).
+  const mergeItems = useCallback((incoming, mode = "sum") => {
     setItems((prev) => {
       const merged = [...prev];
       for (const inc of incoming) {
         const idx = merged.findIndex((i) => i.productId === inc.productId && i.size === inc.size);
         if (idx >= 0) {
           const cap = inc.stock ?? merged[idx].stock ?? Infinity;
-          merged[idx] = { ...merged[idx], quantity: Math.min(merged[idx].quantity + inc.quantity, cap) };
+          const wanted = mode === "max" ? Math.max(merged[idx].quantity, inc.quantity) : merged[idx].quantity + inc.quantity;
+          merged[idx] = { ...merged[idx], quantity: Math.min(wanted, cap) };
         } else {
           merged.push(inc);
         }
@@ -160,7 +169,7 @@ export function CartProvider({ children }) {
         if (!local.items?.length) {
           replaceCart(data.cart.vendorMeta, data.cart.items, data.cart.discount ?? null);
         } else if (local.vendor?.vendorId === data.cart.vendorMeta?.vendorId) {
-          mergeItems(data.cart.items);
+          mergeItems(data.cart.items, "max");
         }
       } catch {
         // sin conexión o sesión vencida — el carrito local sigue funcionando igual.
