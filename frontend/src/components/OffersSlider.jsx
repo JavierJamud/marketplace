@@ -106,14 +106,14 @@ function OfferCard({ offer }) {
           )}
         </div>
         <div className="font-display text-lg font-extrabold leading-tight text-white sm:text-xl">{offer.title}</div>
-        {offer.tagline && <p className="hidden line-clamp-1 text-[12px] text-white/85 sm:block">{offer.tagline}</p>}
+        {offer.tagline && <p className="max-sm:hidden line-clamp-1 text-[12px] text-white/85">{offer.tagline}</p>}
         {/* Bloque 192 (bug real reportado en vivo — "la descripción de las
             ofertas que se crean en el panel de admin no se muestran en las
             ofertas ya publicadas"): antes NUNCA se renderizaba en ningún
             lado, ni para ofertas de admin ni de vendedor — la tarjeta solo
             mostraba tagline. line-clamp-2 porque la tarjeta es chica (12:5),
             un texto largo la desbordaría. */}
-        {offer.description && <p className="mt-0.5 hidden line-clamp-2 text-[11.5px] text-white/75 sm:block">{offer.description}</p>}
+        {offer.description && <p className="mt-0.5 max-sm:hidden line-clamp-2 text-[11.5px] text-white/75">{offer.description}</p>}
         {offer.buttonLabel && offer.buttonUrl && (
           <span className="mt-2 inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11.5px] font-bold text-on-surface shadow">
             {offer.buttonLabel}

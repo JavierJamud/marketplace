@@ -268,3 +268,62 @@
     animation: none !important;
   }
 }
+
+/* Bloque 250 (pedido explícito — "un liquid glass más moderno, se ve muy
+   plano y pálido"): la barra de menú flotante del Header. Antes era un velo
+   plano (white/10) o un azul casi sólido. Ahora: desenfoque fuerte con
+   saturación (el color del contenido de atrás se intensifica en vez de
+   apagarse), un destello especular arriba a la izquierda, una sombra con profundidad. Dos estados: sobre un fondo
+   oscuro o con color (data-top="true", arriba de la Home o de una tienda) el
+   cristal es más transparente; sobre contenido claro (al hacer scroll) la
+   base marino sube a .74 para que el texto blanco mantenga más de 5:1 aun
+   sobre blanco puro. Un solo elemento con blur en toda la barra. */
+.liquid-glass {
+  position: relative;
+  border-radius: 30px;
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.05) 45%, rgba(255, 255, 255, 0.12) 100%),
+    rgba(15, 32, 58, 0.8);
+  /* Sin borde ni línea de luz blanca en el contorno (pedido explícito): solo
+     sombra oscura de profundidad. */
+  box-shadow: 0 12px 36px -10px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.15);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+.liquid-glass[data-top="true"] {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(255, 255, 255, 0.14) 100%),
+    rgba(14, 30, 54, 0.42);
+}
+/* Destello de luz que "moja" la esquina superior izquierda. z-index -1 queda
+   dentro del contexto de apilamiento que crea el backdrop-filter: encima del
+   fondo del cristal y debajo del contenido. */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(120% 170% at 6% -40%, rgba(255, 255, 255, 0.4), transparent 55%);
+}
+/* Sin soporte de blur, o con "reducir transparencia" en el sistema: color
+   sólido, sin depender de lo que haya detrás. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .liquid-glass,
+  .liquid-glass[data-top="true"] {
+    background: rgb(14, 26, 40);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass,
+  .liquid-glass[data-top="true"] {
+    background: rgb(14, 26, 40);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .liquid-glass::before {
+    display: none;
+  }
+}

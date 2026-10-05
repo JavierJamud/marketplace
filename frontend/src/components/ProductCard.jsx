@@ -175,7 +175,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
             tarjeta entera ya es un enlace, no era una acción aparte. El gris pasa
             a on-surface-variant (el anterior daba 4,48:1). */}
         {product.description && (
-          <p className="mb-1 hidden line-clamp-2 text-[11.5px] leading-4 text-on-surface-variant sm:block">{product.description}</p>
+          <p className="mb-1 max-sm:hidden line-clamp-2 text-[11.5px] leading-4 text-on-surface-variant">{product.description}</p>
         )}
         {isLowStock && (
           <span className="mb-1.5 w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">

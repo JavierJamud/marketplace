@@ -111,7 +111,7 @@ export function SearchBar() {
       {/* Bloque 239: alto 44px (R-03) — dentro de la píldora flotante de
           Header.jsx el input ocupa todo el alto y la lupa es un botón de
           44px, así tocar en cualquier parte de la barra enfoca/envía. */}
-      <form onSubmit={handleSubmit} className="flex h-11 items-center rounded-xl bg-white/10 pl-3.5 pr-0.5 focus-within:ring-2 focus-within:ring-white/40">
+      <form onSubmit={handleSubmit} className="flex h-11 items-center rounded-2xl bg-black/20 pl-3.5 pr-0.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-shadow focus-within:shadow-[inset_0_1px_2px_rgba(0,0,0,0.25),inset_0_0_0_2px_rgba(255,255,255,0.5)]">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}

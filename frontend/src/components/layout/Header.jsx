@@ -82,7 +82,7 @@ function AccountMenu({ user, accountHref, panelLabel }) {
         onClick={() => setOpen((o) => !o)}
         aria-label="Mi cuenta"
         aria-expanded={open}
-        className="flex h-11 w-11 items-center justify-center rounded-xl text-white/85 hover:bg-white/10 hover:text-white"
+        className="flex h-11 w-11 items-center justify-center rounded-2xl text-white/85 transition-colors hover:bg-white/15 hover:text-white"
       >
         <User className="h-5 w-5" />
       </button>
@@ -131,11 +131,14 @@ export function Header() {
   const location = useLocation();
   const count = items.reduce((a, i) => a + i.quantity, 0);
 
-  const isHome = location.pathname === "/";
-  const [scrolled, setScrolled] = useState(!isHome);
+  // Bloque 250: las páginas que arrancan con un fondo oscuro o de color detrás
+  // del menú (la Home y la página de una tienda, cuyo banner sube hasta arriba)
+  // muestran el cristal más transparente mientras se está arriba del todo.
+  const darkTop = location.pathname === "/" || location.pathname.startsWith("/tienda/");
+  const [scrolled, setScrolled] = useState(!darkTop);
 
   useEffect(() => {
-    if (!isHome) {
+    if (!darkTop) {
       setScrolled(true);
       return;
     }
@@ -145,9 +148,9 @@ export function Header() {
     }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [isHome]);
+  }, [darkTop]);
 
-  const atTopOfHome = isHome && !scrolled;
+  const atTop = darkTop && !scrolled;
 
   const accountHref = !user ? "/cuenta" : user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
   const panelLabel = user?.role === "ADMIN" ? "Panel de administración" : user?.role === "VENDOR" ? "Panel de vendedor" : "Mi cuenta";
@@ -156,9 +159,8 @@ export function Header() {
     <header className="pointer-events-none sticky top-0 z-50 h-[76px]">
       <div className="container-app pt-2">
         <div
-          className={`pointer-events-auto flex h-[60px] items-center gap-2 rounded-2xl border border-white/15 px-3 shadow-[0_8px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors duration-300 sm:gap-3 sm:px-4 lg:gap-[22px] ${
-            atTopOfHome ? "bg-white/10" : "bg-primary/75"
-          }`}
+          data-top={atTop}
+          className="liquid-glass pointer-events-auto flex h-[60px] items-center gap-2 px-3 sm:gap-3 sm:px-4 lg:gap-[22px]"
         >
           <Logo />
 
@@ -169,7 +171,7 @@ export function Header() {
               type="button"
               onClick={openCart}
               aria-label="Ver carrito"
-              className="relative flex h-11 w-11 items-center justify-center rounded-xl text-white/90 hover:bg-white/10 hover:text-white"
+              className="relative flex h-11 w-11 items-center justify-center rounded-2xl text-white/90 transition-colors hover:bg-white/15 hover:text-white"
             >
               <ShoppingCart key={bump} className="h-[22px] w-[22px] animate-cart-bump" />
               {count > 0 && (
