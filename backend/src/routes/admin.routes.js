@@ -187,6 +187,13 @@ router.post("/integrations/resend/test", integrationsController.testResendIntegr
 router.post("/integrations/:name/test-ai", integrationsController.testAiProviderIntegration);
 router.patch("/integrations/:id", integrationsController.toggleIntegration);
 
+// Bloque 244: solicitudes de país/provincia escritos a mano en el registro.
+// "pending-count" va ANTES de las rutas con :id para que no lo tome como id.
+router.get("/location-suggestions/pending-count", locationsController.pendingLocationSuggestionsCount);
+router.get("/location-suggestions", locationsController.listLocationSuggestions);
+router.post("/location-suggestions/:id/approve", locationsController.approveLocationSuggestion);
+router.post("/location-suggestions/:id/merge", locationsController.mergeLocationSuggestion);
+router.post("/location-suggestions/:id/reject", locationsController.rejectLocationSuggestion);
 router.get("/locations/countries", locationsController.listCountries);
 router.post("/locations/countries", locationsController.createCountry);
 // Rutas literales ANTES de la de :id — si no, Express matchea "activate-all"

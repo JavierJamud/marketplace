@@ -15,6 +15,7 @@ import {
   sendAccountDeletionReactivatedEmail,
 } from "../lib/email.js";
 import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
+import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rodante (se extiende en cada refresh)
 const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rodante (se extiende en cada login saltado)
@@ -226,6 +227,18 @@ export async function verifyRegistration(req, res) {
 
     return { user: created, linkedOrdersCount: linked.count };
   });
+
+  // Bloque 244: un país o provincia escrito a mano pasa a ser una solicitud
+  // para el admin. Recién acá (con el correo ya verificado) y no en
+  // register(), para que un registro que nunca se confirma no genere
+  // solicitudes falsas.
+  void recordLocationSuggestions(
+    pending.registrationCountryOther
+      ? [{ kind: "COUNTRY", name: pending.registrationCountryOther }]
+      : pending.stateOther && pending.registrationCountryId
+        ? [{ kind: "PROVINCE", name: pending.stateOther, countryId: pending.registrationCountryId }]
+        : []
+  );
 
   // Bloque 60: verificar el registro ya prueba que es dueño del correo —
   // este navegador queda de confianza de una, sin pedirle un segundo código

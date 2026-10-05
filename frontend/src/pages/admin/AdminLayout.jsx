@@ -42,7 +42,7 @@ const NAV = [
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
   // el useQuery de abajo y el render del badge en el map de NAV.
   { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount" },
-  { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2 },
+  { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2, badge: "locationSuggestionsCount" },
   { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags },
   // Bloque 53: "Páginas" quedó solo para Términos/Privacidad — FAQ, Contacto
   // y Centro de ayuda pasaron a tener su propia entrada de menú.
@@ -258,6 +258,15 @@ export default function AdminLayout() {
     refetchInterval: 20000,
   });
   const rankingAnomaliesCount = rankingAnomaliesCountData?.count ?? 0;
+  // Bloque 244: países/provincias escritos a mano en el registro, esperando
+  // revisión (Países y provincias -> Solicitudes). Mismo patrón de polling.
+  const { data: locationSuggestionsCountData } = useQuery({
+    queryKey: ["admin-location-suggestions-count"],
+    queryFn: async () => (await api.get("/admin/location-suggestions/pending-count")).data,
+    enabled: !!user && user.role === "ADMIN",
+    refetchInterval: 20000,
+  });
+  const locationSuggestionsCount = locationSuggestionsCountData?.count ?? 0;
   const { siteName, logoUrl } = usePlatformSettings();
 
   // Bloque 20: el drawer mobile se cierra solo al navegar a otra sección —
@@ -351,6 +360,11 @@ export default function AdminLayout() {
               {badge === "fraudReportsCount" && fraudReportsCount > 0 && (
                 <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
                   {fraudReportsCount}
+                </span>
+              )}
+              {badge === "locationSuggestionsCount" && locationSuggestionsCount > 0 && (
+                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
+                  {locationSuggestionsCount}
                 </span>
               )}
               {badge === "rankingAnomaliesCount" && rankingAnomaliesCount > 0 && (

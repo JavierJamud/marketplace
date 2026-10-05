@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Globe2, MapPin, Plus, Pencil, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
+import { Globe2, MapPin, MapPinned, Plus, Pencil, Trash2, ChevronRight, Search, Image as ImageIcon } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { Tabs } from "../../components/ui/Tabs.jsx";
+import { LocationSuggestionsPanel } from "../../components/admin/LocationSuggestionsPanel.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
@@ -252,6 +255,15 @@ function MunicipalityModal({ province, municipality, onClose }) {
 
 export default function AdminLocations() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const [section, setSection] = useState(searchParams.get("tab") === "solicitudes" ? "solicitudes" : "territorios");
+  // Mismo contador que muestra el menú lateral (AdminLayout).
+  const { data: pendingData } = useQuery({
+    queryKey: ["admin-location-suggestions-count"],
+    queryFn: async () => (await api.get("/admin/location-suggestions/pending-count")).data,
+    refetchInterval: 60_000,
+  });
+  const pendingSuggestions = pendingData?.count ?? 0;
   const [selectedCountryId, setSelectedCountryId] = useState(null);
   const [countrySearch, setCountrySearch] = useState("");
   const [countryModal, setCountryModal] = useState(null);
@@ -357,6 +369,23 @@ export default function AdminLocations() {
         </Button>
       </div>
 
+      {/* Bloque 244: "Territorios" es lo de siempre (países, provincias,
+          municipios); "Solicitudes" son los países y provincias que la gente
+          escribió a mano al registrarse y esperan que los revises. */}
+      <Tabs
+        className="mb-6"
+        tabs={[
+          { id: "territorios", label: "Territorios", icon: Globe2 },
+          { id: "solicitudes", label: pendingSuggestions > 0 ? `Solicitudes (${pendingSuggestions})` : "Solicitudes", icon: MapPinned },
+        ]}
+        value={section}
+        onChange={setSection}
+      />
+
+      {section === "solicitudes" ? (
+        <LocationSuggestionsPanel />
+      ) : (
+      <>
       <ProductImageLinksPanel />
 
       {/* Modern Master-Detail Layout */}
@@ -630,6 +659,8 @@ export default function AdminLocations() {
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* Modals */}
       {countryModal && <CountryModal country={countryModal.id ? countryModal : null} onClose={() => setCountryModal(null)} />}

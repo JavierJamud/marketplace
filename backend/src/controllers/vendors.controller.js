@@ -16,7 +16,8 @@ import { rawSalesSeries, fillSeriesGaps, salesSeriesSchema, resolveSeriesRange }
 import { withComputedVendorFields, withComputedVendorFieldsList, transitionVendorVerification } from "../services/vendorVerification.service.js";
 import { cancelStripeSubscription, scheduleStripeSubscriptionCancellation } from "../lib/stripe.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
-import { assertVendorLocationComplete } from "../services/registrationLocation.service.js";
+import { assertVendorLocationComplete, needsAddress } from "../services/registrationLocation.service.js";
+import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
@@ -117,10 +118,13 @@ const createVendorSchema = z.object({
   locations: z
     .array(
       z.object({
-        countryId: z.string().min(1, "Selecciona el país donde va a operar tu tienda."),
+        // Bloque 244: o un país del catálogo, o uno escrito a mano (se valida
+        // en assertVendorLocationComplete que venga exactamente uno de los dos).
+        countryId: z.string().min(1).optional(),
+        countryOther: z.string().trim().min(2).max(80).optional(),
         provinceId: z.string().optional(),
         municipalityId: z.string().optional(),
-        stateOther: z.string().trim().optional(),
+        stateOther: z.string().trim().max(80).optional(),
       })
     )
     .min(1, "Selecciona dónde va a operar tu tienda."),
@@ -166,19 +170,29 @@ export async function createVendor(req, res) {
   // dirección" tal cual se pidió). resolvedLocations reemplaza data.locations
   // con el countryId ya confirmado real (nunca se confía en el que mandó el
   // cliente sin validar).
-  let anyOutsideCuba = false;
+  // Bloque 244: la dirección escrita hace falta siempre que alguna ubicación
+  // no tenga un municipio real con el que ubicar la tienda (cualquier país que
+  // no sea Cuba, o una provincia o país escritos a mano) — antes bastaba con
+  // "alguna fuera de Cuba".
+  let anyWithoutMunicipality = false;
   const resolvedLocations = [];
+  const locationSuggestions = [];
   for (const loc of data.locations) {
     const resolved = await assertVendorLocationComplete(loc);
-    if (!resolved.isCuba) anyOutsideCuba = true;
+    // Un país escrito a mano no pide dirección (no hay contra qué ubicarla;
+    // la dirección de la empresa se pide de todos modos al verificar la
+    // tienda) — misma regla que el formulario de registro (LocationPicker).
+    if (needsAddress(resolved)) anyWithoutMunicipality = true;
+    locationSuggestions.push(...(resolved.suggestions ?? []));
     resolvedLocations.push({
-      countryId: resolved.country.id,
+      countryId: resolved.country?.id ?? null,
+      countryOther: resolved.countryOther ?? null,
       provinceId: resolved.province?.id,
       municipalityId: resolved.municipality?.id,
       stateOther: resolved.stateOther,
     });
   }
-  if (anyOutsideCuba && !data.companyAddress?.trim()) {
+  if (anyWithoutMunicipality && !data.companyAddress?.trim()) {
     throw new AppError("Indica la dirección de tu tienda.", 400);
   }
 
@@ -228,6 +242,9 @@ export async function createVendor(req, res) {
   });
 
   await prisma.user.update({ where: { id: req.user.id }, data: { role: "VENDOR" } });
+
+  // Bloque 244: país/provincia escritos a mano -> solicitud para el admin.
+  void recordLocationSuggestions(locationSuggestions);
 
   res.status(201).json({ vendor });
 }

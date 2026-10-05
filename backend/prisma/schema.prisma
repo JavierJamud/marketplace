@@ -272,6 +272,52 @@ model Country {
   // Bloque 114: ubicaciones de tienda (VendorLocation) fuera de Cuba, donde
   // ya no hay una Province real y este es el único vínculo al catálogo.
   vendorLocations VendorLocation[]
+  // Bloque 244: provincias escritas a mano dentro de este país, pendientes
+  // de que el admin las revise (ver LocationSuggestion).
+  locationSuggestions LocationSuggestion[]
+}
+
+// Bloque 244 (pedido explícito — "los clientes pueden escribir su país y su
+// provincia si no la encuentran, y el admin los revisa y los agrega"): cada
+// país o provincia escrito a mano en un registro (cliente o tienda) queda
+// acá en vez de perderse en un campo de texto que ningún panel leía. Una
+// fila por nombre normalizado (sin tildes ni mayúsculas): "Panamá", "panama"
+// y " PANAMA " son la misma solicitud, con mentionCount subiendo cada vez que
+// alguien más la escribe — así el admin ve cuál pesa más. Aprobarla crea el
+// país/provincia real y enlaza a todas las personas y tiendas que la habían
+// escrito; fusionarla las enlaza a una que ya existía.
+enum LocationSuggestionKind {
+  COUNTRY
+  PROVINCE
+}
+
+enum LocationSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  MERGED
+}
+
+model LocationSuggestion {
+  id             String                   @id @default(cuid())
+  kind           LocationSuggestionKind
+  name           String // como lo escribió la primera persona
+  normalizedName String // sin tildes, en minúsculas y con espacios simples
+  // Solo PROVINCE: el país real del catálogo donde se escribió. Null en COUNTRY.
+  countryId      String?
+  status         LocationSuggestionStatus @default(PENDING)
+  mentionCount   Int                      @default(1)
+  // A qué país/provincia real quedó enlazada al aprobarla o fusionarla.
+  resolvedCountryId  String?
+  resolvedProvinceId String?
+  createdAt      DateTime                 @default(now())
+  lastSeenAt     DateTime                 @default(now())
+  reviewedAt     DateTime?
+
+  country Country? @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@index([status, kind])
+  @@index([normalizedName])
 }
 
 // Países a los que un vendedor puntual entrega (además/aparte de las
@@ -1536,6 +1582,10 @@ model VendorLocation {
   provinceId     String?
   municipalityId String?
   stateOther     String?
+  // Bloque 244: país escrito a mano cuando todavía no está en el catálogo
+  // (countryId queda null) — mismo criterio que User.registrationCountryOther.
+  // Se enlaza solo cuando el admin aprueba o fusiona la solicitud.
+  countryOther   String?
 
   vendor       Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   country      Country?      @relation(fields: [countryId], references: [id], onDelete: SetNull)

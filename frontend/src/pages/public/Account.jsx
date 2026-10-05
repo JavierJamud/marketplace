@@ -12,6 +12,7 @@ import { Select } from "../../components/ui/Select.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { PlanComparisonModal } from "../../components/PlanComparisonModal.jsx";
+import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 
 function BrandStat({ value, label }) {
@@ -189,11 +190,13 @@ const emptyStoreForm = {
   companyName: "",
   description: "",
   countryId: "",
+  // Bloque 244: país escrito a mano cuando no está en la lista del admin.
+  countryOther: "",
   provinceId: "",
   municipalityId: "",
   stateOther: "",
-  // Solo obligatoria si el país elegido no es Cuba (ver isStoreCuba) — "el
-  // país, el estado y la dirección" tal cual se pidió.
+  // Solo se pide cuando no hay un municipio real con el que ubicar la tienda
+  // (ver LocationPicker.computeLocationStatus).
   companyAddress: "",
   businessCategoryId: "",
   isRestaurant: false,
@@ -265,45 +268,12 @@ export default function Account({ mode = "customer" }) {
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
 
-  // Bloque 113/114: mismo patrón de selects en cascada país → provincia →
-  // municipio que ya usa VendorVerification.jsx/VendorSettings.jsx — acá
-  // sirve a la vez para la ubicación de la PERSONA (form.*, solo cliente) y
-  // la de la TIENDA (storeForm.*, solo vendedor). `?all=true` (a diferencia
-  // de esos otros 2 usos) trae TODOS los países activos del admin, tengan o
-  // no provincias/estados cargados — acá un país sin ninguna sigue siendo
-  // elegible porque fuera de Cuba el estado/dirección se escriben a mano
-  // (nunca se elige de un select vacío, callejón sin salida real reportado
-  // en vivo: con España/Estados Unidos recién agregados sin subdivisiones,
-  // el selector viejo solo mostraba Cuba).
-  const { data: countries = [] } = useQuery({
-    queryKey: ["active-countries-all"],
-    queryFn: async () => (await api.get("/locations/countries?all=true")).data.countries,
-    enabled: !isLogin,
-  });
-  const personCountry = countries.find((c) => c.id === form.registrationCountryId);
-  const isPersonCuba = personCountry?.code === "CU";
-  const { data: provincesForPersonCountry = [] } = useQuery({
-    queryKey: ["provinces-for-country", form.registrationCountryId],
-    queryFn: async () => (await api.get(`/locations/countries/${form.registrationCountryId}/provinces`)).data.provinces,
-    enabled: !!form.registrationCountryId && isPersonCuba,
-  });
-  const { data: municipalitiesForPersonProvince = [] } = useQuery({
-    queryKey: ["municipalities-for-province", form.provinceId],
-    queryFn: async () => (await api.get(`/locations/provinces/${form.provinceId}/municipalities`)).data.municipalities,
-    enabled: !!form.provinceId && isPersonCuba,
-  });
-  const storeCountry = countries.find((c) => c.id === storeForm.countryId);
-  const isStoreCuba = storeCountry?.code === "CU";
-  const { data: provincesForStoreCountry = [] } = useQuery({
-    queryKey: ["provinces-for-country", storeForm.countryId],
-    queryFn: async () => (await api.get(`/locations/countries/${storeForm.countryId}/provinces`)).data.provinces,
-    enabled: !!storeForm.countryId && isStoreCuba,
-  });
-  const { data: municipalitiesForStoreProvince = [] } = useQuery({
-    queryKey: ["municipalities-for-province", storeForm.provinceId],
-    queryFn: async () => (await api.get(`/locations/provinces/${storeForm.provinceId}/municipalities`)).data.municipalities,
-    enabled: !!storeForm.provinceId && isStoreCuba,
-  });
+  // Bloque 244: los selectores de país → provincia → municipio (y el texto
+  // manual cuando no aparece el suyo) viven en LocationPicker, compartido por
+  // el registro del cliente y el de la tienda. `locStatus` es lo que el
+  // selector reporta hacia arriba (si falta algo y si hace falta dirección)
+  // para validar antes de enviar.
+  const [locStatus, setLocStatus] = useState({ error: null, needsAddress: false });
 
   // Bloque 18: rubro obligatorio de la tienda.
   const { data: businessCategories } = useQuery({
@@ -440,6 +410,7 @@ export default function Account({ mode = "customer" }) {
       return {
         ...base,
         registrationCountryId: storeForm.countryId || undefined,
+        registrationCountryOther: storeForm.countryOther.trim() || undefined,
         provinceId: storeForm.provinceId || undefined,
         municipalityId: storeForm.municipalityId || undefined,
         stateOther: storeForm.stateOther.trim() || undefined,
@@ -465,61 +436,19 @@ export default function Account({ mode = "customer" }) {
     // Bloque 114 (pedido explícito): paso 3, distinto según el tipo de
     // cuenta — "tu ubicación" (cliente) o "configuración de la tienda"
     // (vendedor, incluye su propia ubicación — no se pregunta 2 veces).
-    if (accountType === "customer") {
-      if (!form.registrationCountryId && !form.registrationCountryOther.trim()) {
-        toast.error('Selecciona tu país (o "Otro país" si no está en la lista).');
-        return;
-      }
-      if (form.registrationCountryId) {
-        if (isPersonCuba) {
-          if (!form.provinceId) {
-            toast.error("Selecciona tu provincia.");
-            return;
-          }
-          if (!form.municipalityId) {
-            toast.error("Selecciona tu municipio.");
-            return;
-          }
-        } else {
-          if (!form.stateOther.trim()) {
-            toast.error("Indica tu estado/provincia.");
-            return;
-          }
-          if (!form.address.trim()) {
-            toast.error("Indica tu dirección.");
-            return;
-          }
-        }
-      }
-    } else {
-      // Bloque 113/114 (pedido explícito — "antes de empezar a vender"):
-      // dónde presta servicio la tienda es obligatorio, siempre un lugar
-      // REAL del catálogo (a diferencia del país de la persona, acá no hay
-      // "otro país" — el marketplace no puede listar una tienda en un sitio
-      // que no tiene cargado).
-      if (!storeForm.countryId) {
-        toast.error("Elige el país donde va a operar tu tienda.");
-        return;
-      }
-      if (isStoreCuba) {
-        if (!storeForm.provinceId) {
-          toast.error("Elige la provincia donde va a operar tu tienda.");
-          return;
-        }
-        if (!storeForm.municipalityId) {
-          toast.error("Elige el municipio donde va a operar tu tienda.");
-          return;
-        }
-      } else {
-        if (!storeForm.stateOther.trim()) {
-          toast.error("Indica el estado donde va a operar tu tienda.");
-          return;
-        }
-        if (!storeForm.companyAddress.trim()) {
-          toast.error("Indica la dirección de tu tienda.");
-          return;
-        }
-      }
+    // Bloque 244: la ubicación (país, provincia o estado, municipio y
+    // dirección cuando hace falta) la valida LocationPicker y reporta su estado
+    // en locStatus — igual para el cliente y para la tienda. Lo escrito a
+    // mano es válido: llega al admin como solicitud para revisar.
+    if (locStatus.error) {
+      toast.error(locStatus.error);
+      return;
+    }
+    if (locStatus.needsAddress && !(accountType === "customer" ? form.address : storeForm.companyAddress).trim()) {
+      toast.error(accountType === "customer" ? "Indica tu dirección." : "Indica la dirección de tu tienda.");
+      return;
+    }
+    if (accountType === "vendor") {
       if (storeForm.isRestaurant && !storeForm.tableCount) {
         toast.error("Indica la cantidad de mesas de tu restaurante.");
         return;
@@ -591,7 +520,8 @@ export default function Account({ mode = "customer" }) {
             // cualquier otro país real.
             locations: [
               {
-                countryId: storeForm.countryId,
+                countryId: storeForm.countryId || undefined,
+                countryOther: storeForm.countryOther.trim() || undefined,
                 provinceId: storeForm.provinceId || undefined,
                 municipalityId: storeForm.municipalityId || undefined,
                 stateOther: storeForm.stateOther.trim() || undefined,
@@ -1006,88 +936,33 @@ export default function Account({ mode = "customer" }) {
                   exige elegir un país que no es el suyo. */}
               {step === 3 && accountType === "customer" && (
                 <div key="step-3" className="animate-step-in space-y-4">
-                  <Select
-                    label="País"
-                    required
-                    value={form.registrationCountryId}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        registrationCountryId: e.target.value,
-                        registrationCountryOther: "",
-                        provinceId: "",
-                        municipalityId: "",
-                        stateOther: "",
-                        address: "",
+                  {/* Bloque 244: mismo selector que la tienda — catálogo del
+                      admin primero, texto manual solo si no aparece. */}
+                  <LocationPicker
+                    value={{
+                      countryId: form.registrationCountryId,
+                      countryOther: form.registrationCountryOther,
+                      provinceId: form.provinceId,
+                      municipalityId: form.municipalityId,
+                      stateOther: form.stateOther,
+                    }}
+                    onChange={(patch) =>
+                      setForm((prev) => {
+                        const next = { ...prev };
+                        if ("countryId" in patch) next.registrationCountryId = patch.countryId;
+                        if ("countryOther" in patch) next.registrationCountryOther = patch.countryOther;
+                        if ("provinceId" in patch) next.provinceId = patch.provinceId;
+                        if ("municipalityId" in patch) next.municipalityId = patch.municipalityId;
+                        if ("stateOther" in patch) next.stateOther = patch.stateOther;
+                        return next;
                       })
                     }
-                    disabled={!!form.registrationCountryOther}
-                  >
-                    <option value="">Selecciona tu país...</option>
-                    {countries.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </Select>
-
-                  <div>
-                    <Input
-                      label="¿Tu país no está en la lista? Escríbelo acá"
-                      value={form.registrationCountryOther}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          registrationCountryOther: e.target.value,
-                          registrationCountryId: "",
-                          provinceId: "",
-                          municipalityId: "",
-                          stateOther: "",
-                          address: "",
-                        })
-                      }
-                      placeholder="Nombre de tu país"
-                    />
-                    <p className="mt-1 text-label-sm text-outline">Completa esto SOLO si tu país no aparece en la lista de arriba.</p>
-                  </div>
-
-                  {form.registrationCountryId && isPersonCuba && (
-                    <>
-                      <Select
-                        label="Provincia"
-                        required
-                        value={form.provinceId}
-                        onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityId: "" })}
-                      >
-                        <option value="">Selecciona...</option>
-                        {provincesForPersonCountry.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </Select>
-                      <Select
-                        label="Municipio"
-                        required
-                        disabled={!form.provinceId}
-                        value={form.municipalityId}
-                        onChange={(e) => setForm({ ...form, municipalityId: e.target.value })}
-                      >
-                        <option value="">Selecciona...</option>
-                        {municipalitiesForPersonProvince.map((m) => (
-                          <option key={m.id} value={m.id}>{m.name}</option>
-                        ))}
-                      </Select>
-                    </>
-                  )}
-
-                  {form.registrationCountryId && !isPersonCuba && (
-                    <>
-                      <Input
-                        label="Estado/Provincia"
-                        required
-                        value={form.stateOther}
-                        onChange={(e) => setForm({ ...form, stateOther: e.target.value })}
-                      />
-                      <Input label="Dirección" required value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-                    </>
-                  )}
+                    address={form.address}
+                    onAddressChange={(address) => setForm((prev) => ({ ...prev, address }))}
+                    onStatus={setLocStatus}
+                    labels={{ country: "País", province: "Provincia o estado" }}
+                    addressLabel="Dirección"
+                  />
                 </div>
               )}
 
@@ -1120,69 +995,31 @@ export default function Account({ mode = "customer" }) {
                     </p>
                   </div>
 
-                  <Select
-                    label="País donde va a operar tu tienda"
-                    required
-                    value={storeForm.countryId}
-                    onChange={(e) =>
-                      setStoreForm({ ...storeForm, countryId: e.target.value, provinceId: "", municipalityId: "", stateOther: "" })
-                    }
-                  >
-                    <option value="">Selecciona un país...</option>
-                    {countries.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </Select>
-
-                  {storeForm.countryId && isStoreCuba && (
-                    <>
-                      <Select
-                        label="Provincia donde prestas servicio"
-                        required
-                        value={storeForm.provinceId}
-                        onChange={(e) => setStoreForm({ ...storeForm, provinceId: e.target.value, municipalityId: "" })}
-                      >
-                        <option value="">Selecciona...</option>
-                        {provincesForStoreCountry.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </Select>
-                      <Select
-                        label="Municipio donde prestas servicio"
-                        required
-                        disabled={!storeForm.provinceId}
-                        value={storeForm.municipalityId}
-                        onChange={(e) => setStoreForm({ ...storeForm, municipalityId: e.target.value })}
-                      >
-                        <option value="">Selecciona...</option>
-                        {municipalitiesForStoreProvince.map((m) => (
-                          <option key={m.id} value={m.id}>{m.name}</option>
-                        ))}
-                      </Select>
-                    </>
-                  )}
-
-                  {/* Bloque 113/114: fuera de Cuba no hay provincia/municipio
-                      del catálogo — estado de texto libre + dirección real
-                      de la tienda ("el país, el estado y la dirección" tal
-                      cual se pidió). */}
-                  {storeForm.countryId && !isStoreCuba && (
-                    <Input
-                      label="Estado donde prestas servicio"
-                      required
-                      value={storeForm.stateOther}
-                      onChange={(e) => setStoreForm({ ...storeForm, stateOther: e.target.value })}
-                    />
-                  )}
-
-                  {storeForm.countryId && !isStoreCuba && (
-                    <Input
-                      label="Dirección de la tienda"
-                      required
-                      value={storeForm.companyAddress}
-                      onChange={(e) => setStoreForm({ ...storeForm, companyAddress: e.target.value })}
-                    />
-                  )}
+                  {/* Bloque 244 (pedido explícito): país, provincia y municipio
+                      salen del catálogo del admin; si no están, se escriben a
+                      mano y el admin los revisa (LocationPicker). La dirección
+                      de la tienda se pide cuando no hay un municipio real. */}
+                  <LocationPicker
+                    value={{
+                      countryId: storeForm.countryId,
+                      countryOther: storeForm.countryOther,
+                      provinceId: storeForm.provinceId,
+                      municipalityId: storeForm.municipalityId,
+                      stateOther: storeForm.stateOther,
+                    }}
+                    onChange={(patch) => setStoreForm((prev) => ({ ...prev, ...patch }))}
+                    address={storeForm.companyAddress}
+                    onAddressChange={(companyAddress) => setStoreForm((prev) => ({ ...prev, companyAddress }))}
+                    onStatus={setLocStatus}
+                    labels={{
+                      country: "País donde va a operar tu tienda",
+                      countryOther: "Escribe el país donde va a operar tu tienda",
+                      province: "Provincia o estado donde prestas servicio",
+                      provinceOther: "Escribe la provincia o estado donde prestas servicio",
+                      municipality: "Municipio donde prestas servicio",
+                    }}
+                    addressLabel="Dirección de la tienda"
+                  />
 
                   <div>
                     <div className="flex items-center gap-2.5">

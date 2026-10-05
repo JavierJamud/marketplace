@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import {
+  listSuggestions,
+  countPendingSuggestions,
+  approveSuggestion,
+  mergeSuggestion,
+  rejectSuggestion,
+} from "../services/locationSuggestions.service.js";
 
 export async function listProvinces(_req, res) {
   const provinces = await prisma.province.findMany({
@@ -132,19 +139,32 @@ export async function updateCountry(req, res) {
   res.json({ country });
 }
 
+// Bloque 244: qué cuenta como "este país está en uso" — compartido por el
+// borrado de uno y el borrado masivo para que nunca difieran.
+const COUNTRY_USAGE_COUNTS = { provinces: true, vendorDeliveries: true, registeredUsers: true, vendorLocations: true, vendorsRegisteredHere: true };
+
+function countryBlockReason(c) {
+  if (c.provinces > 0) return `Tiene ${c.provinces} provincia(s) cargada(s).`;
+  if (c.registeredUsers > 0) return `${c.registeredUsers} persona(s) se registraron en este país.`;
+  if (c.vendorLocations > 0 || c.vendorsRegisteredHere > 0) return `${c.vendorLocations + c.vendorsRegisteredHere} tienda(s) lo usan como ubicación o país de registro.`;
+  if (c.vendorDeliveries > 0) return `${c.vendorDeliveries} tienda(s) lo tienen como país de entrega.`;
+  return null;
+}
+
 export async function deleteCountry(req, res) {
   const { id } = req.params;
   const existing = await prisma.country.findUnique({
     where: { id },
-    include: { _count: { select: { provinces: true, vendorDeliveries: true } } },
+    include: { _count: { select: COUNTRY_USAGE_COUNTS } },
   });
   if (!existing) throw new AppError("País no encontrado.", 404);
 
-  if (existing._count.provinces > 0 || existing._count.vendorDeliveries > 0) {
-    throw new AppError(
-      "No puedes eliminar este país porque tiene provincias/estados cargados o hay vendedores que lo usan. En su lugar, desactívalo.",
-      409
-    );
+  // Bloque 244: antes solo miraba provincias y países de entrega — borrar un
+  // país con personas o tiendas registradas ahí las dejaba sin país en
+  // silencio (onDelete: SetNull), perdiendo dónde viven o venden.
+  const reason = countryBlockReason(existing._count);
+  if (reason) {
+    throw new AppError(`No puedes eliminar este país: ${reason} En su lugar, desactívalo.`, 409);
   }
 
   await prisma.country.delete({ where: { id } });
@@ -177,20 +197,13 @@ export async function bulkDeleteCountries(req, res) {
 
   const countries = await prisma.country.findMany({
     where: { id: { in: ids } },
-    include: { _count: { select: { provinces: true, vendorDeliveries: true } } },
+    include: { _count: { select: COUNTRY_USAGE_COUNTS } },
   });
 
-  const deletable = countries.filter((c) => c._count.provinces === 0 && c._count.vendorDeliveries === 0);
+  const deletable = countries.filter((c) => !countryBlockReason(c._count));
   const blocked = countries
-    .filter((c) => c._count.provinces > 0 || c._count.vendorDeliveries > 0)
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      reason:
-        c._count.provinces > 0
-          ? `Tiene ${c._count.provinces} provincia(s) cargada(s).`
-          : `${c._count.vendorDeliveries} tienda(s) lo tienen como país de entrega.`,
-    }));
+    .filter((c) => countryBlockReason(c._count))
+    .map((c) => ({ id: c.id, name: c.name, reason: countryBlockReason(c._count) }));
 
   if (deletable.length > 0) {
     await prisma.country.deleteMany({ where: { id: { in: deletable.map((c) => c.id) } } });
@@ -346,4 +359,47 @@ export async function deleteMunicipality(req, res) {
 
   await prisma.municipality.delete({ where: { id } });
   res.status(204).end();
+}
+
+// --- Solicitudes de ubicación (Bloque 244) ----------------------------------
+// Países y provincias escritos a mano en el registro, esperando revisión del
+// admin. Ver locationSuggestions.service.js.
+
+const suggestionsQuerySchema = z.object({ status: z.enum(["PENDING", "APPROVED", "REJECTED", "MERGED", "ALL"]).default("PENDING") });
+
+export async function listLocationSuggestions(req, res) {
+  const { status } = suggestionsQuerySchema.parse(req.query);
+  res.json({ suggestions: await listSuggestions(status) });
+}
+
+// Mismo contrato que /admin/reports/pending-count y similares: alimenta el
+// contador del menú lateral del admin.
+export async function pendingLocationSuggestionsCount(_req, res) {
+  res.json({ count: await countPendingSuggestions() });
+}
+
+const approveSuggestionSchema = z.object({
+  // Solo para países: el código ISO que el admin le pone (2 o 3 letras).
+  code: z.string().trim().max(3).optional(),
+  // Opcional: corregir cómo se escribe antes de crearlo (tildes, mayúsculas).
+  name: z.string().trim().min(2).max(80).optional(),
+});
+
+export async function approveLocationSuggestion(req, res) {
+  const body = approveSuggestionSchema.parse(req.body ?? {});
+  const linked = await approveSuggestion(req.params.id, body);
+  res.json({ ok: true, linked });
+}
+
+const mergeSuggestionSchema = z.object({ targetId: z.string().min(1, "Elige a cuál se fusiona.") });
+
+export async function mergeLocationSuggestion(req, res) {
+  const { targetId } = mergeSuggestionSchema.parse(req.body ?? {});
+  const linked = await mergeSuggestion(req.params.id, { targetId });
+  res.json({ ok: true, linked });
+}
+
+export async function rejectLocationSuggestion(req, res) {
+  await rejectSuggestion(req.params.id);
+  res.json({ ok: true });
 }
