@@ -203,16 +203,19 @@ export default function Home() {
                   <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} heightClass="h-[220px] sm:h-[300px]" />
                 </div>
               )}
-              <div className="flex flex-wrap gap-3.5">
+              {/* Bloque 253 (pedido explícito): en celular los dos botones van uno
+                  al lado del otro. El principal ocupa el espacio que sobra y el
+                  secundario mide lo que su texto. */}
+              <div className="flex gap-2.5 sm:gap-3.5">
                 <Link
                   to="/catalogo"
-                  className="flex min-h-11 w-full items-center justify-center rounded bg-secondary-container px-6 py-3 text-label-md text-on-secondary-container hover:brightness-95 sm:w-auto"
+                  className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded bg-secondary-container px-2 py-3 text-center text-[13px] font-semibold text-on-secondary-container hover:brightness-95 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
                 >
                   {hasProvinceFilter ? `Explorar en ${provinceName}` : "Explorar todo el catálogo"}
                 </Link>
                 <Link
                   to="/tiendas"
-                  className="hidden min-h-11 items-center rounded border-[1.5px] border-white/30 px-6 py-3 text-label-md text-white hover:bg-white/10 sm:flex"
+                  className="flex min-h-11 flex-shrink-0 items-center justify-center whitespace-nowrap rounded border-[1.5px] border-white/30 px-3.5 py-3 text-[13px] font-semibold text-white hover:bg-white/10 sm:px-6 sm:text-label-md sm:font-normal"
                 >
                   Ver tiendas
                 </Link>
