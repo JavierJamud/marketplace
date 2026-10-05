@@ -308,9 +308,15 @@ export default function AdminCampaigns() {
     queryKey: ["locations-provinces"],
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
-  const { data: customers } = useQuery({
-    queryKey: ["admin-customers"],
-    queryFn: async () => (await api.get("/admin/customers")).data.customers,
+  // Bloque 242: GET /admin/customers ahora pagina — acá solo hace falta
+  // CUÁNTOS destinatarios tendría la campaña, así que se pide una página de 1
+  // fila y se lee el `total` (antes se bajaba la lista completa de clientes
+  // al navegador solo para contarla). "active" = cuenta no suspendida.
+  const { data: customerCount } = useQuery({
+    queryKey: ["admin-list-customer-count", provinceId],
+    queryFn: async () =>
+      (await api.get("/admin/customers", { params: { status: "active", provinceId: provinceId || undefined, pageSize: 1 } })).data.total,
+    enabled: segment === "all_customers",
   });
   const { data: vendors } = useQuery({
     queryKey: ["admin-vendors", "all"],
@@ -329,14 +335,12 @@ export default function AdminCampaigns() {
 
   const recipientEstimate = useMemo(() => {
     const pName = provinceId ? provinceName[provinceId] : null;
-    if (segment === "all_customers") {
-      return (customers ?? []).filter((c) => !c.isSuspended && (!pName || c.province === pName)).length;
-    }
+    if (segment === "all_customers") return customerCount ?? 0;
     const planFilter = segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "BUSINESS" : null;
     return (vendors ?? []).filter(
       (v) => !v.isBlocked && (!planFilter || v.planType === planFilter) && (!pName || v.locations?.[0]?.province?.name === pName)
     ).length;
-  }, [segment, provinceId, provinceName, customers, vendors]);
+  }, [segment, provinceId, provinceName, customerCount, vendors]);
 
   const ctaMismatch = !!ctaLabel !== !!ctaUrl;
 

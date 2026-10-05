@@ -1,4 +1,5 @@
-import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X, MoreVertical } from "lucide-react";
 import { CARD } from "../dashboard/DashboardCard.jsx";
 
 // Bloque 241 (pedido explícito): piezas compartidas de las listas del admin
@@ -56,6 +57,69 @@ export function SortHeader({ label, sortKey, sort, dir, onSort, align = "left" }
       {label}
       {active && (dir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
     </button>
+  );
+}
+
+// Menú de acciones por fila ("⋮"): con 5 botones de texto por fila una tabla
+// de clientes o tiendas se ensancha y se parte en celular. Se cierra al tocar
+// afuera o con Escape (R-32). `items`: { label, onClick, danger?, hidden? }.
+// El contenedor de la lista NO lleva overflow-hidden, o este menú quedaría
+// recortado en las últimas filas.
+export function ActionMenu({ items, label = "Acciones de la fila" }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex h-11 w-11 items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container md:h-9 md:w-9"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full z-30 mt-1 min-w-[170px] rounded-xl border border-surface-container-high bg-surface-container-lowest py-1 shadow-lg">
+          {items
+            .filter((item) => !item.hidden)
+            .map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  item.onClick();
+                }}
+                className={`flex h-11 w-full items-center px-3.5 text-left text-[13px] font-semibold hover:bg-surface-container md:h-9 ${
+                  item.danger ? "text-error" : "text-on-surface"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
   );
 }
 

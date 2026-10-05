@@ -14,6 +14,7 @@ import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } f
 import { computeVendorHealthScore } from "./vendors.controller.js";
 import { rawSalesSeries, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
 import { recalcVendorProductQuota } from "../lib/planConfig.js";
+import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -1301,17 +1302,113 @@ export async function grantBusinessPlan(req, res) {
 
 // --- Clientes ------------------------------------------------------------
 
+// Bloque 242 (pedido explícito — "la tabla de clientes más moderna y compacta,
+// que no se haga extensa cuando sean miles"): antes traía TODOS los clientes
+// al navegador y filtraba allá. Ahora pagina, busca, filtra y ordena en el
+// servidor (contrato común en lib/pagination.js). `status` también lo usa
+// AdminCampaigns con pageSize=1 solo para leer el `total` (cuántos
+// destinatarios tendría una campaña) en vez de bajarse la lista entera.
+const DAY_MS_CUSTOMERS = 24 * 60 * 60 * 1000;
+
+const customersQuerySchema = paginationQuerySchema.extend({
+  q: z.string().trim().max(100).optional(),
+  provinceId: z.string().optional(),
+  status: z.enum(["all", "active", "suspended", "new", "recent", "buyers", "nobuyers", "reporters"]).default("all"),
+  sort: z.enum(["recent", "orders", "lastLogin", "name"]).default("recent"),
+  dir: z.enum(["asc", "desc"]).default("desc"),
+});
+
+function customerStatusWhere(status) {
+  const since = new Date(Date.now() - 30 * DAY_MS_CUSTOMERS);
+  switch (status) {
+    case "active":
+      return { isSuspended: false };
+    case "suspended":
+      return { isSuspended: true };
+    case "new":
+      return { createdAt: { gte: since } };
+    case "recent":
+      return { lastLoginAt: { gte: since } };
+    case "buyers":
+      return { orders: { some: {} } };
+    case "nobuyers":
+      return { orders: { none: {} } };
+    case "reporters":
+      return { reportsMade: { some: {} } };
+    default:
+      return {};
+  }
+}
+
+function customersOrderBy(sort, dir) {
+  const map = {
+    recent: [{ createdAt: dir }],
+    orders: [{ orders: { _count: dir } }],
+    // Quien nunca entró (lastLoginAt null) va siempre al final, sin importar
+    // la dirección — "último acceso más reciente" no debe abrir con cuentas
+    // que jamás iniciaron sesión.
+    lastLogin: [{ lastLoginAt: { sort: dir, nulls: "last" } }],
+    name: [{ fullName: dir }],
+  };
+  return [...map[sort], { id: "asc" }];
+}
+
 export async function listCustomers(req, res) {
-  const customers = await prisma.user.findMany({
-    where: { role: "CUSTOMER", deletedAt: null },
-    // Feature B (pedido explícito): "cliente de alto riesgo" es DERIVADO —
-    // cuántos reportes de fraude hizo (reportsMade), sin campo booleano
-    // nuevo que pueda desincronizarse. No filtra por status del reporte
-    // (un reporte descartado también cuenta para el patrón de uso, es
-    // información para el admin, no una acusación).
-    include: { province: true, _count: { select: { orders: true, reportsMade: true } } },
-    orderBy: { createdAt: "desc" },
-  });
+  const query = customersQuerySchema.parse(req.query);
+  const { q, provinceId, status, sort, dir } = query;
+
+  const scope = { role: "CUSTOMER", deletedAt: null, provinceId: provinceId || undefined };
+  const where = {
+    ...scope,
+    ...customerStatusWhere(status),
+    ...(q
+      ? {
+          OR: [
+            { fullName: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+            { phone: { contains: q } },
+          ],
+        }
+      : {}),
+  };
+
+  // Feature B (pedido explícito): "cliente de alto riesgo" es DERIVADO —
+  // cuántos reportes de fraude hizo (reportsMade), sin campo booleano
+  // nuevo que pueda desincronizarse. No filtra por status del reporte
+  // (un reporte descartado también cuenta para el patrón de uso, es
+  // información para el admin, no una acusación).
+  const [customers, total, kAll, kRecent, kNew, kBuyers, kNoBuyers, kReporters, kSuspended] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      include: {
+        province: true,
+        registrationCountry: { select: { name: true } },
+        _count: { select: { orders: true, reportsMade: true } },
+      },
+      orderBy: customersOrderBy(sort, dir),
+      ...pageArgs(query),
+    }),
+    prisma.user.count({ where }),
+    prisma.user.count({ where: scope }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("recent") } }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("new") } }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("buyers") } }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("nobuyers") } }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("reporters") } }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("suspended") } }),
+  ]);
+
+  // Fecha del último pedido de cada cliente de ESTA página, en una sola
+  // consulta agrupada (nunca una por fila).
+  const lastOrders = customers.length
+    ? await prisma.order.groupBy({
+        by: ["customerId"],
+        where: { customerId: { in: customers.map((c) => c.id) } },
+        _max: { createdAt: true },
+      })
+    : [];
+  const lastOrderByCustomer = new Map(lastOrders.map((o) => [o.customerId, o._max.createdAt]));
+
   res.json({
     customers: customers.map((c) => ({
       id: c.id,
@@ -1319,10 +1416,16 @@ export async function listCustomers(req, res) {
       email: c.email,
       phone: c.phone,
       province: c.province?.name ?? null,
+      country: c.registrationCountry?.name ?? c.registrationCountryOther ?? null,
       orderCount: c._count.orders,
+      lastOrderAt: lastOrderByCustomer.get(c.id) ?? null,
       reportsMadeCount: c._count.reportsMade,
       isSuspended: c.isSuspended,
+      createdAt: c.createdAt,
+      lastLoginAt: c.lastLoginAt,
     })),
+    kpis: { all: kAll, recent: kRecent, new: kNew, buyers: kBuyers, nobuyers: kNoBuyers, reporters: kReporters, suspended: kSuspended },
+    ...pageMeta(query, total),
   });
 }
 

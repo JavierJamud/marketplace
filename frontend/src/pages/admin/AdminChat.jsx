@@ -23,10 +23,18 @@ function DirectEmailPanel() {
   const [message, setMessage] = useState("");
   const [showResults, setShowResults] = useState(false);
 
-  const { data: customers } = useQuery({
-    queryKey: ["admin-customers"],
-    queryFn: async () => (await api.get("/admin/customers")).data.customers,
-    enabled: recipientType === "customer",
+  // Bloque 242: GET /admin/customers ahora pagina — en vez de bajar todos los
+  // clientes y filtrar acá, se busca en el servidor mientras se escribe
+  // (espera de 300 ms, mínimo 2 letras) y se pide solo la 1ª página de 8.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const { data: customerMatches } = useQuery({
+    queryKey: ["admin-list-customer-search", debouncedQuery],
+    queryFn: async () => (await api.get("/admin/customers", { params: { q: debouncedQuery, pageSize: 8, sort: "name", dir: "asc" } })).data.customers,
+    enabled: recipientType === "customer" && debouncedQuery.length >= 2,
   });
   const { data: vendors } = useQuery({
     queryKey: ["admin-vendors", "all"],
@@ -34,14 +42,14 @@ function DirectEmailPanel() {
     enabled: recipientType === "vendor",
   });
 
-  const pool = recipientType === "customer" ? customers : vendors;
-  const matches = (pool ?? [])
-    .filter((p) => {
-      if (!query.trim()) return false;
-      const label = recipientType === "customer" ? `${p.fullName ?? ""} ${p.email ?? ""}` : p.companyName;
-      return label.toLowerCase().includes(query.toLowerCase());
-    })
-    .slice(0, 8);
+  const matches =
+    recipientType === "customer"
+      ? debouncedQuery.length >= 2
+        ? customerMatches ?? []
+        : []
+      : (vendors ?? [])
+          .filter((p) => query.trim() && p.companyName.toLowerCase().includes(query.toLowerCase()))
+          .slice(0, 8);
 
   function pick(p) {
     setSelected(p);
