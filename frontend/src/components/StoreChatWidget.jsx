@@ -586,7 +586,7 @@ export function StoreChatWidget({ vendor }) {
           <button
             onClick={() => setShowBubble(false)}
             aria-label="Cerrar aviso"
-            className="flex-shrink-0 text-outline hover:text-on-surface-variant"
+            className="-mr-3 -mt-3 flex h-11 w-11 flex-shrink-0 items-center justify-center text-on-surface-variant hover:text-on-surface"
           >
             <X className="h-3.5 w-3.5" />
           </button>

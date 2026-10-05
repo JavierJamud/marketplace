@@ -1,53 +1,30 @@
-import { useMemo, useState } from "react";
-import useEmblaCarousel from "embla-carousel-react";
-import Autoplay from "embla-carousel-autoplay";
 import { CompactStoreCard } from "./CompactStoreCard.jsx";
-import { PauseToggle } from "./ui/PauseToggle.jsx";
-import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
+import { InfiniteMarquee } from "./InfiniteMarquee.jsx";
 
-const AUTOPLAY_DELAY_MS = 3200;
-
-// Bloque 48 (reemplaza el punto 8 del Bloque 17 y el rediseño del Bloque 47
-// — pedido explícito: sin flechas ni dots, tarjeta chica, loop infinito de
-// una sola dirección). Embla con loop:true + Autoplay ya avanza siempre
-// hacia adelante y nunca retrocede — no hace falta el truco manual de
-// array triplicado + reindexado que sugiere el bloque como fallback,
-// porque la librería (ya instalada desde el Bloque 47) resuelve esto sola.
-// "align: center" + basis responsive = en mobile la tarjeta activa ocupa
-// ~80% del contenedor (así las vecinas quedan cortadas a los costados,
-// efecto "peek"), en desktop basis 33.33% muestra exactamente 3 completas
-// sin recorte — una sola implementación cubre los dos casos del bloque,
-// sin dimming/escala entre tarjetas (todas se ven igual de nítidas).
+// Bloque 48: tarjetas compactas, sin flechas ni puntos, loop de una sola
+// dirección. Bloque 251 (pedido explícito): ahora es el desplazamiento infinito
+// continuo de InfiniteMarquee (las tiendas que ya pasaron vuelven a entrar por
+// el final, sin hueco blanco) y sin botón de pausa. Con una sola tienda se
+// muestra quieta: repetirla sola no tiene sentido.
 export function VerifiedStoresSlider({ stores }) {
-  // Bloque 248 (auditoría 004, hallazgo 9): el autoplay se apaga si el sistema
-  // pide reducir el movimiento, se detiene cuando la persona toca o desliza
-  // (ya tomó el control) y tiene un botón real de pausa.
-  const reducedMotion = usePrefersReducedMotion();
-  const [paused, setPaused] = useState(false);
-  const plugins = useMemo(
-    () => (reducedMotion || paused ? [] : [Autoplay({ delay: AUTOPLAY_DELAY_MS, stopOnMouseEnter: true, stopOnInteraction: true })]),
-    [reducedMotion, paused]
-  );
-  const [emblaRef] = useEmblaCarousel({ loop: true, align: "center", duration: 35 }, plugins);
-
   if (!stores.length) return null;
 
+  if (stores.length === 1) {
+    return (
+      <div className="max-w-[420px]">
+        <CompactStoreCard vendor={stores[0]} />
+      </div>
+    );
+  }
+
   return (
-    <>
-    <div className="overflow-hidden" ref={emblaRef}>
-      <div className="flex touch-pan-y">
-        {stores.map((v) => (
-          <div key={v.id} className="min-w-0 flex-shrink-0 basis-[80%] px-2 sm:basis-[45%] lg:basis-[33.3333%]">
-            <CompactStoreCard vendor={v} />
-          </div>
-        ))}
-      </div>
-    </div>
-    {!reducedMotion && stores.length > 1 && (
-      <div className="flex justify-end">
-        <PauseToggle paused={paused} onToggle={() => setPaused((p) => !p)} label="tiendas" />
-      </div>
-    )}
-    </>
+    <InfiniteMarquee
+      items={stores}
+      getKey={(v) => v.id}
+      renderItem={(v) => <CompactStoreCard vendor={v} />}
+      itemClassName="w-[78vw] px-2 sm:w-[360px] lg:w-[410px]"
+      secondsPerItem={7}
+      label="Tiendas verificadas"
+    />
   );
 }

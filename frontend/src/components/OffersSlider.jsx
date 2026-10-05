@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";
-import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
-import { PauseToggle } from "./ui/PauseToggle.jsx";
+import { InfiniteMarquee } from "./InfiniteMarquee.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -140,97 +139,17 @@ function OfferCard({ offer }) {
   );
 }
 
-// Bloque 154 (pedido explícito): "Ofertas de la semana" deja de ser una
-// grilla tipo ladrillos con rotación por ventana y pasa a ser un carrusel
-// que se desliza solo, infinito — 1 tarjeta a la vez en mobile, 2 o 3 en
-// pantallas más grandes según el ancho (puramente por CSS con anchos
-// responsivos, sin JS escuchando resize). AUTOPLAY_MS de cada sentido es
-// distinto a propósito (ver más abajo, componente reverse=true) para que
-// las dos secciones del Home no queden nunca sincronizadas mostrando lo
-// mismo en el mismo instante.
-const AUTOPLAY_MS = 4200;
-const AUTOPLAY_MS_REVERSE = 4900;
-const SLIDE_TRANSITION_MS = 600;
-// Cuántas copias de la lista de ofertas arma el "riel" del carrusel — da
-// colchón de sobra para el máximo de 3 tarjetas visibles a la vez en
-// cualquiera de los 2 sentidos, incluso con muy pocas ofertas activas
-// (probado con 1, 2 y 5). No depende del breakpoint actual: es fijo y de
-// sobra para cualquier ancho de pantalla soportado.
-const RAIL_COPIES = 4;
+// Bloque 154 (pedido explícito): "Ofertas de la semana" es un carrusel que se
+// desliza solo. Bloque 251 (pedido explícito): ahora usa el desplazamiento
+// infinito continuo de InfiniteMarquee, igual que las tiendas verificadas: una
+// sola dirección, las ofertas que ya pasaron vuelven a entrar por el final y no
+// queda un hueco blanco. Se quitó el botón de pausa; se detiene al pasar el
+// mouse y no se anima con "reducir movimiento". La sección duplicada del
+// Bloque 154 ya no existe, así que `reverse` desapareció.
+export function OffersSlider({ offers }) {
+  if (!offers?.length) return null;
 
-// Avanza/retrocede un índice sobre un riel de `RAIL_COPIES` copias idénticas
-// de la lista y, al llegar al borde de una copia, "teletransporta" el índice
-// a la posición equivalente de la copia anterior/siguiente SIN transición —
-// como el contenido en esa posición es idéntico (es la misma lista
-// repetida), el salto es invisible y el loop se siente infinito de verdad.
-function useRailIndex(length, reverse, intervalMs, hold) {
-  const [index, setIndex] = useState(() => (reverse ? length : 0));
-  const [smooth, setSmooth] = useState(true);
-
-  useEffect(() => {
-    if (length <= 1 || hold) return undefined;
-    const id = setInterval(() => setIndex((i) => (reverse ? i - 1 : i + 1)), intervalMs);
-    return () => clearInterval(id);
-  }, [length, reverse, intervalMs, hold]);
-
-  useEffect(() => {
-    if (smooth) return undefined;
-    const raf = requestAnimationFrame(() => setSmooth(true));
-    return () => cancelAnimationFrame(raf);
-  }, [smooth]);
-
-  function handleTransitionEnd(e) {
-    // Ignora transitionend que burbujea desde algo adentro de una tarjeta —
-    // solo interesa la transición del propio riel (transform).
-    if (e.target !== e.currentTarget) return;
-    if (!reverse && index === length) {
-      setSmooth(false);
-      setIndex(0);
-    } else if (reverse && index === 0) {
-      setSmooth(false);
-      setIndex(length);
-    }
-  }
-
-  return { index, smooth, handleTransitionEnd };
-}
-
-// reverse=true: misma lista de ofertas pero en orden invertido Y
-// deslizándose hacia el sentido contrario (pedido explícito, para la
-// sección duplicada debajo de "Abre tu tienda online gratis") — así ninguna
-// de las 2 secciones del Home muestra la misma oferta en la misma posición
-// en el mismo momento.
-export function OffersSlider({ offers, reverse = false }) {
-  const length = offers?.length ?? 0;
-  const base = useMemo(() => (reverse ? [...offers].reverse() : offers), [offers, reverse]);
-  const rail = useMemo(() => Array.from({ length: RAIL_COPIES }, () => base).flat(), [base]);
-  const intervalMs = reverse ? AUTOPLAY_MS_REVERSE : AUTOPLAY_MS;
-  // Bloque 248 (auditoría 004, hallazgo 9): el autoplay se pausa con un botón
-  // real (en celular no existe el hover), al pasar el mouse o con el foco
-  // dentro, y se apaga del todo si el sistema pide reducir el movimiento: ahí
-  // las ofertas son una fila que se desliza con el dedo.
-  const reducedMotion = usePrefersReducedMotion();
-  const [paused, setPaused] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const { index, smooth, handleTransitionEnd } = useRailIndex(length, reverse, intervalMs, paused || hovered || reducedMotion);
-
-  if (!length) return null;
-
-  if (reducedMotion && length > 1) {
-    return (
-      <div className="-mx-1.5 flex snap-x snap-mandatory overflow-x-auto pb-2 [scrollbar-width:thin]">
-        {base.map((o) => (
-          <div key={o.id} className="w-[88%] flex-none snap-start px-1.5 sm:w-1/2 sm:px-2 lg:w-1/3">
-            <div className="aspect-[12/5]">
-              <OfferCard offer={o} />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (length === 1) {
+  if (offers.length === 1) {
     return (
       <div className="aspect-[12/5] w-full">
         <OfferCard offer={offers[0]} />
@@ -239,28 +158,17 @@ export function OffersSlider({ offers, reverse = false }) {
   }
 
   return (
-    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}>
-    <div className="overflow-hidden [--slide-step:100%] sm:[--slide-step:50%] lg:[--slide-step:33.3333%]">
-      <div
-        className="flex"
-        onTransitionEnd={handleTransitionEnd}
-        style={{
-          transform: `translateX(calc(var(--slide-step) * ${-index}))`,
-          transition: smooth ? `transform ${SLIDE_TRANSITION_MS}ms ease` : "none",
-        }}
-      >
-        {rail.map((o, i) => (
-          <div key={`${o.id}-${i}`} className="w-full flex-none px-1.5 sm:w-1/2 sm:px-2 lg:w-1/3">
-            <div className="aspect-[12/5]">
-              <OfferCard offer={o} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-    <div className="flex justify-end">
-      <PauseToggle paused={paused} onToggle={() => setPaused((p) => !p)} label="ofertas" />
-    </div>
-    </div>
+    <InfiniteMarquee
+      items={offers}
+      getKey={(o) => o.id}
+      renderItem={(o) => (
+        <div className="aspect-[12/5]">
+          <OfferCard offer={o} />
+        </div>
+      )}
+      itemClassName="w-[88vw] px-2 sm:w-[46vw] lg:w-[410px]"
+      secondsPerItem={6}
+      label="Ofertas de la semana"
+    />
   );
 }

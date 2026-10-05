@@ -20,10 +20,10 @@ import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
 // busca el visitante a lo que más necesita el negocio:
 //   1. Hero compacto (en celular sin el slider de imágenes y con un solo botón).
 //   2. Categorías: fila que se desliza con el dedo, ya visible en la primera pantalla.
-//   3. Tiendas verificadas: la prueba de que hay negocios reales (antes iba última).
-//   4. Ofertas de la semana, UNA sola vez (antes estaban repetidas).
-//   5. Destacados: 8 en celular y más en pantallas grandes, con botón al catálogo.
-//   6. Abre tu tienda: tarjeta compacta, con restaurantes y comercios.
+//   3. Ofertas de la semana, UNA sola vez (antes estaban repetidas).
+//   4. Destacados: 8 en celular y más en pantallas grandes, con enlace al catálogo.
+//   5. Abre tu tienda: tarjeta compacta, con restaurantes y comercios.
+//   6. Tiendas verificadas (Bloque 251: debajo de "Abre tu tienda", a pedido del dueño).
 
 // Bloque 48: marquee continuo de una sola dirección para pantallas medianas y
 // grandes. La lista se duplica una vez: con la animación yendo de 0% a -50%
@@ -183,7 +183,7 @@ export default function Home() {
             principal y sin flecha). Le habla al comprador; lo de los
             vendedores vive en su propia tarjeta más abajo. */}
         <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
-          <div className="container-app grid grid-cols-1 items-center gap-10 py-8 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-16">
+          <div className="container-app grid grid-cols-1 items-center gap-6 py-6 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-8">
             <div>
               <h1 className="mb-3 font-display text-headline-lg text-white md:mb-4 md:text-display-lg">
                 Compra cerca de ti, a <span className="text-secondary-container">vendedores</span> de tu provincia.
@@ -224,28 +224,6 @@ export default function Home() {
           </section>
         )}
 
-        {/* TIENDAS VERIFICADAS: sube desde el último lugar. Es lo que hace a
-            esto un marketplace de tiendas y la prueba de que hay negocios
-            reales. Máximo 12 (Bloque 17); mismo orden que GET
-            /vendors?isVerified=true (más recientes primero). */}
-        <section className="container-app pt-8 md:pt-11">
-          <SectionHead title="Tiendas verificadas" to="/tiendas" />
-          {verifiedVendors?.length ? (
-            <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
-          ) : (
-            <EmptyState
-              icon={ShieldCheck}
-              title="Todavía no hay tiendas verificadas en tu zona"
-              description="Sé el primero en verificarte con el Plan Business."
-              action={
-                <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
-                  Crear mi tienda
-                </Link>
-              }
-            />
-          )}
-        </section>
-
         {/* OFERTAS (Bloque 50): render condicional total; sin ofertas activas
             la sección ni se monta. Bloque 248: una sola vez (el Bloque 154 la
             había duplicado debajo de "Abre tu tienda", y se veía como un error). */}
@@ -275,12 +253,18 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-              <Link
-                to="/catalogo"
-                className="mt-5 flex min-h-11 w-full items-center justify-center rounded border-[1.5px] border-outline-variant px-6 text-label-md font-semibold text-on-surface hover:bg-surface-container sm:mx-auto sm:w-auto"
-              >
-                Ver todo el catálogo
-              </Link>
+              {/* Bloque 251 (pedido explícito): el botón con contenedor, fondo y
+                  borde se veía mal en celular. Ahora es una frase que explica a
+                  dónde lleva y un enlace de texto, centrados, que se adaptan a
+                  cualquier ancho. */}
+              <div className="mt-6 flex flex-col items-center gap-0.5 px-2 text-center">
+                <p className="max-w-[460px] text-body-md text-on-surface-variant">
+                  Esto es una selección. En el catálogo hay más productos de tiendas {hasProvinceFilter ? `en ${provinceName}` : "de toda Cuba"}.
+                </p>
+                <Link to="/catalogo" className="flex min-h-11 items-center text-label-md font-semibold text-tertiary-accent hover:underline">
+                  Ver todo el catálogo →
+                </Link>
+              </div>
             </>
           ) : (
             <EmptyState
@@ -333,6 +317,27 @@ export default function Home() {
               </Link>
             </div>
           </div>
+        </section>
+        {/* TIENDAS VERIFICADAS: Bloque 251 (pedido explícito), debajo de "Abre tu
+            tienda". Desplazamiento infinito en una sola dirección, sin botón de
+            pausa. Máximo 12 (Bloque 17); mismo orden que GET
+            /vendors?isVerified=true (más recientes primero). */}
+        <section className="container-app pb-10 md:pb-14">
+          <SectionHead title="Tiendas verificadas" to="/tiendas" />
+          {verifiedVendors?.length ? (
+            <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
+          ) : (
+            <EmptyState
+              icon={ShieldCheck}
+              title="Todavía no hay tiendas verificadas en tu zona"
+              description="Sé el primero en verificarte con el Plan Business."
+              action={
+                <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
+                  Crear mi tienda
+                </Link>
+              }
+            />
+          )}
         </section>
       </div>
       {/* Bloque 52: apagable desde el admin (Marca de la plataforma). Default

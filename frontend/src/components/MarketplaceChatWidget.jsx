@@ -502,7 +502,7 @@ export function MarketplaceChatWidget() {
           <p className="flex-1 text-[12.5px] leading-[17px] text-on-surface-variant">
             ¡Hola! Soy el asistente de compras de <span className="font-bold text-on-surface">{siteName}</span>. Cuéntame qué buscas, por texto o por audio.
           </p>
-          <button onClick={() => setShowBubble(false)} aria-label="Cerrar aviso" className="flex-shrink-0 text-outline hover:text-on-surface-variant">
+          <button onClick={() => setShowBubble(false)} aria-label="Cerrar aviso" className="-mr-3 -mt-3 flex h-11 w-11 flex-shrink-0 items-center justify-center text-on-surface-variant hover:text-on-surface">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>

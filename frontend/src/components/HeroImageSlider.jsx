@@ -32,11 +32,11 @@ export function HeroImageSlider({ images, alt }) {
   // Sin ninguna imagen cargada: se reserva el mismo espacio del recuadro
   // (transparente, Bloque 95) en vez de no renderizar nada — así el layout
   // de 2 columnas del hero no se desarma si el admin todavía no subió nada.
-  if (images.length === 0) return <div className="h-[320px] rounded-xl lg:h-[400px]" />;
+  if (images.length === 0) return <div className="h-[320px] rounded-xl lg:h-[340px]" />;
 
   return (
     <div className="flex flex-col" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      <div className="relative h-[320px] overflow-hidden rounded-xl lg:h-[400px]">
+      <div className="relative h-[320px] overflow-hidden rounded-xl lg:h-[340px]">
         {images.map((url, i) => (
           <img
             key={url}
