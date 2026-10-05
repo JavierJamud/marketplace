@@ -194,9 +194,6 @@ export default function Home() {
       <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
         <div className="container-app grid grid-cols-1 items-center gap-10 py-14 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-16">
           <div>
-            <span className="mb-5 inline-flex items-center gap-1.5 rounded-full bg-secondary-container/15 px-3.5 py-1.5 text-label-sm font-bold tracking-wide text-secondary-container">
-              Marketplace multi vendedor
-            </span>
             <h1 className="mb-4 font-display text-headline-lg text-white md:text-display-lg">
               Compra y vende cerca tuyo, de <span className="text-secondary-container">vendedores</span> de tu provincia.
             </h1>
