@@ -36,20 +36,14 @@ function DirectEmailPanel() {
     queryFn: async () => (await api.get("/admin/customers", { params: { q: debouncedQuery, pageSize: 8, sort: "name", dir: "asc" } })).data.customers,
     enabled: recipientType === "customer" && debouncedQuery.length >= 2,
   });
-  const { data: vendors } = useQuery({
-    queryKey: ["admin-vendors", "all"],
-    queryFn: async () => (await api.get("/admin/vendors")).data.vendors,
-    enabled: recipientType === "vendor",
+  // Bloque 243: lo mismo para tiendas (GET /admin/vendors también pagina).
+  const { data: vendorMatches } = useQuery({
+    queryKey: ["admin-list-vendor-search", debouncedQuery],
+    queryFn: async () => (await api.get("/admin/vendors", { params: { q: debouncedQuery, pageSize: 8, sort: "name", dir: "asc" } })).data.vendors,
+    enabled: recipientType === "vendor" && debouncedQuery.length >= 2,
   });
 
-  const matches =
-    recipientType === "customer"
-      ? debouncedQuery.length >= 2
-        ? customerMatches ?? []
-        : []
-      : (vendors ?? [])
-          .filter((p) => query.trim() && p.companyName.toLowerCase().includes(query.toLowerCase()))
-          .slice(0, 8);
+  const matches = debouncedQuery.length >= 2 ? (recipientType === "customer" ? customerMatches : vendorMatches) ?? [] : [];
 
   function pick(p) {
     setSelected(p);

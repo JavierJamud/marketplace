@@ -32,7 +32,7 @@ export default function AdminSuspendedVendors() {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-suspended-vendors"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
   };
 
   const reactivate = useMutation({

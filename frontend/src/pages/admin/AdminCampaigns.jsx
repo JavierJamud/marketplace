@@ -318,9 +318,22 @@ export default function AdminCampaigns() {
       (await api.get("/admin/customers", { params: { status: "active", provinceId: provinceId || undefined, pageSize: 1 } })).data.total,
     enabled: segment === "all_customers",
   });
-  const { data: vendors } = useQuery({
-    queryKey: ["admin-vendors", "all"],
-    queryFn: async () => (await api.get("/admin/vendors")).data.vendors,
+  // Bloque 243: igual que arriba — GET /admin/vendors pagina, y para estimar
+  // destinatarios alcanza con el `total` de una página de 1 fila filtrada por
+  // plan y provincia (la lista ya excluye tiendas bloqueadas y suspendidas).
+  const { data: vendorCount } = useQuery({
+    queryKey: ["admin-list-vendor-count", segment, provinceId],
+    queryFn: async () =>
+      (
+        await api.get("/admin/vendors", {
+          params: {
+            plan: segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "BUSINESS" : undefined,
+            provinceId: provinceId || undefined,
+            pageSize: 1,
+          },
+        })
+      ).data.total,
+    enabled: segment !== "all_customers",
   });
   const { data: history } = useQuery({
     queryKey: ["admin-campaigns"],
@@ -333,14 +346,7 @@ export default function AdminCampaigns() {
 
   const provinceName = useMemo(() => Object.fromEntries((provinces ?? []).map((p) => [p.id, p.name])), [provinces]);
 
-  const recipientEstimate = useMemo(() => {
-    const pName = provinceId ? provinceName[provinceId] : null;
-    if (segment === "all_customers") return customerCount ?? 0;
-    const planFilter = segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "BUSINESS" : null;
-    return (vendors ?? []).filter(
-      (v) => !v.isBlocked && (!planFilter || v.planType === planFilter) && (!pName || v.locations?.[0]?.province?.name === pName)
-    ).length;
-  }, [segment, provinceId, provinceName, customerCount, vendors]);
+  const recipientEstimate = segment === "all_customers" ? customerCount ?? 0 : vendorCount ?? 0;
 
   const ctaMismatch = !!ctaLabel !== !!ctaUrl;
 

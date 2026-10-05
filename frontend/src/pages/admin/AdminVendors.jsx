@@ -1,10 +1,14 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Search, X, BarChart3, Users, Store } from "lucide-react";
-import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { X, Store, Radar, Star } from "lucide-react";
+import { IconCircle, CARD } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
+import { formatPrice } from "../../lib/format.js";
+import { useListParams, useDebouncedSearch } from "../../lib/useListParams.js";
+import { timeAgo, exactDate } from "../../lib/relativeTime.js";
+import { StatTile, StatStrip, SortHeader, SearchField, RowSkeletons, Pagination, ActionMenu } from "../../components/admin/ListControls.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -13,12 +17,6 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { AdminVendorStaffModal } from "../../components/admin/AdminVendorStaffModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
-
-const FILTERS = [
-  { id: "all", label: "Todas" },
-  { id: "business", label: "Business" },
-  { id: "regular", label: "Regular" },
-];
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -256,10 +254,131 @@ function StatsModal({ vendorName, onClose }) {
   );
 }
 
+
+// Bloque 243 (pedido explícito — "mejorar la estructura visual de la sección
+// de tiendas y mostrar más datos aprovechando las estadísticas"): misma
+// estructura que Productos y Clientes (paginación, filtros y orden en el
+// servidor, URL con el estado) y por fila ahora se ve la tienda "de un
+// vistazo": plan, verificación, productos, pedidos, ventas de 30 días,
+// valoración, último acceso y alertas de ranking pendientes. Las acciones
+// pasan al menú "⋮" (antes 6 botones por fila).
+const LIST_DEFAULTS = { q: "", status: "all", province: "", sort: "recent", dir: "desc", page: 1, pageSize: 25 };
+
+const SORT_OPTIONS = [
+  { value: "recent:desc", label: "Más recientes" },
+  { value: "name:asc", label: "Nombre (A a Z)" },
+  { value: "products:desc", label: "Más productos" },
+  { value: "rating:desc", label: "Mejor valoradas" },
+  { value: "lastLogin:desc", label: "Último acceso" },
+];
+
+const ROW_GRID =
+  "md:grid md:grid-cols-[minmax(0,2.4fr)_128px_64px_96px_112px_60px_92px_44px] md:items-center md:gap-3";
+
+const VERIFICATION_LABEL = {
+  NOT_STARTED: "Sin verificar",
+  PENDING_DOCS: "Faltan documentos",
+  IN_REVIEW: "En revisión",
+  PENDING_PAYMENT: "Pago pendiente",
+  PAYMENT_FAILED: "Pago fallido",
+  REJECTED: "Rechazada",
+  SUSPENDED: "Verificación suspendida",
+};
+
+function VendorRow({ v, onStats, onStaff, onEdit, onTogglePlan, onBlock, onDelete }) {
+  const place = v.locations?.[0]?.province?.name ?? null;
+  const hasSales = v.sales30 > 0;
+  const menu = (
+    <ActionMenu
+      label={`Acciones de ${v.companyName}`}
+      items={[
+        { label: "Ver estadísticas", onClick: onStats },
+        { label: "Usuarios del sistema", onClick: onStaff },
+        { label: "Ver tienda pública", onClick: () => window.open(`/tienda/${v.slug}`, "_blank", "noopener") },
+        { label: "Editar", onClick: onEdit },
+        { label: v.planType === "BUSINESS" ? "Pasar a plan Regular" : "Pasar a plan Business", onClick: onTogglePlan },
+        { label: "Bloquear", onClick: onBlock },
+        { label: "Eliminar", onClick: onDelete, danger: true },
+      ]}
+    />
+  );
+  return (
+    <div className={`border-b border-surface-container px-4 py-2.5 last:border-b-0 ${ROW_GRID}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"
+          style={{ background: v.color ?? "#232F3E" }}
+          aria-hidden="true"
+        >
+          {v.companyName[0]?.toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[13.5px] font-semibold text-on-surface">{v.companyName}</span>
+            {v.isVerified && <VerifiedBadge size="sm" />}
+            {v.pendingAnomalies > 0 && (
+              <Link
+                to="/admin/anomalias-ranking"
+                title={`${v.pendingAnomalies} anomalía${v.pendingAnomalies === 1 ? "" : "s"} de ranking por revisar`}
+                className="flex flex-shrink-0 items-center gap-0.5 rounded-full bg-secondary/10 px-1.5 py-0.5 text-[10px] font-bold text-secondary"
+              >
+                <Radar className="h-2.5 w-2.5" /> {v.pendingAnomalies}
+              </Link>
+            )}
+          </div>
+          <div className="truncate text-[11.5px] text-outline">{[v.category?.name, place].filter(Boolean).join(" · ") || "Sin rubro ni provincia"}</div>
+        </div>
+        <div className="md:hidden">{menu}</div>
+      </div>
+
+      {/* Celular: plan, verificación y números en una sola línea de datos */}
+      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 pl-[52px] text-[12px] text-on-surface-variant md:hidden">
+        <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${v.planType === "BUSINESS" ? "bg-secondary-container/25 text-secondary" : "bg-surface-container text-on-surface-variant"}`}>
+          {v.planType === "BUSINESS" ? "Business" : "Regular"}
+        </span>
+        {!v.isVerified && <span>{VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</span>}
+        <span>{v.productCount} {v.productCount === 1 ? "producto" : "productos"}</span>
+        <span>{v.orders30} {v.orders30 === 1 ? "pedido" : "pedidos"} (30 d)</span>
+        {hasSales && <span className="font-semibold text-on-surface">{formatPrice(v.sales30, v.currency)}</span>}
+        {Number(v.rating) > 0 && (
+          <span className="flex items-center gap-0.5">
+            <Star className="h-3 w-3 fill-secondary-container text-secondary-container" /> {Number(v.rating).toFixed(1)}
+          </span>
+        )}
+        <span>{v.lastLoginAt ? `Entró ${timeAgo(v.lastLoginAt).toLowerCase()}` : "Nunca entró"}</span>
+      </div>
+
+      <div className="hidden flex-col items-start gap-1 md:flex">
+        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${v.planType === "BUSINESS" ? "bg-secondary-container/25 text-secondary" : "bg-surface-container text-on-surface-variant"}`}>
+          {v.planType === "BUSINESS" ? "Business" : "Regular"}
+        </span>
+        <span className="text-[11px] text-outline">{v.isVerified ? "Verificada" : VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</span>
+      </div>
+      <div className="hidden text-right text-[13px] text-on-surface md:block">{v.productCount}</div>
+      <div className="hidden text-right text-[13px] text-on-surface md:block" title="Pedidos entregados y pedidos de mesa de los últimos 30 días">
+        {v.orders30}
+      </div>
+      <div className="hidden text-right text-[13px] font-semibold text-on-surface md:block">{hasSales ? formatPrice(v.sales30, v.currency) : <span className="font-normal text-outline">—</span>}</div>
+      <div className="hidden text-right text-[13px] text-on-surface-variant md:block">
+        {Number(v.rating) > 0 ? (
+          <span className="inline-flex items-center gap-0.5">
+            <Star className="h-3 w-3 fill-secondary-container text-secondary-container" /> {Number(v.rating).toFixed(1)}
+          </span>
+        ) : (
+          "—"
+        )}
+      </div>
+      <div className="hidden text-[13px] text-on-surface-variant md:block" title={exactDate(v.lastLoginAt)}>
+        {timeAgo(v.lastLoginAt)}
+      </div>
+      <div className="hidden justify-end md:flex">{menu}</div>
+    </div>
+  );
+}
+
 export default function AdminVendors() {
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState("all");
-  const [q, setQ] = useState("");
+  const [params, setParams] = useListParams(LIST_DEFAULTS);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [viewingStats, setViewingStats] = useState(null);
@@ -272,15 +391,38 @@ export default function AdminVendors() {
   const [blocking, setBlocking] = useState(null); // tienda a bloquear, para el modal de confirmación
   const [blockReason, setBlockReason] = useState("");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["admin-vendors", filter],
-    queryFn: async () => (await api.get("/admin/vendors", { params: { plan: filter !== "all" ? filter : undefined } })).data.vendors,
+  const commitSearch = useCallback((q) => setParams({ q }), [setParams]);
+  const [searchText, setSearchText] = useDebouncedSearch(params.q, commitSearch);
+
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["admin-list-vendors", params],
+    queryFn: async () =>
+      (
+        await api.get("/admin/vendors", {
+          params: {
+            q: params.q || undefined,
+            status: params.status,
+            provinceId: params.province || undefined,
+            sort: params.sort,
+            dir: params.dir,
+            page: params.page,
+            pageSize: params.pageSize,
+          },
+        })
+      ).data,
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: provinces } = useQuery({
+    queryKey: ["locations-provinces"],
+    queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
 
   const update = useMutation({
     mutationFn: async ({ id, payload }) => (await api.patch(`/admin/vendors/${id}`, payload)).data,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-vendor-pick"] });
       setEditing(null);
       setBlocking(null);
       setBlockReason("");
@@ -294,120 +436,147 @@ export default function AdminVendors() {
     mutationFn: async (id) => api.delete(`/admin/vendors/${id}`),
     onSuccess: () => {
       toast.success("Tienda eliminada.");
-      queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
       setDeleting(null);
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar la tienda."),
   });
 
-  const rows = (data ?? []).filter((v) => v.companyName.toLowerCase().includes(q.toLowerCase()));
+  // Si al borrar o filtrar la página actual queda más allá del final, vuelve
+  // a la última que existe.
+  useEffect(() => {
+    if (data && data.vendors.length === 0 && params.page > 1) setParams({ page: data.pageCount });
+  }, [data, params.page, setParams]);
+
+  const kpis = data?.kpis;
+  const hasFilters = params.q || params.status !== "all" || params.province;
+  const sortValue = `${params.sort}:${params.dir}`;
+  const tiles = [
+    { key: "all", label: "Todas", value: kpis?.all },
+    { key: "verified", label: "Verificadas", value: kpis?.verified },
+    { key: "inprocess", label: "En proceso", value: kpis?.inprocess, hint: "Verificación" },
+    { key: "unverified", label: "Sin verificar", value: kpis?.unverified },
+    { key: "business", label: "Business", value: kpis?.business },
+    { key: "inactive", label: "Inactivas", value: kpis?.inactive, hint: "30 días sin entrar", tone: "warn" },
+    { key: "flagged", label: "Con alertas", value: kpis?.flagged, hint: "Ranking", tone: "danger" },
+  ];
+  const onSort = (sort, dir) => setParams({ sort, dir });
 
   return (
-    <div>
+    <div className="max-w-[1180px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Store} tone="teal" />
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Tiendas</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Gestiona, verifica a dedo, edita o elimina tiendas. El bloqueo oculta, no borra.</p>
 
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex h-[42px] max-w-[340px] flex-1 items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-3">
-          <Search className="h-4 w-4 text-outline" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar tienda..." className="w-full border-none bg-transparent text-[13.5px] outline-none" />
-        </div>
-        <div className="flex gap-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
-                filter === f.id ? "border-tertiary bg-tertiary text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-              }`}
-            >
-              {f.label}
-            </button>
+      <StatStrip>
+        {tiles.map((t) => (
+          <StatTile
+            key={t.key}
+            label={t.label}
+            value={t.value}
+            hint={t.hint}
+            tone={t.tone}
+            active={params.status === t.key}
+            onClick={() => setParams({ status: t.key })}
+          />
+        ))}
+      </StatStrip>
+
+      <div className="mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por nombre, enlace o correo" className="sm:col-span-2 lg:col-span-1" />
+        <select
+          value={params.province}
+          onChange={(e) => setParams({ province: e.target.value })}
+          aria-label="Filtrar por provincia"
+          className="h-11 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13px] md:h-10"
+        >
+          <option value="">Todas las provincias</option>
+          {provinces?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
           ))}
-        </div>
+        </select>
+        <select
+          value={sortValue}
+          onChange={(e) => {
+            const [sort, dir] = e.target.value.split(":");
+            setParams({ sort, dir });
+          }}
+          aria-label="Ordenar tiendas"
+          className="h-11 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13px] md:h-10"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+          {!SORT_OPTIONS.some((o) => o.value === sortValue) && <option value={sortValue}>Orden personalizado</option>}
+        </select>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        <div className="grid grid-cols-[2fr_1.2fr_1fr_1fr_2fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[640px]">
-          <span>Tienda</span><span>Provincia</span><span>Plan</span><span>Estado</span><span className="text-right">Acciones</span>
+      <div className={`${CARD} transition-opacity ${isFetching && !isLoading ? "opacity-70" : ""}`}>
+        <div className={`hidden rounded-t-2xl border-b border-surface-container bg-surface-container/50 px-4 py-2 ${ROW_GRID}`}>
+          <SortHeader label="Tienda" sortKey="name" sort={params.sort} dir={params.dir} onSort={(s, d) => onSort(s, s === "name" && d === "desc" ? "asc" : d)} />
+          <span className="text-[11px] font-bold uppercase tracking-wide text-outline">Plan</span>
+          <SortHeader label="Prod." sortKey="products" sort={params.sort} dir={params.dir} onSort={onSort} align="right" />
+          <span className="text-right text-[11px] font-bold uppercase tracking-wide text-outline">Pedidos 30 d</span>
+          <span className="text-right text-[11px] font-bold uppercase tracking-wide text-outline">Ventas 30 d</span>
+          <SortHeader label="Nota" sortKey="rating" sort={params.sort} dir={params.dir} onSort={onSort} align="right" />
+          <SortHeader label="Acceso" sortKey="lastLogin" sort={params.sort} dir={params.dir} onSort={onSort} />
+          <span />
         </div>
-        {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
-        {!isLoading && rows.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay tiendas para este filtro.</p>}
-        {rows.map((v) => (
-          <div
-            key={v.id}
-            className="grid min-w-[640px] grid-cols-[2fr_1.2fr_1fr_1fr_2fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5"
-            style={{ opacity: v.isBlocked ? 0.55 : 1 }}
-          >
-            <div className="flex items-center gap-2.5">
-              <span
-                className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"
-                style={{ background: v.color ?? "#232F3E" }}
-              >
-                {v.companyName[0]}
-              </span>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[13.5px] font-semibold text-on-surface">{v.companyName}</span>
-                  {v.isVerified && <VerifiedBadge size="sm" />}
-                </div>
-                <div className="text-[11.5px] text-outline">{v.category?.name ?? "—"}</div>
-              </div>
-            </div>
-            <span className="text-[13px] text-on-surface-variant">{v.locations?.[0]?.province?.name ?? "—"}</span>
-            <button
-              title="Click para forzar el cambio de plan"
-              onClick={() => update.mutate({ id: v.id, payload: { planType: v.planType === "BUSINESS" ? "REGULAR" : "BUSINESS" } })}
-              className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold"
-              style={v.planType === "BUSINESS" ? { background: "rgba(254,152,0,0.15)", color: "#8A5100" } : { background: "#f0edee", color: "#75777c" }}
-            >
-              {v.planType === "BUSINESS" ? "Business" : "Regular"}
-            </button>
-            <span
-              className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold"
-              style={v.isBlocked ? { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" } : { background: "rgba(12,174,83,0.12)", color: "#0A8F42" }}
-            >
-              {v.isBlocked ? "Bloqueada" : "Activa"}
-            </span>
-            <div className="flex flex-wrap justify-end gap-1.5">
-              <button
-                onClick={() => setViewingStats(v)}
-                title="Ver estadísticas"
-                className="flex items-center gap-1 rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant"
-              >
-                <BarChart3 className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setViewingStaff(v)}
-                title="Usuarios de sistema de esta tienda"
-                className="flex items-center gap-1 rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant"
-              >
-                <Users className="h-3.5 w-3.5" />
-              </button>
-              <Link to={`/tienda/${v.slug}`} target="_blank" className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant">
-                Ver
-              </Link>
-              <button onClick={() => setEditing(v)} className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant">
-                Editar
-              </button>
-              <button
-                onClick={() => (v.isBlocked ? update.mutate({ id: v.id, payload: { isBlocked: false } }) : setBlocking(v))}
-                className={`rounded-[7px] px-2.5 py-1.5 text-[12px] font-semibold ${
-                  v.isBlocked ? "bg-verified-dark text-white" : "border border-error text-error"
-                }`}
-              >
-                {v.isBlocked ? "Desbloquear" : "Bloquear"}
-              </button>
-              <button onClick={() => setDeleting(v)} className="rounded-[7px] bg-error px-2.5 py-1.5 text-[12px] font-semibold text-on-error">
-                Eliminar
-              </button>
-            </div>
+
+        {isLoading && <RowSkeletons />}
+
+        {isError && !data && (
+          <div className="flex flex-col items-center gap-3 p-8 text-center">
+            <p className="text-body-md text-error">No se pudo cargar la lista de tiendas.</p>
+            <Button variant="outline" onClick={() => refetch()}>
+              Reintentar
+            </Button>
           </div>
+        )}
+
+        {data?.vendors.map((v) => (
+          <VendorRow
+            key={v.id}
+            v={v}
+            onStats={() => setViewingStats(v)}
+            onStaff={() => setViewingStaff(v)}
+            onEdit={() => setEditing(v)}
+            onTogglePlan={() => update.mutate({ id: v.id, payload: { planType: v.planType === "BUSINESS" ? "REGULAR" : "BUSINESS" } })}
+            onBlock={() => setBlocking(v)}
+            onDelete={() => setDeleting(v)}
+          />
         ))}
+
+        {data && data.vendors.length === 0 && (
+          <div className="flex flex-col items-center gap-2 p-8 text-center">
+            <Store className="h-6 w-6 text-outline" />
+            <p className="text-body-md text-on-surface-variant">{hasFilters ? "Ninguna tienda coincide con estos filtros." : "Todavía no hay tiendas registradas."}</p>
+            {hasFilters && (
+              <Button variant="outline" onClick={() => setParams({ q: "", status: "all", province: "" })}>
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
+        )}
       </div>
+
+      {data && (
+        <Pagination
+          page={data.page}
+          pageCount={data.pageCount}
+          total={data.total}
+          pageSize={data.pageSize}
+          onPage={(page) => setParams({ page })}
+          onPageSize={(pageSize) => setParams({ pageSize })}
+          noun="tiendas"
+        />
+      )}
 
       {editing && (
         <EditVendorModal

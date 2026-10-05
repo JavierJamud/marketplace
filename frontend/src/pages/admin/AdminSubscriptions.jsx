@@ -338,22 +338,38 @@ function CupPaymentSettingsCard() {
 // vive aparte, con su propio selector de tienda.
 function GrantBusinessCard() {
   const queryClient = useQueryClient();
-  const { data: vendors } = useQuery({
-    queryKey: ["admin-vendors"],
-    queryFn: async () => (await api.get("/admin/vendors")).data.vendors,
-  });
+  // Bloque 243: GET /admin/vendors ahora pagina — en vez de bajar todas las
+  // tiendas y filtrar las Regular acá, se busca en el servidor (plan=REGULAR)
+  // con un campo de texto y se muestran las 20 primeras coincidencias. La
+  // tienda ya elegida se conserva aunque la búsqueda cambie.
   const [vendorId, setVendorId] = useState("");
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [vendorSearch, setVendorSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [reason, setReason] = useState("");
-  const regularVendors = (vendors ?? []).filter((v) => v.planType === "REGULAR");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(vendorSearch.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [vendorSearch]);
+  const { data: vendors } = useQuery({
+    queryKey: ["admin-vendor-pick", debouncedSearch],
+    queryFn: async () =>
+      (await api.get("/admin/vendors", { params: { plan: "REGULAR", q: debouncedSearch || undefined, pageSize: 20, sort: "name", dir: "asc" } })).data.vendors,
+  });
+  const regularVendors = vendors ?? [];
+  const vendorOptions =
+    selectedVendor && !regularVendors.some((v) => v.id === selectedVendor.id) ? [selectedVendor, ...regularVendors] : regularVendors;
 
   const grant = useMutation({
     mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/grant-business`, { reason: reason.trim() })).data,
     onSuccess: () => {
       toast.success("Plan Premium activado a mano — se avisó a la tienda.");
       setVendorId("");
+      setSelectedVendor(null);
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["admin-subscriptions"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-vendor-pick"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo activar el plan."),
   });
@@ -368,14 +384,24 @@ function GrantBusinessCard() {
         normal de documentos/pago. Queda registrado con el motivo que escribas, visible en su historial.
       </p>
       <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_2fr]">
-        <Select label="Tienda (Plan Regular)" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-          <option value="">Elige una tienda...</option>
-          {regularVendors.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.companyName}
-            </option>
-          ))}
-        </Select>
+        <div className="flex flex-col gap-2">
+          <Input label="Buscar tienda (Plan Regular)" value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} placeholder="Nombre de la tienda" />
+          <Select
+            aria-label="Tienda a la que activar Premium"
+            value={vendorId}
+            onChange={(e) => {
+              setVendorId(e.target.value);
+              setSelectedVendor(vendorOptions.find((v) => v.id === e.target.value) ?? null);
+            }}
+          >
+            <option value="">{vendorOptions.length ? "Elige una tienda..." : "Ninguna tienda coincide"}</option>
+            {vendorOptions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.companyName}
+              </option>
+            ))}
+          </Select>
+        </div>
         <Input
           label="Motivo (obligatorio)"
           value={reason}
@@ -410,7 +436,8 @@ function SubscriptionsTab() {
     onSuccess: () => {
       toast.success("Plan Premium revocado — se avisó a la tienda.");
       queryClient.invalidateQueries({ queryKey: ["admin-subscriptions"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-vendor-pick"] });
       setRevoking(null);
       setConfirmRevoke(null);
       setRevokeReason("");

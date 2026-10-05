@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { transitionVendorVerification, syncVerificationArchive } from "../services/vendorVerification.service.js";
+import { transitionVendorVerification, syncVerificationArchive, withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { notifyVerificationEvent } from "../services/verificationNotify.service.js";
 import { cancelStripeSubscription } from "../lib/stripe.js";
 import { sendAdminDirectEmail, sendVendorReactivatedEmail } from "../lib/email.js";
@@ -352,19 +352,178 @@ export async function getDashboardSalesSeries(req, res) {
 // desaparece de esta lista por completo — vive en "Tiendas suspendidas"
 // (listSuspendedVendors) hasta que un admin la desbloquee/reactive, y recién
 // ahí vuelve a aparecer acá.
+// Bloque 243 (pedido explícito — "mejorar la estructura visual de Tiendas y
+// mostrar más datos aprovechando todas las estadísticas y algoritmos"): igual
+// que Clientes y Productos, pagina/busca/filtra/ordena en el servidor (antes
+// traía TODAS las tiendas sin límite y la búsqueda era del lado del
+// navegador), y suma datos reales por fila: productos, pedidos y ventas de los
+// últimos 30 días, último acceso y anomalías de ranking pendientes. Todo se
+// agrega con consultas agrupadas acotadas a los ids de la página (nunca una
+// consulta por fila); el puntaje de salud (8 consultas por tienda) sigue
+// siendo bajo demanda en el detalle.
+// Quien consume la lista completa (AdminCampaigns, AdminChat,
+// AdminSubscriptions) ahora usa `plan`, `provinceId`, `q` y `pageSize` para
+// pedir solo lo que necesita (un conteo, 8 sugerencias, 20 opciones).
+const DAY_MS_VENDORS = 24 * 60 * 60 * 1000;
+
+const vendorsQuerySchema = paginationQuerySchema.extend({
+  q: z.string().trim().max(100).optional(),
+  plan: z.enum(["REGULAR", "BUSINESS"]).optional(),
+  provinceId: z.string().optional(),
+  status: z.enum(["all", "verified", "inprocess", "unverified", "business", "inactive", "flagged"]).default("all"),
+  sort: z.enum(["recent", "name", "products", "rating", "lastLogin"]).default("recent"),
+  dir: z.enum(["asc", "desc"]).default("desc"),
+});
+
+function vendorStatusWhere(status) {
+  const since = new Date(Date.now() - 30 * DAY_MS_VENDORS);
+  switch (status) {
+    case "verified":
+      return { verificationStatus: "VERIFIED" };
+    case "inprocess":
+      return { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW", "PENDING_PAYMENT"] } };
+    case "unverified":
+      return { verificationStatus: { in: ["NOT_STARTED", "REJECTED", "PAYMENT_FAILED"] } };
+    case "business":
+      return { planType: "BUSINESS" };
+    case "inactive":
+      // Mismo criterio de "último acceso" que vendorLifecycle.job.js: la
+      // última sesión del dueño, o su fecha de alta si nunca entró.
+      return { OR: [{ user: { lastLoginAt: { lt: since } } }, { user: { lastLoginAt: null }, createdAt: { lt: since } }] };
+    case "flagged":
+      return { rankingAnomalies: { some: { status: "PENDING" } } };
+    default:
+      return {};
+  }
+}
+
+function vendorsOrderBy(sort, dir) {
+  const map = {
+    recent: [{ createdAt: dir }],
+    name: [{ companyName: dir }],
+    products: [{ products: { _count: dir } }],
+    rating: [{ rating: dir }],
+    lastLogin: [{ user: { lastLoginAt: { sort: dir, nulls: "last" } } }],
+  };
+  return [...map[sort], { id: "asc" }];
+}
+
 export async function listVendors(req, res) {
-  const { plan } = req.query;
-  const vendors = await prisma.vendor.findMany({
-    where: {
-      planType: plan === "business" ? "BUSINESS" : plan === "regular" ? "REGULAR" : undefined,
-      deletedAt: null,
-      isBlocked: false,
-      status: { not: "SUSPENDED" },
-    },
-    include: { locations: { include: { province: true }, take: 1 }, category: true },
-    orderBy: { createdAt: "desc" },
+  const query = vendorsQuerySchema.parse(req.query);
+  const { q, plan, provinceId, status, sort, dir } = query;
+
+  // Las bloqueadas y suspendidas viven aparte (AdminSuspendedVendors).
+  const scope = {
+    deletedAt: null,
+    isBlocked: false,
+    status: { not: "SUSPENDED" },
+    planType: plan || undefined,
+    locations: provinceId ? { some: { provinceId } } : undefined,
+  };
+  const where = {
+    AND: [
+      scope,
+      vendorStatusWhere(status),
+      q
+        ? {
+            OR: [
+              { companyName: { contains: q, mode: "insensitive" } },
+              { slug: { contains: q, mode: "insensitive" } },
+              { user: { email: { contains: q, mode: "insensitive" } } },
+            ],
+          }
+        : {},
+    ],
+  };
+  const countFor = (s) => prisma.vendor.count({ where: { AND: [scope, vendorStatusWhere(s)] } });
+
+  const [vendors, total, kAll, kVerified, kInProcess, kUnverified, kBusiness, kInactive, kFlagged] = await Promise.all([
+    prisma.vendor.findMany({
+      where,
+      include: {
+        locations: { include: { province: true }, take: 1 },
+        category: true,
+        user: { select: { lastLoginAt: true, email: true } },
+        _count: { select: { products: true } },
+      },
+      orderBy: vendorsOrderBy(sort, dir),
+      ...pageArgs(query),
+    }),
+    prisma.vendor.count({ where }),
+    countFor("all"),
+    countFor("verified"),
+    countFor("inprocess"),
+    countFor("unverified"),
+    countFor("business"),
+    countFor("inactive"),
+    countFor("flagged"),
+  ]);
+
+  // Pedidos entregados y ventas de los últimos 30 días + anomalías pendientes,
+  // agrupados por tienda para los ids de ESTA página. Order.total va en la
+  // moneda única de la tienda (Vendor.currency), así que sumarlo por tienda
+  // es un número honesto (a diferencia de sumar tiendas entre sí).
+  // Mismo criterio que getVendorStats (el detalle de la tienda): una venta es
+  // un pedido ENTREGADO más los pedidos de mesa (restaurantes), así la columna
+  // y el modal de estadísticas hablan de lo mismo. Los de mesa cancelados no
+  // cuentan. TableOrder no tiene vendorId propio: se agrupa por mesa y se
+  // reparte a su tienda.
+  const since30 = new Date(Date.now() - 30 * DAY_MS_VENDORS);
+  const ids = vendors.map((v) => v.id);
+  const [orderSales, tables, anomalies] = ids.length
+    ? await Promise.all([
+        prisma.order.groupBy({
+          by: ["vendorId"],
+          where: { vendorId: { in: ids }, status: "DELIVERED", createdAt: { gte: since30 } },
+          _count: { _all: true },
+          _sum: { total: true },
+        }),
+        prisma.table.findMany({ where: { vendorId: { in: ids } }, select: { id: true, vendorId: true } }),
+        prisma.rankingAnomaly.groupBy({
+          by: ["vendorId"],
+          where: { vendorId: { in: ids }, status: "PENDING" },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], [], []];
+  const tableVendor = new Map(tables.map((t) => [t.id, t.vendorId]));
+  const tableSales = tables.length
+    ? await prisma.tableOrder.groupBy({
+        by: ["tableId"],
+        where: { tableId: { in: tables.map((t) => t.id) }, createdAt: { gte: since30 }, cancelledAt: null },
+        _count: { _all: true },
+        _sum: { total: true },
+      })
+    : [];
+  const salesByVendor = new Map(ids.map((id) => [id, { orders30: 0, sales30: 0 }]));
+  for (const s of orderSales) {
+    const acc = salesByVendor.get(s.vendorId);
+    acc.orders30 += s._count._all;
+    acc.sales30 += Number(s._sum.total ?? 0);
+  }
+  for (const s of tableSales) {
+    const acc = salesByVendor.get(tableVendor.get(s.tableId));
+    if (!acc) continue;
+    acc.orders30 += s._count._all;
+    acc.sales30 += Number(s._sum.total ?? 0);
+  }
+  const anomaliesByVendor = new Map(anomalies.map((a) => [a.vendorId, a._count._all]));
+
+  res.json({
+    vendors: vendors.map((v) => {
+      const s = salesByVendor.get(v.id);
+      return withComputedVendorFields({
+        ...v,
+        productCount: v._count.products,
+        orders30: s.orders30,
+        sales30: s.sales30,
+        pendingAnomalies: anomaliesByVendor.get(v.id) ?? 0,
+        lastLoginAt: v.user?.lastLoginAt ?? null,
+      });
+    }),
+    kpis: { all: kAll, verified: kVerified, inprocess: kInProcess, unverified: kUnverified, business: kBusiness, inactive: kInactive, flagged: kFlagged },
+    ...pageMeta(query, total),
   });
-  res.json({ vendors });
 }
 
 const updateVendorSchema = z.object({
