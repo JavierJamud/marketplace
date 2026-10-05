@@ -5,6 +5,7 @@ import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { useAuth, loginPathFor } from "../context/AuthContext.jsx";
 import { Input } from "./ui/Input.jsx";
+import { OtpInput } from "./ui/OtpInput.jsx";
 import { PasswordInput } from "./ui/PasswordInput.jsx";
 import { Button } from "./ui/Button.jsx";
 
@@ -74,13 +75,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
             <p className="mb-4 text-[12.5px] text-outline">
               Revisa {currentEmail} y escribe el código que te mandamos (vence en 15 minutos).
             </p>
-            <Input
-              label="Código"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="ABCD1234"
-              className="text-center font-mono tracking-[0.3em]"
-            />
+            <OtpInput label="Código" length={8} charset="alphanumeric" autoFocus value={code} onChange={setCode} />
             <div className="mt-5 flex gap-2.5">
               <Button variant="outline" className="flex-1" onClick={onClose} disabled={confirmCode.isPending}>Cancelar</Button>
               <Button className="flex-1" disabled={!code || confirmCode.isPending} onClick={() => confirmCode.mutate()}>

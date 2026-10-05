@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
+import { OtpInput } from "../../components/ui/OtpInput.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
@@ -679,14 +680,7 @@ export default function Account({ mode = "customer" }) {
             )}
           </p>
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
-            <Input
-              label="Código de verificación"
-              required
-              maxLength={6}
-              value={twoFactorCode}
-              onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
-              className="text-center text-title-lg tracking-[0.4em]"
-            />
+            <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={setTwoFactorCode} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || twoFactorCode.length !== 6}>
               {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
             </Button>
@@ -718,14 +712,7 @@ export default function Account({ mode = "customer" }) {
             Te mandamos un código de 6 dígitos a <strong>{form.email}</strong>. Vence en 10 minutos.
           </p>
           <form onSubmit={handleVerifyRegistration} className="space-y-4">
-            <Input
-              label="Código de verificación"
-              required
-              maxLength={6}
-              value={registerCode}
-              onChange={(e) => setRegisterCode(e.target.value.replace(/\D/g, ""))}
-              className="text-center text-title-lg tracking-[0.4em]"
-            />
+            <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={setRegisterCode} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || registerCode.length !== 6}>
               {loading ? (
                 <>
@@ -779,14 +766,7 @@ export default function Account({ mode = "customer" }) {
                 Te mandamos un código de 6 dígitos a <strong>{resetEmail}</strong>. Vence en 15 minutos.
               </p>
               <form onSubmit={handleVerifyCode} className="space-y-4">
-                <Input
-                  label="Código de verificación"
-                  required
-                  maxLength={6}
-                  value={resetCode}
-                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ""))}
-                  className="text-center text-title-lg tracking-[0.4em]"
-                />
+                <OtpInput label="Código de verificación" required autoFocus value={resetCode} onChange={setResetCode} />
                 <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || resetCode.length !== 6}>
                   {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar código"}
                 </Button>
