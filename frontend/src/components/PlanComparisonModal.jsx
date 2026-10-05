@@ -27,7 +27,6 @@ function buildRows(regular, business) {
     { label: "Badge de tienda verificada", regular: false, business: true },
     { label: "Destacada en la home", regular: regular.featuredInHome, business: business.featuredInHome },
     { label: "Chatbot con IA", regular: regular.allowAiChatbot, business: business.allowAiChatbot },
-    { label: "Asistente de negocio con IA", regular: regular.allowAiAssistant, business: business.allowAiAssistant },
     { label: "Horarios de atención", regular: regular.allowSchedules, business: business.allowSchedules },
     { label: "Ofertas de tienda", regular: regular.allowStoreOffers, business: business.allowStoreOffers },
   ];

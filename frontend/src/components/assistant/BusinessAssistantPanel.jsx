@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, Lock, RotateCcw, ArrowRight } from "lucide-react";
+import { ArrowUp, RotateCcw, ArrowRight } from "lucide-react";
 import { api } from "../../lib/api.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
@@ -71,7 +71,7 @@ function AssistantText({ text }) {
   );
 }
 
-function Message({ m }) {
+function Message({ m, onNavigate }) {
   const mine = m.role === "user";
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -86,6 +86,7 @@ function Message({ m }) {
               <Link
                 key={l.path}
                 to={l.path}
+                onClick={onNavigate}
                 className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-primary px-4 text-[13px] font-semibold text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
               >
                 Ir a {l.label}
@@ -101,8 +102,12 @@ function Message({ m }) {
 }
 
 // `endpoint`: "/vendors/me/assistant" o "/admin/business-assistant".
-// `lockedAction`: qué botón mostrar cuando el plan no incluye el asistente.
-export default function BusinessAssistantPanel({ endpoint, quickPrompts, intro, lockedAction }) {
+// Bloque 259: ya no es una sección con su propia página sino el contenido del
+// botón flotante (BusinessAssistantWidget), así que `embedded` lo hace llenar su
+// contenedor en vez de tener alto propio. `quickPromptsFree`: preguntas rápidas
+// para una tienda sin plan de pago (que además recibe la recomendación del plan).
+// `onNavigate` cierra el widget al tocar un enlace "Ir a ...".
+export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPromptsFree, intro, embedded = false, onNavigate }) {
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const [pending, setPending] = useState(null);
@@ -164,32 +169,20 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, intro, 
     );
   }
 
-  // Plan sin el asistente, negocio sin verificar, etc.: se explica la ventaja
-  // y se ofrece el camino, en vez de mostrar un error.
-  if (data?.access && !data.access.allowed) {
-    return (
-      <div className="max-w-[560px] rounded-2xl bg-gradient-to-br from-primary to-primary-container p-6 text-white">
-        <div className="mb-2 flex items-center gap-2">
-          <Lock className="h-5 w-5" aria-hidden="true" />
-          <h2 className="text-[15px] font-bold">Función para negocios verificados con plan de pago</h2>
-        </div>
-        <p className="mb-2 text-[13.5px] leading-[20px] text-white/85">{data.access.message}</p>
-        <p className="mb-4 text-[13.5px] leading-[20px] text-white/85">
-          Con el asistente le preguntas a tu negocio en lenguaje normal: cuánto vendiste hoy, qué se está agotando o qué producto conviene promocionar, y te responde con tus datos reales.
-        </p>
-        {lockedAction && (
-          <Link to={lockedAction.to} className="inline-flex min-h-11 items-center rounded-xl bg-secondary-container px-5 text-[13px] font-bold text-primary transition hover:brightness-95">
-            {lockedAction.label}
-          </Link>
-        )}
-      </div>
-    );
-  }
+  // Una tienda sin plan de pago también lo usa (Bloque 259): el servidor avisa si es
+  // premium para que las preguntas rápidas inviten a conocer el plan.
+  const prompts = data?.access?.premium === false && quickPromptsFree ? quickPromptsFree : quickPrompts;
 
   const shown = pending ? [...messages, pending] : messages;
 
   return (
-    <div className="flex h-[calc(100dvh-270px)] min-h-[420px] flex-col md:h-[calc(100dvh-220px)] overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+    <div
+      className={
+        embedded
+          ? "flex h-full min-h-0 flex-col bg-surface-container-lowest"
+          : "flex h-[calc(100dvh-270px)] min-h-[420px] flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] md:h-[calc(100dvh-220px)]"
+      }
+    >
       <div className="flex items-center justify-between gap-3 border-b border-surface-container-high/70 px-4 py-2.5">
         <p className="text-[12.5px] text-on-surface-variant">{intro}</p>
         {messages.length > 0 && (
@@ -211,7 +204,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, intro, 
             <p className="mb-1 text-[15px] font-semibold text-on-surface">¿Qué quieres saber de tu negocio?</p>
             <p className="mb-4 text-[13px] text-on-surface-variant">Responde con tus datos reales. No cambia nada por su cuenta: te dice qué hacer y a qué pantalla ir.</p>
             <div className="flex flex-col gap-2">
-              {quickPrompts.map((q) => (
+              {prompts.map((q) => (
                 <button
                   key={q}
                   type="button"
@@ -226,7 +219,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, intro, 
           </div>
         )}
         {shown.map((m, i) => (
-          <Message key={m.id ?? `pending-${i}`} m={m} />
+          <Message key={m.id ?? `pending-${i}`} m={m} onNavigate={onNavigate} />
         ))}
         {ask.isPending && (
           <div className="flex justify-start">

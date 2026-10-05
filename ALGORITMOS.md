@@ -191,8 +191,10 @@ vigilan modelos activos.
 
 ### B6b. Asistente de negocio con IA (solo lectura) — `services/businessAssistant.service.js`
 
-Chat para el admin (`/admin/asistente-negocio`) y para el dueño de una tienda
-verificada con plan de pago (`/vendedor/asistente`). **Solo lee y recomienda**:
+Botón flotante de chat (`BusinessAssistantWidget`) montado en todas las
+pantallas del panel del admin y del panel del dueño de una tienda. En celular
+abre como hoja a pantalla completa; en escritorio, como ventana sobre el botón.
+**Solo lee y recomienda**:
 no hay herramientas de escritura, y cuando algo debe cambiarse responde con un
 botón a la pantalla exacta.
 
@@ -213,8 +215,16 @@ como instrucciones (nombres de productos y reseñas son texto de terceros).
   documentos de verificación en ninguna herramienta.
 - Los enlaces se validan contra la lista real de rutas del panel
   (`LINKS_BY_SCOPE`); una ruta inventada se descarta.
-- Acceso del vendedor: dueño (no usuario de sistema) + tienda verificada +
-  plan de pago activo + `PlanConfig.allowAiAssistant` encendido (Suscripciones).
+- Acceso del vendedor: el dueño de cualquier tienda (no un usuario de sistema),
+  con o sin verificación y plan. El plan solo cambia lo que cuenta el asistente
+  (`vendorPlanContext`): con plan activo no le recomienda suscribirse; sin plan
+  o sin verificar le recomienda con honestidad verificarse y suscribirse
+  (publicidad toda la semana en los grupos de compra y venta de Cuba y los
+  beneficios reales del plan, leídos de `PlanConfig`) con enlace a
+  `/vendedor/verificacion`, sin repetirlo en cada mensaje. El interruptor
+  `allowAiAssistant` ya no existe (migración `drop_allow_ai_assistant`).
+- Anti-invento: si la respuesta trae cifras y la IA no consultó ninguna
+  herramienta, el servidor la devuelve a consultar (hasta 2 veces).
 - Usa la cadena de respaldo entre modelos de B6; con todas las IA caídas
   responde 503 "no está disponible" y no guarda la pregunta.
 - Historial: `AssistantMessage`, últimas 10 vueltas, separado por ámbito,

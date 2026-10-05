@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar, MessageSquareText } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
 
 const NAV = [
   // Bloque 194 (pedido explícito — "cambiarla por el nombre Dashboard,
@@ -38,7 +39,6 @@ const NAV = [
   { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
-  { to: "/admin/asistente-negocio", label: "Asistente de negocio", icon: MessageSquareText },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
   // el useQuery de abajo y el render del badge en el map de NAV.
@@ -221,6 +221,14 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
   );
 }
 
+const ADMIN_ASSISTANT_PROMPTS = [
+  "Dame un resumen del día de la plataforma",
+  "¿Qué debo atender primero hoy?",
+  "¿Qué tiendas venden más este mes?",
+  "¿Cómo va el embudo de verificación?",
+  "¿Están funcionando bien las integraciones de IA?",
+];
+
 export default function AdminLayout() {
   // Bloque 60: la sesión/rol ya se validó un nivel arriba (ver
   // ProtectedRoute en App.jsx) — nunca hay que volver a chequear acá.
@@ -390,6 +398,9 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+      {/* Bloque 259: asistente de negocio como botón flotante en TODAS las
+          pantallas del panel del admin (antes era una sección del menú). */}
+      <BusinessAssistantWidget endpoint="/admin/business-assistant" quickPrompts={ADMIN_ASSISTANT_PROMPTS} />
     </div>
   );
 }

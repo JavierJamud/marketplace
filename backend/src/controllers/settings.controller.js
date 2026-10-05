@@ -164,7 +164,6 @@ const planConfigSchema = z.object({
   maxActiveStoreOffers: z.number().int().min(0).optional().nullable(),
   maxDiscountCodes: z.number().int().min(0).optional().nullable(),
   allowAiChatbot: z.boolean().optional(),
-  allowAiAssistant: z.boolean().optional(),
   allowHomeOffers: z.boolean().optional(),
   allowStoreOffers: z.boolean().optional(),
   allowDiscountCodes: z.boolean().optional(),

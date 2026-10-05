@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, MessageSquareText } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -19,6 +19,7 @@ import { VendorSearchBar } from "../../components/vendor/VendorSearchBar.jsx";
 import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx";
 import { unlockAudioOnFirstInteraction } from "../../lib/orderNotificationSound.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 
 // Bloque 183 (pedido explícito — "saldrán siempre todas las secciones que
@@ -55,10 +56,6 @@ const NAV = [
   { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart, section: "pedidos" },
   { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas" },
   { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck, ownerOnly: true },
-  // Bloque 246: asistente de negocio con IA — solo el dueño (son consejos sobre
-  // todo el negocio, nunca delegable a un usuario de sistema). Si la tienda no
-  // es verificada o su plan no lo incluye, la propia pantalla lo explica.
-  { to: "/vendedor/asistente", label: "Asistente de negocio", icon: MessageSquareText, ownerOnly: true },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes" },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star, section: "resenas" },
   // Feature B (pedido explícito): badge propio (fraudReportsPendingCount)
@@ -155,6 +152,23 @@ function VendorAccessBlockedGate({ vendor, supportWhatsapp, onLogout }) {
     </div>
   );
 }
+
+// Bloque 259: preguntas rápidas del asistente. Una tienda sin plan de pago ve
+// otras, que además invitan a conocer lo que ganaría con la suscripción.
+const VENDOR_ASSISTANT_PROMPTS = [
+  "Resumen de mis ventas de hoy",
+  "¿Qué productos se están agotando?",
+  "¿Cuáles son mis productos más vendidos este mes?",
+  "Dame consejos para esta semana",
+  "¿Qué productos no se venden y qué hago con ellos?",
+];
+const VENDOR_ASSISTANT_PROMPTS_FREE = [
+  "¿Cómo puedo vender más con mi tienda?",
+  "¿Qué le falta a mi tienda para atraer más clientes?",
+  "Dame consejos para esta semana",
+  "¿Qué gano si verifico mi tienda y me suscribo?",
+  "¿Qué productos no se venden y qué hago con ellos?",
+];
 
 export default function VendorLayout() {
   // Bloque 60: la sesión/rol ya se validó un nivel arriba (ver
@@ -600,6 +614,12 @@ export default function VendorLayout() {
           trialStartedAt==null y el otro trialEndsAt!=null, mutuamente
           excluyentes en la práctica. */}
       {!isStaff && <TrialOfferPopup vendor={vendor} />}
+      {/* Bloque 259 (pedido explícito): asistente de negocio como botón flotante en
+          TODAS las pantallas del panel del dueño (antes una sección del menú, solo
+          para tiendas verificadas con plan). Lo usa también una tienda sin plan:
+          recibe consejos y la recomendación de suscribirse. Un usuario de sistema
+          no lo ve (son consejos sobre todo el negocio). */}
+      {!isStaff && <BusinessAssistantWidget endpoint="/vendors/me/assistant" quickPrompts={VENDOR_ASSISTANT_PROMPTS} quickPromptsFree={VENDOR_ASSISTANT_PROMPTS_FREE} />}
       {!isStaff && <TrialWelcomePopup vendor={vendor} />}
       {/* Bloque 164: montado a nivel de layout (como el de arriba) — así
           suena y aparece sin importar en qué sección del panel esté el

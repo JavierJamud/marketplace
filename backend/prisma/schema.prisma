@@ -996,10 +996,6 @@ model PlanConfig {
 
   // --- Interruptores de función ----------------------------------------
   allowAiChatbot      Boolean @default(true)
-  // Bloque 246: asistente de negocio con IA (solo lectura) dentro del panel del
-  // vendedor. Apagado por defecto: es una función de pago, el admin la enciende
-  // por plan en Suscripciones.
-  allowAiAssistant    Boolean @default(false)
   allowHomeOffers     Boolean @default(true)
   allowStoreOffers    Boolean @default(true)
   allowDiscountCodes  Boolean @default(true)
