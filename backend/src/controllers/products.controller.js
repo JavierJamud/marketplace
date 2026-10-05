@@ -35,7 +35,7 @@ export const productSchema = z.object({
   // update que reenvíe description: null pasaría de largo la validación.
   description: z.preprocess(
     (v) => v ?? "",
-    z.string().trim().min(10, "La descripción es obligatoria — contale al cliente qué es este producto (mínimo 10 caracteres).")
+    z.string().trim().min(10, "La descripción es obligatoria: cuéntale al cliente qué es este producto (mínimo 10 caracteres).")
   ),
   // Bloque 66 (pedido explícito): obligatoria — antes opcional.
   categoryId: z.string().min(1, "Elige una categoría."),

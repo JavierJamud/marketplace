@@ -4,7 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { sendContactMessageEmail } from "../lib/email.js";
 
 const contactSchema = z.object({
-  name: z.string().trim().min(2, "Contanos tu nombre."),
+  name: z.string().trim().min(2, "Cuéntanos tu nombre."),
   email: z.string().trim().email("Correo inválido."),
   message: z.string().trim().min(5, "Cuéntanos un poco más."),
 });

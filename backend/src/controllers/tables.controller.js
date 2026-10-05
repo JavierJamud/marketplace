@@ -884,7 +884,7 @@ export async function deleteTable(req, res) {
   });
   if (!table || table.vendorId !== vendor.id) throw new AppError("Mesa no encontrada.", 404);
   if (table.tableOrders.length > 0) {
-    throw new AppError("Esta mesa tiene un pedido sin liberar todavía — marcalo como pagado/liberado antes de eliminarla.", 409);
+    throw new AppError("Esta mesa tiene un pedido sin liberar todavía. Márcalo como pagado/liberado antes de eliminarla.", 409);
   }
 
   await prisma.table.delete({ where: { id } });

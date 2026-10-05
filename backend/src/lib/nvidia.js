@@ -171,13 +171,15 @@ export async function chatWithNvidia({ apiKey, systemParts, history, message, mo
       productIds: Array.isArray(parsed.productIds) ? parsed.productIds.filter((id) => typeof id === "string") : [],
       addToCart: Array.isArray(parsed.addToCart) ? parsed.addToCart : [],
       removeFromCart: Array.isArray(parsed.removeFromCart) ? parsed.removeFromCart.filter((id) => typeof id === "string") : [],
+      // Bloque 249: quitar solo ALGUNAS unidades ({ productId, quantity }).
+      reduceCart: Array.isArray(parsed.reduceCart) ? parsed.reduceCart.filter((r) => r && typeof r === "object") : [],
       clearCart: parsed.clearCart === true,
       vendorIds: Array.isArray(parsed.vendorIds) ? parsed.vendorIds.filter((id) => typeof id === "string") : [],
       showAllStoresButton: parsed.showAllStoresButton === true,
       suggestedFollowUps: Array.isArray(parsed.suggestedFollowUps) ? parsed.suggestedFollowUps.filter((s) => typeof s === "string") : [],
     };
   } catch {
-    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
+    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], reduceCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
   }
 }
 

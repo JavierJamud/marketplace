@@ -21,7 +21,7 @@ function imgUrl(path) {
 function showLinkCopiedToast() {
   toast.success(
     "¡Enlace copiado!",
-    "Pegalo donde quieras — WhatsApp, redes sociales o mensaje directo — para compartir esta tienda.",
+    "Pégalo donde quieras (WhatsApp, redes sociales o mensaje directo) para compartir esta tienda.",
     { icon: "link" }
   );
 }
@@ -48,7 +48,7 @@ function showLinkCopiedToast() {
 // solo alargan la pantalla. `minimal` corta el banner a la zona de
 // identidad únicamente (avatar, nombre, insignias, descripción) — Store.jsx
 // sigue usando la versión completa de siempre, sin este prop.
-export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false }) {
+export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, underHeader = true }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -132,8 +132,15 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false }) {
           reales del viewport. container-app se corre adentro, solo en las
           2 franjas con contenido real, para que el texto siga alineado con
           el resto de la página. */}
+      {/* Bloque 249 (pedido explícito — "la barra de menú no debe verse sobre un
+          fondo blanco: sube el color del banner hasta arriba de la pantalla,
+          por debajo de la barra de menú"): el menú es una píldora flotante que
+          ocupa un hueco de 76px arriba (ver Header.jsx). Con -mt-[76px] el
+          fondo del banner se estira hacia ese hueco y pt-[76px] devuelve el
+          contenido a su lugar de siempre (misma técnica del hero del Home).
+          `underHeader={false}` en /mesa/*, donde el menú no se monta. */}
       <div
-        className="relative overflow-hidden"
+        className={`relative overflow-hidden ${underHeader ? "-mt-[76px] pt-[76px]" : ""}`}
         style={{
           background: `linear-gradient(150deg, ${v.color ?? "#232F3E"} 0%, ${v.color ? v.color + "dd" : "#1a2632"} 55%, #111827 100%)`,
         }}

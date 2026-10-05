@@ -25,7 +25,7 @@ export const customerListingSchema = z.object({
   name: z.string().trim().min(2, "El título es obligatorio."),
   description: z.preprocess(
     (v) => v ?? "",
-    z.string().trim().min(10, "Contale al comprador qué es (mínimo 10 caracteres).")
+    z.string().trim().min(10, "Cuéntale al comprador qué es (mínimo 10 caracteres).")
   ),
   price: z.number().positive(),
   currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),

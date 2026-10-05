@@ -538,23 +538,24 @@ REGLAS:
   · Esta regla va ANTES que la de "venta natural" de abajo: un "quiero comprar X" es TAMBIÉN una pregunta de disponibilidad, no una excepción — nunca invites a "agregarlo al carrito" ni lo presentes como buena opción sin antes aplicar este chequeo. Si está agotado, la respuesta empieza aclarando eso, no vendiendo el producto.
 - Venta natural: sugiere lo relacionado o con descuento (oldPrice = precio anterior) cuando aplique, sin forzar en cada mensaje — nunca para un producto agotado (ver regla de arriba).
 - Nunca digas "ya lo agregué", "ya está en tu carrito", "ya lo saqué" ni "ya vacié el carrito" — ninguna forma de pasado para una acción de carrito, esa confirmación la da la interfaz, no tú. Si el cliente pide agregar/sacar/vaciar, habla en presente/futuro ("te lo agrego ahora", "dale, lo saco", "listo, vacío el carrito") y usa "addToCart"/"removeFromCart"/"clearCart" (abajo) según corresponda — texto y acción SIEMPRE juntos, nunca uno sin el otro.
-- ACCIONES DE CARRITO (bug real ya visto: el cliente pidió vaciar el carrito, el bot dijo que sí pero el carrito real no cambió): "removeFromCart" y "clearCart" son las ÚNICAS formas reales de sacar/vaciar el carrito — decir "listo, lo saqué" o "ya está vacío" SIN incluir la acción correspondiente en el JSON no hace nada de verdad, el carrito real del cliente queda intacto. Si pide sacar un producto puntual del carrito, usa "removeFromCart" con su número de catálogo. Si pide vaciar/borrar TODO el carrito ("vacía el carrito", "borra todo", "empezar de cero"), usa "clearCart": true. Nunca uses estas acciones por iniciativa propia, solo cuando el cliente lo pida explícito.
+- ACCIONES DE CARRITO (bug real ya visto: el cliente pidió vaciar el carrito, el bot dijo que sí pero el carrito real no cambió): "removeFromCart" y "clearCart" son las ÚNICAS formas reales de sacar/vaciar el carrito — decir "listo, lo saqué" o "ya está vacío" SIN incluir la acción correspondiente en el JSON no hace nada de verdad, el carrito real del cliente queda intacto. Si pide sacar un producto ENTERO del carrito (todas sus unidades), usa "removeFromCart" con su número de catálogo. Si pide sacar solo ALGUNAS unidades de un producto que tiene 2 o más ("quita uno", "saca una unidad", "déjame solo uno", "elimina uno de los dos"), usa "reduceCart" con la cantidad a QUITAR (no la que queda) y NUNCA "removeFromCart": sacar la línea entera borraría también las unidades que el cliente quiere conservar. Mira "TU CARRITO ACTUAL" para saber cuántas tiene. Si pide vaciar/borrar TODO el carrito ("vacía el carrito", "borra todo", "empezar de cero"), usa "clearCart": true. Nunca uses estas acciones por iniciativa propia, solo cuando el cliente lo pida explícito.
 - CONTENIDO DEL CARRITO (bug real reportado en vivo: el cliente tenía productos reales en el carrito y el bot dijo que estaba vacío): si preguntan qué tienen en el carrito, cuánto llevan, o piden un resumen/total de lo que van a pagar, la ÚNICA fuente de verdad es "TU CARRITO ACTUAL" al principio de este mensaje — nunca lo que dijiste en un turno anterior, nunca el catálogo de abajo por su cuenta. Si ahí lista productos, dilos tal cual (nombre, cantidad, subtotal si preguntan) — NUNCA digas "está vacío" ni "no tienes nada" si esa lista tiene al menos un producto. Si dice "vacío", dilo así de claro — nunca inventes contenido que no está ahí.
 - STOCK ESTRICTO: nunca ofrezcas ni agregues más de "disponible para agregar" de un producto (ya descuenta el carrito actual). Si piden más de lo disponible, o agregas exactamente la cantidad máxima disponible aclarándolo en el texto ("solo tengo 2, te agrego esas 2"), o no agregas nada y explicas cuánto hay — nunca digas una cantidad y agregues otra. Si "disponible para agregar" es 0 (por AGOTADO o porque ya tiene todo el stock en el carrito), nunca uses addToCart para ese producto, y en "text" dilo así, SIN decir que lo vas a agregar: "Solo queda 1 unidad disponible y ya la tienes en el carrito — no puedo agregar más." Nunca digas "te lo agrego" si "disponible para agregar" es 0 o si pidieron más de lo que hay.
 - Si preguntan por el estado de un pedido (por email o número de confirmación): si arriba de todo aparece "CONSULTA DE PEDIDO", ESE es el resultado real y actual de esa búsqueda — úsalo tal cual, nunca digas "no encontré" si ahí hay pedido(s) listados, y nunca digas que encontraste algo si ahí dice que no hay nada. Si NO aparece "CONSULTA DE PEDIDO" arriba y preguntan por un pedido, pide el email o número de confirmación para buscarlo (tú no puedes inventar ese resultado).
 
 ${fewShot}
 
-SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [{"productId": "N", "quantity": 1}], "removeFromCart": ["N"], "clearCart": false, "vendorIds": [], "showAllStoresButton": false, "suggestedFollowUps": ["...", "..."]}
+SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [{"productId": "N", "quantity": 1}], "removeFromCart": ["N"], "reduceCart": [{"productId": "N", "quantity": 1}], "clearCart": false, "vendorIds": [], "showAllStoresButton": false, "suggestedFollowUps": ["...", "..."]}
 - text: SOLO prosa natural, en tus palabras — nunca copies una línea del catálogo tal cual (con "·", "stock" o "AGOTADO"), ni el número de catálogo, ni ningún ID.
 - productIds/addToCart.productId/removeFromCart: el NÚMERO de catálogo entre corchetes (ej. "3"), nunca el nombre del producto ni un ID inventado.
 - vendorIds/showAllStoresButton: SIEMPRE vacío/false — eso es del bot general (${siteName} en general), tú solo hablas de "${vendor.companyName}".
 - productIds: productos que mencionas o recomiendas en "text" (para mostrar su tarjeta). Vacío si ninguno puntual.
 - addToCart: SOLO si el cliente pidió EXPLÍCITAMENTE agregar algo al carrito (nunca por sugerencia tuya), tiene stock Y la cantidad no supera "disponible para agregar". REGLA ESTRICTA: si "text" dice que vas a agregar un producto, ese mismo número TIENE que estar en addToCart — nunca lo digas sin incluirlo, y nunca lo incluyas sin decirlo. Cada producto de acá también va en productIds. Vacío si no pidió agregar nada.
-- removeFromCart: números de catálogo que el cliente pidió EXPLÍCITAMENTE sacar del carrito. Vacío si no pidió sacar nada.
+- removeFromCart: números de catálogo cuyo producto el cliente pidió EXPLÍCITAMENTE sacar ENTERO del carrito (todas las unidades). Vacío si no pidió sacar nada, o si solo pidió quitar algunas unidades.
+- reduceCart: SOLO si el cliente pidió quitar ALGUNAS unidades de un producto que tiene 2 o más en el carrito. "quantity" es cuántas QUITAR (ej. tiene 2 y pide dejar 1: quantity 1). Un mismo producto nunca va a la vez en removeFromCart y reduceCart. Vacío en cualquier otro caso. Si pide quitar más unidades de las que tiene, usa removeFromCart.
 - clearCart: true SOLO si el cliente pidió EXPLÍCITAMENTE vaciar/borrar TODO el carrito. false en cualquier otro caso.
 - suggestedFollowUps: SIEMPRE 2-3 preguntas cortas (3-6 palabras cada una) que el cliente podría preguntar A CONTINUACIÓN de ESTA respuesta puntual — tienen que variar según lo que acabas de responder, nunca las mismas siempre. Básate en lo real (variantes/productos relacionados/categoría del catálogo), nunca inventes algo que no tenga sentido acá. Son solo sugerencias para que el cliente toque en vez de escribir, no una afirmación tuya de nada.
-- Ejemplo de patrón — agregar al carrito CON acción (número inventado, texto y acción SIEMPRE juntos): pedido "agregame el [7] al carrito" y tiene stock disponible → {"text": "Dale, te agrego 1 al carrito.", "productIds": ["7"], "addToCart": [{"productId": "7", "quantity": 1}], "removeFromCart": [], "clearCart": false, "suggestedFollowUps": ["Agregar otra unidad", "Ver el carrito", "Buscar algo más"]}. Mismo criterio EXACTO para "removeFromCart"/"clearCart" cuando piden sacar algo o vaciar el carrito (ver REGLA de ACCIONES DE CARRITO arriba) — nunca digas la acción sin incluirla en el JSON.
+- Ejemplo de patrón — agregar al carrito CON acción (número inventado, texto y acción SIEMPRE juntos): pedido "agregame el [7] al carrito" y tiene stock disponible → {"text": "Dale, te agrego 1 al carrito.", "productIds": ["7"], "addToCart": [{"productId": "7", "quantity": 1}], "removeFromCart": [], "clearCart": false, "suggestedFollowUps": ["Agregar otra unidad", "Ver el carrito", "Buscar algo más"]}. Ejemplo — tiene 2 de [7] en el carrito y pide "elimina uno": {"text": "Dale, te quito una unidad y te dejo una.", "productIds": ["7"], "addToCart": [], "removeFromCart": [], "reduceCart": [{"productId": "7", "quantity": 1}], "clearCart": false}. Mismo criterio EXACTO para "removeFromCart"/"clearCart" cuando piden sacar algo o vaciar el carrito (ver REGLA de ACCIONES DE CARRITO arriba) — nunca digas la acción sin incluirla en el JSON.
 - Ejemplo de patrón — producto agotado (número inventado, cubre "¿tienen...?", "¿cuánto sale...?" y "quiero comprar..." — MISMA regla en los tres casos, ver DISPONIBILIDAD REAL arriba): preguntan por el [4] (en cualquiera de esas formas) y el catálogo dice "[4] ... AGOTADO" → NUNCA digas "sí, tenemos"/"disponible", ni des el precio sin aclarar primero, ni invites a agregarlo al carrito: {"text": "Sí lo vendemos, pero ahora mismo está agotado. ¿Quieres que te avise cuando repongamos, o prefieres solicitarlo?", "productIds": ["4"], "addToCart": [], "suggestedFollowUps": ["Avísame cuando repongan", "Ver algo similar", "Solicitar este producto"]}
 - Ejemplo de patrón — filtrado progresivo, UNA variante por vez (número inventado): preguntan "¿tienen la [2]?" y el catálogo dice "[2] ... variantes: Talla(S/M/L); Color(Negro/Blanco)" (2 variantes reales, ninguna aclarada todavía) → NUNCA preguntes las dos juntas ("¿qué talla y qué color?"). Pregunta SOLO la primera: {"text": "Sí, tenemos. ¿En qué talla — S, M o L?", "productIds": ["2"], "addToCart": [], "suggestedFollowUps": ["Talla M", "Talla L", "¿Qué colores hay?"]} — recién cuando conteste la talla, en el siguiente turno preguntas el color.`,
     },
@@ -651,7 +652,7 @@ export async function postChatMessage(req, res) {
   // Reintentar. El mensaje del cliente YA quedó guardado arriba, así que
   // "Reintentar" en el frontend es simplemente volver a mandar el mismo
   // texto — no hace falta ninguna lógica especial de reintento acá.
-  let rawText, productIds, addToCart, removeFromCart, clearCart, suggestedFollowUps;
+  let rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps;
   try {
     // Bloque 83 (pedido explícito de mejorar tiempo de respuesta): estas 2
     // consultas son independientes entre sí (una mira pedidos por
@@ -663,7 +664,7 @@ export async function postChatMessage(req, res) {
       buildPurchaseHistoryContext(vendorId, userId),
     ]);
     const systemParts = await buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext, message);
-    ({ text: rawText, productIds, addToCart, removeFromCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
+    ({ text: rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
   } catch (err) {
     await logError({
       origin: "BOT_TIENDA",
@@ -759,6 +760,22 @@ export async function postChatMessage(req, res) {
     .map(resolveCatalogIndex)
     .filter(Boolean)
     .map((p) => p.id);
+  // Bloque 249 (bug real reportado en vivo: el cliente tenía 2 batidos, pidió
+  // quitar uno y el bot sacó los dos): "reduceCart" quita solo N unidades. El
+  // número de catálogo se traduce al producto real, la cantidad se limita a lo
+  // que de verdad hay en el carrito (cartQuantities, lo mismo que vio el
+  // modelo) y un producto que ya va entero en removeFromCart no se repite.
+  const wholeLineIds = new Set(validRemoveFromCart);
+  const reduceById = new Map();
+  for (const entry of Array.isArray(reduceCart) ? reduceCart : []) {
+    const product = entry && resolveCatalogIndex(entry.productId);
+    if (!product || wholeLineIds.has(product.id)) continue;
+    const inCart = cartQuantities[product.id] ?? 0;
+    const quantity = Math.min(Math.max(1, Math.floor(Number(entry.quantity)) || 1), inCart);
+    if (quantity < 1) continue;
+    reduceById.set(product.id, (reduceById.get(product.id) ?? 0) + quantity);
+  }
+  const validReduceCart = [...reduceById.entries()].map(([productId, quantity]) => ({ productId, quantity: Math.min(quantity, cartQuantities[productId] ?? quantity) }));
   const validClearCart = clearCart === true;
 
   // Cualquier producto que se vaya a agregar al carrito muestra su tarjeta
@@ -781,7 +798,7 @@ export async function postChatMessage(req, res) {
     .filter(Boolean)
     .slice(0, 3);
   res.status(201).json({
-    message: { ...saved, products, addToCart: validAddToCart, removeFromCart: validRemoveFromCart, clearCart: validClearCart, suggestedFollowUps: followUps },
+    message: { ...saved, products, addToCart: validAddToCart, removeFromCart: validRemoveFromCart, reduceCart: validReduceCart, clearCart: validClearCart, suggestedFollowUps: followUps },
   });
 }
 

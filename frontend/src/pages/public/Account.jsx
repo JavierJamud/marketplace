@@ -800,7 +800,7 @@ export default function Account({ mode = "customer" }) {
           {view === "forgot-newpass" && (
             <>
               <h1 className="mb-2 text-headline-md text-on-surface">Nueva contraseña</h1>
-              <p className="mb-6 text-body-md text-on-surface-variant">Escribila dos veces para confirmar.</p>
+              <p className="mb-6 text-body-md text-on-surface-variant">Escríbela dos veces para confirmar.</p>
               <form onSubmit={handleResetPassword} className="space-y-4">
                 <PasswordInput label="Nueva contraseña" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
                 <PasswordInput label="Confirmar contraseña" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />

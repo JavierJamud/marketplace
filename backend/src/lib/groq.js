@@ -239,6 +239,8 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
       // que addToCart: el modelo solo DECIDE la acción acá, quien la
       // ejecuta de verdad es el frontend (ver StoreChatWidget.jsx).
       removeFromCart: Array.isArray(parsed.removeFromCart) ? parsed.removeFromCart.filter((id) => typeof id === "string") : [],
+      // Bloque 249: quitar solo ALGUNAS unidades ({ productId, quantity }).
+      reduceCart: Array.isArray(parsed.reduceCart) ? parsed.reduceCart.filter((r) => r && typeof r === "object") : [],
       clearCart: parsed.clearCart === true,
       // Bloque 41 (pedido explícito): tarjeta de tienda puntual (bot
       // general, mismo patrón que productIds) + botón real a "Ver todas
@@ -254,7 +256,7 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
       suggestedFollowUps: Array.isArray(parsed.suggestedFollowUps) ? parsed.suggestedFollowUps.filter((s) => typeof s === "string") : [],
     };
   } catch {
-    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
+    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], reduceCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
   }
 }
 

@@ -24,7 +24,7 @@ const createReportSchema = z
     productId: z.string().min(1).optional(),
     vendorId: z.string().min(1).optional(),
     customerListingId: z.string().min(1).optional(),
-    message: z.string().trim().min(10, "Contanos qué pasó (mínimo 10 caracteres)."),
+    message: z.string().trim().min(10, "Cuéntanos qué pasó (mínimo 10 caracteres)."),
   })
   .refine((d) => [d.productId, d.vendorId, d.customerListingId].filter(Boolean).length === 1, {
     message: "Manda productId, vendorId o customerListingId, exactamente uno de los tres.",
@@ -120,7 +120,7 @@ export async function createReport(req, res) {
 }
 
 const submitEvidenceSchema = z.object({
-  evidenceMessage: z.string().trim().min(10, "Contanos qué pasó (mínimo 10 caracteres)."),
+  evidenceMessage: z.string().trim().min(10, "Cuéntanos qué pasó (mínimo 10 caracteres)."),
 });
 
 // Respuesta del reportado (pedido explícito): "si el cliente envía evidencia

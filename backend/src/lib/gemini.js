@@ -223,6 +223,16 @@ export async function chatWithGemini({ apiKey, systemParts, history, message, mo
               // ejecuta de verdad es el frontend (CartContext.removeItem/
               // clearCart). El bot general nunca las usa (siempre [] / false).
               removeFromCart: { type: "array", items: { type: "string" } },
+              // Bloque 249: quitar solo ALGUNAS unidades de un producto que
+              // tiene 2 o más en el carrito (removeFromCart saca la línea entera).
+              reduceCart: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { productId: { type: "string" }, quantity: { type: "integer" } },
+                  required: ["productId", "quantity"],
+                },
+              },
               clearCart: { type: "boolean" },
               // Bloque 41 (pedido explícito): tarjeta de tienda puntual (bot
               // general, mismo patrón que productIds) + botón real a "Ver
@@ -266,6 +276,8 @@ export async function chatWithGemini({ apiKey, systemParts, history, message, mo
       productIds: Array.isArray(parsed.productIds) ? parsed.productIds.filter((id) => typeof id === "string") : [],
       addToCart: Array.isArray(parsed.addToCart) ? parsed.addToCart : [],
       removeFromCart: Array.isArray(parsed.removeFromCart) ? parsed.removeFromCart.filter((id) => typeof id === "string") : [],
+      // Bloque 249: quitar solo ALGUNAS unidades ({ productId, quantity }).
+      reduceCart: Array.isArray(parsed.reduceCart) ? parsed.reduceCart.filter((r) => r && typeof r === "object") : [],
       clearCart: parsed.clearCart === true,
       vendorIds: Array.isArray(parsed.vendorIds) ? parsed.vendorIds.filter((id) => typeof id === "string") : [],
       showAllStoresButton: parsed.showAllStoresButton === true,
@@ -276,6 +288,6 @@ export async function chatWithGemini({ apiKey, systemParts, history, message, mo
     // no imposible) — se muestra igual como texto plano en vez de cortar la
     // conversación, solo que ese mensaje puntual queda sin tarjetas ni
     // acción de carrito (más seguro que intentar parsear texto libre).
-    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
+    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], reduceCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
   }
 }

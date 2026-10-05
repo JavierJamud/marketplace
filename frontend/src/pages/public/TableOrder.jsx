@@ -285,7 +285,7 @@ export default function TableOrder() {
 
   return (
     <div>
-      <StoreHeaderBanner vendor={vendorFull} tableLabel={table.label || `Mesa ${table.tableNumber}`} minimal />
+      <StoreHeaderBanner vendor={vendorFull} tableLabel={table.label || `Mesa ${table.tableNumber}`} minimal underHeader={false} />
 
       {/* Misma "hoja" que Store.jsx — ver el comentario largo ahí:
           -mt-10/rounded-t-[40px] superpuesto sobre el "colchón" de color

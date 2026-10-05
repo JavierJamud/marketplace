@@ -326,6 +326,30 @@ export function CartProvider({ children }) {
     toast.success("Producto eliminado del carrito");
   };
 
+  // Bloque 249 (bug real reportado en vivo: el chat de la tienda sacaba TODAS
+  // las unidades cuando el cliente pedía quitar solo una): quita `quantity`
+  // unidades de un producto, empezando por la línea más reciente si hay varias
+  // tallas, y elimina la línea cuando llega a 0. Con el carrito en 0 resetea la
+  // tienda y el descuento, igual que removeItem.
+  const reduceItem = (productId, quantity) => {
+    setItems((prev) => {
+      let left = Math.max(1, Math.floor(Number(quantity)) || 1);
+      const next = [...prev];
+      for (let i = next.length - 1; i >= 0 && left > 0; i--) {
+        if (next[i].productId !== productId) continue;
+        const take = Math.min(left, next[i].quantity);
+        left -= take;
+        if (next[i].quantity - take <= 0) next.splice(i, 1);
+        else next[i] = { ...next[i], quantity: next[i].quantity - take };
+      }
+      if (next.length === 0) {
+        setVendor({});
+        setDiscount(null);
+      }
+      return next;
+    });
+  };
+
   const updateQuantity = (productId, quantity, size = null) => {
     setItems((prev) => {
       const existing = prev.find((i) => i.productId === productId && i.size === size);
@@ -374,6 +398,7 @@ export function CartProvider({ children }) {
         clearDiscount: () => setDiscount(null),
         addItem,
         removeItem,
+        reduceItem,
         updateQuantity,
         clearCart,
         resolveConflict,

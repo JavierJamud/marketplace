@@ -158,7 +158,7 @@ export default function VendorFraudReports() {
                     </label>
                     <button
                       onClick={() => {
-                        if (draft.message.trim().length < 10) return toast.error("Contanos qué pasó (mínimo 10 caracteres).");
+                        if (draft.message.trim().length < 10) return toast.error("Cuéntanos qué pasó (mínimo 10 caracteres).");
                         submitEvidence.mutate({ id: r.id, message: draft.message.trim(), files: draft.files });
                       }}
                       disabled={submitEvidence.isPending}

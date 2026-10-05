@@ -82,7 +82,7 @@ export default function Ayuda() {
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-gradient-to-br from-primary to-primary-container p-7">
         <div>
           <h2 className="mb-1 font-display text-xl font-extrabold text-white">¿No encontraste lo que buscabas?</h2>
-          <p className="text-body-md text-white/70">Escribinos y te respondemos directo.</p>
+          <p className="text-body-md text-white/70">Escríbenos y te respondemos directo.</p>
         </div>
         <Link
           to="/contacto"

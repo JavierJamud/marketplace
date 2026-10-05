@@ -348,12 +348,6 @@ export default function Store() {
     api.post(`/vendors/${data.id}/engagement`, { type: "VISIT" }).catch(() => {});
   }, [data, user]);
 
-  const { data: otherVendors } = useQuery({
-    queryKey: ["other-vendors", slug],
-    queryFn: async () => (await api.get("/vendors")).data.vendors,
-    enabled: !!data,
-  });
-
   const postComment = useMutation({
     mutationFn: async () => {
       const form = new FormData();
@@ -496,7 +490,7 @@ export default function Store() {
           -mt-10/rounded-t-[40px]: mismo valor en los 2 lados, siempre en
           sync — si uno cambia, el otro tiene que cambiar igual. Envuelve
           TODO el contenido de acá para abajo (Ofertas, Productos, Países de
-          entrega, Comentarios, Otras tiendas) — un solo fondo, una sola
+          entrega, Comentarios) — un solo fondo, una sola
           curva, no una por sección. */}
       <div className="relative -mt-10 rounded-t-[40px] bg-background">
       {/* Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes
@@ -617,7 +611,7 @@ export default function Store() {
       {outOfStockProducts.length > 0 && (
         <div className="container-app pt-11">
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Próximamente disponibles</h2>
-          <p className="mb-5 text-label-sm text-outline">Sin stock por ahora — solicitalos y le avisamos a la tienda que te interesan.</p>
+          <p className="mb-5 text-label-sm text-outline">Sin stock por ahora. Solicítalos y le avisamos a la tienda que te interesan.</p>
           <div className={PRODUCT_GRID_CLASS}>
             {outOfStockProducts.map((p) => (
               <ProductCard
@@ -781,33 +775,6 @@ export default function Store() {
           currentUserId={user?.id}
           onReportClick={(review) => setReportTarget(review)}
         />
-      </div>
-
-      {/* OTRAS TIENDAS */}
-      <div className="container-app py-11">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="font-display text-title-lg text-on-surface">Otras tiendas</h2>
-          <Link to="/tiendas" className="text-label-md font-semibold text-tertiary-accent">Ver todas →</Link>
-        </div>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {otherVendors?.filter((x) => x.id !== v.id).slice(0, 4).map((x) => (
-            <Link key={x.id} to={`/tienda/${x.slug}`} className="flex items-center gap-3 rounded-md border border-surface-container-high bg-surface-container-lowest p-4">
-              <div
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full font-display text-base font-bold text-white"
-                style={{ background: x.color ?? "#232F3E" }}
-              >
-                {x.companyName[0]}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-[13.5px] font-bold text-on-surface">{x.companyName}</div>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[11.5px] text-outline">
-                  <StarRating value={Number(x.rating)} size="h-3 w-3" showValue />
-                  <span>· {x._count?.products ?? 0} prod.</span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
       </div>
       </div>
 

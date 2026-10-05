@@ -238,7 +238,7 @@ function BotRow({ children }) {
 // con el mismo `vendor` (id + companyName alcanza).
 export function StoreChatWidget({ vendor }) {
   const { siteName } = usePlatformSettings();
-  const { vendorId: cartVendorId, items, total, addItem, removeItem, clearCart } = useCart();
+  const { vendorId: cartVendorId, items, total, addItem, removeItem, reduceItem, clearCart } = useCart();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState([]);
@@ -426,8 +426,11 @@ export function StoreChatWidget({ vendor }) {
       if (data.message.clearCart) {
         clearCart();
         toast.success("Carrito vaciado");
-      } else if (data.message.removeFromCart?.length > 0) {
-        data.message.removeFromCart.forEach((id) => removeItem(id));
+      } else {
+        if (data.message.removeFromCart?.length > 0) data.message.removeFromCart.forEach((id) => removeItem(id));
+        // Bloque 249: quitar solo algunas unidades (antes se sacaba la línea
+        // entera y el cliente perdía las que quería conservar).
+        if (data.message.reduceCart?.length > 0) data.message.reduceCart.forEach((r) => reduceItem(r.productId, r.quantity));
       }
     } catch {
       // Bloque 33: nunca se muestra el error real (ni mensaje de excepción,
@@ -728,7 +731,7 @@ export function StoreChatWidget({ vendor }) {
           <div className="flex-1 overflow-y-auto p-4">
             <BotRow>
               <div className="rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
-                ¡Hola! Preguntame lo que quieras sobre {vendor.companyName} — productos, precios, horarios, políticas...
+                ¡Hola! Pregúntame lo que quieras sobre {vendor.companyName}: productos, precios, horarios, políticas...
               </div>
             </BotRow>
 

@@ -33,7 +33,7 @@ export default function Contacto() {
     <div className="container-app max-w-[960px] py-14">
       <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Ayuda</p>
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Contacto</h1>
-      <p className="mb-10 text-body-md text-on-surface-variant">Escribinos y te respondemos por correo.</p>
+      <p className="mb-10 text-body-md text-on-surface-variant">Escríbenos y te respondemos por correo.</p>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1.3fr]">
         {/* Bloque 48: a diferencia de Terms/Privacy/Faq/Ayuda, acá SOLO se
