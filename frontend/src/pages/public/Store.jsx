@@ -37,6 +37,8 @@ import { StoreHeaderBanner } from "../../components/StoreHeaderBanner.jsx";
 // local" (menuProducts) — "Otros productos" y el resto de la página siguen
 // con ProductGrid tal cual estaban.
 import { DigitalMenuProductCard, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
+// Bloque 240: la misma tarjeta vertical que el Home y el catálogo.
+import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 
 const MAX_REVIEW_IMAGES = 4;
 
@@ -243,69 +245,19 @@ function StoreOfferCard({ offer, vendorName }) {
   );
 }
 
-// Bloque 51: mismo criterio "...leer más" que ProductCard.jsx — acá no se
-// reusa ese componente directamente porque estas dos grillas (disponibles /
-// agotados) usan botones de acción distintos (AddToCartControl vs.
-// RequestProductButton) y un tratamiento de imagen distinto (grayscale en
-// agotados), así que se repite solo este pedacito. Estado propio por
-// tarjeta: no se puede usar useState directo dentro de un .map().
-function ExpandableDescription({ text }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!text) return null;
-  return (
-    <div className="mb-1.5">
-      <p className={`text-[12px] leading-4 text-outline ${expanded ? "" : "line-clamp-1"}`}>{text}</p>
-      {text.length > 45 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="text-[11px] font-bold text-tertiary-accent hover:underline"
-        >
-          {expanded ? "leer menos" : "...leer más"}
-        </button>
-      )}
-    </div>
-  );
-}
-
 // Bloque 141 (pedido explícito): extraído de la sección "PRODUCTOS" de
-// abajo (antes una sola grilla inline) para poder reusarla sin duplicar
-// 30+ líneas de JSX cuando una tienda-restaurante separa su menú de su
-// catálogo fijo en 2 secciones (ver más abajo, "Productos" splitea en
+// abajo para poder reusarlo cuando una tienda-restaurante separa su menú de
+// su catálogo fijo en 2 secciones (ver más abajo, "Productos" splitea en
 // menuProducts/catalogProducts cuando corresponde).
+// Bloque 240: ya no tiene markup propio — usa la misma ProductCard que el
+// Home y el catálogo. `vendor` va por prop porque getVendorBySlug anida los
+// productos DENTRO del vendedor (no traen `product.vendor`), y hideVendor
+// evita repetir el nombre de la tienda y su ubicación en cada tarjeta.
 function ProductGrid({ products, vendor }) {
   return (
-    <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+    <div className={PRODUCT_GRID_CLASS}>
       {products.map((p) => (
-        <div
-          key={p.id}
-          className="group overflow-hidden rounded-[26px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
-        >
-          <Link to={`/producto/${vendor.slug}/${p.slug}`} className="block p-2.5 pb-0">
-            <div className="aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
-              {p.images?.[0] ? (
-                <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
-              )}
-            </div>
-          </Link>
-          <div className="p-3.5 pt-2.5">
-            <Link to={`/producto/${vendor.slug}/${p.slug}`} className="mb-1 block text-[13.5px] font-bold leading-[18px] text-on-surface">
-              {p.name}
-            </Link>
-            <ExpandableDescription text={p.description} />
-            {!p.unlimitedStock && p.stock <= LOW_STOCK_THRESHOLD && (
-              <span className="mb-1.5 inline-block w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
-                ¡Últimas {p.stock} unidades!
-              </span>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-              <AddToCartControl product={{ ...p, vendorId: vendor.id, vendor }} size="sm" />
-            </div>
-          </div>
-        </div>
+        <ProductCard key={p.id} product={p} vendor={vendor} hideVendor trackSource="store" />
       ))}
     </div>
   );
@@ -666,35 +618,16 @@ export default function Store() {
         <div className="container-app pt-11">
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Próximamente disponibles</h2>
           <p className="mb-5 text-label-sm text-outline">Sin stock por ahora — solicitalos y le avisamos a la tienda que te interesan.</p>
-          <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+          <div className={PRODUCT_GRID_CLASS}>
             {outOfStockProducts.map((p) => (
-              <div
+              <ProductCard
                 key={p.id}
-                className="overflow-hidden rounded-[26px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)]"
-              >
-                <Link to={`/producto/${v.slug}/${p.slug}`} className="block p-2.5 pb-0">
-                  <div className="relative aspect-[12/7] w-full overflow-hidden rounded-[16px] border-2 border-dashed border-outline-variant bg-surface-container">
-                    {p.images?.[0] ? (
-                      <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover grayscale" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
-                    )}
-                    <span className="absolute left-2 top-2 rounded-full bg-[#ba1a1a] px-2.5 py-1 text-[10.5px] font-bold text-white shadow">
-                      Sin stock
-                    </span>
-                  </div>
-                </Link>
-                <div className="p-3.5 pt-2.5">
-                  <Link to={`/producto/${v.slug}/${p.slug}`} className="mb-1.5 block text-[13.5px] font-bold leading-[18px] text-on-surface">
-                    {p.name}
-                  </Link>
-                  <ExpandableDescription text={p.description} />
-                  <div className="flex items-center justify-between">
-                    <span className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-                    <RequestProductButton productId={p.id} size="sm" />
-                  </div>
-                </div>
-              </div>
+                product={p}
+                vendor={v}
+                hideVendor
+                trackSource="store"
+                action={<RequestProductButton productId={p.id} size="sm" />}
+              />
             ))}
           </div>
         </div>

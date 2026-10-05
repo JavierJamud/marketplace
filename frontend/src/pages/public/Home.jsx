@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Percent, Store, ShieldCheck, Rocket } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
-import { ProductCard } from "../../components/ProductCard.jsx";
+import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 import { VerifiedStoresSlider } from "../../components/VerifiedStoresSlider.jsx";
 import { OffersSlider } from "../../components/OffersSlider.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -275,7 +275,7 @@ export default function Home() {
           // viewport, con tarjetas más chicas y un grid más moderno/denso,
           // sin tocar mobile (sigue en 2). Tope sube de 10 a 20 — nunca se
           // rellena con nada inventado si hay menos disponibles.
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 lg:grid-cols-5">
+          <div className={PRODUCT_GRID_CLASS}>
             {featured.slice(0, 20).map((p) => (
               <ProductCard key={p.id} product={p} trackSource="home" />
             ))}

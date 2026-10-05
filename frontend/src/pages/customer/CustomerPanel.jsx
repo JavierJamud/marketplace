@@ -682,17 +682,26 @@ export default function CustomerPanel() {
                   <h2 className="mb-3.5 text-label-md font-bold text-on-surface-variant">Productos ({productFavorites.length})</h2>
                   <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                     {productFavorites.map((f) => (
-                      <div key={f.id} className="relative">
-                        <button
-                          onClick={() => removeFavorite.mutate(f.id)}
-                          disabled={removeFavorite.isPending}
-                          aria-label="Quitar de favoritos"
-                          className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 disabled:opacity-50"
-                        >
-                          <Heart className="h-4 w-4 fill-white" />
-                        </button>
-                        <ProductCard product={f.product} />
-                      </div>
+                      // Bloque 240: el corazón entra por topRightSlot de la
+                      // tarjeta (antes flotaba encima de ella y pisaba el
+                      // badge "Más vendido"). Zona táctil de 44px con el
+                      // círculo visible de 32px adentro (R-03).
+                      <ProductCard
+                        key={f.id}
+                        product={f.product}
+                        topRightSlot={
+                          <button
+                            onClick={() => removeFavorite.mutate(f.id)}
+                            disabled={removeFavorite.isPending}
+                            aria-label="Quitar de favoritos"
+                            className="group/heart -m-1.5 flex h-11 w-11 items-center justify-center disabled:opacity-50"
+                          >
+                            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white group-hover/heart:bg-black/60">
+                              <Heart className="h-4 w-4 fill-white" />
+                            </span>
+                          </button>
+                        }
+                      />
                     ))}
                   </div>
                 </div>

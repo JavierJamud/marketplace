@@ -16,6 +16,7 @@ import { PageLoader } from "../../components/ui/PageLoader.jsx";
 import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 import { PackageSearch } from "lucide-react";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
+import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
@@ -723,25 +724,9 @@ export default function Product() {
       {related?.length > 0 && (
         <section className="container-app py-14">
           <h2 className="mb-6 font-display text-title-lg text-on-surface">También te puede interesar</h2>
-          <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+          <div className={PRODUCT_GRID_CLASS}>
             {related.map((p) => (
-              <Link
-                key={p.id}
-                to={`/producto/${p.vendor.slug}/${p.slug}`}
-                className="block overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm"
-              >
-                <div className="aspect-[12/7] w-full overflow-hidden bg-surface-container">
-                  {p.images?.[0] ? (
-                    <img src={imgUrl(p.images[0])} alt={p.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
-                  )}
-                </div>
-                <div className="p-3.5">
-                  <div className="mb-1.5 text-[13.5px] font-semibold text-on-surface">{p.name}</div>
-                  <div className="text-[15px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</div>
-                </div>
-              </Link>
+              <ProductCard key={p.id} product={p} trackSource="catalog" />
             ))}
           </div>
         </section>

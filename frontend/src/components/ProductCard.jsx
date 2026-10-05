@@ -23,7 +23,27 @@ const LOW_STOCK_THRESHOLD = 3;
 // clickCount/searchClickCount del algoritmo de "Destacados"
 // (lib/productRanking.js). "catalog" cubre cualquier listado genérico que
 // no le pase nada explícito, para no tener que tocar cada call site.
-export function ProductCard({ product, trackSource = "catalog" }) {
+//
+// Bloque 240 (pedido explícito — "todas las tarjetas de los productos de las
+// tiendas y de la página principal con el mismo estilo y estructura"): esta
+// es la ÚNICA tarjeta vertical de producto (Home, catálogo, tienda,
+// relacionados, favoritos). Antes la tienda tenía un markup propio con otro
+// radio (26px), otra proporción (12/7), sin descuento/rating/miniaturas. Lo
+// que cambia de un lugar a otro entra por props, nunca por copiar el JSX:
+//  - vendor: cuando el producto no trae `product.vendor` (getVendorBySlug
+//    devuelve los productos anidados DENTRO del vendedor).
+//  - hideVendor: dentro de la propia tienda no se repite su nombre ni su
+//    ubicación en cada tarjeta.
+//  - topRightSlot: esquina superior derecha de la foto (el corazón de
+//    favoritos); "Más vendido" se baja a la esquina inferior para no pisarse.
+//  - action: reemplaza el control de carrito (los agotados piden el producto
+//    con RequestProductButton en vez de agregarlo).
+// El menú de restaurante/mesas NO usa esta tarjeta a propósito: es una carta
+// horizontal (DigitalMenuProductCard).
+export const PRODUCT_GRID_CLASS = "grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 lg:grid-cols-5";
+
+export function ProductCard({ product, trackSource = "catalog", vendor, hideVendor = false, topRightSlot = null, action }) {
+  const v = vendor ?? product.vendor;
 
   // images[] guarda paths relativos ("/uploads/products/<tienda>/<archivo>")
   // servidos por el backend, no por el frontend — hay que anteponer el origin.
@@ -40,7 +60,17 @@ export function ProductCard({ product, trackSource = "catalog" }) {
   // Bloque 56: "disponible siempre" nunca se muestra como agotado/bajo stock.
   const isOutOfStock = !product.unlimitedStock && product.stock === 0;
   const isLowStock = !product.unlimitedStock && !isOutOfStock && product.stock != null && product.stock <= LOW_STOCK_THRESHOLD;
-  const productHref = `/producto/${product.vendor?.slug}/${product.slug}`;
+  const productHref = `/producto/${v?.slug}/${product.slug}`;
+  // Cualquier cosa que no sea el <Link> de la tarjeta (carrito, corazón,
+  // pedir producto) corta el clic antes de que navegue — ver el comentario
+  // largo del Bloque 155 más abajo.
+  const stopCardClick = {
+    onClick: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    onMouseDown: (e) => e.stopPropagation(),
+  };
 
   return (
     // Pedido explícito: toda la tarjeta debe abrir el producto al hacer
@@ -55,27 +85,44 @@ export function ProductCard({ product, trackSource = "catalog" }) {
     >
       <div className="p-[2px] pb-0">
         <div className="relative aspect-[7/4] w-full overflow-hidden rounded-[20px] border border-dashed border-outline-variant bg-surface-container">
-          {(product.badge || discount) && (
-            <span
-              className={`absolute left-1.5 top-1.5 z-10 max-w-[45%] truncate rounded-full px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:left-2 sm:top-2 sm:px-2 sm:text-[10.5px] ${
-                discount ? "bg-error" : "bg-tertiary-accent"
-              }`}
-            >
-              {product.badge ?? `-${discount}%`}
+          {/* Agotado: el aviso va sobre la foto (misma esquina del descuento,
+              que ahí no tiene sentido) y la foto se pasa a grises. */}
+          {isOutOfStock ? (
+            <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-error px-2 py-0.5 text-[9.5px] font-bold text-white shadow sm:left-2 sm:top-2 sm:text-[10.5px]">
+              Sin stock
             </span>
+          ) : (
+            (product.badge || discount) && (
+              <span
+                className={`absolute left-1.5 top-1.5 z-10 max-w-[45%] truncate rounded-full px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:left-2 sm:top-2 sm:px-2 sm:text-[10.5px] ${
+                  discount ? "bg-error" : "bg-tertiary-accent"
+                }`}
+              >
+                {product.badge ?? `-${discount}%`}
+              </span>
+            )
           )}
           {product.isBestSeller && (
-            <span className="absolute right-1.5 top-1.5 z-10 flex max-w-[48%] items-center gap-0.5 rounded-full bg-[#8a5100] px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:right-2 sm:top-2 sm:gap-1 sm:px-2 sm:text-[10.5px]">
+            <span
+              className={`absolute z-10 flex max-w-[48%] items-center gap-0.5 rounded-full bg-[#8a5100] px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:gap-1 sm:px-2 sm:text-[10.5px] ${
+                topRightSlot ? "bottom-1.5 left-1.5 sm:bottom-2 sm:left-2" : "right-1.5 top-1.5 sm:right-2 sm:top-2"
+              }`}
+            >
               <Flame className="h-2.5 w-2.5 flex-shrink-0 sm:h-3 sm:w-3" />
               <span className="truncate">Más vendido</span>
             </span>
+          )}
+          {topRightSlot && (
+            <div className="absolute right-1.5 top-1.5 z-10 sm:right-2 sm:top-2" {...stopCardClick}>
+              {topRightSlot}
+            </div>
           )}
           {thumb ? (
             <img
               src={thumb}
               alt={product.name}
               loading="lazy"
-              className="h-full w-full object-cover"
+              className={`h-full w-full object-cover ${isOutOfStock ? "grayscale" : ""}`}
               onError={(e) => {
                 // La miniatura no existe (foto vieja): se cae a la grande en
                 // vez de dejar el hueco. `onerror = null` evita un bucle si
@@ -92,15 +139,21 @@ export function ProductCard({ product, trackSource = "catalog" }) {
         </div>
       </div>
       <div className="flex flex-1 flex-col p-3 pt-2">
-        <div className="mb-0.5 flex items-center gap-1.5">
-          <span className="truncate text-[10.5px] font-bold text-tertiary-accent">{product.vendor?.companyName}</span>
-          {product.vendor?.isVerified && <VerifiedBadge size="sm" />}
-          {product.category?.name && (
-            <span className="ml-auto flex-shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[10px] font-semibold text-on-surface-variant">
-              {product.category.name}
-            </span>
-          )}
-        </div>
+        {(!hideVendor || product.category?.name) && (
+          <div className="mb-0.5 flex items-center gap-1.5">
+            {!hideVendor && (
+              <>
+                <span className="truncate text-[10.5px] font-bold text-tertiary-accent">{v?.companyName}</span>
+                {v?.isVerified && <VerifiedBadge size="sm" />}
+              </>
+            )}
+            {product.category?.name && (
+              <span className="ml-auto flex-shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[10px] font-semibold text-on-surface-variant">
+                {product.category.name}
+              </span>
+            )}
+          </div>
+        )}
         {/* Bloque 116 (pedido explícito): estrellas + cantidad de reseñas DE
             ESTE PRODUCTO (no de la tienda) — mismo componente/estilo que ya
             usa StoreCard.jsx, encima del título y debajo de la imagen. Solo
@@ -110,10 +163,10 @@ export function ProductCard({ product, trackSource = "catalog" }) {
           <StarRating value={Number(product.rating)} size="h-3.5 w-3.5" showValue count={product.reviewCount} className="mb-1" />
         )}
         <span className="mb-0.5 line-clamp-2 text-[13.5px] font-bold leading-[18px] text-on-surface">{product.name}</span>
-        {product.vendor?.locations?.[0] && (
+        {!hideVendor && v?.locations?.[0] && (
           <div className="mb-1 flex items-center gap-1 text-[11px] text-outline">
             <MapPin className="h-3 w-3" />
-            {product.vendor.locations[0].municipality?.name ?? product.vendor.locations[0].province?.name}
+            {v.locations[0].municipality?.name ?? v.locations[0].province?.name}
           </div>
         )}
         {product.description && (
@@ -124,16 +177,12 @@ export function ProductCard({ product, trackSource = "catalog" }) {
             )}
           </div>
         )}
-        {(isOutOfStock || isLowStock) && (
-          <span
-            className={`mb-1.5 w-fit rounded-full px-2 py-0.5 text-[10px] font-bold ${
-              isOutOfStock ? "bg-error/10 text-error" : "bg-[#8a5100]/10 text-[#8a5100]"
-            }`}
-          >
-            {isOutOfStock ? "Sin stock" : `¡Últimas ${product.stock} unidades!`}
+        {isLowStock && (
+          <span className="mb-1.5 w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
+            ¡Últimas {product.stock} unidades!
           </span>
         )}
-        <div className="mt-auto flex items-center justify-between pt-1">
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-1">
           {/* Bloque 155 (bug real reportado en vivo, con captura): antes el
               precio anterior iba al lado del precio real dentro del mismo
               div sin flex — ambos <span> son inline, así que quedaban en la
@@ -141,7 +190,7 @@ export function ProductCard({ product, trackSource = "catalog" }) {
               precio real arriba, precio anterior tachado y más chico debajo
               en su propia línea. */}
           <div className="flex flex-col">
-            <span className="text-[14.5px] font-bold text-on-surface">{formatPrice(product.price, product.currency)}</span>
+            <span className="whitespace-nowrap text-[14.5px] font-bold text-on-surface">{formatPrice(product.price, product.currency)}</span>
             {product.oldPrice && (
               <span className="text-[10.5px] leading-tight text-outline line-through">{formatPrice(product.oldPrice, product.currency)}</span>
             )}
@@ -164,14 +213,8 @@ export function ProductCard({ product, trackSource = "catalog" }) {
               +/- de adentro ya llamaban preventDefault() ellos mismos y por
               eso nunca fallaban — el número (y cualquier hueco vacío del
               stepper) no tenía ninguno. */}
-          <div
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <AddToCartControl product={product} />
+          <div {...stopCardClick}>
+            {action !== undefined ? action : <AddToCartControl product={vendor ? { ...product, vendorId: vendor.id, vendor } : product} />}
           </div>
         </div>
       </div>

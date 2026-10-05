@@ -423,7 +423,27 @@ export async function getProductBySlug(req, res) {
     _count: { rating: true },
   });
 
-  const RELATED_INCLUDE = { vendor: { select: { companyName: true, slug: true, verificationStatus: true } } };
+  // Bloque 240: los relacionados ahora se dibujan con la misma ProductCard que
+  // el resto del sitio — esa tarjeta agrega al carrito y muestra rubro y
+  // ubicación, así que necesita el mismo recorte de vendedor, categoría y
+  // tramos de precio que la ficha principal de arriba (antes solo traía
+  // nombre, slug y verificación, suficiente para un link pelado).
+  const RELATED_INCLUDE = {
+    category: true,
+    ...productPriceTiersInclude,
+    vendor: {
+      select: {
+        id: true,
+        companyName: true,
+        slug: true,
+        verificationStatus: true,
+        whatsapp: true,
+        color: true,
+        orderDestination: true,
+        locations: { include: { province: true, municipality: true }, take: 1 },
+      },
+    },
+  };
   const coPurchasedIds = await findCoPurchasedProductIds(product.id, RELATED_LIMIT);
   let related = [];
   if (coPurchasedIds.length > 0) {
