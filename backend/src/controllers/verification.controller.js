@@ -14,6 +14,8 @@ import { getBrandSettings, getSubscriptionPricing } from "./settings.controller.
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
+import { resolveLegalLocation } from "../services/registrationLocation.service.js";
+import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
 // Bloque 150 (pedido explícito): cuántos meses puede elegir pagar de
 // adelanto el vendedor — el monto real (precio mensual × meses) se calcula
@@ -155,9 +157,16 @@ const submitSchema = z.object({
   idDocumentType: z.enum(["NATIONAL_ID", "PASSPORT", "INTERNATIONAL_ID"]),
   companyTaxId: z.string().trim().min(1).optional(),
   companyAddress: z.string().trim().min(1, "Escribe la dirección de la empresa."),
-  registrationCountryId: z.string().min(1, "Elige el país de registro legal de tu negocio."),
-  legalProvinceId: z.string().min(1, "Elige la provincia de registro legal."),
+  // Bloque 247 (pedido explícito — "no deben quedar bloqueados los negocios"):
+  // cada dato de la ubicación legal se elige del catálogo O se escribe a mano
+  // si todavía no está; lo escrito llega al admin como solicitud. La validación
+  // completa vive en resolveLegalLocation.
+  registrationCountryId: z.string().min(1).optional(),
+  registrationCountryOther: z.string().trim().min(2).max(80).optional(),
+  legalProvinceId: z.string().min(1).optional(),
+  legalProvinceOther: z.string().trim().min(2).max(80).optional(),
   legalMunicipalityId: z.string().trim().min(1).optional(),
+  legalMunicipalityOther: z.string().trim().min(2).max(80).optional(),
 });
 
 // Mínimo para considerar que la descripción pública de la tienda ya cuenta
@@ -181,6 +190,16 @@ export async function submitVerification(req, res) {
   }
 
   const data = submitSchema.parse(req.body);
+  // Se valida la ubicación ANTES de procesar las fotos: un dato mal armado no
+  // debe dejar archivos guardados de un envío que se va a rechazar.
+  const legal = await resolveLegalLocation({
+    countryId: data.registrationCountryId,
+    countryOther: data.registrationCountryOther,
+    provinceId: data.legalProvinceId,
+    provinceOther: data.legalProvinceOther,
+    municipalityId: data.legalMunicipalityId,
+    municipalityOther: data.legalMunicipalityOther,
+  });
   const selfieFile = req.files?.selfie?.[0];
   const idFile = req.files?.idDocument?.[0];
   // Bloque 146: opcional a propósito — el navegador puede no soportar
@@ -214,9 +233,12 @@ export async function submitVerification(req, res) {
     where: { id: vendor.id },
     data: {
       ...(data.companyTaxId ? { companyTaxId: data.companyTaxId } : {}),
-      registrationCountryId: data.registrationCountryId,
-      legalProvinceId: data.legalProvinceId,
-      legalMunicipalityId: data.legalMunicipalityId || null,
+      registrationCountryId: legal.registrationCountryId,
+      registrationCountryOther: legal.registrationCountryOther,
+      legalProvinceId: legal.legalProvinceId,
+      legalProvinceOther: legal.legalProvinceOther,
+      legalMunicipalityId: legal.legalMunicipalityId,
+      legalMunicipalityOther: legal.legalMunicipalityOther,
       // Bloque 153 (pedido explícito — "el responsable debe ser la misma
       // persona a la que está registrada la cuenta"): se sincroniza SIEMPRE
       // desde el nombre confirmado por cámara en este mismo envío — la
@@ -230,6 +252,10 @@ export async function submitVerification(req, res) {
       companyAddress: data.companyAddress,
     },
   });
+
+  // Lo escrito a mano pasa a ser una solicitud para el admin; la verificación
+  // sigue su curso sin esperar a que la apruebe.
+  void recordLocationSuggestions(legal.suggestions);
 
   const update = {
     reviewedAt: null,

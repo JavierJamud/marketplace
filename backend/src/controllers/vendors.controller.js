@@ -124,6 +124,8 @@ const createVendorSchema = z.object({
         countryOther: z.string().trim().min(2).max(80).optional(),
         provinceId: z.string().optional(),
         municipalityId: z.string().optional(),
+        // Bloque 247: municipio escrito a mano cuando no está en la lista.
+        municipalityOther: z.string().trim().max(80).optional(),
         stateOther: z.string().trim().max(80).optional(),
       })
     )
@@ -189,6 +191,7 @@ export async function createVendor(req, res) {
       countryOther: resolved.countryOther ?? null,
       provinceId: resolved.province?.id,
       municipalityId: resolved.municipality?.id,
+      municipalityOther: resolved.municipalityOther ?? null,
       stateOther: resolved.stateOther,
     });
   }

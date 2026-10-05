@@ -7,6 +7,7 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
+import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { CameraCapture } from "../../components/CameraCapture.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
@@ -319,9 +320,13 @@ export default function VendorVerification() {
   // con esto vacío porque nunca se lo pedía en ningún lado): obligatorio
   // desde el arranque del trámite, junto con el resto de los datos legales.
   const [companyAddress, setCompanyAddress] = useState("");
-  const [registrationCountryId, setRegistrationCountryId] = useState("");
-  const [legalProvinceId, setLegalProvinceId] = useState("");
-  const [legalMunicipalityId, setLegalMunicipalityId] = useState("");
+  // Bloque 247 (pedido explícito — "no deben quedar bloqueados los negocios"):
+  // país, provincia y municipio de registro legal salen del catálogo o se
+  // escriben a mano (mismo selector del registro). `stateOther` es el nombre
+  // que usa LocationPicker para la provincia escrita a mano.
+  const [legalLoc, setLegalLoc] = useState({ countryId: "", countryOther: "", provinceId: "", municipalityId: "", municipalityOther: "", stateOther: "" });
+  const [legalStatus, setLegalStatus] = useState({ error: "Cargando ubicación." });
+  const [legalPrefilled, setLegalPrefilled] = useState(false);
 
   // Bloque 144 (bug real reportado en vivo — mismo caso que ["my-vendor"]
   // en VendorLayout.jsx, ver el comentario largo ahí): esta es LA pantalla
@@ -355,22 +360,35 @@ export default function VendorVerification() {
   const currentPlan = vendor?.planType === "BUSINESS" ? businessPlan : regularPlan;
   const currentPlanFeatures = currentPlan?.features;
 
-  // Bloque 66: mismo patrón de selects en cascada país → provincia →
-  // municipio que ya usa VendorSettings.jsx para "países a los que entregas".
-  const { data: countries = [] } = useQuery({
-    queryKey: ["active-countries"],
-    queryFn: async () => (await api.get("/locations/countries")).data.countries,
-  });
-  const { data: provincesForCountry = [] } = useQuery({
-    queryKey: ["provinces-for-country", registrationCountryId],
-    queryFn: async () => (await api.get(`/locations/countries/${registrationCountryId}/provinces`)).data.provinces,
-    enabled: !!registrationCountryId,
-  });
-  const { data: municipalitiesForProvince = [] } = useQuery({
-    queryKey: ["municipalities-for-province", legalProvinceId],
-    queryFn: async () => (await api.get(`/locations/provinces/${legalProvinceId}/municipalities`)).data.municipalities,
-    enabled: !!legalProvinceId,
-  });
+  // Precarga la ubicación legal con lo que el negocio ya registró (primero lo
+  // que quedó de un envío anterior, si no, el lugar donde opera): así un
+  // negocio con una provincia escrita a mano en el registro no tiene que
+  // volver a buscarla en una lista donde todavía no aparece.
+  useEffect(() => {
+    if (legalPrefilled || !vendor) return;
+    const loc = vendor.locations?.[0];
+    const hasLegal = vendor.registrationCountryId || vendor.registrationCountryOther;
+    setLegalLoc(
+      hasLegal
+        ? {
+            countryId: vendor.registrationCountryId ?? "",
+            countryOther: vendor.registrationCountryOther ?? "",
+            provinceId: vendor.legalProvinceId ?? "",
+            municipalityId: vendor.legalMunicipalityId ?? "",
+            municipalityOther: vendor.legalMunicipalityOther ?? "",
+            stateOther: vendor.legalProvinceOther ?? "",
+          }
+        : {
+            countryId: loc?.countryId ?? "",
+            countryOther: loc?.countryOther ?? "",
+            provinceId: loc?.provinceId ?? "",
+            municipalityId: loc?.municipalityId ?? "",
+            municipalityOther: loc?.municipalityOther ?? "",
+            stateOther: loc?.stateOther ?? "",
+          }
+    );
+    setLegalPrefilled(true);
+  }, [vendor, legalPrefilled]);
 
   // Bloque 235: enviar los documentos KYC puede ser justo el último
   // requisito del checklist del trial gratuito (maybeAutoActivateTrial ya
@@ -416,9 +434,12 @@ export default function VendorVerification() {
       form.append("idDocumentType", idDocumentType);
       if (companyTaxId) form.append("companyTaxId", companyTaxId);
       form.append("companyAddress", companyAddress);
-      form.append("registrationCountryId", registrationCountryId);
-      form.append("legalProvinceId", legalProvinceId);
-      if (legalMunicipalityId) form.append("legalMunicipalityId", legalMunicipalityId);
+      if (legalLoc.countryId) form.append("registrationCountryId", legalLoc.countryId);
+      if (legalLoc.countryOther.trim()) form.append("registrationCountryOther", legalLoc.countryOther.trim());
+      if (legalLoc.provinceId) form.append("legalProvinceId", legalLoc.provinceId);
+      if (legalLoc.stateOther.trim()) form.append("legalProvinceOther", legalLoc.stateOther.trim());
+      if (legalLoc.municipalityId) form.append("legalMunicipalityId", legalLoc.municipalityId);
+      if (legalLoc.municipalityOther.trim()) form.append("legalMunicipalityOther", legalLoc.municipalityOther.trim());
       form.append("selfie", selfieBlob, "selfie.jpg");
       form.append("idDocument", idBlob, "documento.jpg");
       // Bloque 146: opcional — solo se manda si el navegador lo pudo grabar.
@@ -501,8 +522,9 @@ export default function VendorVerification() {
     // updateMyVendor, backend, candado de identidad).
     idNumber.trim().length >= 4 &&
     companyAddress.trim().length > 0 &&
-    !!registrationCountryId &&
-    !!legalProvinceId &&
+    // Un país o provincia escrito a mano también cuenta (ver LocationPicker):
+    // con un país escrito a mano la provincia del registro legal es un texto.
+    (!!legalLoc.countryOther.trim() ? !!legalLoc.stateOther.trim() : !legalStatus.error) &&
     !descriptionTooShort;
 
   // Bloque 150 (pedido explícito — "el cliente podrá seleccionar cuántos
@@ -729,47 +751,32 @@ export default function VendorVerification() {
               value={companyTaxId}
               onChange={(e) => setCompanyTaxId(e.target.value)}
             />
-            <Select
-              label="País de registro legal"
-              required
-              value={registrationCountryId}
-              onChange={(e) => {
-                setRegistrationCountryId(e.target.value);
-                setLegalProvinceId("");
-                setLegalMunicipalityId("");
-              }}
-            >
-              <option value="" disabled>Elige un país...</option>
-              {countries.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </Select>
-            <Select
-              label="Provincia/estado de registro legal"
-              required
-              disabled={!registrationCountryId}
-              value={legalProvinceId}
-              onChange={(e) => {
-                setLegalProvinceId(e.target.value);
-                setLegalMunicipalityId("");
-              }}
-            >
-              <option value="" disabled>Elige una provincia...</option>
-              {provincesForCountry.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
-            <Select
-              label="Municipio (opcional)"
-              disabled={!legalProvinceId}
-              value={legalMunicipalityId}
-              onChange={(e) => setLegalMunicipalityId(e.target.value)}
-            >
-              <option value="">Sin especificar</option>
-              {municipalitiesForProvince.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </Select>
+            <div className="sm:col-span-2">
+              <LocationPicker
+                value={legalLoc}
+                onChange={(patch) => setLegalLoc((prev) => ({ ...prev, ...patch }))}
+                onStatus={setLegalStatus}
+                labels={{
+                  country: "País de registro legal",
+                  countryOther: "Escribe el país de registro legal",
+                  province: "Provincia o estado de registro legal",
+                  provinceOther: "Escribe la provincia o estado de registro legal",
+                  municipality: "Municipio de registro legal",
+                  municipalityOther: "Escribe el municipio de registro legal",
+                }}
+              />
+              {legalLoc.countryOther.trim() && (
+                <div className="mt-4">
+                  <Input
+                    label="Provincia o estado de registro legal"
+                    required
+                    maxLength={80}
+                    value={legalLoc.stateOther}
+                    onChange={(e) => setLegalLoc((prev) => ({ ...prev, stateOther: e.target.value }))}
+                  />
+                </div>
+              )}
+            </div>
             <div className="sm:col-span-2">
               <Input
                 label="Dirección de la empresa"
@@ -1018,7 +1025,7 @@ export default function VendorVerification() {
           {data?.stripeCheckoutUrl && !data?.stripeCheckoutExpired ? (
             <>
               <p className="mb-3 text-[12.5px] text-outline">
-                Te mandamos el link de pago a tu correo. También puedes abrirlo directo desde acá — al pagar, Stripe te trae de vuelta para
+                Te mandamos el link de pago a tu correo. También puedes abrirlo directo desde aquí: al pagar, Stripe te trae de vuelta para
                 que subas la captura del pago:
               </p>
               <div className="flex flex-wrap items-center gap-2.5">

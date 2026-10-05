@@ -19,7 +19,9 @@ import { exactDate } from "../../lib/relativeTime.js";
 // de escritura) o rechazar (se cierra sin crear nada; lo que escribió cada
 // persona se conserva).
 
-const KIND_LABEL = { COUNTRY: "País", PROVINCE: "Provincia o estado" };
+const KIND_LABEL = { COUNTRY: "País", PROVINCE: "Provincia o estado", MUNICIPALITY: "Municipio" };
+const KIND_TARGET = { COUNTRY: "el país que ya existe y al que corresponde", PROVINCE: "la provincia que ya existe y a la que corresponde", MUNICIPALITY: "el municipio que ya existe y al que corresponde" };
+const KIND_NOUN = { COUNTRY: "el país", PROVINCE: "la provincia", MUNICIPALITY: "el municipio" };
 const STATUS_LABEL = { APPROVED: "Aprobada", MERGED: "Fusionada", REJECTED: "Rechazada" };
 
 function Chip({ icon: Icon, children, title }) {
@@ -44,6 +46,7 @@ function SuggestionRow({ s, onApprove, onMerge, onReject }) {
         </div>
         <div className="mt-0.5 text-[12px] text-outline">
           {s.kind === "PROVINCE" && s.country ? `En ${s.country.name} · ` : ""}
+          {s.kind === "MUNICIPALITY" && s.province ? `En ${s.province.name}${s.province.countryName ? ` (${s.province.countryName})` : ""} · ` : ""}
           Primera vez: {exactDate(s.createdAt)}
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -105,7 +108,12 @@ export function LocationSuggestionsPanel() {
     queryFn: async () => (await api.get(`/locations/countries/${merging.country.id}/provinces`)).data.provinces,
     enabled: merging?.kind === "PROVINCE" && !!merging?.country?.id,
   });
-  const mergeOptions = merging?.kind === "COUNTRY" ? countryOptions ?? [] : provinceOptions ?? [];
+  const { data: municipalityOptions } = useQuery({
+    queryKey: ["municipalities-for-province", merging?.province?.id],
+    queryFn: async () => (await api.get(`/locations/provinces/${merging.province.id}/municipalities`)).data.municipalities,
+    enabled: merging?.kind === "MUNICIPALITY" && !!merging?.province?.id,
+  });
+  const mergeOptions = merging?.kind === "COUNTRY" ? countryOptions ?? [] : merging?.kind === "MUNICIPALITY" ? municipalityOptions ?? [] : provinceOptions ?? [];
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["admin-list-location-suggestions"] });
@@ -114,6 +122,7 @@ export function LocationSuggestionsPanel() {
     queryClient.invalidateQueries({ queryKey: ["admin-provinces"] });
     queryClient.invalidateQueries({ queryKey: ["active-countries-all"] });
     queryClient.invalidateQueries({ queryKey: ["provinces-for-country"] });
+    queryClient.invalidateQueries({ queryKey: ["municipalities-for-province"] });
     queryClient.invalidateQueries({ queryKey: ["provinces"] });
   }
   const onError = (err) => toast.error(err.response?.data?.error ?? "No se pudo completar la acción.");
@@ -123,7 +132,7 @@ export function LocationSuggestionsPanel() {
     mutationFn: async () =>
       (await api.post(`/admin/location-suggestions/${approving.id}/approve`, { name: approveName.trim() || undefined, code: approveCode.trim() || undefined })).data,
     onSuccess: (res) => {
-      toast.success(`${approving.kind === "COUNTRY" ? "País" : "Provincia"} creado. ${linkedText(res.linked)}`);
+      toast.success(`${KIND_LABEL[approving.kind]} creado. ${linkedText(res.linked)}`);
       setApproving(null);
       refresh();
     },
@@ -151,8 +160,9 @@ export function LocationSuggestionsPanel() {
   return (
     <div>
       <p className="mb-4 max-w-[760px] text-[13.5px] text-outline">
-        Países y provincias que alguien escribió a mano al registrarse porque no los encontró en tus listas. Su cuenta o tienda ya funciona;
-        al aprobarlos se crean y quedan enlazados a todos los que los escribieron.
+        Países, provincias y municipios que alguien escribió a mano al registrarse o al verificar su negocio porque no los encontró en tus listas.
+        Su cuenta o tienda ya funciona sin esperar. Al aprobarlos se crean, quedan enlazados a todos los que los escribieron y aparecen en la lista
+        para quienes se registren después en ese mismo lugar.
       </p>
 
       <div className="mb-4 flex gap-2">
@@ -191,7 +201,7 @@ export function LocationSuggestionsPanel() {
               {view === "PENDING" ? "No hay solicitudes pendientes." : "Todavía no resolviste ninguna solicitud."}
             </p>
             {view === "PENDING" && (
-              <p className="max-w-sm text-[12.5px] text-outline">Cuando alguien escriba a mano su país o provincia al registrarse, aparecerá acá.</p>
+              <p className="max-w-sm text-[12.5px] text-outline">Cuando alguien escriba a mano su país, provincia o municipio, aparecerá aquí.</p>
             )}
           </div>
         )}
@@ -215,11 +225,13 @@ export function LocationSuggestionsPanel() {
 
       <ConfirmModal
         open={!!approving}
-        title={`Aprobar ${approving?.kind === "COUNTRY" ? "el país" : "la provincia"} "${approving?.name}"`}
+        title={`Aprobar ${approving ? KIND_NOUN[approving.kind] : ""} "${approving?.name}"`}
         message={
           approving?.kind === "COUNTRY"
             ? "Se crea el país, queda disponible en la lista de registro y se enlaza a las personas y tiendas que lo escribieron."
-            : `Se crea la provincia en ${approving?.country?.name ?? "su país"}, queda disponible en la lista y se enlaza a quienes la escribieron.`
+            : approving?.kind === "MUNICIPALITY"
+              ? `Se crea el municipio en ${approving?.province?.name ?? "su provincia"}, queda disponible en la lista y se enlaza a quienes lo escribieron.`
+              : `Se crea la provincia en ${approving?.country?.name ?? "su país"}, queda disponible en la lista y se enlaza a quienes la escribieron.`
         }
         confirmLabel={approve.isPending ? "Creando..." : "Aprobar y crear"}
         confirmDisabled={approve.isPending || approveName.trim().length < 2 || (approving?.kind === "COUNTRY" && !/^[A-Za-z]{2,3}$/.test(approveCode.trim()))}
@@ -240,13 +252,13 @@ export function LocationSuggestionsPanel() {
       <ConfirmModal
         open={!!merging}
         title={`Fusionar "${merging?.name}"`}
-        message={`Elige ${merging?.kind === "COUNTRY" ? "el país" : "la provincia"} que ya existe y a la que corresponde. Se enlaza a todos los que lo escribieron, sin crear nada nuevo.`}
+        message={`Elige ${merging ? KIND_TARGET[merging.kind] : ""}. Se enlaza a todos los que lo escribieron, sin crear nada nuevo.`}
         confirmLabel={merge.isPending ? "Fusionando..." : "Fusionar"}
         confirmDisabled={merge.isPending || !mergeTarget}
         onConfirm={() => merge.mutate()}
         onCancel={() => setMerging(null)}
       >
-        <Select label={merging?.kind === "COUNTRY" ? "País existente" : "Provincia existente"} value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}>
+        <Select label={merging?.kind === "COUNTRY" ? "País existente" : merging?.kind === "MUNICIPALITY" ? "Municipio existente" : "Provincia existente"} value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}>
           <option value="">Selecciona...</option>
           {mergeOptions.map((o) => (
             <option key={o.id} value={o.id}>

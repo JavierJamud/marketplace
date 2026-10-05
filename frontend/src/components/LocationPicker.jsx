@@ -13,10 +13,14 @@ import { Input } from "./ui/Input.jsx";
 //  - Provincia o estado: lista de ESE país, o "Mi provincia no aparece" +
 //    texto. Si el país todavía no tiene provincias cargadas, va directo el
 //    campo de texto (nunca un select vacío que deje sin salida).
-//  - Municipio: solo Cuba y solo con una provincia real (se deja como estaba).
 //  - Dirección: cuando no hay un municipio real con el que ubicarse.
+// Bloque 247 (pedido explícito — "también el municipio"):
+//  - Municipio: lista de la provincia, o "Mi municipio no aparece" + texto. En
+//    Cuba es obligatorio (una de las dos cosas); en otros países es opcional.
+//    Con una provincia escrita a mano se ofrece un texto opcional.
 // Todo lo escrito a mano llega al admin como solicitud (ver Países y
-// provincias, pestaña Solicitudes) y se enlaza solo cuando él la aprueba.
+// provincias, pestaña Solicitudes) y se enlaza solo cuando él la aprueba; desde
+// ese momento aparece en las listas de quienes se registren después.
 export const OTHER = "__other__";
 const CUBA_CODE = "CU";
 
@@ -31,9 +35,13 @@ export function computeLocationStatus(value, { isCuba, provincesLoaded, province
     return { error: null, needsAddress: true };
   }
   if (!value.provinceId) return { error: "Selecciona tu provincia.", needsAddress: false };
-  if (isCuba && !value.municipalityId) return { error: "Selecciona tu municipio.", needsAddress: false };
-  return { error: null, needsAddress: !isCuba };
+  const hasMunicipality = !!value.municipalityId || !!value.municipalityOther?.trim();
+  if (isCuba && !hasMunicipality) return { error: "Selecciona tu municipio o escríbelo si no aparece.", needsAddress: false };
+  // Sin un municipio real del catálogo no hay con qué ubicar la dirección.
+  return { error: null, needsAddress: !value.municipalityId };
 }
+
+const MANUAL_NOTE = "Lo revisamos y lo sumamos a la lista. Mientras tanto puedes seguir con tu registro.";
 
 export function LocationPicker({
   value,
@@ -51,6 +59,7 @@ export function LocationPicker({
     province: "Provincia o estado",
     provinceOther: "Escribe tu provincia o estado",
     municipality: "Municipio",
+    municipalityOther: "Escribe tu municipio",
     ...labels,
   };
 
@@ -63,6 +72,7 @@ export function LocationPicker({
 
   const [countryIsOther, setCountryIsOther] = useState(!!value.countryOther);
   const [provinceIsOther, setProvinceIsOther] = useState(!!value.stateOther && !value.provinceId);
+  const [municipalityIsOther, setMunicipalityIsOther] = useState(!!value.municipalityOther && !value.municipalityId);
 
   const { data: provinces, isSuccess: provincesLoaded } = useQuery({
     queryKey: ["provinces-for-country", value.countryId],
@@ -71,11 +81,14 @@ export function LocationPicker({
   });
   const provinceCount = provinces?.length ?? 0;
 
-  const { data: municipalities = [] } = useQuery({
+  // Bloque 247: los municipios ya no son solo de Cuba: si el admin aprueba uno
+  // en cualquier provincia, tiene que poder elegirse.
+  const { data: municipalities, isSuccess: municipalitiesLoaded } = useQuery({
     queryKey: ["municipalities-for-province", value.provinceId],
     queryFn: async () => (await api.get(`/locations/provinces/${value.provinceId}/municipalities`)).data.municipalities,
-    enabled: !!value.provinceId && isCuba && !provinceIsOther,
+    enabled: !!value.provinceId && !provinceIsOther,
   });
+  const municipalityCount = municipalities?.length ?? 0;
 
   const status = useMemo(
     () => computeLocationStatus(value, { isCuba, provincesLoaded: !!provincesLoaded, provinceCount, provinceIsOther }),
@@ -89,6 +102,9 @@ export function LocationPicker({
   }, [status.error, status.needsAddress]);
 
   const manualProvince = provinceIsOther || (!!value.countryId && provincesLoaded && provinceCount === 0);
+  const realProvince = !!value.countryId && !countryIsOther && !!value.provinceId && !provinceIsOther;
+  // Con la lista vacía (o con "no aparece") el municipio es un campo de texto.
+  const manualMunicipality = municipalityIsOther || (municipalitiesLoaded && municipalityCount === 0);
 
   return (
     <div className="space-y-4">
@@ -101,12 +117,13 @@ export function LocationPicker({
           onChange={(e) => {
             const next = e.target.value;
             setProvinceIsOther(false);
+            setMunicipalityIsOther(false);
             if (next === OTHER) {
               setCountryIsOther(true);
-              onChange({ countryId: "", countryOther: value.countryOther ?? "", provinceId: "", municipalityId: "", stateOther: "" });
+              onChange({ countryId: "", countryOther: value.countryOther ?? "", provinceId: "", municipalityId: "", municipalityOther: "", stateOther: "" });
             } else {
               setCountryIsOther(false);
-              onChange({ countryId: next, countryOther: "", provinceId: "", municipalityId: "", stateOther: "" });
+              onChange({ countryId: next, countryOther: "", provinceId: "", municipalityId: "", municipalityOther: "", stateOther: "" });
             }
           }}
         >
@@ -128,7 +145,7 @@ export function LocationPicker({
               value={value.countryOther ?? ""}
               onChange={(e) => onChange({ countryOther: e.target.value })}
             />
-            <p className="mt-1 text-label-sm text-outline">Lo revisamos y lo sumamos a la lista. Mientras tanto puedes seguir con tu registro.</p>
+            <p className="mt-1 text-label-sm text-outline">{MANUAL_NOTE}</p>
           </div>
         )}
       </div>
@@ -141,12 +158,13 @@ export function LocationPicker({
           value={provinceIsOther ? OTHER : value.provinceId}
           onChange={(e) => {
             const next = e.target.value;
+            setMunicipalityIsOther(false);
             if (next === OTHER) {
               setProvinceIsOther(true);
-              onChange({ provinceId: "", municipalityId: "" });
+              onChange({ provinceId: "", municipalityId: "", municipalityOther: "" });
             } else {
               setProvinceIsOther(false);
-              onChange({ provinceId: next, municipalityId: "", stateOther: "" });
+              onChange({ provinceId: next, municipalityId: "", municipalityOther: "", stateOther: "" });
             }
           }}
         >
@@ -161,26 +179,44 @@ export function LocationPicker({
       )}
 
       {value.countryId && !countryIsOther && manualProvince && (
-        <div>
+        <div className="space-y-4">
+          <div>
+            <Input
+              label={provinceCount === 0 ? L.province : L.provinceOther}
+              required
+              disabled={disabled}
+              maxLength={80}
+              value={value.stateOther ?? ""}
+              onChange={(e) => onChange({ stateOther: e.target.value })}
+            />
+            <p className="mt-1 text-label-sm text-outline">{MANUAL_NOTE}</p>
+          </div>
           <Input
-            label={provinceCount === 0 ? L.province : L.provinceOther}
-            required
+            label={`${L.municipalityOther} (opcional)`}
             disabled={disabled}
             maxLength={80}
-            value={value.stateOther ?? ""}
-            onChange={(e) => onChange({ stateOther: e.target.value })}
+            value={value.municipalityOther ?? ""}
+            onChange={(e) => onChange({ municipalityOther: e.target.value, municipalityId: "" })}
           />
-          <p className="mt-1 text-label-sm text-outline">Lo revisamos y lo sumamos a la lista. Mientras tanto puedes seguir con tu registro.</p>
         </div>
       )}
 
-      {value.countryId && !countryIsOther && isCuba && value.provinceId && !provinceIsOther && (
+      {realProvince && municipalitiesLoaded && municipalityCount > 0 && (
         <Select
           label={L.municipality}
-          required
+          required={isCuba}
           disabled={disabled}
-          value={value.municipalityId}
-          onChange={(e) => onChange({ municipalityId: e.target.value })}
+          value={municipalityIsOther ? OTHER : value.municipalityId}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (next === OTHER) {
+              setMunicipalityIsOther(true);
+              onChange({ municipalityId: "" });
+            } else {
+              setMunicipalityIsOther(false);
+              onChange({ municipalityId: next, municipalityOther: "" });
+            }
+          }}
         >
           <option value="">Selecciona...</option>
           {municipalities.map((m) => (
@@ -188,7 +224,22 @@ export function LocationPicker({
               {m.name}
             </option>
           ))}
+          <option value={OTHER}>Mi municipio no aparece</option>
         </Select>
+      )}
+
+      {realProvince && municipalitiesLoaded && manualMunicipality && (
+        <div>
+          <Input
+            label={isCuba ? L.municipalityOther : `${L.municipalityOther} (opcional)`}
+            required={isCuba}
+            disabled={disabled}
+            maxLength={80}
+            value={value.municipalityOther ?? ""}
+            onChange={(e) => onChange({ municipalityOther: e.target.value, municipalityId: "" })}
+          />
+          <p className="mt-1 text-label-sm text-outline">{MANUAL_NOTE}</p>
+        </div>
       )}
 
       {onAddressChange && status.needsAddress && (

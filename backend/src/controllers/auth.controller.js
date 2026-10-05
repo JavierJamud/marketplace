@@ -108,6 +108,8 @@ const registerSchema = z.object({
   registrationCountryOther: z.string().trim().min(2).max(80).optional(),
   provinceId: z.string().min(1).optional(),
   municipalityId: z.string().min(1).optional(),
+  // Bloque 247: municipio escrito a mano cuando no está en la lista.
+  municipalityOther: z.string().trim().min(2).max(80).optional(),
   // Bloque 114: fuera de Cuba, en vez de provinceId/municipalityId reales.
   stateOther: z.string().trim().min(1).max(80).optional(),
   address: z.string().trim().min(1).max(300).optional(),
@@ -142,6 +144,7 @@ export async function register(req, res) {
     countryOther: data.registrationCountryOther,
     provinceId: data.provinceId,
     municipalityId: data.municipalityId,
+    municipalityOther: data.municipalityOther,
     stateOther: data.stateOther,
     address: data.address,
   });
@@ -160,6 +163,7 @@ export async function register(req, res) {
     registrationCountryOther: location.registrationCountryOther,
     provinceId: location.provinceId,
     municipalityId: location.municipalityId,
+    municipalityOther: location.municipalityOther,
     stateOther: location.stateOther,
     address: location.address,
   };
@@ -210,6 +214,7 @@ export async function verifyRegistration(req, res) {
         registrationCountryOther: pending.registrationCountryOther,
         provinceId: pending.provinceId,
         municipalityId: pending.municipalityId,
+        municipalityOther: pending.municipalityOther,
         stateOther: pending.stateOther,
         address: pending.address,
         lastLoginAt: new Date(),
@@ -232,13 +237,14 @@ export async function verifyRegistration(req, res) {
   // para el admin. Recién acá (con el correo ya verificado) y no en
   // register(), para que un registro que nunca se confirma no genere
   // solicitudes falsas.
-  void recordLocationSuggestions(
-    pending.registrationCountryOther
-      ? [{ kind: "COUNTRY", name: pending.registrationCountryOther }]
-      : pending.stateOther && pending.registrationCountryId
-        ? [{ kind: "PROVINCE", name: pending.stateOther, countryId: pending.registrationCountryId }]
-        : []
-  );
+  // Bloque 247: también el municipio escrito a mano (solo con una provincia
+  // real; con una provincia escrita a mano el texto queda guardado y la
+  // solicitud nace sola cuando el admin apruebe esa provincia).
+  const locationRequests = [];
+  if (pending.registrationCountryOther) locationRequests.push({ kind: "COUNTRY", name: pending.registrationCountryOther });
+  if (pending.stateOther && pending.registrationCountryId) locationRequests.push({ kind: "PROVINCE", name: pending.stateOther, countryId: pending.registrationCountryId });
+  if (pending.municipalityOther && pending.provinceId) locationRequests.push({ kind: "MUNICIPALITY", name: pending.municipalityOther, provinceId: pending.provinceId });
+  void recordLocationSuggestions(locationRequests);
 
   // Bloque 60: verificar el registro ya prueba que es dueño del correo —
   // este navegador queda de confianza de una, sin pedirle un segundo código

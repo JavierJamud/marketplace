@@ -53,8 +53,8 @@ export async function getTrialChecklist(vendorOrId) {
     },
     { key: "locations", label: "Provincia donde opera", done: (vendor.locations?.length ?? 0) > 0 },
     { key: "companyAddress", label: "Dirección legal del negocio", done: !!vendor.companyAddress },
-    { key: "registrationCountryId", label: "País de registro legal", done: !!vendor.registrationCountryId },
-    { key: "legalProvinceId", label: "Provincia de registro legal", done: !!vendor.legalProvinceId },
+    { key: "registrationCountryId", label: "País de registro legal", done: !!(vendor.registrationCountryId || vendor.registrationCountryOther) },
+    { key: "legalProvinceId", label: "Provincia de registro legal", done: !!(vendor.legalProvinceId || vendor.legalProvinceOther) },
     { key: "idDocument", label: "Documento de identidad (foto)", done: !!v?.idPhotoFrontUrl },
     { key: "selfie", label: "Selfie de verificación", done: !!v?.selfieUrl },
     // Bloque 235: requisito NUEVO, exclusivo de este checklist — logoUrl no

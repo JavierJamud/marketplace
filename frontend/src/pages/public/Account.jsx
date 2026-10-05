@@ -31,7 +31,7 @@ function BrandStat({ value, label }) {
 // (irrelevante para un panel interno).
 const SHELL_COPY = {
   customer: {
-    headline: "El marketplace de Cuba, cerca tuyo.",
+    headline: "El marketplace de Cuba, cerca de ti.",
     subtitle: "Compra a tiendas locales por WhatsApp o abre tu propia tienda gratis. Pagas solo si quieres verificarte.",
     showStats: true,
   },
@@ -170,6 +170,8 @@ const emptyRegisterForm = {
   registrationCountryOther: "",
   provinceId: "",
   municipalityId: "",
+  // Bloque 247: municipio escrito a mano cuando no está en la lista.
+  municipalityOther: "",
   stateOther: "",
   address: "",
 };
@@ -194,6 +196,7 @@ const emptyStoreForm = {
   countryOther: "",
   provinceId: "",
   municipalityId: "",
+  municipalityOther: "",
   stateOther: "",
   // Solo se pide cuando no hay un municipio real con el que ubicar la tienda
   // (ver LocationPicker.computeLocationStatus).
@@ -340,7 +343,7 @@ export default function Account({ mode = "customer" }) {
           setResetEmail(result.email);
           setResetCode("");
           setView("forgot-code");
-          toast.success("Es tu primera vez por acá — te mandamos un código para crear tu contraseña.");
+          toast.success("Es tu primera vez por aquí: te mandamos un código para crear tu contraseña.");
           return;
         }
         // login() ya emitió tokens y seteó el user antes de que podamos
@@ -413,6 +416,7 @@ export default function Account({ mode = "customer" }) {
         registrationCountryOther: storeForm.countryOther.trim() || undefined,
         provinceId: storeForm.provinceId || undefined,
         municipalityId: storeForm.municipalityId || undefined,
+        municipalityOther: storeForm.municipalityOther.trim() || undefined,
         stateOther: storeForm.stateOther.trim() || undefined,
         address: storeForm.companyAddress.trim() || undefined,
       };
@@ -423,6 +427,7 @@ export default function Account({ mode = "customer" }) {
       registrationCountryOther: form.registrationCountryOther.trim() || undefined,
       provinceId: form.provinceId || undefined,
       municipalityId: form.municipalityId || undefined,
+      municipalityOther: form.municipalityOther.trim() || undefined,
       stateOther: form.stateOther.trim() || undefined,
       address: form.address.trim() || undefined,
     };
@@ -524,6 +529,7 @@ export default function Account({ mode = "customer" }) {
                 countryOther: storeForm.countryOther.trim() || undefined,
                 provinceId: storeForm.provinceId || undefined,
                 municipalityId: storeForm.municipalityId || undefined,
+                municipalityOther: storeForm.municipalityOther.trim() || undefined,
                 stateOther: storeForm.stateOther.trim() || undefined,
               },
             ],
@@ -843,7 +849,7 @@ export default function Account({ mode = "customer" }) {
             </h1>
             <p className="mb-6 text-body-md text-on-surface-variant">
               {mode === "admin"
-                ? "Solo cuentas de administrador pueden entrar acá."
+                ? "Solo cuentas de administrador pueden entrar aquí."
                 : mode === "vendor"
                 ? "Ingresa con tu cuenta de vendedor para gestionar tu tienda."
                 : "Ingresa para comprar o gestionar tu tienda."}
@@ -944,6 +950,7 @@ export default function Account({ mode = "customer" }) {
                       countryOther: form.registrationCountryOther,
                       provinceId: form.provinceId,
                       municipalityId: form.municipalityId,
+                      municipalityOther: form.municipalityOther,
                       stateOther: form.stateOther,
                     }}
                     onChange={(patch) =>
@@ -953,6 +960,7 @@ export default function Account({ mode = "customer" }) {
                         if ("countryOther" in patch) next.registrationCountryOther = patch.countryOther;
                         if ("provinceId" in patch) next.provinceId = patch.provinceId;
                         if ("municipalityId" in patch) next.municipalityId = patch.municipalityId;
+                        if ("municipalityOther" in patch) next.municipalityOther = patch.municipalityOther;
                         if ("stateOther" in patch) next.stateOther = patch.stateOther;
                         return next;
                       })
@@ -1005,6 +1013,7 @@ export default function Account({ mode = "customer" }) {
                       countryOther: storeForm.countryOther,
                       provinceId: storeForm.provinceId,
                       municipalityId: storeForm.municipalityId,
+                      municipalityOther: storeForm.municipalityOther,
                       stateOther: storeForm.stateOther,
                     }}
                     onChange={(patch) => setStoreForm((prev) => ({ ...prev, ...patch }))}
