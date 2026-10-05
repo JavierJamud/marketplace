@@ -205,19 +205,21 @@ export default function Home() {
                   <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} heightClass="h-[220px] sm:h-[300px]" />
                 </div>
               )}
-              {/* Bloque 253 (pedido explícito): en celular los dos botones van uno
+              {/* Bloque 255 (pedido explícito): el radio de los botones es el mismo de las
+                  esquinas de su sección (28px en el hero, el de la tarjeta en "Abre tu tienda").
+                  Bloque 253: en celular los dos botones van uno
                   al lado del otro. El principal ocupa el espacio que sobra y el
                   secundario mide lo que su texto. */}
               <div className="flex gap-2.5 sm:gap-3.5">
                 <Link
                   to="/catalogo"
-                  className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded bg-secondary-container px-2 py-3 text-center text-[13px] font-semibold text-on-secondary-container hover:brightness-95 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
+                  className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-[28px] bg-secondary-container px-2 py-3 text-center text-[13px] font-semibold text-on-secondary-container hover:brightness-95 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
                 >
                   {hasProvinceFilter ? `Explorar en ${provinceName}` : "Explorar todo el catálogo"}
                 </Link>
                 <Link
                   to="/tiendas"
-                  className="flex min-h-11 flex-shrink-0 items-center justify-center whitespace-nowrap rounded border-[1.5px] border-white/30 px-3.5 py-3 text-[13px] font-semibold text-white hover:bg-white/10 sm:px-6 sm:text-label-md sm:font-normal"
+                  className="flex min-h-11 flex-shrink-0 items-center justify-center whitespace-nowrap rounded-[28px] border-[1.5px] border-white/30 px-3.5 py-3 text-[13px] font-semibold text-white hover:bg-white/10 sm:px-6 sm:text-label-md sm:font-normal"
                 >
                   Ver tiendas
                 </Link>
@@ -318,13 +320,13 @@ export default function Home() {
             <div className="flex w-full flex-shrink-0 flex-col items-stretch gap-3 sm:w-auto sm:items-start">
               <Link
                 to="/vendedor/ingresar?tab=registro"
-                className="flex min-h-11 items-center justify-center whitespace-nowrap rounded bg-secondary-container px-5 py-3 text-label-md text-on-secondary-container hover:brightness-95"
+                className="flex min-h-11 items-center justify-center whitespace-nowrap rounded-xl bg-secondary-container px-5 py-3 text-label-md text-on-secondary-container hover:brightness-95"
               >
                 Crear mi tienda gratis
               </Link>
               <Link
                 to="/tiendas"
-                className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded border-[1.5px] border-white/30 px-5 py-3 text-label-md text-white hover:bg-white/10"
+                className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border-[1.5px] border-white/30 px-5 py-3 text-label-md text-white hover:bg-white/10"
               >
                 <Store className="h-4 w-4" aria-hidden="true" /> Ver tiendas en {settings?.siteName || "Baznova"}
               </Link>
