@@ -6,7 +6,7 @@ import { listNvidiaModels, generateWithNvidia, DEFAULT_MODEL as NVIDIA_DEFAULT_M
 import { listGroqModels, generateWithGroq, DEFAULT_MODEL as GROQ_DEFAULT_MODEL } from "../lib/groq.js";
 import { listGeminiModels, generateWithGemini, DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from "../lib/gemini.js";
 import { sendAdminDirectEmail } from "../lib/email.js";
-import { getAiModelOverrides } from "./settings.controller.js";
+import { getEffectiveActiveModels } from "../lib/aiModels.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
 // Stripe, lo que se agregue después) — primeros 4 + últimos 4 caracteres a
@@ -228,9 +228,9 @@ export async function testResendIntegration(_req, res) {
 // que "Probar" le da al admin la misma verdad que el cron nocturno sin
 // tener que esperar a las 3am ni leer el correo del día siguiente.
 const AI_TEST_PROVIDERS = {
-  gemini: { generate: generateWithGemini, defaultModel: GEMINI_DEFAULT_MODEL, settingsField: "aiModelGemini" },
-  groq: { generate: generateWithGroq, defaultModel: GROQ_DEFAULT_MODEL, settingsField: "aiModelGroq" },
-  nvidia: { generate: generateWithNvidia, defaultModel: NVIDIA_DEFAULT_MODEL, settingsField: "aiModelNvidia" },
+  gemini: { generate: generateWithGemini, defaultModel: GEMINI_DEFAULT_MODEL },
+  groq: { generate: generateWithGroq, defaultModel: GROQ_DEFAULT_MODEL },
+  nvidia: { generate: generateWithNvidia, defaultModel: NVIDIA_DEFAULT_MODEL },
 };
 const AI_TEST_PROMPT = "Responde solo con la palabra: listo";
 
@@ -243,8 +243,10 @@ export async function testAiProviderIntegration(req, res) {
   const apiKey = integration ? decryptIntegration(integration) : null;
   if (!apiKey) throw new AppError(`Guarda la clave de ${name} primero.`, 400);
 
-  const overrides = await getAiModelOverrides();
-  const model = overrides[name] || provider.defaultModel;
+  // Bloque 245: con varios modelos por proveedor, "Probar conexión" puede
+  // probar uno puntual (`model` en el cuerpo) o, sin él, el primero activo.
+  const requested = typeof req.body?.model === "string" ? req.body.model.trim() : "";
+  const model = requested || (await getEffectiveActiveModels(name))[0]?.model || provider.defaultModel;
 
   const start = Date.now();
   try {

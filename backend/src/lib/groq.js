@@ -26,7 +26,7 @@ import { AppError } from "../utils/AppError.js";
 // en su momento): lo tiene bloqueado a nivel de PROYECTO en Groq, no algo
 // que este código pueda resolver.
 // Bloque 43: el nombre del modelo ya NO es fijo — ai.js lo resuelve desde
-// SiteSettings.aiModelGroq (editable en AdminIntegrations.jsx) y lo pasa
+// AiModelConfig (editable en AdminIntegrations.jsx) y lo pasa
 // acá como parámetro; DEFAULT_MODEL es el fallback si ese setting está
 // vacío/no configurado todavía. Con esto, una futura deprecación (ya pasó
 // dos veces) se resuelve cambiando el texto desde la web, sin tocar código
@@ -59,7 +59,7 @@ function describeFetchFailure(err) {
 // Bloque 100: mismo timeout defensivo que generateWithGroq — sin esto, un
 // cuelgue de red dejaba "Actualizar lista" (AdminIntegrations.jsx) girando
 // para siempre sin ningún error visible.
-export async function listGroqModels({ apiKey }) {
+export async function listGroqModelsDetailed({ apiKey }) {
   let res;
   try {
     res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -71,7 +71,14 @@ export async function listGroqModels({ apiKey }) {
     throw new AppError(`Groq devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
   }
   const data = await res.json();
-  return (data?.data ?? []).map((m) => m.id).sort();
+  // Bloque 245: Groq SÍ entrega la fecha real de publicación de cada modelo
+  // (`created`, en segundos Unix, medido en vivo) — la autorreparación la usa
+  // para ordenar del más reciente al más antiguo.
+  return (data?.data ?? []).map((m) => ({ id: m.id, created: typeof m.created === "number" && m.created > 0 ? m.created : null }));
+}
+
+export async function listGroqModels({ apiKey }) {
+  return (await listGroqModelsDetailed({ apiKey })).map((m) => m.id).sort();
 }
 
 // Bloque 32: reemplaza el reconocimiento de imágenes (Bloque 30, derogado)

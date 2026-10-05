@@ -18,3 +18,14 @@ export function timeAgo(iso, never = "Nunca") {
 export function exactDate(iso) {
   return iso ? new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" }) : "";
 }
+
+// Bloque 245: para estados en vivo (un modelo de IA caído) importa el minuto,
+// no el día: "recién", "hace 3 min", "hace 2 h", "hace 1 d".
+export function timeSince(iso) {
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return "recién";
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  return `hace ${Math.floor(hours / 24)} d`;
+}

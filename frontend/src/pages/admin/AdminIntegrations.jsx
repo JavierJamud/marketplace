@@ -6,6 +6,8 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
+import ToggleSwitch from "../../components/admin/ToggleSwitch.jsx";
+import AiModelsPanel from "../../components/admin/AiModelsPanel.jsx";
 
 // Bloque 45: Cerebras salió del sistema (su cuenta gratuita devolvía 402
 // Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
@@ -26,12 +28,8 @@ const SERVICE_META = {
   stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
 const ORDER = ["groq", "gemini", "nvidia", "resend", "stripe"];
-// Bloque 43/45: estos tres tienen modelo editable (campo nuevo) — Resend/Stripe no.
+// Bloque 43/45/245: estos tres tienen modelos administrables — Resend/Stripe no.
 const AI_PROVIDERS = ["gemini", "groq", "nvidia"];
-const DEFAULT_MODEL_BY_PROVIDER = { gemini: "gemini-flash-latest", groq: "llama-3.3-70b-versatile", nvidia: "meta/llama-3.3-70b-instruct" };
-// Bloque 45 (pedido explícito): nota extra bajo el campo de modelo de
-// NVIDIA — su Free Endpoint puede cambiar de nombre sin aviso previo.
-const MODEL_NOTE_BY_PROVIDER = { nvidia: "Verificar en build.nvidia.com si falla — el Free Endpoint puede cambiar de nombre." };
 
 // Bloque 25: URL que el admin tiene que pegar en el dashboard de Stripe
 // (Developers → Webhooks → Add endpoint). api.defaults.baseURL ya apunta al
@@ -39,51 +37,33 @@ const MODEL_NOTE_BY_PROVIDER = { nvidia: "Verificar en build.nvidia.com si falla
 // ser el dominio público donde corra la API.
 const WEBHOOK_URL = `${api.defaults.baseURL}/stripe/webhook`;
 
-function ToggleSwitch({ isActive, disabled, onToggle }) {
-  return (
-    <button
-      disabled={disabled}
-      onClick={onToggle}
-      className="relative h-[26px] w-11 flex-shrink-0 rounded-full transition-colors disabled:opacity-40"
-      style={{ background: isActive ? "#0CAE53" : "#c5c6cc" }}
-    >
-      <span className="absolute top-[3px] h-5 w-5 rounded-full bg-white transition-all" style={{ left: isActive ? "21px" : "3px" }} />
-    </button>
-  );
-}
-
-// Bloque 238 (pedido explícito): cuánto hace que está caído, en texto corto
-// — "hace 3 min"/"hace 2h"/"hace 1d", nunca la fecha completa (esto es una
-// línea chica de un vistazo, no un log).
-function timeSince(date) {
-  const ms = Date.now() - new Date(date).getTime();
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 1) return "recién";
-  if (minutes < 60) return `hace ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `hace ${hours}h`;
-  return `hace ${Math.floor(hours / 24)}d`;
-}
-
-// Bloque 238 (pedido explícito — "verificar en segundo plano, avisar al
-// admin si hay un error"): estado real (no solo si hay una key configurada)
-// refrescado cada 2 minutos por aiChatbotAvailability.job.js — complementa
-// el badge "Activo/Inactivo" de arriba, que solo dice si HAY una key, no si
-// responde. No reemplaza el correo de aviso, es solo para confirmar de un
-// vistazo sin revisar la bandeja.
-function HealthLine({ health }) {
-  if (!health || health.status === "inactive") return null;
-  if (health.status === "healthy") {
-    return <div className="mt-1 text-[11.5px] font-semibold text-[#0A8F42]">✅ Respondiendo bien</div>;
+// Bloque 238/245: resumen de salud del proveedor a partir de sus modelos
+// (cada uno se mide aparte, ver AiModelsPanel). Complementa el badge
+// "Activo/Inactivo", que solo dice si HAY una clave, no si responde. El verde
+// del texto es más oscuro que el del interruptor para llegar a contraste AA.
+function HealthLine({ models }) {
+  const active = (models ?? []).filter((m) => m.isActive);
+  const measured = active.filter((m) => m.health && m.health.status !== "inactive");
+  if (measured.length === 0) return null;
+  const down = measured.filter((m) => m.health.status === "down");
+  if (down.length === 0) {
+    return (
+      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-[#087A38]">
+        <span className="h-2 w-2 rounded-full bg-[#0CAE53]" aria-hidden="true" />
+        {active.length === 1 ? "Respondiendo bien" : `Respondiendo bien (${active.length} modelos activos)`}
+      </div>
+    );
   }
+  const allDown = down.length === measured.length;
   return (
-    <div className="mt-1 text-[11.5px] font-semibold text-error">
-      🔴 Caído desde {timeSince(health.downSince ?? health.lastCheckedAt)} — se avisó por correo
+    <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-error">
+      <span className="h-2 w-2 rounded-full bg-error" aria-hidden="true" />
+      {allDown ? "Ningún modelo responde" : `${down.length} de ${measured.length} modelos caídos`}
     </div>
   );
 }
 
-function CardHeader({ meta, hasIntegration, isActive, saving, onToggle, health }) {
+function CardHeader({ meta, hasIntegration, isActive, saving, onToggle, models }) {
   return (
     <div className="mb-3.5 flex items-center gap-3.5">
       <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[11px] text-xl" style={{ background: meta.iconBg }}>
@@ -101,72 +81,41 @@ function CardHeader({ meta, hasIntegration, isActive, saving, onToggle, health }
           {!hasIntegration && <span className="rounded-full bg-surface-container px-2.5 py-0.5 text-[10.5px] font-bold text-outline">Sin configurar</span>}
         </div>
         <div className="mt-0.5 text-[12.5px] text-outline">{meta.desc}</div>
-        <HealthLine health={health} />
+        <HealthLine models={models} />
       </div>
-      <ToggleSwitch isActive={isActive} disabled={!hasIntegration || saving} onToggle={onToggle} />
+      <ToggleSwitch isActive={isActive} disabled={!hasIntegration || saving} onToggle={onToggle} label={`${isActive ? "Desactivar" : "Activar"} ${meta.name}`} />
     </div>
   );
 }
 
-function ServiceCard({ name, meta, integration, currentModel, health, onToggle, onSave, onSaveModel, onTestResend, onTestAi, saving, savingModel, testingResend, testingAi }) {
+function ServiceCard({ name, meta, integration, modelsData, onToggle, onSave, onTestResend, onTestAi, saving, testingResend, testingModel }) {
   const [draft, setDraft] = useState("");
   const [fromDraft, setFromDraft] = useState(integration?.fromEmail ?? "");
   const showModelField = AI_PROVIDERS.includes(name);
-  const [modelDraft, setModelDraft] = useState(currentModel ?? "");
-
-  // Bloque 44 (pedido explícito — bug real que esto hubiera evitado: un
-  // typo tipeado a mano en el nombre del modelo tumbó Groq con 404): con la
-  // key ya guardada, se consultan los modelos REALES que esa key puede
-  // usar — se muestra como <select> en vez de texto libre. Sin key
-  // guardada (!integration) la consulta ni corre, y se cae al input de
-  // texto de siempre (mismo criterio: nunca romper el flujo existente).
-  const modelsQuery = useQuery({
-    queryKey: ["provider-models", name],
-    queryFn: async () => (await api.get(`/admin/integrations/${name}/models`)).data.models,
-    enabled: showModelField && !!integration,
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-  });
 
   useEffect(() => {
     setFromDraft(integration?.fromEmail ?? "");
   }, [integration?.fromEmail]);
 
-  useEffect(() => {
-    setModelDraft(currentModel ?? "");
-  }, [currentModel]);
-
   const isActive = integration?.isActive ?? false;
   const showFromEmail = name === "resend";
   const fromChanged = showFromEmail && fromDraft !== (integration?.fromEmail ?? "");
   const canSave = draft || fromChanged;
-  const modelChanged = showModelField && modelDraft !== (currentModel ?? "");
-  // La key recién guardada puede no reflejar el modelo ELEGIDO todavía en
-  // la lista (ej. currentModel vacío = usa el default) — se agrega siempre
-  // como opción para no perderlo de vista, aunque la API no lo liste.
-  const modelOptions = modelsQuery.data
-    ? [...new Set([...(currentModel ? [currentModel] : []), ...modelsQuery.data])]
-    : null;
-
   function handleSave() {
     onSave(name, draft || undefined, isActive, showFromEmail ? fromDraft : undefined);
     setDraft("");
   }
 
-  function handleSaveModel() {
-    onSaveModel(name, modelDraft.trim());
-  }
-
   return (
     <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
-      <CardHeader meta={meta} hasIntegration={!!integration} isActive={isActive} saving={saving} onToggle={() => onToggle(integration)} health={health} />
+      <CardHeader meta={meta} hasIntegration={!!integration} isActive={isActive} saving={saving} onToggle={() => onToggle(integration)} models={modelsData?.models} />
       <div className="flex gap-2.5">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           type="password"
           placeholder={integration ? integration.keyMask : "Pega la clave aquí..."}
-          className="h-[42px] flex-1 rounded-lg border border-outline-variant px-3.5 font-mono text-[13px] outline-none"
+          className="h-11 min-w-0 flex-1 rounded-lg border border-outline-variant px-3.5 font-mono text-[13px] outline-none"
         />
         <button
           disabled={!canSave || saving}
@@ -218,83 +167,10 @@ function ServiceCard({ name, meta, integration, currentModel, health, onToggle, 
           )}
         </div>
       )}
-      {/* Bloque 43/44 (pedido explícito): modelo editable sin tocar código
-          — si el proveedor deprecia/bloquea un modelo (ya pasó dos veces
-          con Groq), el admin lo cambia acá y el próximo request ya lo usa.
-          Con la key guardada, se elige de una lista de modelos REALES
-          (consultados en vivo a la API) en vez de tipear el nombre a mano
-          — evita typos como el que tumbó Groq con 404 model_not_found. */}
-      {showModelField && (
-        <div className="mt-3">
-          <div className="mb-1 flex items-center justify-between">
-            <label className="block text-[11.5px] font-semibold text-on-surface-variant">Modelo</label>
-            {!!integration && (
-              <button
-                onClick={() => modelsQuery.refetch()}
-                disabled={modelsQuery.isFetching}
-                title="Actualizar lista de modelos"
-                className="flex items-center gap-1 text-[11px] font-semibold text-tertiary-accent disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3 w-3 ${modelsQuery.isFetching ? "animate-spin" : ""}`} /> Actualizar lista
-              </button>
-            )}
-          </div>
-          <div className="flex gap-2.5">
-            {modelOptions ? (
-              <select
-                value={modelDraft}
-                onChange={(e) => setModelDraft(e.target.value)}
-                className="h-[38px] flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3.5 font-mono text-[12.5px] outline-none"
-              >
-                <option value="">(default: {DEFAULT_MODEL_BY_PROVIDER[name]})</option>
-                {modelOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                value={modelDraft}
-                onChange={(e) => setModelDraft(e.target.value)}
-                type="text"
-                placeholder={DEFAULT_MODEL_BY_PROVIDER[name]}
-                className="h-[38px] flex-1 rounded-lg border border-outline-variant px-3.5 font-mono text-[12.5px] outline-none"
-              />
-            )}
-            <button
-              disabled={!modelChanged || savingModel}
-              onClick={handleSaveModel}
-              className="rounded-lg bg-surface-container px-[18px] text-[13px] font-semibold text-on-surface-variant disabled:opacity-50"
-            >
-              Guardar
-            </button>
-          </div>
-          {!integration && <p className="mt-1 text-[11px] text-outline">Guarda la clave primero para elegir de la lista real de modelos.</p>}
-          {integration && modelsQuery.isError && (
-            <p className="mt-1 text-[11px] text-error">No se pudo consultar la lista de modelos — escribe el nombre a mano.</p>
-          )}
-          <p className="mt-1 text-[11px] text-outline">
-            Vacío = usa el default (<span className="font-mono">{DEFAULT_MODEL_BY_PROVIDER[name]}</span>).
-          </p>
-          {MODEL_NOTE_BY_PROVIDER[name] && <p className="mt-1 text-[11px] text-outline">⚠ {MODEL_NOTE_BY_PROVIDER[name]}</p>}
-          {/* Bloque 90 (pedido explícito, tras 2 correos reales de "la
-              integración de X no responde" la misma noche): mismo criterio
-              que "Probar" de Resend — ejercita la API real con el modelo
-              configurado ahora mismo, en vez de esperar al chequeo de las
-              3am para enterarse si la clave sigue viva. */}
-          {integration && (
-            <button
-              onClick={() => onTestAi(name)}
-              disabled={testingAi}
-              className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${testingAi ? "animate-spin" : ""}`} />
-              {testingAi ? "Probando conexión..." : "Probar conexión"}
-            </button>
-          )}
-        </div>
-      )}
+      {/* Bloque 43/44/245: modelos administrables sin tocar código. Con la
+          clave guardada se elige de la lista REAL del proveedor; cada modelo
+          tiene su propio estado, interruptor y orden de prueba. */}
+      {showModelField && <AiModelsPanel provider={name} integration={integration} data={modelsData} onTest={onTestAi} testingModel={testingModel} />}
     </div>
   );
 }
@@ -407,22 +283,15 @@ export default function AdminIntegrations() {
     queryFn: async () => (await api.get("/admin/integrations")).data.integrations,
   });
 
-  // Bloque 43: modelo por proveedor — vive aparte (SiteSettings), no en la
-  // fila de Integration (esa es solo credencial + activo/inactivo).
+  // Bloque 245: modelos de cada proveedor con su estado de salud real (cada
+  // modelo se mide aparte; refetchInterval para que el estado no se quede
+  // viejo mientras el admin tiene la pantalla abierta).
   const { data: aiModels } = useQuery({
     queryKey: ["admin-ai-models"],
-    queryFn: async () => (await api.get("/admin/settings/ai-models")).data.aiModels,
-  });
-
-  // Bloque 238: estado real (healthy/down/inactive) refrescado cada 2
-  // minutos en segundo plano — refetchInterval acá mismo para que la línea
-  // de estado no se quede vieja mientras el admin tiene la pantalla abierta.
-  const { data: aiHealth } = useQuery({
-    queryKey: ["admin-ai-health"],
-    queryFn: async () => (await api.get("/admin/ai-provider-health")).data.health,
+    queryFn: async () => (await api.get("/admin/ai-models")).data.providers,
     refetchInterval: 30_000,
   });
-  const healthByProvider = Object.fromEntries((aiHealth ?? []).map((h) => [h.provider, h]));
+  const modelsByProvider = Object.fromEntries((aiModels ?? []).map((p) => [p.provider, p]));
 
   const save = useMutation({
     mutationFn: async ({ name, credential, isActive, fromEmail }) =>
@@ -449,21 +318,6 @@ export default function AdminIntegrations() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar la integración."),
   });
 
-  // Bloque 43: un solo campo por vez (PATCH parcial — los otros dos quedan
-  // como estaban, mismo criterio que /admin/integrations con "credential"
-  // opcional).
-  const saveModel = useMutation({
-    mutationFn: async ({ name, value }) => {
-      const field = { gemini: "aiModelGemini", groq: "aiModelGroq", nvidia: "aiModelNvidia" }[name];
-      return (await api.patch("/admin/settings/ai-models", { [field]: value })).data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
-      toast.success("Modelo guardado.");
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el modelo."),
-  });
-
   // Bloque 86 (pedido explícito): prueba real contra la API de Resend — el
   // backend responde con el detalle EXACTO que devolvió Resend si rechaza
   // el envío (nunca un "no se pudo" genérico), para poder diagnosticar de
@@ -480,8 +334,11 @@ export default function AdminIntegrations() {
   // devolvió el proveedor (nunca un "no se pudo" genérico), para diagnosticar
   // en el momento en vez de esperar al correo del chequeo automático de 3am.
   const testAi = useMutation({
-    mutationFn: async (name) => (await api.post(`/admin/integrations/${name}/test-ai`)).data,
-    onSuccess: (result) => toast.success(`Respondió en ${result.ms}ms con el modelo "${result.model}".`),
+    mutationFn: async ({ name, model }) => (await api.post(`/admin/integrations/${name}/test-ai`, { model })).data,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
+      toast.success(`Respondió en ${result.ms}ms con el modelo "${result.model}".`);
+    },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo probar la conexión.", { duration: 8000 }),
   });
 
@@ -495,19 +352,18 @@ export default function AdminIntegrations() {
       </div>
       <p className="mb-2 text-[13.5px] text-outline">Configura las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        🔐 Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (principal, el más
-        rápido) → Gemini → NVIDIA NIM — cada uno entra solo si el anterior está inactivo o falla una consulta puntual.
-        Un proveedor desactivado nunca se usa, ni siquiera como respaldo. El modelo de cada uno también es editable
-        acá, sin redesplegar.
+        Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (el más rápido), luego
+        Gemini y por último NVIDIA NIM. Cada proveedor puede tener varios modelos activos: si uno falla, la consulta
+        sigue con el siguiente, sea del mismo proveedor o de otro. Un proveedor desactivado nunca se usa, ni siquiera
+        como respaldo.
       </div>
-      {/* Bloque 85 (pedido explícito): transparencia sobre el chequeo
-          automático — el admin ve acá POR QUÉ el modelo de un proveedor
-          puede cambiar solo de un día para otro. */}
+      {/* Bloque 85/245: transparencia sobre la reparación automática. El admin
+          ve acá POR QUÉ la lista de modelos de un proveedor puede cambiar sola. */}
       <div className="mb-[22px] rounded-[10px] bg-surface-container px-3.5 py-2.5 text-[12px] text-on-surface-variant">
-        🩺 Cada día, a las 3:00am (zona horaria configurada en "Marca de la plataforma"), el sistema verifica que el
-        modelo configurado de cada proveedor ACTIVO siga respondiendo. Si un modelo fue dado de baja, cambia solo al
-        modelo más rápido disponible que sí funcione — y si un proveedor entero no responde con ningún modelo, te
-        llega un correo con el detalle.
+        Cada 2 minutos se mide cada modelo activo, y a las 3:00am (zona horaria de "Marca de la plataforma") se hace una
+        revisión completa. Cuando un modelo falla te llega un correo con la causa y qué hacer. Si el modelo fue dado de
+        baja, el sistema pide a la API la lista real, una IA distinta elige el reemplazo, se le hace una consulta real
+        y recién entonces se carga. Después te llega un correo de "problema resuelto", o de que no se pudo reparar.
       </div>
 
       <div className="flex flex-col gap-4">
@@ -526,19 +382,16 @@ export default function AdminIntegrations() {
               name={name}
               meta={SERVICE_META[name]}
               integration={byName[name]}
-              currentModel={aiModels?.[name]}
-              health={healthByProvider[name]}
+              modelsData={modelsByProvider[name]}
               saving={save.isPending || toggle.isPending}
-              savingModel={saveModel.isPending}
               onToggle={(integration) => toggle.mutate({ id: integration.id, isActive: !integration.isActive })}
               onSave={(n, credential, currentActive, fromEmail) =>
                 save.mutate({ name: n, credential, isActive: byName[n] ? currentActive : true, fromEmail })
               }
-              onSaveModel={(n, value) => saveModel.mutate({ name: n, value })}
               onTestResend={() => testResend.mutate()}
               testingResend={testResend.isPending}
-              onTestAi={(n) => testAi.mutate(n)}
-              testingAi={testAi.isPending && testAi.variables === name}
+              onTestAi={(n, model) => testAi.mutate({ name: n, model })}
+              testingModel={testAi.isPending && testAi.variables?.name === name ? testAi.variables.model : null}
             />
           )
         )}

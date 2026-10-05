@@ -1,12 +1,13 @@
 import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
-import { getAiModelOverrides, getBrandSettings } from "../controllers/settings.controller.js";
+import { getBrandSettings } from "../controllers/settings.controller.js";
 import { generateWithGemini, chatWithGemini } from "./gemini.js";
 import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq } from "./groq.js";
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
-import { repairProviderModel, PROVIDERS as REPAIR_PROVIDERS } from "./aiModelRepair.js";
-import { isChatbotHealthy } from "./aiProviderHealth.js";
+import { checkModel, setRepairAdvisor } from "./aiModelRepair.js";
+import { isChatbotHealthy, getModelHealthRows } from "./aiProviderHealth.js";
+import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "./aiModels.js";
 
 // Bloque 83 (pedido explícito, con medición real): benchmark inicial en
 // vivo contra los 3 proveedores reales de esta cuenta — Groq ~400-800ms,
@@ -24,7 +25,7 @@ import { isChatbotHealthy } from "./aiProviderHealth.js";
 // de prioridad — y las latencias de referencia de acá arriba quedan como
 // semilla inicial (DEFAULT_LATENCY_MS) para cuando el servidor recién
 // arrancó y todavía no hay ninguna medición real propia.
-const PROVIDER_NAMES = ["groq", "gemini", "nvidia"];
+const PROVIDER_NAMES = AI_PROVIDER_NAMES;
 const DEFAULT_LATENCY_MS = { groq: 600, gemini: 2000, nvidia: 15000 };
 
 // Media móvil exponencial simple — le da más peso a lo reciente sin
@@ -56,20 +57,33 @@ function sortByMeasuredSpeed(providers) {
 // integración tiene su propio isActive.
 //
 // Bloque 43: además del apiKey, ahora también resuelve el MODELO de cada
-// proveedor desde SiteSettings (editable en AdminIntegrations.jsx) — antes
-// era una constante fija en cada archivo de proveedor. Con esto, una
-// deprecación de modelo (ya pasó dos veces con Groq) se resuelve
-// cambiando el texto desde la web, sin tocar código ni redesplegar.
+// proveedor (editable en AdminIntegrations.jsx) — antes era una constante fija
+// en cada archivo de proveedor. Con esto, una deprecación de modelo (ya pasó
+// dos veces con Groq) se resuelve desde la web, sin tocar código ni
+// redesplegar.
+//
+// Bloque 245: un proveedor puede tener VARIOS modelos activos, así que la
+// cadena de respaldo ya no es de proveedores sino de pares proveedor+modelo.
+// Orden: los proveedores por velocidad real medida (Bloque 99); dentro de
+// cada uno, sus modelos por la prioridad que fijó el admin. Los modelos que
+// la última verificación marcó caídos van AL FINAL de la cadena (se siguen
+// intentando como último recurso, pero nunca antes de uno que sí responde).
 async function getActiveProviders() {
-  const modelOverrides = await getAiModelOverrides();
   const providers = [];
   for (const name of PROVIDER_NAMES) {
     const apiKey = await getDecryptedCredential(name);
-    if (apiKey) providers.push({ name, apiKey, model: modelOverrides[name] });
+    if (apiKey) providers.push({ name, apiKey });
   }
-  // Bloque 99: orden por velocidad real medida, no por la posición en
-  // PROVIDER_NAMES — ver sortByMeasuredSpeed arriba.
-  return sortByMeasuredSpeed(providers);
+  const healthRows = await getModelHealthRows();
+  const isDown = (name, model) => healthRows.some((h) => h.provider === name && h.model === model && h.status === "down");
+
+  const pairs = [];
+  for (const provider of sortByMeasuredSpeed(providers)) {
+    for (const config of await getEffectiveActiveModels(provider.name)) {
+      pairs.push({ name: provider.name, apiKey: provider.apiKey, model: config.model });
+    }
+  }
+  return [...pairs.filter((p) => !isDown(p.name, p.model)), ...pairs.filter((p) => isDown(p.name, p.model))];
 }
 
 function callGenerate(provider, prompt) {
@@ -111,7 +125,11 @@ function logProviderSuccess(provider) {
 // mientras quede alguno más para probar. Recién si TODOS los activos
 // fallan se lanza el error genérico de siempre (Bloque 33 lo convierte en
 // la tarjeta de "problemas técnicos").
-async function callWithFallbackChain(providers, callFn, genericErrorMessage) {
+//
+// Bloque 245: `reportFailures: false` lo usa la consulta al "consejero" de la
+// autorreparación — si esa propia consulta fallara no debe disparar otra
+// reparación (sería un bucle: reparar → consultar IA → fallar → reparar).
+async function callWithFallbackChain(providers, callFn, genericErrorMessage, { reportFailures = true } = {}) {
   let lastErr;
   for (let i = 0; i < providers.length; i++) {
     const provider = providers[i];
@@ -128,21 +146,19 @@ async function callWithFallbackChain(providers, callFn, genericErrorMessage) {
     } catch (err) {
       lastErr = err;
       const next = providers[i + 1];
-      logProviderFailure(`[ai] ${provider.name} falló${next ? `, reintentando con ${next.name}` : " (era el último proveedor activo)"}:`, err);
+      logProviderFailure(`[ai] ${provider.name}/${provider.model} falló${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo activo)"}:`, err);
       // Bloque 99 (pedido explícito — "apenas se desconecte, que el sistema
       // lo detecte y busque el modelo adecuado"): dispara la reparación en
       // segundo plano, SIN esperarla — el pedido actual ya sigue probando
       // el siguiente proveedor de la cadena, la reparación es para que el
       // PRÓXIMO pedido ya no tenga que volver a fallar contra este mismo
-      // modelo roto. repairProviderModel tiene su propio cooldown por
-      // proveedor, así que una ráfaga de fallos simultáneos no dispara
-      // búsquedas repetidas.
-      // provider.model puede venir null (sin override en AdminIntegrations,
-      // "usa el default del archivo") — hay que resolver el nombre REAL que
-      // se acaba de usar (mismo criterio que generateWithX: model || DEFAULT_MODEL)
-      // para que la reparación pruebe/excluya el modelo correcto, no "null".
-      const brokenModel = provider.model || REPAIR_PROVIDERS[provider.name]?.defaultModel;
-      void repairProviderModel(provider.name, provider.apiKey, brokenModel, err?.details?.detail || err?.message).catch(() => {});
+      // modelo roto.
+      // Bloque 245: checkModel es el único punto que decide qué hacer (aviso
+      // único, reparación verificada, "problema resuelto") — ai.js solo le
+      // dice QUÉ modelo falló. Tiene su propio cooldown, así que una ráfaga
+      // de pedidos fallando contra el mismo modelo no dispara pruebas
+      // repetidas.
+      if (reportFailures) void checkModel({ provider: provider.name, apiKey: provider.apiKey, model: provider.model, trigger: "live" }).catch(() => {});
     }
   }
   throw new AppError(genericErrorMessage, 500, { detail: lastErr?.details?.detail });
@@ -222,3 +238,16 @@ export async function transcribeAudio({ audioBuffer, mimeType, filename }) {
   if (!groqProvider) throw new AppError("La transcripción de audio no está disponible en este momento — escribe tu mensaje.", 503);
   return transcribeAudioWithGroq({ apiKey: groqProvider.apiKey, audioBuffer, mimeType, filename });
 }
+
+// Bloque 245: la autorreparación (aiModelRepair.js) necesita consultar a OTRA
+// IA del sistema para elegir el modelo de reemplazo. Se registra acá, y no se
+// importa allá, porque ai.js ya importa aiModelRepair.js (un import directo
+// sería circular). Prefiere modelos de OTROS proveedores y recién después los
+// hermanos del mismo proveedor; nunca el modelo roto.
+setRepairAdvisor(async (prompt, { excludeProvider, excludeModel }) => {
+  const providers = (await getActiveProviders()).filter((p) => !(p.name === excludeProvider && p.model === excludeModel));
+  if (!providers.length) throw new AppError("No hay otra IA activa para consultar.", 503);
+  const others = providers.filter((p) => p.name !== excludeProvider);
+  const siblings = providers.filter((p) => p.name === excludeProvider);
+  return callWithFallbackChain([...others, ...siblings], (provider) => callGenerate(provider, prompt), "La IA consejera no respondió.", { reportFailures: false });
+});

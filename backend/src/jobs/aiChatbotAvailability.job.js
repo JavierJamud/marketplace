@@ -1,83 +1,82 @@
 import cron from "node-cron";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
-import { getAiModelOverrides } from "../controllers/settings.controller.js";
-import { PROVIDERS, probeModel, repairProviderModel } from "../lib/aiModelRepair.js";
-import { getProviderHealth, upsertProviderHealth } from "../lib/aiProviderHealth.js";
+import { checkModel } from "../lib/aiModelRepair.js";
+import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "../lib/aiModels.js";
+import { getModelHealthRows, upsertModelHealth, deleteModelHealth } from "../lib/aiProviderHealth.js";
 
 // Bloque 238 (pedido explícito — "cuando se accede al sitio, el sistema debe
 // verificar en segundo plano que el chatbot funciona antes de mostrarlo"): a
 // diferencia de aiHealthCheck.job.js (chequeo PROFUNDO una vez al día a las
-// 3am, con búsqueda completa de modelo de reemplazo), este cron es el
-// chequeo LIVIANO y FRECUENTE que decide, casi en tiempo real, si el chatbot
-// se muestra a los clientes — nunca espera hasta el día siguiente para
-// ocultar un proveedor caído. El resultado se cachea en AiProviderHealth
-// (lib/aiProviderHealth.js), que es lo que lee isAIAvailable() (ai.js) y
-// getSettings() — ningún cliente real dispara una llamada a la IA con solo
-// visitar el sitio, siempre lee el último resultado ya calculado acá.
+// 3am), este cron es el chequeo LIVIANO y FRECUENTE que decide, casi en
+// tiempo real, si el chatbot se muestra a los clientes — nunca espera hasta
+// el día siguiente para ocultar un modelo caído. El resultado se cachea en
+// AiModelHealth (lib/aiProviderHealth.js), que es lo que lee isAIAvailable()
+// (ai.js) y getSettings() — ningún cliente real dispara una llamada a la IA
+// con solo visitar el sitio, siempre lee el último resultado ya calculado acá.
+//
+// Bloque 245: ya no hay lógica de reparación duplicada acá — chequea CADA
+// modelo activo de CADA proveedor y delega todo (aviso único, reparación
+// verificada, "problema resuelto") en checkModel (lib/aiModelRepair.js), la
+// misma política que usan ai.js en vivo y el chequeo diario de las 3am.
 
 const CHECK_INTERVAL_CRON = "*/2 * * * *"; // cada 2 minutos
+let running = false;
 
-// Nunca lanza — un proveedor caído no debe impedir que se chequeen los
-// demás (mismo criterio que checkProvider en aiHealthCheck.job.js).
-async function checkProviderLight(providerName) {
+// Chequea todos los modelos activos de UN proveedor en paralelo (la espera es
+// la del más lento, no la suma). Nunca lanza.
+async function checkProvider(providerName, trigger) {
   const apiKey = await getDecryptedCredential(providerName);
+  const health = await getModelHealthRows();
+
   if (!apiKey) {
-    await upsertProviderHealth(providerName, { status: "inactive", model: null, lastError: null, downSince: null });
-    return;
+    // Sin clave activa: se limpian sus modelos y queda un único marcador
+    // "inactive" para que isChatbotHealthy distinga "apagado" de "sin chequear".
+    await Promise.all(health.filter((h) => h.provider === providerName && h.model !== "").map((h) => deleteModelHealth(providerName, h.model)));
+    await upsertModelHealth(providerName, "", { status: "inactive", lastError: null, lastLatencyMs: null, downSince: null });
+    return [];
   }
 
-  const overrides = await getAiModelOverrides();
-  const modelToTest = overrides[providerName] || PROVIDERS[providerName].defaultModel;
+  await deleteModelHealth(providerName, "");
+  const models = await getEffectiveActiveModels(providerName);
+  const activeNames = new Set(models.map((m) => m.model));
+  // Un modelo que el admin desactivó o borró ya no cuenta para la salud.
+  await Promise.all(health.filter((h) => h.provider === providerName && h.model !== "" && !activeNames.has(h.model)).map((h) => deleteModelHealth(providerName, h.model)));
 
-  try {
-    await probeModel(providerName, apiKey, modelToTest);
-    await upsertProviderHealth(providerName, { status: "healthy", model: modelToTest, lastError: null, downSince: null });
-  } catch (err) {
-    const errorDetail = err?.details?.detail || err?.message || "Error desconocido";
-    const previous = await getProviderHealth(providerName);
-
-    if (previous?.status === "down") {
-      // Ya se intentó reparar en la transición anterior — no repetir la
-      // búsqueda de reemplazo ni el correo en cada tick mientras sigue
-      // caído (saturaría al admin cada 2 minutos en una caída larga). El
-      // cron diario de las 3am y el tráfico real (que sigue reintentando
-      // vía el fallback normal de ai.js) quedan como los reintentos de
-      // fondo mientras tanto.
-      await upsertProviderHealth(providerName, {
-        status: "down",
-        model: modelToTest,
-        lastError: errorDetail,
-        downSince: previous.downSince ?? new Date(),
-      });
-      return;
-    }
-
-    // Transición de sano a caído — único momento en que vale la pena
-    // reparar (buscar un modelo de reemplazo) y avisar al admin.
-    const result = await repairProviderModel(providerName, apiKey, modelToTest, errorDetail, "proactive");
-    if (result?.outcome === "recovered" || result?.outcome === "repaired") {
-      await upsertProviderHealth(providerName, { status: "healthy", model: result.model, lastError: null, downSince: null });
-    } else {
-      // "down" o "skipped_cooldown" (otro disparador ya está reparando este
-      // mismo proveedor en este momento) — se marca caído igual, el próximo
-      // tick ya lo sabrá sin reintentar la búsqueda.
-      await upsertProviderHealth(providerName, { status: "down", model: modelToTest, lastError: errorDetail, downSince: new Date() });
-    }
-  }
+  const results = await Promise.all(models.map((m) => checkModel({ provider: providerName, apiKey, model: m.model, trigger })));
+  return models.map((m, i) => ({ provider: providerName, model: m.model, ...results[i] }));
 }
 
 // Exportada aparte (no solo el scheduler) para poder correrla a mano en un
-// smoke test sin esperar el próximo tick.
+// smoke test sin esperar el próximo tick, y para que el chequeo diario de las
+// 3am reuse exactamente el mismo recorrido con `trigger: "daily"`.
+export async function runAiModelsCheck(trigger = "proactive") {
+  const all = [];
+  for (const providerName of AI_PROVIDER_NAMES) {
+    try {
+      all.push(...(await checkProvider(providerName, trigger)));
+    } catch (err) {
+      console.error(`[aiChatbotAvailability] ${providerName}:`, err);
+    }
+  }
+  return all;
+}
+
 export async function runAiChatbotAvailabilityCheck() {
-  for (const providerName of Object.keys(PROVIDERS)) {
-    await checkProviderLight(providerName).catch((err) => console.error(`[aiChatbotAvailability] ${providerName}:`, err));
+  // Un chequeo de NVIDIA puede tardar bastante (medido hasta ~100s en un mal
+  // día): sin esta guarda, dos ticks de 2 minutos se solaparían.
+  if (running) return [];
+  running = true;
+  try {
+    return await runAiModelsCheck("proactive");
+  } finally {
+    running = false;
   }
 }
 
 export function startAiChatbotAvailabilityJob() {
   // Corrida inmediata al arrancar — sin esperar el primer tick, para que
-  // AiProviderHealth no quede vacía/desactualizada justo después de un
-  // deploy o reinicio del backend.
+  // AiModelHealth no quede vacía/desactualizada justo después de un deploy o
+  // reinicio del backend.
   runAiChatbotAvailabilityCheck().catch((err) => console.error("[aiChatbotAvailabilityJob] error en la corrida inicial:", err));
 
   cron.schedule(CHECK_INTERVAL_CRON, () => {

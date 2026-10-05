@@ -2308,17 +2308,8 @@ model SiteSettings {
   // la tienda bloqueada o suspendida (VendorLayout.jsx) — cambiarlo acá
   // actualiza el botón en todos lados, sin tocar código.
   supportWhatsapp String?
-  // Bloque 43/45: nombre de modelo por proveedor de IA, editable desde
-  // AdminIntegrations.jsx — null/vacío = usa el default hardcodeado en el
-  // archivo del proveedor (lib/nvidia.js, groq.js, gemini.js). Antes esto
-  // era una constante MODEL en cada archivo; moverlo acá permite que el
-  // admin reaccione a una deprecación de modelo (ya pasó 2 veces con Groq)
-  // sin tocar código ni redesplegar. Bloque 45: Cerebras salió del sistema
-  // (su cuenta gratuita devolvía 402 Payment Required) — aiModelCerebras
-  // se elimina, aiModelNvidia lo reemplaza como tercer proveedor.
-  aiModelGroq   String?
-  aiModelGemini String?
-  aiModelNvidia String?
+  // Bloque 245: los modelos de IA por proveedor viven ahora en AiModelConfig
+  // (varios por proveedor, con prioridad). Las columnas aiModel* se eliminaron.
   // Bloque 49: si el vendedor puede agregar imágenes de producto pegando un
   // link externo, además de subir el archivo. Apagable desde el admin porque
   // un link roto o de mala calidad es más difícil de moderar que un archivo
@@ -2436,21 +2427,55 @@ model SiteSettings {
   updatedAt    DateTime @updatedAt
 }
 
-// Bloque 238 (pedido explícito — "antes de mostrar el chatbot, verificar que
-// la IA funciona; si hay un error, avisar al admin y ocultar el chatbot
-// hasta que se resuelva"): estado cacheado de salud de cada proveedor de IA
-// (gemini/groq/nvidia), refrescado cada 2 minutos por
-// aiChatbotAvailability.job.js — NUNCA se prueba la IA en el momento en que
-// un cliente visita el sitio, siempre se lee el último resultado ya
-// calculado acá. isAIAvailable() (lib/ai.js) y getSettings() lo consultan
-// para decidir si el botón de chat se muestra.
-model AiProviderHealth {
-  provider      String    @id // "gemini" | "groq" | "nvidia" — mismo nombre que PROVIDERS en lib/aiModelRepair.js
-  status        String // "healthy" | "down" | "inactive" (sin API key configurada)
-  model         String? // último modelo probado — null si "inactive"
-  lastError     String? // detalle del último fallo — null si "healthy"/"inactive"
-  downSince     DateTime? // desde cuándo está caído sin interrupción — null si no está caído
-  lastCheckedAt DateTime  @updatedAt
+// Bloque 245 (pedido explícito — "cada integración con una API de IA puede
+// tener uno o varios modelos activos"): antes cada proveedor tenía UN solo
+// modelo (SiteSettings.aiModel*). Ahora cada fila es un modelo configurado de
+// un proveedor, con su propio interruptor y su orden de prioridad dentro del
+// proveedor. Un proveedor SIN filas sigue usando el modelo por defecto de su
+// archivo (lib/groq.js|gemini.js|nvidia.js). source = AUTO cuando lo cargó
+// solo la autorreparación (lib/aiModelRepair.js), MANUAL cuando lo agregó el
+// admin desde Integraciones.
+enum AiModelSource {
+  MANUAL
+  AUTO
+}
+
+model AiModelConfig {
+  id        String        @id @default(cuid())
+  provider  String // "gemini" | "groq" | "nvidia" — mismo nombre que PROVIDERS en lib/aiModelRepair.js
+  model     String
+  isActive  Boolean       @default(true)
+  priority  Int           @default(0) // menor = se prueba antes dentro del mismo proveedor
+  source    AiModelSource @default(MANUAL)
+  createdAt DateTime      @default(now())
+
+  @@unique([provider, model])
+  @@index([provider, priority])
+}
+
+// Bloque 238 + 245: estado cacheado de salud de cada MODELO de IA
+// (provider+model), refrescado cada 2 minutos por aiChatbotAvailability.job.js
+// y reescrito por la autorreparación. NUNCA se prueba la IA en el momento en
+// que un cliente visita el sitio, siempre se lee el último resultado ya
+// calculado acá. Los campos de aviso (downNotifiedAt, etc.) viven acá y no en
+// memoria para que un reinicio del backend no repita el mismo correo ni
+// pierda el hilo de "ya avisé que cayó, falta avisar que se resolvió".
+// Un proveedor sin API key activa se guarda con model = "" y status
+// "inactive" (así isChatbotHealthy sigue distinguiendo "apagado" de "sin
+// chequear todavía").
+model AiModelHealth {
+  provider            String
+  model               String // "" solo para status "inactive" (proveedor sin clave)
+  status              String // "healthy" | "down" | "inactive"
+  lastError           String? // detalle del último fallo — null si "healthy"/"inactive"
+  lastLatencyMs       Int? // latencia de la última prueba que respondió bien
+  downSince           DateTime? // desde cuándo está caído sin interrupción
+  downNotifiedAt      DateTime? // cuándo se mandó el aviso de "falló" (una sola vez por caída)
+  lastRepairAttemptAt DateTime? // último intento de autorreparación (espacia los reintentos)
+  repairFailedCount   Int       @default(0) // cuántos intentos de reparación fallaron en esta caída
+  lastCheckedAt       DateTime  @updatedAt
+
+  @@id([provider, model])
 }
 
 // ---------------------------------------------------------------------------

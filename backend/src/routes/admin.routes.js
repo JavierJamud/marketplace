@@ -3,6 +3,7 @@ import * as adminController from "../controllers/admin.controller.js";
 import * as announcementsController from "../controllers/announcements.controller.js";
 import * as campaignsController from "../controllers/campaigns.controller.js";
 import * as integrationsController from "../controllers/integrations.controller.js";
+import * as aiModelsController from "../controllers/aiModels.controller.js";
 import * as settingsController from "../controllers/settings.controller.js";
 import * as suggestionsController from "../controllers/suggestions.controller.js";
 import * as locationsController from "../controllers/locations.controller.js";
@@ -246,8 +247,11 @@ router.patch("/announcements/:id", siteUpload.single("image"), announcementsCont
 router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 
 // Bloque 43: modelo editable por proveedor de IA (AdminIntegrations.jsx).
-router.get("/settings/ai-models", settingsController.getAiModelSettings);
-router.patch("/settings/ai-models", settingsController.updateAiModels);
+router.get("/ai-models", aiModelsController.listAiModels);
+router.post("/ai-models", aiModelsController.addAiModel);
+router.patch("/ai-models/:id", aiModelsController.updateAiModel);
+router.post("/ai-models/:id/move", aiModelsController.moveAiModel);
+router.delete("/ai-models/:id", aiModelsController.deleteAiModel);
 // Bloque 238: estado real (healthy/down/inactive) de cada proveedor de IA,
 // para la línea de estado chica en AdminIntegrations.jsx.
 router.get("/ai-provider-health", settingsController.getAdminAiProviderHealth);

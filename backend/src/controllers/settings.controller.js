@@ -6,7 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
 import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
-import { getProviderHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
+import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SITE_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "site");
@@ -101,7 +101,7 @@ export async function getSettings(_req, res) {
 }
 
 // Bloque 51: uso INTERNO (offers.controller.js/adminOffers.controller.js) —
-// mismo criterio que getAiModelOverrides/getBrandSettings: nunca una ruta
+// mismo criterio que getBrandSettings: nunca una ruta
 // HTTP directa, cualquier controller que necesite la política de ofertas la
 // llama en vez de hardcodear los días de cooldown/duración.
 export async function getOfferPolicy() {
@@ -413,7 +413,7 @@ export async function updateBranding(req, res) {
 }
 
 // Bloque 85: uso INTERNO (aiHealthCheck.job.js) — mismo criterio que
-// getBrandSettings/getAiModelOverrides de arriba, nunca una ruta HTTP.
+// getBrandSettings de arriba, nunca una ruta HTTP.
 export async function getSiteTimezone() {
   const settings = await getOrCreateSettings();
   return settings.timezone || "America/Havana";
@@ -516,7 +516,7 @@ export async function removeHeroImage(req, res) {
 }
 
 // Bloque 49: uso INTERNO (emails, PDFs, prompts de IA, mensajes de error) —
-// mismo criterio que getAiModelOverrides de abajo: nunca una ruta HTTP
+// mismo criterio que getBrandSettings: nunca una ruta HTTP
 // directa, cualquier módulo que necesite el nombre/logo de la plataforma
 // para mostrarlo fuera de la app (un correo, un PDF, el system prompt del
 // chatbot) llama esto en vez de hardcodear "ZeuDin".
@@ -538,51 +538,10 @@ export async function getBrandSettings() {
   };
 }
 
-// Bloque 43/45: uso INTERNO (ai.js) — nunca una ruta HTTP directa, mismo
-// criterio que getStripeConfig en integrations.controller.js. null en
-// cualquiera de los tres = ese proveedor usa el DEFAULT_MODEL hardcodeado
-// en su propio archivo (lib/nvidia.js|groq.js|gemini.js). Bloque 45:
-// Cerebras salió del sistema, NVIDIA NIM lo reemplaza como tercer proveedor.
-export async function getAiModelOverrides() {
-  const settings = await getOrCreateSettings();
-  return {
-    groq: settings.aiModelGroq || null,
-    gemini: settings.aiModelGemini || null,
-    nvidia: settings.aiModelNvidia || null,
-  };
-}
-
-// Admin — /admin/integraciones muestra/edita estos tres junto al switch de
-// Activo y la API key de cada proveedor (AdminIntegrations.jsx).
-export async function getAiModelSettings(_req, res) {
-  const overrides = await getAiModelOverrides();
-  res.json({ aiModels: overrides });
-}
-
-const aiModelsSchema = z.object({
-  aiModelGroq: z.string().trim().optional(),
-  aiModelGemini: z.string().trim().optional(),
-  aiModelNvidia: z.string().trim().optional(),
-});
-
-// Un campo vacío ("") vuelve a null — es decir, "usar el default del
-// código" — nunca hay que borrar la fila entera para volver al modelo
-// original de un proveedor puntual.
-export async function updateAiModels(req, res) {
-  const data = aiModelsSchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  const cleaned = Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value ? value : null]));
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: cleaned });
-  res.json({
-    aiModels: { groq: updated.aiModelGroq || null, gemini: updated.aiModelGemini || null, nvidia: updated.aiModelNvidia || null },
-  });
-}
-
-// Bloque 238 — Admin (AdminIntegrations.jsx): estado real de cada proveedor
-// de IA (healthy/down/inactive), para que el admin lo confirme de un
+// Bloque 238/245 — Admin: estado real de cada MODELO de IA (healthy/down/inactive), para que el admin lo confirme de un
 // vistazo junto al badge "Activo/Inactivo" que ya existe — no reemplaza el
 // correo de aviso (notifyAdminActionNeeded), es solo para consulta visual.
 export async function getAdminAiProviderHealth(req, res) {
-  const health = await getProviderHealthRows();
+  const health = await getModelHealthRows();
   res.json({ health });
 }

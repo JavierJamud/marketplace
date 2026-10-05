@@ -9,7 +9,7 @@ import { AppError } from "../utils/AppError.js";
 // mensajes/parseo que groq.js.
 //
 // El nombre del modelo NO es fijo — ai.js lo resuelve desde
-// SiteSettings.aiModelNvidia (editable en AdminIntegrations.jsx) y lo pasa
+// AiModelConfig (editable en AdminIntegrations.jsx) y lo pasa
 // como parámetro; DEFAULT_MODEL es el fallback si ese setting está
 // vacío/no configurado todavía.
 //
@@ -189,7 +189,7 @@ export async function chatWithNvidia({ apiKey, systemParts, history, message, mo
 // Bloque 100: mismo timeout defensivo que generateWithNvidia — sin esto, un
 // cuelgue de red dejaba "Actualizar lista" (AdminIntegrations.jsx) girando
 // para siempre sin ningún error visible.
-export async function listNvidiaModels({ apiKey }) {
+export async function listNvidiaModelsDetailed({ apiKey }) {
   let res;
   try {
     res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -201,5 +201,12 @@ export async function listNvidiaModels({ apiKey }) {
     throw new AppError(`NVIDIA NIM devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
   }
   const data = await res.json();
-  return (data?.data ?? []).map((m) => m.id).sort();
+  // Bloque 245: el `created` de NVIDIA NO es una fecha real (medido en vivo:
+  // los 80 modelos devuelven el mismo valor 735790403), así que se descarta a
+  // propósito — usarlo ordenaría los modelos al azar con cara de dato válido.
+  return (data?.data ?? []).map((m) => ({ id: m.id, created: null }));
+}
+
+export async function listNvidiaModels({ apiKey }) {
+  return (await listNvidiaModelsDetailed({ apiKey })).map((m) => m.id).sort();
 }

@@ -1,0 +1,255 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowUp, ArrowDown, Trash2, RefreshCw, Plus } from "lucide-react";
+import toast from "../../lib/toast.jsx";
+import { api } from "../../lib/api.js";
+import { timeSince } from "../../lib/relativeTime.js";
+import ToggleSwitch from "./ToggleSwitch.jsx";
+
+// Bloque 245 (pedido explícito): cada proveedor de IA puede tener uno o varios
+// modelos activos, con respaldo entre ellos. Este panel va dentro de la tarjeta
+// de cada proveedor en Admin → Integraciones. La política de qué pasa cuando un
+// modelo falla (aviso, reparación automática) vive en el backend
+// (lib/aiModelRepair.js); acá solo se muestra el estado y se administra la lista.
+
+const MODEL_NOTE_BY_PROVIDER = { nvidia: "Si falla, revisa build.nvidia.com: el Free Endpoint puede cambiar de nombre sin aviso." };
+
+const BTN_ICON =
+  "flex h-11 w-11 items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container disabled:opacity-40 md:h-9 md:w-9 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent";
+
+// Estado de salud de un modelo en una línea. El texto verde usa un tono más
+// oscuro que el del interruptor para llegar a contraste AA sobre fondo claro.
+function ModelHealth({ model }) {
+  const h = model.health;
+  if (!model.isActive) return <span className="text-[12px] text-outline">Apagado</span>;
+  if (!h) return <span className="text-[12px] text-outline">Sin medir todavía</span>;
+  if (h.status === "healthy") {
+    return (
+      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[#087A38]">
+        <span className="h-2 w-2 rounded-full bg-[#0CAE53]" aria-hidden="true" />
+        Responde bien{h.lastLatencyMs ? ` (${(h.lastLatencyMs / 1000).toFixed(1)} s)` : ""}
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-start gap-1.5 text-[12px] font-semibold text-error" title={h.lastError ?? undefined}>
+      <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-error" aria-hidden="true" />
+      <span>Caído {timeSince(h.downSince ?? h.lastCheckedAt)}. Se avisó por correo.</span>
+    </span>
+  );
+}
+
+function SourceBadge({ source }) {
+  if (source === "AUTO") {
+    return <span className="rounded-full bg-tertiary-accent/10 px-2 py-0.5 text-[10.5px] font-bold text-tertiary-accent">Automático</span>;
+  }
+  if (source === "DEFAULT") {
+    return <span className="rounded-full bg-surface-container px-2 py-0.5 text-[10.5px] font-bold text-on-surface-variant">Por defecto</span>;
+  }
+  return null;
+}
+
+export default function AiModelsPanel({ provider, integration, data, onTest, testingModel }) {
+  const queryClient = useQueryClient();
+  const [pick, setPick] = useState("");
+  const [typed, setTyped] = useState("");
+
+  const models = data?.models ?? [];
+  const configured = new Set(models.map((m) => m.model));
+  const activeCount = models.filter((m) => m.isActive).length;
+
+  // Lista REAL de modelos que esa clave puede usar (consultada en vivo a la
+  // API del proveedor): se elige de acá en vez de tipear a mano, porque un
+  // nombre mal escrito ya tumbó a Groq con un 404 una vez.
+  const listQuery = useQuery({
+    queryKey: ["provider-models", provider],
+    queryFn: async () => (await api.get(`/admin/integrations/${provider}/models`)).data.models,
+    enabled: !!integration,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const options = (listQuery.data ?? []).filter((m) => !configured.has(m));
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
+  const onError = (fallback) => (err) => toast.error(err.response?.data?.error ?? fallback, { duration: 8000 });
+
+  const add = useMutation({
+    mutationFn: async (model) => (await api.post("/admin/ai-models", { provider, model })).data,
+    onSuccess: (result) => {
+      refresh();
+      setPick("");
+      setTyped("");
+      toast.success(`Modelo agregado y verificado (respondió en ${result.ms} ms).`);
+    },
+    onError: onError("No se pudo agregar el modelo."),
+  });
+  const toggle = useMutation({
+    mutationFn: async ({ id, isActive }) => (await api.patch(`/admin/ai-models/${id}`, { isActive })).data,
+    onSuccess: refresh,
+    onError: onError("No se pudo cambiar el modelo."),
+  });
+  const move = useMutation({
+    mutationFn: async ({ id, direction }) => (await api.post(`/admin/ai-models/${id}/move`, { direction })).data,
+    onSuccess: refresh,
+    onError: onError("No se pudo cambiar el orden."),
+  });
+  const remove = useMutation({
+    mutationFn: async (id) => (await api.delete(`/admin/ai-models/${id}`)).data,
+    onSuccess: () => {
+      refresh();
+      toast.success("Modelo quitado.");
+    },
+    onError: onError("No se pudo quitar el modelo."),
+  });
+
+  const busy = add.isPending || toggle.isPending || move.isPending || remove.isPending;
+  const candidate = (options.length > 0 || listQuery.isSuccess ? pick : typed).trim();
+
+  return (
+    <div className="mt-4">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h3 className="text-[12.5px] font-bold text-on-surface">Modelos de este proveedor</h3>
+        {!!integration && (
+          <button
+            type="button"
+            onClick={() => listQuery.refetch()}
+            disabled={listQuery.isFetching}
+            title="Actualizar la lista de modelos disponibles"
+            className="flex min-h-11 items-center gap-1 px-1 text-[11.5px] font-semibold text-tertiary-accent disabled:opacity-50 md:min-h-0"
+          >
+            <RefreshCw className={`h-3 w-3 ${listQuery.isFetching ? "animate-spin" : ""}`} aria-hidden="true" /> Actualizar lista
+          </button>
+        )}
+      </div>
+      <p className="mb-2.5 text-[11.5px] text-outline">
+        Se prueban en este orden. Si un modelo falla, la consulta sigue con el siguiente. Si un modelo se cae, el sistema busca uno nuevo, lo verifica y te avisa por correo.
+      </p>
+
+      <ul className="flex flex-col gap-2">
+        {models.map((m, index) => {
+          const virtual = m.id === null;
+          const isTesting = testingModel === m.model;
+          return (
+            <li key={m.model} className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-3">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="break-all font-mono text-[12.5px] font-semibold text-on-surface">{m.model}</span>
+                    <SourceBadge source={m.source} />
+                  </div>
+                  <div className="mt-1">
+                    <ModelHealth model={m} />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {!virtual && (
+                    <>
+                      <button
+                        type="button"
+                        className={BTN_ICON}
+                        aria-label={`Subir ${m.model} en el orden de prueba`}
+                        disabled={busy || index === 0}
+                        onClick={() => move.mutate({ id: m.id, direction: "up" })}
+                      >
+                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className={BTN_ICON}
+                        aria-label={`Bajar ${m.model} en el orden de prueba`}
+                        disabled={busy || index === models.length - 1}
+                        onClick={() => move.mutate({ id: m.id, direction: "down" })}
+                      >
+                        <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onTest(provider, m.model)}
+                    disabled={!integration || isTesting}
+                    className="flex h-11 items-center gap-1.5 rounded-lg border border-outline-variant px-3 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50 md:h-9 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isTesting ? "animate-spin" : ""}`} aria-hidden="true" />
+                    {isTesting ? "Probando..." : "Probar"}
+                  </button>
+                  {!virtual && (
+                    <>
+                      <ToggleSwitch
+                        isActive={m.isActive}
+                        disabled={busy || (m.isActive && activeCount <= 1)}
+                        label={`${m.isActive ? "Apagar" : "Activar"} ${m.model}`}
+                        onToggle={() => toggle.mutate({ id: m.id, isActive: !m.isActive })}
+                      />
+                      <button
+                        type="button"
+                        className={`${BTN_ICON} hover:text-error`}
+                        aria-label={`Quitar ${m.model}`}
+                        disabled={busy || (m.isActive && activeCount <= 1 && models.length > 1)}
+                        onClick={() => remove.mutate(m.id)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {models.length === 1 && models[0].id === null && (
+        <p className="mt-2 text-[11.5px] text-outline">
+          Este proveedor usa su modelo por defecto. Agrega otro para tener respaldo si este falla.
+        </p>
+      )}
+
+      <div className="mt-3">
+        <label htmlFor={`add-model-${provider}`} className="mb-1 block text-[11.5px] font-semibold text-on-surface-variant">
+          Agregar un modelo
+        </label>
+        <div className="flex gap-2.5">
+          {listQuery.isSuccess ? (
+            <select
+              id={`add-model-${provider}`}
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+              className="h-11 min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 font-mono text-[12.5px] outline-none md:h-[38px]"
+            >
+              <option value="">Elige un modelo de la lista real</option>
+              {options.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id={`add-model-${provider}`}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              type="text"
+              disabled={!integration}
+              placeholder={integration ? "Escribe el nombre exacto del modelo" : "Guarda la clave primero"}
+              className="h-11 min-w-0 flex-1 rounded-lg border border-outline-variant px-3 font-mono text-[12.5px] outline-none disabled:opacity-60 md:h-[38px]"
+            />
+          )}
+          <button
+            type="button"
+            disabled={!integration || !candidate || busy}
+            onClick={() => add.mutate(candidate)}
+            className="flex h-11 flex-shrink-0 items-center gap-1.5 rounded-lg bg-surface-container px-4 text-[13px] font-semibold text-on-surface-variant disabled:opacity-50 md:h-[38px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {add.isPending ? "Verificando..." : "Agregar"}
+          </button>
+        </div>
+        {!integration && <p className="mt-1 text-[11.5px] text-outline">Guarda la clave primero para elegir de la lista real de modelos.</p>}
+        {integration && listQuery.isError && <p className="mt-1 text-[11.5px] text-error">No se pudo consultar la lista de modelos. Escribe el nombre a mano.</p>}
+        <p className="mt-1 text-[11.5px] text-outline">Antes de guardarlo se le hace una consulta real: si no responde, no se agrega.</p>
+        {MODEL_NOTE_BY_PROVIDER[provider] && <p className="mt-1 text-[11.5px] text-outline">{MODEL_NOTE_BY_PROVIDER[provider]}</p>}
+      </div>
+    </div>
+  );
+}

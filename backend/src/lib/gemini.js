@@ -7,7 +7,7 @@ import { AppError } from "../utils/AppError.js";
 // Alias mantenido por Google que siempre apunta al modelo flash recomendado
 // del momento — evita tener que actualizar el nombre a mano cuando retiran
 // una versión puntual (como pasó con gemini-2.0-flash).
-// Bloque 43: ya no es fijo — ai.js lo resuelve desde SiteSettings.aiModelGemini
+// Bloque 43: ya no es fijo — ai.js lo resuelve desde AiModelConfig
 // (editable en AdminIntegrations.jsx) y lo pasa como parámetro; DEFAULT_MODEL
 // es el fallback si ese setting está vacío/no configurado todavía.
 export const DEFAULT_MODEL = "gemini-flash-latest";
@@ -57,7 +57,7 @@ function describeFetchFailure(err) {
 // grande (200) para minimizar cuántas vueltas hacen falta en la práctica.
 const MODELS_PAGE_SIZE = 200;
 
-export async function listGeminiModels({ apiKey }) {
+export async function listGeminiModelsDetailed({ apiKey }) {
   const allModels = [];
   let pageToken = "";
   do {
@@ -77,10 +77,16 @@ export async function listGeminiModels({ apiKey }) {
     pageToken = data?.nextPageToken ?? "";
   } while (pageToken);
 
+  // Bloque 245: Gemini no publica fecha de creación (solo un campo `version`
+  // sin formato fijo), así que no se devuelve `created`: el orden de "más
+  // reciente" sale del número de versión del nombre (ver aiModelRanking.js).
   return allModels
     .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
-    .map((m) => m.name.replace(/^models\//, ""))
-    .sort();
+    .map((m) => ({ id: m.name.replace(/^models\//, ""), created: null }));
+}
+
+export async function listGeminiModels({ apiKey }) {
+  return (await listGeminiModelsDetailed({ apiKey })).map((m) => m.id).sort();
 }
 
 export async function generateWithGemini({ apiKey, prompt, model }) {

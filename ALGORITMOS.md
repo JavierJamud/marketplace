@@ -151,25 +151,43 @@ se cumpla de verdad y no se demore hasta 48h.
 
 Corre a las **9:00am**.
 
-### B6. Salud y auto-reparación de proveedores de IA — `jobs/aiHealthCheck.job.js`
+### B6. Salud y auto-reparación de modelos de IA — `lib/aiModelRepair.js`
 
-`runAiHealthCheckJob()` (línea 96): por cada proveedor de IA activo
-(Gemini/Groq/NVIDIA NIM), prueba el modelo configurado con un prompt trivial.
-Si falla, busca en paralelo (hasta 10 candidatos) un modelo que sí funcione y,
-si encuentra uno, **cambia sola** la configuración
-(`SiteSettings.aiModel<Proveedor>`) y avisa al admin por correo; si no
-encuentra ninguno, avisa que el proveedor está caído. El cron corre cada hora
-pero se auto-limita a ejecutar de verdad una sola vez al día, a las 3am **en
-el huso horario que el admin tenga configurado en ese momento** (se relee en
-cada tick, porque `node-cron` fija su propio timezone al arrancar el proceso
-y no seguiría un cambio posterior).
+Cada proveedor de IA (Gemini/Groq/NVIDIA NIM) puede tener **varios modelos
+activos** (`AiModelConfig`, con prioridad y origen `MANUAL`/`AUTO`); sin filas
+usa su modelo por defecto. La cadena de respaldo de `lib/ai.js` recorre pares
+proveedor+modelo: proveedores por velocidad medida, y dentro de cada uno por la
+prioridad que fijó el admin; los modelos marcados caídos van al final.
 
-Aparte del cron, hay un camino de reparación **reactivo** (no programado):
-`lib/aiModelRepair.js` → `repairProviderModel()`, que se dispara solo cuando
-un pedido real de un usuario falla contra la IA en producción — vuelve a
-probar el modelo roto y, si sigue mal, busca un reemplazo en caliente, con un
-enfriamiento de 5 minutos por proveedor para que una ráfaga de fallos
-simultáneos no dispare varias búsquedas de reemplazo a la vez.
+`checkModel()` es el **único punto** que decide qué hacer cuando un modelo
+falla, con la misma política desde tres disparadores: un pedido real que falla
+(`live`, con enfriamiento de 1 minuto por modelo), el chequeo de fondo cada 2
+minutos (`jobs/aiChatbotAvailability.job.js`) y el chequeo diario de las 3am
+(`jobs/aiHealthCheck.job.js`, que ya no tiene lógica propia). Política:
+
+1. Se confirma con una prueba propia (un timeout suelto no cambia nada).
+2. Se marca caído en `AiModelHealth` y se avisa **una sola vez** por caída
+   (causa probable y qué hacer; el estado del aviso se guarda en la base).
+3. El chat sigue con los otros modelos activos.
+4. Autorreparación, solo si corresponde: si el modelo fue dado de baja (404/410)
+   siempre; si fue un fallo pasajero (cuota, red) solo cuando no queda otro
+   modelo sano del mismo proveedor; nunca si el problema es la clave (401/403).
+5. Se pide a la API la lista real de modelos, se descartan los que no sirven
+   para chat y se ordenan del más nuevo al más viejo (`lib/aiModelRanking.js`:
+   fecha `created` donde es real, que es solo Groq; número de versión del
+   nombre en Gemini y NVIDIA, cuyas fechas no existen o son falsas).
+6. **Otra IA del sistema** (distinta del modelo roto) elige el mejor entre los
+   12 más nuevos; la respuesta se valida contra la lista real y, si inventa un
+   nombre, se ignora.
+7. Se prueba de verdad (máximo 3 candidatos) y recién entonces se carga como
+   modelo `AUTO` activo; el modelo dado de baja se desactiva. Aviso de
+   "problema resuelto".
+8. Si ningún candidato responde: aviso de "no se pudo reparar", reintento cada
+   2 horas (el chequeo diario reintenta sin esperar), y solo se escribe por
+   correo en los 3 primeros intentos.
+
+Un modelo que vuelve solo manda un aviso de "vuelve a responder". Solo se
+vigilan modelos activos.
 
 ### B7. Recordatorio de cierre de caja — `jobs/cashCloseReminder.job.js`
 
@@ -211,7 +229,6 @@ cumplió esos 30 días sin arrepentirse. Corre a las **9:30am**.
 | `fraudReportEvidenceDeadlineDays` (default 5) | `controllers/adminReports.controller.js`, `jobs/fraudReports.job.js` | B5 |
 | `newBadgeDurationDays` (default 14) | `controllers/products.controller.js` | Badge "Nuevo" |
 | `timezone` | `controllers/settings.controller.js` (`getSiteTimezone`) | B6 (hora del chequeo diario) |
-| `aiModelGemini` / `aiModelGroq` / `aiModelNvidia` | `lib/ai.js`, `lib/aiModelRepair.js` | B6 y la reparación reactiva escriben acá solos; el admin también puede tocarlo a mano |
 
 ### Fijos en el código (no editables desde el panel)
 
@@ -224,8 +241,9 @@ cumplió esos 30 días sin arrepentirse. Corre a las **9:30am**.
 | Umbral de similitud difusa (trigramas) | 0.15 | `controllers/search.controller.js` |
 | Ventana de "Más vendido" | 30 días | `controllers/products.controller.js` |
 | Umbral de stock bajo (`LOW_STOCK_THRESHOLD`) | 3 unidades — **duplicado en 3 archivos**, ver nota abajo | `jobs/lowStock.job.js`, `controllers/vendors.controller.js`, `services/vendorDailyTips.service.js` |
-| Enfriamiento de reparación de IA | 5 minutos por proveedor | `lib/aiModelRepair.js` |
-| Candidatos de modelo a probar | hasta 10, en paralelo | `lib/aiModelRepair.js` |
+| Reintento de reparación de IA | cada 2 horas por modelo (el chequeo diario lo salta) | `lib/aiModelRepair.js` |
+| Candidatos de reemplazo | los 12 más nuevos a la IA consejera, hasta 3 probados | `lib/aiModelRepair.js` |
+| Avisos de "no se pudo reparar" | máximo 3 por caída | `lib/aiModelRepair.js` |
 | Plazo de aprobación-pago pendiente | 24 horas | `jobs/verificationPayment.job.js` |
 | Días de inactividad para recordatorio / suspensión | 7 / 90 | `jobs/vendorLifecycle.job.js` |
 | Antigüedad mínima de pedido + ventana de oferta para "winback" | 30 días / 24 horas | `jobs/vendorLifecycle.job.js` |
