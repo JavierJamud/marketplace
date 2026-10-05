@@ -120,7 +120,7 @@ export function SearchBar() {
           aria-label="Buscar productos y tiendas"
           className="h-full w-full min-w-0 border-none bg-transparent text-[13px] text-white outline-none placeholder:text-white/85"
         />
-        <button type="submit" aria-label="Buscar" className="flex h-11 w-10 flex-shrink-0 items-center justify-center text-white/70 hover:text-white">
+        <button type="submit" aria-label="Buscar" className="flex h-11 w-11 flex-shrink-0 items-center justify-center text-white/70 hover:text-white">
           <Search className="h-4 w-4" />
         </button>
       </form>

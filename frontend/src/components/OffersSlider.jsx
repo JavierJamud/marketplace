@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";
+import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
+import { PauseToggle } from "./ui/PauseToggle.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -86,25 +88,32 @@ function OfferCard({ offer }) {
           {offer.discountLabel}
         </span>
       )}
-      {countdown && (
-        <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[10.5px] font-bold text-white backdrop-blur-sm">
-          <Clock className="h-3 w-3" /> {countdown}
-        </span>
-      )}
-      <div className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
-        <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-white/80">
-          {offer.createdByAdmin ? "Oferta oficial" : offer.vendor?.companyName}
-          {offer.vendor?.isVerified && <VerifiedBadge size="sm" />}
+      {/* Bloque 248 (auditoría 004, hallazgo 3): el contador vivía fijo arriba a
+          la izquierda y el bloque de texto crecía desde abajo; con un título de
+          2 líneas el nombre de la tienda subía hasta chocar con él. Ahora el
+          contador va en la misma fila que el nombre de la tienda, y el texto
+          nunca puede subir por encima de la franja del descuento (max-h). */}
+      <div className="absolute inset-x-0 bottom-0 flex max-h-[calc(100%-2.75rem)] flex-col justify-end overflow-hidden p-3.5 sm:p-4">
+        <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold uppercase tracking-wide text-white/80">
+          <span className="flex items-center gap-1.5">
+            {offer.createdByAdmin ? "Oferta oficial" : offer.vendor?.companyName}
+            {offer.vendor?.isVerified && <VerifiedBadge size="sm" />}
+          </span>
+          {countdown && (
+            <span className="flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10.5px] normal-case tracking-normal text-white">
+              <Clock className="h-3 w-3" aria-hidden="true" /> {countdown}
+            </span>
+          )}
         </div>
         <div className="font-display text-lg font-extrabold leading-tight text-white sm:text-xl">{offer.title}</div>
-        {offer.tagline && <p className="line-clamp-1 text-[12px] text-white/85">{offer.tagline}</p>}
+        {offer.tagline && <p className="hidden line-clamp-1 text-[12px] text-white/85 sm:block">{offer.tagline}</p>}
         {/* Bloque 192 (bug real reportado en vivo — "la descripción de las
             ofertas que se crean en el panel de admin no se muestran en las
             ofertas ya publicadas"): antes NUNCA se renderizaba en ningún
             lado, ni para ofertas de admin ni de vendedor — la tarjeta solo
             mostraba tagline. line-clamp-2 porque la tarjeta es chica (12:5),
             un texto largo la desbordaría. */}
-        {offer.description && <p className="mt-0.5 line-clamp-2 text-[11.5px] text-white/75">{offer.description}</p>}
+        {offer.description && <p className="mt-0.5 hidden line-clamp-2 text-[11.5px] text-white/75 sm:block">{offer.description}</p>}
         {offer.buttonLabel && offer.buttonUrl && (
           <span className="mt-2 inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11.5px] font-bold text-on-surface shadow">
             {offer.buttonLabel}
@@ -154,15 +163,15 @@ const RAIL_COPIES = 4;
 // a la posición equivalente de la copia anterior/siguiente SIN transición —
 // como el contenido en esa posición es idéntico (es la misma lista
 // repetida), el salto es invisible y el loop se siente infinito de verdad.
-function useRailIndex(length, reverse, intervalMs) {
+function useRailIndex(length, reverse, intervalMs, hold) {
   const [index, setIndex] = useState(() => (reverse ? length : 0));
   const [smooth, setSmooth] = useState(true);
 
   useEffect(() => {
-    if (length <= 1) return undefined;
+    if (length <= 1 || hold) return undefined;
     const id = setInterval(() => setIndex((i) => (reverse ? i - 1 : i + 1)), intervalMs);
     return () => clearInterval(id);
-  }, [length, reverse, intervalMs]);
+  }, [length, reverse, intervalMs, hold]);
 
   useEffect(() => {
     if (smooth) return undefined;
@@ -196,9 +205,30 @@ export function OffersSlider({ offers, reverse = false }) {
   const base = useMemo(() => (reverse ? [...offers].reverse() : offers), [offers, reverse]);
   const rail = useMemo(() => Array.from({ length: RAIL_COPIES }, () => base).flat(), [base]);
   const intervalMs = reverse ? AUTOPLAY_MS_REVERSE : AUTOPLAY_MS;
-  const { index, smooth, handleTransitionEnd } = useRailIndex(length, reverse, intervalMs);
+  // Bloque 248 (auditoría 004, hallazgo 9): el autoplay se pausa con un botón
+  // real (en celular no existe el hover), al pasar el mouse o con el foco
+  // dentro, y se apaga del todo si el sistema pide reducir el movimiento: ahí
+  // las ofertas son una fila que se desliza con el dedo.
+  const reducedMotion = usePrefersReducedMotion();
+  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const { index, smooth, handleTransitionEnd } = useRailIndex(length, reverse, intervalMs, paused || hovered || reducedMotion);
 
   if (!length) return null;
+
+  if (reducedMotion && length > 1) {
+    return (
+      <div className="-mx-1.5 flex snap-x snap-mandatory overflow-x-auto pb-2 [scrollbar-width:thin]">
+        {base.map((o) => (
+          <div key={o.id} className="w-[88%] flex-none snap-start px-1.5 sm:w-1/2 sm:px-2 lg:w-1/3">
+            <div className="aspect-[12/5]">
+              <OfferCard offer={o} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (length === 1) {
     return (
@@ -209,6 +239,7 @@ export function OffersSlider({ offers, reverse = false }) {
   }
 
   return (
+    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}>
     <div className="overflow-hidden [--slide-step:100%] sm:[--slide-step:50%] lg:[--slide-step:33.3333%]">
       <div
         className="flex"
@@ -226,6 +257,10 @@ export function OffersSlider({ offers, reverse = false }) {
           </div>
         ))}
       </div>
+    </div>
+    <div className="flex justify-end">
+      <PauseToggle paused={paused} onToggle={() => setPaused((p) => !p)} label="ofertas" />
+    </div>
     </div>
   );
 }

@@ -56,7 +56,9 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
   const hasSizes = product.sizes?.length > 0;
   const activeSize = hasSizes ? selectedSize : null;
   const existing = items.find((i) => i.productId === product.id && i.size === activeSize);
-  const dim = size === "sm" ? "h-[34px] w-[34px]" : "h-9 w-9";
+  // Bloque 248 (auditoría 004, hallazgo 2): el botón principal de la tarjeta mide
+  // 44px en celular (antes 36px); desde md vuelve al tamaño compacto.
+  const dim = size === "sm" ? "h-[34px] w-[34px]" : "h-11 w-11 md:h-9 md:w-9";
   // Bloque 116 (bug real reportado en vivo, con captura — "-512+" apretado
   // y roto): el stepper (-/cantidad/+) reusaba `dim`, que fija un ANCHO
   // cuadrado pensado para el botón de un solo ícono de arriba — con una
@@ -66,8 +68,8 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
   // queda libre (min-width razonable para 1-2 dígitos, crece solo con el
   // contenido) y los botones +/- pasan a un ancho fijo en vez de 1/3 del
   // cuadrado, para que sea SIEMPRE el número el que se estira, nunca ellos.
-  const stepperHeight = size === "sm" ? "h-[34px]" : "h-9";
-  const stepperBtnWidth = size === "sm" ? "w-7" : "w-8";
+  const stepperHeight = size === "sm" ? "h-[34px]" : "h-11 md:h-9";
+  const stepperBtnWidth = size === "sm" ? "w-7" : "w-9 md:w-8";
   const iconDim = size === "sm" ? "h-[15px] w-[15px]" : "h-4 w-4";
   const shape = variant === "circle" ? "rounded-full" : "rounded";
 

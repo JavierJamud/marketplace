@@ -500,7 +500,7 @@ export function MarketplaceChatWidget() {
         <div className="fixed bottom-[84px] right-5 z-[60] flex max-w-[260px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:bottom-[100px] sm:right-6">
           <PlatformAvatar className="h-8 w-8 text-[13px]" />
           <p className="flex-1 text-[12.5px] leading-[17px] text-on-surface-variant">
-            ¡Hola! Soy el asistente de compras de <span className="font-bold text-on-surface">{siteName}</span> — cuéntame qué buscas, por texto o por audio.
+            ¡Hola! Soy el asistente de compras de <span className="font-bold text-on-surface">{siteName}</span>. Cuéntame qué buscas, por texto o por audio.
           </p>
           <button onClick={() => setShowBubble(false)} aria-label="Cerrar aviso" className="flex-shrink-0 text-outline hover:text-on-surface-variant">
             <X className="h-3.5 w-3.5" />

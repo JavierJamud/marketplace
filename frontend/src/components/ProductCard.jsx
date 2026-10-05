@@ -148,7 +148,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
               </>
             )}
             {product.category?.name && (
-              <span className="ml-auto flex-shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[10px] font-semibold text-on-surface-variant">
+              <span className="ml-auto hidden flex-shrink-0 rounded-full bg-surface-container px-2 py-0.5 text-[10px] font-semibold text-on-surface-variant sm:inline">
                 {product.category.name}
               </span>
             )}
@@ -169,13 +169,13 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
             {v.locations[0].municipality?.name ?? v.locations[0].province?.name}
           </div>
         )}
+        {/* Bloque 248 (auditoría 004, hallazgos 6 y 16): en celular (2 columnas) la
+            descripción y el chip de rubro no caben sin hacer la tarjeta de ~330px,
+            así que solo se muestran desde sm. Se quitó el "...leer más": la
+            tarjeta entera ya es un enlace, no era una acción aparte. El gris pasa
+            a on-surface-variant (el anterior daba 4,48:1). */}
         {product.description && (
-          <div className="mb-1">
-            <p className="line-clamp-2 text-[11.5px] leading-4 text-outline">{product.description}</p>
-            {product.description.length > 45 && (
-              <span className="text-[11px] font-bold text-tertiary-accent">...leer más</span>
-            )}
-          </div>
+          <p className="mb-1 hidden line-clamp-2 text-[11.5px] leading-4 text-on-surface-variant sm:block">{product.description}</p>
         )}
         {isLowStock && (
           <span className="mb-1.5 w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">

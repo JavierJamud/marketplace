@@ -1,6 +1,9 @@
+import { useMemo, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import Autoplay from "embla-carousel-autoplay";
 import { CompactStoreCard } from "./CompactStoreCard.jsx";
+import { PauseToggle } from "./ui/PauseToggle.jsx";
+import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 
 const AUTOPLAY_DELAY_MS = 3200;
 
@@ -16,13 +19,21 @@ const AUTOPLAY_DELAY_MS = 3200;
 // sin recorte — una sola implementación cubre los dos casos del bloque,
 // sin dimming/escala entre tarjetas (todas se ven igual de nítidas).
 export function VerifiedStoresSlider({ stores }) {
-  const [emblaRef] = useEmblaCarousel({ loop: true, align: "center", duration: 35 }, [
-    Autoplay({ delay: AUTOPLAY_DELAY_MS, stopOnMouseEnter: true, stopOnInteraction: false }),
-  ]);
+  // Bloque 248 (auditoría 004, hallazgo 9): el autoplay se apaga si el sistema
+  // pide reducir el movimiento, se detiene cuando la persona toca o desliza
+  // (ya tomó el control) y tiene un botón real de pausa.
+  const reducedMotion = usePrefersReducedMotion();
+  const [paused, setPaused] = useState(false);
+  const plugins = useMemo(
+    () => (reducedMotion || paused ? [] : [Autoplay({ delay: AUTOPLAY_DELAY_MS, stopOnMouseEnter: true, stopOnInteraction: true })]),
+    [reducedMotion, paused]
+  );
+  const [emblaRef] = useEmblaCarousel({ loop: true, align: "center", duration: 35 }, plugins);
 
   if (!stores.length) return null;
 
   return (
+    <>
     <div className="overflow-hidden" ref={emblaRef}>
       <div className="flex touch-pan-y">
         {stores.map((v) => (
@@ -32,5 +43,11 @@ export function VerifiedStoresSlider({ stores }) {
         ))}
       </div>
     </div>
+    {!reducedMotion && stores.length > 1 && (
+      <div className="flex justify-end">
+        <PauseToggle paused={paused} onToggle={() => setPaused((p) => !p)} label="tiendas" />
+      </div>
+    )}
+    </>
   );
 }

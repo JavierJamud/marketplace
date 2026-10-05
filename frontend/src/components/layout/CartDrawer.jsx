@@ -103,7 +103,7 @@ export function CartDrawer() {
             <button
               onClick={closeCart}
               aria-label="Cerrar carrito"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-outline transition-colors hover:bg-surface-container-high hover:text-on-surface"
             >
               <X className="h-5 w-5" />
             </button>
@@ -118,7 +118,7 @@ export function CartDrawer() {
             <RouterLink
               to="/catalogo"
               onClick={closeCart}
-              className="mt-2 rounded-xl bg-secondary-container px-5 py-2.5 text-label-md font-bold text-on-secondary-container transition-transform hover:scale-[1.02] hover:brightness-95"
+              className="mt-2 flex min-h-11 items-center rounded-xl bg-secondary-container px-5 py-2.5 text-label-md font-bold text-on-secondary-container transition-transform hover:scale-[1.02] hover:brightness-95"
             >
               Ir al catálogo
             </RouterLink>

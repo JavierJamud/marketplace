@@ -59,23 +59,23 @@ export function Footer() {
         <div className="grid grid-cols-2 gap-6 md:contents">
           <div>
             <div className="mb-4 text-label-md font-bold text-white">Comprar</div>
-            <div className="flex flex-col gap-2.5 text-[13.5px] text-white/55">
-              <Link to="/catalogo" className="hover:text-white">Catálogo</Link>
-              <Link to="/tiendas" className="hover:text-white">Tiendas</Link>
-              <Link to="/tiendas?isRestaurant=true" className="hover:text-white">Menú QR restaurantes</Link>
+            <div className="flex flex-col gap-0 text-[13.5px] text-white/55 md:gap-2.5">
+              <Link to="/catalogo" className="flex min-h-11 items-center hover:text-white md:min-h-0">Catálogo</Link>
+              <Link to="/tiendas" className="flex min-h-11 items-center hover:text-white md:min-h-0">Tiendas</Link>
+              <Link to="/tiendas?isRestaurant=true" className="flex min-h-11 items-center hover:text-white md:min-h-0">Menú QR restaurantes</Link>
               {/* Bloque 236 (pedido explícito — "debería existir un link
                   para ventas rápidas"): bug real encontrado en la
                   conversación anterior — la página /ventas-rapidas
                   funcionaba perfecto pero no había NINGÚN link hacia ella
                   en todo el sitio (ni Header, ni Home, ni este footer). */}
-              <Link to="/ventas-rapidas" className="hover:text-white">Ventas rápidas</Link>
+              <Link to="/ventas-rapidas" className="flex min-h-11 items-center hover:text-white md:min-h-0">Ventas rápidas</Link>
             </div>
           </div>
           <div>
             <div className="mb-4 text-label-md font-bold text-white">Vender</div>
-            <div className="flex flex-col gap-2.5 text-[13.5px] text-white/55">
-              <Link to="/vendedor/ingresar?tab=registro" className="hover:text-white">Registrarse gratis</Link>
-              <Link to="/vendedor/ingresar?tab=registro" className="hover:text-white">Planes y verificación</Link>
+            <div className="flex flex-col gap-0 text-[13.5px] text-white/55 md:gap-2.5">
+              <Link to="/vendedor/ingresar?tab=registro" className="flex min-h-11 items-center hover:text-white md:min-h-0">Registrarse gratis</Link>
+              <Link to="/vendedor/ingresar?tab=registro" className="flex min-h-11 items-center hover:text-white md:min-h-0">Planes y verificación</Link>
             </div>
           </div>
         </div>
@@ -92,12 +92,12 @@ export function Footer() {
             ya angosta de por sí al ser 1 de 4 columnas. */}
         <div>
           <div className="mb-4 text-label-md font-bold text-white">Ayuda y legal</div>
-          <div className="grid grid-flow-col grid-rows-3 gap-x-6 gap-y-2.5 text-[13.5px] text-white/55 md:flex md:flex-col md:gap-2.5">
-            <Link to="/faq" className="hover:text-white">Preguntas frecuentes</Link>
-            <Link to="/ayuda" className="hover:text-white">Centro de ayuda</Link>
-            <Link to="/contacto" className="hover:text-white">Contacto</Link>
-            <Link to="/terminos" className="hover:text-white">Términos y condiciones</Link>
-            <Link to="/privacidad" className="hover:text-white">Política de privacidad</Link>
+          <div className="grid grid-flow-col grid-rows-3 gap-x-6 gap-y-0 text-[13.5px] text-white/55 md:flex md:flex-col md:gap-2.5">
+            <Link to="/faq" className="flex min-h-11 items-center hover:text-white md:min-h-0">Preguntas frecuentes</Link>
+            <Link to="/ayuda" className="flex min-h-11 items-center hover:text-white md:min-h-0">Centro de ayuda</Link>
+            <Link to="/contacto" className="flex min-h-11 items-center hover:text-white md:min-h-0">Contacto</Link>
+            <Link to="/terminos" className="flex min-h-11 items-center hover:text-white md:min-h-0">Términos y condiciones</Link>
+            <Link to="/privacidad" className="flex min-h-11 items-center hover:text-white md:min-h-0">Política de privacidad</Link>
           </div>
         </div>
       </div>
@@ -118,7 +118,7 @@ export function Footer() {
       </div>
 
       <div className="border-t border-white/10">
-        <div className="container-app py-5 text-[12.5px] text-white/40">
+        <div className="container-app pb-24 pt-5 text-[12.5px] text-white/60 md:py-5">
           © {new Date().getFullYear()} {siteName}. Marketplace multivendedor · Cuba.
         </div>
       </div>

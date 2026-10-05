@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowRight, Percent, Store, ShieldCheck, Rocket } from "lucide-react";
+import { ShieldCheck, Store } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
@@ -11,25 +11,31 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
+import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
-import vendorMockupImageMobile from "../../assets/images/hero-mobile-apps.webp";
 
-// Bloque 48 (reemplaza el Embla-con-flechas del Bloque 47 — pedido
-// explícito del dueño del negocio: puramente decorativo, sin ningún
-// control manual): marquee continuo de una sola dirección. La lista se
-// duplica una vez — con la animación en loop yendo de 0% a -50% del ancho
-// del track duplicado, el frame final es visualmente idéntico al inicial,
-// así que el reinicio del keyframe nunca se nota (nunca "vuelve atrás").
-// El fade en los bordes es un mask-image — no hay utilidad de Tailwind
-// para esto, así que va como estilo inline en vez de forzarlo a una clase.
-const EDGE_FADE_MASK =
-  "linear-gradient(to right, transparent 0, black 40px, black calc(100% - 40px), transparent 100%)";
+// Bloque 248 (auditoría 004 de la página principal, pedido explícito del
+// dueño: "revisa cada punto visual de estructura y posición; se usará más en
+// celular"). Orden pensado para los dos públicos de la página, de lo que más
+// busca el visitante a lo que más necesita el negocio:
+//   1. Hero compacto (en celular sin el slider de imágenes y con un solo botón).
+//   2. Categorías: fila que se desliza con el dedo, ya visible en la primera pantalla.
+//   3. Tiendas verificadas: la prueba de que hay negocios reales (antes iba última).
+//   4. Ofertas de la semana, UNA sola vez (antes estaban repetidas).
+//   5. Destacados: 8 en celular y más en pantallas grandes, con botón al catálogo.
+//   6. Abre tu tienda: tarjeta compacta, con restaurantes y comercios.
+
+// Bloque 48: marquee continuo de una sola dirección para pantallas medianas y
+// grandes. La lista se duplica una vez: con la animación yendo de 0% a -50%
+// del track, el último frame es idéntico al primero y el reinicio nunca se
+// nota. El fade en los bordes es un mask-image (no hay utilidad de Tailwind).
+const EDGE_FADE_MASK = "linear-gradient(to right, transparent 0, black 40px, black calc(100% - 40px), transparent 100%)";
 
 function CategoryPill({ c }) {
   return (
     <Link
       to={`/tiendas?businessCategoryId=${c.id}`}
-      className="flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-3 py-1.5 hover:border-primary-container"
+      className="flex min-h-11 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-3.5 hover:border-primary-container focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
     >
       <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
         <CategoryIcon name={c.icon} className="h-3 w-3 text-tertiary-accent" />
@@ -39,72 +45,60 @@ function CategoryPill({ c }) {
   );
 }
 
-// Bloque 126 (pedido explícito — "si las categorías caben perfectamente en
-// el contenedor, no deben moverse; solo si no caben se desplazan en bucle
-// infinito como ya está"): antes el marquee corría siempre, sin importar
-// cuántas categorías hubiera — con solo 1-2 (como en modo de prueba), el
-// contenido ya cabía entero y el movimiento constante no tenía sentido.
-// Se mide el ancho NATURAL de la lista sin duplicar (vía una copia
-// invisible fuera de flujo, siempre en una sola línea) contra el ancho real
-// del contenedor, y solo se activa el modo marquee (duplicado + animación)
-// si de verdad desborda — si no, se muestra la lista tal cual, estática,
-// pudiendo envolver en varias líneas si hace falta.
+// Bloque 126: si las categorías caben en el contenedor no se mueven; solo si
+// desbordan se activa el marquee. Se mide el ancho NATURAL de la lista (copia
+// invisible en una sola línea) contra el del contenedor.
+// Bloque 248 (auditoría 004, hallazgo 9): en celular, o si el sistema pide
+// reducir el movimiento, NO hay animación: es una fila que se desliza con el
+// dedo (en celular no existe el "pausar al pasar el mouse" del marquee).
 function CategoryMarquee({ categories }) {
   const containerRef = useRef(null);
   const measureRef = useRef(null);
   const [overflowing, setOverflowing] = useState(false);
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const reducedMotion = usePrefersReducedMotion();
+  const swipeRow = !isDesktop || reducedMotion;
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     const measure = measureRef.current;
     if (!container || !measure) return;
-
     function check() {
-      // +1px de margen para no entrar en modo marquee por redondeos de
-      // sub-pixel cuando el contenido calza justo al límite.
+      // +1px de margen para no entrar en modo marquee por redondeos de sub-pixel.
       setOverflowing(measure.scrollWidth > container.clientWidth + 1);
     }
-
     check();
     const ro = new ResizeObserver(check);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [categories]);
+  }, [categories, swipeRow]);
+
+  if (swipeRow) {
+    return (
+      <div className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:-mx-gutter sm:px-gutter [&::-webkit-scrollbar]:hidden">
+        <div className="flex w-max snap-x gap-2.5">
+          {categories.map((c) => (
+            <CategoryPill key={c.id} c={c} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const track = overflowing ? [...categories, ...categories] : categories;
 
   return (
-    <div
-      ref={containerRef}
-      className="relative overflow-hidden"
-      style={overflowing ? { WebkitMaskImage: EDGE_FADE_MASK, maskImage: EDGE_FADE_MASK } : undefined}
-    >
-      {/* Copia invisible, fuera de flujo, SIEMPRE en una sola línea — solo
-          existe para medir el ancho real de las categorías sin duplicar;
-          la lista visible de abajo, en modo estático, puede envolver en
-          varias líneas, así que no serviría para medir si desborda.
-          `invisible` (visibility:hidden), no `opacity-0`: además de no
-          pintarse, saca sus <a> del orden de tabulación y de la lectura de
-          lectores de pantalla — con opacity-0 seguirían siendo enlaces
-          reales tocables por teclado, invisibles pero navegables, que es
-          peor que no tenerlos. */}
-      <div
-        ref={measureRef}
-        aria-hidden="true"
-        className="invisible pointer-events-none absolute left-0 top-0 flex w-max -translate-y-full gap-2.5"
-      >
+    <div ref={containerRef} className="relative overflow-hidden" style={overflowing ? { WebkitMaskImage: EDGE_FADE_MASK, maskImage: EDGE_FADE_MASK } : undefined}>
+      {/* Copia invisible, fuera de flujo, SIEMPRE en una sola línea: solo sirve
+          para medir. `invisible` (visibility:hidden) y no opacity-0, para que
+          sus enlaces no entren en el orden de tabulación ni en lectores de
+          pantalla. */}
+      <div ref={measureRef} aria-hidden="true" className="invisible pointer-events-none absolute left-0 top-0 flex w-max -translate-y-full gap-2.5">
         {categories.map((c) => (
           <CategoryPill key={c.id} c={c} />
         ))}
       </div>
-
-      <div
-        className={
-          overflowing
-            ? "category-marquee-track flex w-max animate-marquee gap-2.5"
-            : "flex flex-wrap justify-center gap-2.5"
-        }
-      >
+      <div className={overflowing ? "category-marquee-track flex w-max animate-marquee gap-2.5" : "flex flex-wrap justify-center gap-2.5"}>
         {track.map((c, i) => (
           <CategoryPill key={`${c.id}-${i}`} c={c} />
         ))}
@@ -113,20 +107,18 @@ function CategoryMarquee({ categories }) {
   );
 }
 
-// Bloque 16: la comparación de planes Regular/Business se sacó del Home —
-// ya no es un gancho de marketing en la home pública. Ahora vive solo dentro
-// del panel de vendedor (ver VendorVerification.jsx), como algo que el
-// vendedor explora si quiere, no como algo que ve un visitante anónimo.
-function SectionHead({ eyebrow, title, subtitle, to, cta = "Ver todo →" }) {
+// Bloque 248 (hallazgos 2, 11 y 17): título más chico en celular para que no
+// se parta en dos líneas, enlace con área táctil de 44px, y la flecha solo en
+// "Ver todo" (ir a otra página con sentido), no en cada botón.
+function SectionHead({ title, subtitle, to, cta = "Ver todo →" }) {
   return (
-    <div className="mb-6 flex items-end justify-between gap-4">
-      <div>
-        {eyebrow}
-        <h2 className="font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{title}</h2>
-        {subtitle && <p className="mt-1 text-label-sm text-outline">{subtitle}</p>}
+    <div className="mb-4 flex items-center justify-between gap-3 md:mb-6">
+      <div className="min-w-0">
+        <h2 className="font-display text-[20px] font-bold leading-7 text-on-surface md:text-headline-lg">{title}</h2>
+        {subtitle && <p className="mt-0.5 text-label-sm text-on-surface-variant">{subtitle}</p>}
       </div>
       {to && (
-        <Link to={to} className="flex-shrink-0 text-label-md font-semibold text-tertiary-accent hover:underline">
+        <Link to={to} className="flex min-h-11 flex-shrink-0 items-center text-label-md font-semibold text-tertiary-accent hover:underline">
           {cta}
         </Link>
       )}
@@ -134,12 +126,19 @@ function SectionHead({ eyebrow, title, subtitle, to, cta = "Ver todo →" }) {
   );
 }
 
+// Cuántos destacados se ven según el ancho (la grilla pasa de 2 a 5 columnas):
+// 8 en celular (4 filas completas), 9 desde sm (3 columnas), 12 desde md (4
+// columnas) y 20 desde lg (5 columnas), siempre filas completas.
+function featuredVisibility(index) {
+  if (index < 8) return "contents";
+  if (index < 9) return "hidden sm:contents";
+  if (index < 12) return "hidden md:contents";
+  return "hidden lg:contents";
+}
+
 export default function Home() {
   const { provinceId, provinceName, hasProvinceFilter, loading: zoneLoading } = useZone();
 
-  // Bloque 20: la sección de categorías de PRODUCTO (7 pills fijas) se sacó
-  // del Home — quedó solo esta, la de tipo de negocio de la tienda, ahora
-  // bajo el título "Explorá por categoría".
   const { data: businessCategories } = useQuery({
     queryKey: ["business-categories"],
     queryFn: async () => (await api.get("/business-categories")).data.categories,
@@ -157,9 +156,9 @@ export default function Home() {
     enabled: !zoneLoading,
   });
 
-  // Bloque 50: sin fallback de "no hay ofertas" — si vuelve vacío, la
-  // sección entera no se monta (ver el render condicional más abajo), a
-  // diferencia de Destacados/Tiendas verificadas que sí muestran un EmptyState.
+  // Bloque 50: sin fallback de "no hay ofertas": si vuelve vacío, la sección
+  // entera no se monta, a diferencia de Destacados/Tiendas verificadas que
+  // sí muestran un EmptyState.
   const { data: offers } = useQuery({
     queryKey: ["home-active-offers"],
     queryFn: async () => (await api.get("/offers/active")).data.offers,
@@ -169,269 +168,178 @@ export default function Home() {
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
-  // Bloque 96 (pedido explícito): heroImageUrl (1 sola) pasa a heroImages
-  // (varias) — HeroImageSlider.jsx maneja el fundido cruzado automático y
-  // los punticos de abajo cuando hay más de una.
+  // Bloque 96: varias imágenes del hero (HeroImageSlider hace el fundido).
   const heroImages = (settings?.heroImages ?? []).map((u) => `${api.defaults.baseURL}${u}`);
 
   return (
     <>
-    <div>
-      {/* HERO — esquinas inferiores redondeadas (Bloque 20), mismo radio que
-          el footer (rounded-t-[28px] en Footer.jsx) para que la curva de
-          inicio y la de cierre de página usen la misma inclinación. Bloque
-          50 (pedido explícito): -mt-[76px] + pt-[76px] (misma altura que
-          Header.jsx, h-[76px]) — el margen negativo estira el FONDO de esta
-          sección hacia arriba, hasta el borde real de la página (detrás del
-          header, que ahí arriba está transparente), y el padding empuja el
-          contenido de adentro exactamente la misma distancia hacia abajo —
-          el resultado neto es que el contenido queda en el mismo lugar de
-          siempre, solo el color se extiende detrás del header. Bloque 53
-          (pedido explícito — "el color de la barra de menú y de la primera
-          sección debe ser igual al color del footer"): bg-primary sólido,
-          el MISMO color que Footer.jsx (bg-primary) — antes era un degradado
-          de primary-container a primary, un tono más claro arriba. */}
-      <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
-        <div className="container-app grid grid-cols-1 items-center gap-10 py-14 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-16">
-          <div>
-            <h1 className="mb-4 font-display text-headline-lg text-white md:text-display-lg">
-              Compra y vende cerca tuyo, de <span className="text-secondary-container">vendedores</span> de tu provincia.
-            </h1>
-            <p className="mb-7 max-w-[500px] text-body-lg text-white/70">
-              Productos, comida y servicios de tiendas locales. Pide directo por WhatsApp, paga contra entrega o por
-              transferencia. Sin comisiones para el vendedor.
-            </p>
-            <div className="mb-8 flex flex-wrap gap-3.5">
+      <div>
+        {/* HERO — esquinas inferiores redondeadas, mismo radio que el footer.
+            -mt-[76px] + pt-[76px] (misma altura que Header.jsx): el fondo se
+            estira hacia arriba, detrás del header flotante, y el contenido
+            queda en su sitio. bg-primary sólido, el mismo color que el footer.
+            Bloque 248 (hallazgos 1, 7, 11 y 19): en celular ocupa poco más de
+            media pantalla (sin pastilla, sin slider de imágenes, un solo botón
+            principal y sin flecha). Le habla al comprador; lo de los
+            vendedores vive en su propia tarjeta más abajo. */}
+        <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
+          <div className="container-app grid grid-cols-1 items-center gap-10 py-8 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-16">
+            <div>
+              <h1 className="mb-3 font-display text-headline-lg text-white md:mb-4 md:text-display-lg">
+                Compra cerca de ti, a <span className="text-secondary-container">vendedores</span> de tu provincia.
+              </h1>
+              <p className="mb-6 max-w-[500px] text-body-lg text-white/75 md:mb-7">
+                Productos, comida y servicios de tiendas locales. Pide directo por WhatsApp, paga contra entrega o por transferencia.
+              </p>
+              <div className="flex flex-wrap gap-3.5">
+                <Link
+                  to="/catalogo"
+                  className="flex min-h-11 w-full items-center justify-center rounded bg-secondary-container px-6 py-3 text-label-md text-on-secondary-container hover:brightness-95 sm:w-auto"
+                >
+                  {hasProvinceFilter ? `Explorar en ${provinceName}` : "Explorar todo el catálogo"}
+                </Link>
+                <Link
+                  to="/tiendas"
+                  className="hidden min-h-11 items-center rounded border-[1.5px] border-white/30 px-6 py-3 text-label-md text-white hover:bg-white/10 sm:flex"
+                >
+                  Ver tiendas
+                </Link>
+              </div>
+            </div>
+
+            {/* El slider de imágenes es decoración de escritorio: en celular
+                empujaba el siguiente bloque casi 400px más abajo. */}
+            <div className="hidden lg:block">
+              <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />
+            </div>
+          </div>
+        </section>
+
+        {/* CATEGORÍAS (en realidad es tipo de negocio de la tienda: filtra
+            TIENDAS por rubro, ver Stores.jsx). */}
+        {businessCategories?.length > 0 && (
+          <section className="container-app pt-8 md:pt-11">
+            <SectionHead title="Explora por categoría" to="/tiendas" />
+            <CategoryMarquee categories={businessCategories} />
+          </section>
+        )}
+
+        {/* TIENDAS VERIFICADAS: sube desde el último lugar. Es lo que hace a
+            esto un marketplace de tiendas y la prueba de que hay negocios
+            reales. Máximo 12 (Bloque 17); mismo orden que GET
+            /vendors?isVerified=true (más recientes primero). */}
+        <section className="container-app pt-8 md:pt-11">
+          <SectionHead title="Tiendas verificadas" to="/tiendas" />
+          {verifiedVendors?.length ? (
+            <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
+          ) : (
+            <EmptyState
+              icon={ShieldCheck}
+              title="Todavía no hay tiendas verificadas en tu zona"
+              description="Sé el primero en verificarte con el Plan Business."
+              action={
+                <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
+                  Crear mi tienda
+                </Link>
+              }
+            />
+          )}
+        </section>
+
+        {/* OFERTAS (Bloque 50): render condicional total; sin ofertas activas
+            la sección ni se monta. Bloque 248: una sola vez (el Bloque 154 la
+            había duplicado debajo de "Abre tu tienda", y se veía como un error). */}
+        {offers?.length > 0 && (
+          <section className="container-app pt-8 md:pt-11">
+            <SectionHead title="Ofertas de la semana" subtitle="De tiendas verificadas y de la casa" />
+            <OffersSlider offers={offers} />
+          </section>
+        )}
+
+        {/* PRODUCTOS DESTACADOS */}
+        <section className="container-app pt-8 md:pt-11">
+          <SectionHead
+            title={hasProvinceFilter ? `Destacados en ${provinceName}` : "Destacados en toda Cuba"}
+            subtitle={hasProvinceFilter ? "De tiendas verificadas cerca de ti" : "De tiendas verificadas en todo el país"}
+          />
+          {featured?.length ? (
+            <>
+              {/* Bloque 248 (hallazgo 15): 20 destacados en celular eran 3333px de
+                  grilla, casi 4 pantallas antes de llegar a las tiendas o a la
+                  invitación para negocios. Nunca se rellena con nada inventado
+                  si hay menos disponibles. */}
+              <div className={PRODUCT_GRID_CLASS}>
+                {featured.slice(0, 20).map((p, i) => (
+                  <div key={p.id} className={featuredVisibility(i)}>
+                    <ProductCard product={p} trackSource="home" />
+                  </div>
+                ))}
+              </div>
               <Link
                 to="/catalogo"
-                className="flex items-center gap-2 rounded bg-secondary-container px-6 py-3.5 text-label-md text-on-secondary-container hover:brightness-95"
+                className="mt-5 flex min-h-11 w-full items-center justify-center rounded border-[1.5px] border-outline-variant px-6 text-label-md font-semibold text-on-surface hover:bg-surface-container sm:mx-auto sm:w-auto"
               >
-                {hasProvinceFilter ? `Explorar en ${provinceName}` : "Explorar todo el catálogo"} <ArrowRight className="h-4 w-4" />
+                Ver todo el catálogo
+              </Link>
+            </>
+          ) : (
+            <EmptyState
+              title="Todavía no hay productos en tu zona"
+              description="Prueba explorando el catálogo completo o cambia de provincia arriba."
+              action={
+                <Link to="/catalogo" className="text-label-md font-semibold text-tertiary-accent hover:underline">
+                  Ver catálogo completo
+                </Link>
+              }
+            />
+          )}
+        </section>
+
+        {/* ABRE TU TIENDA: recluta vendedores, no promociona una tienda
+            puntual. Bloque 248 (hallazgos 8, 10, 12 y 19): sin pastilla con
+            emoji, sin el mockup de 3 teléfonos en celular (reservaba ~224px
+            solo para una imagen decorativa), icono de tienda en vez de cohete,
+            y con mención explícita a restaurantes (menú con QR) y comercios.
+            En escritorio se mantiene la tarjeta de una fila con el teléfono
+            asomando por arriba (Bloques 102 a 130: lg:pt-36 de la sección y
+            lg:pr-[352px] de la tarjeta reservan ese lugar). */}
+        <section className="container-app py-8 md:py-11 lg:pt-36">
+          <div className="relative flex flex-wrap items-center justify-between gap-6 rounded-xl bg-gradient-to-br from-primary to-primary-container p-6 md:p-9 md:pr-72 lg:pr-[352px] xl:flex-nowrap">
+            <img
+              src={vendorMockupImage}
+              alt=""
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-0 hidden select-none drop-shadow-2xl md:right-4 md:block md:w-64 lg:right-8 lg:w-80"
+            />
+            <div className="max-w-[560px] xl:min-w-0 xl:flex-1">
+              <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abre tu tienda online gratis, hoy mismo</h3>
+              <p className="text-body-md text-white/80">
+                Para tiendas, restaurantes y comercios. Catálogo propio, pedidos por WhatsApp o desde tu panel y menú con QR si tienes un restaurante.
+                Sin comisiones por venta y sin costo de entrada en el Plan Regular. Empieza a vender en minutos.
+              </p>
+            </div>
+            <div className="flex w-full flex-shrink-0 flex-col items-stretch gap-3 sm:w-auto sm:items-start">
+              <Link
+                to="/vendedor/ingresar?tab=registro"
+                className="flex min-h-11 items-center justify-center whitespace-nowrap rounded bg-secondary-container px-5 py-3 text-label-md text-on-secondary-container hover:brightness-95"
+              >
+                Crear mi tienda gratis
               </Link>
               <Link
                 to="/tiendas"
-                className="rounded border-[1.5px] border-white/30 px-6 py-3.5 text-label-md text-white hover:bg-white/10"
+                className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded border-[1.5px] border-white/30 px-5 py-3 text-label-md text-white hover:bg-white/10"
               >
-                Ver tiendas
+                <Store className="h-4 w-4" aria-hidden="true" /> Ver tiendas en {settings?.siteName || "Baznova"}
               </Link>
             </div>
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="flex items-center gap-2 text-[13px] text-white/70">
-                <Percent className="h-[18px] w-[18px] text-[#25D366]" />
-                Sin comisiones por venta
-              </div>
-              <div className="flex items-center gap-2 text-[13px] text-white/70">
-                <Store className="h-[18px] w-[18px] text-secondary-container" />
-                Crea tu tienda gratis ahora
-              </div>
-            </div>
           </div>
-
-          {/* Bloque 96 (pedido explícito): 1 imagen fija -> slider de varias.
-              HeroImageSlider ya trae su propio marco (fundido cruzado entre
-              imágenes, sin deformarse ni recortarse) y, si hay más de una,
-              los punticos debajo — acá solo se le pasa la lista. Fondo
-              transparente (Bloque 95): se ve el degradado de la sección
-              detrás si la imagen no llena el recuadro entero. */}
-          <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />
-        </div>
-      </section>
-
-      {/* CATEGORÍAS (Bloque 18: en realidad es tipo de negocio de la tienda,
-          filtra TIENDAS por rubro — ver Stores.jsx). Bloque 20: se sacó la
-          sección vieja de categorías de PRODUCTO (7 pills fijas) y esta —
-          antes titulada "Explorá por tipo de negocio" — pasó a quedarse con
-          el título "Explorá por categoría" y a mostrarse en marquee continuo
-          (son 49, no entraban cómodas en un scroll horizontal manual). */}
-      {businessCategories?.length > 0 && (
-        <section className="container-app pt-11">
-          <SectionHead title="Explorá por categoría" to="/tiendas" />
-          <CategoryMarquee categories={businessCategories} />
         </section>
-      )}
-
-      {/* OFERTAS (Bloque 50) — render condicional total: sin ofertas
-          activas, la sección ni se monta (nada de placeholder/skeleton
-          permanente, pedido explícito del bloque). */}
-      {offers?.length > 0 && (
-        <section className="container-app pt-11">
-          <SectionHead title="Ofertas de la semana" subtitle="De tiendas verificadas y de la casa" />
-          <OffersSlider offers={offers} />
-        </section>
-      )}
-
-      {/* PRODUCTOS DESTACADOS */}
-      <section className="container-app pt-11">
-        <SectionHead
-          title={hasProvinceFilter ? `Destacados en ${provinceName}` : "Destacados en toda Cuba"}
-          subtitle={hasProvinceFilter ? "De tiendas verificadas cerca tuyo" : "De tiendas verificadas en todo el país"}
-          to="/catalogo"
-          cta="Ver catálogo →"
-        />
-        {featured?.length ? (
-          // Bloque 50 (pedido explícito: el grid fijo de 2 columnas del
-          // Bloque 48 se veía igual de "vacío" en pantalla grande que en
-          // mobile — acá se agregan más columnas a medida que crece el
-          // viewport, con tarjetas más chicas y un grid más moderno/denso,
-          // sin tocar mobile (sigue en 2). Tope sube de 10 a 20 — nunca se
-          // rellena con nada inventado si hay menos disponibles.
-          <div className={PRODUCT_GRID_CLASS}>
-            {featured.slice(0, 20).map((p) => (
-              <ProductCard key={p.id} product={p} trackSource="home" />
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            title="Todavía no hay productos en tu zona"
-            description="Prueba explorando el catálogo completo o cambia de provincia arriba."
-            action={
-              <Link to="/catalogo" className="text-label-md font-semibold text-tertiary-accent hover:underline">
-                Ver catálogo completo →
-              </Link>
-            }
-          />
-        )}
-      </section>
-
-      {/* PUBLICIDAD DEL MARKETPLACE — recluta vendedores, no promociona una
-          tienda puntual (antes esta sección promocionaba sabor-criollo).
-          Bloque 104 (bug real reportado en vivo, con captura: la imagen
-          tapaba las tarjetas de producto de la sección de arriba): desde
-          lg (Bloque 102/103 agranda la imagen a 320px de ancho/alto,
-          bottom-0 dentro de una tarjeta de ~226px de alto) la imagen
-          sobresale ~94px por ENCIMA del borde de la tarjeta — con el pt-11
-          (44px) de siempre, eso alcanzaba a salirse de esta <section> por
-          completo y meterse en la sección anterior. lg:pt-36 (144px, medido
-          en vivo con Playwright contra el sobrante real de 94px + margen)
-          le da lugar de sobra sin afectar mobile/sm/md (donde la imagen no
-          sobresale del todo, ver Bloque 103 — el pt-11 de siempre les
-          sigue alcanzando). */}
-      <section className="container-app pt-11 lg:pt-36">
-        {/* Bloque 130 (pedido explícito, con mockup de Photoshop): en
-            pantallas grandes la tarjeta es UNA sola fila — texto a la
-            izquierda, los 2 botones al lado, el teléfono a la derecha
-            sobresaliendo por arriba del borde (para eso está el lg:pt-36
-            de la <section>). Antes, con flex-wrap y pr-96, el área útil
-            (~797px a 1280) no alcanzaba para texto (560) + gap (24) +
-            botones (~257, y crece con el nombre del sitio: "SuperMarket"
-            es más largo que "ZeuDin"): los botones caían a una 2ª fila,
-            la tarjeta se estiraba a ~360px y el teléfono quedaba adentro
-            en vez de asomar. Desde xl (1280px): flex-nowrap, el bloque de
-            texto se encoge (min-w-0 + flex-1, tope 560) y los botones
-            nunca (flex-shrink-0) — así el nombre del sitio nunca vuelve a
-            romper la fila. Se eligió xl y no lg a propósito: medido en
-            vivo, a 1024px la fila única dejaba el texto en 292px (título
-            en 2 líneas, párrafo en 6) — apretado; entre 1024 y 1279 se
-            deja el wrap de siempre (botones debajo, tarjeta alta), que a
-            ese ancho se ve bien. lg:pr-[352px] = right-8 + w-80 de la
-            imagen, justo lo que ocupa el teléfono (valor arbitrario a
-            propósito: la escala de Tailwind salta de pr-80 a pr-96). */}
-        <div className="relative flex flex-wrap items-center justify-between gap-6 rounded-xl bg-gradient-to-br from-primary to-primary-container p-9 pb-56 sm:pb-72 md:pb-9 md:pr-72 lg:pr-[352px] xl:flex-nowrap">
-          {/* Bloque 106 (pedido explícito, con captura): en mobile/sm ya no
-              es un recorte del mismo mockup de escritorio — es una imagen
-              DISTINTA (hero-mobile-apps.webp, 3 teléfonos con capturas de
-              una app, formato apaisado 709×532 a diferencia del mockup
-              cuadrado de escritorio), pensada a propósito para verse bien
-              angosta. Misma idea de fondo que el Bloque 103 (pegada a la
-              base de la tarjeta, centrada horizontalmente) pero como el
-              aspect-ratio es distinto, va en un <img> separado — se
-              intentó forzar todo a una sola imagen con clases responsivas
-              antes (Bloques 101-105) y esa fue la limitación real que pedía
-              cambiar a una imagen dedicada para mobile en vez de solo
-              reescalar la de escritorio. */}
-          <img
-            src={vendorMockupImageMobile}
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 left-1/2 w-64 -translate-x-1/2 select-none drop-shadow-2xl sm:w-80 md:hidden"
-          />
-          {/* Bloque 103 (pedido explícito): la imagen de escritorio queda
-              SIEMPRE con su borde inferior pegado a la línea de abajo de la
-              tarjeta (bottom-0), creciendo hacia arriba desde ahí — nunca
-              sobresale por debajo. Solo se muestra desde md (hidden por
-              defecto, ver arriba la versión mobile dedicada del Bloque
-              106). La tarjeta nunca lleva overflow-hidden (recortaría la
-              parte de la imagen que sobresale por arriba del borde). */}
-          <img
-            src={vendorMockupImage}
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 hidden select-none drop-shadow-2xl md:block md:right-4 md:w-64 lg:right-8 lg:w-80"
-          />
-          <div className="max-w-[560px] xl:min-w-0 xl:flex-1">
-            <span className="mb-3.5 inline-flex items-center gap-1.5 rounded-full bg-secondary-container/15 px-3 py-1.5 text-label-sm font-bold text-secondary-container">
-              🚀 PARA DUEÑOS DE NEGOCIO
-            </span>
-            <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abre tu tienda online gratis, hoy mismo</h3>
-            <p className="text-body-md text-white/65">
-              Catálogo propio, pedidos por WhatsApp o desde tu panel, menú con QR si eres restaurante. Sin costo de
-              entrada en el Plan Regular — empieza a vender en minutos.
-            </p>
-          </div>
-          {/* Bloque 102: botones apilados en columna (antes en fila) — mismo
-              criterio del boceto, y deja más margen libre a la derecha para
-              la imagen grande en desktop. Bloque 130: flex-shrink-0 — el
-              texto es el que cede ancho, nunca los botones. */}
-          <div className="flex flex-shrink-0 flex-col items-start gap-3">
-            <Link
-              to="/vendedor/ingresar?tab=registro"
-              className="whitespace-nowrap rounded bg-secondary-container px-5 py-3.5 text-label-md text-on-secondary-container hover:brightness-95"
-            >
-              Crear mi tienda gratis
-            </Link>
-            <Link
-              to="/tiendas"
-              className="flex items-center gap-1.5 whitespace-nowrap rounded border-[1.5px] border-white/30 px-5 py-3.5 text-label-md text-white hover:bg-white/10"
-            >
-              <Rocket className="h-4 w-4" /> Ver tiendas en {settings?.siteName || "Baznova"}
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* OFERTAS (Bloque 154) — duplicado explícito de la sección de arriba,
-          debajo de "Abre tu tienda online gratis": mismas ofertas pero en
-          orden invertido y deslizándose en sentido contrario (OffersSlider
-          con reverse=true), para que se noten más y nunca coincidan con lo
-          que muestra la sección de arriba en el mismo instante. */}
-      {offers?.length > 0 && (
-        <section className="container-app pt-11">
-          <SectionHead title="Ofertas de la semana" subtitle="De tiendas verificadas y de la casa" />
-          <OffersSlider offers={offers} reverse />
-        </section>
-      )}
-
-      {/* TIENDAS VERIFICADAS — slider de 2 bloques, máximo 12 tiendas
-          (Bloque 17). Criterio de selección: mismo orden que ya devuelve
-          GET /vendors?isVerified=true (más recientemente verificadas/creadas
-          primero) — no hay un flag de "destacada por admin" separado en el
-          schema, así que se documenta este como el criterio usado. */}
-      <section className="container-app py-11">
-        <SectionHead title="Tiendas verificadas" to="/tiendas" />
-        {verifiedVendors?.length ? (
-          <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
-        ) : (
-          <EmptyState
-            icon={ShieldCheck}
-            title="Todavía no hay tiendas verificadas en tu zona"
-            description="Sé el primero en verificarte con el Plan Business."
-            action={
-              <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
-                Crear mi tienda →
-              </Link>
-            }
-          />
-        )}
-      </section>
-    </div>
-    {/* Bloque 52: apagable desde el admin (Marca de la plataforma) — antes
-        se montaba siempre, sin condición. Default true si el settings
-        todavía no cargó, para no hacerlo parpadear apagado un instante.
-        Bloque 238 (pedido explícito): además, oculto automáticamente si los
-        3 proveedores de IA están caídos (chatbotAvailable, estado cacheado
-        refrescado cada 2 min en segundo plano) — así nunca se le muestra al
-        cliente un chat que ya se sabe que va a responder con error. */}
-    {(settings?.showChatWidget ?? true) && (settings?.chatbotAvailable ?? true) && <MarketplaceChatWidget />}
+      </div>
+      {/* Bloque 52: apagable desde el admin (Marca de la plataforma). Default
+          true si el settings todavía no cargó, para no hacerlo parpadear.
+          Bloque 238: además, oculto automáticamente si las IA están caídas
+          (chatbotAvailable, estado cacheado cada 2 min en segundo plano). */}
+      {(settings?.showChatWidget ?? true) && (settings?.chatbotAvailable ?? true) && <MarketplaceChatWidget />}
     </>
   );
 }

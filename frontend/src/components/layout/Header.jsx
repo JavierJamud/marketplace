@@ -60,7 +60,7 @@ function AccountMenu({ user, accountHref, panelLabel }) {
       <Link
         to="/cuenta"
         aria-label="Iniciar sesión o crear cuenta"
-        className="flex h-11 items-center gap-1.5 whitespace-nowrap rounded-xl bg-secondary-container px-3 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
+        className="flex h-11 min-w-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-secondary-container px-3 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
       >
         <User className="h-4 w-4" />
         <span className="hidden sm:inline">Iniciar sesión</span>

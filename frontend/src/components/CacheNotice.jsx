@@ -42,7 +42,7 @@ export function CacheNotice() {
       </div>
       <button
         onClick={acknowledge}
-        className="h-10 w-full rounded-xl bg-secondary-container text-[13px] font-bold text-on-secondary-container hover:brightness-95"
+        className="h-11 w-full rounded-xl bg-secondary-container text-[13px] font-bold text-on-secondary-container hover:brightness-95"
       >
         Estoy de acuerdo
       </button>

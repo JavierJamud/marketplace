@@ -260,3 +260,11 @@
 @keyframes toastSpin {
   to { transform: rotate(360deg); }
 }
+
+/* Bloque 248 (auditoría 004, hallazgo 9): quien pide "reducir movimiento" en
+   su sistema no ve el marquee de categorías. */
+@media (prefers-reduced-motion: reduce) {
+  .category-marquee-track {
+    animation: none !important;
+  }
+}
