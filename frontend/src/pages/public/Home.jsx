@@ -335,7 +335,7 @@ export default function Home() {
                 mostrar su imagen. Va DENTRO del flujo, debajo de los botones y
                 pegada al borde inferior de la tarjeta (-mb-6 anula el relleno),
                 en vez del relleno fijo de ~224px que reservaba el Bloque 106. */}
-            <div className="-mx-6 -mb-6 flex w-[calc(100%+3rem)] justify-center md:hidden">
+            <div className="-mx-3 -mb-6 flex w-[calc(100%+1.5rem)] justify-center md:hidden">
               <img src={vendorMockupImageMobile} alt="" aria-hidden="true" className="pointer-events-none w-full max-w-[460px] select-none drop-shadow-2xl" />
             </div>
           </div>
