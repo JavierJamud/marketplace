@@ -52,7 +52,8 @@
    animación es `linear infinite` (ver tailwind.config.js), pausarla con
    animation-play-state nunca "salta": retoma exactamente en el mismo punto
    donde se quedó, así que el reinicio siempre se siente suave. */
-.category-marquee-track:hover {
+.category-marquee-track:hover,
+.category-marquee-track:active {
   animation-play-state: paused;
 }
 

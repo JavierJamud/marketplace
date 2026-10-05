@@ -10,6 +10,7 @@ import { slugify } from "../utils/slugify.js";
 import { env } from "../config/env.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
+import { isVendorOpenNow } from "../services/schedule.service.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { hashToken } from "../utils/hashToken.js";
 import { getPlanLimit, swapProductQuota } from "../lib/planConfig.js";
@@ -383,7 +384,7 @@ async function findCoPurchasedProductIds(productId, limit) {
 export async function getProductBySlug(req, res) {
   const { vendorSlug, productSlug } = req.params;
 
-  const vendor = await prisma.vendor.findUnique({ where: { slug: vendorSlug } });
+  const vendor = await prisma.vendor.findUnique({ where: { slug: vendorSlug }, include: { schedules: true } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Producto no encontrado.", 404);
 
   const product = await prisma.product.findFirst({
@@ -473,6 +474,25 @@ export async function getProductBySlug(req, res) {
   // de depender de que el cliente haya pasado antes por Store.jsx.
   const aiAvailable = product.vendor.verificationStatus === "VERIFIED" ? await isAIAvailable() : false;
 
+  // Bloque 254 (pedido explícito — "esa parte de la ficha era estática, pon
+  // información real que facilite a los clientes"): datos reales de la tienda
+  // que importan al comprar. Antes la ficha decía siempre "Entrega en <la
+  // primera ubicación>" y "Coordinas pago con el vendedor", y mostraba el
+  // código de barras, que ya no se usa en el panel del vendedor.
+  const [serviceLocations, deliveryCountries] = await Promise.all([
+    prisma.vendorLocation.findMany({ where: { vendorId: vendor.id }, include: { province: true, country: true } }),
+    prisma.vendorDeliveryCountry.findMany({ where: { vendorId: vendor.id }, include: { country: true } }),
+  ]);
+  const { isOpen, nextOpenLabel } = isVendorOpenNow(vendor.schedules, vendor.timezone);
+  const serviceAreas = [...new Set(serviceLocations.map((l) => l.province?.name ?? l.stateOther).filter(Boolean))];
+  const storeInfo = {
+    isOpenNow: isOpen, // null = la tienda no cargó horario
+    nextOpenLabel,
+    serviceAreas,
+    // Cuba es donde ya atiende la tienda: "también entrega en Cuba" no aporta nada.
+    deliveryCountries: [...new Set(deliveryCountries.filter((d) => d.country.code !== "CU").map((d) => d.country.name))],
+  };
+
   // Bloque 109 (pedido explícito): ruta pública, así que el login es
   // opcional acá (mismo mecanismo ya usado en chat/assistant/orders
   // controller — decodifica el token si vino, nunca exige sesión para ver
@@ -491,6 +511,7 @@ export async function getProductBySlug(req, res) {
       rating: ratingAgg._avg.rating ? Math.round(ratingAgg._avg.rating * 10) / 10 : null,
       reviewCount: ratingAgg._count.rating,
       alreadyRequested,
+      storeInfo,
     },
     related: related.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })),
   });

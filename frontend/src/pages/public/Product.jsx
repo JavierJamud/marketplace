@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Minus, Plus, ShoppingCart, MapPin, ShieldCheck, ShieldAlert, ScanBarcode, CheckCircle2, Star, Camera, X as XIcon } from "lucide-react";
+import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -296,6 +296,37 @@ export default function Product() {
     : product.stock > 0
     ? (product.stock < 12 ? `Últimas ${product.stock} unidades` : "Disponible")
     : "Sin stock";
+  // Bloque 254: líneas de información real bajo el botón de compra.
+  const store = product.storeInfo;
+  const stockText = product.unlimitedStock
+    ? "Siempre disponible"
+    : hasSizes
+    ? selectedSize
+      ? stockForSelection > 0
+        ? `${stockForSelection} ${stockForSelection === 1 ? "unidad disponible" : "unidades disponibles"} en talla ${selectedSize}`
+        : "Sin stock en esta talla"
+      : "Elige una talla para ver cuántas hay"
+    : product.stock > 0
+    ? `${product.stock} ${product.stock === 1 ? "unidad disponible" : "unidades disponibles"}`
+    : "Sin stock por ahora";
+  const orderText =
+    v.orderDestination === "PANEL"
+      ? "El pedido llega directo a la tienda desde esta página"
+      : v.orderDestination === "BOTH"
+      ? "Pides desde esta página o por WhatsApp con la tienda"
+      : "Haces el pedido por WhatsApp con la tienda";
+  const areas = store?.serviceAreas ?? [];
+  const areasText = areas.length > 3 ? `${areas.slice(0, 3).join(", ")} y ${areas.length - 3} más` : areas.join(", ");
+  const infoRows = [
+    { key: "stock", Icon: CheckCircle2, text: stockText },
+    product.salesCount > 0 && { key: "sales", Icon: TrendingUp, text: `${product.salesCount} ${product.salesCount === 1 ? "vendido" : "vendidos"}` },
+    store?.isOpenNow === true && { key: "open", Icon: Clock, text: "Tienda abierta ahora" },
+    store?.isOpenNow === false && { key: "closed", Icon: Clock, text: store.nextOpenLabel ? `Tienda cerrada ahora. ${store.nextOpenLabel}` : "Tienda cerrada ahora" },
+    areas.length > 0 && { key: "areas", Icon: MapPin, text: `Atiende en ${areasText}` },
+    store?.deliveryCountries?.length > 0 && { key: "intl", Icon: Globe2, text: `También entrega en ${store.deliveryCountries.join(", ")}` },
+    { key: "order", Icon: MessageCircle, text: orderText },
+    product.category?.name && { key: "cat", Icon: Tag, text: `Categoría: ${product.category.name}` },
+  ].filter(Boolean);
   function handleAddToCart() {
     if (hasSizes && !selectedSize) {
       toast.error("Elige una talla primero.");
@@ -613,22 +644,19 @@ export default function Product() {
             </div>
           )}
 
-          <div className="mt-5 grid grid-cols-1 gap-3 border-t border-surface-container-high pt-5 sm:grid-cols-2">
-            <div className="flex items-center gap-2.5 text-[13px] text-on-surface-variant">
-              <MapPin className="h-[17px] w-[17px] text-tertiary-accent" /> Entrega en {locationLabel}
-            </div>
-            <div className="flex items-center gap-2.5 text-[13px] text-on-surface-variant">
-              <ShieldCheck className="h-[17px] w-[17px] text-tertiary-accent" /> Coordinas pago con el vendedor
-            </div>
-            {product.barcode && (
-              <div className="flex items-center gap-2.5 text-[13px] text-on-surface-variant">
-                <ScanBarcode className="h-[17px] w-[17px] text-tertiary-accent" /> Código: {product.barcode}
-              </div>
-            )}
-            <div className="flex items-center gap-2.5 text-[13px] text-on-surface-variant">
-              <CheckCircle2 className="h-[17px] w-[17px] text-tertiary-accent" /> {stockLabel}
-            </div>
-          </div>
+          {/* Bloque 254 (pedido explícito): antes esta zona era texto fijo ("Entrega
+              en <primera ubicación>", "Coordinas pago con el vendedor") y el código
+              de barras, que ya no se usa en el panel del vendedor. Ahora son datos
+              reales que ayudan a decidir: cuánto hay, cuántos se vendieron, si la
+              tienda está abierta, dónde atiende, a qué países entrega y cómo se hace
+              el pedido. Cada línea aparece solo si el dato existe. */}
+          <ul className="mt-5 grid grid-cols-1 gap-3 border-t border-surface-container-high pt-5 sm:grid-cols-2">
+            {infoRows.map(({ key, Icon, text }) => (
+              <li key={key} className="flex items-start gap-2.5 text-[13px] leading-5 text-on-surface-variant">
+                <Icon className="mt-0.5 h-[17px] w-[17px] flex-shrink-0 text-tertiary-accent" aria-hidden="true" /> <span>{text}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 

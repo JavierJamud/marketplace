@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";
-import { StepCarousel } from "./StepCarousel.jsx";
+import { AutoCarousel } from "./AutoCarousel.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -141,7 +141,7 @@ function OfferCard({ offer }) {
 
 // Bloque 154 (pedido explícito): "Ofertas de la semana" es un carrusel que se
 // mueve solo. Bloque 252 (pedido explícito): no es un desplazamiento constante
-// sino que pasa de UNA oferta a la vez cada cierto tiempo (StepCarousel), en una
+// sino que pasa de UNA oferta a la vez cada cierto tiempo (AutoCarousel, con arrastre manual), en una
 // sola dirección y sin hueco blanco al final, igual que las tiendas verificadas.
 export function OffersSlider({ offers }) {
   if (!offers?.length) return null;
@@ -155,7 +155,7 @@ export function OffersSlider({ offers }) {
   }
 
   return (
-    <StepCarousel
+    <AutoCarousel
       items={offers}
       getKey={(o) => o.id}
       renderItem={(o) => (
@@ -163,9 +163,9 @@ export function OffersSlider({ offers }) {
           <OfferCard offer={o} />
         </div>
       )}
-      itemClassName="w-full px-1.5 sm:w-1/2 sm:px-2 lg:w-1/3"
-      stepClassName="[--slide-step:100%] sm:[--slide-step:50%] lg:[--slide-step:33.3333%]"
-      intervalMs={4500}
+      itemClassName="basis-full px-1.5 sm:basis-1/2 sm:px-2 lg:basis-1/3"
+      align="start"
+      delay={4500}
       label="Ofertas de la semana"
     />
   );

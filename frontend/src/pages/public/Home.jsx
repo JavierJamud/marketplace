@@ -13,6 +13,7 @@ import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.js
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
+import vendorMockupImageMobile from "../../assets/images/hero-mobile-apps.webp";
 
 // Bloque 248 (auditoría 004 de la página principal, pedido explícito del
 // dueño: "revisa cada punto visual de estructura y posición; se usará más en
@@ -48,16 +49,17 @@ function CategoryPill({ c }) {
 // Bloque 126: si las categorías caben en el contenedor no se mueven; solo si
 // desbordan se activa el marquee. Se mide el ancho NATURAL de la lista (copia
 // invisible en una sola línea) contra el del contenedor.
-// Bloque 248 (auditoría 004, hallazgo 9): en celular, o si el sistema pide
-// reducir el movimiento, NO hay animación: es una fila que se desliza con el
-// dedo (en celular no existe el "pausar al pasar el mouse" del marquee).
+// Bloque 248 (auditoría 004, hallazgo 9): si el sistema pide reducir el
+// movimiento NO hay animación: es una fila que se desliza con el dedo.
 function CategoryMarquee({ categories }) {
   const containerRef = useRef(null);
   const measureRef = useRef(null);
   const [overflowing, setOverflowing] = useState(false);
-  const isDesktop = useMediaQuery("(min-width: 768px)");
   const reducedMotion = usePrefersReducedMotion();
-  const swipeRow = !isDesktop || reducedMotion;
+  // Bloque 254 (pedido explícito): también en celular las categorías se mueven
+  // solas (el Bloque 248 las había dejado fijas, solo deslizables con el dedo).
+  // Mantener el dedo sobre la fila la pausa (ver .category-marquee-track:active).
+  const swipeRow = reducedMotion;
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -326,6 +328,13 @@ export default function Home() {
               >
                 <Store className="h-4 w-4" aria-hidden="true" /> Ver tiendas en {settings?.siteName || "Baznova"}
               </Link>
+            </div>
+            {/* Bloque 254 (pedido explícito): en celular la tarjeta vuelve a
+                mostrar su imagen. Va DENTRO del flujo, debajo de los botones y
+                pegada al borde inferior de la tarjeta (-mb-6 anula el relleno),
+                en vez del relleno fijo de ~224px que reservaba el Bloque 106. */}
+            <div className="-mb-6 flex w-full justify-center md:hidden">
+              <img src={vendorMockupImageMobile} alt="" aria-hidden="true" className="pointer-events-none w-64 select-none drop-shadow-2xl sm:w-80" />
             </div>
           </div>
         </section>

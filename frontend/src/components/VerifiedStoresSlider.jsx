@@ -1,30 +1,29 @@
 import { CompactStoreCard } from "./CompactStoreCard.jsx";
-import { StepCarousel } from "./StepCarousel.jsx";
+import { AutoCarousel } from "./AutoCarousel.jsx";
 
-// Bloque 48: tarjetas compactas, sin flechas ni puntos, loop de una sola
-// dirección. Bloque 252 (pedido explícito): pasa de UNA tienda a la vez cada
-// cierto tiempo (StepCarousel), sin hueco blanco al final, igual que las
-// ofertas. En celular la tarjeta ocupa ~80% para que se asome la siguiente.
+// Bloque 48: tarjetas compactas, sin flechas ni puntos. Bloque 254 (pedido
+// explícito): pasa de UNA tienda a la vez cada cierto tiempo, la tienda actual
+// queda CENTRADA (las vecinas se asoman a los lados) y se puede deslizar a mano.
 // Con una sola tienda se muestra quieta.
 export function VerifiedStoresSlider({ stores }) {
   if (!stores.length) return null;
 
   if (stores.length === 1) {
     return (
-      <div className="max-w-[420px]">
+      <div className="mx-auto max-w-[420px]">
         <CompactStoreCard vendor={stores[0]} />
       </div>
     );
   }
 
   return (
-    <StepCarousel
+    <AutoCarousel
       items={stores}
       getKey={(v) => v.id}
       renderItem={(v) => <CompactStoreCard vendor={v} />}
-      itemClassName="w-[80%] px-2 sm:w-[45%] lg:w-1/3"
-      stepClassName="[--slide-step:80%] sm:[--slide-step:45%] lg:[--slide-step:33.3333%]"
-      intervalMs={4000}
+      itemClassName="basis-[80%] px-2 sm:basis-[45%] lg:basis-1/3"
+      align="center"
+      delay={4000}
       label="Tiendas verificadas"
     />
   );
