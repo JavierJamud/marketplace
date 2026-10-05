@@ -335,7 +335,7 @@ function BatchSaleBuilder({ allocations, canWrite }) {
   return (
     <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-[18px]">
       <h2 className="mb-1 text-[15px] font-bold text-on-surface">Venta por lote</h2>
-      <p className="mb-3 text-[11.5px] text-outline">Sumá varios de tus productos asignados y registrá todas las ventas juntas, para un cuadre de caja exacto.</p>
+      <p className="mb-3 text-[11.5px] text-outline">Suma varios de tus productos asignados y registra todas las ventas juntas, para un cuadre de caja exacto.</p>
       {claimable.length === 0 ? (
         <p className="text-body-md text-on-surface-variant">Todavía no tienes productos asignados para vender.</p>
       ) : (
@@ -525,7 +525,7 @@ function StaffSelfView({ canWrite }) {
 
       <div>
         <h2 className="mb-1 text-[15px] font-bold text-on-surface">Detalle por producto</h2>
-        <p className="mb-3 text-[11.5px] text-outline">Los productos que tu tienda te asignó — vende o libera cada uno desde acá.</p>
+        <p className="mb-3 text-[11.5px] text-outline">Los productos que tu tienda te asignó — vende o libera cada uno desde aquí.</p>
         {allocationsLoading ? (
           <p className="text-body-md text-on-surface-variant">Cargando...</p>
         ) : (

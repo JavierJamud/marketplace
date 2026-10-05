@@ -225,7 +225,7 @@ function PlanConfigTab() {
   return (
     <div>
       <p className="mb-5 text-[13px] text-outline">
-        Lo que configures acá es lo que de verdad aplica el sistema — nunca solo texto decorativo. Los mismos límites y
+        Lo que configures aquí es lo que de verdad aplica el sistema — nunca solo texto decorativo. Los mismos límites y
         funciones se reflejan tal cual en Verificación y Suscripción del panel del vendedor.
       </p>
       <div className="flex flex-col gap-5 lg:flex-row">

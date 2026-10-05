@@ -48,7 +48,7 @@ function daysRemaining(dateStr) {
 
 // Bloque 237 (pedido explícito): el backend ya manda horas/minutos
 // implícitos en nextDailyResetAt — acá solo se traduce a texto, nunca al
-// revés. "Podés publicar de nuevo en Xh Ymin, a las HH:MM" en vez de un
+// revés. "Puedes publicar de nuevo en Xh Ymin, a las HH:MM" en vez de un
 // genérico "probá mañana".
 function dailyLimitMessage(dailyLimit, nextDailyResetAt) {
   const diffMs = Math.max(0, new Date(nextDailyResetAt).getTime() - Date.now());
@@ -56,7 +56,7 @@ function dailyLimitMessage(dailyLimit, nextDailyResetAt) {
   const minutes = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
   const timeLabel = new Date(nextDailyResetAt).toLocaleTimeString("es-CU", { hour: "2-digit", minute: "2-digit" });
   const parts = [hours > 0 ? `${hours}h` : null, `${minutes}min`].filter(Boolean).join(" ");
-  return `Ya publicaste tus ${dailyLimit} anuncios de hoy. Podés publicar de nuevo en ${parts}, a las ${timeLabel}.`;
+  return `Ya publicaste tus ${dailyLimit} anuncios de hoy. Puedes publicar de nuevo en ${parts}, a las ${timeLabel}.`;
 }
 
 export default function CustomerPanel() {
@@ -393,8 +393,8 @@ export default function CustomerPanel() {
                     el admin, ver ListingPolicyCard en AdminOffers.jsx). */}
                 <p className="mt-1 max-w-[520px] text-[13px] text-on-surface-variant">
                   Publica hasta {listingLimit} anuncios activos, hasta {dailyLimit} nuevos por día. Los compradores te piden por
-                  WhatsApp. A los {visibilityDays} días el anuncio deja de mostrarse al público, pero seguís pudiendo editarlo o
-                  eliminarlo acá — si no lo hacés, se borra solo a los {expiryDaysSetting} días.
+                  WhatsApp. A los {visibilityDays} días el anuncio deja de mostrarse al público, pero sigues pudiendo editarlo o
+                  eliminarlo aquí. Si no lo haces, se borra solo a los {expiryDaysSetting} días.
                 </p>
               </div>
               <Button

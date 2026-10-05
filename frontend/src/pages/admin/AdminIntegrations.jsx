@@ -257,8 +257,8 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
             </button>
           </div>
           <p className="mt-1 text-[11px] text-outline">
-            Cargalo en Stripe → Developers → Webhooks → Add endpoint, escuchando el evento <span className="font-mono">checkout.session.completed</span>.
-            {WEBHOOK_URL.includes("localhost") && " En desarrollo local usa Stripe CLI (stripe listen) para reenviar los eventos hasta acá."}
+            Cárgalo en Stripe → Developers → Webhooks → Add endpoint, escuchando el evento <span className="font-mono">checkout.session.completed</span>.
+            {WEBHOOK_URL.includes("localhost") && " En desarrollo local usa Stripe CLI (stripe listen) para reenviar los eventos hasta aquí."}
           </p>
         </div>
 

@@ -405,7 +405,7 @@ function OfferModal({ offer, onClose }) {
               className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[14px] outline-none disabled:opacity-50"
             />
             <p className="mt-1 text-[11px] text-outline">
-              A diferencia de las ofertas de vendedores, las del admin no vencen automáticamente salvo que pongas una duración acá.
+              A diferencia de las ofertas de vendedores, las del admin no vencen automáticamente salvo que pongas una duración aquí.
             </p>
             {isEdit && offer.expiresAt && (
               <label className="mt-2 flex items-center gap-2 text-[12px] font-semibold text-on-surface">

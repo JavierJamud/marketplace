@@ -550,7 +550,7 @@ export default function Checkout() {
           <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-6">
             <div className="mb-1.5 text-title-lg font-bold text-on-surface">Cómo vas a coordinar el pago</div>
             <p className="mb-4 text-[12.5px] text-outline">
-              No se cobra nada acá — se arregla directo con la tienda. {siteName} nunca procesa ni recibe pagos.
+              No se cobra nada aquí: se arregla directo con la tienda. {siteName} nunca procesa ni recibe pagos.
             </p>
             <div className="flex flex-col gap-3">
               {PAY_OPTIONS.map((pm) => (

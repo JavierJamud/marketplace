@@ -98,7 +98,7 @@ export function StaleOrderAlert({ vendor, enabled = true, staffSectionPermission
 
         <p className="mb-5 text-[13.5px] leading-relaxed text-on-surface-variant">
           Lleva <strong className="text-on-surface">{order.minutesInStatus} min</strong> registrado como{" "}
-          <strong className="text-on-surface">"{order.reasonLabel}"</strong> sin ningún cambio. Si ya avanzó en la mesa, actualizalo acá
+          <strong className="text-on-surface">"{order.reasonLabel}"</strong> sin ningún cambio. Si ya avanzó en la mesa, actualízalo aquí
           mismo para que el cliente y el resto del equipo vean el estado real en Pedidos.
         </p>
 

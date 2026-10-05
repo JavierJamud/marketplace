@@ -187,7 +187,7 @@ export async function sendTrialExpiringSoonEmail(vendor, daysLeft) {
     type: "TRIAL_EXPIRING_SOON",
     vendorName: vendor.companyName,
     title: "Tu trial Premium vence pronto",
-    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} de Plan Premium gratis. Si te gustó, activá una suscripción desde tu panel antes de que venza para no perder las funciones Premium — tu badge de verificación nunca se pierde, pase lo que pase.`,
+    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} de Plan Premium gratis. Si te gustó, activa una suscripción desde tu panel antes de que venza para no perder las funciones Premium — tu badge de verificación nunca se pierde, pase lo que pase.`,
     ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });

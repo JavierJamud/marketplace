@@ -312,7 +312,7 @@ export default function AdminBranding() {
       {/* Bloque 75 (pedido explícito): número crudo, no un link — lo usa el
           botón "Contactar soporte" que ve un vendedor con la tienda
           bloqueada/suspendida (VendorLayout.jsx) para armar un mensaje de
-          WhatsApp prellenado. Cambiarlo acá actualiza el botón en todos
+          WhatsApp prellenado. Cambiarlo aquí actualiza el botón en todos
           lados de una, sin tocar código. */}
       <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">

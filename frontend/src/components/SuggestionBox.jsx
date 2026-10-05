@@ -32,7 +32,7 @@ export function SuggestionBox() {
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Escribe tu idea o mejora acá..."
+        placeholder="Escribe tu idea o mejora aquí..."
         className="mb-3.5 min-h-[90px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none focus:border-primary-container"
       />
       <Button onClick={() => submit.mutate()} disabled={submit.isPending || message.trim().length < 5}>

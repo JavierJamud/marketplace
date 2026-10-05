@@ -783,7 +783,7 @@ export default function VendorSettings() {
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
           Todo pedido queda siempre disponible en "Mis pedidos" — el cliente completa sus datos antes de enviarlo, sin importar
-          la opción que elijas acá. Esto solo decide qué le mostramos después de que lo confirma.
+          la opción que elijas aquí. Esto solo decide qué le mostramos después de que lo confirma.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {ORDER_DESTINATIONS.map((opt) => {
@@ -1200,7 +1200,7 @@ export default function VendorSettings() {
             de completarlos ella misma. */}
         {vendor?.verificationStatus === "VERIFIED" && (vendor?.ownerIdNumber || vendor?.companyAddress) && (
           <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
-            Tienda verificada — el dato ya cargado no se edita acá. Para corregirlo, solicita un cambio desde "Mi perfil".
+            Tienda verificada — el dato ya cargado no se edita aquí. Para corregirlo, solicita un cambio desde "Mi perfil".
           </p>
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

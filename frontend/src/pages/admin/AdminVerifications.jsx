@@ -610,7 +610,7 @@ export default function AdminVerifications() {
       </div>
       <p className="mb-2 text-[13.5px] text-outline">
         Fase 1: revisa la identidad del responsable y aprueba o rechaza los documentos. Fase 2: resuelve el cobro de la
-        suscripción para activar el badge. El cobro es recurrente — una tienda ya verificada puede volver acá si el pago falla.
+        suscripción para activar el badge. El cobro es recurrente — una tienda ya verificada puede volver aquí si el pago falla.
       </p>
       <div className="mb-4 rounded-md border border-error/20 bg-error/[0.06] px-3.5 py-2.5 text-[12px] text-on-error-container">
         🔒 Datos sensibles: no compartas ni descargues estas imágenes fuera del panel.

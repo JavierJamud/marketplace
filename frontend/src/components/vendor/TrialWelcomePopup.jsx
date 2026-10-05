@@ -79,7 +79,7 @@ export function TrialWelcomePopup({ vendor }) {
             <div className="p-6">
               <h2 className="mb-2 font-display text-[21px] font-bold text-on-surface">¡Tu tienda ya está verificada!</h2>
               <p className="mb-5 text-[13.5px] leading-relaxed text-on-surface-variant">
-                Activaste tu trial gratuito de 30 días del Plan Premium — ya tenés el badge de verificación y todas las
+                Activaste tu trial gratuito de 30 días del Plan Premium — ya tienes el badge de verificación y todas las
                 funciones Premium activas, sin costo.
                 {trialEndsLabel && <> Vence el <strong>{trialEndsLabel}</strong>, te avisamos antes de que termine.</>}
               </p>

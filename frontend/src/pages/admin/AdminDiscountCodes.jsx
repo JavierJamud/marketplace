@@ -62,7 +62,7 @@ export default function AdminDiscountCodes() {
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 
       {!isLoading && !discountCodes?.length && (
-        <EmptyState icon={Percent} title="Todavía no hay códigos de descuento" description="Los códigos que creen los vendedores van a aparecer acá." />
+        <EmptyState icon={Percent} title="Todavía no hay códigos de descuento" description="Los códigos que creen los vendedores van a aparecer aquí." />
       )}
 
       {discountCodes?.length > 0 && (

@@ -57,7 +57,7 @@ export function TrialChecklistBanner({ vendor }) {
         <div className="flex items-center gap-2.5">
           <Sparkles className="h-4 w-4 flex-shrink-0 text-secondary" />
           <span className="text-[13px] font-bold text-on-surface">
-            Completá tu perfil para activar tu trial Premium gratis — {done}/{total}
+            Completa tu perfil para activar tu trial Premium gratis — {done}/{total}
           </span>
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-on-surface-variant" /> : <ChevronDown className="h-4 w-4 text-on-surface-variant" />}

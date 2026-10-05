@@ -49,7 +49,7 @@ export default function AdminStoreOffers() {
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 
       {!isLoading && !storeOffers?.length && (
-        <EmptyState icon={Gift} title="Todavía no hay ofertas de tienda" description="Las ofertas que publiquen los vendedores van a aparecer acá." />
+        <EmptyState icon={Gift} title="Todavía no hay ofertas de tienda" description="Las ofertas que publiquen los vendedores van a aparecer aquí." />
       )}
 
       {storeOffers?.length > 0 && (

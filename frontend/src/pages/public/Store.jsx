@@ -559,7 +559,7 @@ export default function Store() {
           </div>
           {catalogTab === "menu" ? (
             <>
-              <p className="mb-5 text-label-sm text-outline">Para comer en el local o pedir por acá mismo.</p>
+              <p className="mb-5 text-label-sm text-outline">Para comer en el local o pedir por aquí mismo.</p>
               <div className={DIGITAL_MENU_GRID_CLASS}>
                 {menuProducts.map((p) => (
                   <DigitalMenuProductCard

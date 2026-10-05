@@ -73,7 +73,7 @@ export default function VendorFraudReports() {
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Reportes de fraude</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">
-        Si un cliente reportó tu tienda o un producto, lo ves acá. Responde con una explicación (y una foto si tienes) antes de que se venza el plazo.
+        Si un cliente reportó tu tienda o un producto, lo ves aquí. Responde con una explicación (y una foto si tienes) antes de que se venza el plazo.
       </p>
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
@@ -141,7 +141,7 @@ export default function VendorFraudReports() {
                     value={draft.message}
                     onChange={(e) => updateDraft(r.id, { message: e.target.value })}
                     rows={3}
-                    placeholder="Explicá qué pasó (mínimo 10 caracteres)..."
+                    placeholder="Explica qué pasó (mínimo 10 caracteres)..."
                     className="mb-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent"
                   />
                   <div className="flex flex-wrap items-center gap-2">

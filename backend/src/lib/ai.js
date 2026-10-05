@@ -181,7 +181,7 @@ export async function isAIAvailable() {
 export async function generateDescription(kind, context) {
   const providers = await getActiveProviders();
   if (!providers.length) {
-    throw new AppError("La integración de IA no está configurada. Pedile al admin que active un proveedor en Integraciones.", 503);
+    throw new AppError("La integración de IA no está configurada. Pídele al admin que active un proveedor en Integraciones.", 503);
   }
   const { siteName } = await getBrandSettings();
   const prompt = (PROMPTS[kind] ?? PROMPTS.product)({ ...context, siteName });

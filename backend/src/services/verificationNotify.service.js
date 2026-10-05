@@ -82,12 +82,12 @@ const EVENTS = {
   TRIAL_ACTIVATED: {
     title: "¡Tu tienda pasó a Plan Premium — trial gratuito de 30 días!",
     body: () =>
-      "Completaste todo lo necesario y tu tienda ya tiene el badge de verificación y el Plan Premium activo, sin costo, durante 30 días. Cuando falten pocos días te avisamos para que decidas si querés seguir.",
+      "Completaste todo lo necesario y tu tienda ya tiene el badge de verificación y el Plan Premium activo, sin costo, durante 30 días. Cuando falten pocos días te avisamos para que decidas si quieres seguir.",
   },
   TRIAL_EXPIRED: {
     title: "Tu trial Premium de 30 días terminó",
     body: () =>
-      "Tu tienda vuelve al Plan Regular — perdiste las funciones Premium (asistente con IA, destacado en la home, etc.), pero tu badge de verificación sigue activo, eso no se pierde. Podés activar el Plan Premium cuando quieras desde tu panel.",
+      "Tu tienda vuelve al Plan Regular — perdiste las funciones Premium (asistente con IA, destacado en la home, etc.), pero tu badge de verificación sigue activo, eso no se pierde. Puedes activar el Plan Premium cuando quieras desde tu panel.",
   },
   // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
   // nuevo reactiva sin rehacer documentos); SUSPENDED implica que la

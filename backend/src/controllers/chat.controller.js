@@ -325,7 +325,7 @@ async function lookupOrderContext(vendorId, message, userId) {
   const email = typedEmail && typedEmail === ownEmail ? typedEmail : null;
 
   if (typedEmail && !email && !codeMatch) {
-    return `CONSULTA DE PEDIDO: el cliente escribió un correo que NO es el de la sesión con la que está hablando, así que no se consultó nada — los pedidos de otra persona no se muestran nunca. Pedile amablemente que inicie sesión con ese correo y revise "Mis Pedidos", o que te pase el número de pedido (formato Z-XXXX) que le llegó por correo. No inventes ningún estado.`;
+    return `CONSULTA DE PEDIDO: el cliente escribió un correo que NO es el de la sesión con la que está hablando, así que no se consultó nada — los pedidos de otra persona no se muestran nunca. Pídele amablemente que inicie sesión con ese correo y revise "Mis Pedidos", o que te pase el número de pedido (formato Z-XXXX) que le llegó por correo. No inventes ningún estado.`;
   }
   if (!email && !codeMatch) return null;
 

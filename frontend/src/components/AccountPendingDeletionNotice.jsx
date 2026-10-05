@@ -72,7 +72,7 @@ export function AccountPendingDeletionNotice({ scheduledFor, canReactivate = tru
         )}
         <p className="mb-6 text-[13px] leading-relaxed text-on-surface-variant">
           {canReactivate
-            ? "Puedes reactivarla vos mismo en cualquier momento antes de esa fecha — tus datos siguen intactos hasta entonces."
+            ? "Puedes reactivarla tú mismo en cualquier momento antes de esa fecha — tus datos siguen intactos hasta entonces."
             : "Solo el dueño de la cuenta puede reactivarla."}
         </p>
         <div className="flex flex-col gap-2.5">

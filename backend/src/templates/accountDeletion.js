@@ -28,7 +28,7 @@ export async function accountDeletionEmail({ type, fullName, scheduledFor, accou
           ${paragraph(`${greeting}, recibimos tu pedido de eliminar tu cuenta de ${siteName}.`)}
           ${paragraph(`Tu cuenta queda <strong>suspendida ahora mismo</strong> — no es visible ni se puede usar mientras dure este proceso.`)}
           ${paragraph(`Si no haces nada, el <strong>${dateLabel}</strong> se elimina de forma <strong>permanente e irrecuperable</strong>: se borran tus datos personales y no hay forma de volver atrás pasada esa fecha.`)}
-          ${smallNote("¿Te arrepentiste? Puedes reactivarla vos mismo en cualquier momento antes de esa fecha — solo entra a tu cuenta con tu contraseña de siempre y vas a ver un botón para reactivarla.")}
+          ${smallNote("¿Te arrepentiste? Puedes reactivarla tú mismo en cualquier momento antes de esa fecha — solo entra a tu cuenta con tu contraseña de siempre y vas a ver un botón para reactivarla.")}
           ${ctaButton("Entrar a mi cuenta", accountUrl)}
         `,
       }),

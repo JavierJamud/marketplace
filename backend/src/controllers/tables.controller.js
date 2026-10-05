@@ -557,7 +557,7 @@ function findEditableItem(tableOrder, itemId) {
   if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
   if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
   if (tableOrder.kitchenStatus === "RECEIVED") {
-    throw new AppError('Este pedido todavía no fue aceptado — usá "Modificar" para cambiarlo antes de aceptarlo.', 400);
+    throw new AppError('Este pedido todavía no fue aceptado — usa "Modificar" para cambiarlo antes de aceptarlo.', 400);
   }
   const index = tableOrder.items.findIndex((i) => i.id === itemId);
   if (index === -1) throw new AppError("Ese producto ya no está en la cuenta — puede que ya lo hayan quitado.", 404);

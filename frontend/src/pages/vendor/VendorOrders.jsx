@@ -568,7 +568,7 @@ export default function VendorOrders() {
                         key={step}
                         disabled={!isNext}
                         onClick={() => updateKitchen.mutate({ id: o.rawId, status: step })}
-                        title={isConfirmStep ? "Verificá con el cliente en la mesa que el pedido es correcto antes de aceptarlo" : undefined}
+                        title={isConfirmStep ? "Verifica con el cliente en la mesa que el pedido es correcto antes de aceptarlo" : undefined}
                         className={`rounded-[7px] px-2.5 py-1.5 text-[11.5px] font-bold ${
                           isCurrent ? "bg-primary text-white" : isNext ? "bg-surface-container text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container" : "cursor-not-allowed bg-surface-container text-outline/50"
                         }`}

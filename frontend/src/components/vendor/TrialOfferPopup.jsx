@@ -97,7 +97,7 @@ export function TrialOfferPopup({ vendor }) {
                 30 días gratis de {business?.displayName ?? "Premium"}
               </h2>
               <p className="mb-4 text-[13px] text-on-surface-variant">
-                Probá todo sin costo durante 30 días — podés seguir pagando o volver a Regular cuando quieras, sin compromiso.
+                Prueba todo sin costo durante 30 días. Puedes seguir pagando o volver a Regular cuando quieras, sin compromiso.
               </p>
 
               {business?.features?.length > 0 && (

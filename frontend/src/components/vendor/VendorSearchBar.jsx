@@ -167,7 +167,7 @@ export function VendorSearchBar({ vendor, staffSections }) {
         <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-[60] max-h-[70vh] overflow-y-auto rounded-lg border border-surface-container-high bg-surface-container-lowest p-2 shadow-lg">
           {!hasResults && (
             <p className="px-2.5 py-2 text-[12.5px] text-outline">
-              {query.trim().length < 2 ? "Seguí escribiendo..." : "Sin resultados."}
+              {query.trim().length < 2 ? "Sigue escribiendo..." : "Sin resultados."}
             </p>
           )}
 

@@ -124,7 +124,7 @@ export default function AdminFraudReports() {
           <span>Objetivo</span><span>Reportante</span><span>Estado</span><span>Mensaje</span><span>Fecha</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
-        {!isLoading && reports.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay reportes acá.</p>}
+        {!isLoading && reports.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay reportes aquí.</p>}
         {reports.map((r) => {
           const target = targetInfo(r);
           const status = STATUS_LABEL[r.status];

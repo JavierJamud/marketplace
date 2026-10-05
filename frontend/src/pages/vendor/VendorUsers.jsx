@@ -927,7 +927,7 @@ function ReassignModal({ staffList, onClose, initialToId }) {
 
 function CashCloseCompliance({ status }) {
   if (!status?.frequency) {
-    return <p className="text-body-md text-on-surface-variant">Configurá un día de cuadre abajo para ver el cumplimiento acá.</p>;
+    return <p className="text-body-md text-on-surface-variant">Configura un día de cuadre abajo para ver el cumplimiento aquí.</p>;
   }
   return (
     <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
@@ -1456,7 +1456,7 @@ export default function VendorUsers() {
           <div>
             <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Usuarios</h1>
             <p className="text-[13.5px] text-outline">
-              Creá cuentas para tu equipo con acceso solo a las secciones del panel que elijas — cada acción que hagan queda
+              Crea cuentas para tu equipo con acceso solo a las secciones del panel que elijas — cada acción que hagan queda
               registrada a su nombre.
             </p>
           </div>

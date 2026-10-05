@@ -43,7 +43,7 @@ export function DeleteAccountCard() {
         <ShieldAlert className="h-5 w-5 text-error" /> Zona de peligro
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Eliminar tu cuenta la suspende de inmediato por 30 días — puedes reactivarla vos mismo en cualquier momento
+        Eliminar tu cuenta la suspende de inmediato por 30 días — puedes reactivarla tú mismo en cualquier momento
         durante ese plazo. Pasados los 30 días sin reactivarla, se elimina para siempre y no hay forma de recuperarla.
       </p>
       <Button variant="outline" className="rounded-xl border-error text-error hover:bg-error/5" onClick={() => setStep(1)}>
@@ -53,7 +53,7 @@ export function DeleteAccountCard() {
       <ConfirmModal
         open={step === 1}
         title="¿Eliminar tu cuenta?"
-        message="Tu cuenta y (si tienes tienda) tu tienda quedan suspendidas ya mismo por 30 días — dejan de ser visibles y de poder usarse. Podrás reactivarla vos mismo en cualquier momento durante ese plazo con solo volver a entrar."
+        message="Tu cuenta y (si tienes tienda) tu tienda quedan suspendidas ya mismo por 30 días — dejan de ser visibles y de poder usarse. Podrás reactivarla tú mismo en cualquier momento durante ese plazo con solo volver a entrar."
         confirmLabel="Continuar"
         danger
         onConfirm={() => setStep(2)}
@@ -63,7 +63,7 @@ export function DeleteAccountCard() {
       <ConfirmModal
         open={step === 2}
         title="Última confirmación"
-        message="Pasados los 30 días sin reactivarla, tu cuenta se elimina de forma permanente: se borran tus datos personales y no hay ninguna forma de recuperarlos. Escribe tu contraseña para confirmar que sos vos quien pide esto."
+        message="Pasados los 30 días sin reactivarla, tu cuenta se elimina de forma permanente: se borran tus datos personales y no hay ninguna forma de recuperarlos. Escribe tu contraseña para confirmar que eres tú quien lo pide."
         confirmLabel={requestDeletion.isPending ? "Eliminando..." : "Sí, eliminar mi cuenta"}
         danger
         confirmDisabled={!password || requestDeletion.isPending}

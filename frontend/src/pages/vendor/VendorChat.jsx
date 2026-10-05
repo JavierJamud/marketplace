@@ -112,7 +112,7 @@ export default function VendorChat() {
             ))
           ) : (
             <p className="py-6 text-center text-body-md text-on-surface-variant">
-              Todavía no hay mensajes. Escribile al equipo de {siteName} lo que necesites.
+              Todavía no hay mensajes. Escríbele al equipo de {siteName} lo que necesites.
             </p>
           )}
           <div ref={bottomRef} />

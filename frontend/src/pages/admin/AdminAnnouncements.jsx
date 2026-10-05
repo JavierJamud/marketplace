@@ -238,7 +238,7 @@ export default function AdminAnnouncements() {
         Banners programados para el Home o Tiendas del sitio público — solo se muestran dentro de su rango de fechas y con "Activo" encendido.
       </p>
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        💡 Nada acá es solo decorativo: el Home y Tiendas públicos consultan esta lista en vivo, así que crear/editar/desactivar un anuncio se ve reflejado ahí de inmediato.
+        💡 Nada aquí es solo decorativo: el Home y Tiendas públicos consultan esta lista en vivo, así que crear/editar/desactivar un anuncio se ve reflejado ahí de inmediato.
       </div>
 
       <div className="mb-[18px] flex justify-end">

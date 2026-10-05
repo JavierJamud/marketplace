@@ -183,7 +183,7 @@ function initialChipsFor(vendor) {
   if (hasFeatured) pool.push("Ver los más destacados");
   if (hasSchedule) pool.push("¿Qué horario tienen?");
   if (hasPayments) pool.push("¿Cómo puedo pagar?");
-  pool.push("Mostrame el catálogo", "¿Tienen delivery?"); // fallback mínimo si falta dato real
+  pool.push("Muéstrame el catálogo", "¿Tienen delivery?"); // fallback mínimo si falta dato real
 
   return ["¿Qué me recomiendan?", ...pool].slice(0, 3);
 }

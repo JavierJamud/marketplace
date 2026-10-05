@@ -192,7 +192,7 @@ function TableCard({ table, logoDataUrl, tableUrl, canManageTable, canManageOrde
   const regenerateQr = useMutation({
     mutationFn: async () => (await api.post(`/tables/me/${table.id}/regenerate-qr`)).data,
     onSuccess: () => {
-      toast.success("QR regenerado — el anterior dejó de funcionar. Reimprimí el nuevo.");
+      toast.success("QR regenerado — el anterior dejó de funcionar. Reimprime el nuevo.");
       setConfirmAction(null);
       invalidate();
     },

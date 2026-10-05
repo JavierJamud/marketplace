@@ -87,7 +87,7 @@ export default function AdminRankingAnomalies() {
       <p className="mb-4 text-[13.5px] text-outline">
         Ráfagas de reseñas de 5★ desde cuentas nuevas y picos de clics fuera de lo normal, detectados solos por los crons de vigilancia. Ninguna se
         aplica sola — solo levantan bandera para que la revises. Si algo amerita acción real (suspender producto/tienda, ocultar reseñas), hazlo
-        desde Productos, Tiendas o Comentarios y luego márcala como "Ya se actuó" acá.
+        desde Productos, Tiendas o Comentarios y luego márcala como "Ya se actuó" aquí.
       </p>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -114,7 +114,7 @@ export default function AdminRankingAnomalies() {
           <span>Tipo</span><span>Objetivo</span><span>Detalle</span><span>Fecha</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
-        {!isLoading && anomalies.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay anomalías acá.</p>}
+        {!isLoading && anomalies.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay anomalías aquí.</p>}
         {anomalies.map((a) => {
           const target = targetInfo(a);
           const status = STATUS_LABEL[a.status];

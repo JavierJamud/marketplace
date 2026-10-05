@@ -11,7 +11,7 @@ export async function vendorInactivityReminderEmail({ vendor, daysInactive }) {
   const subject = `Hace ${daysInactive} días no entras a tu panel de ${vendor.companyName}`;
   const html = await emailShell({
     preview: `Tu tienda ${vendor.companyName} sigue activa — entra a tu panel cuando quieras`,
-    title: "Te extrañamos por acá",
+    title: "Te extrañamos por aquí",
     badge: { label: "Recordatorio", color: "#8A5100" },
     storeName: siteName,
     bodyMjml: `

@@ -153,7 +153,7 @@ function OwnerNameCard() {
       <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y tú. Nunca se muestra en tu tienda pública.</p>
       {locked && (
         <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
-          Tienda verificada — este dato ya no se edita acá. Para cambiarlo, usa "Solicitar cambio de datos" más abajo.
+          Tienda verificada — este dato ya no se edita aquí. Para cambiarlo, usa "Solicitar cambio de datos" más abajo.
         </p>
       )}
       <Input label="Nombre del responsable" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} disabled={locked} />
@@ -370,7 +370,7 @@ function StoreInfoCard() {
           identidad. */}
       {vendor?.verificationStatus === "VERIFIED" && (
         <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
-          Tienda verificada — el nombre ya no se edita acá. Para cambiarlo, solicita un cambio desde la tarjeta de abajo.
+          Tienda verificada — el nombre ya no se edita aquí. Para cambiarlo, solicita un cambio desde la tarjeta de abajo.
         </p>
       )}
       <div className="flex flex-col gap-4">
