@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { defaultShouldDehydrateQuery } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { Toaster } from "react-hot-toast";
 import App from "./App.jsx";
@@ -25,7 +26,19 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           que un objeto con shape vieja rompa un componente nuevo. */}
       <PersistQueryClientProvider
         client={queryClient}
-        persistOptions={{ persister: queryPersister, maxAge: 24 * 60 * 60 * 1000, buster: "v1" }}
+        persistOptions={{
+          persister: queryPersister,
+          maxAge: 24 * 60 * 60 * 1000,
+          buster: "v1",
+          // Bloque 241: las listas paginadas del admin (clave "admin-list-*")
+          // no se guardan en localStorage — una consulta por cada combinación
+          // de página/filtro/orden, con miles de filas posibles, inflaría el
+          // almacenamiento del navegador (límite ~5MB) y desplazaría el caché
+          // útil del resto del sitio.
+          dehydrateOptions: {
+            shouldDehydrateQuery: (query) => defaultShouldDehydrateQuery(query) && !String(query.queryKey[0]).startsWith("admin-list-"),
+          },
+        }}
       >
         <AuthProvider>
           <LocationProvider>

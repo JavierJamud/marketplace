@@ -549,6 +549,12 @@ model Product {
   rankingAnomalies RankingAnomaly[]
 
   @@unique([vendorId, slug])
+  // Bloque 241: listas paginadas del admin (AdminProducts) y orden por
+  // "más vendidos"/estado — sin estos, cada página hacía un recorrido
+  // completo de la tabla.
+  @@index([vendorId, createdAt])
+  @@index([salesCount])
+  @@index([isActive])
 }
 
 // Bloque 228 (pedido explícito — Fase 1 del blindaje del ranking: "sin esto,
@@ -810,6 +816,10 @@ model User {
   // Bloque 229 (Fase 2): anomalías de ranking que este admin revisó — ver
   // RankingAnomaly más abajo.
   rankingAnomaliesReviewed RankingAnomaly[] @relation("RankingAnomalyReviewedBy")
+
+  // Bloque 241: lista de clientes del admin (filtra por rol y ordena por
+  // fecha de registro con miles de filas).
+  @@index([role, createdAt])
 }
 
 // Bloque 60: reemplaza el refresh token JWT sin estado por uno opaco
@@ -1194,6 +1204,9 @@ model Vendor {
   // reutiliza las señales de la Fase 1"): anomalías detectadas por los
   // crons de reseñas/clics contra esta tienda, ver RankingAnomaly más abajo.
   rankingAnomalies RankingAnomaly[]
+
+  // Bloque 241: lista de tiendas del admin (filtro por plan, orden por fecha).
+  @@index([planType, createdAt])
 }
 
 // Bloque 194 (pedido explícito — "agregar una sección dentro del dashboard
@@ -1597,6 +1610,10 @@ model Order {
   discountCode DiscountCode? @relation(fields: [discountCodeId], references: [id], onDelete: SetNull)
   items    OrderItem[]
   emailLogs EmailLog[]
+
+  // Bloque 241: agregados por tienda en una ventana de fechas (ventas y
+  // pedidos de 30 días en las listas del admin y el asistente).
+  @@index([vendorId, createdAt])
 }
 
 // Historial de emails transaccionales (confirmación, cambio de estado,
