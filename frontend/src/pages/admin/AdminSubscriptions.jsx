@@ -118,6 +118,7 @@ const PLAN_LIMIT_FIELDS = [
 // valida el backend).
 const PLAN_TOGGLE_FIELDS = [
   { key: "allowAiChatbot", label: "Chatbot con IA para clientes" },
+  { key: "allowAiAssistant", label: "Asistente de negocio con IA (solo lectura)" },
   { key: "allowHomeOffers", label: "Ofertas en la Home" },
   { key: "allowStoreOffers", label: "Ofertas dentro de su tienda" },
   { key: "allowDiscountCodes", label: "Códigos de descuento" },

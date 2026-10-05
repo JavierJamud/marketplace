@@ -2,12 +2,13 @@ import { Router } from "express";
 import * as vendorsController from "../controllers/vendors.controller.js";
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as chatController from "../controllers/chat.controller.js";
+import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 import { vendorAiDocUpload } from "../middleware/vendorAiDocUpload.js";
 import { vendorBrandingUpload } from "../middleware/vendorBrandingUpload.js";
-import { chatRateLimit } from "../middleware/rateLimit.js";
+import { chatRateLimit, assistantRateLimit } from "../middleware/rateLimit.js";
 import { kycUpload } from "../middleware/kycUpload.js";
 
 const router = Router();
@@ -63,6 +64,12 @@ router.get("/me/dashboard/sales-series", authenticate, requireVendorAccess("resu
 // Bloque 194: consejos diarios de IA — ver el comentario largo en
 // getVendorDailyTips/vendorDailyTips.service.js.
 router.get("/me/dashboard/tips", authenticate, requireVendorAccess("resumen"), vendorsController.getVendorDailyTips);
+// Bloque 246: asistente de negocio (solo lectura). Solo el dueño (nunca un
+// usuario de sistema) y solo con tienda verificada, plan de pago y el
+// interruptor del plan encendido; el control fino lo hace el controller.
+router.get("/me/assistant", authenticate, requireRole("VENDOR"), businessAssistantController.getVendorAssistant);
+router.post("/me/assistant", authenticate, requireRole("VENDOR"), assistantRateLimit, businessAssistantController.askVendorAssistant);
+router.delete("/me/assistant", authenticate, requireRole("VENDOR"), businessAssistantController.clearVendorAssistant);
 // Horarios/cobertura/entrega — datos de identidad del negocio, nunca
 // delegables a un usuario de sistema (quedan owner/admin-only a propósito).
 router.patch("/me/schedule", authenticate, requireRole("VENDOR"), vendorsController.updateSchedule);

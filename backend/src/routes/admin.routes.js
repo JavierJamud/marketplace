@@ -4,6 +4,8 @@ import * as announcementsController from "../controllers/announcements.controlle
 import * as campaignsController from "../controllers/campaigns.controller.js";
 import * as integrationsController from "../controllers/integrations.controller.js";
 import * as aiModelsController from "../controllers/aiModels.controller.js";
+import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
+import { assistantRateLimit } from "../middleware/rateLimit.js";
 import * as settingsController from "../controllers/settings.controller.js";
 import * as suggestionsController from "../controllers/suggestions.controller.js";
 import * as locationsController from "../controllers/locations.controller.js";
@@ -247,6 +249,10 @@ router.patch("/announcements/:id", siteUpload.single("image"), announcementsCont
 router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 
 // Bloque 43: modelo editable por proveedor de IA (AdminIntegrations.jsx).
+// Bloque 246: asistente de negocio (solo lectura) del admin.
+router.get("/business-assistant", businessAssistantController.getAdminAssistant);
+router.post("/business-assistant", assistantRateLimit, businessAssistantController.askAdminAssistant);
+router.delete("/business-assistant", businessAssistantController.clearAdminAssistant);
 router.get("/ai-models", aiModelsController.listAiModels);
 router.post("/ai-models", aiModelsController.addAiModel);
 router.patch("/ai-models/:id", aiModelsController.updateAiModel);

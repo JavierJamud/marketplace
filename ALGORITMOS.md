@@ -189,6 +189,37 @@ minutos (`jobs/aiChatbotAvailability.job.js`) y el chequeo diario de las 3am
 Un modelo que vuelve solo manda un aviso de "vuelve a responder". Solo se
 vigilan modelos activos.
 
+### B6b. Asistente de negocio con IA (solo lectura) — `services/businessAssistant.service.js`
+
+Chat para el admin (`/admin/asistente-negocio`) y para el dueño de una tienda
+verificada con plan de pago (`/vendedor/asistente`). **Solo lee y recomienda**:
+no hay herramientas de escritura, y cuando algo debe cambiarse responde con un
+botón a la pantalla exacta.
+
+Las librerías de IA no tienen llamadas a funciones, así que el modelo responde
+un JSON por vuelta: `{"tool","args"}` para pedir un dato o `{"final","links"}`
+para responder (hasta 4 consultas por pregunta). El backend valida el nombre
+de la herramienta contra una lista blanca por ámbito y los argumentos con zod,
+la ejecuta (`lib/assistantTools.js`) y se la devuelve a la IA como **dato**, no
+como instrucciones (nombres de productos y reseñas son texto de terceros).
+
+- Vendedor: el `vendorId` sale de la sesión, ninguna herramienta lo acepta
+  como argumento. Cifras iguales a las del Dashboard (reusa
+  `computeVendorHealthScore`, `topSellingProducts`, `engagementSignals`,
+  `bestSellingWeekday` y el motor de series de `lib/salesSeries.js`; el "hoy"
+  es el día UTC, igual que la gráfica).
+- Admin: lectura de toda la plataforma. `resumen_plataforma` ejecuta el mismo
+  `getDashboard` del panel, no una copia. Sin correos, teléfonos, claves ni
+  documentos de verificación en ninguna herramienta.
+- Los enlaces se validan contra la lista real de rutas del panel
+  (`LINKS_BY_SCOPE`); una ruta inventada se descarta.
+- Acceso del vendedor: dueño (no usuario de sistema) + tienda verificada +
+  plan de pago activo + `PlanConfig.allowAiAssistant` encendido (Suscripciones).
+- Usa la cadena de respaldo entre modelos de B6; con todas las IA caídas
+  responde 503 "no está disponible" y no guarda la pregunta.
+- Historial: `AssistantMessage`, últimas 10 vueltas, separado por ámbito,
+  usuario y tienda.
+
 ### B7. Recordatorio de cierre de caja — `jobs/cashCloseReminder.job.js`
 
 `runCashCloseReminderJob()` (línea 40): para vendedores con un cierre de caja

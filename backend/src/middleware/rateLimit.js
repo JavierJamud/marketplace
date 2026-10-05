@@ -76,3 +76,14 @@ export const reportRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Demasiados reportes seguidos. Prueba de nuevo en unos minutos." },
 });
+
+// Bloque 246: cada mensaje al asistente de negocio consume varias consultas a
+// la IA (una por herramienta más la respuesta) con la clave del admin: un tope
+// por IP evita que un script la vacíe, y es generoso para una charla real.
+export const assistantRateLimit = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas preguntas seguidas al asistente. Espera unos minutos y prueba de nuevo." },
+});

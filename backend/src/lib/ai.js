@@ -188,6 +188,21 @@ export async function generateDescription(kind, context) {
   return callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "La IA no pudo generar el texto — prueba de nuevo en un momento.");
 }
 
+// Bloque 246: texto libre de IA para el asistente de negocio — misma cadena de
+// respaldo entre modelos que el resto (si un modelo cae, sigue con el
+// siguiente y la autorreparación se entera). Devuelve el texto crudo; quien lo
+// llama valida el formato. Con ninguna IA disponible lanza un 503 claro y no
+// un error genérico, para que el panel pueda decir "no disponible ahora".
+export async function generateRawText(prompt) {
+  const providers = await getActiveProviders();
+  if (!providers.length) throw new AppError("El asistente no está disponible en este momento: no hay ninguna IA activa.", 503);
+  try {
+    return await callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "El asistente no pudo responder.");
+  } catch (err) {
+    throw new AppError("El asistente no está disponible en este momento porque la IA no respondió. Prueba de nuevo en unos minutos.", 503, { detail: err?.details?.detail });
+  }
+}
+
 // Bloque 52 (bug real reportado en vivo): último recurso de la barra de
 // búsqueda cuando ni unaccent()+ILIKE (tildes/mayúsculas) encontró nada —
 // probablemente un typo real (ver search.controller.js). A diferencia de

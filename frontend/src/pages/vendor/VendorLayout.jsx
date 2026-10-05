@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, MessageSquareText } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -55,6 +55,10 @@ const NAV = [
   { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart, section: "pedidos" },
   { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas" },
   { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck, ownerOnly: true },
+  // Bloque 246: asistente de negocio con IA — solo el dueño (son consejos sobre
+  // todo el negocio, nunca delegable a un usuario de sistema). Si la tienda no
+  // es verificada o su plan no lo incluye, la propia pantalla lo explica.
+  { to: "/vendedor/asistente", label: "Asistente de negocio", icon: MessageSquareText, ownerOnly: true },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes" },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star, section: "resenas" },
   // Feature B (pedido explícito): badge propio (fraudReportsPendingCount)

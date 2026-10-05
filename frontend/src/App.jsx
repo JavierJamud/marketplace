@@ -65,6 +65,8 @@ import AdminSubscriptions from "./pages/admin/AdminSubscriptions.jsx";
 import AdminAnnouncements from "./pages/admin/AdminAnnouncements.jsx";
 import AdminIntegrations from "./pages/admin/AdminIntegrations.jsx";
 import AdminAssistant from "./pages/admin/AdminAssistant.jsx";
+import AdminBusinessAssistant from "./pages/admin/AdminBusinessAssistant.jsx";
+import VendorAssistant from "./pages/vendor/VendorAssistant.jsx";
 import AdminErrors from "./pages/admin/AdminErrors.jsx";
 import AdminChat from "./pages/admin/AdminChat.jsx";
 import AdminLocations from "./pages/admin/AdminLocations.jsx";
@@ -203,6 +205,7 @@ export default function App() {
         <Route path="resenas" element={<VendorReviews />} />
         <Route path="reportes" element={<VendorFraudReports />} />
         <Route path="ventas-manuales" element={<VendorManualSales />} />
+        <Route path="asistente" element={<VendorAssistant />} />
         <Route path="configuracion" element={<VendorSettings />} />
         {/* Bloque 183: gestión de usuarios de sistema — nunca delegable
             (VendorLayout.jsx la saca del NAV para un VENDOR_STAFF, y el
@@ -248,6 +251,7 @@ export default function App() {
         <Route path="integraciones" element={<AdminIntegrations />} />
         <Route path="marca" element={<AdminBranding />} />
         <Route path="asistente" element={<AdminAssistant />} />
+        <Route path="asistente-negocio" element={<AdminBusinessAssistant />} />
         <Route path="errores" element={<AdminErrors />} />
         <Route path="ubicaciones" element={<AdminLocations />} />
         <Route path="categorias" element={<AdminCategories />} />

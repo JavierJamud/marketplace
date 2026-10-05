@@ -985,6 +985,10 @@ model PlanConfig {
 
   // --- Interruptores de función ----------------------------------------
   allowAiChatbot      Boolean @default(true)
+  // Bloque 246: asistente de negocio con IA (solo lectura) dentro del panel del
+  // vendedor. Apagado por defecto: es una función de pago, el admin la enciende
+  // por plan en Suscripciones.
+  allowAiAssistant    Boolean @default(false)
   allowHomeOffers     Boolean @default(true)
   allowStoreOffers    Boolean @default(true)
   allowDiscountCodes  Boolean @default(true)
@@ -2451,6 +2455,31 @@ model AiModelConfig {
 
   @@unique([provider, model])
   @@index([provider, priority])
+}
+
+// Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
+// para los vendedores verificados): historial de la conversación. Solo guarda
+// lo que se dijo; el asistente NO escribe nada en el negocio (solo lee y
+// recomienda), así que no hay acciones que auditar acá. `scope` separa la
+// conversación del admin de la de cada tienda, y `vendorId` la ata a UNA
+// tienda para que el contexto de un negocio nunca se mezcle con otro.
+enum AssistantScope {
+  ADMIN
+  VENDOR
+}
+
+model AssistantMessage {
+  id        String         @id @default(cuid())
+  scope     AssistantScope
+  userId    String
+  vendorId  String?
+  role      String // "user" | "assistant"
+  content   String         @db.Text
+  toolsUsed String[]       @default([]) // nombres de herramientas de lectura que usó para esta respuesta
+  links     Json? // [{ path, label }] ya validados contra la lista de rutas reales
+  createdAt DateTime       @default(now())
+
+  @@index([scope, userId, vendorId, createdAt])
 }
 
 // Bloque 238 + 245: estado cacheado de salud de cada MODELO de IA
