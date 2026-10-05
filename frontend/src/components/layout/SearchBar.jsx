@@ -41,8 +41,15 @@ export function SearchBar() {
     function onClickOutside(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     }
+    function onKeyDown(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   useEffect(() => {
@@ -101,21 +108,25 @@ export function SearchBar() {
 
   return (
     <div ref={ref} className="relative flex-1">
-      <form onSubmit={handleSubmit} className="flex h-10 items-center gap-2 rounded bg-white/10 px-3.5">
+      {/* Bloque 239: alto 44px (R-03) — dentro de la píldora flotante de
+          Header.jsx el input ocupa todo el alto y la lupa es un botón de
+          44px, así tocar en cualquier parte de la barra enfoca/envía. */}
+      <form onSubmit={handleSubmit} className="flex h-11 items-center rounded-xl bg-white/10 pl-3.5 pr-0.5 focus-within:ring-2 focus-within:ring-white/40">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => (results.length > 0 || vendorResults.length > 0) && setOpen(true)}
           placeholder="Buscar productos, tiendas..."
-          className="w-full min-w-0 border-none bg-transparent text-[13px] text-white outline-none placeholder:text-white/50"
+          aria-label="Buscar productos y tiendas"
+          className="h-full w-full min-w-0 border-none bg-transparent text-[13px] text-white outline-none placeholder:text-white/85"
         />
-        <button type="submit" aria-label="Buscar" className="flex-shrink-0 text-white/60 hover:text-white">
+        <button type="submit" aria-label="Buscar" className="flex h-11 w-10 flex-shrink-0 items-center justify-center text-white/70 hover:text-white">
           <Search className="h-4 w-4" />
         </button>
       </form>
 
       {open && (
-        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-[460px] overflow-y-auto rounded-md border border-surface-container-high bg-surface-container-lowest shadow-lg">
+        <div className="absolute left-0 right-0 top-[calc(100%+14px)] z-50 max-h-[460px] overflow-y-auto rounded-md border border-surface-container-high bg-surface-container-lowest shadow-lg">
           {/* Bloque 30: chip de filtro rápido — visible siempre que el
               dropdown está abierto, así se puede activar/desactivar sin
               perder lo ya escrito. Re-dispara la búsqueda (ver el useEffect

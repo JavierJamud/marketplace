@@ -9,7 +9,7 @@ import { SearchBar } from "./SearchBar.jsx";
 function Logo() {
   const { siteName, logoUrl } = usePlatformSettings();
   return (
-    <Link to="/" className="flex flex-shrink-0 items-center gap-2.5">
+    <Link to="/" aria-label={siteName} className="flex h-11 min-w-11 flex-shrink-0 items-center justify-center gap-2.5">
       {logoUrl ? (
         <img src={logoUrl} alt={siteName} className="h-[34px] w-[34px] flex-shrink-0 rounded object-cover" />
       ) : (
@@ -37,8 +37,15 @@ function AccountMenu({ user, accountHref, panelLabel }) {
     function onClickOutside(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     }
+    function onKeyDown(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   // Bloque 46 (pedido explícito — "vamos a eliminar el botón de vender
@@ -53,7 +60,7 @@ function AccountMenu({ user, accountHref, panelLabel }) {
       <Link
         to="/cuenta"
         aria-label="Iniciar sesión o crear cuenta"
-        className="flex items-center gap-1.5 whitespace-nowrap rounded bg-secondary-container px-2.5 py-2.5 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
+        className="flex h-11 items-center gap-1.5 whitespace-nowrap rounded-xl bg-secondary-container px-3 text-[13px] font-bold text-on-secondary-container hover:brightness-95 sm:px-4"
       >
         <User className="h-4 w-4" />
         <span className="hidden sm:inline">Iniciar sesión</span>
@@ -71,7 +78,12 @@ function AccountMenu({ user, accountHref, panelLabel }) {
 
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen((o) => !o)} aria-label="Mi cuenta" className="flex items-center text-white/85 hover:text-white">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Mi cuenta"
+        aria-expanded={open}
+        className="flex h-11 w-11 items-center justify-center rounded-xl text-white/85 hover:bg-white/10 hover:text-white"
+      >
         <User className="h-5 w-5" />
       </button>
       {open && (
@@ -99,21 +111,18 @@ function AccountMenu({ user, accountHref, panelLabel }) {
   );
 }
 
-// Bloque 50 (pedido explícito — "cuando cargue la página la barra de menú
-// será transparente... solo se le da color cuando se empieza a deslizar la
-// página hacia abajo"): SOLO en el Home — el resto de páginas (Catálogo,
-// Producto, Tienda, Carrito, etc.) tienen fondo claro justo debajo del
-// header, donde un header transparente dejaría los íconos blancos casi
-// invisibles. El Home sí tiene un hero oscuro pegado arriba (Home.jsx,
-// Bloque 53: bg-primary sólido, el MISMO color que el footer — antes era un
-// degradado de primary-container a primary) — mismo bg-primary que usa este
-// header sólido, así el color coincide sin ningún salto al pasar de
-// transparente a sólido. El header SIGUE siendo sticky
-// (reserva su espacio real de siempre, layout intacto en todas las demás
-// páginas) — lo que cambia es solo su fondo; Home.jsx compensa con un
-// margen negativo + padding igual a la altura del header para que el fondo
-// del hero se extienda "detrás" del header transparente sin mover ni un
-// píxel el contenido real de adentro (ver el comentario en Home.jsx).
+// Bloque 239 (pedido explícito — "la barra de menú flotante, con bordes
+// redondeados y un estilo glass"): el <header> sigue siendo sticky y sigue
+// reservando sus 76px reales en el flujo (Home.jsx:194 estira el hero detrás
+// con -mt-[76px]/pt-[76px], Shop.jsx:127 y Checkout.jsx:579 cuelgan sus
+// sticky de esa altura) — por eso NO se toca ninguno de esos offsets. Lo que
+// flota es la píldora de adentro: 8px de aire arriba y 60px de alto.
+// Único elemento con blur de toda la barra (dosis de vidrio: 1 elemento,
+// mismo criterio que VendorLayout.jsx:505). Arriba del todo en el Home la
+// píldora es un velo claro (bg-white/10) sobre el hero navy, donde el blur
+// no tiene nada que desenfocar; en cuanto hay contenido claro debajo
+// (scroll en el Home, o cualquier otra página) pasa a bg-primary/75: texto
+// blanco sobre esa mezcla mide más de 6:1 aun sobre blanco puro (R-25).
 const HEADER_SCROLL_THRESHOLD = 8;
 
 export function Header() {
@@ -138,40 +147,42 @@ export function Header() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [isHome]);
 
-  const transparent = isHome && !scrolled;
+  const atTopOfHome = isHome && !scrolled;
 
   const accountHref = !user ? "/cuenta" : user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
   const panelLabel = user?.role === "ADMIN" ? "Panel de administración" : user?.role === "VENDOR" ? "Panel de vendedor" : "Mi cuenta";
 
   return (
-    <header
-      className={`sticky top-0 z-50 transition-colors duration-300 ${
-        transparent ? "bg-transparent shadow-none" : "bg-primary shadow-[0_2px_12px_rgba(0,0,0,0.12)]"
-      }`}
-    >
-      <div className="container-app flex h-[76px] items-center gap-4 lg:gap-[22px]">
-        <Logo />
+    <header className="pointer-events-none sticky top-0 z-50 h-[76px]">
+      <div className="container-app pt-2">
+        <div
+          className={`pointer-events-auto flex h-[60px] items-center gap-2 rounded-2xl border border-white/15 px-3 shadow-[0_8px_30px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors duration-300 sm:gap-3 sm:px-4 lg:gap-[22px] ${
+            atTopOfHome ? "bg-white/10" : "bg-primary/75"
+          }`}
+        >
+          <Logo />
 
-        <SearchBar />
+          <SearchBar />
 
-        <div className="flex flex-shrink-0 items-center gap-4">
-          <button
-            type="button"
-            onClick={openCart}
-            aria-label="Ver carrito"
-            className="relative flex items-center text-white/90 hover:text-white"
-          >
-            <ShoppingCart key={bump} className="h-[22px] w-[22px] animate-cart-bump" />
-            {count > 0 && (
-              <span
-                key={`badge-${bump}`}
-                className="absolute -right-2.5 -top-2 flex h-[17px] min-w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container px-1 text-[10px] font-bold text-white"
-              >
-                {count > 99 ? "99+" : count}
-              </span>
-            )}
-          </button>
-          <AccountMenu user={user} accountHref={accountHref} panelLabel={panelLabel} />
+          <div className="flex flex-shrink-0 items-center gap-1 sm:gap-2">
+            <button
+              type="button"
+              onClick={openCart}
+              aria-label="Ver carrito"
+              className="relative flex h-11 w-11 items-center justify-center rounded-xl text-white/90 hover:bg-white/10 hover:text-white"
+            >
+              <ShoppingCart key={bump} className="h-[22px] w-[22px] animate-cart-bump" />
+              {count > 0 && (
+                <span
+                  key={`badge-${bump}`}
+                  className="absolute right-0.5 top-0.5 flex h-[17px] min-w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container px-1 text-[10px] font-bold text-white"
+                >
+                  {count > 99 ? "99+" : count}
+                </span>
+              )}
+            </button>
+            <AccountMenu user={user} accountHref={accountHref} panelLabel={panelLabel} />
+          </div>
         </div>
       </div>
     </header>
