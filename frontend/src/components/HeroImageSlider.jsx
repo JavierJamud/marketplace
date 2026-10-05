@@ -10,7 +10,7 @@ import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 // 1 imagen) también saltan a una puntual con un clic.
 const AUTOPLAY_MS = 5000;
 
-export function HeroImageSlider({ images, alt }) {
+export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[340px]" }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [hovered, setHovered] = useState(false);
   // Bloque 248 (auditoría 004, hallazgo 9): sin autoplay si el sistema pide
@@ -32,11 +32,11 @@ export function HeroImageSlider({ images, alt }) {
   // Sin ninguna imagen cargada: se reserva el mismo espacio del recuadro
   // (transparente, Bloque 95) en vez de no renderizar nada — así el layout
   // de 2 columnas del hero no se desarma si el admin todavía no subió nada.
-  if (images.length === 0) return <div className="h-[320px] rounded-xl lg:h-[340px]" />;
+  if (images.length === 0) return <div className={`${heightClass} rounded-xl`} />;
 
   return (
     <div className="flex flex-col" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
-      <div className="relative h-[320px] overflow-hidden rounded-xl lg:h-[340px]">
+      <div className={`relative ${heightClass} overflow-hidden rounded-xl`}>
         {images.map((url, i) => (
           <img
             key={url}

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";
-import { InfiniteMarquee } from "./InfiniteMarquee.jsx";
+import { StepCarousel } from "./StepCarousel.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -140,12 +140,9 @@ function OfferCard({ offer }) {
 }
 
 // Bloque 154 (pedido explícito): "Ofertas de la semana" es un carrusel que se
-// desliza solo. Bloque 251 (pedido explícito): ahora usa el desplazamiento
-// infinito continuo de InfiniteMarquee, igual que las tiendas verificadas: una
-// sola dirección, las ofertas que ya pasaron vuelven a entrar por el final y no
-// queda un hueco blanco. Se quitó el botón de pausa; se detiene al pasar el
-// mouse y no se anima con "reducir movimiento". La sección duplicada del
-// Bloque 154 ya no existe, así que `reverse` desapareció.
+// mueve solo. Bloque 252 (pedido explícito): no es un desplazamiento constante
+// sino que pasa de UNA oferta a la vez cada cierto tiempo (StepCarousel), en una
+// sola dirección y sin hueco blanco al final, igual que las tiendas verificadas.
 export function OffersSlider({ offers }) {
   if (!offers?.length) return null;
 
@@ -158,7 +155,7 @@ export function OffersSlider({ offers }) {
   }
 
   return (
-    <InfiniteMarquee
+    <StepCarousel
       items={offers}
       getKey={(o) => o.id}
       renderItem={(o) => (
@@ -166,8 +163,9 @@ export function OffersSlider({ offers }) {
           <OfferCard offer={o} />
         </div>
       )}
-      itemClassName="w-[88vw] px-2 sm:w-[46vw] lg:w-[410px]"
-      secondsPerItem={6}
+      itemClassName="w-full px-1.5 sm:w-1/2 sm:px-2 lg:w-1/3"
+      stepClassName="[--slide-step:100%] sm:[--slide-step:50%] lg:[--slide-step:33.3333%]"
+      intervalMs={4500}
       label="Ofertas de la semana"
     />
   );

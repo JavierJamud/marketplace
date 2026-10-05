@@ -138,6 +138,10 @@ function featuredVisibility(index) {
 
 export default function Home() {
   const { provinceId, provinceName, hasProvinceFilter, loading: zoneLoading } = useZone();
+  // Bloque 252: el slider de imágenes del hero va a la derecha en escritorio y,
+  // en celular, debajo del párrafo. Se monta uno solo según el ancho (no dos
+  // con uno oculto: duplicarían el autoplay y la carga de imágenes).
+  const isLargeScreen = useMediaQuery("(min-width: 1024px)");
 
   const { data: businessCategories } = useQuery({
     queryKey: ["business-categories"],
@@ -191,6 +195,14 @@ export default function Home() {
               <p className="mb-6 max-w-[500px] text-body-lg text-white/75 md:mb-7">
                 Productos, comida y servicios de tiendas locales. Pide directo por WhatsApp, paga contra entrega o por transferencia.
               </p>
+              {/* Bloque 252 (pedido explícito): en celular las imágenes del slider
+                  van justo debajo del texto del hero (en la auditoría 004 se
+                  habían ocultado ahí por altura; el dueño las quiere visibles). */}
+              {!isLargeScreen && (
+                <div className="mb-6">
+                  <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} heightClass="h-[220px] sm:h-[300px]" />
+                </div>
+              )}
               <div className="flex flex-wrap gap-3.5">
                 <Link
                   to="/catalogo"
@@ -207,11 +219,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* El slider de imágenes es decoración de escritorio: en celular
-                empujaba el siguiente bloque casi 400px más abajo. */}
-            <div className="hidden lg:block">
-              <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />
-            </div>
+            {isLargeScreen && <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />}
           </div>
         </section>
 
