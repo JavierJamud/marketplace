@@ -57,7 +57,14 @@ function describeFetchFailure(err) {
 // grande (200) para minimizar cuántas vueltas hacen falta en la práctica.
 const MODELS_PAGE_SIZE = 200;
 
-export async function listGeminiModelsDetailed({ apiKey }) {
+// Bloque 263: TODOS los modelos que lista Gemini, con lo que la API sí sabe de cada
+// uno (métodos soportados, nombre y descripción), para clasificarlos por tipo.
+export async function listGeminiModelsCatalog({ apiKey }) {
+  const allModels = await fetchAllGeminiModels(apiKey);
+  return allModels.map((m) => ({ id: m.name.replace(/^models\//, ""), methods: m.supportedGenerationMethods ?? [], description: m.displayName ? `${m.displayName}${m.description ? `: ${String(m.description).slice(0, 160)}` : ""}` : null, contextWindow: m.inputTokenLimit ?? null }));
+}
+
+async function fetchAllGeminiModels(apiKey) {
   const allModels = [];
   let pageToken = "";
   do {
@@ -76,6 +83,11 @@ export async function listGeminiModelsDetailed({ apiKey }) {
     allModels.push(...(data?.models ?? []));
     pageToken = data?.nextPageToken ?? "";
   } while (pageToken);
+  return allModels;
+}
+
+export async function listGeminiModelsDetailed({ apiKey }) {
+  const allModels = await fetchAllGeminiModels(apiKey);
 
   // Bloque 245: Gemini no publica fecha de creación (solo un campo `version`
   // sin formato fijo), así que no se devuelve `created`: el orden de "más

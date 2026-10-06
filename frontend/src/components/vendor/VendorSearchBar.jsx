@@ -232,7 +232,8 @@ export function VendorSearchBar({ vendor, staffSections }) {
               {visibleProducts.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => goToSection("/vendedor/productos")}
+                  // Bloque 263: abre ESE producto para editarlo, no solo la lista.
+                  onClick={() => goToSection(`/vendedor/productos?editar=${p.id}`)}
                   className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-on-surface hover:bg-surface-container"
                 >
                   <span className="flex items-center gap-2 truncate">

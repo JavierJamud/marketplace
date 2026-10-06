@@ -3,7 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "./integrations.controller.js";
 import { AI_PROVIDER_NAMES, DEFAULT_MODELS, getAllEffectiveModels } from "../lib/aiModels.js";
-import { PROVIDERS, probeModel, errorDetailOf } from "../lib/aiModelRepair.js";
+import { PROVIDERS, probeModel, errorDetailOf, classifyFailure } from "../lib/aiModelRepair.js";
+import { friendlyModelError, markModelUnavailable, clearModelUnavailable } from "../lib/aiModelCatalog.js";
 import { getModelHealthRows, deleteModelHealth } from "../lib/aiProviderHealth.js";
 
 // Bloque 245 (pedido explícito): cada proveedor de IA puede tener uno o varios
@@ -62,8 +63,14 @@ export async function addAiModel(req, res) {
     ms = await probeModel(provider, apiKey, model);
   } catch (err) {
     const detail = errorDetailOf(err);
-    throw new AppError(`${PROVIDERS[provider].label} no respondió con el modelo "${model}": ${detail}`, 502, { detail });
+    const kind = classifyFailure(detail).kind;
+    // Bloque 263: el cuerpo crudo del proveedor (un JSON largo) no le dice nada al
+    // admin; se explica en una frase, y si el modelo no existe para esta cuenta
+    // se marca en la lista para no volver a intentarlo.
+    if (kind === "gone") markModelUnavailable(provider, model, detail);
+    throw new AppError(friendlyModelError(PROVIDERS[provider].label, model, kind), 502, { detail });
   }
+  clearModelUnavailable(provider, model);
 
   const created = await prisma.$transaction(async (tx) => {
     const rows = await tx.aiModelConfig.findMany({ where: { provider }, orderBy: { priority: "asc" } });

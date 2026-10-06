@@ -1,9 +1,9 @@
 import { prisma } from "./prisma.js";
 import { notifyAdminActionNeeded } from "./adminNotify.js";
 import { logError } from "./errorLog.js";
-import { generateWithGemini, listGeminiModels, listGeminiModelsDetailed, DEFAULT_MODEL as GEMINI_DEFAULT } from "./gemini.js";
-import { generateWithGroq, listGroqModels, listGroqModelsDetailed, DEFAULT_MODEL as GROQ_DEFAULT } from "./groq.js";
-import { generateWithNvidia, listNvidiaModels, listNvidiaModelsDetailed, DEFAULT_MODEL as NVIDIA_DEFAULT } from "./nvidia.js";
+import { generateWithGemini, listGeminiModels, listGeminiModelsDetailed, listGeminiModelsCatalog, DEFAULT_MODEL as GEMINI_DEFAULT } from "./gemini.js";
+import { generateWithGroq, listGroqModels, listGroqModelsDetailed, listGroqModelsCatalog, DEFAULT_MODEL as GROQ_DEFAULT } from "./groq.js";
+import { generateWithNvidia, listNvidiaModels, listNvidiaModelsDetailed, listNvidiaModelsCatalog, DEFAULT_MODEL as NVIDIA_DEFAULT } from "./nvidia.js";
 import { rankNewestFirst } from "./aiModelRanking.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
 import { getModelHealth, getModelHealthRows, upsertModelHealth, patchModelHealth, deleteModelHealth } from "./aiProviderHealth.js";
@@ -44,11 +44,21 @@ const MAX_REPAIR_FAILURE_NOTICES = 3;
 // Un pedido real que falla dispara un chequeo; una ráfaga de pedidos
 // fallando contra el mismo modelo no debe disparar 50 pruebas en paralelo.
 const LIVE_RECHECK_COOLDOWN_MS = 60 * 1000;
+// Bloque 263 (pedido explícito — "a cada rato me llegan correos de que se cayó un
+// modelo"): causa real medida en la base: un modelo lento como el de NVIDIA
+// (4 a 100 s) falla UNA prueba por timeout, se marcaba caído y mandaba correo; la
+// prueba siguiente (2 minutos después) respondía bien y mandaba otro de
+// "resuelto". Decenas de correos al día por un modelo que solo es inestable.
+// Ahora un fallo pasajero (timeout, red, cuota) solo cuenta como caída tras
+// este número de fallos SEGUIDOS; un fallo permanente (modelo dado de baja,
+// clave inválida) se atiende de inmediato porque no se arregla solo.
+const FAILURES_BEFORE_DOWN = 3;
+const failureStreak = new Map();
 
 export const PROVIDERS = {
-  gemini: { generate: generateWithGemini, list: listGeminiModels, listDetailed: listGeminiModelsDetailed, defaultModel: GEMINI_DEFAULT, label: "Gemini" },
-  groq: { generate: generateWithGroq, list: listGroqModels, listDetailed: listGroqModelsDetailed, defaultModel: GROQ_DEFAULT, label: "Groq" },
-  nvidia: { generate: generateWithNvidia, list: listNvidiaModels, listDetailed: listNvidiaModelsDetailed, defaultModel: NVIDIA_DEFAULT, label: "NVIDIA NIM" },
+  gemini: { generate: generateWithGemini, list: listGeminiModels, listDetailed: listGeminiModelsDetailed, catalog: listGeminiModelsCatalog, defaultModel: GEMINI_DEFAULT, label: "Gemini" },
+  groq: { generate: generateWithGroq, list: listGroqModels, listDetailed: listGroqModelsDetailed, catalog: listGroqModelsCatalog, defaultModel: GROQ_DEFAULT, label: "Groq" },
+  nvidia: { generate: generateWithNvidia, list: listNvidiaModels, listDetailed: listNvidiaModelsDetailed, catalog: listNvidiaModelsCatalog, defaultModel: NVIDIA_DEFAULT, label: "NVIDIA NIM" },
 };
 
 // ai.js registra acá la función que le consulta a OTRA IA del sistema. Va
@@ -265,14 +275,11 @@ async function handleConfirmedFailure({ provider, apiKey, model, errorDetail, fo
   // El problema es la clave, no el modelo: cambiar de modelo no lo arregla.
   if (failure.kind === "auth") return { status: "down", outcome: "auth_problem" };
 
-  // Un fallo pasajero (cuota, red) con otro modelo sano del mismo proveedor ya
-  // está cubierto por el respaldo: no se agrega un modelo nuevo por ruido.
-  // Solo un modelo dado de baja justifica reemplazarlo aun habiendo otros.
-  if (failure.kind !== "gone") {
-    const siblings = await prisma.aiModelConfig.findMany({ where: { provider, isActive: true, model: { not: model } } });
-    const siblingHealth = await Promise.all(siblings.map((s) => getModelHealth(provider, s.model)));
-    if (siblingHealth.some((h) => h?.status === "healthy")) return { status: "down", outcome: "covered_by_sibling" };
-  }
+  // Bloque 263: cambiar de modelo SOLO arregla un modelo dado de baja (404/410).
+  // Un fallo pasajero (timeout, red, cuota, 5xx) se arregla solo: reemplazar el
+  // modelo por eso es lo que generaba los correos de "no se pudo reparar". Se
+  // queda marcado caído (el chat usa los otros) hasta que vuelva a responder.
+  if (failure.kind !== "gone") return { status: "down", outcome: "waiting_recovery" };
 
   const due = force || !row.lastRepairAttemptAt || Date.now() - row.lastRepairAttemptAt.getTime() >= REPAIR_RETRY_MS;
   if (!due) return { status: "down", outcome: "waiting_retry" };
@@ -311,8 +318,15 @@ export async function checkModel({ provider, apiKey, model, trigger = "proactive
       // modelo por ruido pasajero.
       ms = await probeModel(provider, apiKey, model);
     } catch (err) {
-      return await handleConfirmedFailure({ provider, apiKey, model, errorDetail: errorDetailOf(err), force: trigger === "daily" });
+      const errorDetail = errorDetailOf(err);
+      const permanent = ["gone", "auth"].includes(classifyFailure(errorDetail).kind);
+      const streak = (failureStreak.get(key) ?? 0) + 1;
+      failureStreak.set(key, streak);
+      // Un fallo pasajero suelto no es una caída: se espera a confirmarlo.
+      if (!permanent && streak < FAILURES_BEFORE_DOWN) return { status: "suspect", outcome: "waiting_confirmation", streak };
+      return await handleConfirmedFailure({ provider, apiKey, model, errorDetail, force: trigger === "daily" });
     }
+    failureStreak.delete(key);
     const previous = await getModelHealth(provider, model);
     await upsertModelHealth(provider, model, {
       status: "healthy",

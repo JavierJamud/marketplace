@@ -48,7 +48,6 @@ export const productSchema = z.object({
   // `stock` deja de ser obligatorio/relevante en todo el sistema (ver
   // assertStockModeConsistent más abajo y los bypass en orders.controller.js).
   unlimitedStock: z.boolean().optional().default(false),
-  barcode: z.string().optional(),
   badge: z.string().optional().nullable(),
   // "table" no es seleccionable desde el form (VendorProducts.jsx no lo
   // ofrece como checkbox) — lo trae únicamente el menú de restaurante
@@ -632,13 +631,6 @@ export async function trackProductDwell(req, res) {
   const { ms } = trackDwellSchema.parse(req.body ?? {});
   await prisma.product.updateMany({ where: { id }, data: { totalDwellMs: { increment: Math.min(ms, MAX_DWELL_MS) } } });
   res.status(204).end();
-}
-
-export async function lookupByBarcode(req, res) {
-  const { barcode } = req.params;
-  const product = await prisma.product.findFirst({ where: { barcode }, include: { vendor: true } });
-  if (!product) throw new AppError("Producto no encontrado.", 404);
-  res.json({ product: { ...product, vendor: withComputedVendorFields(product.vendor) } });
 }
 
 // --- Panel de vendedor: CRUD de MIS productos (vendorId siempre resuelto

@@ -63,12 +63,21 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
   // nombre mal escrito ya tumbó a Groq con un 404 una vez.
   const listQuery = useQuery({
     queryKey: ["provider-models", provider],
-    queryFn: async () => (await api.get(`/admin/integrations/${provider}/models`)).data.models,
+    queryFn: async () => (await api.get(`/admin/integrations/${provider}/models`)).data,
     enabled: !!integration,
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    // Bloque 263 (pedido explícito — modelos "actualizados en tiempo real"): la lista
+    // se vuelve a pedir a la API al abrir el panel, al volver a la pestaña y cada
+    // 5 minutos, nunca se muestra una lista vieja de hace horas.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 5 * 60 * 1000,
   });
-  const options = (listQuery.data ?? []).filter((m) => !configured.has(m));
+  const catalog = listQuery.data?.catalog ?? [];
+  const categories = listQuery.data?.categories ?? [];
+  const catalogById = new Map(catalog.map((m) => [m.id, m]));
+  const options = catalog.filter((m) => !configured.has(m.id));
+  const pickedInfo = catalogById.get(pick) ?? null;
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
   const onError = (fallback) => (err) => toast.error(err.response?.data?.error ?? fallback, { duration: 8000 });
@@ -103,7 +112,7 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
   });
 
   const busy = add.isPending || toggle.isPending || move.isPending || remove.isPending;
-  const candidate = (options.length > 0 || listQuery.isSuccess ? pick : typed).trim();
+  const candidate = (listQuery.isSuccess ? pick : typed).trim();
 
   return (
     <div className="mt-4">
@@ -136,7 +145,15 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="break-all font-mono text-[12.5px] font-semibold text-on-surface">{m.model}</span>
                     <SourceBadge source={m.source} />
+                    {listQuery.isSuccess && !catalogById.has(m.model) && (
+                      <span className="rounded-full bg-error/10 px-2 py-0.5 text-[10.5px] font-bold text-error">Ya no aparece en la API</span>
+                    )}
                   </div>
+                  {catalogById.get(m.model) && (
+                    <p className="mt-0.5 text-[11.5px] text-on-surface-variant">
+                      <span className="font-semibold">{catalogById.get(m.model).label}.</span> {catalogById.get(m.model).description ?? catalogById.get(m.model).purpose}
+                    </p>
+                  )}
                   <div className="mt-1">
                     <ModelHealth model={m} />
                   </div>
@@ -218,11 +235,20 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
               className="h-11 min-w-0 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 font-mono text-[12.5px] outline-none md:h-[38px]"
             >
               <option value="">Elige un modelo de la lista real</option>
-              {options.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
+              {categories.map((cat) => {
+                const inCat = options.filter((m) => m.category === cat.id);
+                if (inCat.length === 0) return null;
+                return (
+                  <optgroup key={cat.id} label={`${cat.label} (${inCat.length})`}>
+                    {inCat.map((m) => (
+                      <option key={m.id} value={m.id} disabled={!m.addable || m.unavailable}>
+                        {m.id}
+                        {m.unavailable ? "  (no disponible en tu cuenta)" : !m.addable ? "  (no sirve para el chat)" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </select>
           ) : (
             <input
@@ -245,6 +271,18 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
             {add.isPending ? "Verificando..." : "Agregar"}
           </button>
         </div>
+        {pickedInfo && (
+          <p className="mt-1.5 rounded-lg bg-surface-container px-3 py-2 text-[12px] text-on-surface-variant">
+            <span className="font-semibold text-on-surface">{pickedInfo.label}.</span> {pickedInfo.description ?? pickedInfo.purpose}
+            {pickedInfo.owner ? ` Publicado por ${pickedInfo.owner}.` : ""}
+            {pickedInfo.contextWindow ? ` Memoria de ${Number(pickedInfo.contextWindow).toLocaleString("es-CU")} tokens.` : ""}
+          </p>
+        )}
+        {listQuery.isSuccess && (
+          <p className="mt-1.5 text-[11.5px] text-outline">
+            La plataforma usa hoy modelos de <span className="font-semibold">Texto</span> (chat, asistentes, descripciones) y <span className="font-semibold">Audio</span> (voz a texto con Whisper de Groq). Los de <span className="font-semibold">Texto + imagen</span> servirán para analizar tiendas y páginas. Imagen, video, embeddings y moderación aparecen para que sepas qué ofrece la API, pero no se agregan al chat. Lista consultada a la API hace un momento ({catalog.length} modelos).
+          </p>
+        )}
         {!integration && <p className="mt-1 text-[11.5px] text-outline">Guarda la clave primero para elegir de la lista real de modelos.</p>}
         {integration && listQuery.isError && <p className="mt-1 text-[11.5px] text-error">No se pudo consultar la lista de modelos. Escribe el nombre a mano.</p>}
         <p className="mt-1 text-[11.5px] text-outline">Antes de guardarlo se le hace una consulta real: si no responde, no se agrega.</p>

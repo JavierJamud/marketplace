@@ -201,6 +201,22 @@ minutos (`jobs/aiChatbotAvailability.job.js`) y el chequeo diario de las 3am
 Un modelo que vuelve solo manda un aviso de "vuelve a responder". Solo se
 vigilan modelos activos.
 
+Antirrebote (Bloque 263): un fallo pasajero (timeout, red, cuota, 5xx) solo cuenta
+como caída tras 3 fallos SEGUIDOS (`FAILURES_BEFORE_DOWN`); un fallo permanente
+(modelo dado de baja, clave inválida) se atiende de inmediato. Cambiar de modelo
+solo se intenta cuando el modelo fue dado de baja: un fallo pasajero no dispara
+reparación. Antes, un modelo lento como el de NVIDIA fallaba una prueba por
+timeout, se marcaba caído y mandaba correo, y 2 minutos después mandaba otro de
+"resuelto" (decenas de correos al día).
+
+Catálogo de modelos (`lib/aiModelCatalog.js`): la lista que ve el admin se pide a
+la API en vivo y cada modelo se clasifica por tipo (texto, texto + imagen, audio
+voz a texto, audio texto a voz, imagen, video, embeddings, moderación, código,
+otro) con su propósito. Solo texto y texto + imagen se pueden agregar a la cadena
+del chat; los demás se muestran de forma informativa. Un modelo que la API lista
+pero que falla con 404 para esta cuenta se marca "no disponible" (en memoria,
+12 horas) y el error se explica en una frase.
+
 ### B6b. Asistente de negocio con IA (solo lectura) — `services/businessAssistant.service.js`
 
 Botón flotante en forma de píldora (`BusinessAssistantWidget`) montado en todas

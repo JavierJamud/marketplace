@@ -2,11 +2,12 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
-import { listNvidiaModels, generateWithNvidia, DEFAULT_MODEL as NVIDIA_DEFAULT_MODEL } from "../lib/nvidia.js";
-import { listGroqModels, generateWithGroq, DEFAULT_MODEL as GROQ_DEFAULT_MODEL } from "../lib/groq.js";
-import { listGeminiModels, generateWithGemini, DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from "../lib/gemini.js";
+import { listNvidiaModels, listNvidiaModelsCatalog, generateWithNvidia, DEFAULT_MODEL as NVIDIA_DEFAULT_MODEL } from "../lib/nvidia.js";
+import { listGroqModels, listGroqModelsCatalog, generateWithGroq, DEFAULT_MODEL as GROQ_DEFAULT_MODEL } from "../lib/groq.js";
+import { listGeminiModels, listGeminiModelsCatalog, generateWithGemini, DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from "../lib/gemini.js";
 import { sendAdminDirectEmail } from "../lib/email.js";
 import { getEffectiveActiveModels } from "../lib/aiModels.js";
+import { classifyModel, getUnavailableModel, CATEGORIES, CATEGORY_ORDER } from "../lib/aiModelCatalog.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
 // Stripe, lo que se agregue después) — primeros 4 + últimos 4 caracteres a
@@ -174,6 +175,7 @@ export async function toggleIntegration(req, res) {
 // los muestra como <select>. Lee la key aunque el proveedor esté
 // "Inactivo" (a diferencia de getDecryptedCredential): el admin puede
 // querer ver qué modelos hay ANTES de activarlo.
+const MODEL_CATALOGS = { nvidia: listNvidiaModelsCatalog, groq: listGroqModelsCatalog, gemini: listGeminiModelsCatalog };
 const MODEL_LISTERS = { nvidia: listNvidiaModels, groq: listGroqModels, gemini: listGeminiModels };
 
 export async function listProviderModels(req, res) {
@@ -186,7 +188,18 @@ export async function listProviderModels(req, res) {
   if (!apiKey) throw new AppError("Guarda la clave de este proveedor primero.", 400);
 
   const models = await lister({ apiKey });
-  res.json({ models });
+  // Bloque 263: además de los nombres (compatibilidad), el catálogo clasificado por
+  // tipo y propósito, leído en vivo de la API cada vez, con los modelos que ya se
+  // comprobó que no están disponibles para esta cuenta marcados como tales.
+  const catalogRaw = await MODEL_CATALOGS[name]({ apiKey });
+  const catalog = catalogRaw
+    .map((m) => {
+      const info = classifyModel(name, m.id, m);
+      const bad = getUnavailableModel(name, m.id);
+      return { ...info, unavailable: !!bad, unavailableReason: bad?.reason ?? null };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+  res.json({ models, catalog, categories: CATEGORY_ORDER.map((id) => ({ id, label: CATEGORIES[id].label, purpose: CATEGORIES[id].purpose, usedNow: CATEGORIES[id].usedNow })), fetchedAt: new Date().toISOString() });
 }
 
 // Bloque 86 (pedido explícito, con reporte real en vivo de "el correo no

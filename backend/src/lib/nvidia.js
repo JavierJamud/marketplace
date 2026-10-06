@@ -209,6 +209,22 @@ export async function listNvidiaModelsDetailed({ apiKey }) {
   return (data?.data ?? []).map((m) => ({ id: m.id, created: null }));
 }
 
+// Bloque 263: NVIDIA solo informa el nombre y quién lo publica.
+export async function listNvidiaModelsCatalog({ apiKey }) {
+  let res;
+  try {
+    res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (err) {
+    throw new AppError("No se pudo conectar con NVIDIA NIM para listar modelos.", 500, { detail: describeFetchFailure(err) });
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new AppError(`NVIDIA NIM devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
+  }
+  const data = await res.json();
+  return (data?.data ?? []).map((m) => ({ id: m.id, owner: m.owned_by ?? null }));
+}
+
 export async function listNvidiaModels({ apiKey }) {
   return (await listNvidiaModelsDetailed({ apiKey })).map((m) => m.id).sort();
 }

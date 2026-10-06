@@ -77,6 +77,23 @@ export async function listGroqModelsDetailed({ apiKey }) {
   return (data?.data ?? []).map((m) => ({ id: m.id, created: typeof m.created === "number" && m.created > 0 ? m.created : null }));
 }
 
+// Bloque 263: catálogo con lo que Groq sí informa (quién lo publica, ventana de
+// contexto y si está activo; los inactivos ya no responden).
+export async function listGroqModelsCatalog({ apiKey }) {
+  let res;
+  try {
+    res = await fetch(MODELS_API_BASE, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (err) {
+    throw new AppError("No se pudo conectar con Groq para listar modelos.", 500, { detail: describeFetchFailure(err) });
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new AppError(`Groq devolvió un error (${res.status}) listando modelos.`, 500, { detail: body.slice(0, 300) });
+  }
+  const data = await res.json();
+  return (data?.data ?? []).filter((m) => m.active !== false).map((m) => ({ id: m.id, owner: m.owned_by ?? null, contextWindow: m.context_window ?? null }));
+}
+
 export async function listGroqModels({ apiKey }) {
   return (await listGroqModelsDetailed({ apiKey })).map((m) => m.id).sort();
 }

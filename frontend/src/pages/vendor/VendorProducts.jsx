@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Pencil, Trash2, ScanBarcode, X, ArrowUpDown, Star, Ruler, Layers, Package } from "lucide-react";
+import { Pencil, Trash2, X, ArrowUpDown, Star, Ruler, Layers, Package } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
@@ -54,22 +54,6 @@ const LOW_STOCK_THRESHOLD = 3;
 // p-4), reutilizado acá en vez de inventar un tercer estilo.
 const SECTION_BOX = "rounded-xl border border-surface-container-high bg-surface-container/30 p-4";
 
-const STATUS_STYLE = {
-  active: { background: "rgba(12,174,83,0.12)", color: "#0A8F42" },
-  low: { background: "rgba(138,81,0,0.12)", color: "#8a5100" },
-  out: { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
-  paused: { background: "rgba(117,119,124,0.12)", color: "#75777c" },
-  unlimited: { background: "rgba(0,105,181,0.12)", color: "#0069b5" },
-  "no-photos": { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
-};
-const STATUS_LABEL = {
-  active: "Activo",
-  low: "Stock bajo",
-  out: "Sin stock",
-  paused: "Pausado",
-  unlimited: "Siempre disponible",
-  "no-photos": "Sin fotos (pausado)",
-};
 const ROW_TINT = {
   out: "bg-[#ba1a1a]/[0.03]",
   low: "bg-[#8a5100]/[0.04]",
@@ -90,6 +74,33 @@ function stockStatus(p) {
   return "active";
 }
 
+// Bloque 263 (pedido explícito — "agrupar mejor los productos identificados como
+// más vendidos, stock bajo y todo eso en etiquetas de colores, y especificar arriba
+// qué es cada etiqueta"): una sola definición de cada etiqueta (color, nombre y
+// qué significa) que usan la leyenda de arriba, los títulos de cada grupo y las
+// etiquetas de cada producto, para que nunca digan cosas distintas. Los colores
+// llevan texto oscuro sobre fondo claro (contraste AA) y el significado nunca va
+// solo en el color: siempre está el nombre escrito.
+const TOP_SELLERS = 3;
+const TAGS = {
+  top: { label: "Más vendido", meaning: `Está entre los ${TOP_SELLERS} productos con más unidades vendidas de tu tienda.`, style: { background: "rgba(8,122,56,0.14)", color: "#075F2D" } },
+  low: { label: "Stock bajo", meaning: `Quedan ${LOW_STOCK_THRESHOLD} unidades o menos: conviene reponerlo pronto.`, style: { background: "rgba(138,81,0,0.14)", color: "#7A4700" } },
+  out: { label: "Sin stock", meaning: "Agotado: tus clientes no lo ven en el Home ni en el catálogo, solo en tu tienda como \"próximamente\".", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
+  unlimited: { label: "Siempre disponible", meaning: "No lleva control de stock: siempre se puede pedir.", style: { background: "rgba(0,105,181,0.12)", color: "#005A9C" } },
+  paused: { label: "Pausado", meaning: "Tus clientes no lo ven hasta que lo actives.", style: { background: "rgba(90,92,96,0.14)", color: "#4A4C50" } },
+  "no-photos": { label: "Sin fotos (pausado)", meaning: "Un producto necesita al menos una foto para publicarse.", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
+  active: { label: "En venta", meaning: "Publicado y con stock suficiente.", style: { background: "rgba(12,174,83,0.12)", color: "#0A7A3A" } },
+};
+// Orden de los grupos y a cuál pertenece cada producto (el primero que cumpla).
+const GROUPS = [
+  { id: "top", title: "Más vendidos" },
+  { id: "low", title: "Stock bajo" },
+  { id: "out", title: "Sin stock" },
+  { id: "paused", title: "Pausados" },
+  { id: "unlimited", title: "Siempre disponibles" },
+  { id: "active", title: "En venta" },
+];
+
 const EMPTY_FORM = {
   name: "",
   description: "",
@@ -98,7 +109,6 @@ const EMPTY_FORM = {
   oldPrice: "",
   stock: "0",
   unlimitedStock: false,
-  barcode: "",
   badge: "Nuevo",
   currency: "USD",
   paymentMethods: ["whatsapp"],
@@ -112,7 +122,7 @@ const EMPTY_FORM = {
   priceTiers: [],
 };
 
-function ProductModal({ product, prefillBarcode, planType, isRestaurant, categories, onClose, vendorCurrency }) {
+function ProductModal({ product, planType, isRestaurant, categories, onClose, vendorCurrency }) {
   const queryClient = useQueryClient();
   // Bloque 66: a diferencia de savedProduct (que pasa a existir tanto para
   // un producto editado COMO para uno recién creado en esta misma sesión de
@@ -149,7 +159,6 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           oldPrice: product.oldPrice ? String(product.oldPrice) : "",
           stock: String(product.stock),
           unlimitedStock: product.unlimitedStock ?? false,
-          barcode: product.barcode ?? "",
           badge: product.badge ?? "",
           currency: product.currency ?? "USD",
           paymentMethods: product.paymentMethods,
@@ -162,7 +171,7 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
           sizeStock: product.sizeStock ?? {},
           priceTiers: (product.priceTiers ?? []).map((t) => ({ minQty: String(t.minQty), price: String(t.price) })),
         }
-      : { ...EMPTY_FORM, barcode: prefillBarcode ?? "", currency: vendorCurrency ?? "CUP" }
+      : { ...EMPTY_FORM, currency: vendorCurrency ?? "CUP" }
   );
   const [tagInput, setTagInput] = useState("");
   const [sizeInput, setSizeInput] = useState("");
@@ -289,7 +298,6 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
         // como referencia, no hace daño.
         stock: Number(form.stock),
         unlimitedStock: form.unlimitedStock,
-        barcode: form.barcode || undefined,
         badge: form.badge || null,
         paymentMethods: form.paymentMethods,
         availableForTableMenu: form.availableForTableMenu,
@@ -550,12 +558,6 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
               {!sizesEnabled && !form.unlimitedStock && (
                 <Input label="Stock" type="number" min={0} required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
               )}
-              <Input
-                label="Código de barras"
-                value={form.barcode}
-                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-                className={sizesEnabled || form.unlimitedStock ? "col-span-2" : ""}
-              />
             </div>
 
             {!sizesEnabled && (
@@ -983,9 +985,10 @@ function ProductModal({ product, prefillBarcode, planType, isRestaurant, categor
 export default function VendorProducts() {
   const { vendor } = useOutletContext();
   const queryClient = useQueryClient();
-  const [modalState, setModalState] = useState(null); // null | { mode: "new", barcode? } | { mode: "edit", product }
+  const [modalState, setModalState] = useState(null); // null | { mode: "new" } | { mode: "edit", product }
   const [deleteTarget, setDeleteTarget] = useState(null); // producto a eliminar, para el modal de confirmación
-  const [stockFilter, setStockFilter] = useState("all"); // all | low | out
+  const [stockFilter, setStockFilter] = useState("all"); // all | top | low | out | paused
+  const [searchParams, setSearchParams] = useSearchParams();
   const [requestSortDesc, setRequestSortDesc] = useState(true);
 
   const { data, isLoading } = useQuery({
@@ -1011,10 +1014,18 @@ export default function VendorProducts() {
     },
   });
 
-  function handleScanBarcode() {
-    const code = window.prompt("Código de barras escaneado:");
-    if (code) setModalState({ mode: "new", barcode: code });
-  }
+  // Bloque 263 (pedido explícito): al elegir un producto en el buscador del panel
+  // se llega con ?editar=<id> y se abre directamente ese producto para editarlo.
+  const editId = searchParams.get("editar");
+  useEffect(() => {
+    if (!editId || isLoading) return;
+    const target = (data?.products ?? []).find((p) => p.id === editId);
+    if (target) setModalState({ mode: "edit", product: target });
+    else toast.error("Ese producto ya no existe.");
+    const next = new URLSearchParams(searchParams);
+    next.delete("editar");
+    setSearchParams(next, { replace: true });
+  }, [editId, isLoading, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function closeModal() {
     setModalState(null);
@@ -1030,9 +1041,35 @@ export default function VendorProducts() {
   const lowStockCount = products.filter((p) => stockStatus(p) === "low").length;
   const outOfStockCount = products.filter((p) => stockStatus(p) === "out").length;
 
+  // Los más vendidos: los TOP_SELLERS con más unidades vendidas (y al menos una).
+  const topSellerIds = new Set(
+    [...products]
+      .filter((p) => (p.salesCount ?? 0) > 0)
+      .sort((a, b) => b.salesCount - a.salesCount)
+      .slice(0, TOP_SELLERS)
+      .map((p) => p.id)
+  );
+  // Un producto puede tener varias etiquetas (p. ej. más vendido Y con stock bajo).
+  function tagsOf(p) {
+    const status = stockStatus(p);
+    const tags = [];
+    if (topSellerIds.has(p.id)) tags.push("top");
+    tags.push(status);
+    return tags;
+  }
+  function groupOf(p) {
+    const status = stockStatus(p);
+    if (status === "paused" || status === "no-photos") return "paused";
+    if (topSellerIds.has(p.id)) return "top";
+    return status;
+  }
+  const pausedCount = products.filter((p) => groupOf(p) === "paused").length;
+
   const filteredProducts =
-    stockFilter === "low" ? products.filter((p) => stockStatus(p) === "low")
+    stockFilter === "top" ? products.filter((p) => topSellerIds.has(p.id))
+    : stockFilter === "low" ? products.filter((p) => stockStatus(p) === "low")
     : stockFilter === "out" ? products.filter((p) => stockStatus(p) === "out")
+    : stockFilter === "paused" ? products.filter((p) => groupOf(p) === "paused")
     : products;
 
   // El conteo de solicitudes solo importa (y solo se muestra como columna)
@@ -1050,8 +1087,10 @@ export default function VendorProducts() {
 
   const TABS = [
     { id: "all", label: "Todos", count: products.length },
+    { id: "top", label: "Más vendidos", count: topSellerIds.size },
     { id: "low", label: "Stock bajo", count: lowStockCount },
     { id: "out", label: "Sin stock", count: outOfStockCount },
+    { id: "paused", label: "Pausados", count: pausedCount },
   ];
 
   return (
@@ -1068,12 +1107,6 @@ export default function VendorProducts() {
         </div>
         <div className="flex flex-wrap gap-2.5">
           <button
-            onClick={handleScanBarcode}
-            className="flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant"
-          >
-            <ScanBarcode className="h-4 w-4" /> Escanear código
-          </button>
-          <button
             onClick={() => (atLimit ? toast.error(`Alcanzaste el límite de ${data.limit} productos del Plan Regular.`) : setModalState({ mode: "new" }))}
             className="rounded-full bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
           >
@@ -1082,7 +1115,25 @@ export default function VendorProducts() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-2">
+      {/* Leyenda: qué significa cada etiqueta de color (mismos nombres y colores que
+          los títulos de grupo y las etiquetas de cada producto). */}
+      <div className="mb-4 rounded-xl border border-surface-container-high/70 bg-surface-container-lowest p-3.5">
+        <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-outline">Qué significa cada etiqueta</p>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+          {["top", "low", "out", "paused", "unlimited", "active"].map((id) => (
+            <div key={id} className="flex items-start gap-2">
+              <dt className="flex-shrink-0">
+                <span className="inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={TAGS[id].style}>
+                  {TAGS[id].label}
+                </span>
+              </dt>
+              <dd className="pt-0.5 text-[12px] leading-4 text-on-surface-variant">{TAGS[id].meaning}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -1107,7 +1158,7 @@ export default function VendorProducts() {
       <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         <div className="min-w-[720px]">
           <div className={`grid ${gridCols} gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline`}>
-            <span>Producto</span><span>Precio</span><span>Stock</span><span>Estado</span>
+            <span>Producto</span><span>Precio</span><span>Stock</span><span>Etiquetas</span>
             {stockFilter === "out" && (
               <button
                 onClick={() => setRequestSortDesc((d) => !d)}
@@ -1124,52 +1175,75 @@ export default function VendorProducts() {
           {!isLoading && products.length > 0 && visibleProducts.length === 0 && (
             <p className="p-5 text-body-md text-on-surface-variant">Ningún producto coincide con este filtro.</p>
           )}
-          {visibleProducts.map((p) => {
-            const status = stockStatus(p);
-            return (
+          {(() => {
+            const renderRow = (p) => {
+              const status = stockStatus(p);
+              return (
               <div
-                key={p.id}
-                className={`grid ${gridCols} items-center gap-3 border-t border-surface-container px-[22px] py-3.5 ${ROW_TINT[status]}`}
-              >
-                <div className="flex items-center gap-3">
-                  {p.images?.[0] ? (
-                    <img src={imgUrl(p.images[0])} alt="" className="h-11 w-11 flex-shrink-0 rounded-[9px] object-cover" />
-                  ) : (
-                    <div className="h-11 w-11 flex-shrink-0 rounded-[9px] bg-surface-container" />
-                  )}
-                  <div>
-                    <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-on-surface">
-                      {p.name}
-                      {p.sizes?.length > 0 && (
-                        <span title={`Tallas: ${p.sizes.join(", ")}`} className="rounded-full bg-tertiary-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold text-tertiary-accent">
-                          {p.sizes.length} tallas
-                        </span>
-                      )}
+                  key={p.id}
+                  className={`grid ${gridCols} items-center gap-3 border-t border-surface-container px-[22px] py-3.5 ${ROW_TINT[status]}`}
+                >
+                  <div className="flex items-center gap-3">
+                    {p.images?.[0] ? (
+                      <img src={imgUrl(p.images[0])} alt="" className="h-11 w-11 flex-shrink-0 rounded-[9px] object-cover" />
+                    ) : (
+                      <div className="h-11 w-11 flex-shrink-0 rounded-[9px] bg-surface-container" />
+                    )}
+                    <div>
+                      <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-on-surface">
+                        {p.name}
+                        {p.sizes?.length > 0 && (
+                          <span title={`Tallas: ${p.sizes.join(", ")}`} className="rounded-full bg-tertiary-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold text-tertiary-accent">
+                            {p.sizes.length} tallas
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11.5px] text-outline">{p.category?.name ?? "Sin categoría"}</div>
                     </div>
-                    <div className="text-[11.5px] text-outline">Cód: {p.barcode ?? "—"}</div>
+                  </div>
+                  <span className="text-[13.5px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
+                  <span className="text-[13.5px] text-on-surface-variant">{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
+                  <span className="flex flex-wrap gap-1.5">
+                    {tagsOf(p).map((tag) => (
+                      <span key={tag} className="w-fit whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={TAGS[tag].style}>
+                        {TAGS[tag].label}
+                      </span>
+                    ))}
+                  </span>
+                  {stockFilter === "out" && (
+                    <span className="text-[13.5px] font-bold text-on-surface">
+                      {p._count?.requests ?? 0} {p._count?.requests === 1 ? "pedido" : "pedidos"}
+                    </span>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setModalState({ mode: "edit", product: p })} aria-label={`Editar ${p.name}`} title="Editar producto" className="text-tertiary-accent">
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => setDeleteTarget(p)} aria-label={`Eliminar ${p.name}`} title="Eliminar producto" className="text-error">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
-                <span className="text-[13.5px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-                <span className="text-[13.5px] text-on-surface-variant">{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
-                <span className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={STATUS_STYLE[status]}>
-                  {STATUS_LABEL[status]}
-                </span>
-                {stockFilter === "out" && (
-                  <span className="text-[13.5px] font-bold text-on-surface">
-                    {p._count?.requests ?? 0} {p._count?.requests === 1 ? "pedido" : "pedidos"}
-                  </span>
-                )}
-                <div className="flex justify-end gap-2">
-                  <button onClick={() => setModalState({ mode: "edit", product: p })} aria-label={`Editar ${p.name}`} title="Editar producto" className="text-tertiary-accent">
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => setDeleteTarget(p)} aria-label={`Eliminar ${p.name}`} title="Eliminar producto" className="text-error">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+              );
+            };
+            // "Todos" se muestra agrupado; cada filtro, como una sola lista.
+            if (stockFilter !== "all") return visibleProducts.map(renderRow);
+            return GROUPS.map((g) => {
+              const inGroup = visibleProducts.filter((p) => groupOf(p) === g.id);
+              if (inGroup.length === 0) return null;
+              return (
+                <div key={g.id}>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-surface-container bg-surface-container-low/60 px-[22px] py-2.5">
+                    <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={TAGS[g.id].style}>
+                      {g.title} ({inGroup.length})
+                    </span>
+                    <span className="text-[12px] text-on-surface-variant">{TAGS[g.id].meaning}</span>
+                  </div>
+                  {inGroup.map(renderRow)}
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
 
@@ -1180,7 +1254,6 @@ export default function VendorProducts() {
       {modalState && (
         <ProductModal
           product={modalState.mode === "edit" ? modalState.product : null}
-          prefillBarcode={modalState.barcode}
           planType={data?.planType}
           isRestaurant={vendor?.isRestaurant}
           categories={categories}

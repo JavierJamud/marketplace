@@ -37,7 +37,6 @@ router.post("/:id/images/link", authenticate, requireVendorWrite("productos"), p
 router.patch("/:id/images/reorder", authenticate, requireVendorWrite("productos"), productsController.reorderProductImages);
 
 // Públicas
-router.get("/barcode/:barcode", productsController.lookupByBarcode);
 // Bloque 109 (pedido explícito): antes era pública para visitantes
 // anónimos (guestId) — ahora exige sesión real, así el vendedor siempre
 // recibe un cliente identificable al que puede contactar cuando reponga.
