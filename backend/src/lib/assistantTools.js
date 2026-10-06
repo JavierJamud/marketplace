@@ -9,8 +9,9 @@ import { getModelHealthRows } from "./aiProviderHealth.js";
 import { getProviderCooldowns } from "./aiProviderCooldown.js";
 import {
   DAY_MS, clip, money, planAndSubscription, accountActivity, algorithmRules, algorithmPosition, productsList, productDetail,
-  inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown,
+  inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown, customersRanking, orderDetail,
 } from "./assistantData.js";
+import { makeQueryTool } from "./assistantQuery.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA que "lee toda la
 // base de datos, estadísticas y algoritmos" y solo recomienda): registro de
@@ -99,7 +100,7 @@ const VENDOR_TOOLS = {
         salesSince(vendorId, new Date(Date.now() - 7 * DAY_MS)),
         salesSince(vendorId, new Date(Date.now() - 30 * DAY_MS)),
         prisma.order.count({ where: { vendorId, status: "NEW" } }),
-        prisma.tableOrder.count({ where: { table: { vendorId }, kitchenStatus: "RECEIVED" } }),
+        prisma.tableOrder.count({ where: { table: { vendorId }, kitchenStatus: "RECEIVED", cancelledAt: null } }),
         prisma.product.count({ where: { vendorId, isActive: true } }),
         prisma.review.aggregate({ where: { vendorId, rating: { not: null }, isHidden: false }, _count: { rating: true } }),
         computeVendorHealthScore(vendorId, new Date(Date.now() - 30 * DAY_MS)),
@@ -112,7 +113,8 @@ const VENDOR_TOOLS = {
         hoy,
         ultimos7dias: d7,
         ultimos30dias: d30,
-        pedidosPorAtender: newOrders + newTableOrders,
+        pedidosNuevosSinAtender: newOrders + newTableOrders,
+        notaPedidosNuevos: "Cuenta los pedidos en estado NUEVO (y los de mesa recibidos sin cancelar). Si es 0 no hay ninguno pendiente: no afirmes lo contrario.",
         productosActivos: activeProducts,
         valoracion: { promedio: Number(vendor.rating), resenas: reviews._count.rating },
         salud: health,
@@ -131,7 +133,7 @@ const VENDOR_TOOLS = {
     schema: z.object({ periodo: periodSchema, limite: limitSchema(10, 5) }),
     async run({ periodo, limite }, { vendorId }) {
       const rows = await topSellingProducts(vendorId, sinceForPeriod(periodo), limite);
-      return { periodo, productos: rows.map((p) => ({ nombre: clip(p.name, 80), unidadesVendidas: p.soldCount })) };
+      return { periodo, productos: rows.map((p) => ({ id: p.id, nombre: clip(p.name, 80), unidadesVendidas: p.soldCount })) };
     },
   },
   productos_sin_ventas: {
@@ -153,7 +155,7 @@ const VENDOR_TOOLS = {
         productos: candidates
           .filter((p) => !soldIds.has(p.id))
           .slice(0, 10)
-          .map((p) => ({ nombre: clip(p.name, 80), stock: p.unlimitedStock ? "siempre disponible" : p.stock, vistas: p.viewCount, clics: p.clickCount })),
+          .map((p) => ({ id: p.id, nombre: clip(p.name, 80), stock: p.unlimitedStock ? "siempre disponible" : p.stock, vistas: p.viewCount, clics: p.clickCount })),
       };
     },
   },
@@ -164,13 +166,13 @@ const VENDOR_TOOLS = {
     async run(_args, { vendorId }) {
       const base = { vendorId, isActive: true, unlimitedStock: false };
       const [low, out] = await Promise.all([
-        prisma.product.findMany({ where: { ...base, stock: { gt: 0, lte: LOW_STOCK_THRESHOLD } }, orderBy: { stock: "asc" }, select: { name: true, stock: true }, take: 15 }),
-        prisma.product.findMany({ where: { ...base, stock: { lte: 0 } }, orderBy: { createdAt: "desc" }, select: { name: true }, take: 15 }),
+        prisma.product.findMany({ where: { ...base, stock: { gt: 0, lte: LOW_STOCK_THRESHOLD } }, orderBy: { stock: "asc" }, select: { id: true, name: true, stock: true }, take: 15 }),
+        prisma.product.findMany({ where: { ...base, stock: { lte: 0 } }, orderBy: { createdAt: "desc" }, select: { id: true, name: true }, take: 15 }),
       ]);
       return {
         umbralPocoStock: LOW_STOCK_THRESHOLD,
-        pocoStock: low.map((p) => ({ nombre: clip(p.name, 80), stock: p.stock })),
-        agotados: out.map((p) => ({ nombre: clip(p.name, 80) })),
+        pocoStock: low.map((p) => ({ id: p.id, nombre: clip(p.name, 80), stock: p.stock })),
+        agotados: out.map((p) => ({ id: p.id, nombre: clip(p.name, 80) })),
       };
     },
   },
@@ -243,10 +245,10 @@ const VENDOR_TOOLS = {
     run: (_args, { vendorId }) => planAndSubscription(vendorId),
   },
   actividad_de_la_cuenta: {
-    description: "Inicios de sesión de TU cuenta (último inicio, sesiones por día, dispositivos, sesiones abiertas), conexiones del personal de sistema y TODA la actividad registrada en tu tienda (últimos movimientos y cuántos de cada tipo en 30 días).",
-    args: "{}",
-    schema: z.object({}).strict(),
-    run: (_args, { vendorId }) => accountActivity(vendorId),
+    description: "Inicios de sesión de TU cuenta (último inicio, sesiones por día, dispositivos, sesiones abiertas), conexiones del personal de sistema y TODA la actividad registrada en tu tienda (últimos movimientos y cuántos de cada tipo en 30 días). Para más detalle o filtros usa consultar_datos con actividad_registrada o sesiones_del_dueno.",
+    args: '{ "limite": 1-30 }',
+    schema: z.object({ limite: limitSchema(30, 15) }),
+    run: ({ limite }, { vendorId }) => accountActivity(vendorId, limite),
   },
   algoritmo_de_mi_tienda: {
     description: "Cómo está posicionada TU tienda pública en el algoritmo: si aparece en el catálogo y por qué no, la posición real de tus productos entre todos los del sitio, cuántos están en el top 10 y 30, cuáles el algoritmo penaliza y por qué (ficha incompleta, mala calificación, sin actividad reciente).",
@@ -310,6 +312,19 @@ const VENDOR_TOOLS = {
     schema: z.object({}).strict(),
     run: (_args, { vendorId }) => customersAndChat(vendorId),
   },
+  clientes_potenciales: {
+    description: "Tus clientes con más potencial y tus mejores compradores: quién visitó o agregó al carrito y no compró, quién compra más, con nombre, teléfono, pedidos, total gastado y última actividad. Úsala para '¿cuál es mi cliente más potencial?', a quién contactar o a quién ofrecerle un descuento.",
+    args: '{ "dias": 7-90 }',
+    schema: z.object({ dias: z.number().int().min(7).max(90).default(30) }),
+    run: ({ dias }, { vendorId }) => customersRanking(vendorId, dias),
+  },
+  pedido_al_detalle: {
+    description: "Un pedido concreto de TU tienda con todo su detalle (productos, cantidades, precios, cliente, estado, motivo de cancelación). Se busca por el código del pedido (ej. Z-MUAA4037) o, si es de mesa, por su número.",
+    args: '{ "codigo": "código o número del pedido" }',
+    schema: z.object({ codigo: z.string().trim().min(1).max(30) }),
+    run: (args, { vendorId }) => orderDetail(vendorId, args),
+  },
+  consultar_datos: makeQueryTool("VENDOR"),
   perfil_de_la_tienda: {
     description: "Qué le falta completar a TU tienda (logo, descripción, horarios, ubicación, métodos de pago, rubro, documento del chat) y la calidad de las fichas de tus productos.",
     args: "{}",
@@ -402,7 +417,7 @@ const ADMIN_TOOLS = {
       });
       const products = await prisma.product.findMany({ where: { id: { in: rows.map((r) => r.productId) } }, select: { id: true, name: true, vendor: { select: { companyName: true } } } });
       const byId = Object.fromEntries(products.map((p) => [p.id, p]));
-      return { periodo, productos: rows.map((r) => ({ nombre: clip(byId[r.productId]?.name, 80), tienda: clip(byId[r.productId]?.vendor?.companyName, 60), unidadesVendidas: r._sum.quantity ?? 0 })) };
+      return { periodo, productos: rows.map((r) => ({ id: r.productId, nombre: clip(byId[r.productId]?.name, 80), tienda: clip(byId[r.productId]?.vendor?.companyName, 60), unidadesVendidas: r._sum.quantity ?? 0 })) };
     },
   },
   detalle_tienda: {
@@ -479,10 +494,10 @@ const ADMIN_TOOLS = {
   },
   consultar_tienda: {
     description: "Cualquier dato de UNA tienda concreta buscada por nombre. 'dato' elige qué: resumen, plan (suscripción y vencimiento), actividad (inicios de sesión y movimientos registrados), algoritmo (posición de sus productos y por qué), productos, pedidos, inventario, resenas, interes (clics y tiempo en ficha), mensajes, ofertas, equipo, alertas, clientes (incluye chat de la tienda), perfil.",
-    args: '{ "busqueda": "parte del nombre de la tienda", "dato": "resumen"|"plan"|"actividad"|"algoritmo"|"productos"|"pedidos"|"inventario"|"resenas"|"interes"|"mensajes"|"ofertas"|"equipo"|"alertas"|"clientes"|"perfil" }',
+    args: '{ "busqueda": "parte del nombre de la tienda", "dato": "resumen"|"plan"|"actividad"|"algoritmo"|"productos"|"pedidos"|"inventario"|"resenas"|"interes"|"mensajes"|"ofertas"|"equipo"|"alertas"|"clientes"|"clientes_potenciales"|"perfil" }',
     schema: z.object({
       busqueda: z.string().trim().min(2).max(60),
-      dato: z.enum(["resumen", "plan", "actividad", "algoritmo", "productos", "pedidos", "inventario", "resenas", "interes", "mensajes", "ofertas", "equipo", "alertas", "clientes", "perfil"]).default("resumen"),
+      dato: z.enum(["resumen", "plan", "actividad", "algoritmo", "productos", "pedidos", "inventario", "resenas", "interes", "mensajes", "ofertas", "equipo", "alertas", "clientes", "clientes_potenciales", "perfil"]).default("resumen"),
     }),
     async run({ busqueda, dato }, ctx) {
       const matches = await prisma.vendor.findMany({
@@ -508,12 +523,14 @@ const ADMIN_TOOLS = {
         equipo: () => VENDOR_TOOLS.personal_y_mesas.run({}, c),
         alertas: () => VENDOR_TOOLS.alertas_de_la_cuenta.run({}, c),
         clientes: () => VENDOR_TOOLS.clientes_y_chat.run({}, c),
+        clientes_potenciales: () => VENDOR_TOOLS.clientes_potenciales.run({ dias: 30 }, c),
         perfil: () => VENDOR_TOOLS.perfil_de_la_tienda.run({}, c),
       };
       return { tienda: matches[0].companyName, dato, otrasCoincidencias: matches.slice(1).map((m) => m.companyName), datos: await byDato[dato]() };
     },
   },
   como_funciona_el_algoritmo: VENDOR_TOOLS.como_funciona_el_algoritmo,
+  consultar_datos: makeQueryTool("ADMIN"),
   suscripciones_plataforma: {
     description: "Suscripciones de TODA la plataforma: tiendas por plan y estado de verificación, vencimientos de los próximos 14 días, cancelaciones programadas, pruebas gratuitas activas, pagos por confirmar y pagos confirmados en 30 días.",
     args: "{}",
@@ -601,9 +618,9 @@ const ADMIN_TOOLS = {
         prisma.product.count({ where: { ...live, isActive: true, unlimitedStock: false, stock: { lte: 0 } } }),
         prisma.product.count({ where: { ...live, isActive: true, images: { isEmpty: true } } }),
         prisma.product.count({ where: { ...live, isFeatured: true } }),
-        prisma.product.findMany({ where: { ...live, isActive: true }, orderBy: { viewCount: "desc" }, take: 5, select: { name: true, viewCount: true, clickCount: true, salesCount: true, vendor: { select: { companyName: true } } } }),
+        prisma.product.findMany({ where: { ...live, isActive: true }, orderBy: { viewCount: "desc" }, take: 5, select: { id: true, name: true, viewCount: true, clickCount: true, salesCount: true, vendor: { select: { companyName: true } } } }),
       ]);
-      return { total, activos: active, activosAgotados: outOfStock, activosSinFotos: noPhotos, destacadosAMano: featured, masVistos: topViewed.map((p) => ({ nombre: clip(p.name, 60), tienda: clip(p.vendor?.companyName, 40), vistas: p.viewCount, clics: p.clickCount, ventas: p.salesCount })) };
+      return { total, activos: active, activosAgotados: outOfStock, activosSinFotos: noPhotos, destacadosAMano: featured, masVistos: topViewed.map((p) => ({ id: p.id, nombre: clip(p.name, 60), tienda: clip(p.vendor?.companyName, 40), vistas: p.viewCount, clics: p.clickCount, ventas: p.salesCount })) };
     },
   },
   estado_ia: {

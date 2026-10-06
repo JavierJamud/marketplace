@@ -56,8 +56,30 @@ function makeHandlers({ scope, resolveOwner }) {
     async ask(req, res) {
       const { message, conversationId } = messageSchema.parse(req.body);
       const owner = await resolveOwner(req);
-      const result = await runAssistant({ scope, userId: owner.userId, vendorId: owner.vendorId, who: owner.who, message, planContext: owner.planContext, conversationId });
-      res.json(result);
+      const run = (onProgress) => runAssistant({ scope, userId: owner.userId, vendorId: owner.vendorId, who: owner.who, message, planContext: owner.planContext, conversationId, onProgress });
+
+      if (req.query.stream !== "1") {
+        res.json(await run());
+        return;
+      }
+      // Bloque 262 (pedido explícito — "animación de pensando, qué sección o qué
+      // datos está consultando y el tiempo que va demorando"): una línea JSON por
+      // evento. Las validaciones de arriba ya respondieron con error normal; desde
+      // aquí todo, incluso un error, viaja como evento para que el chat lo muestre.
+      res.status(200);
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+      const send = (event) => res.write(`${JSON.stringify(event)}\n`);
+      try {
+        const result = await run((progress) => send({ type: "progress", ...progress }));
+        send({ type: "done", ...result });
+      } catch (err) {
+        if (!(err instanceof AppError)) console.error("[businessAssistant] error:", err);
+        send({ type: "error", status: err?.statusCode ?? 500, message: err instanceof AppError ? err.message : "No se pudo obtener la respuesta. Prueba de nuevo." });
+      }
+      res.end();
     },
     async remove(req, res) {
       const owner = await resolveOwner(req);

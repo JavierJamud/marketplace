@@ -105,16 +105,16 @@ export async function planAndSubscription(vendorId) {
 // ---------------------------------------------------------------------------
 // Inicios de sesión y toda la actividad registrada
 // ---------------------------------------------------------------------------
-export async function accountActivity(vendorId) {
+export async function accountActivity(vendorId, limit = 15) {
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { userId: true, user: { select: { lastLoginAt: true, createdAt: true } } } });
   if (!vendor) return { error: "No se encontró la tienda." };
   const since14 = new Date(Date.now() - 14 * DAY_MS);
   const since30 = new Date(Date.now() - 30 * DAY_MS);
   const [sessions, activeSessions, staff, logs, byAction] = await Promise.all([
-    prisma.session.findMany({ where: { userId: vendor.userId, createdAt: { gte: since14 } }, orderBy: { createdAt: "desc" }, take: 40, select: { createdAt: true, lastUsedAt: true, userAgent: true, revokedAt: true } }),
+    prisma.session.findMany({ where: { userId: vendor.userId, createdAt: { gte: since14 } }, orderBy: { createdAt: "desc" }, take: 60, select: { createdAt: true, lastUsedAt: true, userAgent: true, revokedAt: true } }),
     prisma.session.count({ where: { userId: vendor.userId, revokedAt: null, expiresAt: { gt: new Date() } } }),
     prisma.vendorStaff.findMany({ where: { vendorId }, take: 15, select: { isActive: true, staffType: true, user: { select: { fullName: true, lastLoginAt: true } } } }),
-    prisma.activityLog.findMany({ where: { vendorId }, orderBy: { createdAt: "desc" }, take: 15, select: { action: true, description: true, actorRole: true, createdAt: true } }),
+    prisma.activityLog.findMany({ where: { vendorId }, orderBy: { createdAt: "desc" }, take: limit, select: { action: true, description: true, actorRole: true, createdAt: true } }),
     prisma.activityLog.groupBy({ by: ["action"], where: { vendorId, createdAt: { gte: since30 } }, _count: { _all: true }, orderBy: { _count: { action: "desc" } }, take: 10 }),
   ]);
   const perDay = {};
@@ -127,7 +127,7 @@ export async function accountActivity(vendorId) {
     cuentaCreadaEl: day(vendor.user?.createdAt),
     sesionesAbiertasAhora: activeSessions,
     iniciosDeSesionPorDiaUltimos14dias: perDay,
-    ultimasSesiones: sessions.slice(0, 8).map((s) => ({ inicio: iso(s.createdAt), ultimoUso: iso(s.lastUsedAt), dispositivo: deviceLabel(s.userAgent), cerrada: !!s.revokedAt })),
+    ultimasSesiones: sessions.slice(0, Math.min(limit, 20)).map((s) => ({ inicio: iso(s.createdAt), ultimoUso: iso(s.lastUsedAt), dispositivo: deviceLabel(s.userAgent), cerrada: !!s.revokedAt })),
     personalDeSistema: staff.map((s) => ({ nombre: clip(s.user?.fullName ?? "Sin nombre", 40), tipo: s.staffType ?? "sin tipo", activo: s.isActive, ultimoAcceso: iso(s.user?.lastLoginAt) })),
     actividadRegistradaUltimos30diasPorTipo: byAction.map((a) => ({ accion: a.action, veces: a._count._all })),
     ultimosMovimientosRegistrados: logs.map((l) => ({ fecha: iso(l.createdAt), quien: l.actorRole, accion: l.action, detalle: clip(l.description, 140) })),
@@ -231,8 +231,8 @@ export async function algorithmPosition(vendorId) {
       enElTop30: mineRanked.filter((p) => positions.get(p.id) <= 30).length,
       penalizadosPorElPisoDeCalidad: mineRanked.filter((p) => !explainProductRanking(p, stats.get(p.id), now).seMuestraComoDestacado).length,
     },
-    mejoresPosiciones: mineRanked.slice(0, 6).map((p) => ({ nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })),
-    peoresPosiciones: mineRanked.length > 6 ? mineRanked.slice(-4).map((p) => ({ nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })) : [],
+    mejoresPosiciones: mineRanked.slice(0, 6).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })),
+    peoresPosiciones: mineRanked.length > 6 ? mineRanked.slice(-4).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })) : [],
     comoMejorar: "Subir la completitud de la ficha (fotos, descripción, etiquetas), conseguir reseñas buenas y mantener actividad reciente (clics y ventas) son las palancas reales; el algoritmo no se puede comprar ni forzar.",
   };
 }
@@ -251,6 +251,7 @@ const PRODUCT_ORDER = {
 
 function productRow(p) {
   return {
+    id: p.id,
     nombre: clip(p.name, 70),
     precio: `${money(p.price)} ${p.currency}`,
     stock: p.unlimitedStock ? "siempre disponible" : p.stock,
@@ -267,6 +268,7 @@ function productRow(p) {
   };
 }
 const PRODUCT_SELECT = {
+  id: true,
   name: true, price: true, currency: true, stock: true, unlimitedStock: true, isActive: true, hiddenFromStore: true, overQuota: true, isFeatured: true,
   salesCount: true, viewCount: true, clickCount: true, searchClickCount: true, totalDwellMs: true, rating: true, reviewCount: true,
   images: true, description: true, tags: true, categoryId: true, badge: true, lastActivityAt: true, createdAt: true, activatedAt: true,
@@ -287,7 +289,7 @@ export async function productsList(vendorId, { busqueda, orden, limite }) {
 }
 
 export async function productDetail(vendorId, { busqueda }) {
-  const matches = await prisma.product.findMany({ where: { vendorId, name: { contains: busqueda, mode: "insensitive" } }, take: 3, orderBy: { salesCount: "desc" }, select: { id: true, vendor: { select: { verificationStatus: true } }, ...PRODUCT_SELECT } });
+  const matches = await prisma.product.findMany({ where: { vendorId, name: { contains: busqueda, mode: "insensitive" } }, take: 3, orderBy: { salesCount: "desc" }, select: { vendor: { select: { verificationStatus: true } }, ...PRODUCT_SELECT } });
   if (matches.length === 0) return { error: "No encontré ningún producto con ese nombre." };
   const p = matches[0];
   const since = new Date(Date.now() - 30 * DAY_MS);
@@ -455,4 +457,120 @@ export async function ordersBreakdown(vendorId, since) {
     pedidosDeMesa: tableOrders,
     umbralPocoStock: LOW_STOCK_THRESHOLD,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Clientes: potenciales y mejores compradores
+// ---------------------------------------------------------------------------
+// Bloque 262 (pedido: "¿cuál es el cliente más potencial?"): mismo criterio de
+// "potencial" que el Dashboard (cliente con sesión que visitó o agregó al
+// carrito en la ventana y NO compró en ella), más un ranking de compradores.
+// Como en el Dashboard, el dueño ve el nombre y el teléfono de SUS clientes
+// para contactarlos; el correo nunca se entrega.
+export async function customersRanking(vendorId, days = 30) {
+  const since = new Date(Date.now() - days * DAY_MS);
+  const [engage, ordersRecent, ordersAll, favorites] = await Promise.all([
+    prisma.vendorEngagement.groupBy({ by: ["customerId", "type"], where: { vendorId, createdAt: { gte: since } }, _count: { _all: true }, _max: { createdAt: true } }),
+    prisma.order.groupBy({ by: ["customerId"], where: { vendorId, customerId: { not: null }, createdAt: { gte: since } }, _count: { _all: true } }),
+    prisma.order.groupBy({ by: ["customerId"], where: { vendorId, customerId: { not: null }, status: { not: "CANCELLED" } }, _count: { _all: true }, _sum: { total: true }, _max: { createdAt: true } }),
+    prisma.favorite.findMany({ where: { vendorId, userId: { not: "" } }, select: { userId: true } }),
+  ]);
+  const people = new Map();
+  const get = (id) => {
+    if (!people.has(id)) people.set(id, { id, visitas: 0, carritos: 0, pedidos: 0, gastado: 0, ultimoPedido: null, ultimaVisita: null, favorito: false });
+    return people.get(id);
+  };
+  for (const e of engage) {
+    const p = get(e.customerId);
+    if (e.type === "VISIT") p.visitas += e._count._all;
+    else p.carritos += e._count._all;
+    if (e._max.createdAt && (!p.ultimaVisita || e._max.createdAt > p.ultimaVisita)) p.ultimaVisita = e._max.createdAt;
+  }
+  for (const o of ordersAll) {
+    const p = get(o.customerId);
+    p.pedidos = o._count._all;
+    p.gastado = Number(o._sum.total ?? 0);
+    p.ultimoPedido = o._max.createdAt;
+  }
+  for (const f of favorites) get(f.userId).favorito = true;
+  const boughtRecently = new Set(ordersRecent.map((o) => o.customerId));
+  const ids = [...people.keys()];
+  const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true, phone: true } }) : [];
+  const byId = Object.fromEntries(users.map((u) => [u.id, u]));
+  const rows = [...people.values()].map((p) => {
+    const potencial = !boughtRecently.has(p.id) && (p.visitas > 0 || p.carritos > 0);
+    return {
+      ...p,
+      nombre: clip(byId[p.id]?.fullName ?? "Cliente sin nombre", 40),
+      telefono: byId[p.id]?.phone ?? null,
+      potencial,
+      puntaje: p.pedidos * 3 + p.carritos * 1.5 + p.visitas * 0.5 + (p.favorito ? 2 : 0),
+    };
+  });
+  const view = (p) => ({
+    nombre: p.nombre,
+    telefono: p.telefono,
+    pedidosEnTotal: p.pedidos,
+    totalGastado: money(p.gastado),
+    ultimoPedido: day(p.ultimoPedido),
+    visitasEnLaVentana: p.visitas,
+    agregoAlCarritoEnLaVentana: p.carritos,
+    ultimaVisita: day(p.ultimaVisita),
+    guardoTuTiendaEnFavoritos: p.favorito,
+  });
+  return {
+    ventanaEnDias: days,
+    criterio: "Potencial = cliente con sesión que visitó o agregó al carrito en la ventana y NO hizo un pedido en ella (mismo criterio del Dashboard). El puntaje suma 3 por pedido, 1.5 por agregado al carrito, 0.5 por visita y 2 si guardó la tienda en favoritos.",
+    clientesPotenciales: rows.filter((r) => r.potencial).sort((a, b) => b.puntaje - a.puntaje).slice(0, 6).map(view),
+    mejoresCompradores: rows.filter((r) => r.pedidos > 0).sort((a, b) => b.gastado - a.gastado).slice(0, 6).map(view),
+    clientesConActividadEnTotal: rows.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Un pedido al detalle (por código, o por número si es de mesa)
+// ---------------------------------------------------------------------------
+export async function orderDetail(vendorId, { codigo }) {
+  const code = String(codigo).trim();
+  const order = await prisma.order.findFirst({
+    where: { vendorId, code: { contains: code, mode: "insensitive" } },
+    orderBy: { createdAt: "desc" },
+    select: { code: true, status: true, channel: true, total: true, discountAmount: true, customerName: true, cancelReason: true, createdAt: true, shippingAddress: true, items: { select: { productId: true, name: true, quantity: true, price: true, size: true, currency: true } } },
+  });
+  if (order) {
+    return {
+      tipo: "pedido normal",
+      codigo: order.code,
+      estado: order.status,
+      canal: order.channel,
+      cliente: clip(order.customerName ?? "Cliente", 40),
+      total: money(order.total),
+      descuento: order.discountAmount != null ? money(order.discountAmount) : null,
+      motivoDeCancelacion: clip(order.cancelReason, 100) || null,
+      fecha: iso(order.createdAt),
+      entregaEn: clip(order.shippingAddress, 100) || null,
+      productos: order.items.map((i) => ({ id: i.productId, nombre: clip(i.name, 60), cantidad: i.quantity, precio: money(i.price), moneda: i.currency, talla: i.size })),
+    };
+  }
+  const number = Number(code.replace(/\D/g, ""));
+  if (number > 0) {
+    const tableOrder = await prisma.tableOrder.findFirst({ where: { orderNumber: number, table: { vendorId } }, select: { orderNumber: true, total: true, kitchenStatus: true, customerName: true, createdAt: true, deliveredAt: true, cancelledAt: true, cancelReason: true, items: true, table: { select: { tableNumber: true } } } });
+    if (tableOrder) {
+      const items = Array.isArray(tableOrder.items) ? tableOrder.items : [];
+      return {
+        tipo: "pedido de mesa",
+        numero: tableOrder.orderNumber,
+        mesa: tableOrder.table.tableNumber,
+        estadoDeCocina: tableOrder.kitchenStatus,
+        cliente: clip(tableOrder.customerName ?? "Cliente", 40),
+        total: money(tableOrder.total),
+        fecha: iso(tableOrder.createdAt),
+        entregadoEl: iso(tableOrder.deliveredAt),
+        canceladoEl: iso(tableOrder.cancelledAt),
+        motivoDeCancelacion: clip(tableOrder.cancelReason, 100) || null,
+        productos: items.slice(0, 20).map((i) => ({ nombre: clip(i.name, 60), cantidad: i.quantity, precio: money(i.price) })),
+      };
+    }
+  }
+  return { error: "No encontré ningún pedido con ese código o número." };
 }

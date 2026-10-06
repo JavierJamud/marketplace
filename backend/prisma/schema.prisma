@@ -2493,6 +2493,8 @@ model AssistantMessage {
   content   String         @db.Text
   toolsUsed String[]       @default([]) // nombres de herramientas de lectura que usó para esta respuesta
   links     Json? // [{ path, label }] ya validados contra la lista de rutas reales
+  // Bloque 262: tarjetas de producto que acompañan la respuesta (ya validadas contra la base).
+  products  Json?
   createdAt DateTime       @default(now())
 
   // Bloque 260: cada mensaje pertenece a una conversación (antes era un solo

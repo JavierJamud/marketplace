@@ -16,6 +16,13 @@ import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
 // panel, que solo se monta al abrir.
 export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFree, intro = "Conectado a tu negocio, solo lectura" }) {
   const [open, setOpen] = useState(false);
+  // Bloque 262: tras la primera apertura el chat se queda montado (solo oculto), así
+  // una respuesta en curso no se pierde al cerrarlo; el panel se sincroniza con el
+  // servidor cada vez que se vuelve a abrir.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
 
   // Escape cierra, y en celular (hoja a pantalla completa) se bloquea el scroll
   // de la página de atrás mientras está abierto.
@@ -35,11 +42,12 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
 
   return (
     <>
-      {open && (
+      {mounted && (
         <div
           role="dialog"
           aria-label="Asistente de negocio"
-          className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-surface-container-lowest sm:inset-auto sm:bottom-24 sm:right-6 sm:h-[min(660px,calc(100dvh-7.5rem))] sm:w-[410px] sm:rounded-3xl sm:border sm:border-surface-container-high sm:shadow-[0_24px_60px_-12px_rgba(14,26,40,0.4)]"
+          hidden={!open}
+          className={`${open ? "flex" : "hidden"} fixed inset-0 z-[70] flex-col overflow-hidden bg-surface-container-lowest sm:inset-auto sm:bottom-24 sm:right-6 sm:h-[min(660px,calc(100dvh-7.5rem))] sm:w-[410px] sm:rounded-3xl sm:border sm:border-surface-container-high sm:shadow-[0_24px_60px_-12px_rgba(14,26,40,0.4)]`}
         >
           <BusinessAssistantPanel
             endpoint={endpoint}
@@ -47,6 +55,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
             quickPromptsFree={quickPromptsFree}
             intro={intro}
             embedded
+            isOpen={open}
             onNavigate={() => setOpen(false)}
             onClose={() => setOpen(false)}
           />

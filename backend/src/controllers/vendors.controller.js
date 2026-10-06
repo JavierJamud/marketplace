@@ -1092,7 +1092,7 @@ export async function getDashboard(req, res) {
     prisma.order.aggregate({ where: { vendorId: vendor.id, createdAt: { gte: weekAgo }, status: { not: "CANCELLED" } }, _sum: { total: true } }),
     prisma.tableOrder.aggregate({ where: { table: { vendorId: vendor.id }, createdAt: { gte: weekAgo }, cancelledAt: null }, _sum: { total: true } }),
     prisma.order.count({ where: { vendorId: vendor.id, status: "NEW" } }),
-    prisma.tableOrder.count({ where: { table: { vendorId: vendor.id }, kitchenStatus: "RECEIVED" } }),
+    prisma.tableOrder.count({ where: { table: { vendorId: vendor.id }, kitchenStatus: "RECEIVED", cancelledAt: null } }),
     prisma.product.count({ where: { vendorId: vendor.id, isActive: true } }),
     prisma.review.aggregate({ where: { vendorId: vendor.id, rating: { not: null } }, _count: { rating: true } }),
     // Bloque 56: un producto "disponible siempre" nunca aparece acá — es

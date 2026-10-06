@@ -249,6 +249,18 @@ del plan, leídos de `PlanConfig`) con enlace a `/vendedor/verificacion`.
 Anti-invento: si la respuesta trae cifras y la IA no consultó ninguna
 herramienta, el servidor la devuelve a consultar (hasta 2 veces).
 
+Bloque 262: `consultar_datos` (`lib/assistantQuery.js`) lee cualquier tabla del
+negocio (pedidos, productos, reseñas, registro de actividad, inicios de sesión,
+clics, mensajes, ofertas, pagos...) con filtros, orden, conteo y agrupación, solo
+sobre un registro de tablas y campos permitidos y siempre con el filtro de la
+tienda de la sesión. `clientes_potenciales` y `pedido_al_detalle` completan el
+acceso. Las respuestas son muy breves (70 palabras) y pueden traer tarjetas de
+producto (ids validados contra la base y limitados a la tienda). Verificación:
+cada cifra de la respuesta debe aparecer en los datos consultados (`unverifiedNumbers`);
+si no, se devuelve a corregir una vez. El chat recibe la respuesta en streaming
+(NDJSON: pensando, consultando X, verificando, redactando) y muestra los pasos y
+los segundos. Se mantiene montado y se sincroniza al abrirse.
+
 Conversaciones: varias por persona (`AssistantConversation`, con el título de la
 primera pregunta). El chat tiene historial, chat nuevo y borrar. El id de
 conversación llega del cliente, así que el servidor lo comprueba siempre contra
