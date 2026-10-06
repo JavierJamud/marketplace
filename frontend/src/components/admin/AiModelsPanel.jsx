@@ -71,8 +71,11 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
     // 5 minutos, nunca se muestra una lista vieja de hace horas.
     staleTime: 0,
     refetchOnWindowFocus: true,
-    refetchInterval: 5 * 60 * 1000,
+    // Mientras el servidor comprueba qué modelos responden con esta clave, se vuelve a
+    // pedir cada 3 segundos para ir mostrando los resultados.
+    refetchInterval: (query) => (query.state.data?.probing?.running ? 3000 : 5 * 60 * 1000),
   });
+  const probing = listQuery.data?.probing ?? { running: false, done: 0, total: 0 };
   const catalog = listQuery.data?.catalog ?? [];
   const categories = listQuery.data?.categories ?? [];
   const catalogById = new Map(catalog.map((m) => [m.id, m]));
@@ -238,14 +241,21 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
               {categories.map((cat) => {
                 const inCat = options.filter((m) => m.category === cat.id);
                 if (inCat.length === 0) return null;
+                const working = inCat.filter((m) => m.verified).length;
+                const label = cat.id === "text" || cat.id === "vision" ? `${cat.label}: sirve para el chat (${working} funcionan con tu cuenta de ${inCat.length})` : `${cat.label}: no va al chat (${inCat.length})`;
                 return (
-                  <optgroup key={cat.id} label={`${cat.label} (${inCat.length})`}>
-                    {inCat.map((m) => (
-                      <option key={m.id} value={m.id} disabled={!m.addable || m.unavailable}>
-                        {m.id}
-                        {m.unavailable ? "  (no disponible en tu cuenta)" : !m.addable ? "  (no sirve para el chat)" : ""}
-                      </option>
-                    ))}
+                  <optgroup key={cat.id} label={label}>
+                    {inCat.map((m) => {
+                      const unknown = !m.verified && !m.unavailable;
+                      const blocked = !m.addable || m.unavailable || (unknown && probing.running);
+                      return (
+                        <option key={m.id} value={m.id} disabled={blocked}>
+                          {m.verified ? "✓ " : ""}
+                          {m.id}
+                          {m.unavailable ? "  (no disponible en tu cuenta)" : !m.addable ? "  (no sirve para el chat)" : m.verified ? "  (funciona con tu cuenta)" : probing.running ? "  (comprobando...)" : "  (sin comprobar)"}
+                        </option>
+                      );
+                    })}
                   </optgroup>
                 );
               })}
@@ -278,9 +288,14 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
             {pickedInfo.contextWindow ? ` Memoria de ${Number(pickedInfo.contextWindow).toLocaleString("es-CU")} tokens.` : ""}
           </p>
         )}
+        {probing.running && (
+          <p className="mt-1.5 text-[12px] font-semibold text-tertiary-accent" role="status">
+            Comprobando qué modelos responden con tu cuenta: {probing.done} de {probing.total}. Los que ya funcionan aparecen con ✓.
+          </p>
+        )}
         {listQuery.isSuccess && (
           <p className="mt-1.5 text-[11.5px] text-outline">
-            La plataforma usa hoy modelos de <span className="font-semibold">Texto</span> (chat, asistentes, descripciones) y <span className="font-semibold">Audio</span> (voz a texto con Whisper de Groq). Los de <span className="font-semibold">Texto + imagen</span> servirán para analizar tiendas y páginas. Imagen, video, embeddings y moderación aparecen para que sepas qué ofrece la API, pero no se agregan al chat. Lista consultada a la API hace un momento ({catalog.length} modelos).
+            La plataforma usa hoy modelos de <span className="font-semibold">Texto</span> (chat, asistentes, descripciones) y <span className="font-semibold">Audio</span> (voz a texto con Whisper de Groq). Los de <span className="font-semibold">Texto + imagen</span> servirán para analizar tiendas y páginas. Imagen, video, embeddings y moderación aparecen para que sepas qué ofrece la API, pero no se agregan al chat. Elige solo los marcados con ✓: la API lista modelos que tu cuenta no puede usar. Lista consultada a la API hace un momento ({catalog.length} modelos).
           </p>
         )}
         {!integration && <p className="mt-1 text-[11.5px] text-outline">Guarda la clave primero para elegir de la lista real de modelos.</p>}

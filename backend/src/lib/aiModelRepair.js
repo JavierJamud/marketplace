@@ -6,6 +6,7 @@ import { generateWithGroq, listGroqModels, listGroqModelsDetailed, listGroqModel
 import { generateWithNvidia, listNvidiaModels, listNvidiaModelsDetailed, listNvidiaModelsCatalog, DEFAULT_MODEL as NVIDIA_DEFAULT } from "./nvidia.js";
 import { rankNewestFirst } from "./aiModelRanking.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
+import { getUnavailableModel, getModelAvailable } from "./aiModelCatalog.js";
 import { getModelHealth, getModelHealthRows, upsertModelHealth, patchModelHealth, deleteModelHealth } from "./aiProviderHealth.js";
 
 // Bloque 99 (pedido explícito — "cuando un modelo se desconecte, que el
@@ -54,6 +55,12 @@ const LIVE_RECHECK_COOLDOWN_MS = 60 * 1000;
 // clave inválida) se atiende de inmediato porque no se arregla solo.
 const FAILURES_BEFORE_DOWN = 3;
 const failureStreak = new Map();
+// Un modelo inestable que cae y vuelve no debe llenar la bandeja: si ya se avisó de su
+// caída hace menos de este tiempo, la nueva caída (y su "vuelve a responder") se
+// registran pero no mandan correo.
+const MAIL_QUIET_MS = 6 * 60 * 60 * 1000;
+const lastDownMailAt = new Map();
+const silentDowns = new Set();
 
 export const PROVIDERS = {
   gemini: { generate: generateWithGemini, list: listGeminiModels, listDetailed: listGeminiModelsDetailed, catalog: listGeminiModelsCatalog, defaultModel: GEMINI_DEFAULT, label: "Gemini" },
@@ -196,7 +203,11 @@ async function runRepair({ provider, apiKey, brokenModel, errorDetail, failure, 
     return failRepair({ provider, brokenModel, errorDetail, health, tried: [], reason: `no se pudo pedir la lista de modelos a ${PROVIDERS[provider].label} (${errorDetailOf(listErr)})` });
   }
 
-  const usable = detailed.filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id));
+  // Bloque 266b: los que ya se comprobó que dan 404 para esta cuenta no se prueban, y los
+  // comprobados como disponibles van primero.
+  const usable = detailed
+    .filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id) && !getUnavailableModel(provider, m.id))
+    .sort((a, b) => Number(!!getModelAvailable(provider, b.id)) - Number(!!getModelAvailable(provider, a.id)));
   const ranked = rankNewestFirst(usable);
   if (ranked.length === 0) {
     return failRepair({ provider, brokenModel, errorDetail, health, tried: [], reason: "la API no listó ningún modelo de chat nuevo para probar" });
@@ -245,7 +256,7 @@ async function runRepair({ provider, apiKey, brokenModel, errorDetail, failure, 
 async function failRepair({ provider, brokenModel, errorDetail, health, tried, reason }) {
   const attempt = (health?.repairFailedCount ?? 0) + 1;
   await patchModelHealth(provider, brokenModel, { repairFailedCount: attempt, lastRepairAttemptAt: new Date() });
-  if (attempt <= MAX_REPAIR_FAILURE_NOTICES) {
+  if (attempt <= MAX_REPAIR_FAILURE_NOTICES && !silentDowns.has(`${provider}::${brokenModel}`)) {
     await notifyRepairFailed({ provider, brokenModel, errorDetail, tried, reason, attempt });
   }
   await logError({
@@ -268,7 +279,13 @@ async function handleConfirmedFailure({ provider, apiKey, model, errorDetail, fo
   });
 
   if (!row.downNotifiedAt) {
-    await notifyDown({ provider, model, errorDetail, failure });
+    const key = `${provider}::${model}`;
+    const quiet = Date.now() - (lastDownMailAt.get(key) ?? 0) < MAIL_QUIET_MS;
+    if (quiet) silentDowns.add(key);
+    else {
+      lastDownMailAt.set(key, Date.now());
+      await notifyDown({ provider, model, errorDetail, failure });
+    }
     await patchModelHealth(provider, model, { downNotifiedAt: new Date() });
   }
 
@@ -319,7 +336,11 @@ export async function checkModel({ provider, apiKey, model, trigger = "proactive
       ms = await probeModel(provider, apiKey, model);
     } catch (err) {
       const errorDetail = errorDetailOf(err);
-      const permanent = ["gone", "auth"].includes(classifyFailure(errorDetail).kind);
+      // Bloque 266b (medido en vivo): el Free Endpoint de NVIDIA responde 404 "Function
+      // not found for account" de forma INTERMITENTE con un modelo que casi siempre
+      // funciona, así que un 404 suelto tampoco es una baja. Solo una clave inválida
+      // se atiende de inmediato; todo lo demás necesita fallos SEGUIDOS.
+      const permanent = classifyFailure(errorDetail).kind === "auth";
       const streak = (failureStreak.get(key) ?? 0) + 1;
       failureStreak.set(key, streak);
       // Un fallo pasajero suelto no es una caída: se espera a confirmarlo.
@@ -339,7 +360,7 @@ export async function checkModel({ provider, apiKey, model, trigger = "proactive
     });
     // Había avisado que cayó y volvió solo: cierra el ciclo con el aviso de
     // "resuelto" para que el admin no se quede esperando una acción.
-    if (previous?.status === "down" && previous.downNotifiedAt) await notifyRecovered({ provider, model });
+    if (previous?.status === "down" && previous.downNotifiedAt && !silentDowns.delete(key)) await notifyRecovered({ provider, model });
     return { status: "healthy", ms };
   } catch (err) {
     console.error(`[aiModelRepair] ${provider}/${model}: error inesperado:`, err);

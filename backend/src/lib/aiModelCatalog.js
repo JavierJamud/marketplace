@@ -35,7 +35,7 @@ const RULES = [
   ["embedding", /embed|rerank|bge-|e5-|nv-embed|arctic-embed|retriev/i],
   ["transcription", /whisper|transcribe|canary|parakeet|speech-to-text|asr\b/i],
   ["speech", /tts|orpheus|playai|text-to-speech|speech-synth|\bspeech\b|voice|magpie/i],
-  ["other", /detector|classifier/i],
+  ["other", /detector|classifier|diffusion|calibration|ising/i],
   ["video", /veo|video|sora|cosmos(?!-reason)|\bwan\b/i],
   ["image", /imagen|image-gen|flux|stable-diffusion|sdxl|sd3|nano-banana|dall-e|-image|edify|picasso/i],
   ["code", /coder|codestral|starcoder|codellama|code-|-code|deepseek-coder|granite-.*code/i],
@@ -102,4 +102,76 @@ export function getUnavailableModel(provider, model) {
 }
 export function clearModelUnavailable(provider, model) {
   unavailable.delete(`${provider}::${model}`);
+}
+
+// Disponibilidad REAL con la clave de esta cuenta. Que una API liste un modelo no
+// quiere decir que la cuenta pueda usarlo (NVIDIA lista ~80 y a esta cuenta le
+// responden 404 "Function not found for account" casi todos). Se prueban en segundo
+// plano, de a pocos a la vez, solo los modelos que se podrían agregar al chat (texto
+// y texto + imagen), y el resultado se recuerda 6 horas.
+const AVAILABLE_TTL_MS = 6 * 60 * 60 * 1000;
+const PROBE_CONCURRENCY = 6;
+const available = new Map(); // key -> { at, ms }
+const probeState = new Map(); // provider -> { running, done, total, startedAt }
+
+export function markModelAvailable(provider, model, ms) {
+  available.set(`${provider}::${model}`, { at: Date.now(), ms });
+  unavailable.delete(`${provider}::${model}`);
+}
+export function getModelAvailable(provider, model) {
+  const key = `${provider}::${model}`;
+  const entry = available.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.at > AVAILABLE_TTL_MS) {
+    available.delete(key);
+    return null;
+  }
+  return entry;
+}
+export function getProbeState(provider) {
+  const s = probeState.get(provider);
+  return s ? { running: s.running, done: s.done, total: s.total } : { running: false, done: 0, total: 0 };
+}
+
+// Lanza (sin esperar) la comprobación de los modelos agregables que todavía no se
+// probaron o cuyo resultado caducó. `probe(model)` hace la consulta real y lanza si falla;
+// `classify(err)` devuelve "gone" para un 404/410 (no existe para esta cuenta).
+export function startAvailabilityProbe({ provider, models, probe, classify }) {
+  const state = probeState.get(provider);
+  if (state?.running) return;
+  const pending = models.filter((id) => !getModelAvailable(provider, id) && !getUnavailableModel(provider, id));
+  if (pending.length === 0) return;
+  const run = { running: true, done: 0, total: pending.length, startedAt: Date.now() };
+  probeState.set(provider, run);
+  const queue = [...pending];
+  const worker = async () => {
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const start = Date.now();
+      try {
+        await probe(id);
+        markModelAvailable(provider, id, Date.now() - start);
+      } catch (err) {
+        if (classify(err) === "gone") markModelUnavailable(provider, id, err?.details?.detail ?? err?.message);
+        // cuota, red o timeout: no se sabe, se deja sin marcar para volver a probar
+      }
+      run.done++;
+    }
+  };
+  Promise.all(Array.from({ length: PROBE_CONCURRENCY }, worker))
+    .catch(() => {})
+    .finally(() => {
+      run.running = false;
+    });
+}
+
+// Tipo de fallo a partir del texto del error, para decidir si un modelo "no existe
+// para esta cuenta" (gone). Mismos criterios que classifyFailure de aiModelRepair.js,
+// duplicados aquí a propósito: este archivo no puede importar aquel (ciclo).
+export function failureKindOf(text) {
+  const s = String(text || "").toLowerCase();
+  if (/401|403|api key|apikey|unauthor|forbidden|permission|invalid.*key|key.*invalid/.test(s)) return "auth";
+  if (/404|410|not found|not_found|decommission|deprecat|no longer|does not exist|gone|model_not_found/.test(s)) return "gone";
+  if (/429|quota|rate.?limit|exhaust|too many/.test(s)) return "quota";
+  return "transient";
 }

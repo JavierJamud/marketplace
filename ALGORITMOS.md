@@ -209,6 +209,13 @@ reparación. Antes, un modelo lento como el de NVIDIA fallaba una prueba por
 timeout, se marcaba caído y mandaba correo, y 2 minutos después mandaba otro de
 "resuelto" (decenas de correos al día).
 
+Corrección posterior (medida en vivo): el Free Endpoint de NVIDIA responde 404 "Function
+not found for account" de forma INTERMITENTE con un modelo que casi siempre funciona,
+así que un 404 suelto no es una baja: solo una clave inválida se atiende de inmediato.
+Un modelo que ya avisó una caída hace menos de 6 horas no vuelve a mandar correo (ni
+el de "vuelve a responder"). La lista del admin comprueba en segundo plano qué modelos
+responden con la clave (de 61 de NVIDIA, solo ~13 funcionan) y marca con ✓ los que sí.
+
 Catálogo de modelos (`lib/aiModelCatalog.js`): la lista que ve el admin se pide a
 la API en vivo y cada modelo se clasifica por tipo (texto, texto + imagen, audio
 voz a texto, audio texto a voz, imagen, video, embeddings, moderación, código,
