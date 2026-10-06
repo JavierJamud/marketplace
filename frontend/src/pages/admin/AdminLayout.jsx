@@ -224,8 +224,9 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
 const ADMIN_ASSISTANT_PROMPTS = [
   "Dame un resumen del día de la plataforma",
   "¿Qué debo atender primero hoy?",
-  "¿Qué tiendas venden más este mes?",
-  "¿Cómo va el embudo de verificación?",
+  "¿Qué suscripciones vencen pronto?",
+  "¿Quién inició sesión y qué actividad hubo hoy?",
+  "¿Cómo está posicionada la tienda TecnoHabana en el algoritmo?",
   "¿Están funcionando bien las integraciones de IA?",
 ];
 
@@ -392,7 +393,7 @@ export default function AdminLayout() {
           debajo de la otra, se veía "cortado"). Ahora los dos viven dentro
           del mismo contenedor con padding, así el borde de la tarjeta del
           header queda exactamente alineado con las tarjetas del dashboard. */}
-      <div className="flex min-h-dvh flex-1 flex-col px-4 py-6 lg:px-[38px] lg:py-4">
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col overflow-x-clip px-4 py-6 lg:px-[38px] lg:py-4">
         <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} onLogout={handleLogout} />
         <main className="flex-1">
           <Outlet />

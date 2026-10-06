@@ -5,7 +5,8 @@ import { generateWithGemini, chatWithGemini } from "./gemini.js";
 import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq } from "./groq.js";
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
-import { checkModel, setRepairAdvisor } from "./aiModelRepair.js";
+import { checkModel, setRepairAdvisor, classifyFailure } from "./aiModelRepair.js";
+import { markProviderCooldown, isProviderCoolingDown, clearProviderCooldown } from "./aiProviderCooldown.js";
 import { isChatbotHealthy, getModelHealthRows } from "./aiProviderHealth.js";
 import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "./aiModels.js";
 
@@ -83,7 +84,15 @@ async function getActiveProviders() {
       pairs.push({ name: provider.name, apiKey: provider.apiKey, model: config.model });
     }
   }
-  return [...pairs.filter((p) => !isDown(p.name, p.model)), ...pairs.filter((p) => isDown(p.name, p.model))];
+  // Bloque 260: un proveedor que acaba de responder "cuota agotada" o "clave
+  // inválida" descansa (aiProviderCooldown.js): sus modelos van detrás de los
+  // de los demás proveedores. Pasado el plazo vuelve solo a su lugar por
+  // velocidad, que es como la API principal "se restablece" sin intervención.
+  const resting = (p) => isProviderCoolingDown(p.name);
+  const healthy = pairs.filter((p) => !resting(p) && !isDown(p.name, p.model));
+  const cooling = pairs.filter((p) => resting(p));
+  const down = pairs.filter((p) => !resting(p) && isDown(p.name, p.model));
+  return [...healthy, ...cooling, ...down];
 }
 
 function callGenerate(provider, prompt) {
@@ -129,10 +138,29 @@ function logProviderSuccess(provider) {
 // Bloque 245: `reportFailures: false` lo usa la consulta al "consejero" de la
 // autorreparación — si esa propia consulta fallara no debe disparar otra
 // reparación (sería un bucle: reparar → consultar IA → fallar → reparar).
-async function callWithFallbackChain(providers, callFn, genericErrorMessage, { reportFailures = true } = {}) {
+//
+// Bloque 260 (pedido explícito — "si se consume la cuota de una API, no probar
+// otro modelo de la MISMA API: saltar a otra de las API de respaldo y seguir
+// probando hasta que la principal se restablezca"): un error de CUOTA agotada
+// o de CLAVE inválida es de la cuenta del proveedor, no del modelo, así que sus
+// otros modelos fallarían igual. En ese caso el proveedor entero descansa
+// (aiProviderCooldown.js) y sus modelos restantes se dejan para el FINAL de
+// esta misma cadena, solo como último recurso si ningún otro proveedor
+// respondió. Pasado el descanso, el proveedor vuelve solo a su lugar.
+export async function callWithFallbackChain(providers, callFn, genericErrorMessage, { reportFailures = true } = {}) {
   let lastErr;
-  for (let i = 0; i < providers.length; i++) {
-    const provider = providers[i];
+  const queue = [...providers];
+  const deferred = [];
+  let deferring = true;
+  for (;;) {
+    if (queue.length === 0) {
+      if (deferred.length === 0) break;
+      // Se acabaron los demás proveedores: recién ahora se prueban, como último
+      // recurso, los modelos del que reportó cuota agotada.
+      queue.push(...deferred.splice(0));
+      deferring = false;
+    }
+    const provider = queue.shift();
     const start = Date.now();
     try {
       const result = await callFn(provider);
@@ -141,12 +169,27 @@ async function callWithFallbackChain(providers, callFn, genericErrorMessage, { r
       // rápido" deja de ser una medición congelada de una vez, se actualiza
       // solo con tráfico real.
       recordLatency(provider.name, Date.now() - start);
+      clearProviderCooldown(provider.name);
       logProviderSuccess(provider);
       return result;
     } catch (err) {
       lastErr = err;
-      const next = providers[i + 1];
-      logProviderFailure(`[ai] ${provider.name}/${provider.model} falló${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo activo)"}:`, err);
+      const failureText = `${err?.message ?? ""} ${err?.details?.detail ?? ""}`;
+      const failure = classifyFailure(failureText);
+      const accountLevel = failure.kind === "quota" || failure.kind === "auth";
+      if (accountLevel) {
+        markProviderCooldown(provider.name, failure.kind, failureText);
+        if (deferring) {
+          for (let i = queue.length - 1; i >= 0; i--) {
+            if (queue[i].name === provider.name) deferred.unshift(...queue.splice(i, 1));
+          }
+        }
+      }
+      const next = queue[0];
+      logProviderFailure(
+        `[ai] ${provider.name}/${provider.model} falló${accountLevel ? ` (${failure.kind === "quota" ? "cuota agotada" : "clave inválida"}: se salta todo ${provider.name})` : ""}${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo activo)"}:`,
+        err
+      );
       // Bloque 99 (pedido explícito — "apenas se desconecte, que el sistema
       // lo detecte y busque el modelo adecuado"): dispara la reparación en
       // segundo plano, SIN esperarla — el pedido actual ya sigue probando

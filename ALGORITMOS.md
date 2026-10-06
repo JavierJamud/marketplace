@@ -159,6 +159,18 @@ usa su modelo por defecto. La cadena de respaldo de `lib/ai.js` recorre pares
 proveedor+modelo: proveedores por velocidad medida, y dentro de cada uno por la
 prioridad que fijó el admin; los modelos marcados caídos van al final.
 
+**Cuota agotada o clave inválida = salta de proveedor** (`lib/aiProviderCooldown.js`).
+La cuota y la clave son de la cuenta del proveedor, no del modelo, así que si
+un modelo responde 429/"quota"/"rate limit" (o 401/403), el proveedor entero
+descansa: la cadena NO prueba sus otros modelos, pasa a los demás proveedores y
+solo si ninguno responde vuelve, como último recurso, a los modelos diferidos.
+El descanso dura lo que diga el propio error ("retry in 34s", "try again in
+7m12s"); sin plazo, 5 minutos (30 si es el límite diario; 10 si es la clave).
+Vence solo: el proveedor vuelve a su lugar por velocidad y se prueba con el
+siguiente pedido real, así "se restablece" sin intervención. Un error de modelo
+(404/410, no existe) sí prueba el siguiente modelo del mismo proveedor. El
+estado vive en memoria y se ve en la herramienta `estado_ia` del asistente.
+
 `checkModel()` es el **único punto** que decide qué hacer cuando un modelo
 falla, con la misma política desde tres disparadores: un pedido real que falla
 (`live`, con enfriamiento de 1 minuto por modelo), el chequeo de fondo cada 2
@@ -191,44 +203,60 @@ vigilan modelos activos.
 
 ### B6b. Asistente de negocio con IA (solo lectura) — `services/businessAssistant.service.js`
 
-Botón flotante de chat (`BusinessAssistantWidget`) montado en todas las
-pantallas del panel del admin y del panel del dueño de una tienda. En celular
-abre como hoja a pantalla completa; en escritorio, como ventana sobre el botón.
-**Solo lee y recomienda**:
-no hay herramientas de escritura, y cuando algo debe cambiarse responde con un
-botón a la pantalla exacta.
+Botón flotante en forma de píldora (`BusinessAssistantWidget`) montado en todas
+las pantallas del panel del admin y del panel del dueño de una tienda. En
+celular abre como hoja a pantalla completa; en escritorio, como ventana sobre el
+botón. **Solo lee y recomienda**: no hay herramientas de escritura, y cuando algo
+debe cambiarse responde con un botón a la pantalla exacta.
 
 Las librerías de IA no tienen llamadas a funciones, así que el modelo responde
 un JSON por vuelta: `{"tool","args"}` para pedir un dato o `{"final","links"}`
-para responder (hasta 4 consultas por pregunta). El backend valida el nombre
+para responder (hasta 6 consultas por pregunta). El backend valida el nombre
 de la herramienta contra una lista blanca por ámbito y los argumentos con zod,
-la ejecuta (`lib/assistantTools.js`) y se la devuelve a la IA como **dato**, no
-como instrucciones (nombres de productos y reseñas son texto de terceros).
+la ejecuta y se la devuelve a la IA como **dato**, no como instrucciones
+(nombres de productos y reseñas son texto de terceros). El prompt prohíbe decir
+"no tengo acceso" sin haber buscado antes la herramienta que da ese dato.
 
-- Vendedor: el `vendorId` sale de la sesión, ninguna herramienta lo acepta
-  como argumento. Cifras iguales a las del Dashboard (reusa
-  `computeVendorHealthScore`, `topSellingProducts`, `engagementSignals`,
-  `bestSellingWeekday` y el motor de series de `lib/salesSeries.js`; el "hoy"
-  es el día UTC, igual que la gráfica).
-- Admin: lectura de toda la plataforma. `resumen_plataforma` ejecuta el mismo
-  `getDashboard` del panel, no una copia. Sin correos, teléfonos, claves ni
-  documentos de verificación en ninguna herramienta.
+**Acceso a todo el negocio** (`lib/assistantTools.js` + `lib/assistantData.js`):
+- Vendedor, solo su tienda (el `vendorId` sale de la sesión, ninguna herramienta
+  lo acepta): ventas y series (mismas cifras del Dashboard), productos más
+  vendidos y sin ventas, inventario, pedidos y su desglose, reseñas, interés de
+  clientes, salud, **plan y vencimiento**, **inicios de sesión y toda la
+  actividad registrada** (`ActivityLog`, sesiones, personal), **posición real en
+  el algoritmo** (mismo catálogo y mismo `rankFeaturedProducts` del buscador, con
+  el motivo de cada penalización), reglas del algoritmo (leídas de las
+  constantes reales de `productRanking.js`, no copiadas), productos al detalle,
+  mensajes y notificaciones, ofertas y códigos, personal y mesas, alertas
+  (reportes, anomalías, bloqueos), clientes y chat de la tienda, perfil de la
+  tienda y chats anteriores del asistente.
+- Admin, toda la plataforma: resumen (mismo `getDashboard` del panel), ventas,
+  tiendas y productos top, suscripciones y vencimientos, actividad e inicios de
+  sesión de la plataforma, errores, reportes de fraude, anomalías, solicitudes
+  de ubicación, estado de las IA (con los proveedores en descanso), catálogo, y
+  `consultar_tienda`, que da cualquier dato de una tienda por su nombre.
+- Sin correos, teléfonos, claves ni documentos de verificación en ninguna
+  herramienta.
 - Los enlaces se validan contra la lista real de rutas del panel
   (`LINKS_BY_SCOPE`); una ruta inventada se descarta.
-- Acceso del vendedor: el dueño de cualquier tienda (no un usuario de sistema),
-  con o sin verificación y plan. El plan solo cambia lo que cuenta el asistente
-  (`vendorPlanContext`): con plan activo no le recomienda suscribirse; sin plan
-  o sin verificar le recomienda con honestidad verificarse y suscribirse
-  (publicidad toda la semana en los grupos de compra y venta de Cuba y los
-  beneficios reales del plan, leídos de `PlanConfig`) con enlace a
-  `/vendedor/verificacion`, sin repetirlo en cada mensaje. El interruptor
-  `allowAiAssistant` ya no existe (migración `drop_allow_ai_assistant`).
-- Anti-invento: si la respuesta trae cifras y la IA no consultó ninguna
-  herramienta, el servidor la devuelve a consultar (hasta 2 veces).
-- Usa la cadena de respaldo entre modelos de B6; con todas las IA caídas
-  responde 503 "no está disponible" y no guarda la pregunta.
-- Historial: `AssistantMessage`, últimas 10 vueltas, separado por ámbito,
-  usuario y tienda.
+
+Acceso del vendedor: el dueño de cualquier tienda (no un usuario de sistema),
+con o sin verificación y plan. El plan solo cambia lo que cuenta el asistente
+(`vendorPlanContext`): con plan activo no le recomienda suscribirse; sin plan o
+sin verificar le recomienda con honestidad verificarse y suscribirse (publicidad
+toda la semana en los grupos de compra y venta de Cuba y los beneficios reales
+del plan, leídos de `PlanConfig`) con enlace a `/vendedor/verificacion`.
+
+Anti-invento: si la respuesta trae cifras y la IA no consultó ninguna
+herramienta, el servidor la devuelve a consultar (hasta 2 veces).
+
+Conversaciones: varias por persona (`AssistantConversation`, con el título de la
+primera pregunta). El chat tiene historial, chat nuevo y borrar. El id de
+conversación llega del cliente, así que el servidor lo comprueba siempre contra
+el dueño de la sesión (404 si no es suyo). La IA también puede buscar en los
+otros chats de esa misma persona con `conversaciones_anteriores`.
+
+Usa la cadena de respaldo entre modelos de B6; con todas las IA caídas responde
+503 "no está disponible" y no guarda la pregunta.
 
 ### B7. Recordatorio de cierre de caja — `jobs/cashCloseReminder.job.js`
 

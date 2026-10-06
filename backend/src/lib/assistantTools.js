@@ -6,6 +6,11 @@ import { computeVendorHealthScore, topSellingProducts, engagementSignals, bestSe
 import { getDashboard as getAdminDashboard } from "../controllers/admin.controller.js";
 import { getAllEffectiveModels } from "./aiModels.js";
 import { getModelHealthRows } from "./aiProviderHealth.js";
+import { getProviderCooldowns } from "./aiProviderCooldown.js";
+import {
+  DAY_MS, clip, money, planAndSubscription, accountActivity, algorithmRules, algorithmPosition, productsList, productDetail,
+  inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown,
+} from "./assistantData.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA que "lee toda la
 // base de datos, estadísticas y algoritmos" y solo recomienda): registro de
@@ -22,16 +27,10 @@ import { getModelHealthRows } from "./aiProviderHealth.js";
 //   - Los textos de terceros (reseñas, nombres de productos) se recortan,
 //     porque llegan al modelo como dato y no deben crecer sin límite.
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const PERIOD_DAYS = { hoy: 1, "7dias": 7, "30dias": 30, "90dias": 90 };
 const periodSchema = z.enum(["hoy", "7dias", "30dias", "90dias"]).default("30dias");
 const limitSchema = (max, def) => z.number().int().min(1).max(max).default(def);
 
-const clip = (text, max) => {
-  const s = String(text ?? "").replace(/\s+/g, " ").trim();
-  return s.length > max ? `${s.slice(0, max)}...` : s;
-};
-const money = (n) => Math.round(Number(n ?? 0) * 100) / 100;
 
 // Mismo corte de "hoy" que la gráfica de ventas del panel (días UTC, ver
 // lib/salesSeries.js): así el número que dice el asistente coincide con el
@@ -233,6 +232,90 @@ const VENDOR_TOOLS = {
     schema: z.object({}).strict(),
     run: (_args, { vendorId }) => computeVendorHealthScore(vendorId, new Date(Date.now() - 30 * DAY_MS)),
   },
+
+  // Bloque 260 (pedido explícito — "acceso completo a todo lo del negocio, incluso
+  // lo que el vendedor no ve, como el algoritmo de su tienda pública"): el resto
+  // de herramientas de la tienda. Todas leen, ninguna escribe.
+  plan_y_suscripcion: {
+    description: "Plan de TU tienda, si el plan de pago está activo, fecha de vencimiento y días que faltan, forma de cobro, si se cancela al final del periodo, prueba gratuita, uso de los límites del plan (productos, mesas, usuarios...), últimos pagos de renovación e historial de verificación.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => planAndSubscription(vendorId),
+  },
+  actividad_de_la_cuenta: {
+    description: "Inicios de sesión de TU cuenta (último inicio, sesiones por día, dispositivos, sesiones abiertas), conexiones del personal de sistema y TODA la actividad registrada en tu tienda (últimos movimientos y cuántos de cada tipo en 30 días).",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => accountActivity(vendorId),
+  },
+  algoritmo_de_mi_tienda: {
+    description: "Cómo está posicionada TU tienda pública en el algoritmo: si aparece en el catálogo y por qué no, la posición real de tus productos entre todos los del sitio, cuántos están en el top 10 y 30, cuáles el algoritmo penaliza y por qué (ficha incompleta, mala calificación, sin actividad reciente).",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => algorithmPosition(vendorId),
+  },
+  como_funciona_el_algoritmo: {
+    description: "Las reglas reales del algoritmo de posicionamiento del sitio (pesos de cada señal, piso de calidad, empujón a productos nuevos, caducidad de la actividad, reglas de visibilidad de las tiendas). Úsala cuando pregunten qué es el algoritmo o por qué un producto sube o baja.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    async run() {
+      return algorithmRules();
+    },
+  },
+  mis_productos: {
+    description: "Lista de TUS productos con precio, stock, estado, ventas, vistas, clics, tiempo en la ficha, calificación, fotos y completitud de la ficha. Puedes buscar por nombre y ordenar.",
+    args: '{ "busqueda": "parte del nombre" (opcional), "orden": "ventas"|"vistas"|"clics"|"calificacion"|"stock"|"recientes", "limite": 1-12 }',
+    schema: z.object({ busqueda: z.string().trim().max(60).optional(), orden: z.enum(["ventas", "vistas", "clics", "calificacion", "stock", "recientes"]).default("ventas"), limite: limitSchema(12, 8) }),
+    run: (args, { vendorId }) => productsList(vendorId, args),
+  },
+  detalle_de_producto: {
+    description: "Todo sobre UN producto de tu tienda buscado por nombre: ventas, clics por origen (búsqueda, Home, catálogo, tienda) de los últimos 30 días, favoritos, reseñas y cómo lo ve el algoritmo.",
+    args: '{ "busqueda": "nombre del producto" }',
+    schema: z.object({ busqueda: z.string().trim().min(2).max(60) }),
+    run: (args, { vendorId }) => productDetail(vendorId, args),
+  },
+  pedidos_detalle: {
+    description: "Desglose de los pedidos de TU tienda en un periodo: por estado, por canal, tasa de cancelación, motivos de cancelación, ticket promedio y pedidos de mesa.",
+    args: '{ "periodo": "hoy"|"7dias"|"30dias"|"90dias" }',
+    schema: z.object({ periodo: periodSchema }),
+    run: ({ periodo }, { vendorId }) => ordersBreakdown(vendorId, sinceForPeriod(periodo)),
+  },
+  mensajes_y_notificaciones: {
+    description: "Mensajes con el equipo de la plataforma y notificaciones de TU panel (sin leer y las últimas).",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => inbox(vendorId),
+  },
+  ofertas_y_codigos: {
+    description: "Ofertas del Home, ofertas de tienda y códigos de descuento de TU tienda con su estado, usos y vencimiento.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => offersAndCodes(vendorId),
+  },
+  personal_y_mesas: {
+    description: "Usuarios de sistema (personal) de TU tienda con su último acceso, y las mesas con QR y sus pedidos.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => teamAndTables(vendorId),
+  },
+  alertas_de_la_cuenta: {
+    description: "Estado de TU cuenta (bloqueo, suspensión, baja), reportes de fraude recibidos, anomalías del ranking detectadas, solicitudes de cambio de datos y cambios de estado.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => alerts(vendorId),
+  },
+  clientes_y_chat: {
+    description: "Visitas y carritos de clientes con sesión, favoritos, clientes que compraron y que repitieron, y el chat de TU tienda con clientes (conversaciones y últimas preguntas).",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => customersAndChat(vendorId),
+  },
+  perfil_de_la_tienda: {
+    description: "Qué le falta completar a TU tienda (logo, descripción, horarios, ubicación, métodos de pago, rubro, documento del chat) y la calidad de las fichas de tus productos.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    run: (_args, { vendorId }) => storeProfile(vendorId),
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -394,13 +477,143 @@ const ADMIN_TOOLS = {
       };
     },
   },
+  consultar_tienda: {
+    description: "Cualquier dato de UNA tienda concreta buscada por nombre. 'dato' elige qué: resumen, plan (suscripción y vencimiento), actividad (inicios de sesión y movimientos registrados), algoritmo (posición de sus productos y por qué), productos, pedidos, inventario, resenas, interes (clics y tiempo en ficha), mensajes, ofertas, equipo, alertas, clientes (incluye chat de la tienda), perfil.",
+    args: '{ "busqueda": "parte del nombre de la tienda", "dato": "resumen"|"plan"|"actividad"|"algoritmo"|"productos"|"pedidos"|"inventario"|"resenas"|"interes"|"mensajes"|"ofertas"|"equipo"|"alertas"|"clientes"|"perfil" }',
+    schema: z.object({
+      busqueda: z.string().trim().min(2).max(60),
+      dato: z.enum(["resumen", "plan", "actividad", "algoritmo", "productos", "pedidos", "inventario", "resenas", "interes", "mensajes", "ofertas", "equipo", "alertas", "clientes", "perfil"]).default("resumen"),
+    }),
+    async run({ busqueda, dato }, ctx) {
+      const matches = await prisma.vendor.findMany({
+        where: { deletedAt: null, OR: [{ companyName: { contains: busqueda, mode: "insensitive" } }, { slug: { contains: busqueda, mode: "insensitive" } }] },
+        select: { id: true, companyName: true },
+        take: 4,
+      });
+      if (matches.length === 0) return { error: "No encontré ninguna tienda con ese nombre." };
+      const vendorId = matches[0].id;
+      const c = { ...ctx, vendorId };
+      const byDato = {
+        resumen: () => VENDOR_TOOLS.resumen_negocio.run({}, c),
+        plan: () => VENDOR_TOOLS.plan_y_suscripcion.run({}, c),
+        actividad: () => VENDOR_TOOLS.actividad_de_la_cuenta.run({}, c),
+        algoritmo: () => VENDOR_TOOLS.algoritmo_de_mi_tienda.run({}, c),
+        productos: () => VENDOR_TOOLS.mis_productos.run({ orden: "ventas", limite: 8 }, c),
+        pedidos: () => VENDOR_TOOLS.pedidos_detalle.run({ periodo: "30dias" }, c),
+        inventario: () => VENDOR_TOOLS.inventario_critico.run({}, c),
+        resenas: () => VENDOR_TOOLS.resenas.run({ limite: 5 }, c),
+        interes: () => VENDOR_TOOLS.interes_de_clientes.run({}, c),
+        mensajes: () => VENDOR_TOOLS.mensajes_y_notificaciones.run({}, c),
+        ofertas: () => VENDOR_TOOLS.ofertas_y_codigos.run({}, c),
+        equipo: () => VENDOR_TOOLS.personal_y_mesas.run({}, c),
+        alertas: () => VENDOR_TOOLS.alertas_de_la_cuenta.run({}, c),
+        clientes: () => VENDOR_TOOLS.clientes_y_chat.run({}, c),
+        perfil: () => VENDOR_TOOLS.perfil_de_la_tienda.run({}, c),
+      };
+      return { tienda: matches[0].companyName, dato, otrasCoincidencias: matches.slice(1).map((m) => m.companyName), datos: await byDato[dato]() };
+    },
+  },
+  como_funciona_el_algoritmo: VENDOR_TOOLS.como_funciona_el_algoritmo,
+  suscripciones_plataforma: {
+    description: "Suscripciones de TODA la plataforma: tiendas por plan y estado de verificación, vencimientos de los próximos 14 días, cancelaciones programadas, pruebas gratuitas activas, pagos por confirmar y pagos confirmados en 30 días.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    async run() {
+      const now = new Date();
+      const in14 = new Date(Date.now() + 14 * DAY_MS);
+      const since = new Date(Date.now() - 30 * DAY_MS);
+      const [byPlan, byVerification, expiring, cancelling, trials, pending, confirmed] = await Promise.all([
+        prisma.vendor.groupBy({ by: ["planType"], where: { deletedAt: null }, _count: { _all: true } }),
+        prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
+        prisma.vendor.findMany({ where: { deletedAt: null, planType: "BUSINESS", verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: in14 } }, orderBy: { nextPaymentDueDate: "asc" }, take: 10, select: { companyName: true, nextPaymentDueDate: true, cancelAtPeriodEnd: true, stripeSubscriptionId: true } }),
+        prisma.vendor.count({ where: { deletedAt: null, cancelAtPeriodEnd: true } }),
+        prisma.vendor.count({ where: { deletedAt: null, trialEndsAt: { gt: now } } }),
+        prisma.subscriptionPayment.findMany({ where: { claimedAt: { not: null }, confirmedAt: null }, orderBy: { claimedAt: "asc" }, take: 8, select: { claimedAt: true, months: true, amount: true, currency: true, vendor: { select: { companyName: true } } } }),
+        prisma.subscriptionPayment.groupBy({ by: ["currency"], where: { confirmedAt: { gte: since } }, _count: { _all: true }, _sum: { amount: true } }),
+      ]);
+      return {
+        tiendasPorPlan: byPlan.map((r) => ({ plan: r.planType, tiendas: r._count._all })),
+        tiendasPorVerificacion: byVerification.map((r) => ({ estado: r.verificationStatus, tiendas: r._count._all })),
+        vencenEnLosProximos14dias: expiring.map((v) => ({ tienda: clip(v.companyName, 50), vence: v.nextPaymentDueDate?.toISOString().slice(0, 10) ?? null, diasRestantes: v.nextPaymentDueDate ? Math.ceil((v.nextPaymentDueDate.getTime() - Date.now()) / DAY_MS) : null, seCancela: v.cancelAtPeriodEnd, cobro: v.stripeSubscriptionId ? "tarjeta" : "transferencia" })),
+        cancelacionesProgramadas: cancelling,
+        pruebasGratuitasActivas: trials,
+        pagosPorConfirmar: pending.map((p) => ({ tienda: clip(p.vendor?.companyName, 50), desde: p.claimedAt?.toISOString().slice(0, 10), meses: p.months, monto: p.amount != null ? money(p.amount) : null, moneda: p.currency })),
+        pagosConfirmadosUltimos30dias: confirmed.map((r) => ({ moneda: r.currency, pagos: r._count._all, total: money(r._sum.amount) })),
+      };
+    },
+  },
+  actividad_plataforma: {
+    description: "Actividad de TODA la plataforma: personas que iniciaron sesión en 24 horas, 7 y 30 días por tipo de cuenta, sesiones abiertas, los últimos movimientos registrados (con la tienda) y cuántos de cada tipo hubo en 7 días.",
+    args: '{ "limite": 1-20 }',
+    schema: z.object({ limite: limitSchema(20, 12) }),
+    async run({ limite }) {
+      const since = (days) => new Date(Date.now() - days * DAY_MS);
+      const logins = async (days) => Object.fromEntries((await prisma.user.groupBy({ by: ["role"], where: { lastLoginAt: { gte: since(days) } }, _count: { _all: true } })).map((r) => [r.role, r._count._all]));
+      const [l1, l7, l30, openSessions, newSessions24h, logs, byAction] = await Promise.all([
+        logins(1),
+        logins(7),
+        logins(30),
+        prisma.session.count({ where: { revokedAt: null, expiresAt: { gt: new Date() } } }),
+        prisma.session.count({ where: { createdAt: { gte: since(1) } } }),
+        prisma.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: limite, select: { action: true, description: true, actorRole: true, createdAt: true, vendor: { select: { companyName: true } } } }),
+        prisma.activityLog.groupBy({ by: ["action"], where: { createdAt: { gte: since(7) } }, _count: { _all: true }, orderBy: { _count: { action: "desc" } }, take: 10 }),
+      ]);
+      return {
+        personasQueInicaronSesion: { ultimas24horas: l1, ultimos7dias: l7, ultimos30dias: l30 },
+        sesionesAbiertasAhora: openSessions,
+        sesionesIniciadasEnLas24horas: newSessions24h,
+        movimientosRegistradosUltimos7diasPorTipo: byAction.map((a) => ({ accion: a.action, veces: a._count._all })),
+        ultimosMovimientos: logs.map((l) => ({ fecha: l.createdAt.toISOString(), quien: l.actorRole, tienda: clip(l.vendor?.companyName, 40) || null, accion: l.action, detalle: clip(l.description, 120) })),
+      };
+    },
+  },
+  errores_recientes: {
+    description: "Errores sin resolver del sistema (origen, mensaje y fecha) y cuántos hubo por origen en 7 días.",
+    args: '{ "limite": 1-15 }',
+    schema: z.object({ limite: limitSchema(15, 8) }),
+    async run({ limite }) {
+      const [open, byOrigin, rows] = await Promise.all([
+        prisma.errorLog.count({ where: { resolved: false } }),
+        prisma.errorLog.groupBy({ by: ["origin"], where: { createdAt: { gte: new Date(Date.now() - 7 * DAY_MS) } }, _count: { _all: true } }),
+        prisma.errorLog.findMany({ where: { resolved: false }, orderBy: { createdAt: "desc" }, take: limite, select: { origin: true, message: true, createdAt: true } }),
+      ]);
+      return { erroresSinResolver: open, ultimos7diasPorOrigen: byOrigin.map((r) => ({ origen: r.origin, veces: r._count._all })), ultimos: rows.map((r) => ({ origen: r.origin, mensaje: clip(r.message, 160), fecha: r.createdAt.toISOString() })) };
+    },
+  },
+  reportes_de_fraude: {
+    description: "Reportes de fraude pendientes o con evidencia solicitada: tienda, estado, fecha y el motivo.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    async run() {
+      const rows = await prisma.report.findMany({ where: { status: { in: ["PENDING", "EVIDENCE_REQUESTED"] } }, orderBy: { createdAt: "asc" }, take: 8, select: { status: true, message: true, createdAt: true, evidenceDueAt: true, vendor: { select: { companyName: true } } } });
+      return { pendientes: rows.map((r) => ({ tienda: clip(r.vendor?.companyName, 50) || "(producto o venta rápida)", estado: r.status, fecha: r.createdAt.toISOString().slice(0, 10), plazoDeEvidencia: r.evidenceDueAt?.toISOString().slice(0, 10) ?? null, motivo: clip(r.message, 160) })) };
+    },
+  },
+  resumen_productos: {
+    description: "Catálogo de TODA la plataforma: total de productos, activos, agotados, sin fotos, destacados a mano y los más vistos.",
+    args: "{}",
+    schema: z.object({}).strict(),
+    async run() {
+      const live = { vendor: { deletedAt: null, isBlocked: false } };
+      const [total, active, outOfStock, noPhotos, featured, topViewed] = await Promise.all([
+        prisma.product.count({ where: live }),
+        prisma.product.count({ where: { ...live, isActive: true } }),
+        prisma.product.count({ where: { ...live, isActive: true, unlimitedStock: false, stock: { lte: 0 } } }),
+        prisma.product.count({ where: { ...live, isActive: true, images: { isEmpty: true } } }),
+        prisma.product.count({ where: { ...live, isFeatured: true } }),
+        prisma.product.findMany({ where: { ...live, isActive: true }, orderBy: { viewCount: "desc" }, take: 5, select: { name: true, viewCount: true, clickCount: true, salesCount: true, vendor: { select: { companyName: true } } } }),
+      ]);
+      return { total, activos: active, activosAgotados: outOfStock, activosSinFotos: noPhotos, destacadosAMano: featured, masVistos: topViewed.map((p) => ({ nombre: clip(p.name, 60), tienda: clip(p.vendor?.companyName, 40), vistas: p.viewCount, clics: p.clickCount, ventas: p.salesCount })) };
+    },
+  },
   estado_ia: {
-    description: "Estado de las integraciones de IA: modelos configurados por proveedor y su salud actual.",
+    description: "Estado de las integraciones de IA: modelos configurados por proveedor, su salud actual y qué proveedores están descansando por cuota agotada o clave inválida (el sistema salta a otro proveedor y vuelve a probar el principal solo).",
     args: "{}",
     schema: z.object({}).strict(),
     async run() {
       const [byProvider, health] = await Promise.all([getAllEffectiveModels(), getModelHealthRows()]);
       return {
+        proveedoresDescansando: getProviderCooldowns().map((c) => ({ proveedor: c.provider, motivo: c.kind === "quota" ? "cuota agotada" : "clave inválida", segundosParaReintentar: c.secondsLeft })),
         proveedores: Object.entries(byProvider).map(([provider, models]) => ({
           proveedor: provider,
           modelos: models.map((m) => {
@@ -412,6 +625,37 @@ const ADMIN_TOOLS = {
     },
   },
 };
+
+// Bloque 260 (pedido explícito — "acceso al historial del chat o otros chats"):
+// el asistente puede consultar las OTRAS conversaciones de esta misma persona
+// (nunca las de otra). scope/userId/vendorId salen de la sesión (ctx).
+const pastConversationsTool = {
+  description: "Busca en TUS conversaciones anteriores con este asistente (otras conversaciones, no la actual). Sin 'busqueda' devuelve las más recientes con su título.",
+  args: '{ "busqueda": "texto a buscar" (opcional), "limite": 1-8 }',
+  schema: z.object({ busqueda: z.string().trim().max(80).optional(), limite: limitSchema(8, 5) }),
+  async run({ busqueda, limite }, { scope, userId, vendorId, conversationId }) {
+    const owner = { scope, userId, vendorId: vendorId ?? null };
+    const notCurrent = conversationId ? { conversationId: { not: conversationId } } : {};
+    if (busqueda) {
+      const rows = await prisma.assistantMessage.findMany({
+        where: { ...owner, ...notCurrent, content: { contains: busqueda, mode: "insensitive" } },
+        orderBy: { createdAt: "desc" },
+        take: limite,
+        select: { role: true, content: true, createdAt: true, conversation: { select: { title: true } } },
+      });
+      return { coincidencias: rows.map((r) => ({ conversacion: clip(r.conversation?.title, 60), fecha: r.createdAt.toISOString().slice(0, 10), quien: r.role === "user" ? "persona" : "asistente", texto: clip(r.content, 240) })) };
+    }
+    const convs = await prisma.assistantConversation.findMany({
+      where: { ...owner, ...(conversationId ? { id: { not: conversationId } } : {}) },
+      orderBy: { updatedAt: "desc" },
+      take: limite,
+      select: { title: true, updatedAt: true, messages: { orderBy: { createdAt: "desc" }, take: 1, select: { content: true, role: true } } },
+    });
+    return { conversaciones: convs.map((c) => ({ titulo: clip(c.title, 60), ultimaActividad: c.updatedAt.toISOString().slice(0, 10), ultimoMensaje: clip(c.messages[0]?.content, 200) })) };
+  },
+};
+VENDOR_TOOLS.conversaciones_anteriores = pastConversationsTool;
+ADMIN_TOOLS.conversaciones_anteriores = pastConversationsTool;
 
 export const TOOLS_BY_SCOPE = { VENDOR: VENDOR_TOOLS, ADMIN: ADMIN_TOOLS };
 
@@ -440,6 +684,12 @@ export const LINKS_BY_SCOPE = {
     "/admin/errores": "Errores",
     "/admin/actividad": "Actividad",
     "/admin/marca": "Marca de la plataforma",
+    "/admin/ventas-manuales": "Agentes de ventas",
+    "/admin/ventas-rapidas": "Venta rápida",
+    "/admin/sugerencias": "Sugerencias",
+    "/admin/ofertas-tienda": "Ofertas de tienda",
+    "/admin/anuncios": "Anuncios",
+    "/admin/asistente": "Asistente del marketplace (entrenar al bot público)",
   },
   VENDOR: {
     "/vendedor": "Dashboard",
@@ -452,5 +702,8 @@ export const LINKS_BY_SCOPE = {
     "/vendedor/resenas": "Reseñas",
     "/vendedor/verificacion": "Verificación y plan",
     "/vendedor/configuracion": "Configuración",
+    "/vendedor/reportes": "Reportes de fraude",
+    "/vendedor/usuarios": "Usuarios de sistema",
+    "/vendedor/perfil": "Mi perfil",
   },
 };

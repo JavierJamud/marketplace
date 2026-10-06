@@ -2495,7 +2495,31 @@ model AssistantMessage {
   links     Json? // [{ path, label }] ya validados contra la lista de rutas reales
   createdAt DateTime       @default(now())
 
+  // Bloque 260: cada mensaje pertenece a una conversación (antes era un solo
+  // hilo por persona). Nullable solo por seguridad con filas muy antiguas.
+  conversationId String?
+  conversation   AssistantConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
   @@index([scope, userId, vendorId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+// Bloque 260 (pedido explícito — "acceso también al historial del chat o otros
+// chats"): el asistente de negocio pasa a tener varias conversaciones por
+// persona, cada una con un título (las primeras palabras de la primera
+// pregunta) para elegirlas desde el propio chat.
+model AssistantConversation {
+  id        String         @id @default(cuid())
+  scope     AssistantScope
+  userId    String
+  vendorId  String?
+  title     String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now())
+
+  messages AssistantMessage[]
+
+  @@index([scope, userId, vendorId, updatedAt])
 }
 
 // Bloque 238 + 245: estado cacheado de salud de cada MODELO de IA

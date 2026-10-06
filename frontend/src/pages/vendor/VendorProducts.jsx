@@ -1056,7 +1056,9 @@ export default function VendorProducts() {
 
   return (
     <div>
-      <div className="mb-[22px] flex items-center justify-between">
+      {/* Bloque 260: en celular los dos botones no caben junto al título y
+          empujaban la página 60px hacia la derecha; ahora pasan a otra línea. */}
+      <div className="mb-[22px] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <IconCircle icon={Package} tone="teal" />
           <div>
@@ -1064,7 +1066,7 @@ export default function VendorProducts() {
             <p className="text-[13.5px] text-outline">{products.length} productos publicados</p>
           </div>
         </div>
-        <div className="flex gap-2.5">
+        <div className="flex flex-wrap gap-2.5">
           <button
             onClick={handleScanBarcode}
             className="flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant"

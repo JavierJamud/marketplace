@@ -178,3 +178,45 @@ export function rankFeaturedProducts(products, reviewStatsByProductId) {
 
   return scored.sort((a, b) => b.score - a.score).map((s) => s.product);
 }
+
+// Bloque 260 (pedido explícito — el asistente de negocio debe poder explicar
+// "qué es el algoritmo en tu tienda pública"): las constantes REALES del
+// algoritmo de arriba, para que la explicación del asistente nunca diverja de
+// lo que de verdad se calcula (se lee de acá, no se copia a un texto aparte).
+export const RANKING_RULES = {
+  pesos: WEIGHTS,
+  pisoDeCompletitudTiendaVerificada: MIN_COMPLETENESS_VERIFIED,
+  pisoDeCompletitudTiendaSinVerificar: MIN_COMPLETENESS_UNVERIFIED,
+  calificacionMinimaSiTieneResenas: MIN_RATING_IF_REVIEWED,
+  diasDeEmpujonProductoNuevo: NEW_PRODUCT_BOOST_DAYS,
+  empujonProductoNuevo: NEW_PRODUCT_BOOST,
+  mitadDeVidaDeLaActividadEnDias: RECENCY_HALF_LIFE_DAYS,
+  pesoMinimoDeLaActividadAntigua: RECENCY_FLOOR,
+};
+
+// Las señales de UN producto tal como las ve el algoritmo (mismas funciones y
+// umbrales que rankFeaturedProducts), sin recalcular el orden. Sirve para
+// decirle al dueño POR QUÉ un producto sube o no (piso de calidad, actividad
+// reciente, completitud, empujón de producto nuevo).
+export function explainProductRanking(product, stats, now = Date.now()) {
+  const completeness = completenessScore(product);
+  const isVerified = product.vendor?.verificationStatus === "VERIFIED";
+  const minCompleteness = isVerified ? MIN_COMPLETENESS_VERIFIED : MIN_COMPLETENESS_UNVERIFIED;
+  const avgRating = stats?.avgRating ?? null;
+  const reviewCount = stats?.reviewCount ?? 0;
+  const reasons = [];
+  if (completeness < minCompleteness) reasons.push(`la ficha está al ${completeness}% y el mínimo para esta tienda es ${minCompleteness}% (faltan fotos, descripción, etiquetas o categoría)`);
+  if (reviewCount > 0 && avgRating < MIN_RATING_IF_REVIEWED) reasons.push(`su calificación promedio (${Number(avgRating).toFixed(1)}) está por debajo del mínimo ${MIN_RATING_IF_REVIEWED}`);
+  const daysSinceActivity = product.lastActivityAt ? Math.floor((now - new Date(product.lastActivityAt).getTime()) / MS_PER_DAY) : null;
+  const daysSinceActivated = product.activatedAt ? Math.floor((now - new Date(product.activatedAt).getTime()) / MS_PER_DAY) : null;
+  return {
+    completitud: completeness,
+    pisoDeCompletitud: minCompleteness,
+    seMuestraComoDestacado: reasons.length === 0,
+    motivosDePenalizacion: reasons,
+    diasDesdeLaUltimaActividad: daysSinceActivity,
+    pesoDeLaActividadReciente: Math.round(recencyMultiplier(product.lastActivityAt, now) * 100) / 100,
+    empujonDeProductoNuevoActivo: daysSinceActivated !== null && daysSinceActivated <= NEW_PRODUCT_BOOST_DAYS,
+    destacadoAManoPorElAdmin: !!product.isFeatured,
+  };
+}

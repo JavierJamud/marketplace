@@ -69,6 +69,8 @@ router.get("/me/dashboard/tips", authenticate, requireVendorAccess("resumen"), v
 // interruptor del plan encendido; el control fino lo hace el controller.
 router.get("/me/assistant", authenticate, requireRole("VENDOR"), businessAssistantController.getVendorAssistant);
 router.post("/me/assistant", authenticate, requireRole("VENDOR"), assistantRateLimit, businessAssistantController.askVendorAssistant);
+router.get("/me/assistant/conversations/:id", authenticate, requireRole("VENDOR"), businessAssistantController.openVendorConversation);
+router.delete("/me/assistant/conversations/:id", authenticate, requireRole("VENDOR"), businessAssistantController.deleteVendorConversation);
 router.delete("/me/assistant", authenticate, requireRole("VENDOR"), businessAssistantController.clearVendorAssistant);
 // Horarios/cobertura/entrega — datos de identidad del negocio, nunca
 // delegables a un usuario de sistema (quedan owner/admin-only a propósito).

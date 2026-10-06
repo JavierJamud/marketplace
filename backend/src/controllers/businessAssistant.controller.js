@@ -2,13 +2,19 @@ import { z } from "zod";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getPlanConfig, isPremiumActive } from "../lib/planConfig.js";
-import { runAssistant, getHistory, clearHistory } from "../services/businessAssistant.service.js";
+import { runAssistant, listConversations, getConversation, deleteConversation, clearHistory } from "../services/businessAssistant.service.js";
 
-// Bloque 246 (pedido explícito — asistente de negocio con IA "solo para
-// negocios verificados"): rutas del admin y del vendedor. El asistente solo
-// LEE y recomienda (ver services/businessAssistant.service.js).
+// Bloque 246 (pedido explícito — asistente de negocio con IA): rutas del admin y
+// del vendedor. El asistente solo LEE y recomienda (ver
+// services/businessAssistant.service.js).
+//
+// Bloque 260: varias conversaciones por persona. El id de conversación llega del
+// cliente, así que el servicio siempre lo comprueba contra el dueño de la sesión.
 
-const messageSchema = z.object({ message: z.string().trim().min(1, "Escribe tu pregunta.").max(600, "La pregunta es muy larga (máximo 600 caracteres).") });
+const messageSchema = z.object({
+  message: z.string().trim().min(1, "Escribe tu pregunta.").max(600, "La pregunta es muy larga (máximo 600 caracteres)."),
+  conversationId: z.string().trim().min(1).max(64).optional(),
+});
 
 // Quién puede usarlo (vendedor): el DUEÑO de cualquier tienda, tenga o no plan
 // de pago (un usuario de sistema, VENDOR_STAFF, no: son consejos sobre todo el
@@ -30,42 +36,67 @@ async function vendorPlanContext(vendor) {
   };
 }
 
-// --- Vendedor -------------------------------------------------------------
-
-export async function getVendorAssistant(req, res) {
-  const vendor = await resolveMyVendor(req.user.id);
-  const plan = await vendorPlanContext(vendor);
-  const messages = await getHistory({ scope: "VENDOR", userId: req.user.id, vendorId: vendor.id });
-  res.json({ access: { allowed: true, premium: plan.premium }, messages });
+// Las mismas cinco rutas para los dos ámbitos: lo único que cambia es quién es
+// la persona (`resolveOwner`) y qué se le cuenta extra al abrir el chat.
+function makeHandlers({ scope, resolveOwner }) {
+  return {
+    // Abre el chat: lista de conversaciones y la más reciente ya cargada.
+    async get(req, res) {
+      const owner = await resolveOwner(req);
+      const conversations = await listConversations(owner);
+      const active = conversations[0] ? await getConversation({ ...owner, conversationId: conversations[0].id }) : null;
+      res.json({ access: owner.access, conversations, active });
+    },
+    async open(req, res) {
+      const owner = await resolveOwner(req);
+      const conversation = await getConversation({ ...owner, conversationId: String(req.params.id) });
+      if (!conversation) throw new AppError("No encontré esa conversación.", 404);
+      res.json({ conversation });
+    },
+    async ask(req, res) {
+      const { message, conversationId } = messageSchema.parse(req.body);
+      const owner = await resolveOwner(req);
+      const result = await runAssistant({ scope, userId: owner.userId, vendorId: owner.vendorId, who: owner.who, message, planContext: owner.planContext, conversationId });
+      res.json(result);
+    },
+    async remove(req, res) {
+      const owner = await resolveOwner(req);
+      const done = await deleteConversation({ ...owner, conversationId: String(req.params.id) });
+      if (!done) throw new AppError("No encontré esa conversación.", 404);
+      res.json({ ok: true });
+    },
+    async clear(req, res) {
+      const owner = await resolveOwner(req);
+      await clearHistory(owner);
+      res.json({ ok: true });
+    },
+  };
 }
 
-export async function askVendorAssistant(req, res) {
-  const { message } = messageSchema.parse(req.body);
-  const vendor = await resolveMyVendor(req.user.id);
-  const planContext = await vendorPlanContext(vendor);
-  const result = await runAssistant({ scope: "VENDOR", userId: req.user.id, vendorId: vendor.id, who: `el dueño del negocio "${vendor.companyName}"`, message, planContext });
-  res.json(result);
-}
+const vendorHandlers = makeHandlers({
+  scope: "VENDOR",
+  async resolveOwner(req) {
+    const vendor = await resolveMyVendor(req.user.id);
+    const planContext = await vendorPlanContext(vendor);
+    return { scope: "VENDOR", userId: req.user.id, vendorId: vendor.id, who: `el dueño del negocio "${vendor.companyName}"`, planContext, access: { allowed: true, premium: planContext.premium } };
+  },
+});
 
-export async function clearVendorAssistant(req, res) {
-  const vendor = await resolveMyVendor(req.user.id);
-  await clearHistory({ scope: "VENDOR", userId: req.user.id, vendorId: vendor.id });
-  res.json({ ok: true });
-}
+const adminHandlers = makeHandlers({
+  scope: "ADMIN",
+  async resolveOwner(req) {
+    return { scope: "ADMIN", userId: req.user.id, vendorId: null, who: "la persona administradora de la plataforma", planContext: null, access: { allowed: true } };
+  },
+});
 
-// --- Admin ------------------------------------------------------------------
+export const getVendorAssistant = vendorHandlers.get;
+export const openVendorConversation = vendorHandlers.open;
+export const askVendorAssistant = vendorHandlers.ask;
+export const deleteVendorConversation = vendorHandlers.remove;
+export const clearVendorAssistant = vendorHandlers.clear;
 
-export async function getAdminAssistant(req, res) {
-  res.json({ access: { allowed: true }, messages: await getHistory({ scope: "ADMIN", userId: req.user.id }) });
-}
-
-export async function askAdminAssistant(req, res) {
-  const { message } = messageSchema.parse(req.body);
-  const result = await runAssistant({ scope: "ADMIN", userId: req.user.id, who: "la persona administradora de la plataforma", message });
-  res.json(result);
-}
-
-export async function clearAdminAssistant(req, res) {
-  await clearHistory({ scope: "ADMIN", userId: req.user.id });
-  res.json({ ok: true });
-}
+export const getAdminAssistant = adminHandlers.get;
+export const openAdminConversation = adminHandlers.open;
+export const askAdminAssistant = adminHandlers.ask;
+export const deleteAdminConversation = adminHandlers.remove;
+export const clearAdminAssistant = adminHandlers.clear;

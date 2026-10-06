@@ -157,17 +157,18 @@ function VendorAccessBlockedGate({ vendor, supportWhatsapp, onLogout }) {
 // otras, que además invitan a conocer lo que ganaría con la suscripción.
 const VENDOR_ASSISTANT_PROMPTS = [
   "Resumen de mis ventas de hoy",
+  "¿Cómo está mi tienda en el algoritmo?",
+  "¿Cuándo vence mi suscripción?",
+  "¿Qué actividad hubo en mi cuenta esta semana?",
   "¿Qué productos se están agotando?",
-  "¿Cuáles son mis productos más vendidos este mes?",
   "Dame consejos para esta semana",
-  "¿Qué productos no se venden y qué hago con ellos?",
 ];
 const VENDOR_ASSISTANT_PROMPTS_FREE = [
   "¿Cómo puedo vender más con mi tienda?",
+  "¿Cómo está mi tienda en el algoritmo?",
   "¿Qué le falta a mi tienda para atraer más clientes?",
-  "Dame consejos para esta semana",
   "¿Qué gano si verifico mi tienda y me suscribo?",
-  "¿Qué productos no se venden y qué hago con ellos?",
+  "Dame consejos para esta semana",
 ];
 
 export default function VendorLayout() {
@@ -537,7 +538,13 @@ export default function VendorLayout() {
           </Link>
         )}
       </aside>
-      <main className="px-4 py-6 lg:px-[38px] lg:py-[30px]">
+      {/* Bloque 260 (pedido explícito — "el contenido debe ajustarse al ancho de la
+          pantalla, solo se desliza de arriba a abajo"): min-w-0 deja que el
+          contenido se encoja dentro de la grilla y overflow-x-clip recorta
+          cualquier sobrante horizontal sin crear un contenedor de scroll (el
+          buscador fijo de arriba sigue pegado). Las tablas anchas ya traen su
+          propio scroll interno. */}
+      <main className="min-w-0 overflow-x-clip px-4 py-6 lg:px-[38px] lg:py-[30px]">
         {/* Bloque 233 (pedido explícito, con captura — "esta barra siempre
             debe aparecer fija en el panel de vendedores para fácil acceso a
             su uso"): antes se iba con el resto del contenido al hacer

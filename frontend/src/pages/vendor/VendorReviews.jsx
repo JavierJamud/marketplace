@@ -50,7 +50,7 @@ function ReviewReplyForm({ review, onReply, pending }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Escribe una respuesta pública..."
-        className="h-10 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
+        className="h-10 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
       />
       <button
         onClick={() => text.trim() && onReply(text.trim(), () => setEditing(false))}

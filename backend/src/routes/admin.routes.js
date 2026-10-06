@@ -252,6 +252,8 @@ router.delete("/announcements/:id", announcementsController.deleteAnnouncement);
 // Bloque 246: asistente de negocio (solo lectura) del admin.
 router.get("/business-assistant", businessAssistantController.getAdminAssistant);
 router.post("/business-assistant", assistantRateLimit, businessAssistantController.askAdminAssistant);
+router.get("/business-assistant/conversations/:id", businessAssistantController.openAdminConversation);
+router.delete("/business-assistant/conversations/:id", businessAssistantController.deleteAdminConversation);
 router.delete("/business-assistant", businessAssistantController.clearAdminAssistant);
 router.get("/ai-models", aiModelsController.listAiModels);
 router.post("/ai-models", aiModelsController.addAiModel);
