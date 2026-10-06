@@ -203,6 +203,33 @@ function owner({ scope, userId, vendorId = null }) {
 // Tabla de la respuesta: el modelo la arma con datos de las herramientas; aquí solo
 // se acota su forma (columnas, filas y largo de cada celda) y se descarta si no es
 // una tabla válida. Todo se renderiza como texto, nunca como HTML.
+// Red de seguridad (pedido explícito — "debe dar el nombre real de la tienda, no el
+// id"): aunque el prompt lo prohíbe, si el modelo copia el slug o el id de una tienda
+// o de un producto, se cambia por su nombre real antes de entregar la respuesta.
+let nameMapCache = { at: 0, entries: [] };
+async function identifierNames() {
+  if (Date.now() - nameMapCache.at < 60_000) return nameMapCache.entries;
+  const [vendors, products] = await Promise.all([
+    prisma.vendor.findMany({ select: { id: true, slug: true, companyName: true } }),
+    prisma.product.findMany({ select: { id: true, name: true }, take: 2000 }),
+  ]);
+  const entries = [
+    ...vendors.flatMap((v) => [[v.slug, v.companyName], [v.id, v.companyName]]),
+    ...products.map((p) => [p.id, p.name]),
+  ].filter(([key]) => key && key.length >= 8).sort((a, b) => b[0].length - a[0].length);
+  nameMapCache = { at: Date.now(), entries };
+  return entries;
+}
+export async function humanizeIdentifiers(value) {
+  const entries = await identifierNames();
+  const swap = (text) => {
+    let out = String(text ?? "");
+    for (const [key, name] of entries) if (out.includes(key)) out = out.split(key).join(name);
+    return out;
+  };
+  return swap(value);
+}
+
 export function cleanTable(raw) {
   if (!raw || typeof raw !== "object") return null;
   const columns = (Array.isArray(raw.columnas) ? raw.columnas : []).slice(0, MAX_TABLE_COLUMNS).map((c) => String(c ?? "").slice(0, 40));
@@ -337,7 +364,9 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
           continue;
         }
       }
-      final = { text: cleanFinal(parsed.final), links: validateLinks(scope, parsed.links), products: await resolveProductCards(scope, vendorId, parsed.productos), table: cleanTable(parsed.tabla) };
+      const table = cleanTable(parsed.tabla);
+      if (table) table.rows = await Promise.all(table.rows.map((row) => Promise.all(row.map((cell) => humanizeIdentifiers(cell)))));
+      final = { text: await humanizeIdentifiers(cleanFinal(parsed.final)), links: validateLinks(scope, parsed.links), products: await resolveProductCards(scope, vendorId, parsed.productos), table };
       break;
     }
 

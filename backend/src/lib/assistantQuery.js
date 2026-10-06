@@ -50,7 +50,7 @@ const T = {
 
 // Solo el admin: tablas de toda la plataforma que no pertenecen a una tienda.
 const ADMIN_ONLY = {
-  tiendas: { model: "vendor", label: "todas las tiendas", adminScope: { deletedAt: null }, fields: { companyName: "s", slug: "s", planType: "s", verificationStatus: "s", status: "s", isBlocked: "b", isPrivate: "b", isRestaurant: "b", currency: "s", rating: "n", salesCount: "n", nextPaymentDueDate: "d", cancelAtPeriodEnd: "b", trialEndsAt: "d", createdAt: "d" } },
+  tiendas: { model: "vendor", label: "todas las tiendas", adminScope: { deletedAt: null }, fields: { companyName: "s", planType: "s", verificationStatus: "s", status: "s", isBlocked: "b", isPrivate: "b", isRestaurant: "b", currency: "s", rating: "n", salesCount: "n", nextPaymentDueDate: "d", cancelAtPeriodEnd: "b", trialEndsAt: "d", createdAt: "d" } },
   clientes: { model: "user", label: "clientes registrados (sin correo ni teléfono)", adminScope: { role: "CUSTOMER", deletedAt: null }, fields: { fullName: "s", isSuspended: "b", lastLoginAt: "d", createdAt: "d" } },
   sesiones: { model: "session", label: "sesiones de toda la plataforma (sin usuario)", adminScope: {}, fields: { createdAt: "d", lastUsedAt: "d", expiresAt: "d", revokedAt: "d", userAgent: "s" } },
   errores: { model: "errorLog", label: "errores del sistema", adminScope: {}, fields: { origin: "s", message: "s", resolved: "b", createdAt: "d" } },
