@@ -411,7 +411,7 @@ export default function AdminCampaigns() {
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">Envía correos masivos (Resend) a clientes o vendedores segmentados.</p>
 
-      <div className="grid grid-cols-1 items-start gap-[22px] lg:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 items-start gap-[22px] lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6">
           <div className="mb-4 text-[15px] font-bold text-on-surface">Nueva campaña</div>
           <CampaignFieldset

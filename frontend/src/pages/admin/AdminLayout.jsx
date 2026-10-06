@@ -101,7 +101,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
   const notifTotal = notifications?.total ?? 0;
 
   return (
-    <div className="sticky top-4 z-30 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
+    <div className="sticky top-2 z-30 lg:top-4 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
       <button
         onClick={onOpenSidebar}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container lg:hidden"
@@ -299,7 +299,7 @@ export default function AdminLayout() {
     // VendorLayout.jsx — el sidebar pasa a ser una tarjeta flotante (margen +
     // esquinas redondeadas + sombra) sobre un fondo gris parejo, sin tocar
     // ninguna clase de mobile (fixed/inset-y-0/translate-x).
-    <div className="min-h-dvh bg-surface-container lg:grid lg:grid-cols-[248px_1fr] lg:gap-4 lg:p-4">
+    <div className="min-h-dvh bg-surface-container lg:grid lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-4 lg:p-4">
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 animate-overlay-in bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}

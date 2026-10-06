@@ -144,7 +144,7 @@ export function VendorSearchBar({ vendor, staffSections }) {
 
   return (
     <div ref={containerRef} className="relative w-full max-w-[420px]">
-      <div className="flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-3.5 py-2">
+      <div className="flex h-10 items-center gap-2 rounded-full border border-outline-variant bg-surface-container px-3.5">
         <Search className="h-4 w-4 flex-shrink-0 text-outline" />
         <input
           value={query}

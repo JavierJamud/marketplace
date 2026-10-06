@@ -549,7 +549,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* ── Actividad reciente + suscripción por moneda / provincias ── */}
-      <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[2.3fr_1fr]">
+      <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">
         <div className={`${CARD} p-6`}>
           <CardHeader icon={Activity} tone="teal" title="Actividad reciente" subtitle="Lo último que pasó en la plataforma" to="/admin/actividad" linkLabel="Ver toda la actividad" />
           {data?.activity?.length ? (

@@ -455,7 +455,7 @@ export default function VendorDashboard() {
       {/* ── Fila hero — 2 columnas (pedido explícito: "ventas por día" y
           "ventas de este mes" van uno debajo del otro, más anchos y no tan
           altos/estirados, en vez de 3 columnas angostas). ── */}
-      <div className="mb-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_1.6fr]">
+      <div className="mb-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
         {/* Columna 1: métrica chica → métrica chica con pill (pedido
             explícito: se saca la tarjeta de membresía que iba en medio —
             no aportaba nada que el vendedor no viera ya en Verificación). */}
@@ -530,7 +530,7 @@ export default function VendorDashboard() {
       )}
 
       {/* ── Fila 2: tabla de pedidos (2 columnas) + métrica grande con tarjeta anidada ── */}
-      <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[2.3fr_1fr]">
+      <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">
         <div className={`${CARD} p-6`}>
           <CardHeader icon={Receipt} title="Pedidos recientes" subtitle="Lo último que entró a tu tienda" to="/vendedor/pedidos" linkLabel="Ver todos los pedidos" />
           {data?.recentOrders?.length ? (
@@ -594,7 +594,7 @@ export default function VendorDashboard() {
               <IconCircle icon={Star} tone="orange" />
               <div className="min-w-0">
                 <div className="text-[12px] text-outline">Calificación</div>
-                <div className="font-display text-[20px] font-extrabold leading-tight tracking-tight text-on-surface">{data ? `${data.rating.toFixed(1)} ★` : "—"}</div>
+                <div className="whitespace-nowrap font-display text-[20px] font-extrabold leading-tight tracking-tight text-on-surface">{data ? `${data.rating.toFixed(1)} ★` : "—"}</div>
               </div>
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">
