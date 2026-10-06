@@ -9,7 +9,7 @@ import { getModelHealthRows } from "./aiProviderHealth.js";
 import { getProviderCooldowns } from "./aiProviderCooldown.js";
 import {
   DAY_MS, clip, money, planAndSubscription, accountActivity, algorithmRules, algorithmPosition, productsList, productDetail,
-  inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown, customersRanking, orderDetail,
+  inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown, customersRanking, orderDetail, storesActivity,
 } from "./assistantData.js";
 import { makeQueryTool } from "./assistantQuery.js";
 
@@ -531,6 +531,12 @@ const ADMIN_TOOLS = {
   },
   como_funciona_el_algoritmo: VENDOR_TOOLS.como_funciona_el_algoritmo,
   consultar_datos: makeQueryTool("ADMIN"),
+  tiendas_actividad: {
+    description: "Actividad de TODAS las tiendas con su NOMBRE: cuáles venden y cuáles no (sin pedidos en N días), con plan, verificación, estado, último pedido, días sin pedidos, último acceso del dueño y productos activos, más un resumen con totales. Úsala para 'qué tiendas no tienen actividad', tiendas dormidas o abandonadas.",
+    args: '{ "dias": 7-180, "filtro": "sin_actividad"|"todas", "limite": 1-15 }',
+    schema: z.object({ dias: z.number().int().min(7).max(180).default(30), filtro: z.enum(["sin_actividad", "todas"]).default("sin_actividad"), limite: limitSchema(15, 12) }),
+    run: ({ dias, filtro, limite }) => storesActivity({ days: dias, filter: filtro, limit: limite }),
+  },
   suscripciones_plataforma: {
     description: "Suscripciones de TODA la plataforma: tiendas por plan y estado de verificación, vencimientos de los próximos 14 días, cancelaciones programadas, pruebas gratuitas activas, pagos por confirmar y pagos confirmados en 30 días.",
     args: "{}",

@@ -2495,6 +2495,8 @@ model AssistantMessage {
   links     Json? // [{ path, label }] ya validados contra la lista de rutas reales
   // Bloque 262: tarjetas de producto que acompañan la respuesta (ya validadas contra la base).
   products  Json?
+  // Bloque 264: tabla que acompaña la respuesta ({ title, columns, rows }), ya validada.
+  tableData Json?
   createdAt DateTime       @default(now())
 
   // Bloque 260: cada mensaje pertenece a una conversación (antes era un solo

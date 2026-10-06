@@ -60,6 +60,7 @@ const TOOL_LABELS = {
   pendientes_admin: "Pendientes",
   estado_ia: "Estado de la IA",
   suscripciones_plataforma: "Suscripciones",
+  tiendas_actividad: "Actividad de las tiendas",
   actividad_plataforma: "Actividad de la plataforma",
   errores_recientes: "Errores recientes",
   reportes_de_fraude: "Reportes de fraude",
@@ -204,12 +205,49 @@ function ProductCard({ product, onNavigate }) {
   );
 }
 
+// Tabla de la respuesta (tiendas, productos, pedidos...): cabecera de color, filas
+// con rayado suave y desplazamiento horizontal propio si no cabe, para no ensanchar
+// el chat. Todo el contenido es texto.
+function AnswerTable({ table }) {
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest">
+      {table.title && <p className="border-b border-outline-variant bg-surface-container-low px-3 py-2 text-[12.5px] font-bold text-on-surface">{table.title}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-max border-collapse text-left text-[12px]">
+          <thead>
+            <tr className="bg-primary text-white">
+              {table.columns.map((c, i) => (
+                <th key={i} scope="col" className="whitespace-nowrap px-3 py-2 font-semibold">
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, r) => (
+              <tr key={r} className={r % 2 === 1 ? "bg-surface-container/60" : ""}>
+                {row.map((cell, i) => (
+                  <td key={i} className={`px-3 py-2 text-on-surface ${i === 0 ? "font-semibold" : "tabular-nums"}`}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Message({ m, onNavigate }) {
   const mine = m.role === "user";
+  const table = m.table ?? m.tableData ?? null;
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-[14px] leading-[21px] ${mine ? "rounded-br-md bg-primary text-white" : "w-full rounded-bl-md bg-surface-container text-on-surface"}`}>
         {mine ? <p className="whitespace-pre-wrap break-words">{m.content}</p> : <AssistantText text={m.content} />}
+        {!mine && table && <AnswerTable table={table} />}
         {!mine && m.products?.length > 0 && (
           <div className="mt-3 flex flex-col gap-2">
             {m.products.map((p) => (
@@ -369,7 +407,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
       setMessages((prev) => [
         ...prev,
         { id: `u-${now}`, role: "user", content: value, createdAt: now },
-        { id: `a-${now}`, role: "assistant", content: result.reply, toolsUsed: result.toolsUsed, links: result.links, products: result.products, createdAt: now },
+        { id: `a-${now}`, role: "assistant", content: result.reply, toolsUsed: result.toolsUsed, links: result.links, products: result.products, table: result.table, createdAt: now },
       ]);
       setActiveId(result.conversationId);
       setConversations((prev) => [{ id: result.conversationId, title: result.title, updatedAt: now }, ...prev.filter((c) => c.id !== result.conversationId)]);

@@ -23,8 +23,10 @@ const MAX_TOOL_CALLS = 6;
 const MAX_MODEL_CALLS = 9; // 6 herramientas + respuesta final + reintentos de formato
 const HISTORY_MESSAGES = 20; // últimas 10 vueltas de la conversación abierta
 const MAX_RESULT_CHARS = 7000;
-const MAX_FINAL_CHARS = 1100;
+const MAX_FINAL_CHARS = 900;
 const MAX_PRODUCT_CARDS = 4;
+const MAX_TABLE_ROWS = 15;
+const MAX_TABLE_COLUMNS = 6;
 const MAX_TITLE_CHARS = 60;
 const LIST_CONVERSATIONS = 30;
 
@@ -67,9 +69,11 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
       ? "- Solo hablas del negocio de esta persona. Si pide datos de otra tienda o de toda la plataforma, explica que eso no es de su negocio."
       : "- Nunca des ni pidas correos, teléfonos ni direcciones de personas: no los tienes.",
     "- Si la pregunta no es sobre la administración del negocio, di con amabilidad que solo ayudas con eso.",
-    "- Respuestas MUY breves: 70 palabras como máximo (3 a 5 frases cortas o hasta 4 viñetas con '- '). Primero el dato o la respuesta directa, luego una recomendación de una línea. Sin saludos, sin repetir la pregunta, sin explicar lo obvio. Sin asteriscos, sin títulos con # y sin rayas largas.",
+    "- Respuestas MUY breves: 70 palabras como máximo, 90 si acompañan una tabla (3 a 5 frases cortas o hasta 4 viñetas con '- '). Primero el dato o la respuesta directa, luego una recomendación de una línea. Sin saludos, sin repetir la pregunta, sin explicar lo obvio. Sin asteriscos, sin títulos con # y sin rayas largas.",
     "- Da cifras con su moneda cuando aplique y di de qué periodo son. Nombra personas, productos y pedidos concretos con sus datos reales en vez de hablar en general.",
     "- Si el dato exacto no lo da una herramienta específica, usa consultar_datos: puede leer cualquier tabla del negocio con filtros, orden, conteos y agrupaciones.",
+    "- Cuando listes varias cosas (tiendas, productos, pedidos, clientes, errores, pagos), NO las pongas en el texto: ponlas en 'tabla' (columnas y filas con los datos reales, máximo 6 columnas y 15 filas) y en el texto escribe solo un resumen breve con lo importante (totales, qué destaca y qué recomiendas). Una tabla vale más que un párrafo de nombres.",
+    "- Nombra SIEMPRE las tiendas por su NOMBRE (companyName, ej. 'Sabor Criollo'), nunca por su slug, id o código técnico. Lo mismo con productos y clientes: nombres legibles, nunca ids.",
     "- Cuando hables de productos concretos, ponlos en 'productos' (máximo 4 ids, copiados del campo id de los datos de las herramientas) para que se muestren como tarjetas con su foto y precio.",
     "",
     "HERRAMIENTAS DISPONIBLES (todas de solo lectura):",
@@ -82,7 +86,7 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
     "",
     "FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto fuera de él.",
     '- Para consultar un dato: {"tool":"nombre","args":{...}}',
-    '- Para responder a la persona: {"final":"tu respuesta","links":[{"path":"/ruta/exacta"}],"productos":["id"]}  (links y productos pueden ser [])',
+    '- Para responder a la persona: {"final":"tu respuesta","links":[{"path":"/ruta/exacta"}],"productos":["id"],"tabla":{"titulo":"...","columnas":["..."],"filas":[["..."]]}}  (links, productos y tabla son opcionales)',
     "",
   ];
 
@@ -196,6 +200,21 @@ function owner({ scope, userId, vendorId = null }) {
 // Tarjetas de producto de la respuesta: los ids los elige el modelo, así que se
 // comprueban contra la base (en el ámbito del vendedor, solo de SU tienda) y se
 // devuelven con datos reales, nunca con lo que el modelo diga de ellos.
+// Tabla de la respuesta: el modelo la arma con datos de las herramientas; aquí solo
+// se acota su forma (columnas, filas y largo de cada celda) y se descarta si no es
+// una tabla válida. Todo se renderiza como texto, nunca como HTML.
+export function cleanTable(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const columns = (Array.isArray(raw.columnas) ? raw.columnas : []).slice(0, MAX_TABLE_COLUMNS).map((c) => String(c ?? "").slice(0, 40));
+  if (columns.length === 0) return null;
+  const rows = (Array.isArray(raw.filas) ? raw.filas : [])
+    .filter((r) => Array.isArray(r))
+    .slice(0, MAX_TABLE_ROWS)
+    .map((r) => columns.map((_, i) => (r[i] == null ? "" : String(r[i]).slice(0, 60))));
+  if (rows.length === 0) return null;
+  return { title: raw.titulo ? String(raw.titulo).slice(0, 80) : null, columns, rows };
+}
+
 export async function resolveProductCards(scope, vendorId, ids) {
   const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === "string" && x.length <= 40))].slice(0, MAX_PRODUCT_CARDS);
   if (wanted.length === 0) return [];
@@ -229,7 +248,7 @@ export async function getHistory({ scope, userId, vendorId = null, conversationI
     where: { ...owner({ scope, userId, vendorId }), conversationId },
     orderBy: { createdAt: "desc" },
     take: limit,
-    select: { id: true, role: true, content: true, toolsUsed: true, links: true, products: true, createdAt: true },
+    select: { id: true, role: true, content: true, toolsUsed: true, links: true, products: true, tableData: true, createdAt: true },
   });
   return rows.reverse();
 }
@@ -310,7 +329,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
       // herramientas devolvieron. Si alguna no aparece, se devuelve a corregir (una
       // sola vez) en vez de entregar un número que nadie puede respaldar.
       if (!mustFinish && verifyRetries < 1) {
-        const missing = unverifiedNumbers(parsed.final, observations);
+        const missing = unverifiedNumbers(`${parsed.final} ${JSON.stringify(parsed.tabla?.filas ?? [])}`, observations);
         if (missing.length > 0) {
           verifyRetries++;
           onProgress({ phase: "verifying" });
@@ -318,7 +337,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
           continue;
         }
       }
-      final = { text: cleanFinal(parsed.final), links: validateLinks(scope, parsed.links), products: await resolveProductCards(scope, vendorId, parsed.productos) };
+      final = { text: cleanFinal(parsed.final), links: validateLinks(scope, parsed.links), products: await resolveProductCards(scope, vendorId, parsed.productos), table: cleanTable(parsed.tabla) };
       break;
     }
 
@@ -357,10 +376,10 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
       observations.push({ tool: "formato", output: JSON.stringify({ error: 'Tu respuesta anterior no fue un JSON válido. Responde SOLO con {"final":"...","links":[]} o {"tool":"...","args":{}}.' }) });
       continue;
     }
-    final = { text: cleanFinal(String(raw).replace(/[{}"]/g, "")), links: [], products: [] };
+    final = { text: cleanFinal(String(raw).replace(/[{}"]/g, "")), links: [], products: [], table: null };
   }
 
-  if (!final) final = { text: "No logré reunir los datos para responder bien. Prueba a preguntarlo de otra forma.", links: [], products: [] };
+  if (!final) final = { text: "No logré reunir los datos para responder bien. Prueba a preguntarlo de otra forma.", links: [], products: [], table: null };
   if (!final.text) final.text = "No tengo una respuesta para eso con los datos disponibles.";
 
   const uniqueTools = [...new Set(toolsUsed)];
@@ -376,7 +395,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   }
   await prisma.assistantMessage.create({ data: { scope, userId, vendorId, conversationId: conversation.id, role: "user", content: message, createdAt: askedAt } });
   await prisma.assistantMessage.create({
-    data: { scope, userId, vendorId, conversationId: conversation.id, role: "assistant", content: final.text, toolsUsed: uniqueTools, links: final.links, products: final.products, createdAt: new Date(askedAt.getTime() + 1) },
+    data: { scope, userId, vendorId, conversationId: conversation.id, role: "assistant", content: final.text, toolsUsed: uniqueTools, links: final.links, products: final.products, tableData: final.table, createdAt: new Date(askedAt.getTime() + 1) },
   });
-  return { reply: final.text, links: final.links, products: final.products, toolsUsed: uniqueTools, conversationId: conversation.id, title: conversation.title };
+  return { reply: final.text, links: final.links, products: final.products, table: final.table, toolsUsed: uniqueTools, conversationId: conversation.id, title: conversation.title };
 }

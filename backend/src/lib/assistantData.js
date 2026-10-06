@@ -574,3 +574,64 @@ export async function orderDetail(vendorId, { codigo }) {
   }
   return { error: "No encontré ningún pedido con ese código o número." };
 }
+
+// ---------------------------------------------------------------------------
+// Admin: actividad de todas las tiendas (quién vende, quién no)
+// ---------------------------------------------------------------------------
+// Bloque 264 (pedido: "qué tiendas no tienen actividad", con el NOMBRE de la tienda
+// y en tabla): misma regla de "activa" que el Dashboard del admin (al menos un
+// pedido en la ventana), más cuándo fue el último pedido y el último acceso del
+// dueño, para que se vea si la tienda está dormida o abandonada.
+export async function storesActivity({ days, filter, limit }) {
+  const since = new Date(Date.now() - days * DAY_MS);
+  const vendors = await prisma.vendor.findMany({
+    where: { deletedAt: null },
+    select: { id: true, companyName: true, planType: true, verificationStatus: true, status: true, isBlocked: true, isPrivate: true, createdAt: true, user: { select: { lastLoginAt: true } }, _count: { select: { products: { where: { isActive: true } } } } },
+  });
+  const ids = vendors.map((v) => v.id);
+  const [recent, lastOrders, recentTable, lastTable] = await Promise.all([
+    prisma.order.groupBy({ by: ["vendorId"], where: { vendorId: { in: ids }, createdAt: { gte: since }, status: { not: "CANCELLED" } }, _count: { _all: true } }),
+    prisma.order.groupBy({ by: ["vendorId"], where: { vendorId: { in: ids } }, _max: { createdAt: true } }),
+    prisma.tableOrder.findMany({ where: { table: { vendorId: { in: ids } }, createdAt: { gte: since }, cancelledAt: null }, select: { table: { select: { vendorId: true } } } }),
+    prisma.tableOrder.findMany({ where: { table: { vendorId: { in: ids } } }, orderBy: { createdAt: "desc" }, distinct: ["tableId"], select: { createdAt: true, table: { select: { vendorId: true } } } }),
+  ]);
+  const count = new Map(recent.map((r) => [r.vendorId, r._count._all]));
+  for (const t of recentTable) count.set(t.table.vendorId, (count.get(t.table.vendorId) ?? 0) + 1);
+  const last = new Map(lastOrders.map((r) => [r.vendorId, r._max.createdAt]));
+  for (const t of lastTable) {
+    const cur = last.get(t.table.vendorId);
+    if (!cur || t.createdAt > cur) last.set(t.table.vendorId, t.createdAt);
+  }
+  const rows = vendors.map((v) => {
+    const lastOrder = last.get(v.id) ?? null;
+    const reference = lastOrder ?? v.createdAt;
+    return {
+      tienda: clip(v.companyName, 50),
+      plan: v.planType === "BUSINESS" ? "Business" : "Regular",
+      verificada: v.verificationStatus === "VERIFIED" ? "Sí" : "No",
+      estado: v.isBlocked ? "Bloqueada" : v.status === "SUSPENDED" ? "Suspendida" : v.isPrivate ? "Privada" : "Activa",
+      pedidosEnLaVentana: count.get(v.id) ?? 0,
+      ultimoPedido: day(lastOrder) ?? "Nunca",
+      diasSinPedidos: Math.floor((Date.now() - new Date(reference).getTime()) / DAY_MS),
+      ultimoAccesoDelDueno: day(v.user?.lastLoginAt) ?? "Nunca",
+      productosActivos: v._count.products,
+      registradaEl: day(v.createdAt),
+    };
+  });
+  const inactive = rows.filter((r) => r.pedidosEnLaVentana === 0);
+  const picked = (filter === "sin_actividad" ? inactive : rows).sort((a, b) => b.diasSinPedidos - a.diasSinPedidos).slice(0, limit);
+  return {
+    ventanaEnDias: days,
+    criterio: `Una tienda tiene actividad si recibió al menos un pedido (no cancelado) en los últimos ${days} días, igual que el Dashboard.`,
+    resumen: {
+      tiendasEnTotal: rows.length,
+      conActividad: rows.length - inactive.length,
+      sinActividad: inactive.length,
+      sinActividadPorPlan: { business: inactive.filter((r) => r.plan === "Business").length, regular: inactive.filter((r) => r.plan === "Regular").length },
+      sinNingunPedidoNunca: inactive.filter((r) => r.ultimoPedido === "Nunca").length,
+      sinProductosActivos: inactive.filter((r) => r.productosActivos === 0).length,
+    },
+    tiendas: picked,
+    nota: inactive.length > picked.length ? `Se muestran ${picked.length} de ${inactive.length}; usa 'limite' para ver más.` : undefined,
+  };
+}
