@@ -20,6 +20,25 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
   // una respuesta en curso no se pierde al cerrarlo; el panel se sincroniza con el
   // servidor cada vez que se vuelve a abrir.
   const [mounted, setMounted] = useState(false);
+  // Bloque 265: en escritorio la ventana crece con la pantalla y se puede ampliar más
+  // (tablas y listas largas); en celular siempre es la hoja a pantalla completa.
+  const [wide, setWide] = useState(() => {
+    try {
+      return localStorage.getItem("assistant-wide") === "1";
+    } catch {
+      return false;
+    }
+  });
+  function toggleWide() {
+    setWide((v) => {
+      try {
+        localStorage.setItem("assistant-wide", v ? "0" : "1");
+      } catch {
+        /* sin almacenamiento: solo dura esta visita */
+      }
+      return !v;
+    });
+  }
   useEffect(() => {
     if (open) setMounted(true);
   }, [open]);
@@ -47,7 +66,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
           role="dialog"
           aria-label="Asistente de negocio"
           hidden={!open}
-          className={`${open ? "flex" : "hidden"} fixed inset-0 z-[70] flex-col overflow-hidden bg-surface-container-lowest sm:inset-auto sm:bottom-24 sm:right-6 sm:h-[min(660px,calc(100dvh-7.5rem))] sm:w-[410px] sm:rounded-3xl sm:border sm:border-surface-container-high sm:shadow-[0_24px_60px_-12px_rgba(14,26,40,0.4)]`}
+          className={`${open ? "flex" : "hidden"} fixed inset-0 z-[70] flex-col overflow-hidden bg-surface-container-lowest sm:inset-auto sm:bottom-24 sm:right-6 sm:max-w-[calc(100vw-3rem)] sm:rounded-3xl sm:transition-[width,height] sm:duration-200 ${wide ? "sm:h-[min(820px,calc(100dvh-7.5rem))] sm:w-[min(920px,calc(100vw-3rem))]" : "sm:h-[min(700px,calc(100dvh-7.5rem))] sm:w-[440px] lg:w-[560px] 2xl:w-[620px]"} sm:border sm:border-surface-container-high sm:shadow-[0_24px_60px_-12px_rgba(14,26,40,0.4)]`}
         >
           <BusinessAssistantPanel
             endpoint={endpoint}
@@ -56,6 +75,8 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
             intro={intro}
             embedded
             isOpen={open}
+            wide={wide}
+            onToggleWide={toggleWide}
             onNavigate={() => setOpen(false)}
             onClose={() => setOpen(false)}
           />

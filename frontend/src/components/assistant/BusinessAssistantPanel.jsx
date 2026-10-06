@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, ArrowRight, Check, History, MessageSquareText, Plus, Trash2, X, ChevronLeft } from "lucide-react";
+import { ArrowUp, ArrowRight, Check, History, Maximize2, Minimize2, MessageSquareText, Plus, Trash2, X, ChevronLeft } from "lucide-react";
 import { api } from "../../lib/api.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
@@ -245,7 +245,7 @@ function Message({ m, onNavigate }) {
   const table = m.table ?? m.tableData ?? null;
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[88%] rounded-2xl px-4 py-3 text-[14px] leading-[21px] ${mine ? "rounded-br-md bg-primary text-white" : "w-full rounded-bl-md bg-surface-container text-on-surface"}`}>
+      <div className={`max-w-[88%] rounded-2xl px-4 py-3 lg:max-w-[82%] text-[14px] leading-[21px] ${mine ? "rounded-br-md bg-primary text-white" : "w-full rounded-bl-md bg-surface-container text-on-surface"}`}>
         {mine ? <p className="whitespace-pre-wrap break-words">{m.content}</p> : <AssistantText text={m.content} />}
         {!mine && table && <AnswerTable table={table} />}
         {!mine && m.products?.length > 0 && (
@@ -310,7 +310,7 @@ const headerButton =
 // `quickPromptsFree`: preguntas rápidas para una tienda sin plan de pago (que
 // además recibe la recomendación del plan). `embedded`: llena el contenedor del
 // botón flotante. `isOpen`, `onNavigate` y `onClose` los pasa el botón flotante.
-export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPromptsFree, intro, embedded = false, isOpen = true, onNavigate, onClose }) {
+export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPromptsFree, intro, embedded = false, isOpen = true, wide = false, onToggleWide, onNavigate, onClose }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [conversations, setConversations] = useState([]);
@@ -498,6 +498,11 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
               <Plus className="h-5 w-5" aria-hidden="true" />
             </button>
           </>
+        )}
+        {onToggleWide && (
+          <button type="button" onClick={onToggleWide} aria-label={wide ? "Reducir la ventana" : "Ampliar la ventana"} className={`${headerButton} max-sm:hidden`}>
+            {wide ? <Minimize2 className="h-[18px] w-[18px]" aria-hidden="true" /> : <Maximize2 className="h-[18px] w-[18px]" aria-hidden="true" />}
+          </button>
         )}
         {onClose && (
           <button type="button" onClick={onClose} aria-label="Cerrar el asistente" className={headerButton}>
