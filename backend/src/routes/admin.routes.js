@@ -3,6 +3,8 @@ import * as adminController from "../controllers/admin.controller.js";
 import * as announcementsController from "../controllers/announcements.controller.js";
 import * as campaignsController from "../controllers/campaigns.controller.js";
 import * as integrationsController from "../controllers/integrations.controller.js";
+import * as securityController from "../controllers/security.controller.js";
+import { requireActionCode } from "../lib/adminActionCode.js";
 import * as aiModelsController from "../controllers/aiModels.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
 import { assistantRateLimit } from "../middleware/rateLimit.js";
@@ -49,6 +51,12 @@ router.patch("/vendors/:id", adminController.updateVendor);
 router.post("/vendors/:id/reset-password", adminController.resetVendorPassword);
 router.patch("/vendors/:id/login-email", adminController.updateVendorLoginEmail);
 router.delete("/vendors/:id", adminController.deleteVendor);
+// Bloque 272: eliminación pendiente (30 días): restaurar o eliminar ya, esto último con código al correo.
+router.post("/vendors/:id/restore-deletion", adminController.restoreVendorDeletion);
+router.delete("/vendors/:id/permanent", requireActionCode("DELETE_VENDOR_PERMANENT"), adminController.permanentlyDeleteVendor);
+router.post("/security/action-code", securityController.requestActionCode);
+router.get("/security/settings", securityController.getSecuritySettings);
+router.put("/security/settings", requireActionCode("CHANGE_SECURITY_SETTINGS"), securityController.updateSecuritySettings);
 router.get("/vendors/:id/stats", adminController.getVendorStats);
 router.get("/vendors/:id/table-orders", adminController.getVendorTableOrders);
 
@@ -143,7 +151,7 @@ router.patch("/change-requests/:id", adminController.decideVendorChangeRequest);
 
 router.get("/customers", adminController.listCustomers);
 router.patch("/customers/:id", adminController.updateCustomer);
-router.delete("/customers/:id", adminController.deleteCustomer);
+router.delete("/customers/:id", requireActionCode("DELETE_CUSTOMER"), adminController.deleteCustomer);
 
 // Bloque 47: barra de búsqueda + campana del panel admin, y correo directo
 // puntual (distinto del envío masivo de /campaigns).
@@ -171,8 +179,8 @@ router.post("/campaigns/:id/resend", campaignsController.resendCampaign);
 router.delete("/campaigns/:id", campaignsController.deleteCampaign);
 
 router.get("/integrations", integrationsController.listIntegrations);
-router.post("/integrations", integrationsController.upsertIntegration);
-router.post("/integrations/stripe", integrationsController.upsertStripeIntegration);
+router.post("/integrations", requireActionCode("CHANGE_INTEGRATION_KEY"), integrationsController.upsertIntegration);
+router.post("/integrations/stripe", requireActionCode("CHANGE_INTEGRATION_KEY"), integrationsController.upsertStripeIntegration);
 // Bloque 44: modelos reales que la key guardada de este proveedor puede
 // usar — lista seleccionable en AdminIntegrations.jsx en vez de texto
 // libre (evita typos como el que tumbó Groq con 404 model_not_found).

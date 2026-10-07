@@ -9,6 +9,7 @@ import { startAiChatbotAvailabilityJob } from "./jobs/aiChatbotAvailability.job.
 import { startLowStockJob } from "./jobs/lowStock.job.js";
 import { startCashCloseReminderJob } from "./jobs/cashCloseReminder.job.js";
 import { startAccountDeletionJob } from "./jobs/accountDeletion.job.js";
+import { startVendorDeletionJob } from "./jobs/vendorDeletion.job.js";
 import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
@@ -56,6 +57,7 @@ startCashCloseReminderJob();
 // Bloque 211 (pedido explícito — auto-eliminación de cuenta, 30 días de
 // gracia): 9:30am, entre el de reportes de fraude (9:00) y ningún otro.
 startAccountDeletionJob();
+startVendorDeletionJob();
 // Bloque 229 (Fase 2 del blindaje del ranking — pedido explícito): marca
 // ráfagas de reseñas de 5★ desde cuentas nuevas. 10:00am, después del de
 // auto-eliminación (9:30) — solo levanta bandera en RankingAnomaly, nunca

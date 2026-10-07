@@ -300,6 +300,23 @@ configurado (diario/semanal/mensual), revisa si hoy es el día que le toca y,
 si es así, le manda al personal con permiso de "ventas-manuales" sus totales
 del período. Corre a las **8:30am**.
 
+### B8b. Eliminación pendiente de tiendas — `jobs/vendorDeletion.job.js`
+
+Cuando el admin elimina una tienda no se borra: queda en **eliminación pendiente**
+(`Vendor.adminDeletionRequestedAt`, oculta y bloqueada, fuera de Tiendas y de Tiendas
+suspendidas; se ve con el filtro "Eliminación pendiente"). Desde ahí el admin puede
+restaurarla o eliminarla ya (definitiva, con un código enviado a su correo). Una vez al
+día (9:45 hora Cuba) el cron avisa al admin 3 días antes y, al cumplirse
+`SiteSettings.vendorDeletionDays` (30 por defecto, editable en Admin → Seguridad), elimina
+la tienda con `finalizeUserDeletion`.
+
+Códigos de confirmación (`lib/adminActionCode.js`): las acciones sensibles del admin
+(eliminar una tienda o un cliente de forma definitiva, cambiar claves de integración y
+ajustes de seguridad) responden 403 `ACTION_CODE_REQUIRED` hasta recibir el código en la
+cabecera `X-Action-Code`. El código es de 6 dígitos, de una sola acción, un solo uso, vence a
+los 10 minutos, se bloquea tras 5 intentos y solo se pide otro cada 30 segundos. El panel lo
+pide solo (`ActionCodeProvider`) y repite la acción original con el código.
+
 ### B8. Eliminación de cuenta con período de gracia — `jobs/accountDeletion.job.js`
 
 `runAccountDeletionJob()` (línea 63): recordatorio 7 días antes de que se

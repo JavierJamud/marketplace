@@ -6,6 +6,7 @@ import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
+import { ActionCodeProvider } from "../../components/admin/ActionCodeProvider.jsx";
 
 const NAV = [
   // Bloque 194 (pedido explícito — "cambiarla por el nombre Dashboard,
@@ -39,6 +40,8 @@ const NAV = [
   { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image },
   { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
+  // Bloque 272: ajustes de seguridad (plazo de eliminación de tiendas, verificación en dos pasos).
+  { to: "/admin/seguridad", label: "Seguridad", icon: ShieldCheck },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
   // el useQuery de abajo y el render del badge en el map de NAV.
@@ -402,6 +405,7 @@ export default function AdminLayout() {
       {/* Bloque 259: asistente de negocio como botón flotante en TODAS las
           pantallas del panel del admin (antes era una sección del menú). */}
       <BusinessAssistantWidget endpoint="/admin/business-assistant" quickPrompts={ADMIN_ASSISTANT_PROMPTS} />
+      <ActionCodeProvider />
     </div>
   );
 }

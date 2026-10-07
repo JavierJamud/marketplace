@@ -370,7 +370,7 @@ const vendorsQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
   plan: z.enum(["REGULAR", "BUSINESS"]).optional(),
   provinceId: z.string().optional(),
-  status: z.enum(["all", "verified", "inprocess", "unverified", "business", "inactive", "flagged"]).default("all"),
+  status: z.enum(["all", "verified", "inprocess", "unverified", "business", "inactive", "flagged", "deletion"]).default("all"),
   sort: z.enum(["recent", "name", "products", "rating", "lastLogin"]).default("recent"),
   dir: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -413,10 +413,12 @@ export async function listVendors(req, res) {
   const { q, plan, provinceId, status, sort, dir } = query;
 
   // Las bloqueadas y suspendidas viven aparte (AdminSuspendedVendors).
+  // Bloque 272: las de "eliminación pendiente" (bloqueadas a propósito) solo se ven con
+  // el filtro "Eliminación pendiente"; no se mezclan con el resto ni con las suspendidas.
+  const pendingView = status === "deletion";
   const scope = {
     deletedAt: null,
-    isBlocked: false,
-    status: { not: "SUSPENDED" },
+    ...(pendingView ? { adminDeletionRequestedAt: { not: null } } : { isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null }),
     planType: plan || undefined,
     locations: provinceId ? { some: { provinceId } } : undefined,
   };
@@ -435,9 +437,12 @@ export async function listVendors(req, res) {
         : {},
     ],
   };
-  const countFor = (s) => prisma.vendor.count({ where: { AND: [scope, vendorStatusWhere(s)] } });
+  const baseScope = { deletedAt: null, isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null, planType: plan || undefined, locations: provinceId ? { some: { provinceId } } : undefined };
+  const deletionDays = await getVendorDeletionDays();
+  const countFor = (s) => prisma.vendor.count({ where: { AND: [baseScope, vendorStatusWhere(s)] } });
+  const countPending = () => prisma.vendor.count({ where: { deletedAt: null, adminDeletionRequestedAt: { not: null } } });
 
-  const [vendors, total, kAll, kVerified, kInProcess, kUnverified, kBusiness, kInactive, kFlagged] = await Promise.all([
+  const [vendors, total, kAll, kVerified, kInProcess, kUnverified, kBusiness, kInactive, kFlagged, kDeletion] = await Promise.all([
     prisma.vendor.findMany({
       where,
       include: {
@@ -457,6 +462,7 @@ export async function listVendors(req, res) {
     countFor("business"),
     countFor("inactive"),
     countFor("flagged"),
+    countPending(),
   ]);
 
   // Pedidos entregados y ventas de los últimos 30 días + anomalías pendientes,
@@ -519,9 +525,10 @@ export async function listVendors(req, res) {
         sales30: s.sales30,
         pendingAnomalies: anomaliesByVendor.get(v.id) ?? 0,
         lastLoginAt: v.user?.lastLoginAt ?? null,
+        deletionScheduledFor: v.adminDeletionRequestedAt ? new Date(v.adminDeletionRequestedAt.getTime() + deletionDays * 24 * 60 * 60 * 1000) : null,
       });
     }),
-    kpis: { all: kAll, verified: kVerified, inprocess: kInProcess, unverified: kUnverified, business: kBusiness, inactive: kInactive, flagged: kFlagged },
+    kpis: { all: kAll, verified: kVerified, inprocess: kInProcess, unverified: kUnverified, business: kBusiness, inactive: kInactive, flagged: kFlagged, deletion: kDeletion },
     ...pageMeta(query, total),
   });
 }
@@ -674,7 +681,7 @@ export async function updateVendorLoginEmail(req, res) {
 // 2 campos esté seteado.
 export async function listSuspendedVendors(_req, res) {
   const vendors = await prisma.vendor.findMany({
-    where: { OR: [{ status: "SUSPENDED" }, { isBlocked: true }] },
+    where: { OR: [{ status: "SUSPENDED" }, { isBlocked: true }], adminDeletionRequestedAt: null, deletedAt: null },
     include: { locations: { include: { province: true }, take: 1 }, category: true, user: { select: { lastLoginAt: true } } },
     orderBy: [{ blockedAt: "desc" }, { suspendedAt: "desc" }],
   });
@@ -722,8 +729,54 @@ export async function reactivateVendor(req, res) {
 export async function deleteVendor(req, res) {
   const { id } = req.params;
   const vendor = await prisma.vendor.findUnique({ where: { id } });
-  if (!vendor) throw new AppError("Tienda no encontrada.", 404);
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (vendor.adminDeletionRequestedAt) throw new AppError("Esta tienda ya está en eliminación pendiente.", 409);
 
+  // Bloque 272 (pedido explícito): eliminar NO borra todavía. La tienda queda oculta y
+  // bloqueada en "eliminación pendiente" durante `vendorDeletionDays` (30 por defecto); el
+  // admin puede restaurarla o eliminarla ya con un código al correo, y si no hace nada el
+  // cron (jobs/vendorDeletion.job.js) la elimina al cumplirse el plazo.
+  const now = new Date();
+  const days = await getVendorDeletionDays();
+  await prisma.vendor.update({
+    where: { id },
+    data: {
+      adminDeletionRequestedAt: now,
+      adminDeletionRequestedById: req.user.id,
+      adminDeletionReminderSentAt: null,
+      isBlocked: true,
+      blockedAt: now,
+      blockReason: `La tienda está en eliminación pendiente: se eliminará definitivamente en ${days} días si no se restaura.`,
+    },
+  });
+  res.json({ ok: true, scheduledFor: new Date(now.getTime() + days * 24 * 60 * 60 * 1000) });
+}
+
+export async function getVendorDeletionDays() {
+  const settings = await prisma.siteSettings.findFirst({ select: { vendorDeletionDays: true } });
+  return settings?.vendorDeletionDays ?? 30;
+}
+
+// Cancela la eliminación pendiente: la tienda vuelve a estar visible y activa.
+export async function restoreVendorDeletion(req, res) {
+  const { id } = req.params;
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt || !vendor.adminDeletionRequestedAt) throw new AppError("Esta tienda no está en eliminación pendiente.", 404);
+  await prisma.vendor.update({
+    where: { id },
+    data: { adminDeletionRequestedAt: null, adminDeletionRequestedById: null, adminDeletionReminderSentAt: null, isBlocked: false, blockedAt: null, blockReason: null },
+  });
+  res.json({ ok: true });
+}
+
+// Eliminación DEFINITIVA, sin esperar el plazo. Solo para tiendas que ya están en
+// eliminación pendiente, y siempre con el código enviado al correo del admin
+// (requireActionCode("DELETE_VENDOR_PERMANENT") en la ruta).
+export async function permanentlyDeleteVendor(req, res) {
+  const { id } = req.params;
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (!vendor.adminDeletionRequestedAt) throw new AppError("Primero elimina la tienda (queda pendiente) y luego podrás eliminarla definitivamente.", 400);
   await finalizeUserDeletion(vendor.userId);
   res.status(204).end();
 }

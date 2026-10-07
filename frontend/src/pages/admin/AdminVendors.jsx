@@ -285,21 +285,31 @@ const VERIFICATION_LABEL = {
   SUSPENDED: "Verificación suspendida",
 };
 
-function VendorRow({ v, onStats, onStaff, onEdit, onTogglePlan, onBlock, onDelete }) {
+function VendorRow({ v, onStats, onStaff, onEdit, onTogglePlan, onBlock, onDelete, onRestore, onPermanent }) {
   const place = v.locations?.[0]?.province?.name ?? null;
   const hasSales = v.sales30 > 0;
+  const pending = !!v.adminDeletionRequestedAt;
   const menu = (
     <ActionMenu
       label={`Acciones de ${v.companyName}`}
-      items={[
-        { label: "Ver estadísticas", onClick: onStats },
-        { label: "Usuarios del sistema", onClick: onStaff },
-        { label: "Ver tienda pública", onClick: () => window.open(`/tienda/${v.slug}`, "_blank", "noopener") },
-        { label: "Editar", onClick: onEdit },
-        { label: v.planType === "BUSINESS" ? "Pasar a plan Regular" : "Pasar a plan Business", onClick: onTogglePlan },
-        { label: "Bloquear", onClick: onBlock },
-        { label: "Eliminar", onClick: onDelete, danger: true },
-      ]}
+      items={
+        pending
+          ? [
+              // Bloque 272: en eliminación pendiente solo se puede restaurar o eliminar ya.
+              { label: "Restaurar tienda", onClick: onRestore },
+              { label: "Ver estadísticas", onClick: onStats },
+              { label: "Eliminar definitivamente", onClick: onPermanent, danger: true },
+            ]
+          : [
+              { label: "Ver estadísticas", onClick: onStats },
+              { label: "Usuarios del sistema", onClick: onStaff },
+              { label: "Ver tienda pública", onClick: () => window.open(`/tienda/${v.slug}`, "_blank", "noopener") },
+              { label: "Editar", onClick: onEdit },
+              { label: v.planType === "BUSINESS" ? "Pasar a plan Regular" : "Pasar a plan Business", onClick: onTogglePlan },
+              { label: "Bloquear", onClick: onBlock },
+              { label: "Eliminar", onClick: onDelete, danger: true },
+            ]
+      }
     />
   );
   return (
@@ -327,6 +337,11 @@ function VendorRow({ v, onStats, onStaff, onEdit, onTogglePlan, onBlock, onDelet
             )}
           </div>
           <div className="truncate text-[11.5px] text-outline">{[v.category?.name, place].filter(Boolean).join(" · ") || "Sin rubro ni provincia"}</div>
+          {pending && v.deletionScheduledFor && (
+            <div className="mt-0.5 text-[11.5px] font-semibold text-error">
+              Se elimina definitivamente el {new Date(v.deletionScheduledFor).toLocaleDateString("es-CU", { day: "numeric", month: "short", year: "numeric" })}
+            </div>
+          )}
         </div>
         <div className="md:hidden">{menu}</div>
       </div>
@@ -381,6 +396,7 @@ export default function AdminVendors() {
   const [params, setParams] = useListParams(LIST_DEFAULTS);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [permanent, setPermanent] = useState(null); // tienda en eliminación pendiente que se va a eliminar ya
   const [viewingStats, setViewingStats] = useState(null);
   // Bloque 183 (pedido explícito — "el administrador general del sistema
   // también puede controlar y verificar lo mismo que pueda hacer el
@@ -432,14 +448,43 @@ export default function AdminVendors() {
     },
   });
 
+  // Bloque 272: eliminar = pasar a "eliminación pendiente" (plazo configurable en Seguridad).
+  const { data: security } = useQuery({
+    queryKey: ["admin-security-settings"],
+    queryFn: async () => (await api.get("/admin/security/settings")).data.settings,
+  });
+  const deletionDays = security?.vendorDeletionDays ?? 30;
+
   const remove = useMutation({
-    mutationFn: async (id) => api.delete(`/admin/vendors/${id}`),
-    onSuccess: () => {
-      toast.success("Tienda eliminada.");
+    mutationFn: async (id) => (await api.delete(`/admin/vendors/${id}`)).data,
+    onSuccess: (result) => {
+      const when = result?.scheduledFor ? new Date(result.scheduledFor).toLocaleDateString("es-CU", { day: "numeric", month: "long" }) : null;
+      toast.success(`La tienda pasó a eliminación pendiente${when ? `: se eliminará el ${when} si no la restauras` : ""}.`);
       queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
       setDeleting(null);
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar la tienda."),
+  });
+  const restore = useMutation({
+    mutationFn: async (id) => (await api.post(`/admin/vendors/${id}/restore-deletion`)).data,
+    onSuccess: () => {
+      toast.success("Tienda restaurada: vuelve a estar visible.");
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo restaurar la tienda."),
+  });
+  // Pide el código enviado al correo (lo gestiona ActionCodeProvider al recibir el 403).
+  const removeForever = useMutation({
+    mutationFn: async (id) => api.delete(`/admin/vendors/${id}/permanent`),
+    onSuccess: () => {
+      toast.success("Tienda eliminada definitivamente.");
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
+      setPermanent(null);
+    },
+    onError: (err) => {
+      if (!err.actionCodeCancelled) toast.error(err.response?.data?.error ?? "No se pudo eliminar la tienda.");
+      setPermanent(null);
+    },
   });
 
   // Si al borrar o filtrar la página actual queda más allá del final, vuelve
@@ -459,6 +504,7 @@ export default function AdminVendors() {
     { key: "business", label: "Business", value: kpis?.business },
     { key: "inactive", label: "Inactivas", value: kpis?.inactive, hint: "30 días sin entrar", tone: "warn" },
     { key: "flagged", label: "Con alertas", value: kpis?.flagged, hint: "Ranking", tone: "danger" },
+    { key: "deletion", label: "Eliminación pendiente", value: kpis?.deletion, hint: `Se borran a los ${deletionDays} días`, tone: "danger" },
   ];
   const onSort = (sort, dir) => setParams({ sort, dir });
 
@@ -550,6 +596,8 @@ export default function AdminVendors() {
             onTogglePlan={() => update.mutate({ id: v.id, payload: { planType: v.planType === "BUSINESS" ? "REGULAR" : "BUSINESS" } })}
             onBlock={() => setBlocking(v)}
             onDelete={() => setDeleting(v)}
+            onRestore={() => restore.mutate(v.id)}
+            onPermanent={() => setPermanent(v)}
           />
         ))}
 
@@ -591,13 +639,24 @@ export default function AdminVendors() {
         />
       )}
 
-      {deleting && (
+      <ConfirmModal
+        open={!!deleting}
+        title={`¿Eliminar "${deleting?.companyName}"?`}
+        message={`La tienda se oculta de todo el sitio y su dueño no podrá entrar. No se borra todavía: queda en "Eliminación pendiente" durante ${deletionDays} días. Si no la restauras en ese plazo, se elimina sola y de forma definitiva. Puedes eliminarla antes desde el filtro "Eliminación pendiente" (se te pedirá un código enviado a tu correo).`}
+        confirmLabel={remove.isPending ? "Eliminando..." : "Sí, eliminar"}
+        danger
+        confirmDisabled={remove.isPending}
+        onConfirm={() => remove.mutate(deleting.id)}
+        onCancel={() => setDeleting(null)}
+      />
+      {permanent && (
         <ConfirmDeleteModal
-          title={`¿Eliminar "${deleting.companyName}"?`}
-          description="La tienda se oculta de todo el sitio y el dueño no podrá volver a entrar. Sus pedidos y reseñas históricos se conservan."
-          pending={remove.isPending}
-          onCancel={() => setDeleting(null)}
-          onConfirm={() => remove.mutate(deleting.id)}
+          title={`¿Eliminar definitivamente "${permanent.companyName}"?`}
+          description="Se elimina ya, sin esperar el plazo. Sus pedidos y reseñas históricos se conservan, pero la tienda y su cuenta no se pueden recuperar. Antes de eliminar se te pedirá un código enviado a tu correo."
+          confirmLabel="Eliminar definitivamente"
+          pending={removeForever.isPending}
+          onCancel={() => setPermanent(null)}
+          onConfirm={() => removeForever.mutate(permanent.id)}
         />
       )}
 

@@ -1127,6 +1127,14 @@ model Vendor {
   // la tienda del dueño está en cuenta regresiva. `null` = no hay ninguna
   // baja de cuenta en curso.
   deletionRequestedAt DateTime?
+  // Bloque 272 (pedido explícito — "cuando el admin elimina una tienda pasa a una
+  // eliminación PENDIENTE; si no la confirma en 30 días (configurable) se elimina sola"):
+  // distinto de deletionRequestedAt de arriba (esa es la baja que pide el DUEÑO). La tienda
+  // queda oculta y bloqueada; el admin puede restaurarla o eliminarla ya (con código al
+  // correo) y, si no hace nada, el cron la elimina al cumplirse el plazo.
+  adminDeletionRequestedAt   DateTime?
+  adminDeletionRequestedById String?
+  adminDeletionReminderSentAt DateTime?
   // Bloque 62: tercer estado, distinto de isBlocked (el admin bloquea a
   // mano, reversible en cualquier momento desde AdminVendors.jsx) y de
   // deletedAt (soft-delete, sin vuelta atrás) — SUSPENDED lo pone el cron de
@@ -1271,6 +1279,7 @@ model Vendor {
 
   // Bloque 241: lista de tiendas del admin (filtro por plan, orden por fecha).
   @@index([planType, createdAt])
+  @@index([adminDeletionRequestedAt])
 }
 
 // Bloque 194 (pedido explícito — "agregar una sección dentro del dashboard
@@ -2344,6 +2353,8 @@ model SiteSettings {
   // Los defaults son los mismos valores que ya estaban hardcodeados, para no
   // cambiar el comportamiento visible al desplegar esta migración.
   offerCooldownDays        Int @default(7)
+  // Bloque 272: días que una tienda eliminada por el admin espera antes de borrarse sola.
+  vendorDeletionDays       Int @default(30)
   offerDefaultDurationDays Int @default(30)
   // Bloque 118 (pedido explícito): política de comentarios/reseñas,
   // editable desde "Comentarios" del admin — antes constantes hardcodeadas
@@ -3332,4 +3343,20 @@ model SharedCart {
   createdAt DateTime @default(now())
 
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+// Bloque 272 (pedido explícito — "para este tipo de eliminaciones y otras modificaciones
+// del sistema siempre se le pide al administrador un código enviado a su correo"): código de
+// un solo uso para confirmar UNA acción sensible concreta (action). Se guarda solo el hash.
+model AdminActionCode {
+  id        String    @id @default(cuid())
+  userId    String
+  action    String
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  @@index([userId, action, createdAt])
 }

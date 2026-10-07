@@ -70,6 +70,7 @@ import AdminChat from "./pages/admin/AdminChat.jsx";
 import AdminLocations from "./pages/admin/AdminLocations.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminProfile from "./pages/admin/AdminProfile.jsx";
+import AdminSecurity from "./pages/admin/AdminSecurity.jsx";
 import AdminPages from "./pages/admin/AdminPages.jsx";
 import AdminFaq from "./pages/admin/AdminFaq.jsx";
 import AdminContacto from "./pages/admin/AdminContacto.jsx";
@@ -258,6 +259,7 @@ export default function App() {
         <Route path="preguntas-frecuentes" element={<AdminFaq />} />
         <Route path="contacto" element={<AdminContacto />} />
         <Route path="centro-ayuda" element={<AdminAyuda />} />
+        <Route path="seguridad" element={<AdminSecurity />} />
         <Route path="perfil" element={<AdminProfile />} />
       </Route>
 

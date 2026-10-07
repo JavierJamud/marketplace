@@ -31,6 +31,13 @@ export function setSessionExpiredHandler(fn) {
   sessionExpiredHandler = fn;
 }
 
+// Bloque 272: el panel del admin se registra acá (ActionCodeProvider) para pedir el código de
+// confirmación que el servidor exige en las acciones sensibles. Devuelve el código o null.
+let actionCodeHandler = null;
+export function setActionCodeHandler(fn) {
+  actionCodeHandler = fn;
+}
+
 // Bloque 29: cuando una llamada usa responseType:"blob" (descarga de PDF), un
 // error del backend (400/500 con {error:"..."} en JSON) también llega como
 // Blob en err.response.data — el patrón de siempre (err.response?.data?.error)
@@ -67,6 +74,16 @@ api.interceptors.response.use(
     // llamada SÍ llevaba un access token y aun así lo rechazaron" (sesión
     // realmente rota) — solo el segundo caso amerita el cierre forzado.
     const hadAuthHeader = !!original?.headers?.Authorization;
+    // Bloque 272: 403 ACTION_CODE_REQUIRED = hace falta el código enviado al correo. Se pide en un
+    // modal y la MISMA petición se repite con el código (si es incorrecto vuelve a preguntar).
+    if (error.response?.status === 403 && error.response.data?.code === "ACTION_CODE_REQUIRED" && actionCodeHandler) {
+      const code = await actionCodeHandler({ action: error.response.data.action, label: error.response.data.label, wrong: !!error.response.data.wrong });
+      if (code) {
+        original.headers["X-Action-Code"] = code;
+        return api(original);
+      }
+      error.actionCodeCancelled = true;
+    }
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       const refreshToken = localStorage.getItem("refreshToken");
