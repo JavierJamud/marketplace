@@ -314,7 +314,7 @@ export async function recordAiResponse({ provider, model, headers, status, token
   entry.lastCallAt = now;
   const tokenCount = Number.isFinite(tokens) ? tokens : 0;
   // Un 429 no consume cupo, pero sí dice que el cupo se acabó.
-  if (status !== 429) {
+  if (status !== 429 && status !== 402) {
     entry.minuteHits.push({ at: now, tokens: tokenCount });
     entry.day.used += 1;
     entry.day.tokens += tokenCount;
@@ -323,6 +323,13 @@ export async function recordAiResponse({ provider, model, headers, status, token
   if (status >= 200 && status < 300) {
     entry.lastOkAt = now;
     if (entry.blockedUntil && entry.blockedUntil <= now) entry.blockedUntil = 0;
+  }
+  // 402 = la cuenta pide pago (p. ej. Gemini "prepayment credits are depleted"): la
+  // clave es de un proyecto con facturación. Nunca se insiste: queda fuera hasta el
+  // día siguiente, y el panel avisa que hace falta una clave del plan gratis.
+  if (status === 402) {
+    entry.blockedUntil = Math.max(entry.blockedUntil || 0, entry.day.resetAt);
+    entry.blockedReason = "La cuenta pide pago (sin cupo gratis): usa una clave de un proyecto con plan gratis.";
   }
   if (status === 429) {
     const perDay = learnFromQuotaError(entry, errorText);

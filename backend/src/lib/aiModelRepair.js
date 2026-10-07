@@ -101,7 +101,7 @@ export function classifyFailure(detail) {
   if (/\b404\b|\b410\b|not found|not_found|decommission|deprecat|no longer|does not exist|\bgone\b|model_not_found/.test(text)) {
     return { kind: "gone", cause: "el modelo fue dado de baja o ya no existe", fix: "No hace falta hacer nada si el reemplazo automático funciona; si no, elige otro modelo de la lista en Admin → Integraciones." };
   }
-  if (/\b429\b|quota|rate.?limit|exhaust|too many/.test(text)) {
+  if (/\b429\b|\b402\b|quota|rate.?limit|exhaust|too many|prepayment|credits are depleted|billing/.test(text)) {
     return { kind: "quota", cause: "se agotó la cuota o el límite de uso", fix: "Espera a que se renueve la cuota del proveedor, o sube de plan; mientras tanto el chat usa los otros modelos." };
   }
   if (/timeout|tiempo de espera|network|fetch failed|econn|enotfound|\b5\d\d\b|unavailable|overloaded/.test(text)) {
