@@ -54,6 +54,13 @@ import { renderStoreOgPage } from "./controllers/og.controller.js";
 
 export const app = express();
 
+// Producción (VPS con Nginx delante): sin esto, req.ip es siempre 127.0.0.1
+// (la IP de Nginx) y TODOS los visitantes comparten el mismo contador de los
+// rate-limiters y de la deduplicación de clics. "1" = confiar solo en el
+// proxy inmediato (Nginx en la misma máquina). En desarrollo no hay proxy,
+// así que se deja apagado para que nadie pueda falsear X-Forwarded-For.
+if (env.nodeEnv === "production") app.set("trust proxy", 1);
+
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
 // Auditoría de seguridad: antes `origin: env.frontendUrl` solo admitía UN

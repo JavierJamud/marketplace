@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "./prisma.js";
 import { sendAdminDirectEmail } from "./email.js";
 import { AppError } from "../utils/AppError.js";
+import { consumeTotpCode } from "../controllers/twoFactorApp.controller.js";
 
 // Bloque 272 (pedido explícito): las acciones sensibles del admin (eliminar una tienda
 // o un cliente de forma definitiva, cambiar claves de integraciones o ajustes de
@@ -92,6 +93,11 @@ export async function verifyActionCode(userId, action, code) {
 // (p. ej. contraseña actual y nuevas) en vez de antes, como hace el middleware.
 export async function confirmActionCode(req, res, action) {
   const code = req.get("x-action-code");
+  // Bloque 275 (pedido explícito): si el admin tiene la app autenticadora, el código que se pide
+  // primero es el de la app; el del correo sigue valiendo para quien no tiene el teléfono a mano.
+  const me = await prisma.user.findUnique({ where: { id: req.user.id } });
+  const hasApp = !!me?.totpEnabledAt;
+  if (code && hasApp && /^\d{6}$/.test(String(code).trim()) && (await consumeTotpCode(me, String(code).trim()))) return true;
   const row = code ? await checkActionCode(req.user.id, action, code) : null;
   if (row) {
     res.on("finish", () => {
@@ -100,7 +106,8 @@ export async function confirmActionCode(req, res, action) {
     return true;
   }
   res.status(403).json({
-    error: code ? "El código es incorrecto o venció." : `Confirma con el código enviado a tu correo para ${ACTION_LABELS[action]}.`,
+    error: code ? "El código es incorrecto o venció." : hasApp ? `Confirma con el código de tu aplicación para ${ACTION_LABELS[action]}.` : `Confirma con el código enviado a tu correo para ${ACTION_LABELS[action]}.`,
+    totp: hasApp,
     code: "ACTION_CODE_REQUIRED",
     action,
     label: ACTION_LABELS[action],

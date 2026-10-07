@@ -315,6 +315,13 @@ aceptar códigos de la APP, pero nunca se bloquea el código del correo ni desac
 contraseña (para que un tercero no pueda dejar afuera a alguien fallando a propósito).
 Desactivar pide contraseña + código (de la app o, si se perdió el teléfono, del correo).
 
+Confirmación de acciones del admin con la app: si el admin tiene la app activada, el modal de
+confirmación (`ActionCodeProvider`) pide PRIMERO el código de la app (sin enviar correo); el 403
+`ACTION_CODE_REQUIRED` lleva `totp: true`. `confirmActionCode` acepta ese código (con la misma
+protección anti-repetición) o, si no tiene su app, el del correo que pide con "No tengo acceso a mi
+app". Sin app configurada el flujo es el de siempre (correo). Al crear la cuenta, el cliente puede
+activar la app en un paso opcional (QR + verificación) o omitirlo y quedarse solo con el correo.
+
 ### B8b. Eliminación pendiente de tiendas — `jobs/vendorDeletion.job.js`
 
 Cuando el admin elimina una tienda no se borra: queda en **eliminación pendiente**

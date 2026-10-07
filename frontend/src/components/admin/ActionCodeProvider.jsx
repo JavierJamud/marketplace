@@ -14,7 +14,9 @@ import { Button } from "../ui/Button.jsx";
 const RESEND_SECONDS = 30;
 
 export function ActionCodeProvider() {
-  const [request, setRequest] = useState(null); // { action, label, wrong }
+  const [request, setRequest] = useState(null); // { action, label, wrong, totp }
+  // Con la app activada el código se pide primero a la app; "email" se activa al pedir el envío.
+  const [emailMode, setEmailMode] = useState(false);
   const [code, setCode] = useState("");
   const [info, setInfo] = useState({ sentTo: "", error: "" });
   const [sending, setSending] = useState(false);
@@ -27,6 +29,7 @@ export function ActionCodeProvider() {
     try {
       const { data } = await api.post("/admin/security/action-code", { action });
       setInfo({ sentTo: data.sentTo, error: "" });
+      setEmailMode(true);
       setCooldown(RESEND_SECONDS);
     } catch (err) {
       setInfo((i) => ({ ...i, error: err.response?.data?.error ?? "No se pudo enviar el código. Intenta de nuevo." }));
@@ -38,13 +41,15 @@ export function ActionCodeProvider() {
   useEffect(() => {
     // La API llama a este manejador y espera el código (o null si se cancela).
     setActionCodeHandler(
-      ({ action, label, wrong }) =>
+      ({ action, label, wrong, totp }) =>
         new Promise((resolve) => {
           resolver.current = resolve;
           setCode("");
-          setRequest({ action, label, wrong });
-          // Un código equivocado ya tiene uno vigente en el correo: no se manda otro.
-          if (!wrong) sendCode(action);
+          setRequest({ action, label, wrong, totp });
+          if (!wrong) setEmailMode(false);
+          // Con la app activada no se manda correo hasta que se pida. Un código equivocado ya
+          // tiene uno vigente en el correo: no se manda otro.
+          if (!wrong && !totp) sendCode(action);
         })
     );
     return () => setActionCodeHandler(null);
@@ -61,7 +66,10 @@ export function ActionCodeProvider() {
     resolver.current = null;
     setRequest(null);
     setCode("");
+    setEmailMode(false);
   }
+
+  const appMode = request?.totp && !emailMode;
 
   if (!request) return null;
   return (
@@ -82,17 +90,19 @@ export function ActionCodeProvider() {
           </h2>
         </div>
         <p className="mb-4 text-[13.5px] text-on-surface-variant">
-          Para {request.label} te enviamos un código de 6 dígitos{info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en 10 minutos y sirve una sola vez.
+          {appMode
+            ? `Para ${request.label}, escribe el código de 6 dígitos que muestra tu aplicación de autenticación.`
+            : `Para ${request.label} te enviamos un código de 6 dígitos${info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en 10 minutos y sirve una sola vez.`}
         </p>
-        <OtpInput label="Código de confirmación" value={code} onChange={setCode} length={6} autoFocus autoSubmit error={request.wrong ? "El código es incorrecto o venció." : info.error || undefined} />
+        <OtpInput label={appMode ? "Código de la aplicación" : "Código de confirmación"} value={code} onChange={setCode} length={6} autoFocus autoSubmit error={request.wrong ? "El código es incorrecto o venció." : info.error || undefined} />
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
           <button
             type="button"
             onClick={() => sendCode(request.action)}
-            disabled={sending || cooldown > 0}
-            className="min-h-11 rounded-xl px-3 text-[13px] font-semibold text-tertiary-accent disabled:opacity-50"
+            disabled={sending || (!appMode && cooldown > 0)}
+            className="min-h-11 rounded-xl px-3 text-left text-[13px] font-semibold text-tertiary-accent disabled:opacity-50"
           >
-            {sending ? "Enviando..." : cooldown > 0 ? `Reenviar en ${cooldown} s` : "Reenviar el código"}
+            {sending ? "Enviando..." : appMode ? "No tengo acceso a mi app: enviar el código a mi correo" : cooldown > 0 ? `Reenviar en ${cooldown} s` : "Reenviar el código"}
           </button>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => finish(null)}>

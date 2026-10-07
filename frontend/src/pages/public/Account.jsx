@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { QRCodeSVG } from "qrcode.react";
 import toast from "../../lib/toast.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
@@ -52,6 +53,92 @@ const SHELL_COPY = {
 // el mock design_references/Account.dc.html. El formulario real (login,
 // stepper de registro, recuperar contraseña) se pasa como children sin
 // tocarse — esto solo cambia lo que lo envuelve.
+// Bloque 275 (pedido explícito — "al crear la cuenta el cliente elige: solo correo, o también la
+// app; si elige la app se muestra el QR para escanearlo y verificarlo; también puede omitirlo"):
+// paso opcional que se muestra justo después de verificar el correo. La cuenta ya existe y la
+// sesión está abierta, así que usa los mismos endpoints de la tarjeta de seguridad del perfil.
+function RegisterAppStep({ onDone }) {
+  const [setup, setSetup] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+
+  async function start() {
+    setStarting(true);
+    try {
+      setSetup((await api.post("/auth/2fa/app/setup")).data);
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "No se pudo iniciar la activación.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function verify(e) {
+    e?.preventDefault();
+    if (code.length !== 6 || checking) return;
+    setChecking(true);
+    try {
+      await api.post("/auth/2fa/app/enable", { code });
+      toast.success("Verificación en dos pasos activada.");
+      onDone();
+    } catch (err) {
+      setCode("");
+      setCodeError(err.response?.data?.error ?? "El código no coincide. Inténtalo de nuevo.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="animate-step-in">
+      <h1 className="mb-2 text-headline-md text-on-surface">Protege tu cuenta</h1>
+      {!setup ? (
+        <>
+          <p className="mb-5 text-body-md text-on-surface-variant">
+            Por defecto, al iniciar sesión te enviamos un código a tu correo. Si quieres, puedes usar además una aplicación de autenticación (Google Authenticator, Microsoft Authenticator o Authy) que genera el código en tu teléfono.
+          </p>
+          <div className="space-y-3">
+            <Button type="button" size="lg" className="w-full rounded-xl" onClick={start} disabled={starting}>
+              {starting ? "Preparando..." : "Activar también con aplicación"}
+            </Button>
+            <Button type="button" variant="outline" size="lg" className="w-full rounded-xl" onClick={onDone}>
+              Solo por correo, omitir
+            </Button>
+          </div>
+          <p className="mt-4 text-label-md text-outline">Puedes activarla o quitarla cuando quieras desde tu perfil.</p>
+        </>
+      ) : (
+        <form onSubmit={verify} className="space-y-4">
+          <ol className="list-decimal space-y-1 pl-5 text-body-md text-on-surface-variant">
+            <li>Abre tu aplicación y elige agregar una cuenta.</li>
+            <li>Escanea este código QR.</li>
+            <li>Escribe el código de 6 dígitos que muestra la aplicación.</li>
+          </ol>
+          <div className="flex flex-col items-center gap-2">
+            <div className="rounded-xl bg-white p-3">
+              <QRCodeSVG value={setup.otpauthUrl} size={168} level="M" title="Código QR para tu aplicación de autenticación" />
+            </div>
+            <button type="button" onClick={() => setShowSecret((v) => !v)} className="min-h-11 text-label-md font-semibold text-tertiary-accent">
+              {showSecret ? "Ocultar la clave" : "No puedo escanear: ver la clave"}
+            </button>
+            {showSecret && <p className="select-all break-all rounded-lg bg-surface-container px-3 py-2 font-mono text-[13px] tracking-wider text-on-surface">{setup.secret}</p>}
+          </div>
+          <OtpInput label="Código de la aplicación" autoFocus autoSubmit value={code} onChange={(v) => { setCode(v); setCodeError(""); }} error={codeError || undefined} />
+          <Button type="submit" size="lg" className="w-full rounded-xl" disabled={code.length !== 6 || checking}>
+            {checking ? "Verificando..." : "Verificar y activar"}
+          </Button>
+          <button type="button" onClick={onDone} className="block min-h-11 text-label-md font-semibold text-outline">
+            Omitir y usar solo el correo
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function AccountShell({ provinceCount, mode = "customer", children }) {
   const { siteName, logoUrl } = usePlatformSettings();
   const copy = SHELL_COPY[mode];
@@ -558,7 +645,8 @@ export default function Account({ mode = "customer" }) {
               ? `¡Cuenta creada! Vinculamos ${linkedOrdersCount} ${linkedOrdersCount === 1 ? "pedido anterior" : "pedidos anteriores"} a tu cuenta.`
               : "¡Cuenta creada!"
           );
-          navigate(isSafeNextPath ? nextPath : "/cuenta/panel");
+          // Paso opcional: elegir si además se activa la app autenticadora.
+          setView("register-app");
         }
       });
     } catch (err) {
@@ -751,6 +839,14 @@ export default function Account({ mode = "customer" }) {
 
   // Bloque 59: segundo paso del registro (verificación de correo) — mismo
   // patrón visual que "two-factor"/"forgot-code" de arriba/abajo.
+  if (view === "register-app") {
+    return (
+      <AccountShell provinceCount={provinces?.length} mode={mode}>
+        <RegisterAppStep onDone={() => navigate(isSafeNextPath ? nextPath : "/cuenta/panel")} />
+      </AccountShell>
+    );
+  }
+
   if (view === "register-verify") {
     return (
       <AccountShell provinceCount={provinces?.length} mode={mode}>
