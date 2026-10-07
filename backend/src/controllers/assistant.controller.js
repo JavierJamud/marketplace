@@ -1086,7 +1086,7 @@ export async function postMarketplaceChatMessage(req, res) {
     // Bloque 281: últimos mensajes tal cual + memoria corta del resto (lib/chatMemory.js).
     const { history: aiHistory, memory } = compactHistory(history);
     if (memory) systemParts.push({ text: memory });
-    ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message }));
+    ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
   } catch (err) {
     await logError({
       origin: "BOT_GENERAL",

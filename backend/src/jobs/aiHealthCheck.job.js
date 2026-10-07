@@ -46,6 +46,8 @@ export async function runAiHealthCheckJob() {
   } finally {
     events = endDailyReport();
   }
+  // Bloque 284: con las velocidades medidas, cada API deja primero su modelo más rápido.
+  const reordered = await applyFastestOrder(results);
   const detail = (provider, model, type) => events.find((e) => e.provider === provider && e.model === model && (!type || e.type === type));
 
   const solved = [];
@@ -88,9 +90,31 @@ export async function runAiHealthCheckJob() {
     await notifyAdminActionNeeded(subject, lines.join("\n"));
   }
 
+  if (reordered.length) console.log(`[aiHealthCheck] orden por velocidad — ${reordered.join(" | ")}`);
   const summary = results.map((r) => `${r.provider}/${r.model}:${r.status}`).join(" ");
   console.log(`[aiHealthCheck] resumen — ${summary || "sin modelos activos"} | resueltos ${solved.length}, pendientes ${pending.length}`);
   return { results, solved, pending };
+}
+
+// Ordena, dentro de cada API, los modelos activos que respondieron bien de más rápido a
+// más lento (prioridad 0 = el más rápido), y lo deja guardado en la configuración: así el
+// panel de Integraciones muestra el mismo orden que usa el sistema. El orden entre APIs
+// (Groq, NVIDIA, Gemini) no se toca.
+async function applyFastestOrder(results) {
+  const lines = [];
+  for (const provider of [...new Set(results.map((r) => r.provider))]) {
+    const timed = results
+      .filter((r) => r.provider === provider && (r.status === "healthy" || r.recovered) && typeof r.ms === "number")
+      .sort((a, b) => a.ms - b.ms);
+    if (timed.length < 2) continue;
+    try {
+      await prisma.$transaction(timed.map((r, i) => prisma.aiModelConfig.updateMany({ where: { provider, model: r.model }, data: { priority: i } })));
+      lines.push(`${provider}: ${timed.map((r) => `${r.model} ${r.ms}ms`).join(" < ")}`);
+    } catch (err) {
+      console.error(`[aiHealthCheck] no se pudo ordenar ${provider} por velocidad:`, err?.message);
+    }
+  }
+  return lines;
 }
 
 function hourInTimezone(date, timezone) {

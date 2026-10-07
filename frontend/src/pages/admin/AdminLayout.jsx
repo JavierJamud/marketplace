@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -39,9 +39,8 @@ const NAV = [
   { to: "/admin/codigos-descuento", label: "Códigos de descuento", icon: Percent },
   { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image },
-  { to: "/admin/integraciones", label: "Integraciones", icon: Plug },
-  // Bloque 272: ajustes de seguridad (plazo de eliminación de tiendas, verificación en dos pasos).
-  { to: "/admin/seguridad", label: "Seguridad", icon: ShieldCheck },
+  // Pedido explícito: todos los ajustes (marca aparte, seguridad, integraciones, planes, políticas) en Configuración.
+  { to: "/admin/configuracion", label: "Configuración", icon: Settings },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
   // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
   // el useQuery de abajo y el render del badge en el map de NAV.

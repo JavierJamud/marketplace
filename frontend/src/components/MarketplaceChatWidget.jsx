@@ -8,7 +8,9 @@ import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
-import { RecordingIndicator } from "./RecordingIndicator.jsx";
+import { RecordingIndicator, TranscribingIndicator } from "./RecordingIndicator.jsx";
+import { revealText, appendWord } from "../lib/revealText.js";
+import { postChatStreaming } from "../lib/streamChat.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
 
@@ -232,6 +234,7 @@ export function MarketplaceChatWidget() {
   const [messages, setMessages] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [sending, setSending] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
   // Bloque 33: booleano, no el string que mandaba el backend — antes esto
   // mostraba err.response.data.error tal cual, que en una falla real
   // (proveedor de IA caído, etc.) SÍ podía traer detalle técnico. Ahora
@@ -357,7 +360,9 @@ export function MarketplaceChatWidget() {
     setMessages((m) => [...m, { id: `local-${Date.now()}`, role: "user", content: message }]);
     setSending(true);
     try {
-      const { data } = await api.post("/assistant/chat", { sessionId: sessionIdRef.current, message });
+      setStreamingText("");
+      const { data } = await postChatStreaming("/assistant/chat", { sessionId: sessionIdRef.current, message }, { onDelta: (t) => setStreamingText((s) => s + t), onReset: () => setStreamingText("") });
+      setStreamingText("");
       setMessages((m) => [...m, data.message]);
       touchActivity();
       scheduleIdleReset();
@@ -373,6 +378,7 @@ export function MarketplaceChatWidget() {
       // falló, se renderiza como tarjeta genérica (ver JSX).
       setErrorMsg(true);
     } finally {
+      setStreamingText("");
       setSending(false);
     }
   }
@@ -471,7 +477,8 @@ export function MarketplaceChatWidget() {
         toast.error("No pude entender el audio — prueba de nuevo o escribe tu mensaje.");
         return;
       }
-      await handleSend(transcribed);
+      setRecordingState("idle");
+      await revealText(transcribed, (word, first) => setText((prev) => appendWord(prev, word, first)));
     } catch {
       toast.error("No pude entender el audio — prueba de nuevo o escribe tu mensaje.");
     } finally {
@@ -702,7 +709,19 @@ export function MarketplaceChatWidget() {
                 Framer Motion (ver TypingDots.jsx), mismo patrón de
                 WhatsApp/Messenger. Transición de entrada suave (fade-up).
                 Nunca queda en el historial: es un estado transitorio. */}
-            {(sending || transcribing) && (
+            {/* Pedido explícito: la respuesta se escribe en vivo, a medida que llega. */}
+            {sending && streamingText && (
+              <div className="mb-3 flex flex-col items-start">
+                <BotRow>
+                  <div className="whitespace-pre-wrap rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
+                    {streamingText}
+                    <span className="ml-0.5 inline-block h-[14px] w-[2px] translate-y-[2px] bg-on-surface-variant motion-safe:animate-pulse" aria-hidden="true" />
+                  </div>
+                </BotRow>
+              </div>
+            )}
+
+            {((sending && !streamingText) || transcribing) && (
               <div className="mb-3 max-w-[88%] animate-fade-up">
                 <TypingDots />
               </div>
@@ -740,9 +759,7 @@ export function MarketplaceChatWidget() {
             {recording ? (
               <RecordingIndicator stream={streamRef.current} onCancel={cancelRecording} />
             ) : transcribing ? (
-              <div className="flex h-10 flex-1 items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[12.5px] text-outline">
-                Transcribiendo audio...
-              </div>
+              <TranscribingIndicator />
             ) : (
               <input
                 value={text}
@@ -757,8 +774,8 @@ export function MarketplaceChatWidget() {
             <button
               onClick={recording ? stopAndSendRecording : startRecording}
               disabled={sending || transcribing}
-              aria-label={recording ? "Detener y enviar audio" : "Grabar audio"}
-              title={recording ? "Detener y enviar" : "Grabar mensaje de voz"}
+              aria-label={recording ? "Detener y pasar a texto" : "Grabar audio"}
+              title={recording ? "Detener y pasar a texto" : "Grabar mensaje de voz"}
               className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50 ${
                 recording ? "bg-error text-white" : "bg-surface-container text-on-surface-variant"
               }`}

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { streamable } from "../lib/ndjsonStream.js";
 import * as assistantController from "../controllers/assistant.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -13,7 +14,7 @@ const router = Router();
 // Bloque 32: ya no recibe imagen (derogado) — la grabación de audio se
 // transcribe aparte (POST /ai/transcribe) y llega acá como texto plano.
 router.get("/chat", assistantController.getMarketplaceChatHistory);
-router.post("/chat", chatRateLimit, assistantController.postMarketplaceChatMessage);
+router.post("/chat", chatRateLimit, streamable(assistantController.postMarketplaceChatMessage));
 
 // Admin: entrenar al bot general con documentación.
 router.get("/documents", authenticate, requireRole("ADMIN"), assistantController.listAssistantDocuments);

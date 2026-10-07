@@ -72,6 +72,10 @@ async function checkProvider(providerName, trigger) {
         return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
       }
       if (!listed) return { status: row?.status ?? "unknown", outcome: "list_unavailable" };
+      // Bloque 284 (pedido explícito — "siempre el modelo más rápido de ese momento"): la
+      // revisión de las 3:00am hace una consulta mínima a CADA modelo activo para medir su
+      // velocidad real; con eso se ordena cada API (ver runAiHealthCheckJob).
+      if (trigger === "daily") return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
       if (listed.has(m.model)) {
         await upsertModelHealth(providerName, m.model, { status: "healthy", lastError: null, downSince: null });
         return { status: "healthy", outcome: "listed_by_api" };

@@ -63,14 +63,13 @@ import AdminReviews from "./pages/admin/AdminReviews.jsx";
 import AdminCampaigns from "./pages/admin/AdminCampaigns.jsx";
 import AdminSubscriptions from "./pages/admin/AdminSubscriptions.jsx";
 import AdminAnnouncements from "./pages/admin/AdminAnnouncements.jsx";
-import AdminIntegrations from "./pages/admin/AdminIntegrations.jsx";
+import AdminSettings from "./pages/admin/AdminSettings.jsx";
 import AdminAssistant from "./pages/admin/AdminAssistant.jsx";
 import AdminErrors from "./pages/admin/AdminErrors.jsx";
 import AdminChat from "./pages/admin/AdminChat.jsx";
 import AdminLocations from "./pages/admin/AdminLocations.jsx";
 import AdminCategories from "./pages/admin/AdminCategories.jsx";
 import AdminProfile from "./pages/admin/AdminProfile.jsx";
-import AdminSecurity from "./pages/admin/AdminSecurity.jsx";
 import AdminPages from "./pages/admin/AdminPages.jsx";
 import AdminFaq from "./pages/admin/AdminFaq.jsx";
 import AdminContacto from "./pages/admin/AdminContacto.jsx";
@@ -247,7 +246,7 @@ export default function App() {
         <Route path="codigos-descuento" element={<AdminDiscountCodes />} />
         <Route path="ofertas-tienda" element={<AdminStoreOffers />} />
         <Route path="anuncios" element={<AdminAnnouncements />} />
-        <Route path="integraciones" element={<AdminIntegrations />} />
+        <Route path="integraciones" element={<Navigate to="/admin/configuracion?tab=integraciones" replace />} />
         <Route path="marca" element={<AdminBranding />} />
         <Route path="asistente" element={<AdminAssistant />} />
         {/* Bloque 259: el asistente pasó a ser un botón flotante; la ruta vieja redirige. */}
@@ -259,7 +258,8 @@ export default function App() {
         <Route path="preguntas-frecuentes" element={<AdminFaq />} />
         <Route path="contacto" element={<AdminContacto />} />
         <Route path="centro-ayuda" element={<AdminAyuda />} />
-        <Route path="seguridad" element={<AdminSecurity />} />
+        <Route path="seguridad" element={<Navigate to="/admin/configuracion?tab=seguridad" replace />} />
+        <Route path="configuracion" element={<AdminSettings />} />
         <Route path="perfil" element={<AdminProfile />} />
       </Route>
 

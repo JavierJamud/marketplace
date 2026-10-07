@@ -1,4 +1,3 @@
-import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -144,10 +143,6 @@ export default function AdminProfile() {
 
           <div className="mb-5">
             <PasswordCard />
-          </div>
-
-          <div className="mb-5">
-            <TwoFactorCard />
           </div>
 
           {changingEmail && <ChangeEmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}

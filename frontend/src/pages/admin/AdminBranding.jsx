@@ -67,7 +67,7 @@ function resolveLogoUrl(logoUrl) {
 // Mismo patrón de fetch/local-state/save que PlanLimitsPanel en
 // AdminLocations.jsx, en su propia página (no un panel más ahí) porque el
 // pedido fue explícito por una sección nueva.
-export default function AdminBranding() {
+export default function AdminBranding({ mode = "brand" }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   // Bloque 61: usadas por la fila de íconos del footer de los correos — ver
@@ -245,6 +245,8 @@ export default function AdminBranding() {
 
   return (
     <div className="max-w-[720px]">
+      {mode === "brand" && (
+        <>
       <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Marca de la plataforma</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
         El nombre se usa en todo el sitio — header, footer, títulos de página, correos, PDFs y mensajes de WhatsApp —
@@ -312,6 +314,11 @@ export default function AdminBranding() {
         </Button>
       </div>
 
+        </>
+      )}
+
+      {mode === "general" && (
+        <>
       {/* Bloque 75 (pedido explícito): número crudo, no un link — lo usa el
           botón "Contactar soporte" que ve un vendedor con la tienda
           bloqueada/suspendida (VendorLayout.jsx) para armar un mensaje de
@@ -391,6 +398,11 @@ export default function AdminBranding() {
         </label>
       </div>
 
+        </>
+      )}
+
+      {mode === "catalog" && (
+        <>
       <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
           <Wallet className="h-4 w-4 text-tertiary-accent" /> Métodos de pago de producto
@@ -500,6 +512,9 @@ export default function AdminBranding() {
           {saveProductBadges.isPending ? "Guardando..." : "Guardar etiquetas"}
         </Button>
       </div>
+        </>
+      )}
+
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, codeBlock, paragraph, smallNote } from "./_shared.js";
+import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 47/60: código de 6 dígitos obligatorio en cada login salvo que el
@@ -10,7 +10,10 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 export async function twoFactorCodeEmail({ fullName, code }) {
   const { siteName } = await getBrandSettings();
   // Bloque 49: se agrega el nombre — mismo criterio que passwordReset.js.
-  const subject = fullName ? `${fullName}, confirma que eres tú` : "Confirma que eres tú";
+  const first = fullName ? String(fullName).split(" ")[0] : null;
+  const subject = pickVariant(code, first
+    ? [`${first}, confirma que eres tú`, `${first}, tu código de acceso`, `Código para iniciar sesión, ${first}`]
+    : ["Confirma que eres tú", "Tu código de acceso", "Código para iniciar sesión"]);
   const html = await emailShell({
     preview: "Alguien está iniciando sesión en tu cuenta — usa este código para completar el ingreso",
     title: "Confirma que eres tú",

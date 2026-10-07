@@ -19,7 +19,7 @@ import { useDirtyModal } from "../../lib/useDirtyModal.js";
 // el resto de los límites del plan (productos, provincias, etc.), en vez de
 // repartido en dos pantallas distintas.
 
-function ProductImageLinksPanel() {
+export function ProductImageLinksPanel() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -386,7 +386,6 @@ export default function AdminLocations() {
         <LocationSuggestionsPanel />
       ) : (
       <>
-      <ProductImageLinksPanel />
 
       {/* Modern Master-Detail Layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">

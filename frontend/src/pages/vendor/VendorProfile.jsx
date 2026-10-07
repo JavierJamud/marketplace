@@ -66,7 +66,7 @@ function PasswordCard() {
 // también borra los dispositivos "de confianza" — el próximo login, en
 // cualquier lado (incluida esta misma pestaña), va a volver a pedir el
 // código de verificación.
-function SecurityCard() {
+export function SecurityCard() {
   const { logoutAllDevices } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -92,9 +92,9 @@ function SecurityCard() {
         <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Seguridad de la cuenta
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Tu sesión y tus dispositivos recordados están protegidos con un código de verificación por correo, obligatorio
-        en cada inicio de sesión desde un navegador nuevo. Si sospechas que alguien más tiene acceso, cierra sesión en
-        todos tus dispositivos — vas a tener que volver a iniciar sesión (y verificar el código) en todos lados.
+        Tu cuenta recuerda un solo dispositivo: el último donde confirmaste tu identidad. Al iniciar sesión desde otro
+        tienes que verificar un código, y ese otro dispositivo pasa a ser el de confianza (el anterior vuelve a pedir
+        verificación). Si sospechas que alguien más tiene acceso, cierra sesión en todos tus dispositivos.
       </p>
       <Button variant="outline" className="rounded-xl border-error text-error hover:bg-error/5" onClick={() => setConfirming(true)}>
         Cerrar sesión en todos los dispositivos
@@ -578,7 +578,6 @@ export default function VendorProfile() {
       </div>
 
       <PasswordCard />
-      <SecurityCard />
       <OwnerNameCard />
       <StoreInfoCard />
       <StoreBrandingCard />

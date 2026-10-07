@@ -11,7 +11,7 @@ import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 // plazo de la eliminación pendiente de tiendas ("esta configuración de 30 días se podrá
 // cambiar en el panel de administrador"). Cambiarlo pide el código enviado al correo, como
 // el resto de las acciones sensibles (el modal lo gestiona ActionCodeProvider).
-export default function AdminSecurity() {
+export default function AdminSecurity({ embedded = false }) {
   const queryClient = useQueryClient();
   const { data } = useQuery({
     queryKey: ["admin-security-settings"],
@@ -58,11 +58,16 @@ export default function AdminSecurity() {
 
   return (
     <div className="max-w-[760px]">
+      {!embedded && (
+        <>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ShieldCheck} tone="teal" />
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Seguridad</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">Ajustes que protegen la plataforma. Cambiarlos o hacer acciones sensibles pide un código enviado a tu correo.</p>
+
+        </>
+      )}
 
       <section className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5">
         <div className="mb-3 flex items-center gap-2.5">

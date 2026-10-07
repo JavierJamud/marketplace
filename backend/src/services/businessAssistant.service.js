@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { generateRawText } from "../lib/ai.js";
+import { streamRawText } from "../lib/ai.js";
+import { createFinalTextStreamer } from "../lib/aiStream.js";
 import { TOOLS_BY_SCOPE, LINKS_BY_SCOPE } from "../lib/assistantTools.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { compactHistory } from "../lib/chatMemory.js";
@@ -23,6 +24,7 @@ import { compactHistory } from "../lib/chatMemory.js";
 const MAX_TOOL_CALLS = 3; // Bloque 282: máximo 3 consultas de datos por pregunta (antes 6)
 const MAX_MODEL_CALLS = 4; // Bloque 282: 3 consultas + la respuesta final (antes hasta 9)
 const HISTORY_MESSAGES = 20; // últimas 10 vueltas de la conversación abierta
+const SOFT_DEADLINE_MS = 30_000; // Bloque 284: pasado este tiempo se responde con lo que hay
 const MAX_RESULT_CHARS = 7000;
 const MAX_FINAL_CHARS = 900;
 const MAX_PRODUCT_CARDS = 4;
@@ -343,6 +345,7 @@ export async function clearHistory({ scope, userId, vendorId = null }) {
 const SMALL_TALK = [
   [/^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|saludos|qu[eé] tal|c[oó]mo est[aá]s)[\s!.?¿¡]*$/i, "¡Hola! ¿En qué te ayudo con tu negocio? Puedes preguntarme por ventas, pedidos, productos, clientes o tu plan."],
   [/^(ok|okay|vale|dale|listo|perfecto|entendido|bien|de acuerdo|claro|s[ií]|no|ya)[\s!.?]*$/i, "Perfecto. Si necesitas algo más, pregúntame."],
+  [/^ya\s+(lo|los|la|las|todo|todos|todas)\s*(\w+\s+)?(resolv|arregl|solucion|correg|revis|hice|vi\b)\w*[\s!.?]*$/i, "Bien. Cuando algo se resuelve, los pendientes se actualizan solos. Pídeme «pendientes» y te digo cuántos quedan con datos al momento."],
   [/^(gracias|muchas gracias|mil gracias|te agradezco)[\s!.?]*$/i, "¡Con gusto! Aquí estoy si necesitas algo más."],
   [/^(adi[oó]s|chao|hasta luego|nos vemos)[\s!.?]*$/i, "¡Hasta luego!"],
 ];
@@ -376,6 +379,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   const last = history[history.length - 1];
   const answersQuestion = last?.role !== "user" && /\?\s*$/.test(String(last?.content ?? "")) && /^(s[ií]|no|ok|okay|dale|claro|vale|de acuerdo|perfecto)\b/i.test(message.trim());
   const quick = answersQuestion ? null : smallTalkReply(message);
+  const startedAt = Date.now();
   const observations = [];
   const toolsUsed = [];
   const seenCalls = new Set();
@@ -386,10 +390,23 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   let verifyRetries = 0;
 
   for (let call = 0; call < MAX_MODEL_CALLS && !final; call++) {
-    const mustFinish = toolsUsed.length >= MAX_TOOL_CALLS;
+    // Bloque 284: tope de tiempo total; pasado el plazo ya no se piden más datos.
+    const mustFinish = toolsUsed.length >= MAX_TOOL_CALLS || Date.now() - startedAt > SOFT_DEADLINE_MS;
     const prompt = buildPrompt({ scope, siteName, who, history, message, observations, mustFinish, planContext });
     onProgress({ phase: toolsUsed.length > 0 ? "composing" : "thinking" });
-    const raw = await generateRawText(prompt);
+    // Bloque 284 (pedido explícito): la respuesta se escribe EN VIVO. Mientras el
+    // modelo genera el JSON, el texto del campo "final" va saliendo a la pantalla.
+    const streamer = createFinalTextStreamer((piece) => onProgress({ phase: "delta", text: piece }));
+    const modelStart = Date.now();
+    const raw = await streamRawText(prompt, {
+      onDelta: (piece) => streamer.push(piece),
+      onReset: () => onProgress({ phase: "reset" }),
+    });
+    console.log(`[assistant] modelo ${Date.now() - modelStart} ms (vuelta ${call + 1}, ${prompt.length} caracteres de prompt)`);
+    // Si lo escrito en vivo se descarta (cifras sin respaldo, formato), se borra de la pantalla.
+    const discardStreamed = () => {
+      if (streamer.started) onProgress({ phase: "reset" });
+    };
     const parsed = extractJson(raw);
 
     if (parsed && typeof parsed.final === "string") {
@@ -400,6 +417,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
       const usedDataTool = observations.some((o) => o.tool !== "formato");
       if (!usedDataTool && /\d/.test(parsed.final) && ungroundedRetries < 2 && !mustFinish) {
         ungroundedRetries++;
+        discardStreamed();
         observations.push({ tool: "formato", output: JSON.stringify({ error: "Respondiste con datos o cifras sin consultar ninguna herramienta, así que no son reales. Consulta primero la herramienta adecuada y responde SOLO con lo que devuelva." }) });
         continue;
       }
@@ -411,6 +429,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
         const missing = unverifiedNumbers(`${parsed.final} ${JSON.stringify(parsed.tabla?.filas ?? [])}`, observations);
         if (missing.length > 0) {
           verifyRetries++;
+          discardStreamed();
           onProgress({ phase: "verifying" });
           observations.push({ tool: "formato", output: JSON.stringify({ error: `Estas cifras de tu respuesta NO aparecen en los datos consultados: ${missing.join(", ")}. Corrígela usando SOLO lo que devolvieron las herramientas (consulta la que falte). Si un dato es 0 o no existe, dilo así; no afirmes cosas que los datos no muestran.` }) });
           continue;
@@ -434,12 +453,14 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
         seenCalls.add(callKey);
         toolsUsed.push(parsed.tool);
         onProgress({ phase: "tool", tool: parsed.tool, detail: toolDetail(parsed.tool, parsed.args) });
+        const toolStart = Date.now();
         const args = tool.schema.safeParse(parsed.args ?? {});
         if (!args.success) {
           observations.push({ tool: parsed.tool, output: JSON.stringify({ error: `Argumentos inválidos: ${args.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}` }) });
         } else {
           try {
             observations.push({ tool: parsed.tool, output: runResult(await tool.run(args.data, { vendorId, userId, scope, conversationId: conversation?.id })) });
+            console.log(`[assistant] herramienta ${parsed.tool} ${Date.now() - toolStart} ms`);
           } catch (err) {
             console.error(`[businessAssistant] la herramienta ${parsed.tool} falló:`, err);
             observations.push({ tool: parsed.tool, output: JSON.stringify({ error: "No se pudo obtener ese dato ahora." }) });
@@ -454,6 +475,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
     // (mejor una respuesta útil sin enlaces que un error al usuario).
     if (formatRetries < 1) {
       formatRetries++;
+      discardStreamed();
       observations.push({ tool: "formato", output: JSON.stringify({ error: 'Tu respuesta anterior no fue un JSON válido. Responde SOLO con {"final":"...","links":[]} o {"tool":"...","args":{}}.' }) });
       continue;
     }

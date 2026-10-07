@@ -754,7 +754,7 @@ export const LINKS_BY_SCOPE = {
     "/admin/campanas": "Campañas",
     "/admin/mensajes": "Mensajes",
     "/admin/comentarios": "Comentarios",
-    "/admin/integraciones": "Integraciones",
+    "/admin/configuracion": "Configuración (seguridad, integraciones, planes y ajustes)",
     "/admin/ubicaciones": "Países y provincias",
     "/admin/categorias": "Categorías",
     "/admin/errores": "Errores",

@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, statusBadge, paragraph, resolveAssetUrl } from "./_shared.js";
+import { emailShell, ctaButton, statusBadge, paragraph, resolveAssetUrl, pickVariant } from "./_shared.js";
 
 // Bloque 62: re-enganche — cliente que compró UNA sola vez en esta tienda
 // hace 30+ días, y la tienda publicó una oferta activa nueva desde
@@ -17,7 +17,7 @@ function offerCardMjml(offer) {
 }
 
 export async function vendorWinbackEmail({ customer, vendor, offers }) {
-  const subject = `${vendor.companyName} tiene ofertas nuevas para ti`;
+  const subject = pickVariant(`${vendor.id}${customer.email}`, [`${vendor.companyName} tiene ofertas nuevas para ti`, `Novedades de ${vendor.companyName}`, `Lo nuevo en ${vendor.companyName}`]);
   const html = await emailShell({
     preview: `${vendor.companyName} publicó ofertas nuevas — mira lo que tienen ahora`,
     title: `${vendor.companyName} tiene algo nuevo para ti`,

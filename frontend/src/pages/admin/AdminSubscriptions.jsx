@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CreditCard, Landmark, Bot, Clock, X, Plus, Sparkles, SlidersHorizontal } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
-import { Tabs } from "../../components/ui/Tabs.jsx";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -32,18 +31,6 @@ function fmtUsd(n) {
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
-
-// Bloque 52: 3 pestañas — antes era una sola página plana con todo
-// apilado (suscripciones, qué incluye cada plan, datos de pago, límites de
-// ubicación en OTRA pantalla aparte, política de ofertas en OTRA más).
-// "Configuración de planes" absorbe el PlanLimitsPanel que vivía en
-// AdminLocations.jsx y el tope de ofertas de tienda que vivía en
-// AdminStoreOffers.jsx — ya no hay un límite de plan editable fuera de acá.
-const TABS = [
-  { id: "subscriptions", label: "Suscripciones", icon: CreditCard },
-  { id: "plans", label: "Configuración de planes", icon: SlidersHorizontal },
-  { id: "payment", label: "Datos de pago", icon: Landmark },
-];
 
 // Lista de chips de texto libre — mismo patrón que "Métodos de pago" en
 // VendorSettings.jsx (~línea 405-443), acá sin la mitad de catálogo fijo
@@ -213,7 +200,7 @@ function PlanConfigCard({ plan }) {
   );
 }
 
-function PlanConfigTab() {
+export function PlanConfigTab() {
   const { data: plans } = useQuery({
     queryKey: ["admin-plan-configs"],
     queryFn: async () => (await api.get("/admin/plan-configs")).data.plans,
@@ -240,7 +227,7 @@ function PlanConfigTab() {
 // ("CI: 9205-XXXX-XXXX"), ahora editable acá sin redeploy. Bloque 150: suma
 // el precio mensual del cobro con tarjeta. Bloque 52: suma el teléfono de
 // contacto para verificar/notificar el pago (pedido explícito, opcional).
-function CupPaymentSettingsCard() {
+export function CupPaymentSettingsCard() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -576,8 +563,6 @@ function SubscriptionsTab() {
 }
 
 export default function AdminSubscriptions() {
-  const [tab, setTab] = useState("subscriptions");
-
   return (
     <div>
       <div className="mb-1 flex items-center gap-3">
@@ -585,15 +570,10 @@ export default function AdminSubscriptions() {
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Suscripciones</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">
-        Todo lo relacionado a los planes de las tiendas, agrupado en un solo lugar: suscripciones activas, qué incluye y
-        permite cada plan, y los datos de pago.
+        Las suscripciones de las tiendas. Lo que incluye cada plan y los datos de pago se cambian en Configuración.
       </p>
 
-      <Tabs tabs={TABS} value={tab} onChange={setTab} className="mb-6" />
-
-      {tab === "subscriptions" && <SubscriptionsTab />}
-      {tab === "plans" && <PlanConfigTab />}
-      {tab === "payment" && <CupPaymentSettingsCard />}
+      <SubscriptionsTab />
     </div>
   );
 }

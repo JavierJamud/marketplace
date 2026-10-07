@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, codeBlock, paragraph, smallNote } from "./_shared.js";
+import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 71 (pedido explícito): va SIEMPRE al correo VIEJO (el que ya está en
@@ -9,7 +9,10 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 // que no hizo él.
 export async function emailChangeCodeEmail({ fullName, code, newEmail }) {
   const { siteName } = await getBrandSettings();
-  const subject = fullName ? `${fullName}, confirma el cambio de correo` : "Confirma el cambio de correo";
+  const first = fullName ? String(fullName).split(" ")[0] : null;
+  const subject = pickVariant(code, first
+    ? [`${first}, confirma el cambio de correo`, `${first}, valida tu nuevo correo`]
+    : ["Confirma el cambio de correo", "Valida tu nuevo correo"]);
   const html = await emailShell({
     preview: "Usa este código para confirmar que quieres cambiar el correo de tu cuenta",
     title: "Confirmar cambio de correo",

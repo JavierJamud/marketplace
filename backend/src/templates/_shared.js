@@ -33,7 +33,7 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 //      ${FRONTEND_URL}/email-logo.png (frontend/public/email-logo.png,
 //      rasterizado una vez desde favicon.svg — nunca en cada envío).
 //   3) si tampoco, el nombre del sitio como texto. Nunca una imagen rota.
-const LOGO_DISPLAY_SIZE = 40;
+const LOGO_DISPLAY_SIZE = 44;
 
 // Ancho/alto de un PNG leyendo su cabecera IHDR (bytes 16-23) — sin
 // dependencias ni async. null si el archivo no está o no es PNG.
@@ -55,7 +55,7 @@ function fitLogoSize(size) {
 }
 
 const BRAND_LOGO_SIZE = fitLogoSize(
-  readPngSize(join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "logo.png"))
+  readPngSize(join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "logo-color.png"))
 );
 
 // ¿Esta URL la puede descargar un cliente de correo? Absoluta, sin data:,
@@ -80,8 +80,12 @@ export function isEmailSafeImageUrl(url) {
 
 // Logo de la plataforma para el header: { src, width, height } o null
 // (null = header solo con texto).
-function resolvePlatformLogo(brandLogoUrl) {
-  if (isEmailSafeImageUrl(brandLogoUrl)) return { src: brandLogoUrl, ...BRAND_LOGO_SIZE };
+// Bloque 284 (pedido explícito — "usa el logo a color, el blanco casi no se ve"): el
+// correo siempre usa el logo A COLOR (backend/src/assets/logo-color.png, copia del de
+// frontend/src/assets/images), servido en ${BACKEND_URL}/brand/logo-color.png.
+function resolvePlatformLogo() {
+  const colorLogo = `${trimSlash(env.backendUrl)}/brand/logo-color.png`;
+  if (isEmailSafeImageUrl(colorLogo)) return { src: colorLogo, ...BRAND_LOGO_SIZE };
   const fallback = `${trimSlash(env.frontendUrl)}/email-logo.png`;
   if (isEmailSafeImageUrl(fallback)) return { src: fallback, width: LOGO_DISPLAY_SIZE, height: LOGO_DISPLAY_SIZE };
   return null;
@@ -112,6 +116,15 @@ function trimSlash(url) {
 // un webfont sin fallback — un stack de fuentes de sistema se ve igual en
 // todos los clientes desde el primer render, sin parpadeo.
 const FONT_STACK = "Helvetica, Arial, sans-serif";
+
+// Bloque 284 (pedido explícito — "asuntos variados y personalizados para que no parezca
+// una campaña ni caiga en spam"): elige un asunto entre varias redacciones según una
+// semilla (el código, el pedido...), así dos correos seguidos no llevan el mismo asunto.
+export function pickVariant(seed, options) {
+  let h = 0;
+  for (const ch of String(seed ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return options[h % options.length];
+}
 
 export function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -277,48 +290,20 @@ function headerRowHtml(left, rightPill) {
     </table>`;
 }
 
-// Bloque 61 (rediseño Bloque 203 — pedido explícito: "los íconos del footer
-// deben mostrarse... con la librería de ícono actual que tenemos"): mismos
-// glyphs que lucide-react (la librería que usa toda la app — ver
-// package.json), tomados directo de sus paths (ver
-// node_modules/lucide-react/dist/esm/icons/{message-circle,instagram,
-// facebook,globe}.js) para no depender de un paquete nuevo en el backend.
-// Sigue siendo bulletproof (cero imágenes externas, cero URL que pueda
-// romperse) — SVG inline en vez de <img>, con bgcolor como ATRIBUTO html
-// (no solo CSS) para que el círculo de color se vea incluso en clientes que
-// no rendericen SVG (Outlook de escritorio clásico, el único caso real) —
-// ahí queda un círculo de color sin el glyph adentro, nunca un ícono roto.
-// "Sitio web" siempre se muestra (env.frontendUrl); WhatsApp/Instagram/
-// Facebook solo si el admin cargó el link real en "Marca de la plataforma"
-// — nunca un placeholder.
-const SOCIAL_ICON_DEFS = {
-  whatsapp: {
-    bg: "#25D366",
-    svg: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
-  },
-  instagram: {
-    bg: "#C13584",
-    svg: '<rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/>',
-  },
-  facebook: {
-    bg: "#1877F2",
-    svg: '<path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>',
-  },
-  web: {
-    bg: "#0e1a28",
-    svg: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
-  },
-};
+// Bloque 284 (pedido explícito — "los iconos del pie solo el icono, sin fondo de color, un
+// solo color de trazo, con la librería de iconos actual"): los glifos son los de
+// lucide-react (message-circle, instagram, facebook, globe), dibujados con trazo fino de
+// UN color (#5b6470) y guardados como PNG en backend/src/assets/social. Van como <img> y
+// no como SVG en línea porque Gmail y Outlook no muestran SVG. "Sitio web" siempre
+// aparece; WhatsApp/Instagram/Facebook solo si el admin cargó el link real.
+const SOCIAL_ICON_LABELS = { whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook", web: "Sitio web" };
 
 function socialIconCellHtml(key, href) {
-  const { bg, svg } = SOCIAL_ICON_DEFS[key];
-  return `<td style="padding:0 5px;">
-    <a href="${href}" style="text-decoration:none;">
-      <table role="presentation" width="34" height="34" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="width:34px;height:34px;border-radius:50%;background:${bg};">
-        <tr><td align="center" valign="middle" style="width:34px;height:34px;border-radius:50%;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</svg>
-        </td></tr>
-      </table>
+  const src = `${trimSlash(env.backendUrl)}/brand/social/${key}.png`;
+  const label = SOCIAL_ICON_LABELS[key];
+  return `<td style="padding:0 7px;">
+    <a href="${href}" style="text-decoration:none;border:0;" title="${label}">
+      <img src="${src}" width="24" height="24" alt="${label}" border="0" style="display:block;width:24px;height:24px;border:0;outline:none;" />
     </a>
   </td>`;
 }
@@ -333,7 +318,7 @@ function socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl }) {
     .filter(Boolean)
     .join("");
 
-  return `<table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr>${cells}</tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>${cells}</tr></table>`;
 }
 
 // Envoltorio completo — header de marca + tarjeta blanca + footer, TODO
@@ -360,10 +345,10 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
   // Bloque 49: nombre de la plataforma, editable desde "Marca de la
   // plataforma" en el admin. El logo sale de resolvePlatformLogo() (arriba):
   // siempre una URL https pública a un PNG, o texto si no hay ninguna.
-  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
+  const { siteName, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
   const siteUrl = trimSlash(env.frontendUrl);
   const siteHost = siteUrl.replace(/^https?:\/\//, "");
-  const platformLogo = resolvePlatformLogo(logoUrl);
+  const platformLogo = resolvePlatformLogo();
 
   let headerHtml;
   if (storeLogoUrl) {
@@ -380,6 +365,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
         imgWidth: platformLogo.width,
         imgHeight: platformLogo.height,
         name: siteName,
+        subtitle: "Marketplace multivendedor de Cuba",
         href: siteUrl,
       })
     );
@@ -411,6 +397,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
           <mj-text padding="0">${headerHtml}</mj-text>
         </mj-column>
       </mj-section>
+      <mj-section background-color="#fe9800" padding="0"><mj-column><mj-spacer height="3px" /></mj-column></mj-section>
       <mj-section background-color="#ffffff" padding="30px 26px 6px">
         <mj-column>
           ${badgeMjml}
@@ -418,18 +405,31 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
           ${bodyMjml}
         </mj-column>
       </mj-section>
-      <mj-section background-color="#ffffff" padding="10px 26px 26px">
+      <mj-section background-color="#ffffff" padding="6px 26px 0">
         <mj-column>
-          <mj-divider border-color="#eae7e9" border-width="1px" padding="0 0 18px" />
-          <mj-text padding="0 0 16px">${socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl })}</mj-text>
-          <mj-text font-size="11.5px" color="#75777c" line-height="17px" padding="0">
-            Enviado por <strong style="color:#44474c;">${storeName}</strong> a través de ${siteName} · Marketplace multivendedor de Cuba.<br/>
-            ${footerNote ?? "Este es un correo automático — si tienes dudas, responde directo a la tienda por WhatsApp desde tu pedido."}
+          <mj-divider border-color="#eae7e9" border-width="1px" padding="10px 0 0" />
+        </mj-column>
+      </mj-section>
+      <mj-section background-color="#f7f5f6" padding="22px 26px 8px">
+        <mj-column width="55%" vertical-align="top">
+          <mj-text font-size="14px" font-weight="800" color="#1b1b1d" line-height="18px" padding="0 0 4px"><a href="${siteUrl}" style="color:#1b1b1d;text-decoration:none;">${siteName}</a></mj-text>
+          <mj-text font-size="12px" color="#75777c" line-height="18px" padding="0 0 12px">Marketplace multivendedor de Cuba</mj-text>
+          <mj-text padding="0 0 14px" align="left">${socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl })}</mj-text>
+        </mj-column>
+        <mj-column width="45%" vertical-align="top">
+          <mj-text font-size="12.5px" color="#75777c" line-height="22px" padding="0 0 14px">
+            <a href="${siteUrl}" style="color:#44474c;text-decoration:none;font-weight:700;">${siteHost}</a><br/>
+            <a href="${siteUrl}/terminos" style="color:#75777c;text-decoration:none;">Términos y condiciones</a><br/>
+            <a href="${siteUrl}/privacidad" style="color:#75777c;text-decoration:none;">Política de privacidad</a>
           </mj-text>
-          <mj-text font-size="10.5px" color="#9a9da1" line-height="15px" align="center" padding="14px 0 0">
-            <a href="${siteUrl}" style="color:#44474c;font-weight:700;text-decoration:none;">${siteName}</a> · <a href="${siteUrl}" style="color:#75777c;">${siteHost}</a><br/>
-            <a href="${siteUrl}/terminos" style="color:#75777c;">Términos y condiciones</a> ·
-            <a href="${siteUrl}/privacidad" style="color:#75777c;">Política de privacidad</a>
+        </mj-column>
+      </mj-section>
+      <mj-section background-color="#f7f5f6" padding="0 26px 24px">
+        <mj-column>
+          <mj-text font-size="11px" color="#8a8d92" line-height="16px" padding="0">
+            Enviado por <strong style="color:#5b6470;">${storeName}</strong> a través de ${siteName}.<br/>
+            ${footerNote ?? "Este es un correo automático: si tienes dudas, responde directo a la tienda por WhatsApp desde tu pedido."}<br/>
+            © ${new Date().getFullYear()} ${siteName}. Todos los derechos reservados.
           </mj-text>
         </mj-column>
       </mj-section>

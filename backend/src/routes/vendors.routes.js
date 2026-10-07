@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { streamable } from "../lib/ndjsonStream.js";
 import * as vendorsController from "../controllers/vendors.controller.js";
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as chatController from "../controllers/chat.controller.js";
@@ -107,7 +108,7 @@ router.post("/:id/engagement", authenticate, requireRole("CUSTOMER"), vendorsCon
 // antes de "/:slug" para que Express no matchee ":vendorId" como si fuera
 // un slug de tienda.
 router.get("/:vendorId/chat", chatController.getChatHistory);
-router.post("/:vendorId/chat", chatRateLimit, chatController.postChatMessage);
+router.post("/:vendorId/chat", chatRateLimit, streamable(chatController.postChatMessage));
 router.get("/:slug", vendorsController.getVendorBySlug);
 
 export default router;

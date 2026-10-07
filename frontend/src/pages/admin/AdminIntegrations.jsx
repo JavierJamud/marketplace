@@ -275,7 +275,7 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
   );
 }
 
-export default function AdminIntegrations() {
+export default function AdminIntegrations({ embedded = false }) {
   const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
 
@@ -347,11 +347,15 @@ export default function AdminIntegrations() {
 
   return (
     <div className="max-w-[820px]">
+      {!embedded && (
+        <>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Plug} tone="teal" />
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Integraciones</h1>
       </div>
       <p className="mb-2 text-[13.5px] text-outline">Configura las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
+        </>
+      )}
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
         Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (principal), luego
         NVIDIA NIM y por último Gemini. Cada una se usa solo mientras le quede cupo en su plan gratis: cerca del límite

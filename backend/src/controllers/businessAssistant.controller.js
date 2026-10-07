@@ -97,12 +97,17 @@ function makeHandlers({ scope, resolveOwner }) {
       res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders?.();
       const send = (event) => res.write(`${JSON.stringify(event)}\n`);
+      // Bloque 284: una línea en blanco cada 10 s mantiene viva la conexión (Cloudflare
+      // corta una respuesta que pasa ~100 s sin enviar nada); el cliente la ignora.
+      const heartbeat = setInterval(() => res.write("\n"), 10_000);
       try {
         const result = await run((progress) => send({ type: "progress", ...progress }));
         send({ type: "done", ...result, ...after });
       } catch (err) {
         if (!(err instanceof AppError)) console.error("[businessAssistant] error:", err);
         send({ type: "error", status: err?.statusCode ?? 500, message: err instanceof AppError ? err.message : "No se pudo obtener la respuesta. Prueba de nuevo." });
+      } finally {
+        clearInterval(heartbeat);
       }
       res.end();
     },

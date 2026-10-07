@@ -467,7 +467,7 @@ function OfferModal({ offer, onClose }) {
 // antes hardcodeado en offers.controller.js, ahora editable acá. Se ve
 // reflejado de inmediato en VendorOffers.jsx (mismo GET /offers/me/list) y
 // en VendorVerification.jsx (plan/suscripción, mismo GET /settings).
-function OfferPolicyCard() {
+export function OfferPolicyCard() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -553,7 +553,7 @@ function OfferPolicyCard() {
 // con "Ofertas" — convive acá igual porque el dueño pidió explícitamente
 // reusar esta sección en vez de inventar una página nueva para 4 números.
 // Se refleja de inmediato en CustomerPanel.jsx (mismo GET /settings).
-function ListingPolicyCard() {
+export function ListingPolicyCard() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -1265,9 +1265,6 @@ export default function AdminOffers() {
             del Home nunca se queda vacía por vencimiento. Si en algún momento no hay ninguna activa (ni del admin ni de
             vendedores), la sección se oculta sola del Home.
           </div>
-
-          <OfferPolicyCard />
-          <ListingPolicyCard />
 
           <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-1.5">

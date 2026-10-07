@@ -11,6 +11,7 @@ import { isChatbotHealthy, getModelHealthRows, getModelHealth, upsertModelHealth
 import { getEffectiveActiveModels } from "./aiModels.js";
 import { AI_PRIORITY, getQuotaStatus, isWithinFreeQuota } from "./aiQuota.js";
 import { isFreeTierModel } from "./aiModelCatalog.js";
+import { streamFromProvider, createFinalTextStreamer, parseChatJson, buildChatMessages } from "./aiStream.js";
 
 // Bloque 83 (pedido explícito, con medición real): benchmark inicial en
 // vivo contra los 3 proveedores reales de esta cuenta — Groq ~400-800ms,
@@ -32,9 +33,18 @@ import { isFreeTierModel } from "./aiModelCatalog.js";
 const EMA_ALPHA = 0.3;
 const latencyByProvider = new Map();
 
-function recordLatency(providerName, ms) {
+// Bloque 284: velocidad real de cada modelo (media móvil de las respuestas reales),
+// para elegir siempre el más rápido de ese momento dentro de cada API.
+const liveModelLatency = new Map();
+
+function recordLatency(providerName, ms, model) {
   const prev = latencyByProvider.get(providerName);
   latencyByProvider.set(providerName, prev == null ? ms : prev + EMA_ALPHA * (ms - prev));
+  if (model) {
+    const key = `${providerName}::${model}`;
+    const old = liveModelLatency.get(key);
+    liveModelLatency.set(key, old == null ? ms : old + EMA_ALPHA * (ms - old));
+  }
 }
 
 // Bloque 280: la latencia ya no decide el orden (ahora es fijo: Groq → NVIDIA →
@@ -65,6 +75,12 @@ export function getMeasuredLatencies() {
 async function getActiveProviders() {
   const healthRows = await getModelHealthRows();
   const isDown = (name, model) => healthRows.some((h) => h.provider === name && h.model === model && h.status === "down");
+  const latencyOf = (name, model) => {
+    const live = liveModelLatency.get(`${name}::${model}`);
+    if (live != null) return live;
+    const row = healthRows.find((h) => h.provider === name && h.model === model);
+    return row?.lastLatencyMs ?? Number.MAX_SAFE_INTEGER;
+  };
 
   // Bloque 280 (pedido explícito): el orden ya no es por velocidad sino FIJO —
   // Groq es la principal, después NVIDIA y por último Gemini. Dentro de cada
@@ -80,7 +96,10 @@ async function getActiveProviders() {
     withQuota
       // Bloque 281: un modelo de pago nunca entra en la cadena, aunque esté configurado.
       .filter((m) => m.quota.available && isFreeTierModel(name, m.config.model))
-      .sort((a, b) => Math.round(a.quota.usageRatio * 10) - Math.round(b.quota.usageRatio * 10) || a.index - b.index)
+      // Bloque 284 (pedido explícito — "siempre el modelo más rápido de ese momento"):
+      // a igual consumo gana el que respondió más rápido en la última revisión (la
+      // de las 3 de la mañana y las respuestas reales); sin medida todavía, el orden del admin.
+      .sort((a, b) => Math.round(a.quota.usageRatio * 10) - Math.round(b.quota.usageRatio * 10) || latencyOf(name, a.config.model) - latencyOf(name, b.config.model) || a.index - b.index)
       .forEach((m) => pairs.push({ name, apiKey, model: m.config.model }));
   }
   // Bloque 260: un proveedor que acaba de responder "clave inválida" o "cuota
@@ -175,7 +194,7 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
     const start = Date.now();
     try {
       const result = await callFn(provider);
-      recordLatency(provider.name, Date.now() - start);
+      recordLatency(provider.name, Date.now() - start, provider.model);
       clearProviderCooldown(provider.name);
       void noteLiveSuccess(provider).catch(() => {});
       logProviderSuccess(provider);
@@ -248,6 +267,40 @@ export async function generateRawText(prompt) {
   }
 }
 
+// Bloque 284: igual que generateRawText pero escribiendo en vivo. `onDelta(trozo)`
+// recibe el texto según llega; si un modelo falla a mitad de camino y se pasa al
+// siguiente, `onReset()` avisa que lo escrito hasta ahí se descarta.
+export async function streamRawText(prompt, { onDelta, onReset } = {}) {
+  const providers = await getActiveProviders();
+  if (!providers.length) throw new AppError("El asistente no está disponible en este momento: no hay ninguna IA activa.", 503);
+  try {
+    return await callWithFallbackChain(
+      providers,
+      async (provider) => {
+        let emitted = false;
+        try {
+          return await streamFromProvider({
+            provider: provider.name,
+            apiKey: provider.apiKey,
+            model: provider.model,
+            prompt,
+            onDelta: (piece) => {
+              emitted = true;
+              onDelta?.(piece);
+            },
+          });
+        } catch (err) {
+          if (emitted) onReset?.();
+          throw err;
+        }
+      },
+      "El asistente no pudo responder."
+    );
+  } catch (err) {
+    throw new AppError("El asistente no está disponible en este momento porque la IA no respondió. Prueba de nuevo en unos minutos.", 503, { detail: err?.details?.detail });
+  }
+}
+
 // Bloque 52 (bug real reportado en vivo): último recurso de la barra de
 // búsqueda cuando ni unaccent()+ILIKE (tildes/mayúsculas) encontró nada —
 // probablemente un typo real (ver search.controller.js). A diferencia de
@@ -289,12 +342,41 @@ export async function correctSearchQuery(rawQuery) {
 // el siguiente proveedor activo en la cadena antes de mostrarle error al
 // cliente. Regla clave (Bloque 43): el cliente nunca se queda sin
 // respuesta si al menos un proveedor activo funciona.
-export async function chatWithStoreAssistant({ systemParts, history, message }) {
+// Bloque 284 (pedido explícito — "el asistente debe escribir en tiempo real"): con
+// `onTextDelta` el texto de la respuesta sale por trozos mientras el modelo lo genera
+// (Groq y NVIDIA por streaming real). Gemini, que es el último recurso, responde de una
+// vez y su texto se entrega entero (la pantalla lo escribe con animación). `onReset`
+// avisa que lo escrito se descarta porque se pasó a otro modelo.
+export async function chatWithStoreAssistant({ systemParts, history, message, onTextDelta, onReset }) {
   const providers = await getActiveProviders();
   if (!providers.length) throw new AppError("El chat con esta tienda no está disponible en este momento.", 503);
+  const streamOne = async (provider) => {
+    if (provider.name === "gemini") {
+      const result = await callChat(provider, { systemParts, history, message });
+      onTextDelta?.(result.text);
+      return result;
+    }
+    const streamer = createFinalTextStreamer((piece) => onTextDelta(piece), "text");
+    try {
+      const raw = await streamFromProvider({
+        provider: provider.name,
+        apiKey: provider.apiKey,
+        model: provider.model,
+        messages: buildChatMessages({ systemParts, history, message }),
+        json: true,
+        maxTokens: provider.name === "nvidia" ? 800 : 700,
+        temperature: 0.2,
+        onDelta: (piece) => streamer.push(piece),
+      });
+      return parseChatJson(raw);
+    } catch (err) {
+      if (streamer.started) onReset?.();
+      throw err;
+    }
+  };
   return callWithFallbackChain(
     providers,
-    (provider) => callChat(provider, { systemParts, history, message }),
+    onTextDelta ? streamOne : (provider) => callChat(provider, { systemParts, history, message }),
     "El asistente no pudo responder — prueba de nuevo en un momento."
   );
 }

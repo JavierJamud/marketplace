@@ -26,7 +26,7 @@ const REPORT_STATUS_META = {
 // vendedores comenten"): mismo patrón que OfferPolicyCard en AdminOffers.jsx
 // — una tarjeta de configuración embebida arriba del listado, no una
 // sección aparte del menú (esta pantalla ya es "todo lo de comentarios").
-function ReviewPolicyCard() {
+export function ReviewPolicyCard() {
   const queryClient = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
@@ -200,8 +200,6 @@ export default function AdminReviews() {
         puedes volver a mostrarlo); eliminar es definitivo. Los reportados por un vendedor o un cliente se ocultan solos apenas se
         reportan — resuélvelos abajo antes de que el comentario vuelva a mostrarse.
       </p>
-
-      <ReviewPolicyCard />
 
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
       {!isLoading && !reviews?.length && <p className="text-body-md text-on-surface-variant">Todavía no hay comentarios en el sitio.</p>}

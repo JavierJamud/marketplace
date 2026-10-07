@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, codeBlock, paragraph, smallNote } from "./_shared.js";
+import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 59: mismo patrón visual que twoFactorCode.js/passwordReset.js —
@@ -8,7 +8,10 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 // porque acá todavía no hay User — ver PendingRegistration en schema.prisma).
 export async function registrationCodeEmail({ fullName, code }) {
   const { siteName } = await getBrandSettings();
-  const subject = fullName ? `${fullName}, confirma tu correo en ${siteName}` : `Confirma tu correo en ${siteName}`;
+  const first = fullName ? String(fullName).split(" ")[0] : null;
+  const subject = pickVariant(code, first
+    ? [`${first}, confirma tu correo en ${siteName}`, `Bienvenido a ${siteName}, ${first}`, `${first}, termina tu registro en ${siteName}`]
+    : [`Confirma tu correo en ${siteName}`, `Bienvenido a ${siteName}`, `Termina tu registro en ${siteName}`]);
   const html = await emailShell({
     preview: "Usa este código para confirmar tu correo y terminar de crear tu cuenta",
     title: "Confirma tu correo",

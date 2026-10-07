@@ -7,7 +7,9 @@ import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Tabs } from "../../components/ui/Tabs.jsx";
-import { X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode, Clock } from "lucide-react";
+import { SecurityCard } from "./VendorProfile.jsx";
+import { CashCloseSettingsPanel } from "./VendorUsers.jsx";
+import { Users, X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode, Clock } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
@@ -255,6 +257,8 @@ const SETTINGS_TABS = [
   { id: "general", label: "General", icon: Wallet },
   { id: "cobertura", label: "Cobertura y visibilidad", icon: Globe2 },
   { id: "facturacion", label: "Facturación y otros", icon: FileText },
+  { id: "seguridad", label: "Seguridad", icon: ShieldCheck },
+  { id: "equipo", label: "Equipo y caja", icon: Users },
 ];
 
 export default function VendorSettings() {
@@ -597,12 +601,20 @@ export default function VendorSettings() {
             </p>
           </div>
         </div>
-        <Button onClick={handleSaveAll} disabled={saveProfile.isPending || saveSchedule.isPending} className="rounded-xl font-bold">
+        <Button onClick={handleSaveAll} disabled={saveProfile.isPending || saveSchedule.isPending} className={`rounded-xl font-bold ${activeTab === "seguridad" || activeTab === "equipo" ? "hidden" : ""}`}>
           {saveProfile.isPending || saveSchedule.isPending ? "Guardando..." : "Guardar cambios"}
         </Button>
       </div>
 
       <Tabs tabs={SETTINGS_TABS} value={activeTab} onChange={setActiveTab} className="mb-5" />
+
+      {activeTab === "seguridad" && <SecurityCard />}
+      {activeTab === "equipo" && (
+        <div className="max-w-[640px]">
+          <p className="mb-3 text-[12.5px] text-outline">Cuándo cuadran caja las personas de tu equipo. Los usuarios y sus ventas se manejan en Usuarios.</p>
+          <CashCloseSettingsPanel />
+        </div>
+      )}
 
       {activeTab === "general" && (
         <>

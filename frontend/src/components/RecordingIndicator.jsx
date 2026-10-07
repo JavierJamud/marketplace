@@ -7,6 +7,21 @@ import { VoiceWaveform } from "./VoiceWaveform.jsx";
 // indicador común a todos los chats con voz. Punto rojo que parpadea, la palabra "Grabando", las
 // ondas reales del micrófono (VoiceWaveform) y el tiempo transcurrido. Con "reducir movimiento"
 // el punto no parpadea, pero las ondas siguen porque son información, no adorno.
+// Al detener la grabación: barras que laten mientras se pasa la voz a texto, para que se vea
+// que el audio sí se recibió. Con "reducir movimiento" quedan quietas.
+export function TranscribingIndicator({ className = "" }) {
+  return (
+    <div className={`flex min-h-10 min-w-0 flex-1 items-center gap-2.5 rounded-full border border-tertiary-accent/40 bg-tertiary-accent/5 px-4 ${className}`} role="status" aria-live="polite">
+      <span className="flex h-4 items-end gap-[3px]" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span key={i} className="w-[3px] origin-bottom rounded-full bg-tertiary-accent motion-safe:animate-pulse" style={{ height: `${6 + ((i * 5) % 10)}px`, animationDelay: `${i * 120}ms` }} />
+        ))}
+      </span>
+      <span className="text-[12.5px] font-semibold text-tertiary-accent motion-safe:animate-pulse">Pasando tu voz a texto...</span>
+    </div>
+  );
+}
+
 export function RecordingIndicator({ stream, onCancel, className = "" }) {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {

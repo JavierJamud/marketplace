@@ -62,9 +62,16 @@ async function createSession(user, browserId) {
 // se puede volver a leer después, solo re-validar su hash.
 async function issueTrustedDevice(userId) {
   const deviceToken = randomBytes(32).toString("hex");
-  await prisma.trustedDevice.create({
-    data: { userId, tokenHash: hashToken(deviceToken), expiresAt: new Date(Date.now() + TRUSTED_DEVICE_TTL_MS) },
-  });
+  // Bloque 284 (pedido explícito — "solo se guarde la autenticación para UN dispositivo"):
+  // la cuenta confía en un único dispositivo. Al autenticarse en otro (con código o
+  // 2FA), el anterior pierde la confianza y volverá a pedir verificación. Borrar y crear
+  // van juntos en una transacción para no dejar dos dispositivos si hay dos logins a la vez.
+  await prisma.$transaction([
+    prisma.trustedDevice.deleteMany({ where: { userId } }),
+    prisma.trustedDevice.create({
+      data: { userId, tokenHash: hashToken(deviceToken), expiresAt: new Date(Date.now() + TRUSTED_DEVICE_TTL_MS) },
+    }),
+  ]);
   return deviceToken;
 }
 

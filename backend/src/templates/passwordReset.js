@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, codeBlock, paragraph, smallNote } from "./_shared.js";
+import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // user: { fullName, email }, code: "123456"
@@ -7,7 +7,10 @@ export async function passwordResetEmail({ fullName, code }) {
   const { siteName } = await getBrandSettings();
   // Pedido explícito (Bloque 49): el asunto siempre lleva algo que lo
   // distinga (acá, el nombre) para que no se vea idéntico en cada envío.
-  const subject = fullName ? `${fullName}, tu código para restablecer la contraseña` : "Tu código para restablecer la contraseña";
+  const first = fullName ? String(fullName).split(" ")[0] : null;
+  const subject = pickVariant(code, first
+    ? [`${first}, tu código para restablecer la contraseña`, `Restablece tu contraseña, ${first}`, `${first}, cambia tu contraseña con este código`]
+    : ["Tu código para restablecer la contraseña", "Restablece tu contraseña", "Cambia tu contraseña con este código"]);
   const html = await emailShell({
     preview: "Usa este código para restablecer tu contraseña — vence en 15 minutos",
     title: "Restablecer contraseña",

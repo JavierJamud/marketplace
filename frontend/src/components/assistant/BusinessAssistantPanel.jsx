@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, Square, Trash2, X, ChevronLeft } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
-import { RecordingIndicator } from "../RecordingIndicator.jsx";
+import { RecordingIndicator, TranscribingIndicator } from "../RecordingIndicator.jsx";
+import { revealText, appendWord } from "../../lib/revealText.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
 // para los vendedores): una sola pantalla de chat para los dos paneles. El
@@ -423,7 +424,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
 
   useEffect(() => {
     if (isOpen) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, pending?.steps.length, error, showHistory, isOpen]);
+  }, [messages.length, pending?.steps.length, pending?.streamed, error, showHistory, isOpen]);
 
   async function submit(message) {
     const value = message.trim();
@@ -434,6 +435,15 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
     setPending({ content: value, steps: ["Pensando"], startedAt });
     try {
       const result = await askStreaming(endpoint, { message: value, conversationId: activeIdRef.current ?? undefined }, (event) => {
+        // Bloque 284: el texto de la respuesta llega por trozos y se escribe en vivo.
+        if (event.phase === "delta") {
+          setPending((p) => (p ? { ...p, streamed: (p.streamed ?? "") + event.text } : p));
+          return;
+        }
+        if (event.phase === "reset") {
+          setPending((p) => (p ? { ...p, streamed: "" } : p));
+          return;
+        }
         const label = stepLabel(event);
         setPending((p) => (p && p.steps[p.steps.length - 1] !== label ? { ...p, steps: [...p.steps, label] } : p));
       });
@@ -458,8 +468,12 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
   }
 
   async function sendVoice() {
+    // Pedido explícito: el audio no se envía solo; el texto aparece en la caja para revisarlo.
     const spoken = await voice.stop();
-    if (spoken) await submit(spoken);
+    if (spoken) {
+      await revealText(spoken, (word, first) => setText((prev) => appendWord(prev, word, first)));
+      document.getElementById("assistant-input")?.focus();
+    }
   }
 
   async function openConversation(id) {
@@ -627,7 +641,16 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
             {shown.map((m, i) => (
               <Message key={m.id ?? `pending-${i}`} m={m} onNavigate={onNavigate} />
             ))}
-            {pending && <ThinkingStatus steps={pending.steps} seconds={seconds} />}
+            {pending && pending.streamed ? (
+              <div className="flex justify-start" aria-live="polite">
+                <div className="w-full max-w-[88%] rounded-2xl rounded-bl-md bg-surface-container px-4 py-3 text-[14px] leading-[21px] text-on-surface lg:max-w-[82%]">
+                  <AssistantText text={pending.streamed} />
+                  <span className="ml-0.5 inline-block h-[15px] w-[2px] translate-y-[3px] bg-on-surface-variant motion-safe:animate-pulse" aria-hidden="true" />
+                </div>
+              </div>
+            ) : (
+              pending && <ThinkingStatus steps={pending.steps} seconds={seconds} />
+            )}
             {error && (
               <div className="rounded-xl border border-error/30 bg-error/5 px-4 py-3 text-[13.5px] text-error" role="alert">
                 {error}
@@ -672,9 +695,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
               voice.state === "recording" ? (
                 <RecordingIndicator stream={voice.stream} onCancel={voice.cancel} className="min-h-11" />
               ) : (
-                <div className="flex min-h-11 min-w-0 flex-1 items-center rounded-xl border border-outline-variant px-3.5 text-[13.5px] text-on-surface-variant" role="status" aria-live="polite">
-                  Pasando tu voz a texto...
-                </div>
+                <TranscribingIndicator className="min-h-11" />
               )
             ) : (
             <textarea
@@ -698,8 +719,8 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
                 type="button"
                 onClick={voice.state === "recording" ? sendVoice : voice.start}
                 disabled={busy || voice.state === "transcribing"}
-                aria-label={voice.state === "recording" ? "Detener y enviar el mensaje de voz" : "Grabar un mensaje de voz"}
-                title={voice.state === "recording" ? "Detener y enviar" : "Grabar un mensaje de voz"}
+                aria-label={voice.state === "recording" ? "Detener y pasar el mensaje de voz a texto" : "Grabar un mensaje de voz"}
+                title={voice.state === "recording" ? "Detener y pasar a texto" : "Grabar un mensaje de voz"}
                 className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent ${
                   voice.state === "recording" ? "bg-error text-white" : "bg-surface-container text-on-surface hover:bg-surface-container-high"
                 }`}

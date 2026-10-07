@@ -980,6 +980,14 @@ const WEEKDAYS = [
   { v: 7, l: "Domingo" },
 ];
 
+export function CashCloseSettingsPanel() {
+  const { data: settings } = useQuery({
+    queryKey: ["staff-sales-settings"],
+    queryFn: async () => (await api.get("/vendor-staff-sales/settings")).data,
+  });
+  return settings ? <CashCloseSettingsForm settings={settings} /> : <p className="text-body-md text-on-surface-variant">Cargando configuración...</p>;
+}
+
 function CashCloseSettingsForm({ settings }) {
   const [frequency, setFrequency] = useState(settings.cashCloseFrequency ?? "");
   const [dayOfWeek, setDayOfWeek] = useState(settings.cashCloseDayOfWeek ?? 1);
@@ -1330,12 +1338,6 @@ function ManualSalesOversight({ staffList }) {
     refetchInterval: 15000,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ["staff-sales-settings"],
-    queryFn: async () => (await api.get("/vendor-staff-sales/settings")).data,
-    refetchInterval: 15000,
-  });
-
   return (
     <div className="mt-8 flex flex-col gap-6 border-t border-surface-container-high pt-8">
       <div>
@@ -1400,8 +1402,6 @@ function ManualSalesOversight({ staffList }) {
         <h2 className="mb-3 text-[15px] font-bold text-on-surface">Cumplimiento de cuadre de caja</h2>
         <CashCloseCompliance status={cashCloseStatus} />
       </div>
-
-      {settings ? <CashCloseSettingsForm settings={settings} /> : <p className="text-body-md text-on-surface-variant">Cargando configuración...</p>}
 
       <SalesLogSection staffList={staffList} />
     </div>
