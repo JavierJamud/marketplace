@@ -236,3 +236,52 @@ export async function customerDetail({ vendorId = null, search }) {
     ),
   };
 }
+
+// Bloque 277 (pedido explícito — "que el chat de asistencia del administrador pueda consultar los
+// datos del responsable de la tienda"): resumen de la ficha completa del responsable (la misma que
+// ve el admin en Tiendas). Solo ámbito admin. Las fotos no se leen: se ven con el enlace.
+export async function representativeSummary(search) {
+  const { getRepresentativeFile } = await import("../services/representativeFile.service.js");
+  const vendors = await prisma.vendor.findMany({
+    where: { deletedAt: null, OR: [{ companyName: { contains: search, mode: "insensitive" } }, { slug: { contains: search, mode: "insensitive" } }, { ownerName: { contains: search, mode: "insensitive" } }, { user: { fullName: { contains: search, mode: "insensitive" } } }] },
+    select: { id: true, companyName: true },
+    take: 3,
+  });
+  if (vendors.length === 0) return { error: "No encontré ninguna tienda o responsable con ese nombre." };
+  const file = await getRepresentativeFile(vendors[0].id);
+  const a = file.archives.find((x) => x.id === file.currentArchiveId) ?? file.archives[0] ?? null;
+  const v = file.vendor;
+  return {
+    tienda: v.companyName,
+    otrasCoincidencias: vendors.slice(1).map((x) => x.companyName),
+    responsable: a
+      ? {
+          nombreCompleto: a.fullName ?? a.ownerName,
+          responsableDeLaTienda: a.ownerName,
+          tipoDeDocumento: a.idDocumentType,
+          numeroDeDocumento: a.idNumber,
+          idDelPropietario: a.ownerIdNumber,
+          idFiscalDeLaEmpresa: a.companyTaxId,
+          direccionDeLaEmpresa: a.companyAddress,
+          pais: a.registrationCountryName,
+          provincia: a.legalProvinceName,
+          municipio: a.legalMunicipalityName,
+          enviadoEl: day(a.submittedAt),
+          revisadoEl: day(a.reviewedAt),
+          revisadoPor: a.reviewedBy?.fullName ?? null,
+          verificadoEl: day(a.verifiedAt),
+          rechazadoEl: day(a.rejectedAt),
+          fotosSubidas: { fotoDelResponsable: !!a.selfieUrl, documentoFrente: !!a.idPhotoFrontUrl, documentoReverso: !!a.idPhotoBackUrl, videoDeVida: !!a.selfieVideoUrl },
+          notasDelArchivo: clip(a.notes, 300) || null,
+        }
+      : { aviso: "Esta tienda todavía no envió documentos de verificación." },
+    cuentaDelDueno: { nombre: v.user?.fullName, correo: v.user?.email, telefono: v.user?.phone, ultimoAcceso: day(v.user?.lastLoginAt), cuentaCreadaEl: day(v.user?.createdAt) },
+    estadoDeLaTienda: { plan: v.planType, verificacion: v.verificationStatus, estado: v.isBlocked ? "bloqueada" : v.status === "SUSPENDED" ? "suspendida" : "activa", motivoDeBloqueo: clip(v.blockReason, 160) || null, motivoDeSuspension: clip(v.suspensionReason, 160) || null, enEliminacionDesde: day(v.adminDeletionRequestedAt) },
+    notasDeLaRevision: clip(file.requestNotes, 300) || null,
+    incumplimientosYReportes: { total: file.reports.length, ultimos: file.reports.slice(0, 5).map((r) => ({ fecha: day(r.createdAt), estado: r.status, motivo: clip(r.message, 140), resolucion: clip(r.resolutionNote, 140) || null })) },
+    historialDeEstados: file.statusLog.slice(0, 5).map((s) => ({ fecha: day(s.at), de: s.fromStatus, a: s.toStatus, motivo: clip(s.reason, 120) || null })),
+    historialDeVerificacion: file.verificationLog.slice(0, 6).map((s) => ({ fecha: day(s.at), de: s.fromStatus, a: s.toStatus, motivo: clip(s.reason, 120) || null })),
+    solicitudesDeCambioDeDatos: file.changeRequests.slice(0, 4).map((c) => ({ fecha: day(c.createdAt), estado: c.status, motivo: clip(c.reason, 120), notaDelAdmin: clip(c.adminNotes, 120) || null })),
+    enlaces: { fichaCompletaConFotos: `/admin/tiendas?responsable=${v.id}`, archivoDeVerificacion: `/admin/verificaciones?archivo=${v.id}` },
+  };
+}

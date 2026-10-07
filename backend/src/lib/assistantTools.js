@@ -12,7 +12,7 @@ import {
   inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown, customersRanking, orderDetail, storesActivity,
 } from "./assistantData.js";
 import { makeQueryTool } from "./assistantQuery.js";
-import { storesByState, findPerson, salesAgents, quickSales, customerDetail } from "./assistantPeople.js";
+import { storesByState, findPerson, salesAgents, quickSales, customerDetail, representativeSummary } from "./assistantPeople.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA que "lee toda la
 // base de datos, estadísticas y algoritmos" y solo recomienda): registro de
@@ -664,6 +664,12 @@ ADMIN_TOOLS.buscar_persona = {
   args: '{ "busqueda": "nombre, correo o teléfono" }',
   schema: z.object({ busqueda: z.string().trim().min(2).max(80) }),
   run: ({ busqueda }) => findPerson(busqueda),
+};
+ADMIN_TOOLS.ficha_del_responsable = {
+  description: "Ficha COMPLETA del responsable (representante) de una tienda, buscada por nombre de la tienda o de la persona: nombre, documento, ID fiscal, dirección, ubicación, fechas y revisor del registro, qué fotos subió, notas, incumplimientos y reportes, historial de estados y de verificación, y el enlace a la ficha con las fotos.",
+  args: '{ "busqueda": "nombre de la tienda o del responsable" }',
+  schema: z.object({ busqueda: z.string().trim().min(2).max(80) }),
+  run: ({ busqueda }) => representativeSummary(busqueda),
 };
 ADMIN_TOOLS.agentes_de_ventas = {
   description: "Usuarios de sistema de TODAS las tiendas: qué tiendas tienen agentes de ventas (o meseros), cuántos, quiénes son y sus ventas manuales de 30 días.",

@@ -127,6 +127,8 @@ router.post("/verifications/:id/start-review", adminController.startVerification
 // transitionVendorVerification() al llegar a VERIFIED, acá solo viven
 // consulta/edición/borrado (gateado — ver deleteVerificationArchive).
 router.get("/vendors/:vendorId/verification-archive", verificationArchiveController.listVerificationArchive);
+// Bloque 277: ficha del responsable (datos, fotos, récord, notas e incumplimientos).
+router.get("/vendors/:vendorId/representative-file", verificationArchiveController.getVendorRepresentativeFile);
 router.patch("/verification-archive/:id", requireActionCode("VERIFICATION_CHANGE"), verificationArchiveController.updateVerificationArchive);
 router.delete("/verification-archive/:id", requireActionCode("VERIFICATION_CHANGE"), verificationArchiveController.deleteVerificationArchive);
 router.get("/verification-archive/:id/file/:type", verificationArchiveController.getVerificationArchiveFile);

@@ -73,7 +73,7 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
     "- Da cifras con su moneda cuando aplique y di de qué periodo son. Nombra personas, productos y pedidos concretos con sus datos reales en vez de hablar en general.",
     "- Si el dato exacto no lo da una herramienta específica, usa consultar_datos: puede leer cualquier tabla con filtros, orden, conteos y agrupaciones. NUNCA digas 'no dispongo de datos' ni 'la consulta falló' sin haber probado antes consultar_datos con otra tabla o con otros filtros: casi todo está en la base de datos.",
     scope === "ADMIN"
-      ? "- Atajos: 'tiendas suspendidas, bloqueadas o eliminadas' -> tiendas_por_estado; '¿quién es X?' o datos de una persona -> buscar_persona; 'agentes de ventas' -> agentes_de_ventas; 'ventas rápidas' -> ventas_rapidas; un cliente concreto (compras, clics, qué mira) -> detalle_de_cliente. Cuenta SIEMPRE con el total que devuelve la herramienta (no con las filas que listas) y menciona el desglose por motivo. Si una persona tiene tienda, ofrece los enlaces que trae el dato (perfil archivado de verificación y tienda). Para el perfil de una persona o de una tienda usa una 'tabla' de dos columnas (Dato, Valor) con rol, correo, teléfono, ubicación, tienda, plan, verificación, estado y último acceso."
+      ? "- Atajos: 'tiendas suspendidas, bloqueadas o eliminadas' -> tiendas_por_estado; '¿quién es X?' o datos de una persona -> buscar_persona; 'agentes de ventas' -> agentes_de_ventas; 'ventas rápidas' -> ventas_rapidas; un cliente concreto (compras, clics, qué mira) -> detalle_de_cliente; el responsable o representante de una tienda (datos del registro, fotos, récord, notas, incumplimientos) -> ficha_del_responsable (da siempre el enlace fichaCompletaConFotos en 'links', para ver las fotos). Cuenta SIEMPRE con el total que devuelve la herramienta (no con las filas que listas) y menciona el desglose por motivo. Si una persona tiene tienda, ofrece los enlaces que trae el dato (perfil archivado de verificación y tienda). Para el perfil de una persona o de una tienda usa una 'tabla' de dos columnas (Dato, Valor) con rol, correo, teléfono, ubicación, tienda, plan, verificación, estado y último acceso."
       : "- Atajos: 'mis agentes de ventas o meseros' -> agentes_de_ventas; un cliente de tu tienda (compras, qué mira, qué agrega al carrito) -> detalle_de_cliente; 'qué producto llama más la atención' -> interes_de_clientes y productos_mas_vendidos.",
     "- Cuando listes varias cosas (tiendas, productos, pedidos, clientes, errores, pagos), NO las pongas en el texto: ponlas en 'tabla' (columnas y filas con los datos reales, máximo 6 columnas y 15 filas; la pantalla muestra las primeras 5 y el resto con 'ver todas') y en el texto escribe solo un resumen breve con lo importante (totales, qué destaca y qué recomiendas). Una tabla vale más que un párrafo de nombres. Si la respuesta es 'sí hay N', la tabla debe tener esas N filas.",
     "- Nombra SIEMPRE las tiendas por su NOMBRE (companyName, ej. 'Sabor Criollo'), nunca por su slug, id o código técnico. Lo mismo con productos y clientes: nombres legibles, nunca ids.",
@@ -163,7 +163,7 @@ export function unverifiedNumbers(text, observations) {
 // Texto corto de lo que se está consultando, para el aviso de progreso.
 function toolDetail(tool, args) {
   if (!args || typeof args !== "object") return null;
-  const raw = tool === "consultar_datos" ? args.tabla : ["consultar_tienda", "buscar_persona", "detalle_de_cliente"].includes(tool) ? args.busqueda : null;
+  const raw = tool === "consultar_datos" ? args.tabla : ["consultar_tienda", "buscar_persona", "detalle_de_cliente", "ficha_del_responsable"].includes(tool) ? args.busqueda : null;
   return typeof raw === "string" ? raw.slice(0, 40) : null;
 }
 
@@ -196,10 +196,10 @@ export function validateLinks(scope, links) {
     let path = base;
     let label = catalog[base];
     if (query) {
-      const m = /^(q|archivo)=([\w%.\-]{1,80})$/.exec(query);
+      const m = /^(q|archivo|responsable)=([\w%.\-]{1,80})$/.exec(query);
       if (!m) continue;
       path = `${base}?${m[1]}=${m[2]}`;
-      label = m[1] === "archivo" ? "Perfil archivado de la tienda" : `${catalog[base]} (búsqueda)`;
+      label = m[1] === "archivo" ? "Perfil archivado de la tienda" : m[1] === "responsable" ? "Ficha del responsable" : `${catalog[base]} (búsqueda)`;
     }
     if (seen.has(path)) continue;
     seen.add(path);

@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { KYC_UPLOAD_DIR } from "./verification.controller.js";
 import { ensureVerificationArchive } from "../services/vendorVerification.service.js";
+import { getRepresentativeFile } from "../services/representativeFile.service.js";
 
 // Bloque 72 (pedido explícito): archivo permanente de la documentación de
 // verificación. Bloque 150 (pedido explícito — "debe quedar archivado todo
@@ -130,54 +131,9 @@ export async function getVerificationArchiveFile(req, res) {
   res.send(buffer);
 }
 
-// Bloque 277 (pedido explícito — "un botón para ver quién es el representante de la tienda, con
-// los datos de cuando se creó el registro: nombre, apellido, datos de la tienda y las fotos"):
-// ficha PÚBLICA del representante de una tienda verificada, armada con su archivo de verificación.
-// Por privacidad solo sale lo que sirve para confiar en la tienda: nombre del representante, datos
-// del negocio y ubicación. NUNCA salen el número de identificación, el ID fiscal, las fotos del
-// documento, el video ni nada de pagos: esos datos son de la plataforma, no del público. La foto
-// del representante solo la ve quien tiene sesión iniciada (ver getPublicRepresentativePhoto).
-async function findRepresentativeArchive(slug) {
-  const vendor = await prisma.vendor.findUnique({
-    where: { slug },
-    select: { id: true, companyName: true, slug: true, deletedAt: true, isBlocked: true, verificationStatus: true, planType: true },
-  });
-  if (!vendor || vendor.deletedAt || vendor.isBlocked || vendor.verificationStatus !== "VERIFIED") return null;
-  const archive = await prisma.verificationArchive.findFirst({ where: { vendorId: vendor.id, verifiedAt: { not: null } }, orderBy: { verifiedAt: "desc" } });
-  return archive ? { vendor, archive } : null;
-}
-
-export async function getPublicRepresentative(req, res) {
-  const found = await findRepresentativeArchive(String(req.params.slug));
-  if (!found) throw new AppError("Esta tienda no tiene un representante verificado para mostrar.", 404);
-  const { vendor, archive } = found;
-  res.json({
-    representative: {
-      name: archive.fullName || archive.ownerName || null,
-      companyName: archive.companyName || vendor.companyName,
-      description: archive.description ?? null,
-      address: archive.companyAddress ?? null,
-      country: archive.registrationCountryName ?? null,
-      province: archive.legalProvinceName ?? null,
-      municipality: archive.legalMunicipalityName ?? null,
-      verifiedAt: archive.verifiedAt,
-      hasPhoto: !!archive.selfieUrl,
-    },
-  });
-}
-
-// Solo con sesión iniciada: la cara de una persona no se publica a cualquiera que abra el enlace.
-export async function getPublicRepresentativePhoto(req, res) {
-  const found = await findRepresentativeArchive(String(req.params.slug));
-  if (!found?.archive.selfieUrl) throw new AppError("No encontrada.", 404);
-  let buffer;
-  try {
-    buffer = await readFile(join(KYC_UPLOAD_DIR, found.archive.selfieUrl));
-  } catch {
-    throw new AppError("No encontrada.", 404);
-  }
-  const ext = found.archive.selfieUrl.split(".").pop()?.toLowerCase();
-  res.setHeader("Content-Type", { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" }[ext] ?? "application/octet-stream");
-  res.setHeader("Cache-Control", "private, max-age=300");
-  res.send(buffer);
+// Bloque 277: ficha completa del responsable de una tienda (solo admin, ver representativeFile.service.js).
+export async function getVendorRepresentativeFile(req, res) {
+  const file = await getRepresentativeFile(String(req.params.vendorId));
+  if (!file) throw new AppError("Tienda no encontrada.", 404);
+  res.json(file);
 }

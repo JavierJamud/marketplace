@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { X, Store, Radar, Star } from "lucide-react";
@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { AdminVendorStaffModal } from "../../components/admin/AdminVendorStaffModal.jsx";
+import { RepresentativeFileModal } from "../../components/admin/RepresentativeFileModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
@@ -285,7 +286,7 @@ const VERIFICATION_LABEL = {
   SUSPENDED: "Verificación suspendida",
 };
 
-function VendorRow({ v, onStats, onStaff, onEdit, onTogglePlan, onBlock, onDelete, onRestore, onPermanent }) {
+function VendorRow({ v, onStats, onRepresentative, onStaff, onEdit, onTogglePlan, onBlock, onDelete, onRestore, onPermanent }) {
   const place = v.locations?.[0]?.province?.name ?? null;
   const hasSales = v.sales30 > 0;
   const pending = !!v.adminDeletionRequestedAt;
@@ -297,10 +298,12 @@ function VendorRow({ v, onStats, onStaff, onEdit, onTogglePlan, onBlock, onDelet
           ? [
               // Bloque 272: en eliminación pendiente solo se puede restaurar o eliminar ya.
               { label: "Restaurar tienda", onClick: onRestore },
+              { label: "Ver responsable", onClick: onRepresentative },
               { label: "Ver estadísticas", onClick: onStats },
               { label: "Eliminar definitivamente", onClick: onPermanent, danger: true },
             ]
           : [
+              { label: "Ver responsable", onClick: onRepresentative },
               { label: "Ver estadísticas", onClick: onStats },
               { label: "Usuarios del sistema", onClick: onStaff },
               { label: "Ver tienda pública", onClick: () => window.open(`/tienda/${v.slug}`, "_blank", "noopener") },
@@ -398,6 +401,13 @@ export default function AdminVendors() {
   const [deleting, setDeleting] = useState(null);
   const [permanent, setPermanent] = useState(null); // tienda en eliminación pendiente que se va a eliminar ya
   const [viewingStats, setViewingStats] = useState(null);
+  // Bloque 277: ficha del responsable; también se abre con /admin/tiendas?responsable=<tienda> (enlace del asistente).
+  const [viewingRep, setViewingRep] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const repParam = searchParams.get("responsable");
+  useEffect(() => {
+    if (repParam) setViewingRep({ id: repParam, companyName: "" });
+  }, [repParam]);
   // Bloque 183 (pedido explícito — "el administrador general del sistema
   // también puede controlar y verificar lo mismo que pueda hacer el
   // vendedor... poder verificar cuáles son los usuarios que ha creado ese
@@ -591,6 +601,7 @@ export default function AdminVendors() {
             key={v.id}
             v={v}
             onStats={() => setViewingStats(v)}
+            onRepresentative={() => setViewingRep(v)}
             onStaff={() => setViewingStaff(v)}
             onEdit={() => setEditing(v)}
             onTogglePlan={() => update.mutate({ id: v.id, payload: { planType: v.planType === "BUSINESS" ? "REGULAR" : "BUSINESS" } })}
@@ -661,6 +672,15 @@ export default function AdminVendors() {
       )}
 
       {viewingStats && <StatsModal vendorName={viewingStats} onClose={() => setViewingStats(null)} />}
+      {viewingRep && (
+        <RepresentativeFileModal
+          vendor={viewingRep}
+          onClose={() => {
+            setViewingRep(null);
+            if (repParam) setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("responsable"); return next; }, { replace: true });
+          }}
+        />
+      )}
       {viewingStaff && <AdminVendorStaffModal vendor={viewingStaff} onClose={() => setViewingStaff(null)} />}
 
       <ConfirmModal

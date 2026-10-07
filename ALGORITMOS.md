@@ -332,13 +332,15 @@ pasa la voz a texto y se envía como pregunta (`lib/useVoiceRecorder.js`).
 (`VENDOR_UNBLOCK`) y restaurar de eliminación pendiente (`VENDOR_RESTORE`) tienen su propia acción, y
 el modal y el correo nombran a la tienda o persona afectada (nunca un id).
 
-### B6d. Ficha pública del representante y grabación de voz con ondas
+### B6d. Ficha del responsable de la tienda (solo admin) y grabación de voz con ondas
 
-`GET /vendors/:slug/representative` (público) arma la ficha desde el archivo de verificación de una tienda
-VERIFICADA y no bloqueada: nombre del representante, datos del negocio y ubicación. NUNCA sale el número de
-identificación, el ID fiscal, las fotos del documento, el video ni los pagos. La foto del representante la sirve
-`/representative/photo` y exige sesión iniciada. El botón (`RepresentativeButton`) está en la franja de la tienda y en
-el encabezado del chat de la tienda, y solo aparece si existe la ficha.
+El responsable (representante) de una tienda NO es público: su ficha solo la ven los administradores. En Admin > Tiendas,
+el menú de cada tienda tiene "Ver responsable" (también `/admin/tiendas?responsable=<tienda>`), que abre
+`RepresentativeFileModal` con: datos del registro verificado (nombre, documento, ID fiscal, dirección, ubicación, fechas y
+revisor), las fotos y documentos subidos (archivos privados, con descarga), la cuenta del dueño, incumplimientos y reportes,
+las notas puestas a la tienda (archivo, revisión, bloqueo, suspensión, cambios de datos) y el récord de cambios de estado y
+de verificación. La arma `services/representativeFile.service.js` (`GET /admin/vendors/:vendorId/representative-file`). El
+asistente de negocio del admin la consulta con `ficha_del_responsable` (sin fotos; da el enlace a la ficha).
 Todos los chats con voz (público, de tienda y asistente de negocio) usan `RecordingIndicator`: punto rojo, "Grabando",
 ondas reales del micrófono (`VoiceWaveform`, Web Audio) y el tiempo transcurrido.
 

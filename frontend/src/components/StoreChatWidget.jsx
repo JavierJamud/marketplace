@@ -11,7 +11,6 @@ import { RequestProductButton } from "./RequestProductButton.jsx";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
 import { RecordingIndicator } from "./RecordingIndicator.jsx";
-import { RepresentativeButton } from "./RepresentativeButton.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
@@ -658,7 +657,6 @@ export function StoreChatWidget({ vendor }) {
               <div className="truncate text-label-md font-bold">{vendor.companyName}</div>
               <div className="text-[11px] text-white/70">Asistente con IA</div>
             </div>
-            <RepresentativeButton vendor={vendor} variant="chat" />
             {/* Bloque 38: mute toggle — clave compartida con el chat
                 general (ver chatSound.js), persiste entre recargas. */}
             <button
