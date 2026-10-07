@@ -2,6 +2,8 @@ import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { getSiteTimezone } from "../controllers/settings.controller.js";
 import { runAiModelsCheck } from "./aiChatbotAvailability.job.js";
+import { beginDailyReport, endDailyReport } from "../lib/aiModelRepair.js";
+import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 
 // Bloque 85 (pedido explícito): tercer cron del proyecto — verificación
 // diaria de que cada modelo de IA activo (Gemini/Groq/NVIDIA NIM) sigue
@@ -23,16 +25,74 @@ import { runAiModelsCheck } from "./aiChatbotAvailability.job.js";
 
 // Exportado por separado (no solo el scheduler) para poder correrlo a mano
 // en un smoke test sin esperar al horario del cron.
+const LABELS = { groq: "Groq", nvidia: "NVIDIA NIM", gemini: "Gemini" };
+const PENDING_REASON = {
+  auth_problem: "La clave fue rechazada. Revisa o cambia la clave en Admin → Integraciones.",
+  quota_wait: "Sin cupo gratis en este momento. Se renueva solo; no hace falta hacer nada.",
+  repair_failed: "No se encontró un modelo de reemplazo que respondiera. Elige uno a mano en Admin → Integraciones.",
+};
+
+// Bloque 283 (pedido explícito — "en la madrugada el admin recibe en su correo los
+// fallos que tuvo el sistema a las 3, las soluciones que se le dieron y lo que quedó
+// pendiente; y todo queda registrado en el panel"): se juntan los resultados de la
+// revisión, se guarda cada caso en Admin → Errores (resuelto o pendiente) y se manda
+// UN solo correo con el resumen. Si todo estaba bien, no se manda nada.
 export async function runAiHealthCheckJob() {
-  const results = await runAiModelsCheck("daily");
+  beginDailyReport();
+  let results = [];
+  let events = [];
+  try {
+    results = await runAiModelsCheck("daily");
+  } finally {
+    events = endDailyReport();
+  }
+  const detail = (provider, model, type) => events.find((e) => e.provider === provider && e.model === model && (!type || e.type === type));
+
+  const solved = [];
+  const pending = [];
+
+  for (const r of results) {
+    const label = `${LABELS[r.provider] ?? r.provider} · ${r.model}`;
+    if (r.recovered) solved.push({ provider: r.provider, model: r.model, text: `${label}: estaba caído y volvió a responder solo.` });
+    else if (r.status === "repaired") {
+      const d = detail(r.provider, r.model, "repaired");
+      solved.push({ provider: r.provider, model: r.model, text: `${label}: no respondía. Se cambió por "${d?.newModel ?? "otro modelo"}"${d?.ms ? ` (respondió en ${d.ms} ms)` : ""} y quedó configurado.` });
+    } else if (r.status === "down") {
+      const d = detail(r.provider, r.model);
+      const reason = PENDING_REASON[r.outcome] ?? "Sigue sin responder. Pruébalo o cámbialo en Admin → Integraciones.";
+      const tried = d?.tried?.length ? ` Modelos probados: ${d.tried.map((t) => t.model).join(", ")}.` : "";
+      pending.push({ provider: r.provider, model: r.model, text: `${label}: ${reason}${tried}`, errorDetail: r.errorDetail ?? d?.errorDetail ?? null });
+    }
+  }
+
+  for (const s of solved) {
+    await prisma.errorLog.create({ data: { origin: "AI_HEALTH_CHECK", message: `Revisión diaria de IA — resuelto: ${s.text}`, context: { provider: s.provider, model: s.model }, resolved: true } }).catch(() => {});
+  }
+  for (const p of pending) {
+    await prisma.errorLog.create({ data: { origin: "AI_HEALTH_CHECK", message: `Revisión diaria de IA — pendiente: ${p.text}`, context: { provider: p.provider, model: p.model, errorDetail: p.errorDetail }, resolved: false } }).catch(() => {});
+  }
+
+  if (solved.length || pending.length) {
+    const lines = [
+      "Resultado de la revisión diaria de los modelos de IA (3:00am).",
+      "",
+      solved.length ? "SOLUCIONADO:" : "",
+      ...solved.map((s) => `- ${s.text}`),
+      solved.length ? "" : "",
+      pending.length ? "PENDIENTE (necesita tu revisión):" : "Nada quedó pendiente.",
+      ...pending.map((p) => `- ${p.text}`),
+      "",
+      "Todo queda registrado en Admin → Errores. Los modelos se administran en Admin → Integraciones.",
+    ].filter((l, i, a) => !(l === "" && a[i - 1] === ""));
+    const subject = pending.length ? `🟠 IA: revisión diaria — ${pending.length} pendiente(s)` : "✅ IA: revisión diaria — todo solucionado";
+    await notifyAdminActionNeeded(subject, lines.join("\n"));
+  }
+
   const summary = results.map((r) => `${r.provider}/${r.model}:${r.status}`).join(" ");
-  console.log(`[aiHealthCheck] resumen — ${summary || "sin modelos activos"}`);
-  return results;
+  console.log(`[aiHealthCheck] resumen — ${summary || "sin modelos activos"} | resueltos ${solved.length}, pendientes ${pending.length}`);
+  return { results, solved, pending };
 }
 
-// "HH" en 24h de una fecha, en una zona horaria IANA dada — Intl con
-// hourCycle:"h23" para que medianoche dé "00", nunca "24" (algunos locales
-// lo hacen con hour12:false a secas).
 function hourInTimezone(date, timezone) {
   return Number(new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hourCycle: "h23" }).format(date));
 }

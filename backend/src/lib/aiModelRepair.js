@@ -71,6 +71,25 @@ export const PROVIDERS = {
 // ai.js registra acá la función que le consulta a OTRA IA del sistema. Va
 // inyectada y no importada porque ai.js ya importa este archivo (un import
 // directo crearía un ciclo).
+// Bloque 283 (pedido explícito — "a las 3 de la mañana el admin recibe en su correo
+// los fallos, las soluciones y lo que quedó pendiente"): durante la revisión diaria
+// los avisos no salen uno por uno: se juntan y aiHealthCheck.job.js manda UN solo
+// correo con el resumen y los deja registrados en Admin → Errores.
+let dailyReport = null;
+export function beginDailyReport() {
+  dailyReport = [];
+}
+export function endDailyReport() {
+  const out = dailyReport ?? [];
+  dailyReport = null;
+  return out;
+}
+function report(entry) {
+  if (!dailyReport) return false;
+  dailyReport.push(entry);
+  return true;
+}
+
 let repairAdvisor = null;
 export function setRepairAdvisor(fn) {
   repairAdvisor = fn;
@@ -116,6 +135,7 @@ async function countOtherHealthyModels(provider, model) {
 }
 
 async function notifyDown({ provider, model, errorDetail, failure }) {
+  if (report({ type: "down", provider, model, cause: failure.cause, fix: failure.fix, kind: failure.kind, errorDetail: String(errorDetail).slice(0, 300) })) return;
   const others = await countOtherHealthyModels(provider, model);
   const coverage = others > 0
     ? `El chat y el generador siguen respondiendo con los otros ${others} modelo(s) que están sanos.`
@@ -134,6 +154,7 @@ async function notifyDown({ provider, model, errorDetail, failure }) {
 }
 
 async function notifyRecovered({ provider, model }) {
+  if (report({ type: "recovered", provider, model })) return;
   await notifyAdminActionNeeded(
     `✅ IA: ${PROVIDERS[provider].label} vuelve a responder`,
     `El modelo "${model}" de ${PROVIDERS[provider].label} volvió a responder por sí solo. El problema que te avisamos antes quedó resuelto, no tienes que hacer nada.`
@@ -141,6 +162,7 @@ async function notifyRecovered({ provider, model }) {
 }
 
 async function notifyRepaired({ provider, brokenModel, newModel, ms, chosenBy, deactivated }) {
+  if (report({ type: "repaired", provider, model: brokenModel, newModel, ms, chosenBy, deactivated })) return;
   await notifyAdminActionNeeded(
     `✅ IA: problema resuelto en ${PROVIDERS[provider].label}`,
     `El modelo "${brokenModel}" de ${PROVIDERS[provider].label} había fallado y el sistema ya lo reparó solo.\n\n` +
@@ -152,6 +174,7 @@ async function notifyRepaired({ provider, brokenModel, newModel, ms, chosenBy, d
 }
 
 async function notifyRepairFailed({ provider, brokenModel, errorDetail, tried, reason, attempt }) {
+  if (report({ type: "repair_failed", provider, model: brokenModel, reason, tried, errorDetail: String(errorDetail).slice(0, 300) })) return;
   const triedText = tried.length ? tried.map((t) => `- ${t.model}: ${String(t.error).slice(0, 160)}`).join("\n") : "- (no se pudo probar ningún candidato)";
   await notifyAdminActionNeeded(
     `🔴 IA: no se pudo reparar ${PROVIDERS[provider].label}`,
@@ -186,6 +209,16 @@ async function askAdvisorToPick({ provider, brokenModel, candidates }) {
   }
 }
 
+function speedScore(id) {
+  const s = String(id).toLowerCase();
+  let score = 0;
+  if (/instant|lightning|lite|flash|mini|nano|small|fast|turbo/.test(s)) score += 3;
+  const size = Number(s.match(/(\d+)b\b/)?.[1] ?? NaN);
+  if (Number.isFinite(size)) score += size <= 10 ? 3 : size <= 35 ? 2 : size <= 80 ? 1 : 0;
+  if (/preview|exp|experimental/.test(s)) score -= 1;
+  return score;
+}
+
 // Reemplaza un modelo roto: lista los modelos reales → los ordena del más
 // nuevo al más viejo → una IA del sistema elige → se PRUEBA de verdad → recién
 // ahí se carga como modelo AUTO activo. Nunca lanza.
@@ -208,20 +241,25 @@ async function runRepair({ provider, apiKey, brokenModel, errorDetail, failure, 
   const usable = detailed
     .filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id) && !getUnavailableModel(provider, m.id) && isFreeTierModel(provider, m.id))
     .sort((a, b) => Number(!!getModelAvailable(provider, b.id)) - Number(!!getModelAvailable(provider, a.id)));
-  const ranked = rankNewestFirst(usable);
+  // Bloque 283 (pedido explícito — "con los modelos más rápidos para lo que se use"):
+  // primero los modelos ligeros (instant, lite, flash, mini, lightning, 8b, 20b...),
+  // y entre iguales el más nuevo.
+  const newest = rankNewestFirst(usable);
+  const ranked = [...newest].sort((a, b) => speedScore(b) - speedScore(a) || newest.indexOf(a) - newest.indexOf(b));
   if (ranked.length === 0) {
     return failRepair({ provider, brokenModel, errorDetail, health, tried: [], reason: "la API no listó ningún modelo de chat nuevo para probar" });
   }
 
   const shortlist = ranked.slice(0, CANDIDATES_FOR_ADVISOR);
-  const advisorPick = await askAdvisorToPick({ provider, brokenModel, candidates: shortlist });
+  // Bloque 283: en la revisión diaria no se gasta otra consulta pidiendo a una IA que
+  // elija; el orden por velocidad ya decide. Fuera de ella se mantiene el consejero.
+  const advisorPick = dailyReport ? null : await askAdvisorToPick({ provider, brokenModel, candidates: shortlist });
   const order = [...new Set([...(advisorPick ? [advisorPick] : []), ...shortlist])].slice(0, MAX_PROBES_PER_REPAIR);
 
   const tried = [];
   for (const candidate of order) {
     try {
       const ms = await probeModel(provider, apiKey, candidate);
-      const permanent = failure.kind === "gone";
       await prisma.aiModelConfig.upsert({
         where: { provider_model: { provider, model: candidate } },
         create: { provider, model: candidate, isActive: true, priority: brokenConfig?.priority ?? 0, source: "AUTO" },
@@ -231,15 +269,14 @@ async function runRepair({ provider, apiKey, brokenModel, errorDetail, failure, 
       // Un modelo dado de baja no vuelve: se desactiva para que no se siga
       // intentando ni avisando. Un fallo pasajero (cuota, red) NO desactiva
       // nada — el modelo original puede volver y el sistema lo notará solo.
-      if (permanent) {
-        if (brokenConfig) await prisma.aiModelConfig.update({ where: { id: brokenConfig.id }, data: { isActive: false } });
-        await deleteModelHealth(provider, brokenModel);
-      } else {
-        await patchModelHealth(provider, brokenModel, { repairFailedCount: 0 });
-      }
+      // Bloque 283 (pedido explícito — "se cambia el modelo y se deja configurado"): el
+      // modelo que falló queda desactivado (sigue en la lista; el admin puede volver a
+      // activarlo) y el que respondió queda en su lugar.
+      if (brokenConfig) await prisma.aiModelConfig.update({ where: { id: brokenConfig.id }, data: { isActive: false } });
+      await deleteModelHealth(provider, brokenModel);
       const chosenBy = candidate === advisorPick ? "elegido por otra IA del sistema entre los más recientes de la lista real" : "el más reciente de la lista real que respondió bien";
-      await notifyRepaired({ provider, brokenModel, newModel: candidate, ms, chosenBy, deactivated: permanent && !!brokenConfig });
-      await logError({
+      await notifyRepaired({ provider, brokenModel, newModel: candidate, ms, chosenBy, deactivated: !!brokenConfig });
+      if (!dailyReport) await logError({
         origin: "AI_HEALTH_CHECK",
         message: `Modelo de ${provider} reparado automáticamente: "${brokenModel}" -> "${candidate}"`,
         context: { provider, brokenModel, newModel: candidate, errorDetail, advisorPick, ms },
@@ -259,7 +296,7 @@ async function failRepair({ provider, brokenModel, errorDetail, health, tried, r
   if (attempt <= MAX_REPAIR_FAILURE_NOTICES && !silentDowns.has(`${provider}::${brokenModel}`)) {
     await notifyRepairFailed({ provider, brokenModel, errorDetail, tried, reason, attempt });
   }
-  await logError({
+  if (!dailyReport) await logError({
     origin: "AI_HEALTH_CHECK",
     message: `No se pudo reparar el modelo ${brokenModel} de ${provider} (intento ${attempt}): ${reason}`,
     context: { provider, brokenModel, errorDetail, tried },
@@ -290,7 +327,16 @@ async function handleConfirmedFailure({ provider, apiKey, model, errorDetail, fo
   }
 
   // El problema es la clave, no el modelo: cambiar de modelo no lo arregla.
-  if (failure.kind === "auth") return { status: "down", outcome: "auth_problem" };
+  if (failure.kind === "auth") return { status: "down", outcome: "auth_problem", errorDetail };
+  // Cupo agotado: es de la cuenta y se renueva solo; otro modelo de la misma API
+  // tendría el mismo problema.
+  if (failure.kind === "quota") return { status: "down", outcome: "quota_wait", errorDetail };
+  // Bloque 283 (pedido explícito): en la revisión diaria (force) un modelo que sigue
+  // sin responder se reemplaza por otro de la misma API, aunque no esté dado de baja.
+  if (force && failure.kind !== "gone") {
+    const result = await runRepair({ provider, apiKey, brokenModel: model, errorDetail, failure, health: row });
+    return { status: result.outcome === "repaired" ? "repaired" : "down", ...result, errorDetail };
+  }
 
   // Bloque 263: cambiar de modelo SOLO arregla un modelo dado de baja (404/410).
   // Un fallo pasajero (timeout, red, cuota, 5xx) se arregla solo: reemplazar el
@@ -344,8 +390,19 @@ export async function checkModel({ provider, apiKey, model, trigger = "proactive
       const streak = (failureStreak.get(key) ?? 0) + 1;
       failureStreak.set(key, streak);
       // Un fallo pasajero suelto no es una caída: se espera a confirmarlo.
-      if (!permanent && streak < FAILURES_BEFORE_DOWN) return { status: "suspect", outcome: "waiting_confirmation", streak };
-      return await handleConfirmedFailure({ provider, apiKey, model, errorDetail, force: trigger === "daily" });
+      if (trigger === "daily" && classifyFailure(errorDetail).kind === "quota") {
+        // Sin cupo no se reintenta (gastaría más): queda anotado como "esperando cupo".
+        return await handleConfirmedFailure({ provider, apiKey, model, errorDetail, force: true });
+      } else if (!permanent && trigger === "daily") {
+        // Revisión diaria: se confirma con un segundo intento a los pocos segundos.
+        await new Promise((r) => setTimeout(r, 5000));
+        try {
+          ms = await probeModel(provider, apiKey, model);
+        } catch (retryErr) {
+          return await handleConfirmedFailure({ provider, apiKey, model, errorDetail: errorDetailOf(retryErr), force: true });
+        }
+      } else if (!permanent && streak < FAILURES_BEFORE_DOWN) return { status: "suspect", outcome: "waiting_confirmation", streak };
+      else return await handleConfirmedFailure({ provider, apiKey, model, errorDetail, force: trigger === "daily" });
     }
     failureStreak.delete(key);
     const previous = await getModelHealth(provider, model);
@@ -360,8 +417,9 @@ export async function checkModel({ provider, apiKey, model, trigger = "proactive
     });
     // Había avisado que cayó y volvió solo: cierra el ciclo con el aviso de
     // "resuelto" para que el admin no se quede esperando una acción.
-    if (previous?.status === "down" && previous.downNotifiedAt && !silentDowns.delete(key)) await notifyRecovered({ provider, model });
-    return { status: "healthy", ms };
+    const wasDown = previous?.status === "down";
+    if (wasDown && (dailyReport || (previous.downNotifiedAt && !silentDowns.delete(key)))) await notifyRecovered({ provider, model });
+    return { status: "healthy", ms, recovered: wasDown };
   } catch (err) {
     console.error(`[aiModelRepair] ${provider}/${model}: error inesperado:`, err);
     return { status: "error", error: err?.message };

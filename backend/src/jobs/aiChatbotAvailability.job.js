@@ -66,7 +66,9 @@ async function checkProvider(providerName, trigger) {
       if (row?.status === "down") {
         // Al arrancar nunca se gasta una consulta: un modelo caído se reprueba solo
         // en la revisión diaria (o cuando el admin lo prueba a mano).
-        if (trigger === "boot" || checkedAgo < RECENT_OK_MS) return { status: "down", outcome: "waiting_daily_check" };
+        // La revisión diaria siempre reprueba (y repara) los caídos; fuera de ella, como
+        // mucho una vez cada RECENT_OK_MS.
+        if (trigger === "boot" || (trigger !== "daily" && checkedAgo < RECENT_OK_MS)) return { status: "down", outcome: "waiting_daily_check" };
         return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
       }
       if (!listed) return { status: row?.status ?? "unknown", outcome: "list_unavailable" };
