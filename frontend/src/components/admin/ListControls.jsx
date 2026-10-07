@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { AnchoredPopover } from "../ui/AnchoredPopover.jsx";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Search, X, MoreVertical } from "lucide-react";
 import { CARD } from "../dashboard/DashboardCard.jsx";
 
@@ -63,31 +64,15 @@ export function SortHeader({ label, sortKey, sort, dir, onSort, align = "left" }
 // Menú de acciones por fila ("⋮"): con 5 botones de texto por fila una tabla
 // de clientes o tiendas se ensancha y se parte en celular. Se cierra al tocar
 // afuera o con Escape (R-32). `items`: { label, onClick, danger?, hidden? }.
-// El contenedor de la lista NO lleva overflow-hidden, o este menú quedaría
-// recortado en las últimas filas.
 export function ActionMenu({ items, label = "Acciones de la fila" }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    function onDown(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    function onKey(e) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const buttonRef = useRef(null);
+  const close = useCallback(() => setOpen(false), []);
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={label}
@@ -97,28 +82,28 @@ export function ActionMenu({ items, label = "Acciones de la fila" }) {
       >
         <MoreVertical className="h-4 w-4" />
       </button>
-      {open && (
-        <div role="menu" className="absolute right-0 top-full z-30 mt-1 min-w-[170px] rounded-xl border border-surface-container-high bg-surface-container-lowest py-1 shadow-lg">
-          {items
-            .filter((item) => !item.hidden)
-            .map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  item.onClick();
-                }}
-                className={`flex h-11 w-full items-center px-3.5 text-left text-[13px] font-semibold hover:bg-surface-container md:h-9 ${
-                  item.danger ? "text-error" : "text-on-surface"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-        </div>
-      )}
+      {/* Bloque 271: el menú se dibuja fuera de la tabla (portal) y se coloca solo hacia
+          abajo, arriba o al costado según el espacio, siempre por encima del asistente. */}
+      <AnchoredPopover anchorRef={buttonRef} open={open} onClose={close} className="rounded-xl border border-surface-container-high bg-surface-container-lowest py-1 shadow-lg">
+        {items
+          .filter((item) => !item.hidden)
+          .map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+              className={`flex h-11 w-full items-center whitespace-nowrap px-3.5 text-left text-[13px] font-semibold hover:bg-surface-container md:h-9 ${
+                item.danger ? "text-error" : "text-on-surface"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+      </AnchoredPopover>
     </div>
   );
 }
