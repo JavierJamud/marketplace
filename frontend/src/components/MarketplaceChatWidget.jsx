@@ -2,7 +2,7 @@ import { generateId } from "../lib/uuid.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { X, Send, RotateCcw, Mic, Square, Store as StoreIcon, AlertTriangle, Volume2, VolumeX } from "lucide-react";
+import { X, Send, RotateCcw, Mic, Square, Store as StoreIcon, AlertTriangle, Volume2, VolumeX, LayoutGrid } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
@@ -208,13 +208,19 @@ function MarketplaceVendorCard({ vendor }) {
 // Bloque 41 (pedido explícito): pedido amplio de tiendas ("mostrame
 // tiendas") — en vez de que el bot enumere cada nombre en el texto, un
 // botón real a la página completa de tiendas.
-function ShowAllStoresButton() {
+function ShowAllStoresButton({ action }) {
+  return <SeeAllButton to={action?.href ?? "/tiendas"} label={action?.label ?? "Ver todas las tiendas"} icon={StoreIcon} />;
+}
+
+// Bloque 270 (pedido explícito): cuando hay más de 3 resultados el chat muestra 3 y un
+// botón que abre la página (Tiendas o Catálogo) ya con los filtros que pidió el cliente.
+function SeeAllButton({ to, label, icon: Icon }) {
   return (
     <Link
-      to="/tiendas"
-      className="flex items-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container-lowest px-3.5 py-2.5 text-[12.5px] font-semibold text-tertiary-accent shadow-sm hover:border-tertiary-accent"
+      to={to}
+      className="flex min-h-11 items-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container-lowest px-3.5 py-2.5 text-[12.5px] font-semibold text-tertiary-accent shadow-sm hover:border-tertiary-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
     >
-      <StoreIcon className="h-4 w-4 flex-shrink-0" /> Ver todas las tiendas
+      <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" /> {label}
     </Link>
   );
 }
@@ -658,6 +664,11 @@ export function MarketplaceChatWidget() {
                       ))}
                     </div>
                   )}
+                  {m.actions?.products && (
+                    <div className="-mt-1.5 mb-3 w-full max-w-[95%]">
+                      <SeeAllButton to={m.actions.products.href} label={m.actions.products.label} icon={LayoutGrid} />
+                    </div>
+                  )}
                   {/* Bloque 41 (pedido explícito): tarjeta(s) de tienda
                       puntual O botón a "ver todas" — nunca los dos juntos
                       (el backend ya garantiza que no vengan ambos a la vez). */}
@@ -668,9 +679,9 @@ export function MarketplaceChatWidget() {
                       ))}
                     </div>
                   )}
-                  {m.showAllStoresButton && (
+                  {(m.actions?.stores || m.showAllStoresButton) && (
                     <div className="-mt-1.5 mb-3 w-full max-w-[95%]">
-                      <ShowAllStoresButton />
+                      <ShowAllStoresButton action={m.actions?.stores} />
                     </div>
                   )}
                   {/* Bloque 34: chips de seguimiento — solo bajo la ÚLTIMA

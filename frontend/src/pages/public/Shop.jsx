@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
@@ -25,18 +25,38 @@ const SORT_OPTIONS = [
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { provinceId, municipalityId, provinceName, hasProvinceFilter } = useZone();
+  const { provinceId, municipalityId, provinceName, hasProvinceFilter, setProvince, setMunicipality } = useZone();
 
   const q = searchParams.get("q") ?? "";
   const categoryId = searchParams.get("categoryId") ?? "";
 
-  const [maxPrice, setMaxPrice] = useState(10000);
-  const [pay, setPay] = useState({ whatsapp: true, cod: true, prepaid: true });
+  // Bloque 270: los filtros que el chat principal puso en el enlace (pago, precio máximo,
+  // solo verificadas, provincia) se aplican al abrir el catálogo y cada vez que cambian.
+  const urlPayment = searchParams.get("payment");
+  const urlMaxPrice = Number(searchParams.get("maxPrice"));
+  const [maxPrice, setMaxPrice] = useState(urlMaxPrice > 0 ? urlMaxPrice : 10000);
+  const [pay, setPay] = useState(() => {
+    const wanted = (urlPayment ?? "").split(",").filter((m) => ["whatsapp", "cod", "prepaid"].includes(m));
+    return wanted.length ? { whatsapp: wanted.includes("whatsapp"), cod: wanted.includes("cod"), prepaid: wanted.includes("prepaid") } : { whatsapp: true, cod: true, prepaid: true };
+  });
   // Bloque 30: arranca desde la URL (mismo criterio que q/categoryId arriba)
   // — así "Solo verificadas" activado en el dropdown de SearchBar sigue
   // activo al llegar acá con "Ver todos los resultados".
   const [onlyVerified, setOnlyVerified] = useState(searchParams.get("onlyVerified") === "true");
   const [sort, setSort] = useState("relevance");
+  const urlKey = `${urlPayment}|${urlMaxPrice}|${searchParams.get("onlyVerified")}|${searchParams.get("provinceId")}|${searchParams.get("municipalityId")}`;
+  useEffect(() => {
+    const wanted = (urlPayment ?? "").split(",").filter((m) => ["whatsapp", "cod", "prepaid"].includes(m));
+    setPay(wanted.length ? { whatsapp: wanted.includes("whatsapp"), cod: wanted.includes("cod"), prepaid: wanted.includes("prepaid") } : { whatsapp: true, cod: true, prepaid: true });
+    setMaxPrice(urlMaxPrice > 0 ? urlMaxPrice : 10000);
+    setOnlyVerified(searchParams.get("onlyVerified") === "true");
+    const urlProvince = searchParams.get("provinceId");
+    if (urlProvince) {
+      setProvince(urlProvince);
+      const urlMunicipality = searchParams.get("municipalityId");
+      if (urlMunicipality) setMunicipality(urlMunicipality);
+    }
+  }, [urlKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: categories } = useQuery({
     queryKey: ["categories"],

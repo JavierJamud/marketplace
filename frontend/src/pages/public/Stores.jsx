@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { MapPin, X, Store as StoreIcon } from "lucide-react";
@@ -20,6 +21,17 @@ export default function Stores() {
     useZone();
   const [searchParams, setSearchParams] = useSearchParams();
   const isRestaurant = searchParams.get("isRestaurant") === "true";
+  // Bloque 270: verificadas / no verificadas, como lo pidió el cliente en el chat.
+  const verifiedParam = searchParams.get("isVerified");
+  const isVerified = verifiedParam === "true" || verifiedParam === "false" ? verifiedParam : "";
+  const urlProvince = searchParams.get("provinceId");
+  const urlMunicipality = searchParams.get("municipalityId");
+  useEffect(() => {
+    if (urlProvince) {
+      setProvince(urlProvince);
+      if (urlMunicipality) setMunicipality(urlMunicipality);
+    }
+  }, [urlProvince, urlMunicipality]); // eslint-disable-line react-hooks/exhaustive-deps
   const businessCategoryId = searchParams.get("businessCategoryId") ?? "";
 
   function setBusinessCategoryId(id) {
@@ -36,7 +48,7 @@ export default function Stores() {
   const selectedBusinessCategory = businessCategories?.find((c) => c.id === businessCategoryId);
 
   const { data: vendors, isLoading } = useQuery({
-    queryKey: ["vendors", provinceId, municipalityId, isRestaurant, businessCategoryId],
+    queryKey: ["vendors", provinceId, municipalityId, isRestaurant, businessCategoryId, isVerified],
     queryFn: async () =>
       (
         await api.get("/vendors", {
@@ -45,6 +57,7 @@ export default function Stores() {
             municipalityId: municipalityId || undefined,
             isRestaurant: isRestaurant || undefined,
             businessCategoryId: businessCategoryId || undefined,
+            isVerified: isVerified || undefined,
           },
         })
       ).data.vendors,
@@ -53,7 +66,7 @@ export default function Stores() {
   return (
     <>
       <div className="container-app py-11">
-        <h1 className="mb-1 text-headline-lg text-on-surface">{isRestaurant ? "Restaurantes con menú QR" : "Todas las tiendas"}</h1>
+        <h1 className="mb-1 text-headline-lg text-on-surface">{isRestaurant ? "Restaurantes con menú QR" : isVerified === "true" ? "Tiendas verificadas" : isVerified === "false" ? "Tiendas sin verificar" : "Todas las tiendas"}</h1>
         <p className="mb-5 text-body-md text-on-surface-variant">
           {vendors?.length ?? 0} {isRestaurant ? "restaurantes" : "tiendas"} en {provinceName} · las verificadas se muestran primero.
         </p>

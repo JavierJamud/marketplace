@@ -2982,6 +2982,8 @@ model ChatMessage {
 
 model MarketplaceChatMessage {
   id        String   @id @default(cuid())
+  // Bloque 270: botones "ver todo" con su enlace ya filtrado ({ stores?, products? }).
+  actions   Json?
   sessionId String
   userId    String?
   role      String

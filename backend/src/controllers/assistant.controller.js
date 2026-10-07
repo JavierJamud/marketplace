@@ -243,13 +243,20 @@ function extractPriceRange(text) {
 // tienda, "Próximamente disponibles").
 const IN_STOCK_WHERE = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
 
-async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing } = {}) {
+async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification } = {}) {
+  const vendorWhere = {
+    isBlocked: false,
+    status: "ACTIVE",
+    isPrivate: false,
+    ...(verification === "VERIFIED" ? { verificationStatus: "VERIFIED" } : verification === "UNVERIFIED" ? { verificationStatus: { not: "VERIFIED" } } : {}),
+  };
+  const paymentWhere = payment ? { paymentMethods: { has: payment } } : {};
   const priceFilter = priceMin != null || priceMax != null ? { gte: priceMin ?? undefined, lte: priceMax ?? undefined } : undefined;
 
   if (!terms?.length) {
     if (!broadListing) return [];
     return prisma.product.findMany({
-      where: { isActive: true, overQuota: false, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
+      where: { isActive: true, overQuota: false, vendor: vendorWhere, price: priceFilter, ...paymentWhere, ...IN_STOCK_WHERE },
       include: CANDIDATE_INCLUDE,
       take: ZONE_POOL_LIMIT,
       orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -259,7 +266,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
   const matchedIds = await searchProductIdsByTerms(terms);
   const nameOrDescMatches = matchedIds.length
     ? await prisma.product.findMany({
-        where: { id: { in: matchedIds }, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
+        where: { id: { in: matchedIds }, vendor: vendorWhere, price: priceFilter, ...paymentWhere, ...IN_STOCK_WHERE },
         include: CANDIDATE_INCLUDE,
         take: ZONE_POOL_LIMIT,
         orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -281,7 +288,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
     const tagIds = (await searchTagMatches(terms)).filter((id) => !haveIds.has(id));
     const extra = tagIds.length
       ? await prisma.product.findMany({
-          where: { id: { in: tagIds }, vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false }, price: priceFilter, ...IN_STOCK_WHERE },
+          where: { id: { in: tagIds }, vendor: vendorWhere, price: priceFilter, ...paymentWhere, ...IN_STOCK_WHERE },
           include: CANDIDATE_INCLUDE,
           take: ZONE_POOL_LIMIT - ranked.length,
         })
@@ -320,8 +327,52 @@ const VENDOR_SEARCH_SELECT = {
 // búsqueda más (por eso no está en STOPWORDS: si aparece, cambia el WHERE,
 // no es ruido).
 function wantsVerifiedOnly(message) {
-  return /verificad/i.test(message);
+  return /verificad/i.test(message) && !wantsUnverifiedOnly(message);
 }
+
+// Bloque 270: "las que NO están verificadas" no es lo mismo que "las verificadas".
+function wantsUnverifiedOnly(message) {
+  return /\bno\s+(est[aá]n\s+|son\s+)?verificad|sin\s+verificar/i.test(message);
+}
+
+// "VERIFIED" | "UNVERIFIED" | null
+function verificationFilter(message) {
+  if (wantsUnverifiedOnly(message)) return "UNVERIFIED";
+  return wantsVerifiedOnly(message) ? "VERIFIED" : null;
+}
+
+// Forma de pago que pidió el cliente ("solo por transferencia" = pago anticipado).
+function paymentFilter(message) {
+  if (/transferenc|anticipad|prepag/i.test(message)) return "prepaid";
+  if (/contra\s*entrega|contraentrega/i.test(message)) return "cod";
+  return null;
+}
+const FILTER_WORDS = /transferenc|anticipad|prepag|contra|entrega|contraentrega|verificad|verificar|solo|unicamente/i;
+
+// Enlaces de los botones "ver todo": mismos filtros que el cliente pidió en el chat,
+// para que la página (Tiendas o Catálogo) se abra ya filtrada.
+function buildStoresHref({ verification, province, municipality, message }) {
+  const p = new URLSearchParams();
+  if (verification === "VERIFIED") p.set("isVerified", "true");
+  if (verification === "UNVERIFIED") p.set("isVerified", "false");
+  if (province) p.set("provinceId", province.id);
+  if (municipality) p.set("municipalityId", municipality.id);
+  if (/restaurante|men[uú]\s*qr|comer|comida/i.test(message)) p.set("isRestaurant", "true");
+  const qs = p.toString();
+  return `/tiendas${qs ? `?${qs}` : ""}`;
+}
+function buildProductsHref({ terms, verification, payment, priceMax, province, municipality }) {
+  const p = new URLSearchParams();
+  if (terms?.length) p.set("q", terms.join(" "));
+  if (verification === "VERIFIED") p.set("onlyVerified", "true");
+  if (payment) p.set("payment", payment);
+  if (priceMax != null) p.set("maxPrice", String(priceMax));
+  if (province) p.set("provinceId", province.id);
+  if (municipality) p.set("municipalityId", municipality.id);
+  const qs = p.toString();
+  return `/catalogo${qs ? `?${qs}` : ""}`;
+}
+const PAYMENT_LABEL = { prepaid: "con pago anticipado", cod: "con pago contra entrega" };
 
 // Bug real reportado en vivo: "Verificar tiendas por zona" deja como
 // términos ["verificar","zona"] (ninguno es stopword de producto) — sin
@@ -358,7 +409,8 @@ async function searchVendorIdsByTerms(terms) {
   return [...ids];
 }
 
-async function searchVendors({ terms, provinceId, municipalityId, onlyVerified }) {
+const VENDOR_SEARCH_LIMIT = 20;
+async function searchVendors({ terms, provinceId, municipalityId, verification }) {
   const locationFilter = municipalityId ? { some: { municipalityId } } : provinceId ? { some: { provinceId } } : undefined;
   const nameOrCategoryTerms = (terms ?? []).filter((t) => !VENDOR_META_WORDS.has(t));
   // Sin términos reales de nombre/rubro (ej. la pregunta era puramente
@@ -373,14 +425,14 @@ async function searchVendors({ terms, provinceId, municipalityId, onlyVerified }
     // Bloque 64: regla de visibilidad, independiente de verificationStatus
     // de abajo — el bot no debe ofrecer una tienda sin catálogo.
     products: { some: { isActive: true, overQuota: false } },
-    verificationStatus: onlyVerified ? "VERIFIED" : undefined,
+    verificationStatus: verification === "VERIFIED" ? "VERIFIED" : verification === "UNVERIFIED" ? { not: "VERIFIED" } : undefined,
     locations: locationFilter,
     id: idFilter,
   };
   const vendors = await prisma.vendor.findMany({
     where,
     select: VENDOR_SEARCH_SELECT,
-    take: 20,
+    take: VENDOR_SEARCH_LIMIT,
     orderBy: { companyName: "asc" },
   });
   // Bloque 64: verificadas primero — ya no se puede ordenar por isVerified
@@ -904,10 +956,10 @@ ${fewShot}
 
 SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [], "removeFromCart": [], "clearCart": false, "vendorIds": ["N"], "showAllStoresButton": false, "suggestedFollowUps": ["...", "..."]}
 - text: prosa natural, en tus palabras — nunca el número de catálogo ni ningún ID.
-- productIds: números de catálogo (entre corchetes arriba, ej. "3") de los candidatos que mencionas o recomiendas — para mostrar su tarjeta. Vacío si ninguno puntual (ej. solo preguntaste zona/atributo).
+- productIds: números de catálogo (entre corchetes arriba, ej. "3") de los candidatos que mencionas o recomiendas — para mostrar su tarjeta. MÁXIMO 3: si hay más resultados, cita los 3 mejores y el sistema pone solo un botón "Ver todos los productos" con los filtros del cliente; no listes los demás en el texto. Vacío si ninguno puntual (ej. solo preguntaste zona/atributo).
 - addToCart/removeFromCart/clearCart: SIEMPRE vacío/false — este bot nunca toca el carrito (eso es del bot de cada tienda).
-- vendorIds: número(s) de TIENDAS (entre corchetes arriba, ej. "2") cuando el pedido es sobre una tienda puntual o unas pocas (2-3) relevantes — muestra su tarjeta real. Vacío si el pedido es amplio (ahí va showAllStoresButton) o si no hay ninguna tienda puntual que mostrar.
-- showAllStoresButton: true SOLO cuando el pedido de tiendas es amplio ("ver tiendas", "mostrame tiendas") y hay más de 2-3 en TIENDAS — muestra un botón real a /tiendas en vez de que tú listes cada nombre. false en cualquier otro caso, y siempre false si vendorIds no está vacío.
+- vendorIds: número(s) de TIENDAS (entre corchetes arriba, ej. "2") cuando el pedido es sobre una tienda puntual o unas pocas (hasta 3) relevantes — muestra su tarjeta real. Si piden un listado amplio de tiendas (ej. "cuáles están verificadas"), cita las 3 primeras y pon showAllStoresButton en true: el sistema muestra 3 tarjetas y un botón "Ver todas las tiendas" ya filtrado.
+- showAllStoresButton: true cuando el pedido de tiendas es amplio ("ver tiendas", "cuáles están verificadas") y hay más de 3 en TIENDAS — el sistema muestra un botón real a /tiendas con los mismos filtros que pidió el cliente. Nunca enumeres más de 3 tiendas en el texto. false en cualquier otro caso.
 - suggestedFollowUps: SIEMPRE 2-3 preguntas cortas (3-6 palabras cada una) que el cliente podría preguntar A CONTINUACIÓN de ESTA respuesta puntual — tienen que variar según lo que acabas de responder, nunca las mismas siempre. Básate en lo real (otros candidatos, zonas, categorías), nunca inventes algo sin sentido acá.
 - Ejemplo — resultado único y claro (número inventado): candidato [1] es justo lo que piden y no hay ambigüedad de zona/producto → {"text": "Tenemos justo eso — [nombre real del producto, sin el número] de [tienda]. ¿Quieres verlo?", "productIds": ["1"], "addToCart": [], "suggestedFollowUps": ["Ver más opciones similares", "¿Hace envíos esa tienda?", "Buscar otra cosa"]}
 - Ejemplo — YA dio precio/tamaño junto con el producto (número inventado): "Filtros detectados" muestra un rango de precio, y "ZONAS" tiene 2+ provincias con candidatos [1] y [2] que son productos/marcas distintos entre sí → muestra ambos YA, sin preguntar provincia: {"text": "Encontramos estas opciones en ese rango — [nombre real de 1] de [tienda 1] y [nombre real de 2] de [tienda 2]. ¿Alguna marca o color en particular?", "productIds": ["1", "2"], "addToCart": [], "suggestedFollowUps": ["Ver más opciones", "Filtrar por precio", "¿Cuál tiene mejor reseña?"]}
@@ -968,7 +1020,7 @@ export async function postMarketplaceChatMessage(req, res) {
   // tarjeta de "problemas técnicos" + Reintentar. El mensaje del cliente YA
   // quedó guardado arriba, así que "Reintentar" en el frontend es
   // simplemente volver a mandar el mismo texto.
-  let rawText, productIds, candidates, vendorMatches, vendorIds, showAllStoresButton, suggestedFollowUps;
+  let rawText, productIds, candidates, vendorMatches, vendorIds, showAllStoresButton, suggestedFollowUps, searchMeta;
   try {
     // Bloque 32: filtrado geográfico progresivo — la zona pedida se
     // reconstruye del mensaje actual O, si este mensaje es solo una
@@ -981,9 +1033,23 @@ export async function postMarketplaceChatMessage(req, res) {
     const { province: requestedProvince, municipality: requestedMunicipality } = await resolveZoneFromContext(message, history);
     const { terms, priceMin, priceMax, broadListing } = resolveSearchContext(message, history, requestedProvince, requestedMunicipality);
 
-    const pool = await searchCandidateProducts(terms, { priceMin, priceMax, broadListing });
+    // Bloque 270: forma de pago y verificación que pidió el cliente. Las palabras de
+    // esos filtros no son nombres de producto, así que se sacan de los términos; y
+    // "productos solo por transferencia" lista el catálogo filtrado, no busca esa palabra.
+    const verification = verificationFilter(message);
+    const payment = paymentFilter(message);
+    const searchTerms = (terms ?? []).filter((t) => !FILTER_WORDS.test(t));
+    const filterListing = !searchTerms.length && (!!payment || (!!verification && /producto|art[ií]culo/i.test(message)));
+    let pool = await searchCandidateProducts(searchTerms, { priceMin, priceMax, broadListing: broadListing || filterListing, payment, verification });
+    // Respaldo: las demás palabras ("muéstrame", "pagan") no eran un producto: si no hubo
+    // resultados pero sí hay un filtro claro (pago o verificación) y piden productos, se
+    // lista el catálogo según ese filtro.
+    if (!pool.length && (payment || (verification && /producto|art[ií]culo/i.test(message)))) {
+      pool = await searchCandidateProducts([], { priceMin, priceMax, broadListing: true, payment, verification });
+    }
+    searchMeta = { terms: searchTerms, priceMax, requestedProvince, requestedMunicipality, verification, payment, poolSize: pool.length, poolStores: [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean), poolStoreName: pool[0]?.vendor?.companyName, poolStoreSlug: pool[0]?.vendor?.slug };
     const adjacentIds = requestedProvince ? await getAdjacentProvinceIds(requestedProvince.id) : [];
-    const zoneContext = buildZoneContext({ terms, priceMin, priceMax, products: pool, requestedProvince, requestedMunicipality, adjacentIds });
+    let zoneContext = buildZoneContext({ terms, priceMin, priceMax, products: pool, requestedProvince, requestedMunicipality, adjacentIds });
     candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
 
     // Bloque 34: búsqueda de TIENDAS siempre en paralelo a la de productos
@@ -995,8 +1061,25 @@ export async function postMarketplaceChatMessage(req, res) {
       terms,
       provinceId: requestedProvince?.id,
       municipalityId: requestedMunicipality?.id,
-      onlyVerified: wantsVerifiedOnly(message),
+      verification: verificationFilter(message),
     });
+
+    // Bloque 270: "los productos de TecnoHabana": si la búsqueda encontró UNA tienda y piden
+    // sus productos (y no hubo productos por nombre), el catálogo de esa tienda es el pool.
+    if (!pool.length && vendorMatches.length === 1 && /producto|art[ií]culo|cat[aá]logo|vende|ofrece/i.test(message)) {
+      pool = await prisma.product.findMany({
+        where: { vendorId: vendorMatches[0].id, isActive: true, overQuota: false, ...IN_STOCK_WHERE },
+        include: CANDIDATE_INCLUDE,
+        take: ZONE_POOL_LIMIT,
+        orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+      });
+      candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
+      zoneContext = buildZoneContext({ terms, priceMin, priceMax, products: pool, requestedProvince, requestedMunicipality, adjacentIds });
+    }
+    searchMeta.poolSize = pool.length;
+    searchMeta.poolStores = [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean);
+    searchMeta.poolStoreName = pool[0]?.vendor?.companyName;
+    searchMeta.poolStoreSlug = pool[0]?.vendor?.slug;
 
     const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message);
     ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
@@ -1017,32 +1100,55 @@ export async function postMarketplaceChatMessage(req, res) {
     .trim();
 
   const candidateByIndex = new Map(candidates.map((p, i) => [String(i + 1), p]));
-  const validIds = [...new Set((productIds ?? []).map(String))]
+  const citedIds = [...new Set((productIds ?? []).map(String))]
     .map((idx) => candidateByIndex.get(idx))
     .filter(Boolean)
     .map((p) => p.id);
 
+  // Bloque 270 (pedido explícito — "si son más de tres, solo mostrar tres y un botón
+  // de ver todos que abra la página con los filtros que pidió el cliente"): el
+  // backend impone el tope (nunca confía en que el modelo lo cumpla) y arma el enlace.
+  const MAX_CARDS = 3;
+  const validIds = citedIds.slice(0, MAX_CARDS);
   const saved = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: text, productIds: validIds } });
   const candidateById = new Map(candidates.map((p) => [p.id, p]));
   const products = validIds.map((id) => toCardProduct(candidateById.get(id)));
 
-  // Bloque 41 (pedido explícito): tarjeta(s) de tienda puntual — nunca se
-  // persisten (mismo criterio que productIds del bot general: de un solo
-  // uso para este mensaje). Igual que arriba, un número fuera de rango
-  // simplemente no resuelve a nada, nunca se inventa una tienda.
+  const actions = {};
+  const verifiedLabel = searchMeta?.verification === "VERIFIED" ? " verificadas" : searchMeta?.verification === "UNVERIFIED" ? " no verificadas" : "";
+
+  // Tiendas: tarjetas de las citadas (o, si fue un pedido amplio, las primeras de la
+  // búsqueda) hasta 3, y el botón solo si hay más de las que se muestran.
   const vendorByIndex = new Map(vendorMatches.map((v, i) => [String(i + 1), v]));
-  const MAX_VENDOR_CARDS = 3;
-  const resolvedVendors = [...new Set((vendorIds ?? []).map(String))]
-    .map((idx) => vendorByIndex.get(idx))
-    .filter(Boolean)
-    .map(toVendorCard);
-  // Bug real encontrado en vivo: pese a la regla del prompt ("más de 2-3 ->
-  // botón"), el modelo a veces igual citó 10 tiendas en vendorIds en vez de
-  // usar el botón — nunca confiar en que el modelo cumplió el umbral pedido,
-  // se corrige acá (mismo criterio de siempre: el backend valida, nunca
-  // confía a ciegas en la decisión del modelo).
-  const validVendors = resolvedVendors.length > MAX_VENDOR_CARDS ? [] : resolvedVendors;
-  const forcedShowAllButton = resolvedVendors.length > MAX_VENDOR_CARDS;
+  const citedVendors = [...new Set((vendorIds ?? []).map(String))].map((idx) => vendorByIndex.get(idx)).filter(Boolean);
+  const wantsAllStores = showAllStoresButton === true || citedVendors.length > MAX_CARDS;
+  const vendorPool = citedVendors.length ? citedVendors : wantsAllStores ? vendorMatches : [];
+  const validVendors = vendorPool.slice(0, MAX_CARDS).map(toVendorCard);
+  if (wantsAllStores && vendorMatches.length > validVendors.length) {
+    const total = vendorMatches.length;
+    actions.stores = {
+      label: `Ver todas las tiendas${verifiedLabel} (${total}${total >= VENDOR_SEARCH_LIMIT ? "+" : ""})`,
+      href: buildStoresHref({ verification: searchMeta?.verification, province: searchMeta?.requestedProvince, municipality: searchMeta?.requestedMunicipality, message }),
+    };
+  }
+
+  // Productos: el botón aparece si el modelo citó más de 3, o si fue un listado amplio
+  // y hay más resultados que los mostrados. Si todos los resultados son de UNA tienda,
+  // el botón lleva a esa tienda.
+  const poolSize = searchMeta?.poolSize ?? 0;
+  if (validIds.length > 0 && (citedIds.length > MAX_CARDS || (poolSize > validIds.length && (searchMeta?.payment || searchMeta?.verification || citedIds.length >= MAX_CARDS)))) {
+    const oneStore = searchMeta?.poolStores?.length === 1;
+    if (oneStore && searchMeta.poolStoreSlug) {
+      actions.products = { label: `Ver todos los productos de ${searchMeta.poolStoreName} (${poolSize})`, href: `/tienda/${searchMeta.poolStoreSlug}` };
+    } else {
+      actions.products = {
+        label: `Ver todos los productos${verifiedLabel ? " de tiendas verificadas" : ""}${searchMeta?.payment ? ` ${PAYMENT_LABEL[searchMeta.payment]}` : ""} (${poolSize})`,
+        href: buildProductsHref(searchMeta ?? {}),
+      };
+    }
+  }
+  const savedActions = Object.keys(actions).length ? actions : null;
+  if (savedActions) await prisma.marketplaceChatMessage.update({ where: { id: saved.id }, data: { actions: savedActions } });
 
   // Bloque 34: sugerencias de seguimiento — nunca se persisten (de un solo
   // uso para este mensaje puntual). Nunca confiar en que el modelo cumplió
@@ -1055,7 +1161,7 @@ export async function postMarketplaceChatMessage(req, res) {
     .slice(0, 3);
 
   res.status(201).json({
-    message: { ...saved, products, vendors: validVendors, showAllStoresButton: forcedShowAllButton || showAllStoresButton === true, suggestedFollowUps: followUps },
+    message: { ...saved, actions: savedActions, products, vendors: validVendors, showAllStoresButton: !!actions.stores, suggestedFollowUps: followUps },
   });
 }
 
