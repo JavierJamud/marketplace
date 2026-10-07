@@ -660,21 +660,24 @@ async function isResetCodeValid(user, code) {
 
 const forgotPasswordSchema = z.object({ email: z.string().email() });
 
-// Respuesta siempre genérica — nunca revela si el correo existe (evita
-// enumeración de cuentas). El código real solo se genera/envía si sí existe.
+// Bloque 279 (pedido explícito — "cualquier persona pone un correo y el sistema dice que envió el
+// código aunque ese correo no esté registrado: debe avisar que no está registrado y no enviar el
+// código por gusto"): antes la respuesta era genérica para no revelar qué correos existen. Se
+// cambió a propósito: si el correo no tiene cuenta, se dice y NO se manda nada. Contrapartida
+// conocida: quien consulta puede saber si un correo está registrado, por eso la ruta sigue detrás
+// de passwordResetRateLimit.
 export async function forgotPassword(req, res) {
   const { email } = forgotPasswordSchema.parse(req.body);
   const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || user.deletedAt) throw new AppError("Ese correo no está registrado en ninguna cuenta. Revisa que esté bien escrito o crea una cuenta.", 404);
 
-  if (user) {
-    const code = generateResetCode();
-    const resetCodeHash = await bcrypt.hash(code, 10);
-    const resetCodeExpiresAt = new Date(Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000);
-    await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt } });
-    await sendPasswordResetEmail(user, code);
-  }
+  const code = generateResetCode();
+  const resetCodeHash = await bcrypt.hash(code, 10);
+  const resetCodeExpiresAt = new Date(Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000);
+  await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt } });
+  await sendPasswordResetEmail(user, code);
 
-  res.json({ ok: true, message: "Si ese correo tiene una cuenta, enviamos un código de verificación." });
+  res.json({ ok: true, message: "Te enviamos un código de verificación a tu correo." });
 }
 
 const verifyResetCodeSchema = z.object({ email: z.string().email(), code: z.string().length(RESET_CODE_LENGTH) });

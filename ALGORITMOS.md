@@ -332,6 +332,14 @@ pasa la voz a texto y se envía como pregunta (`lib/useVoiceRecorder.js`).
 (`VENDOR_UNBLOCK`) y restaurar de eliminación pendiente (`VENDOR_RESTORE`) tienen su propia acción, y
 el modal y el correo nombran a la tienda o persona afectada (nunca un id).
 
+### B6e. Ventana de 30 minutos en los códigos de confirmación y correo no registrado
+
+Una confirmación válida del admin (código del correo o de la app) deja abierta la MISMA acción durante 30 minutos
+(`lib/adminActionCode.js`, `inGrace`): eliminar varias imágenes o cuentas pide el código una sola vez. Pasada la media hora,
+vuelve a pedirlo. No aplica a cambiar contraseña, cambiar correo ni desactivar la verificación en dos pasos: esas siempre
+piden código nuevo. "Olvidé mi contraseña" con un correo sin cuenta responde 404 "no está registrado" y no envía ningún
+código (contrapartida: permite saber si un correo está registrado; sigue limitado por `passwordResetRateLimit`).
+
 ### B6d. Ficha del responsable de la tienda (solo admin) y grabación de voz con ondas
 
 El responsable (representante) de una tienda NO es público: su ficha solo la ven los administradores. En Admin > Tiendas,

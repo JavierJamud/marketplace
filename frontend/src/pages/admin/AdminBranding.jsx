@@ -4,6 +4,7 @@ import toast from "../../lib/toast.jsx";
 import { Sparkles, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
+import { HeroImagesCard } from "../../components/admin/HeroImagesCard.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 // Bloque 46 (pedido explícito): el logo de la plataforma ya no se sube ni
@@ -249,6 +250,8 @@ export default function AdminBranding() {
         El nombre se usa en todo el sitio — header, footer, títulos de página, correos, PDFs y mensajes de WhatsApp —
         sin necesidad de un redespliegue. El logo es fijo, parte del código de la plataforma.
       </p>
+
+      <HeroImagesCard />
 
       {/* Vista previa en vivo, mismo tratamiento visual que el header real */}
       <div className="mb-6 flex items-center gap-2.5 rounded-2xl bg-primary px-5 py-4 shadow-sm">

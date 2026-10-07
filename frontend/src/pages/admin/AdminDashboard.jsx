@@ -1,9 +1,8 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import {
-  ImagePlus,
   X,
   Store,
   Users,
@@ -27,7 +26,6 @@ import {
 } from "lucide-react";
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "../../lib/api.js";
-import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
 
@@ -112,10 +110,7 @@ const MAIN_FUNNEL_STAGES = ["NOT_STARTED", "PENDING_DOCS", "IN_REVIEW", "PENDING
 // (reusa computeVendorHealthScore, nunca un cálculo nuevo), todo lo
 // pendiente de revisar en un solo lugar, y el embudo de verificación.
 export default function AdminDashboard() {
-  const queryClient = useQueryClient();
   const { user } = useAuth();
-  const fileRef = useRef(null);
-  const [removeTarget, setRemoveTarget] = useState(null);
 
   const { data } = useQuery({
     queryKey: ["admin-dashboard"],
@@ -171,39 +166,6 @@ export default function AdminDashboard() {
     placeholderData: keepPreviousData,
   });
 
-  const uploadHero = useMutation({
-    mutationFn: async (files) => {
-      const form = new FormData();
-      for (const f of files) form.append("images", f);
-      return (await api.post("/admin/settings/hero-images", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
-    },
-    onSuccess: (_data, files) => {
-      toast.success(files.length > 1 ? "Imágenes agregadas al hero." : "Imagen agregada al hero.");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron subir las imágenes."),
-  });
-
-  const removeHero = useMutation({
-    mutationFn: async (url) => (await api.delete("/admin/settings/hero-images", { data: { url } })).data,
-    onSuccess: () => {
-      setRemoveTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => {
-      setRemoveTarget(null);
-      toast.error(err.response?.data?.error ?? "No se pudo eliminar la imagen.");
-    },
-  });
-
-  function handleFileChange(e) {
-    const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
-    uploadHero.mutate(files);
-    e.target.value = "";
-  }
-
-  const heroImages = settings?.heroImages ?? [];
   const siteName = settings?.siteName || "Baznova";
   const firstName = user?.fullName?.split(" ")[0] || "Admin";
   const rawMonth = new Date().toLocaleDateString("es-CU", { month: "long", year: "numeric" });
@@ -633,53 +595,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className={`${CARD} p-6`}>
-        <CardHeader icon={ImagePlus} tone="teal" title="Imagen principal del sitio" subtitle="Se muestra en la primera sección (hero) de la Home para todos los visitantes" />
-        <p className="mb-1 mt-3 text-[12.5px] text-outline">
-          Una a la vez, con un fundido automático. Si subes más de una, abajo del hero aparecen puntos que marcan cuántas hay. Si no subes
-          ninguna, se usa un placeholder.
-        </p>
-        <p className="mb-4 text-[12.5px] text-outline">
-          Tamaño recomendado: <strong>1200×800px</strong> o más grande, en relación <strong>3:2</strong> — el mismo
-          formato del recuadro donde se muestra en la Home. Cada imagen siempre se ajusta completa a ese espacio sin
-          deformarse ni recortarse; si sube con otra relación de aspecto (por ejemplo, más alta que ancha), queda
-          centrada con el sobrante relleno en vez de estirarse.
-        </p>
-        <div className="flex flex-wrap gap-2.5">
-          {heroImages.map((url) => (
-            <div key={url} className="group relative h-[90px] w-[130px] flex-shrink-0 overflow-hidden rounded-xl border border-surface-container-high bg-surface-container">
-              <img src={`${api.defaults.baseURL}${url}`} alt="" className="h-full w-full object-contain" />
-              <button
-                type="button"
-                onClick={() => setRemoveTarget(url)}
-                disabled={removeHero.isPending}
-                className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploadHero.isPending}
-            className="flex h-[90px] w-[130px] flex-shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-outline-variant text-on-secondary-container transition-colors hover:bg-surface-container/40 disabled:opacity-50"
-          >
-            <ImagePlus className="h-5 w-5" />
-            <span className="text-[12px] font-bold">{uploadHero.isPending ? "Subiendo..." : "Agregar imagen(es)"}</span>
-          </button>
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleFileChange} />
-        </div>
-      </div>
-
-      <ConfirmModal
-        open={!!removeTarget}
-        title="¿Eliminar esta imagen del hero?"
-        message="Se quita del slider de la Home de inmediato. Esta acción no se puede deshacer."
-        confirmLabel={removeHero.isPending ? "Eliminando..." : "Sí, eliminar"}
-        danger
-        onConfirm={() => removeHero.mutate(removeTarget)}
-        onCancel={() => setRemoveTarget(null)}
-      />
     </div>
   );
 }

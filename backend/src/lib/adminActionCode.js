@@ -47,6 +47,18 @@ const TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 30 * 1000;
 const MAX_ATTEMPTS = 5;
 
+// Bloque 279 (pedido explícito — "si la acción se repite en 30 minutos no se pide autenticación de
+// nuevo: al eliminar varias imágenes o cuentas se valida una vez y se puede seguir 30 minutos"):
+// una confirmación válida deja abierta la MISMA acción (mismo tipo, misma persona) durante 30 minutos.
+// Quedan fuera las que protegen el acceso a la propia cuenta: siempre piden código nuevo.
+const GRACE_MS = 30 * 60 * 1000;
+const NO_GRACE = new Set(["ADMIN_PASSWORD_CHANGE", "ADMIN_EMAIL_CHANGE", "DISABLE_ADMIN_2FA"]);
+async function inGrace(userId, action) {
+  if (NO_GRACE.has(action)) return false;
+  const recent = await prisma.adminActionCode.findFirst({ where: { userId, action, usedAt: { gte: new Date(Date.now() - GRACE_MS) } }, select: { id: true } });
+  return !!recent;
+}
+
 // Bloque 276 (pedido explícito — "al enviar el aviso al administrador debe aparecer el nombre
 // real de la tienda, nunca un id"): nombre de a quién afecta la acción, para mostrarlo en el
 // modal y en el correo. Los ids son únicos entre tablas, así que un id de la URL que coincide
@@ -115,11 +127,16 @@ export async function verifyActionCode(userId, action, code) {
 // (p. ej. contraseña actual y nuevas) en vez de antes, como hace el middleware.
 export async function confirmActionCode(req, res, action) {
   const code = req.get("x-action-code");
+  if (await inGrace(req.user.id, action)) return true;
   // Bloque 275 (pedido explícito): si el admin tiene la app autenticadora, el código que se pide
   // primero es el de la app; el del correo sigue valiendo para quien no tiene el teléfono a mano.
   const me = await prisma.user.findUnique({ where: { id: req.user.id } });
   const hasApp = !!me?.totpEnabledAt;
-  if (code && hasApp && /^\d{6}$/.test(String(code).trim()) && (await consumeTotpCode(me, String(code).trim()))) return true;
+  if (code && hasApp && /^\d{6}$/.test(String(code).trim()) && (await consumeTotpCode(me, String(code).trim()))) {
+    // El código de la app no deja fila propia: se registra para abrir los 30 minutos.
+    await prisma.adminActionCode.create({ data: { userId: me.id, action, codeHash: "totp", usedAt: new Date(), expiresAt: new Date() } });
+    return true;
+  }
   const row = code ? await checkActionCode(req.user.id, action, code) : null;
   if (row) {
     res.on("finish", () => {
