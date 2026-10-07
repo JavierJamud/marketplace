@@ -24,18 +24,30 @@ import { prisma } from "./prisma.js";
 
 export const AI_PRIORITY = ["groq", "nvidia", "gemini"];
 
-// Límites del plan gratis usados mientras la API no informe los suyos. Son
-// conservadores a propósito; la cifra real de la API los reemplaza en cuanto llega.
+// Límites del plan gratis usados mientras la API no informe los suyos (publicados por
+// cada proveedor, junio 2026). Son conservadores a propósito; la cifra real de la API
+// los reemplaza en cuanto llega.
+//  - Groq manda sus límites reales en cada respuesta (pedidos por día y tokens por minuto).
+//  - NVIDIA (build.nvidia.com) da 40 pedidos por minuto gratis, sin cupo diario.
+//  - Gemini NO informa su consumo por la API: Google solo lo muestra en
+//    aistudio.google.com/rate-limit (o en la consola de Google Cloud). Aquí se cuenta
+//    contra el límite gratis publicado de cada familia de modelos. Además lleva un tope
+//    de seguridad de tokens por día: si la clave fuera de un proyecto CON facturación
+//    (donde no existe plan gratis y todo se cobra), el gasto queda acotado.
 export const DEFAULT_FREE_LIMITS = {
   groq: { rpm: 30, rpd: 1000, tpm: 6000, tpd: 100000 },
   nvidia: { rpm: 40, rpd: null, tpm: null, tpd: null },
-  gemini: { rpm: 10, rpd: 250, tpm: 250000, tpd: null },
+  gemini: { rpm: 10, rpd: 250, tpm: 250000, tpd: 300000 },
 };
-// La transcripción de Groq (Whisper) tiene su propio cupo, aparte del de texto.
-const MODEL_FREE_LIMITS = {
-  "groq::whisper-large-v3-turbo": { rpm: 20, rpd: 2000, tpm: null, tpd: null },
-  "groq::whisper-large-v3": { rpm: 20, rpd: 2000, tpm: null, tpd: null },
-};
+
+// Límites propios de algunos modelos (por nombre).
+function modelFreeLimits(provider, model) {
+  const id = String(model || "").toLowerCase();
+  if (provider === "groq" && id.startsWith("whisper")) return { rpm: 20, rpd: 2000, tpm: null, tpd: null };
+  if (provider === "groq" && /8b|instant/.test(id)) return { rpm: 30, rpd: 14400, tpm: 6000, tpd: 500000 };
+  if (provider === "gemini" && /flash-lite/.test(id)) return { rpm: 15, rpd: 1000 };
+  return {};
+}
 
 const SAFETY_RATIO = 0.1;
 const MINUTE_MS = 60_000;
@@ -216,7 +228,7 @@ function retryHintMs(text) {
 function effectiveLimits(provider, model) {
   return {
     ...(DEFAULT_FREE_LIMITS[provider] ?? {}),
-    ...(MODEL_FREE_LIMITS[keyOf(provider, model)] ?? {}),
+    ...modelFreeLimits(provider, model),
     ...Object.fromEntries(Object.entries(overrides.get(provider) ?? {}).filter(([, v]) => v != null)),
   };
 }
@@ -330,6 +342,7 @@ export async function recordAiResponse({ provider, model, headers, status, token
   if (status === 402) {
     entry.blockedUntil = Math.max(entry.blockedUntil || 0, entry.day.resetAt);
     entry.blockedReason = "La cuenta pide pago (sin cupo gratis): usa una clave de un proyecto con plan gratis.";
+    void disablePaidProvider(provider, errorText);
   }
   if (status === 429) {
     const perDay = learnFromQuotaError(entry, errorText);
@@ -368,6 +381,25 @@ export async function setFreeLimitOverrides(provider, values) {
     update: { data: clean },
   });
   return clean;
+}
+
+// Bloque 281 (pedido explícito — "Gemini gastó 10 USD en minutos; eso no puede volver
+// a pasar"): un 402 significa que la clave es de una cuenta de PAGO. El proveedor se
+// apaga en Integraciones en ese mismo momento y se avisa al admin; solo vuelve a
+// usarse cuando el admin ponga una clave del plan gratis y lo active a mano.
+async function disablePaidProvider(provider, errorText) {
+  try {
+    const { count } = await prisma.integration.updateMany({ where: { name: provider, isActive: true }, data: { isActive: false } });
+    if (count === 0) return;
+    const { notifyAdminActionNeeded } = await import("./adminNotify.js");
+    await notifyAdminActionNeeded(
+      `Se apagó ${provider}: su clave es de pago`,
+      `${provider} respondió que la cuenta no tiene saldo o pide pago (error 402). Eso significa que la clave es de un proyecto con facturación, donde no hay plan gratis y cada consulta se cobra.\n\n` +
+        `Para no generar más gastos, ${provider} quedó DESACTIVADO en Admin → Integraciones. Para volver a usarlo, crea una clave en un proyecto SIN facturación (plan gratis), guárdala y actívalo.\n\nDetalle: ${String(errorText || "").slice(0, 300)}`
+    );
+  } catch (err) {
+    console.error(`[aiQuota] no se pudo apagar ${provider} tras el 402:`, err?.message);
+  }
 }
 
 // Exportado solo para pruebas.

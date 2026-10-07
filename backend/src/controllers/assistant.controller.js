@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { chatWithStoreAssistant } from "../lib/ai.js";
+import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { getBrandSettings } from "./settings.controller.js";
@@ -33,7 +34,7 @@ export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assista
 // alcanza para el filtrado progresivo actual sin arrastrar toda la charla
 // — si en pruebas reales resultara corto para algún caso, subir a 8, nunca
 // volver a 20.
-const HISTORY_LIMIT = 6;
+// Bloque 281: ahora van 4 mensajes completos + una memoria corta del resto (lib/chatMemory.js).
 const CANDIDATE_LIMIT = 10;
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
@@ -1001,7 +1002,7 @@ export async function postMarketplaceChatMessage(req, res) {
   const { sessionId, message } = postMessageSchema.parse(req.body);
   const userId = resolveOptionalUserId(req);
 
-  const recent = await prisma.marketplaceChatMessage.findMany({ where: { sessionId }, orderBy: { createdAt: "desc" }, take: HISTORY_LIMIT });
+  const recent = await prisma.marketplaceChatMessage.findMany({ where: { sessionId }, orderBy: { createdAt: "desc" }, take: MEMORY_FETCH_LIMIT });
   const history = isSessionExpired(recent[0]) ? [] : recent.reverse();
 
   await prisma.marketplaceChatMessage.create({ data: { sessionId, userId, role: "user", content: message } });
@@ -1082,7 +1083,10 @@ export async function postMarketplaceChatMessage(req, res) {
     searchMeta.poolStoreSlug = pool[0]?.vendor?.slug;
 
     const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message);
-    ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
+    // Bloque 281: últimos mensajes tal cual + memoria corta del resto (lib/chatMemory.js).
+    const { history: aiHistory, memory } = compactHistory(history);
+    if (memory) systemParts.push({ text: memory });
+    ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message }));
   } catch (err) {
     await logError({
       origin: "BOT_GENERAL",

@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { chatWithStoreAssistant } from "../lib/ai.js";
+import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
@@ -21,7 +22,7 @@ import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planCon
 // para el filtrado progresivo actual sin arrastrar toda la charla — si en
 // pruebas reales resultara corto para algún caso, subir a 8, nunca volver
 // a 20.
-const HISTORY_LIMIT = 6;
+// Bloque 281: ahora van 4 mensajes completos + una memoria corta del resto (lib/chatMemory.js).
 
 // Bloque 39 (Parte 2) — bug real reportado: con más de 60 productos activos,
 // el catálogo volcado al prompt truncaba en silencio a los últimos 60 más
@@ -624,7 +625,9 @@ export async function postChatMessage(req, res) {
   const recent = await prisma.chatMessage.findMany({
     where: { vendorId, sessionId },
     orderBy: { createdAt: "desc" },
-    take: HISTORY_LIMIT,
+    // Bloque 281: se leen más mensajes, pero a la IA solo van los últimos tal cual y el
+    // resto como MEMORIA corta (lib/chatMemory.js): menos tokens en cada pedido.
+    take: MEMORY_FETCH_LIMIT,
   });
   // Sesión vencida (>24h desde el último mensaje) = se trata como charla
   // nueva de cara al modelo, aunque el cliente siga mandando el mismo
@@ -665,7 +668,9 @@ export async function postChatMessage(req, res) {
       buildPurchaseHistoryContext(vendorId, userId),
     ]);
     const systemParts = await buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext, message);
-    ({ text: rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history, message }));
+    const { history: aiHistory, memory } = compactHistory(history);
+    if (memory) systemParts.push({ text: memory });
+    ({ text: rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message }));
   } catch (err) {
     await logError({
       origin: "BOT_TIENDA",

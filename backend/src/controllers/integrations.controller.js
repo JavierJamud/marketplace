@@ -7,7 +7,7 @@ import { listGroqModels, listGroqModelsCatalog, generateWithGroq, DEFAULT_MODEL 
 import { listGeminiModels, listGeminiModelsCatalog, generateWithGemini, DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from "../lib/gemini.js";
 import { sendAdminDirectEmail } from "../lib/email.js";
 import { getEffectiveActiveModels } from "../lib/aiModels.js";
-import { classifyModel, getUnavailableModel, getModelAvailable, getProbeState, CATEGORIES, CATEGORY_ORDER } from "../lib/aiModelCatalog.js";
+import { classifyModel, getUnavailableModel, getModelAvailable, getProbeState, CATEGORIES, CATEGORY_ORDER, isFreeTierModel } from "../lib/aiModelCatalog.js";
 import { getProviderQuotaOverview, isWithinFreeQuota } from "../lib/aiQuota.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
@@ -202,7 +202,7 @@ export async function listProviderModels(req, res) {
   const NEEDED = new Set(["text", "vision", "transcription"]);
   const usage = new Map((await getProviderQuotaOverview(name, classified.map((m) => m.id))).map((q) => [q.model, q]));
   const catalog = classified
-    .filter((m) => NEEDED.has(m.category))
+    .filter((m) => NEEDED.has(m.category) && isFreeTierModel(name, m.id))
     .map((m) => {
       const bad = getUnavailableModel(name, m.id);
       const ok = getModelAvailable(name, m.id);

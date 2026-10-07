@@ -10,6 +10,7 @@ import { markProviderCooldown, isProviderCoolingDown, clearProviderCooldown } fr
 import { isChatbotHealthy, getModelHealthRows } from "./aiProviderHealth.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
 import { AI_PRIORITY, getQuotaStatus, isWithinFreeQuota } from "./aiQuota.js";
+import { isFreeTierModel } from "./aiModelCatalog.js";
 
 // Bloque 83 (pedido explícito, con medición real): benchmark inicial en
 // vivo contra los 3 proveedores reales de esta cuenta — Groq ~400-800ms,
@@ -77,7 +78,8 @@ async function getActiveProviders() {
     const models = await getEffectiveActiveModels(name);
     const withQuota = await Promise.all(models.map(async (config, index) => ({ config, index, quota: await getQuotaStatus(name, config.model) })));
     withQuota
-      .filter((m) => m.quota.available)
+      // Bloque 281: un modelo de pago nunca entra en la cadena, aunque esté configurado.
+      .filter((m) => m.quota.available && isFreeTierModel(name, m.config.model))
       .sort((a, b) => Math.round(a.quota.usageRatio * 10) - Math.round(b.quota.usageRatio * 10) || a.index - b.index)
       .forEach((m) => pairs.push({ name, apiKey, model: m.config.model }));
   }
@@ -229,17 +231,31 @@ export async function generateRawText(prompt) {
 // igual (cae al fallback de similarity()/pg_trgm en la DB, sin IA) — nunca
 // tiene sentido romper una búsqueda porque el "autocorrector" no estaba
 // disponible. Devuelve null en cualquiera de los dos casos (nunca "").
+// Bloque 281: la misma búsqueda sin resultados (un bot que rastrea, alguien que
+// recarga) no vuelve a consultar a la IA: la corrección se recuerda 24 h. Términos
+// muy cortos o muy largos no se corrigen.
+const SEARCH_CORRECTION_TTL_MS = 24 * 60 * 60 * 1000;
+const searchCorrectionCache = new Map();
+
 export async function correctSearchQuery(rawQuery) {
+  const key = String(rawQuery || "").trim().toLowerCase();
+  if (key.length < 3 || key.length > 60) return null;
+  const cached = searchCorrectionCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_CORRECTION_TTL_MS) return cached.value;
   const providers = await getActiveProviders();
   if (!providers.length) return null;
+  let value = null;
   try {
     const { siteName } = await getBrandSettings();
     const prompt = searchQueryCorrectionPrompt(rawQuery, siteName);
     const corrected = await callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "");
-    return corrected?.trim() || null;
+    value = corrected?.trim() || null;
   } catch {
-    return null;
+    value = null;
   }
+  if (searchCorrectionCache.size > 5000) searchCorrectionCache.clear();
+  searchCorrectionCache.set(key, { at: Date.now(), value });
+  return value;
 }
 
 // Bloque 26/27: fallback real en vivo — si el proveedor principal falla

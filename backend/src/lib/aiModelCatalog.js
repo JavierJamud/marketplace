@@ -175,3 +175,18 @@ export function failureKindOf(text) {
   if (/429|quota|rate.?limit|exhaust|too many/.test(s)) return "quota";
   return "transient";
 }
+
+// Bloque 281 (pedido explícito — "solo modelos del plan gratuito; ninguno de pago"):
+// qué modelos de cada proveedor entran en su plan gratis.
+//  - Groq: su plan gratis cubre sus modelos de chat (con límites por modelo); se
+//    excluyen los de texto a voz y los "compound" (usan herramientas externas de pago).
+//  - NVIDIA: los endpoints de build.nvidia.com son gratis con 40 pedidos por minuto.
+//  - Gemini: solo la familia Flash y Flash-Lite. Los Pro (y los de imagen, voz,
+//    video o investigación) no tienen plan gratis útil o son de pago.
+export function isFreeTierModel(provider, id) {
+  const s = String(id || "").toLowerCase();
+  if (provider === "groq") return !/compound|tts|playai|orpheus/.test(s);
+  if (provider === "nvidia") return true;
+  if (provider === "gemini") return /flash/.test(s) && !/pro|ultra|image|tts|audio|live|video|veo|imagen|deep-research|computer-use|robotics/.test(s);
+  return false;
+}

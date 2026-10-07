@@ -144,8 +144,9 @@ export default function AiQuotaPanel() {
         </h2>
       </div>
       <p className="mb-3 text-[12.5px] text-on-surface-variant">
-        Se usa primero Groq, después NVIDIA y por último Gemini. Cuando a una le queda el 10 % de su cupo gratis, se pasa a la
-        siguiente sin gastar más; vuelve a usarse sola cuando su cupo se renueva.
+        Se usa primero Groq, después NVIDIA y por último Gemini, y solo modelos de su plan gratis. Cuando a una le queda
+        el 10 % de su cupo, se pasa a la siguiente sin gastar más; vuelve sola cuando el cupo se renueva. Si una API
+        responde que la cuenta es de pago, se apaga sola y te llega un correo.
       </p>
 
       {isLoading && <p className="text-[12.5px] text-outline">Cargando consumo…</p>}
@@ -175,6 +176,19 @@ export default function AiQuotaPanel() {
                 </span>
               )}
             </div>
+            {p.info && (
+              <div className="mb-2 text-[12px] text-on-surface-variant">
+                <p>
+                  <strong>Plan gratis:</strong> {p.info.plan}
+                </p>
+                <p className="mt-0.5 text-outline">
+                  {p.info.source}{" "}
+                  <a href={p.info.dashboardUrl} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent hover:underline">
+                    Ver límites en su panel
+                  </a>
+                </p>
+              </div>
+            )}
             {p.enabled &&
               p.models.map((m) => (
                 <div key={m.model} className="mb-3 border-t border-surface-container pt-2.5">

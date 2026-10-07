@@ -3,6 +3,7 @@ import { AppError } from "../utils/AppError.js";
 import { generateRawText } from "../lib/ai.js";
 import { TOOLS_BY_SCOPE, LINKS_BY_SCOPE } from "../lib/assistantTools.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
+import { compactHistory } from "../lib/chatMemory.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA, SOLO lectura y
 // recomendación): las librerías de IA del proyecto no tienen llamadas a
@@ -116,9 +117,14 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
     }
   }
 
-  if (history.length > 0) {
-    lines.push("CONVERSACIÓN ANTERIOR:");
-    for (const m of history) lines.push(`${m.role === "user" ? "Persona" : "Asistente"}: ${m.content.slice(0, 500)}`);
+  // Bloque 281: solo los últimos mensajes van completos; lo anterior va como memoria
+  // corta (lib/chatMemory.js). Este prompt se manda varias veces por pregunta (una
+  // por cada herramienta consultada), así que cada línea ahorrada se multiplica.
+  const { history: recentHistory, memory } = compactHistory(history, { keepRecent: 4, recentChars: 400 });
+  if (memory) lines.push(memory.replace(/Cliente:/g, "Persona:").replace(/- Tú:/g, "- Asistente:"), "");
+  if (recentHistory.length > 0) {
+    lines.push("CONVERSACIÓN RECIENTE:");
+    for (const m of recentHistory) lines.push(`${m.role === "user" ? "Persona" : "Asistente"}: ${m.content}`);
     lines.push("");
   }
   lines.push(`PREGUNTA ACTUAL DE LA PERSONA: ${message}`, "");

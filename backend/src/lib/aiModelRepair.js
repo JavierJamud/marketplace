@@ -6,7 +6,7 @@ import { generateWithGroq, listGroqModels, listGroqModelsDetailed, listGroqModel
 import { generateWithNvidia, listNvidiaModels, listNvidiaModelsDetailed, listNvidiaModelsCatalog, DEFAULT_MODEL as NVIDIA_DEFAULT } from "./nvidia.js";
 import { rankNewestFirst } from "./aiModelRanking.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
-import { getUnavailableModel, getModelAvailable } from "./aiModelCatalog.js";
+import { getUnavailableModel, getModelAvailable, isFreeTierModel } from "./aiModelCatalog.js";
 import { getModelHealth, getModelHealthRows, upsertModelHealth, patchModelHealth, deleteModelHealth } from "./aiProviderHealth.js";
 
 // Bloque 99 (pedido explícito — "cuando un modelo se desconecte, que el
@@ -206,7 +206,7 @@ async function runRepair({ provider, apiKey, brokenModel, errorDetail, failure, 
   // Bloque 266b: los que ya se comprobó que dan 404 para esta cuenta no se prueban, y los
   // comprobados como disponibles van primero.
   const usable = detailed
-    .filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id) && !getUnavailableModel(provider, m.id))
+    .filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id) && !getUnavailableModel(provider, m.id) && isFreeTierModel(provider, m.id))
     .sort((a, b) => Number(!!getModelAvailable(provider, b.id)) - Number(!!getModelAvailable(provider, a.id)));
   const ranked = rankNewestFirst(usable);
   if (ranked.length === 0) {

@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
-import { checkModel } from "../lib/aiModelRepair.js";
+import { checkModel, PROVIDERS } from "../lib/aiModelRepair.js";
 import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "../lib/aiModels.js";
 import { getModelHealthRows, upsertModelHealth, deleteModelHealth } from "../lib/aiProviderHealth.js";
 import { getQuotaStatus } from "../lib/aiQuota.js";
@@ -20,10 +20,9 @@ import { getQuotaStatus } from "../lib/aiQuota.js";
 // verificada, "problema resuelto") en checkModel (lib/aiModelRepair.js), la
 // misma política que usan ai.js en vivo y el chequeo diario de las 3am.
 
-// Bloque 280: cada 10 minutos (antes cada 2). Cada prueba es un pedido real que
-// gasta cupo gratis; con tráfico real ya se sabe si un modelo responde.
+// Bloque 280/281: cada 10 minutos (antes cada 2), y sin gastar cupo (ver checkProvider).
 const CHECK_INTERVAL_CRON = "*/10 * * * *";
-// Un modelo que respondió bien a un cliente en este plazo no se vuelve a probar.
+// Un modelo caído se vuelve a probar con una consulta real como mucho una vez en este plazo.
 const RECENT_OK_MS = 60 * 60_000;
 let running = false;
 
@@ -47,24 +46,34 @@ async function checkProvider(providerName, trigger) {
   // Un modelo que el admin desactivó o borró ya no cuenta para la salud.
   await Promise.all(health.filter((h) => h.provider === providerName && h.model !== "" && !activeNames.has(h.model)).map((h) => deleteModelHealth(providerName, h.model)));
 
-  // Bloque 280 (pedido explícito — no gastar el cupo gratis): solo se prueba con un
-  // pedido real el modelo que lo necesita. Se salta si está cerca de su límite
-  // (la prueba podría pasarlo) o si un cliente lo usó bien hace poco (ya se sabe
-  // que responde). Un modelo caído sí se reprueba para detectar que volvió.
+  // Bloque 281 (pedido explícito — "que no se gasten tokens si nadie usa los
+  // servicios"): la vigilancia de fondo ya NO le hace preguntas a la IA. Para saber
+  // si un modelo sigue existiendo se pide la LISTA de modelos de la API, que es
+  // gratis y no gasta cupo. Solo se hace una consulta real cuando hace falta de
+  // verdad: un modelo marcado caído (máximo una vez por hora, para ver si volvió) o
+  // uno que desapareció de la lista (para confirmar la baja y buscar reemplazo).
+  // Si hay tráfico real, ese tráfico es el que dice si responde.
+  let listed = null;
+  try {
+    listed = new Set(await PROVIDERS[providerName].list({ apiKey }));
+  } catch {
+    listed = null; // la lista falló (red): no se decide nada con eso, se espera al próximo turno
+  }
   const healthByModel = new Map(health.filter((h) => h.provider === providerName).map((h) => [h.model, h]));
   const results = await Promise.all(
     models.map(async (m) => {
       const quota = await getQuotaStatus(providerName, m.model);
       if (!quota.available) return { status: "skipped", outcome: "near_free_limit" };
       const row = healthByModel.get(m.model);
-      const recentOk = quota.lastOkAt && Date.now() - new Date(quota.lastOkAt).getTime() < RECENT_OK_MS;
-      if (row?.status === "healthy" && recentOk) {
-        await upsertModelHealth(providerName, m.model, { status: "healthy", lastError: null, downSince: null });
-        return { status: "healthy", outcome: "recent_real_traffic" };
+      const checkedAgo = row?.lastCheckedAt ? Date.now() - new Date(row.lastCheckedAt).getTime() : Infinity;
+      if (row?.status === "down") {
+        if (checkedAgo < RECENT_OK_MS) return { status: "down", outcome: "waiting_recheck" };
+        return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
       }
-      if (trigger === "proactive" && row?.status === "healthy") {
-        const checkedAgo = row.lastCheckedAt ? Date.now() - new Date(row.lastCheckedAt).getTime() : Infinity;
-        if (checkedAgo < RECENT_OK_MS) return { status: "healthy", outcome: "checked_recently" };
+      if (!listed) return { status: row?.status ?? "unknown", outcome: "list_unavailable" };
+      if (listed.has(m.model)) {
+        await upsertModelHealth(providerName, m.model, { status: "healthy", lastError: null, downSince: null });
+        return { status: "healthy", outcome: "listed_by_api" };
       }
       return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
     })

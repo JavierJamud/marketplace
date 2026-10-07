@@ -6,7 +6,7 @@ import { AI_PROVIDER_NAMES, DEFAULT_MODELS, getAllEffectiveModels, getEffectiveA
 import { AI_PRIORITY, getProviderQuotaOverview, getFreeLimitOverrides, setFreeLimitOverrides } from "../lib/aiQuota.js";
 import { TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "../lib/groq.js";
 import { PROVIDERS, probeModel, errorDetailOf, classifyFailure } from "../lib/aiModelRepair.js";
-import { friendlyModelError, markModelUnavailable, clearModelUnavailable } from "../lib/aiModelCatalog.js";
+import { friendlyModelError, markModelUnavailable, clearModelUnavailable, isFreeTierModel } from "../lib/aiModelCatalog.js";
 import { getModelHealthRows, deleteModelHealth, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 
 // Bloque 245 (pedido explícito): cada proveedor de IA puede tener uno o varios
@@ -53,6 +53,8 @@ const addSchema = z.object({
 // rechaza acá con el motivo exacto en vez de aparecer más tarde como "caído".
 export async function addAiModel(req, res) {
   const { provider, model } = addSchema.parse(req.body);
+  // Bloque 281: solo modelos del plan gratis.
+  if (!isFreeTierModel(provider, model)) throw new AppError(`"${model}" no está en el plan gratis de ${PROVIDERS[provider].label}. Solo se pueden agregar modelos gratuitos.`, 400);
 
   const existing = await prisma.aiModelConfig.findUnique({ where: { provider_model: { provider, model } } });
   if (existing) throw new AppError("Ese modelo ya está en la lista de este proveedor.", 409);
@@ -156,6 +158,25 @@ export async function deleteAiModel(req, res) {
 // cuánto le queda en su plan gratis y cuánto falta para que se restablezca"): estado
 // del cupo gratis de cada proveedor en el orden de rotación (Groq → NVIDIA → Gemini).
 // Las cifras con source "api" vienen de la propia API; las "estimado" se cuentan aquí.
+// Qué ofrece gratis cada proveedor y de dónde salen las cifras (Bloque 281).
+const FREE_PLAN_INFO = {
+  groq: {
+    plan: "Gratis sin tarjeta. Cada modelo tiene su propio cupo por minuto y por día; Whisper (voz a texto) aparte.",
+    source: "Cifras en vivo: Groq las informa en cada respuesta.",
+    dashboardUrl: "https://console.groq.com/settings/limits",
+  },
+  nvidia: {
+    plan: "Gratis en build.nvidia.com: 40 pedidos por minuto, sin cupo diario.",
+    source: "NVIDIA no siempre informa el consumo: se cuenta en la plataforma.",
+    dashboardUrl: "https://build.nvidia.com",
+  },
+  gemini: {
+    plan: "Gratis solo en un proyecto SIN facturación: Flash ~10 pedidos/min y 250/día; Flash-Lite ~15/min y 1.000/día. Con facturación activa no hay plan gratis y todo se cobra.",
+    source: "Google no informa el consumo por la API: se cuenta en la plataforma. El límite real de tu cuenta está en AI Studio.",
+    dashboardUrl: "https://aistudio.google.com/rate-limit",
+  },
+};
+
 export async function getAiQuota(_req, res) {
   const providers = [];
   for (const provider of AI_PRIORITY) {
@@ -173,6 +194,7 @@ export async function getAiQuota(_req, res) {
       available: enabled && textQuotas.some((q) => q.available),
       resumesAt: enabled && !textQuotas.some((q) => q.available) ? textQuotas.map((q) => q.resumesAt).filter(Boolean).sort()[0] ?? null : null,
       limits: await getFreeLimitOverrides(provider),
+      info: FREE_PLAN_INFO[provider],
       models: quotas.map((q) => ({ ...q, purpose: q.model === GROQ_TRANSCRIBE_MODEL ? "Voz a texto" : "Texto" })),
     });
   }
