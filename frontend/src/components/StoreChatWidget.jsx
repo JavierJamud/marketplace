@@ -10,7 +10,8 @@ import { AddToCartControl } from "./AddToCartControl.jsx";
 import { RequestProductButton } from "./RequestProductButton.jsx";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
-import { VoiceWaveform } from "./VoiceWaveform.jsx";
+import { RecordingIndicator } from "./RecordingIndicator.jsx";
+import { RepresentativeButton } from "./RepresentativeButton.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
@@ -657,6 +658,7 @@ export function StoreChatWidget({ vendor }) {
               <div className="truncate text-label-md font-bold">{vendor.companyName}</div>
               <div className="text-[11px] text-white/70">Asistente con IA</div>
             </div>
+            <RepresentativeButton vendor={vendor} variant="chat" />
             {/* Bloque 38: mute toggle — clave compartida con el chat
                 general (ver chatSound.js), persiste entre recargas. */}
             <button
@@ -826,13 +828,7 @@ export function StoreChatWidget({ vendor }) {
 
           <div className="flex flex-shrink-0 gap-2 border-t border-surface-container-high p-3">
             {recordingState === "recording" ? (
-              <div className="flex h-10 flex-1 items-center gap-2 rounded-full border border-error/40 bg-error/5 px-4">
-                <span className="h-2 w-2 flex-shrink-0 animate-pulse rounded-full bg-error" />
-                <span className="flex-1 text-[12.5px] text-error">Grabando...</span>
-                <button onClick={cancelRecording} aria-label="Cancelar grabación" className="flex-shrink-0 text-outline hover:text-error">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              <RecordingIndicator stream={streamRef.current} onCancel={cancelRecording} />
             ) : recordingState === "transcribing" ? (
               <div className="flex h-10 flex-1 items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[12.5px] text-outline">
                 Transcribiendo audio...

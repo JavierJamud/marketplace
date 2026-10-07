@@ -6,6 +6,7 @@ import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { copyToClipboard } from "../lib/clipboard.js";
 import { waLink } from "../lib/whatsapp.js";
+import { RepresentativeButton } from "./RepresentativeButton.jsx";
 import { resolvePaymentMethod } from "../lib/paymentMethods.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
@@ -255,6 +256,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               >
                 <Share2 className="h-[18px] w-[18px]" />
               </button>
+              <RepresentativeButton vendor={v} />
               {user?.role === "CUSTOMER" && (
                 <button
                   onClick={() => setReportFraudOpen(true)}

@@ -8,7 +8,7 @@ import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
-import { VoiceWaveform } from "./VoiceWaveform.jsx";
+import { RecordingIndicator } from "./RecordingIndicator.jsx";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
 
@@ -738,13 +738,7 @@ export function MarketplaceChatWidget() {
 
           <div className="flex flex-shrink-0 gap-2 border-t border-surface-container-high p-3">
             {recording ? (
-              <div className="flex h-10 flex-1 items-center gap-2 rounded-full border border-error/40 bg-error/5 px-4">
-                <span className="h-2 w-2 flex-shrink-0 animate-pulse rounded-full bg-error" />
-                <span className="flex-1 text-[12.5px] text-error">Grabando...</span>
-                <button onClick={cancelRecording} aria-label="Cancelar grabación" className="flex-shrink-0 text-outline hover:text-error">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              <RecordingIndicator stream={streamRef.current} onCancel={cancelRecording} />
             ) : transcribing ? (
               <div className="flex h-10 flex-1 items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[12.5px] text-outline">
                 Transcribiendo audio...

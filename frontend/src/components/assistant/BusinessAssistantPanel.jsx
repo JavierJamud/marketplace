@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, Square, Trash2, X, ChevronLeft } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
+import { RecordingIndicator } from "../RecordingIndicator.jsx";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
 // para los vendedores): una sola pantalla de chat para los dos paneles. El
@@ -668,19 +669,13 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
               Escribe tu pregunta
             </label>
             {voice.state !== "idle" ? (
-              <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-error/40 bg-error/5 px-3.5 text-[13.5px]" role="status" aria-live="polite">
-                {voice.state === "recording" ? (
-                  <>
-                    <span className="h-2.5 w-2.5 flex-shrink-0 animate-pulse rounded-full bg-error motion-reduce:animate-none" aria-hidden="true" />
-                    <span className="flex-1 text-error">Grabando... toca el cuadro rojo para enviar</span>
-                    <button type="button" onClick={voice.cancel} aria-label="Cancelar la grabación" className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-on-surface-variant hover:text-error focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent">
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </>
-                ) : (
-                  <span className="text-on-surface-variant">Pasando tu voz a texto...</span>
-                )}
-              </div>
+              voice.state === "recording" ? (
+                <RecordingIndicator stream={voice.stream} onCancel={voice.cancel} className="min-h-11" />
+              ) : (
+                <div className="flex min-h-11 min-w-0 flex-1 items-center rounded-xl border border-outline-variant px-3.5 text-[13.5px] text-on-surface-variant" role="status" aria-live="polite">
+                  Pasando tu voz a texto...
+                </div>
+              )
             ) : (
             <textarea
               id="assistant-input"

@@ -12,6 +12,7 @@ const MIN_RECORDING_MS = 700;
 
 export function useVoiceRecorder() {
   const [state, setState] = useState("idle"); // idle | recording | transcribing
+  const [stream, setStream] = useState(null);
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -21,6 +22,7 @@ export function useVoiceRecorder() {
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    setStream(null);
   }, []);
 
   const cancel = useCallback(() => {
@@ -42,16 +44,17 @@ export function useVoiceRecorder() {
       toast.error("Tu navegador no permite grabar audio: escribe tu mensaje.");
       return;
     }
-    let stream;
+    let media;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      media = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       toast.error("No se pudo usar el micrófono. Revisa los permisos del navegador o escribe tu mensaje.");
       return;
     }
-    streamRef.current = stream;
+    streamRef.current = media;
+    setStream(media);
     chunksRef.current = [];
-    const recorder = new MediaRecorder(stream);
+    const recorder = new MediaRecorder(media);
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
@@ -95,5 +98,5 @@ export function useVoiceRecorder() {
     }
   }, [stopStream]);
 
-  return { state, supported, start, stop, cancel };
+  return { state, stream, supported, start, stop, cancel };
 }

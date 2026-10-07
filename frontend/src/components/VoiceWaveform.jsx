@@ -11,7 +11,7 @@ import { useEffect, useRef } from "react";
 // el ciclo de render de React — el mismo patrón que cualquier visualización
 // de audio en tiempo real (React no está pensado para actualizar estado 60
 // veces por segundo).
-const BAR_COUNT = 5;
+const BAR_COUNT = 24;
 const MIN_HEIGHT_PCT = 15;
 
 export function VoiceWaveform({ stream }) {
@@ -21,21 +21,25 @@ export function VoiceWaveform({ stream }) {
   useEffect(() => {
     if (!stream) return;
     let ctx;
+    let source;
+    let analyser;
     try {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
+      source = ctx.createMediaStreamSource(stream);
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
     } catch {
-      return; // Web Audio no disponible — el dot rojo de al lado sigue avisando igual.
+      // Web Audio no disponible o el stream no trae audio: el punto rojo y "Grabando" avisan igual.
+      ctx?.close().catch(() => {});
+      return;
     }
-    const source = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 64;
-    source.connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
 
     function tick() {
       analyser.getByteFrequencyData(data);
       for (let i = 0; i < BAR_COUNT; i++) {
-        const idx = Math.floor((i / BAR_COUNT) * data.length);
+        const idx = Math.floor((i / BAR_COUNT) * (data.length * 0.75));
         const level = Math.max(MIN_HEIGHT_PCT, Math.round((data[idx] / 255) * 100));
         const bar = barRefs.current[i];
         if (bar) bar.style.height = `${level}%`;
@@ -52,7 +56,7 @@ export function VoiceWaveform({ stream }) {
   }, [stream]);
 
   return (
-    <div className="flex h-5 flex-1 items-center justify-center gap-[3px]">
+    <div className="flex h-6 min-w-0 flex-1 items-center justify-center gap-[2px]" aria-hidden="true">
       {Array.from({ length: BAR_COUNT }, (_, i) => (
         <span
           key={i}

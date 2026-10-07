@@ -332,6 +332,16 @@ pasa la voz a texto y se envía como pregunta (`lib/useVoiceRecorder.js`).
 (`VENDOR_UNBLOCK`) y restaurar de eliminación pendiente (`VENDOR_RESTORE`) tienen su propia acción, y
 el modal y el correo nombran a la tienda o persona afectada (nunca un id).
 
+### B6d. Ficha pública del representante y grabación de voz con ondas
+
+`GET /vendors/:slug/representative` (público) arma la ficha desde el archivo de verificación de una tienda
+VERIFICADA y no bloqueada: nombre del representante, datos del negocio y ubicación. NUNCA sale el número de
+identificación, el ID fiscal, las fotos del documento, el video ni los pagos. La foto del representante la sirve
+`/representative/photo` y exige sesión iniciada. El botón (`RepresentativeButton`) está en la franja de la tienda y en
+el encabezado del chat de la tienda, y solo aparece si existe la ficha.
+Todos los chats con voz (público, de tienda y asistente de negocio) usan `RecordingIndicator`: punto rojo, "Grabando",
+ondas reales del micrófono (`VoiceWaveform`, Web Audio) y el tiempo transcurrido.
+
 ### B8c. Verificación en dos pasos con aplicación autenticadora — `lib/totp.js`
 
 Segundo paso del login para cliente, vendedor y admin (misma tabla `User`). Sin la app

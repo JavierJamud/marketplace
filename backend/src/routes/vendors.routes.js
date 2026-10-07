@@ -3,6 +3,7 @@ import * as vendorsController from "../controllers/vendors.controller.js";
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as chatController from "../controllers/chat.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
+import * as verificationArchiveController from "../controllers/verificationArchive.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
@@ -108,6 +109,9 @@ router.post("/:id/engagement", authenticate, requireRole("CUSTOMER"), vendorsCon
 // un slug de tienda.
 router.get("/:vendorId/chat", chatController.getChatHistory);
 router.post("/:vendorId/chat", chatRateLimit, chatController.postChatMessage);
+// Bloque 277: ficha del representante (pública) y su foto (solo con sesión).
+router.get("/:slug/representative", verificationArchiveController.getPublicRepresentative);
+router.get("/:slug/representative/photo", authenticate, verificationArchiveController.getPublicRepresentativePhoto);
 router.get("/:slug", vendorsController.getVendorBySlug);
 
 export default router;
