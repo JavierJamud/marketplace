@@ -2,13 +2,14 @@ import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { generateWithGemini, chatWithGemini } from "./gemini.js";
-import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq } from "./groq.js";
+import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq, TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "./groq.js";
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
 import { checkModel, setRepairAdvisor, classifyFailure } from "./aiModelRepair.js";
 import { markProviderCooldown, isProviderCoolingDown, clearProviderCooldown } from "./aiProviderCooldown.js";
 import { isChatbotHealthy, getModelHealthRows } from "./aiProviderHealth.js";
-import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "./aiModels.js";
+import { getEffectiveActiveModels } from "./aiModels.js";
+import { AI_PRIORITY, getQuotaStatus, isWithinFreeQuota } from "./aiQuota.js";
 
 // Bloque 83 (pedido explícito, con medición real): benchmark inicial en
 // vivo contra los 3 proveedores reales de esta cuenta — Groq ~400-800ms,
@@ -17,17 +18,9 @@ import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "./aiModels.js";
 // con uno inactivo, el fallback simplemente lo salta (nunca se llama a un
 // proveedor apagado).
 //
-// Bloque 99 (pedido explícito — "analizará cuál está respondiendo más
-// rápido y utilizaremos para texto los modelos que respondan más rápido
-// siempre"): el orden YA NO es este array fijo — abajo (sortByMeasuredSpeed)
-// se reordenan los proveedores activos por su latencia REAL medida en vivo,
-// actualizada en cada pedido real que responde bien. Este array pasa a ser
-// solo la LISTA de proveedores conocidos (qué nombres existen), no su orden
-// de prioridad — y las latencias de referencia de acá arriba quedan como
-// semilla inicial (DEFAULT_LATENCY_MS) para cuando el servidor recién
-// arrancó y todavía no hay ninguna medición real propia.
-const PROVIDER_NAMES = AI_PROVIDER_NAMES;
-const DEFAULT_LATENCY_MS = { groq: 600, gemini: 2000, nvidia: 15000 };
+// Bloque 99 ordenaba los proveedores por su velocidad medida. Bloque 280 (pedido
+// explícito) lo reemplaza por un orden FIJO — Groq, NVIDIA, Gemini — y por el
+// cupo gratis que le queda a cada modelo (lib/aiQuota.js).
 
 // Media móvil exponencial simple — le da más peso a lo reciente sin
 // descartar de golpe la historia previa (un solo pedido lento no debe
@@ -43,13 +36,12 @@ function recordLatency(providerName, ms) {
   latencyByProvider.set(providerName, prev == null ? ms : prev + EMA_ALPHA * (ms - prev));
 }
 
-function getMeasuredLatency(providerName) {
-  return latencyByProvider.get(providerName) ?? DEFAULT_LATENCY_MS[providerName] ?? 5000;
+// Bloque 280: la latencia ya no decide el orden (ahora es fijo: Groq → NVIDIA →
+// Gemini); se sigue midiendo solo para mostrarla y diagnosticar.
+export function getMeasuredLatencies() {
+  return Object.fromEntries([...latencyByProvider.entries()].map(([k, v]) => [k, Math.round(v)]));
 }
 
-function sortByMeasuredSpeed(providers) {
-  return [...providers].sort((a, b) => getMeasuredLatency(a.name) - getMeasuredLatency(b.name));
-}
 
 // Bloque 25: único punto de entrada público para IA de todo el backend —
 // ai.controller.js y chat.controller.js importan de ACÁ (antes importaban
@@ -70,29 +62,31 @@ function sortByMeasuredSpeed(providers) {
 // la última verificación marcó caídos van AL FINAL de la cadena (se siguen
 // intentando como último recurso, pero nunca antes de uno que sí responde).
 async function getActiveProviders() {
-  const providers = [];
-  for (const name of PROVIDER_NAMES) {
-    const apiKey = await getDecryptedCredential(name);
-    if (apiKey) providers.push({ name, apiKey });
-  }
   const healthRows = await getModelHealthRows();
   const isDown = (name, model) => healthRows.some((h) => h.provider === name && h.model === model && h.status === "down");
 
+  // Bloque 280 (pedido explícito): el orden ya no es por velocidad sino FIJO —
+  // Groq es la principal, después NVIDIA y por último Gemini. Dentro de cada
+  // proveedor se usa primero el modelo que menos cupo gastó (y, a igual consumo,
+  // el orden que fijó el admin). Un modelo cerca de su límite gratis NO entra en
+  // la cadena: nunca se le manda un pedido que pueda pasarse del plan gratis.
   const pairs = [];
-  for (const provider of sortByMeasuredSpeed(providers)) {
-    for (const config of await getEffectiveActiveModels(provider.name)) {
-      pairs.push({ name: provider.name, apiKey: provider.apiKey, model: config.model });
-    }
+  for (const name of AI_PRIORITY) {
+    const apiKey = await getDecryptedCredential(name);
+    if (!apiKey) continue;
+    const models = await getEffectiveActiveModels(name);
+    const withQuota = await Promise.all(models.map(async (config, index) => ({ config, index, quota: await getQuotaStatus(name, config.model) })));
+    withQuota
+      .filter((m) => m.quota.available)
+      .sort((a, b) => Math.round(a.quota.usageRatio * 10) - Math.round(b.quota.usageRatio * 10) || a.index - b.index)
+      .forEach((m) => pairs.push({ name, apiKey, model: m.config.model }));
   }
-  // Bloque 260: un proveedor que acaba de responder "cuota agotada" o "clave
-  // inválida" descansa (aiProviderCooldown.js): sus modelos van detrás de los
-  // de los demás proveedores. Pasado el plazo vuelve solo a su lugar por
-  // velocidad, que es como la API principal "se restablece" sin intervención.
-  const resting = (p) => isProviderCoolingDown(p.name);
-  const healthy = pairs.filter((p) => !resting(p) && !isDown(p.name, p.model));
-  const cooling = pairs.filter((p) => resting(p));
-  const down = pairs.filter((p) => !resting(p) && isDown(p.name, p.model));
-  return [...healthy, ...cooling, ...down];
+  // Bloque 260: un proveedor que acaba de responder "clave inválida" o "cuota
+  // agotada" descansa (aiProviderCooldown.js) y queda fuera hasta que pase el plazo.
+  const usable = pairs.filter((p) => !isProviderCoolingDown(p.name));
+  const healthy = usable.filter((p) => !isDown(p.name, p.model));
+  const down = usable.filter((p) => isDown(p.name, p.model));
+  return [...healthy, ...down];
 }
 
 function callGenerate(provider, prompt) {
@@ -150,24 +144,14 @@ function logProviderSuccess(provider) {
 export async function callWithFallbackChain(providers, callFn, genericErrorMessage, { reportFailures = true } = {}) {
   let lastErr;
   const queue = [...providers];
-  const deferred = [];
-  let deferring = true;
-  for (;;) {
-    if (queue.length === 0) {
-      if (deferred.length === 0) break;
-      // Se acabaron los demás proveedores: recién ahora se prueban, como último
-      // recurso, los modelos del que reportó cuota agotada.
-      queue.push(...deferred.splice(0));
-      deferring = false;
-    }
+  while (queue.length > 0) {
     const provider = queue.shift();
+    // Bloque 280: el cupo se vuelve a mirar justo antes de cada pedido (otro pedido
+    // en paralelo pudo gastar lo que quedaba). Cerca del límite se salta, sin llamar.
+    if (!(await isWithinFreeQuota(provider.name, provider.model))) continue;
     const start = Date.now();
     try {
       const result = await callFn(provider);
-      // Bloque 99: cada respuesta buena retroalimenta el orden de la
-      // próxima vez (ver sortByMeasuredSpeed/getActiveProviders) — "el más
-      // rápido" deja de ser una medición congelada de una vez, se actualiza
-      // solo con tráfico real.
       recordLatency(provider.name, Date.now() - start);
       clearProviderCooldown(provider.name);
       logProviderSuccess(provider);
@@ -178,33 +162,24 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
       const failure = classifyFailure(failureText);
       const accountLevel = failure.kind === "quota" || failure.kind === "auth";
       if (accountLevel) {
+        // Bloque 260 + 280: cuota agotada o clave inválida es de la CUENTA del
+        // proveedor: sus otros modelos fallarían igual y, con cuota, insistir
+        // podría pasarse del plan gratis. Se sacan todos de la cadena (ya no se
+        // reintentan "como último recurso") y el proveedor descansa.
         markProviderCooldown(provider.name, failure.kind, failureText);
-        if (deferring) {
-          for (let i = queue.length - 1; i >= 0; i--) {
-            if (queue[i].name === provider.name) deferred.unshift(...queue.splice(i, 1));
-          }
-        }
+        for (let i = queue.length - 1; i >= 0; i--) if (queue[i].name === provider.name) queue.splice(i, 1);
       }
       const next = queue[0];
       logProviderFailure(
-        `[ai] ${provider.name}/${provider.model} falló${accountLevel ? ` (${failure.kind === "quota" ? "cuota agotada" : "clave inválida"}: se salta todo ${provider.name})` : ""}${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo activo)"}:`,
+        `[ai] ${provider.name}/${provider.model} falló${accountLevel ? ` (${failure.kind === "quota" ? "cuota agotada" : "clave inválida"}: se salta todo ${provider.name})` : ""}${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo disponible)"}:`,
         err
       );
-      // Bloque 99 (pedido explícito — "apenas se desconecte, que el sistema
-      // lo detecte y busque el modelo adecuado"): dispara la reparación en
-      // segundo plano, SIN esperarla — el pedido actual ya sigue probando
-      // el siguiente proveedor de la cadena, la reparación es para que el
-      // PRÓXIMO pedido ya no tenga que volver a fallar contra este mismo
-      // modelo roto.
-      // Bloque 245: checkModel es el único punto que decide qué hacer (aviso
-      // único, reparación verificada, "problema resuelto") — ai.js solo le
-      // dice QUÉ modelo falló. Tiene su propio cooldown, así que una ráfaga
-      // de pedidos fallando contra el mismo modelo no dispara pruebas
-      // repetidas.
-      if (reportFailures) void checkModel({ provider: provider.name, apiKey: provider.apiKey, model: provider.model, trigger: "live" }).catch(() => {});
+      // La autorreparación solo se dispara por fallos del MODELO; una cuota agotada
+      // no se "repara" probando (cada prueba gastaría más cupo).
+      if (reportFailures && !accountLevel) void checkModel({ provider: provider.name, apiKey: provider.apiKey, model: provider.model, trigger: "live" }).catch(() => {});
     }
   }
-  throw new AppError(genericErrorMessage, 500, { detail: lastErr?.details?.detail });
+  throw new AppError(genericErrorMessage, 503, { detail: lastErr?.details?.detail ?? "Todas las IA están cerca de su límite gratis o no respondieron." });
 }
 
 // Usado por vendors.controller.js/products.controller.js (aiAvailable) para
@@ -291,10 +266,12 @@ export async function chatWithStoreAssistant({ systemParts, history, message }) 
 // en vez de fallar con un 500 pelado o intentar un proveedor que no sabe
 // hacerlo.
 export async function transcribeAudio({ audioBuffer, mimeType, filename }) {
-  const providers = await getActiveProviders();
-  const groqProvider = providers.find((p) => p.name === "groq");
-  if (!groqProvider) throw new AppError("La transcripción de audio no está disponible en este momento — escribe tu mensaje.", 503);
-  return transcribeAudioWithGroq({ apiKey: groqProvider.apiKey, audioBuffer, mimeType, filename });
+  const apiKey = await getDecryptedCredential("groq");
+  // Bloque 280: la transcripción tiene su propio cupo gratis en Groq; cerca del límite no se usa.
+  if (!apiKey || isProviderCoolingDown("groq") || !(await isWithinFreeQuota("groq", GROQ_TRANSCRIBE_MODEL))) {
+    throw new AppError("La transcripción de audio no está disponible en este momento — escribe tu mensaje.", 503);
+  }
+  return transcribeAudioWithGroq({ apiKey, audioBuffer, mimeType, filename });
 }
 
 // Bloque 245: la autorreparación (aiModelRepair.js) necesita consultar a OTRA

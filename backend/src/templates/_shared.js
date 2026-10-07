@@ -10,7 +10,7 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 // logo de la plataforma dejó de subirse/pegar por link desde Admin — ahora
 // es un archivo fijo del código (backend/src/assets/logo.png, copia de
 // frontend/src/assets/images/logo.png). Antes, emailShell() le pedía este
-// mismo archivo AL PROPIO BACKEND por HTTP (inlineIfSmall, ver abajo) para
+// mismo archivo AL PROPIO BACKEND por HTTP (inlineIfSmall, ya eliminado) para
 // poder incrustarlo — un fetch que fallaba en silencio apenas el backend no
 // podía alcanzarse a sí mismo por esa URL (típico sin BACKEND_URL público
 // en producción), cayendo siempre al círculo con la inicial aunque el logo
@@ -18,16 +18,78 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 // sola vez al arrancar el proceso (nunca cambia en runtime, ya no es
 // editable desde Admin), elimina esa clase entera de bug — no hay red de
 // por medio, no hay forma de que falle.
-const PLATFORM_LOGO_DATA_URI = (() => {
+//
+// Corrección posterior (el logo seguía sin verse en Gmail/Outlook): un
+// data: URI dentro del <img> lo bloquean Gmail y Outlook — la imagen sale
+// rota o directamente no aparece. Lo mismo pasa con SVG. Un correo solo
+// muestra de forma confiable un PNG/JPG con URL absoluta https alcanzable
+// desde internet. Por eso ahora el disco solo se lee para conocer el
+// tamaño real del PNG (atributos width/height, que Outlook necesita) y la
+// imagen se referencia por URL pública:
+//   1) logo de marca de getBrandSettings() → ${BACKEND_URL}/brand/logo.png
+//      (en producción https://baznova.com/api/brand/logo.png — nginx manda
+//      /api/ a la raíz del backend, y app.js sirve /brand desde assets/).
+//   2) si eso no sirve (SVG, sin URL pública), el PNG fijo del frontend:
+//      ${FRONTEND_URL}/email-logo.png (frontend/public/email-logo.png,
+//      rasterizado una vez desde favicon.svg — nunca en cada envío).
+//   3) si tampoco, el nombre del sitio como texto. Nunca una imagen rota.
+const LOGO_DISPLAY_SIZE = 40;
+
+// Ancho/alto de un PNG leyendo su cabecera IHDR (bytes 16-23) — sin
+// dependencias ni async. null si el archivo no está o no es PNG.
+function readPngSize(filePath) {
   try {
-    const filePath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "logo.png");
-    return `data:image/png;base64,${readFileSync(filePath).toString("base64")}`;
+    const buf = readFileSync(filePath);
+    if (buf.length < 24 || buf.toString("ascii", 1, 4) !== "PNG") return null;
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
   } catch {
-    // Nunca revienta el envío de un correo por esto — sin el archivo (caso
-    // raro, entorno mal armado), simplemente cae al círculo con la inicial.
     return null;
   }
-})();
+}
+
+// Escala (ancho, alto) para que el lado mayor mida LOGO_DISPLAY_SIZE.
+function fitLogoSize(size) {
+  if (!size?.width || !size?.height) return { width: LOGO_DISPLAY_SIZE, height: LOGO_DISPLAY_SIZE };
+  const scale = LOGO_DISPLAY_SIZE / Math.max(size.width, size.height);
+  return { width: Math.round(size.width * scale), height: Math.round(size.height * scale) };
+}
+
+const BRAND_LOGO_SIZE = fitLogoSize(
+  readPngSize(join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "logo.png"))
+);
+
+// ¿Esta URL la puede descargar un cliente de correo? Absoluta, sin data:,
+// sin SVG. En producción además exige https y un host que no sea local
+// (localhost solo sirve para previsualizar en desarrollo).
+export function isEmailSafeImageUrl(url) {
+  if (typeof url !== "string" || !url) return false;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+  if (/\.svgz?$/i.test(parsed.pathname)) return false;
+  if (env.nodeEnv === "production") {
+    if (parsed.protocol !== "https:") return false;
+    if (/^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(parsed.hostname)) return false;
+  }
+  return true;
+}
+
+// Logo de la plataforma para el header: { src, width, height } o null
+// (null = header solo con texto).
+function resolvePlatformLogo(brandLogoUrl) {
+  if (isEmailSafeImageUrl(brandLogoUrl)) return { src: brandLogoUrl, ...BRAND_LOGO_SIZE };
+  const fallback = `${trimSlash(env.frontendUrl)}/email-logo.png`;
+  if (isEmailSafeImageUrl(fallback)) return { src: fallback, width: LOGO_DISPLAY_SIZE, height: LOGO_DISPLAY_SIZE };
+  return null;
+}
+
+function trimSlash(url) {
+  return String(url ?? "").replace(/\/+$/, "");
+}
 
 // Bloque 49 (pedido explícito): reemplaza el shell hecho a mano con <div>
 // (frágil en Outlook — el motor de Word de Outlook desktop no soporta bien
@@ -63,38 +125,15 @@ export function fmtCUP(n) {
 // hay nada — nunca se inventa una URL.
 export function resolveAssetUrl(pathOrUrl) {
   if (!pathOrUrl) return null;
-  return /^https?:\/\//.test(pathOrUrl) ? pathOrUrl : `${env.backendUrl}${pathOrUrl}`;
+  if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+  return `${trimSlash(env.backendUrl)}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
 }
 
-// Bloque 203 (pedido explícito — "el logo no se está mostrando"): un
-// <img src="http://localhost:4000/..."> anda perfecto en local (el
-// navegador/Playwright y el backend viven en la misma máquina) pero es
-// inalcanzable para Gmail/Resend/cualquier cliente de correo real fuera de
-// esta PC — ahí se ve como imagen rota. Sin BACKEND_URL público (recién al
-// desplegar) no hay forma de que una URL sirva ahí, así que en vez de
-// depender de que el cliente de correo LA DESCARGUE, se descargan los bytes
-// acá mismo (mismo proceso, sí puede pegarle a su propio localhost) y se
-// insertan inline como data URI — el logo viaja DENTRO del correo, nunca
-// depende de que nadie más pueda alcanzar este servidor. Solo para
-// imágenes chicas (maxBytes): un logo bien recortado pesa pocos KB; algo
-// mucho más grande no vale la pena inflarlo un ~33% en base64 dentro de
-// cada correo — en ese caso se cae a la URL normal de siempre (funciona
-// igual una vez que BACKEND_URL sea público). Nunca revienta el envío: si
-// el fetch falla o tarda, se cae a la URL sin inline.
-async function inlineIfSmall(url, { maxBytes = 60_000, timeoutMs = 3000 } = {}) {
-  if (!url || !url.startsWith(env.backendUrl)) return url;
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) return url;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > maxBytes) return url;
-    const contentType = res.headers.get("content-type") || "image/png";
-    return `data:${contentType};base64,${buf.toString("base64")}`;
-  } catch (err) {
-    console.log("[inlineIfSmall] ERROR al hacer fetch:", err?.message ?? err);
-    return url;
-  }
-}
+// Bloque 203 (historia): acá vivía inlineIfSmall(), que descargaba el logo
+// de la tienda y lo incrustaba como data: URI. Gmail y Outlook bloquean los
+// data: URI en <img>, así que el logo seguía sin verse — se eliminó. Los
+// logos de tienda ahora van por URL absoluta (resolveAssetUrl) y solo si
+// isEmailSafeImageUrl() los acepta; si no, se muestra la inicial.
 
 // Párrafo de texto — helper fino sobre mj-text para no repetir el mismo
 // padding/tag en cada plantilla.
@@ -109,7 +148,7 @@ export function smallNote(html) {
 // Botón de acción — un solo estilo en toda la plataforma (mismo naranja que
 // "Agregar al carrito"/"Confirmar pedido" en la app).
 export function ctaButton(label, href) {
-  return `<mj-button href="${href}" background-color="#fe9800" color="#643900" font-family="${FONT_STACK}" font-size="14px" font-weight="700" border-radius="10px" inner-padding="13px 28px" padding="18px 0 4px" align="left">${label}</mj-button>`;
+  return `<mj-button href="${href}" background-color="#fe9800" color="#643900" font-family="${FONT_STACK}" font-size="15px" font-weight="700" line-height="20px" border-radius="10px" inner-padding="14px 30px" padding="18px 0 4px" align="left">${label}</mj-button>`;
 }
 
 // Pastilla de estado (ej. "Preparando", "Verificada") — mismo patrón que
@@ -146,7 +185,7 @@ const BAG_ICON_SVG =
 
 function itemThumbHtml(imageUrl) {
   if (imageUrl) {
-    return `<img src="${imageUrl}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border-radius:8px;object-fit:cover;" />`;
+    return `<img src="${imageUrl}" width="40" height="40" alt="" border="0" style="display:block;width:40px;height:40px;border:0;outline:none;border-radius:8px;object-fit:cover;" />`;
   }
   return `<table role="presentation" width="40" height="40" cellpadding="0" cellspacing="0" bgcolor="#f0edee" style="width:40px;height:40px;border-radius:8px;background:#f0edee;">
     <tr><td align="center" valign="middle" style="width:40px;height:40px;border-radius:8px;">
@@ -193,17 +232,28 @@ export function metaList(rows) {
 // (no mj-column) para tener control fino de la alineación vertical
 // logo+texto en una sola línea sin pelear con los anchos automáticos de
 // MJML — mismo criterio que itemsTable/totalRow más arriba en este archivo.
-function brandRowHtml({ imgSrc, imgAlt, name, subtitle }) {
-  const avatar = imgSrc
-    ? `<img src="${imgSrc}" width="40" height="40" alt="${imgAlt}" style="display:block;width:40px;height:40px;border-radius:10px;object-fit:cover;" />`
-    : `<div style="width:40px;height:40px;border-radius:10px;background:#fe9800;color:#0e1a28;font-family:${FONT_STACK};font-size:18px;font-weight:800;text-align:center;line-height:40px;">${(name || "?").charAt(0).toUpperCase()}</div>`;
+// imgWidth/imgHeight: tamaño real a mostrar (atributos html, no solo CSS —
+// Outlook de escritorio ignora el CSS y usa los atributos). showInitial:
+// sin imagen, ¿mostrar el cuadrado con la inicial? (tiendas sí; la
+// plataforma sin logo usable queda solo con el nombre como texto).
+function brandRowHtml({ imgSrc, imgAlt, imgWidth = 40, imgHeight = 40, name, subtitle, href, showInitial = true }) {
+  let avatar = "";
+  if (imgSrc) {
+    const img = `<img src="${imgSrc}" width="${imgWidth}" height="${imgHeight}" alt="${imgAlt ?? ""}" border="0" style="display:block;width:${imgWidth}px;height:${imgHeight}px;border:0;outline:none;text-decoration:none;border-radius:10px;" />`;
+    avatar = href ? `<a href="${href}" style="text-decoration:none;border:0;">${img}</a>` : img;
+  } else if (showInitial) {
+    avatar = `<table role="presentation" width="40" height="40" cellpadding="0" cellspacing="0" bgcolor="#fe9800" style="width:40px;height:40px;border-radius:10px;background:#fe9800;"><tr><td align="center" valign="middle" style="width:40px;height:40px;font-family:${FONT_STACK};font-size:18px;font-weight:800;color:#0e1a28;">${(name || "?").charAt(0).toUpperCase()}</td></tr></table>`;
+  }
+  const nameHtml = href
+    ? `<a href="${href}" style="color:#ffffff;text-decoration:none;">${name}</a>`
+    : name;
 
   return `
     <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
       <tr>
-        <td style="vertical-align:middle;padding-right:12px;">${avatar}</td>
+        ${avatar ? `<td style="vertical-align:middle;padding-right:12px;">${avatar}</td>` : ""}
         <td style="vertical-align:middle;">
-          <div style="font-family:${FONT_STACK};font-size:19px;font-weight:800;color:#ffffff;line-height:22px;">${name}</div>
+          <div style="font-family:${FONT_STACK};font-size:19px;font-weight:800;color:#ffffff;line-height:22px;">${nameHtml}</div>
           ${subtitle ? `<div style="font-family:${FONT_STACK};font-size:11.5px;color:#9aa3ad;line-height:15px;margin-top:2px;">${subtitle}</div>` : ""}
         </td>
       </tr>
@@ -308,17 +358,36 @@ function socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl }) {
 //   el de la plataforma de siempre (logo real o el cuadrado con la inicial).
 export async function emailShell({ preview, title, bodyMjml, storeName, storeLogoUrl, accentColor = "#0e1a28", footerNote, badge }) {
   // Bloque 49: nombre de la plataforma, editable desde "Marca de la
-  // plataforma" en el admin. Bloque 46: el LOGO ya no — es
-  // PLATFORM_LOGO_DATA_URI (arriba), leído del disco una sola vez, nunca
-  // más un fetch a sí mismo que podía fallar en silencio.
-  const { siteName, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
-  const inlineStoreLogoUrl = await inlineIfSmall(storeLogoUrl);
+  // plataforma" en el admin. El logo sale de resolvePlatformLogo() (arriba):
+  // siempre una URL https pública a un PNG, o texto si no hay ninguna.
+  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
+  const siteUrl = trimSlash(env.frontendUrl);
+  const siteHost = siteUrl.replace(/^https?:\/\//, "");
+  const platformLogo = resolvePlatformLogo(logoUrl);
 
-  const headerHtml = storeLogoUrl
-    ? headerRowHtml(brandRowHtml({ imgSrc: inlineStoreLogoUrl, imgAlt: storeName, name: storeName }), viaPillHtml(siteName))
-    : PLATFORM_LOGO_DATA_URI
-    ? headerRowHtml(brandRowHtml({ imgSrc: PLATFORM_LOGO_DATA_URI, imgAlt: siteName, name: siteName }))
-    : headerRowHtml(brandRowHtml({ name: siteName, subtitle: "Marketplace multivendedor de Cuba" }));
+  let headerHtml;
+  if (storeLogoUrl) {
+    const storeImg = isEmailSafeImageUrl(storeLogoUrl) ? storeLogoUrl : null;
+    headerHtml = headerRowHtml(
+      brandRowHtml({ imgSrc: storeImg, imgAlt: storeName, name: storeName }),
+      viaPillHtml(siteName)
+    );
+  } else if (platformLogo) {
+    headerHtml = headerRowHtml(
+      brandRowHtml({
+        imgSrc: platformLogo.src,
+        imgAlt: siteName,
+        imgWidth: platformLogo.width,
+        imgHeight: platformLogo.height,
+        name: siteName,
+        href: siteUrl,
+      })
+    );
+  } else {
+    headerHtml = headerRowHtml(
+      brandRowHtml({ name: siteName, subtitle: "Marketplace multivendedor de Cuba", href: siteUrl, showInitial: false })
+    );
+  }
 
   const badgeMjml = badge ? statusBadge(badge.label, badge.color) : "";
 
@@ -358,8 +427,9 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
             ${footerNote ?? "Este es un correo automático — si tienes dudas, responde directo a la tienda por WhatsApp desde tu pedido."}
           </mj-text>
           <mj-text font-size="10.5px" color="#9a9da1" line-height="15px" align="center" padding="14px 0 0">
-            ${siteName} · Cuba — <a href="${env.frontendUrl}/terminos" style="color:#75777c;">Términos y condiciones</a> ·
-            <a href="${env.frontendUrl}/privacidad" style="color:#75777c;">Política de privacidad</a>
+            <a href="${siteUrl}" style="color:#44474c;font-weight:700;text-decoration:none;">${siteName}</a> · <a href="${siteUrl}" style="color:#75777c;">${siteHost}</a><br/>
+            <a href="${siteUrl}/terminos" style="color:#75777c;">Términos y condiciones</a> ·
+            <a href="${siteUrl}/privacidad" style="color:#75777c;">Política de privacidad</a>
           </mj-text>
         </mj-column>
       </mj-section>

@@ -12,7 +12,9 @@
 // script los pregunta de forma interactiva (la contraseña queda oculta
 // mientras se escribe) — es la forma más segura, porque así no queda
 // guardada en el historial de la terminal (bash history) ni en ningún
-// archivo. ADMIN_FULL_NAME/ADMIN_PHONE son opcionales en ambos casos.
+// archivo. ADMIN_PHONE es opcional. ADMIN_FULL_NAME también es opcional y no
+// se pregunta: el nombre queda vacío y el propio dueño pone su nombre y
+// apellidos (privados) en el panel, en "Mi perfil".
 import { config as loadEnv } from "dotenv";
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
@@ -85,7 +87,6 @@ async function main() {
   if (!password) password = await promptHidden("Contraseña del admin (mínimo 8 caracteres): ");
   if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres.");
 
-  if (!fullName) fullName = (await promptVisible("Nombre completo (opcional, Enter para omitir): ")) || null;
   if (!phone) phone = (await promptVisible("Teléfono (opcional, Enter para omitir): ")) || null;
 
   const existing = await prisma.user.findUnique({ where: { email } });

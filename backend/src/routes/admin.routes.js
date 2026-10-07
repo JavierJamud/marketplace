@@ -266,6 +266,8 @@ router.get("/business-assistant/conversations/:id", businessAssistantController.
 router.delete("/business-assistant/conversations/:id", businessAssistantController.deleteAdminConversation);
 router.delete("/business-assistant", businessAssistantController.clearAdminAssistant);
 router.get("/ai-models", aiModelsController.listAiModels);
+router.get("/ai-quota", aiModelsController.getAiQuota);
+router.put("/ai-quota/:provider/limits", aiModelsController.updateAiQuotaLimits);
 router.post("/ai-models", aiModelsController.addAiModel);
 router.patch("/ai-models/:id", aiModelsController.updateAiModel);
 router.post("/ai-models/:id/move", aiModelsController.moveAiModel);

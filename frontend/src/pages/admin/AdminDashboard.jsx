@@ -167,7 +167,8 @@ export default function AdminDashboard() {
   });
 
   const siteName = settings?.siteName || "Baznova";
-  const firstName = user?.fullName?.split(" ")[0] || "Admin";
+  // Nombre privado del admin (Mi perfil); sin él, un saludo neutro.
+  const firstName = user?.firstName?.trim() || "Administrador";
   const rawMonth = new Date().toLocaleDateString("es-CU", { month: "long", year: "numeric" });
   const monthLabel = rawMonth.charAt(0).toUpperCase() + rawMonth.slice(1);
   const pending = data?.pendingVerifications ?? 0;

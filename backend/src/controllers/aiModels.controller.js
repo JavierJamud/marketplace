@@ -2,10 +2,12 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "./integrations.controller.js";
-import { AI_PROVIDER_NAMES, DEFAULT_MODELS, getAllEffectiveModels } from "../lib/aiModels.js";
+import { AI_PROVIDER_NAMES, DEFAULT_MODELS, getAllEffectiveModels, getEffectiveActiveModels } from "../lib/aiModels.js";
+import { AI_PRIORITY, getProviderQuotaOverview, getFreeLimitOverrides, setFreeLimitOverrides } from "../lib/aiQuota.js";
+import { TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "../lib/groq.js";
 import { PROVIDERS, probeModel, errorDetailOf, classifyFailure } from "../lib/aiModelRepair.js";
 import { friendlyModelError, markModelUnavailable, clearModelUnavailable } from "../lib/aiModelCatalog.js";
-import { getModelHealthRows, deleteModelHealth } from "../lib/aiProviderHealth.js";
+import { getModelHealthRows, deleteModelHealth, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 
 // Bloque 245 (pedido explícito): cada proveedor de IA puede tener uno o varios
 // modelos activos. Estas rutas son el CRUD que usa Admin → Integraciones. La
@@ -148,4 +150,47 @@ export async function deleteAiModel(req, res) {
   await prisma.aiModelConfig.delete({ where: { id: config.id } });
   await deleteModelHealth(config.provider, config.model);
   res.json({ ok: true });
+}
+
+// Bloque 280 (pedido explícito — "mostrar en Integraciones cuánto consumió cada API,
+// cuánto le queda en su plan gratis y cuánto falta para que se restablezca"): estado
+// del cupo gratis de cada proveedor en el orden de rotación (Groq → NVIDIA → Gemini).
+// Las cifras con source "api" vienen de la propia API; las "estimado" se cuentan aquí.
+export async function getAiQuota(_req, res) {
+  const providers = [];
+  for (const provider of AI_PRIORITY) {
+    const integration = await prisma.integration.findUnique({ where: { name: provider }, select: { isActive: true } });
+    const active = (await getEffectiveActiveModels(provider)).map((m) => m.model);
+    const models = provider === "groq" ? [...active, GROQ_TRANSCRIBE_MODEL] : active;
+    const quotas = await getProviderQuotaOverview(provider, models);
+    const textQuotas = quotas.filter((q) => q.model !== GROQ_TRANSCRIBE_MODEL);
+    const enabled = !!integration?.isActive;
+    providers.push({
+      provider,
+      label: PROVIDERS[provider].label,
+      order: AI_PRIORITY.indexOf(provider) + 1,
+      enabled,
+      available: enabled && textQuotas.some((q) => q.available),
+      resumesAt: enabled && !textQuotas.some((q) => q.available) ? textQuotas.map((q) => q.resumesAt).filter(Boolean).sort()[0] ?? null : null,
+      limits: await getFreeLimitOverrides(provider),
+      models: quotas.map((q) => ({ ...q, purpose: q.model === GROQ_TRANSCRIBE_MODEL ? "Voz a texto" : "Texto" })),
+    });
+  }
+  const enabled = providers.filter((p) => p.enabled);
+  const allExhausted = enabled.length > 0 && enabled.every((p) => !p.available);
+  const nextResetAt = allExhausted ? enabled.map((p) => p.resumesAt).filter(Boolean).sort()[0] ?? null : null;
+  res.json({ providers, allExhausted, nextResetAt, chatbotAvailable: await isChatbotHealthy() });
+}
+
+const limitsSchema = z.object({
+  rpm: z.number().int().positive().nullable().optional(),
+  rpd: z.number().int().positive().nullable().optional(),
+  tpm: z.number().int().positive().nullable().optional(),
+  tpd: z.number().int().positive().nullable().optional(),
+});
+
+export async function updateAiQuotaLimits(req, res) {
+  const provider = providerSchema.parse(req.params.provider);
+  const limits = await setFreeLimitOverrides(provider, limitsSchema.parse(req.body ?? {}));
+  res.json({ provider, limits });
 }

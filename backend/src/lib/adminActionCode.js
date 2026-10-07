@@ -86,7 +86,8 @@ export async function sendActionCode(user, action, target = null) {
   await prisma.adminActionCode.create({ data: { userId: user.id, action, codeHash: await bcrypt.hash(code, 10), expiresAt: new Date(Date.now() + TTL_MS) } });
   const result = await sendAdminDirectEmail({
     to: user.email,
-    recipientName: user.fullName,
+    // Saludo neutro: el nombre del admin es privado y nunca va en correos.
+    recipientName: "Administrador",
     subject: `Código de confirmación: ${ACTION_LABELS[action]}${target ? ` (${target})` : ""}`,
     message:
       `Tu código para confirmar la acción "${ACTION_LABELS[action]}"${target ? ` sobre ${target}` : ""} es:\n\n${code}\n\n` +

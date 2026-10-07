@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { isWithinFreeQuota } from "./aiQuota.js";
 
 // Bloque 238 (pedido explícito — "antes de mostrar el chatbot, verificar que
 // la IA funciona"), reescrito en el Bloque 245 para guardar la salud POR
@@ -42,8 +43,15 @@ export async function deleteModelHealth(provider, model) {
 // — mismo criterio optimista que ya usa showChatWidget mientras /settings no
 // cargó en el frontend. "Algún modelo sano" y no "todos": con varios modelos
 // por proveedor, uno caído no apaga el chat si otro sigue respondiendo.
+//
+// Bloque 280 (pedido explícito): además tiene que quedarle cupo gratis. Si TODOS
+// los modelos sanos están cerca de su límite, el chatbot se oculta en la tienda,
+// en el panel del admin y en el de los vendedores hasta que alguno se renueve.
 export async function isChatbotHealthy() {
   const rows = await getModelHealthRows();
   if (rows.length === 0) return true;
-  return rows.some((r) => r.status === "healthy");
+  for (const r of rows) {
+    if (r.status === "healthy" && r.model && (await isWithinFreeQuota(r.provider, r.model))) return true;
+  }
+  return false;
 }

@@ -839,3 +839,36 @@ export async function updateMyPassword(req, res) {
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
   res.json({ ok: true });
 }
+
+// Nombre y apellidos privados del administrador ("Mi perfil" → "Datos
+// personales"). Solo los ve el propio admin: viajan únicamente en las
+// respuestas de su propia cuenta (publicUser) y nunca se usan en correos,
+// notificaciones ni prompts de IA. No piden código de confirmación por
+// correo: no son una acción sensible. Para otros roles se ignoran.
+const personalNameField = z
+  .string()
+  .trim()
+  .max(60, "Máximo 60 caracteres.")
+  .nullable()
+  .optional()
+  .transform((v) => (v ? v : null));
+
+const updatePersonalSchema = z.object({
+  firstName: personalNameField,
+  lastName: personalNameField,
+});
+
+export async function updateMyPersonalData(req, res) {
+  const { firstName, lastName } = updatePersonalSchema.parse(req.body ?? {});
+
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user) throw new AppError("Usuario no encontrado.", 404);
+  if (user.role !== "ADMIN") return res.json({ user: publicUser(user) });
+
+  const data = {};
+  if (req.body && "firstName" in req.body) data.firstName = firstName;
+  if (req.body && "lastName" in req.body) data.lastName = lastName;
+
+  const updated = Object.keys(data).length ? await prisma.user.update({ where: { id: user.id }, data }) : user;
+  res.json({ user: publicUser(updated) });
+}

@@ -731,6 +731,12 @@ model User {
   passwordHash String
   role         Role     @default(CUSTOMER)
   fullName     String?
+  // Nombre y apellidos PRIVADOS del administrador: solo los edita y los ve
+  // el propio admin en "Mi perfil" (PATCH /auth/me/personal). Nunca salen en
+  // listados, correos, notificaciones ni prompts de IA. Para otros roles
+  // quedan siempre en null.
+  firstName    String?
+  lastName     String?
   phone        String?
   address      String?
   provinceId   String?
@@ -3369,4 +3375,19 @@ model AdminActionCode {
   createdAt DateTime  @default(now())
 
   @@index([userId, action, createdAt])
+}
+
+// Bloque 280 (pedido explícito — "las API deben mantenerse siempre en su consumo
+// gratis, rotando a la siguiente antes de llegar al límite"): consumo REAL de cada
+// proveedor+modelo de IA, leído de las cabeceras de límite que devuelve la propia API
+// (Groq/NVIDIA) o contado aquí mismo cuando la API no las manda (Gemini). Una fila
+// por proveedor+modelo; model "*" guarda los límites gratis que el admin ajustó a
+// mano para ese proveedor. Ver lib/aiQuota.js.
+model AiUsage {
+  provider  String
+  model     String
+  data      Json
+  updatedAt DateTime @updatedAt
+
+  @@id([provider, model])
 }

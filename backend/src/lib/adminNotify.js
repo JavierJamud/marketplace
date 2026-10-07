@@ -11,5 +11,6 @@ import { sendAdminDirectEmail } from "./email.js";
 export async function notifyAdminActionNeeded(subject, message, vendorId) {
   const admin = await prisma.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } });
   if (!admin?.email) return;
-  await sendAdminDirectEmail({ to: admin.email, subject, message, recipientName: admin.fullName, vendorId }).catch(() => {});
+  // Saludo neutro: el nombre del admin es privado y nunca va en correos.
+  await sendAdminDirectEmail({ to: admin.email, subject, message, recipientName: "Administrador", vendorId }).catch(() => {});
 }

@@ -8,7 +8,7 @@ import { DEFAULT_MODEL as NVIDIA_DEFAULT } from "./nvidia.js";
 // proveedor): lo importan ai.js, aiModelRepair.js, los dos jobs y los
 // controllers, y ninguno de ellos puede importar a otro sin crear un ciclo.
 
-export const AI_PROVIDER_NAMES = ["groq", "gemini", "nvidia"];
+export const AI_PROVIDER_NAMES = ["groq", "nvidia", "gemini"];
 export const DEFAULT_MODELS = { gemini: GEMINI_DEFAULT, groq: GROQ_DEFAULT, nvidia: NVIDIA_DEFAULT };
 
 // Un proveedor SIN filas usa su modelo por defecto (mismo comportamiento de

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquareText, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../lib/api.js";
 import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
 
 // Bloque 259 (pedido explícito — "en vez de una sección, un botón de chat
@@ -15,6 +17,14 @@ import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
 // del chat (título, historial, chat nuevo, cerrar) ahora vive en el propio
 // panel, que solo se monta al abrir.
 export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFree, intro = "Conectado a tu negocio, solo lectura" }) {
+  // Bloque 280 (pedido explícito): si todas las IA están en su límite gratis, el
+  // asistente se oculta también en los paneles (mismo dato que usa la tienda).
+  const { data: siteSettings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
   const [open, setOpen] = useState(false);
   const dialogRef = useRef(null);
   const toggleRef = useRef(null);
@@ -71,6 +81,8 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
       document.body.style.overflow = previous;
     };
   }, [open]);
+
+  if (siteSettings?.chatbotAvailable === false && !open) return null;
 
   return (
     <>

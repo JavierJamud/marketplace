@@ -1,4 +1,5 @@
 import { AppError } from "../utils/AppError.js";
+import { recordAiResponse } from "./aiQuota.js";
 
 // Bloque 25: este archivo pasa a ser puramente "cómo hablarle a la API de
 // Gemini" — YA NO decide qué proveedor usar ni lee la credencial de la DB
@@ -139,10 +140,12 @@ export async function generateWithGemini({ apiKey, prompt, model }) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "gemini", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intenta de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "gemini", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, tokens: data?.usageMetadata?.totalTokenCount ?? 0 });
   const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("").trim();
   if (!text) throw new AppError("La IA no devolvió una descripción. Intenta con un texto más específico.", 500);
 
@@ -274,10 +277,12 @@ export async function chatWithGemini({ apiKey, systemParts, history, message, mo
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "gemini", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El asistente no pudo responder (${res.status}). Prueba de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "gemini", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, tokens: data?.usageMetadata?.totalTokenCount ?? 0 });
   const raw = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("").trim();
   if (!raw) throw new AppError("El asistente no devolvió una respuesta. Prueba reformular tu pregunta.", 500);
 

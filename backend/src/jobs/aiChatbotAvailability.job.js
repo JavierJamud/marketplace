@@ -3,6 +3,7 @@ import { getDecryptedCredential } from "../controllers/integrations.controller.j
 import { checkModel } from "../lib/aiModelRepair.js";
 import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "../lib/aiModels.js";
 import { getModelHealthRows, upsertModelHealth, deleteModelHealth } from "../lib/aiProviderHealth.js";
+import { getQuotaStatus } from "../lib/aiQuota.js";
 
 // Bloque 238 (pedido explícito — "cuando se accede al sitio, el sistema debe
 // verificar en segundo plano que el chatbot funciona antes de mostrarlo"): a
@@ -19,7 +20,11 @@ import { getModelHealthRows, upsertModelHealth, deleteModelHealth } from "../lib
 // verificada, "problema resuelto") en checkModel (lib/aiModelRepair.js), la
 // misma política que usan ai.js en vivo y el chequeo diario de las 3am.
 
-const CHECK_INTERVAL_CRON = "*/2 * * * *"; // cada 2 minutos
+// Bloque 280: cada 10 minutos (antes cada 2). Cada prueba es un pedido real que
+// gasta cupo gratis; con tráfico real ya se sabe si un modelo responde.
+const CHECK_INTERVAL_CRON = "*/10 * * * *";
+// Un modelo que respondió bien a un cliente en este plazo no se vuelve a probar.
+const RECENT_OK_MS = 60 * 60_000;
 let running = false;
 
 // Chequea todos los modelos activos de UN proveedor en paralelo (la espera es
@@ -42,7 +47,28 @@ async function checkProvider(providerName, trigger) {
   // Un modelo que el admin desactivó o borró ya no cuenta para la salud.
   await Promise.all(health.filter((h) => h.provider === providerName && h.model !== "" && !activeNames.has(h.model)).map((h) => deleteModelHealth(providerName, h.model)));
 
-  const results = await Promise.all(models.map((m) => checkModel({ provider: providerName, apiKey, model: m.model, trigger })));
+  // Bloque 280 (pedido explícito — no gastar el cupo gratis): solo se prueba con un
+  // pedido real el modelo que lo necesita. Se salta si está cerca de su límite
+  // (la prueba podría pasarlo) o si un cliente lo usó bien hace poco (ya se sabe
+  // que responde). Un modelo caído sí se reprueba para detectar que volvió.
+  const healthByModel = new Map(health.filter((h) => h.provider === providerName).map((h) => [h.model, h]));
+  const results = await Promise.all(
+    models.map(async (m) => {
+      const quota = await getQuotaStatus(providerName, m.model);
+      if (!quota.available) return { status: "skipped", outcome: "near_free_limit" };
+      const row = healthByModel.get(m.model);
+      const recentOk = quota.lastOkAt && Date.now() - new Date(quota.lastOkAt).getTime() < RECENT_OK_MS;
+      if (row?.status === "healthy" && recentOk) {
+        await upsertModelHealth(providerName, m.model, { status: "healthy", lastError: null, downSince: null });
+        return { status: "healthy", outcome: "recent_real_traffic" };
+      }
+      if (trigger === "proactive" && row?.status === "healthy") {
+        const checkedAgo = row.lastCheckedAt ? Date.now() - new Date(row.lastCheckedAt).getTime() : Infinity;
+        if (checkedAgo < RECENT_OK_MS) return { status: "healthy", outcome: "checked_recently" };
+      }
+      return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
+    })
+  );
   return models.map((m, i) => ({ provider: providerName, model: m.model, ...results[i] }));
 }
 

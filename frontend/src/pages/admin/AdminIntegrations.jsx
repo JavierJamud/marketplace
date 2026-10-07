@@ -8,6 +8,7 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import ToggleSwitch from "../../components/admin/ToggleSwitch.jsx";
 import AiModelsPanel from "../../components/admin/AiModelsPanel.jsx";
+import AiQuotaPanel from "../../components/admin/AiQuotaPanel.jsx";
 
 // Bloque 45: Cerebras salió del sistema (su cuenta gratuita devolvía 402
 // Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
@@ -27,9 +28,9 @@ const SERVICE_META = {
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
   stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
-const ORDER = ["groq", "gemini", "nvidia", "resend", "stripe"];
+const ORDER = ["groq", "nvidia", "gemini", "resend", "stripe"];
 // Bloque 43/45/245: estos tres tienen modelos administrables — Resend/Stripe no.
-const AI_PROVIDERS = ["gemini", "groq", "nvidia"];
+const AI_PROVIDERS = ["groq", "nvidia", "gemini"];
 
 // Bloque 25: URL que el admin tiene que pegar en el dashboard de Stripe
 // (Developers → Webhooks → Add endpoint). api.defaults.baseURL ya apunta al
@@ -352,19 +353,20 @@ export default function AdminIntegrations() {
       </div>
       <p className="mb-2 text-[13.5px] text-outline">Configura las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (el más rápido), luego
-        Gemini y por último NVIDIA NIM. Cada proveedor puede tener varios modelos activos: si uno falla, la consulta
-        sigue con el siguiente, sea del mismo proveedor o de otro. Un proveedor desactivado nunca se usa, ni siquiera
-        como respaldo.
+        Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (principal), luego
+        NVIDIA NIM y por último Gemini. Cada una se usa solo mientras le quede cupo en su plan gratis: cerca del límite
+        se pasa a la siguiente y vuelve sola cuando se renueva. Un proveedor desactivado nunca se usa.
       </div>
       {/* Bloque 85/245: transparencia sobre la reparación automática. El admin
           ve acá POR QUÉ la lista de modelos de un proveedor puede cambiar sola. */}
       <div className="mb-[22px] rounded-[10px] bg-surface-container px-3.5 py-2.5 text-[12px] text-on-surface-variant">
-        Cada 2 minutos se mide cada modelo activo, y a las 3:00am (zona horaria de "Marca de la plataforma") se hace una
-        revisión completa. Cuando un modelo falla te llega un correo con la causa y qué hacer. Si el modelo fue dado de
-        baja, el sistema pide a la API la lista real, una IA distinta elige el reemplazo, se le hace una consulta real
-        y recién entonces se carga. Después te llega un correo de "problema resuelto", o de que no se pudo reparar.
+        Los modelos se vigilan con el tráfico real; solo se prueba con una consulta el que lleva más de una hora sin
+        usarse o estaba caído, y nunca uno cerca de su límite gratis. A las 3:00am se hace una revisión completa. Cuando
+        un modelo falla te llega un correo con la causa y qué hacer; si fue dado de baja, el sistema busca y prueba un
+        reemplazo y te avisa del resultado.
       </div>
+
+      <AiQuotaPanel />
 
       <div className="flex flex-col gap-4">
         {ORDER.map((name) =>

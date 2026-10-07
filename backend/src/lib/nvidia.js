@@ -1,4 +1,5 @@
 import { AppError } from "../utils/AppError.js";
+import { recordAiResponse } from "./aiQuota.js";
 
 // Bloque 45: reemplaza a Cerebras (sacado del sistema — su cuenta gratuita
 // devolvía 402 Payment Required para gpt-oss-120b, no sirve para uso
@@ -85,10 +86,12 @@ export async function generateWithNvidia({ apiKey, prompt, model }) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "nvidia", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intenta de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "nvidia", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, tokens: data?.usage?.total_tokens ?? 0 });
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!text) throw new AppError("La IA no devolvió una descripción. Intenta con un texto más específico.", 500);
 
@@ -157,10 +160,12 @@ export async function chatWithNvidia({ apiKey, systemParts, history, message, mo
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "nvidia", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El asistente no pudo responder (${res.status}). Prueba de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "nvidia", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, tokens: data?.usage?.total_tokens ?? 0 });
   const raw = data?.choices?.[0]?.message?.content?.trim();
   if (!raw) throw new AppError("El asistente no devolvió una respuesta. Prueba reformular tu pregunta.", 500);
 

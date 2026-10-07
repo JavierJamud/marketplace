@@ -1,12 +1,13 @@
 import TwoFactorCard from "../../components/TwoFactorCard.jsx";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Mail, KeyRound, UserCog } from "lucide-react";
+import { Mail, KeyRound, UserCog, IdCard } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { PasswordInput } from "../../components/ui/PasswordInput.jsx";
+import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import AdminBranding from "./AdminBranding.jsx";
@@ -21,6 +22,46 @@ const TABS = [
   { id: "cuenta", label: "Mi cuenta" },
   { id: "marca", label: "Marca de la plataforma" },
 ];
+
+// Nombre y apellidos privados del admin: solo se ven acá. No pide código
+// por correo (no es una acción sensible).
+function PersonalDataCard() {
+  const { user, refetch } = useAuth();
+  const [firstName, setFirstName] = useState(user?.firstName ?? "");
+  const [lastName, setLastName] = useState(user?.lastName ?? "");
+
+  useEffect(() => {
+    setFirstName(user?.firstName ?? "");
+    setLastName(user?.lastName ?? "");
+  }, [user?.firstName, user?.lastName]);
+
+  const unchanged = firstName.trim() === (user?.firstName ?? "") && lastName.trim() === (user?.lastName ?? "");
+
+  const save = useMutation({
+    mutationFn: async () => (await api.patch("/auth/me/personal", { firstName: firstName.trim(), lastName: lastName.trim() })).data,
+    onSuccess: async () => {
+      await refetch();
+      toast.success("Datos personales guardados.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar tus datos."),
+  });
+
+  return (
+    <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <IdCard className="h-5 w-5 text-tertiary-accent" /> Datos personales (privados)
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">Solo tú los ves. No se muestran a nadie ni se envían a ningún lado.</p>
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <Input label="Nombre" value={firstName} maxLength={60} autoComplete="given-name" onChange={(e) => setFirstName(e.target.value)} />
+        <Input label="Apellidos" value={lastName} maxLength={60} autoComplete="family-name" onChange={(e) => setLastName(e.target.value)} />
+      </div>
+      <Button className="mt-4" disabled={unchanged || save.isPending} onClick={() => save.mutate()}>
+        {save.isPending ? "Guardando..." : "Guardar"}
+      </Button>
+    </div>
+  );
+}
 
 function PasswordCard() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -89,6 +130,10 @@ export default function AdminProfile() {
 
       {tab === "cuenta" && (
         <div className="max-w-[640px]">
+          <div className="mb-5">
+            <PersonalDataCard />
+          </div>
+
           <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
             <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
               <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta

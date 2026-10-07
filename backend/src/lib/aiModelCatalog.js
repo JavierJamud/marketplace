@@ -17,7 +17,7 @@
 export const CATEGORIES = {
   text: { label: "Texto", purpose: "Responde preguntas y redacta: alimenta el chat de las tiendas, los asistentes y las descripciones de productos.", usedNow: true, addable: true },
   vision: { label: "Texto + imagen", purpose: "Entiende imágenes además de texto. Sirve como modelo de texto y se podrá usar para analizar tiendas y páginas visualmente.", usedNow: true, addable: true },
-  transcription: { label: "Audio: voz a texto", purpose: "Transcribe notas de voz a texto (hoy lo usa el micrófono del chat, solo con Whisper de Groq).", usedNow: false, addable: false },
+  transcription: { label: "Audio: voz a texto", purpose: "Transcribe notas de voz a texto (hoy lo usa el micrófono del chat, solo con Whisper de Groq).", usedNow: true, addable: false },
   speech: { label: "Audio: texto a voz", purpose: "Convierte texto en voz hablada. La plataforma todavía no lo usa.", usedNow: false, addable: false },
   image: { label: "Imagen: crear o editar", purpose: "Genera o edita imágenes. La plataforma todavía no lo usa.", usedNow: false, addable: false },
   video: { label: "Video: crear", purpose: "Genera video. La plataforma todavía no lo usa.", usedNow: false, addable: false },

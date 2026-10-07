@@ -89,7 +89,7 @@ function AccountMenu({ user, accountHref, panelLabel }) {
       {open && (
         <div className="absolute right-0 top-[calc(100%+10px)] w-56 rounded-md border border-surface-container-high bg-surface-container-lowest py-1.5 shadow-lg">
           <div className="border-b border-surface-container px-3.5 py-2.5">
-            <div className="truncate text-[13px] font-semibold text-on-surface">{user.fullName ?? user.email}</div>
+            <div className="truncate text-[13px] font-semibold text-on-surface">{user.role === "ADMIN" ? user.firstName?.trim() || "Administrador" : user.fullName ?? user.email}</div>
             <div className="truncate text-[11.5px] text-outline">{user.email}</div>
           </div>
           <Link

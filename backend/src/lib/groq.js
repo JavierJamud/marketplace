@@ -1,4 +1,5 @@
 import { AppError } from "../utils/AppError.js";
+import { recordAiResponse } from "./aiQuota.js";
 
 // Bloque 25: respaldo de Groq — misma interfaz pública que gemini.js
 // (generateWithGroq/chatWithGroq), para que ai.js pueda despachar a
@@ -103,7 +104,7 @@ export async function listGroqModels({ apiKey }) {
 // voz-a-texto más rápido/económico de Groq, adecuado para mensajes cortos
 // de clientes. Mismo endpoint de la API de Groq (compatible con OpenAI),
 // pero "audio/transcriptions" en vez de "chat/completions".
-const TRANSCRIBE_MODEL = "whisper-large-v3-turbo";
+export const TRANSCRIBE_MODEL = "whisper-large-v3-turbo";
 const TRANSCRIBE_API_BASE = "https://api.groq.com/openai/v1/audio/transcriptions";
 
 export async function generateWithGroq({ apiKey, prompt, model }) {
@@ -132,10 +133,12 @@ export async function generateWithGroq({ apiKey, prompt, model }) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "groq", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El servicio de IA devolvió un error (${res.status}). Intenta de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "groq", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, tokens: data?.usage?.total_tokens ?? 0 });
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!text) throw new AppError("La IA no devolvió una descripción. Intenta con un texto más específico.", 500);
 
@@ -236,10 +239,12 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "groq", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El asistente no pudo responder (${res.status}). Prueba de nuevo en un momento.`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "groq", model: model || DEFAULT_MODEL, headers: res.headers, status: res.status, tokens: data?.usage?.total_tokens ?? 0 });
   const raw = data?.choices?.[0]?.message?.content?.trim();
   if (!raw) throw new AppError("El asistente no devolvió una respuesta. Prueba reformular tu pregunta.", 500);
 
@@ -304,10 +309,12 @@ export async function transcribeAudioWithGroq({ apiKey, audioBuffer, mimeType, f
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    await recordAiResponse({ provider: "groq", model: TRANSCRIBE_MODEL, headers: res.headers, status: res.status, errorText: body });
     throw new AppError(`El servicio de transcripción devolvió un error (${res.status}).`, 500, { detail: body.slice(0, 300) });
   }
 
   const data = await res.json();
+  await recordAiResponse({ provider: "groq", model: TRANSCRIBE_MODEL, headers: res.headers, status: res.status, tokens: data?.usage?.total_tokens ?? 0 });
   // Resultado vacío (silencio, ruido sin habla) es una respuesta VÁLIDA, no
   // una excepción — el controller/frontend decide qué hacer con texto vacío
   // (avisar al cliente que repita o escriba), nunca se inventa contenido acá.

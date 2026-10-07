@@ -7,7 +7,8 @@ import { listGroqModels, listGroqModelsCatalog, generateWithGroq, DEFAULT_MODEL 
 import { listGeminiModels, listGeminiModelsCatalog, generateWithGemini, DEFAULT_MODEL as GEMINI_DEFAULT_MODEL } from "../lib/gemini.js";
 import { sendAdminDirectEmail } from "../lib/email.js";
 import { getEffectiveActiveModels } from "../lib/aiModels.js";
-import { classifyModel, getUnavailableModel, getModelAvailable, getProbeState, startAvailabilityProbe, failureKindOf, CATEGORIES, CATEGORY_ORDER } from "../lib/aiModelCatalog.js";
+import { classifyModel, getUnavailableModel, getModelAvailable, getProbeState, CATEGORIES, CATEGORY_ORDER } from "../lib/aiModelCatalog.js";
+import { getProviderQuotaOverview, isWithinFreeQuota } from "../lib/aiQuota.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
 // Stripe, lo que se agregue después) — primeros 4 + últimos 4 caracteres a
@@ -175,7 +176,6 @@ export async function toggleIntegration(req, res) {
 // los muestra como <select>. Lee la key aunque el proveedor esté
 // "Inactivo" (a diferencia de getDecryptedCredential): el admin puede
 // querer ver qué modelos hay ANTES de activarlo.
-const PROBE_GENERATORS = { nvidia: generateWithNvidia, groq: generateWithGroq, gemini: generateWithGemini };
 const MODEL_CATALOGS = { nvidia: listNvidiaModelsCatalog, groq: listGroqModelsCatalog, gemini: listGeminiModelsCatalog };
 const MODEL_LISTERS = { nvidia: listNvidiaModels, groq: listGroqModels, gemini: listGeminiModels };
 
@@ -194,23 +194,32 @@ export async function listProviderModels(req, res) {
   // comprobó que no están disponibles para esta cuenta marcados como tales.
   const catalogRaw = await MODEL_CATALOGS[name]({ apiKey });
   const classified = catalogRaw.map((m) => classifyModel(name, m.id, m));
-  // Bloque 266b: se comprueba en segundo plano cuáles de los agregables responden de
-  // verdad con esta clave (la API lista muchos que la cuenta no puede usar).
-  const probeText = "Responde solo con la palabra: listo";
-  startAvailabilityProbe({
-    provider: name,
-    models: classified.filter((m) => m.addable).map((m) => m.id),
-    probe: (model) => PROBE_GENERATORS[name]({ apiKey, prompt: probeText, model }),
-    classify: (err) => failureKindOf(`${err?.message ?? ""} ${err?.details?.detail ?? ""}`),
-  });
+  // Bloque 280 (pedido explícito): ya NO se prueban en segundo plano todos los modelos
+  // de la lista (cada prueba era un pedido real que gastaba el cupo gratis; con
+  // NVIDIA eran más de cien). Se muestran solo los TIPOS que la plataforma usa —
+  // texto (chat, asistentes, descripciones), texto+imagen (sirve como texto) y voz a
+  // texto (micrófono del chat) — y primero los que menos cupo llevan gastado.
+  const NEEDED = new Set(["text", "vision", "transcription"]);
+  const usage = new Map((await getProviderQuotaOverview(name, classified.map((m) => m.id))).map((q) => [q.model, q]));
   const catalog = classified
+    .filter((m) => NEEDED.has(m.category))
     .map((m) => {
       const bad = getUnavailableModel(name, m.id);
       const ok = getModelAvailable(name, m.id);
-      return { ...m, unavailable: !!bad, unavailableReason: bad?.reason ?? null, verified: !!ok, verifiedMs: ok?.ms ?? null };
+      const q = usage.get(m.id);
+      return {
+        ...m,
+        unavailable: !!bad,
+        unavailableReason: bad?.reason ?? null,
+        verified: !!ok,
+        verifiedMs: ok?.ms ?? null,
+        usageRatio: q?.usageRatio ?? 0,
+        withinFreeQuota: q?.available ?? true,
+        todayRequests: q?.todayRequests ?? 0,
+      };
     })
-    .sort((a, b) => Number(b.verified) - Number(a.verified) || a.id.localeCompare(b.id));
-  res.json({ models, catalog, probing: getProbeState(name), categories: CATEGORY_ORDER.map((id) => ({ id, label: CATEGORIES[id].label, purpose: CATEGORIES[id].purpose, usedNow: CATEGORIES[id].usedNow })), fetchedAt: new Date().toISOString() });
+    .sort((a, b) => Number(b.withinFreeQuota) - Number(a.withinFreeQuota) || a.usageRatio - b.usageRatio || Number(b.verified) - Number(a.verified) || a.id.localeCompare(b.id));
+  res.json({ models, catalog, probing: getProbeState(name), categories: CATEGORY_ORDER.filter((id) => ["text", "vision", "transcription"].includes(id)).map((id) => ({ id, label: CATEGORIES[id].label, purpose: CATEGORIES[id].purpose, usedNow: CATEGORIES[id].usedNow })), fetchedAt: new Date().toISOString() });
 }
 
 // Bloque 86 (pedido explícito, con reporte real en vivo de "el correo no
@@ -237,7 +246,8 @@ export async function testResendIntegration(_req, res) {
     message:
       "Este es un correo de prueba enviado a mano desde Admin → Integraciones para confirmar que la clave de Resend guardada funciona de verdad.\n\n" +
       "Si estás leyendo esto, la integración está funcionando correctamente.",
-    recipientName: admin.fullName,
+    // Saludo neutro: el nombre del admin es privado y nunca va en correos.
+    recipientName: "Administrador",
   });
 
   if (!result.ok) throw new AppError(`Resend rechazó el envío: ${result.error}`, 502, { detail: result.error });
@@ -272,6 +282,10 @@ export async function testAiProviderIntegration(req, res) {
   const requested = typeof req.body?.model === "string" ? req.body.model.trim() : "";
   const model = requested || (await getEffectiveActiveModels(name))[0]?.model || provider.defaultModel;
 
+  // Bloque 280: una prueba también gasta cupo; cerca del límite gratis no se hace.
+  if (!(await isWithinFreeQuota(name, model))) {
+    throw new AppError(`${name} está cerca de su límite gratis con "${model}". La prueba se hará cuando se renueve el cupo.`, 429);
+  }
   const start = Date.now();
   try {
     await provider.generate({ apiKey, prompt: AI_TEST_PROMPT, model });
