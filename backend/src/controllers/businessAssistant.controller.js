@@ -2,6 +2,8 @@ import { z } from "zod";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getPlanConfig, isPremiumActive } from "../lib/planConfig.js";
+import { prisma } from "../lib/prisma.js";
+import { startOfDayInTimezone } from "../lib/timezone.js";
 import { runAssistant, listConversations, getConversation, deleteConversation, clearHistory } from "../services/businessAssistant.service.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA): rutas del admin y
@@ -36,6 +38,19 @@ async function vendorPlanContext(vendor) {
   };
 }
 
+// Bloque 276 (pedido explícito — "las tiendas gratis tendrán un límite de 5 mensajes por día, que el
+// admin puede configurar; al agotarlo se les avisa que se suscriban o esperen al día siguiente"):
+// cuota diaria del asistente para tiendas SIN plan de pago activo. Cuenta los mensajes de la
+// persona desde la medianoche en la zona horaria de la plataforma. Con plan activo no hay tope.
+async function freeQuota(owner) {
+  if (owner.scope !== "VENDOR" || owner.planContext?.premium) return null;
+  const settings = await prisma.siteSettings.findFirst({ select: { freeAssistantDailyLimit: true, timezone: true } });
+  const limit = settings?.freeAssistantDailyLimit ?? 5;
+  const dayStart = startOfDayInTimezone(new Date(), settings?.timezone || "America/Havana");
+  const used = await prisma.assistantMessage.count({ where: { scope: "VENDOR", vendorId: owner.vendorId, role: "user", createdAt: { gte: dayStart } } });
+  return { limit, used, remaining: Math.max(0, limit - used), resetsAt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000).toISOString() };
+}
+
 // Las mismas cinco rutas para los dos ámbitos: lo único que cambia es quién es
 // la persona (`resolveOwner`) y qué se le cuenta extra al abrir el chat.
 function makeHandlers({ scope, resolveOwner }) {
@@ -45,7 +60,7 @@ function makeHandlers({ scope, resolveOwner }) {
       const owner = await resolveOwner(req);
       const conversations = await listConversations(owner);
       const active = conversations[0] ? await getConversation({ ...owner, conversationId: conversations[0].id }) : null;
-      res.json({ access: owner.access, conversations, active });
+      res.json({ access: { ...owner.access, quota: await freeQuota(owner) }, conversations, active });
     },
     async open(req, res) {
       const owner = await resolveOwner(req);
@@ -56,10 +71,20 @@ function makeHandlers({ scope, resolveOwner }) {
     async ask(req, res) {
       const { message, conversationId } = messageSchema.parse(req.body);
       const owner = await resolveOwner(req);
+      const quota = await freeQuota(owner);
+      if (quota && quota.remaining <= 0) {
+        res.status(429).json({
+          error: `Usaste tus ${quota.limit} mensajes de hoy. Para seguir administrando tu negocio con el asistente, suscríbete al plan de pago; si no, vuelve mañana y tu cuota se restablece.`,
+          code: "ASSISTANT_QUOTA",
+          quota,
+        });
+        return;
+      }
       const run = (onProgress) => runAssistant({ scope, userId: owner.userId, vendorId: owner.vendorId, who: owner.who, message, planContext: owner.planContext, conversationId, onProgress });
 
+      const after = quota ? { quota: { ...quota, used: quota.used + 1, remaining: quota.remaining - 1 } } : {};
       if (req.query.stream !== "1") {
-        res.json(await run());
+        res.json({ ...(await run()), ...after });
         return;
       }
       // Bloque 262 (pedido explícito — "animación de pensando, qué sección o qué
@@ -74,7 +99,7 @@ function makeHandlers({ scope, resolveOwner }) {
       const send = (event) => res.write(`${JSON.stringify(event)}\n`);
       try {
         const result = await run((progress) => send({ type: "progress", ...progress }));
-        send({ type: "done", ...result });
+        send({ type: "done", ...result, ...after });
       } catch (err) {
         if (!(err instanceof AppError)) console.error("[businessAssistant] error:", err);
         send({ type: "error", status: err?.statusCode ?? 500, message: err instanceof AppError ? err.message : "No se pudo obtener la respuesta. Prueba de nuevo." });

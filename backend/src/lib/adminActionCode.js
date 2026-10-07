@@ -15,6 +15,11 @@ export const ACTION_LABELS = {
   VENDOR_DELETE: "eliminar una tienda (pasa a eliminación pendiente)",
   DELETE_VENDOR_PERMANENT: "eliminar una tienda de forma definitiva",
   VENDOR_CHANGE: "modificar una tienda",
+  // Bloque 276 (pedido explícito — "se debe pedir autenticación al suspender o desbloquear una
+  // tienda, para que otra persona no la active"): acciones propias con su texto claro.
+  VENDOR_BLOCK: "suspender o bloquear una tienda",
+  VENDOR_UNBLOCK: "reactivar o desbloquear una tienda",
+  VENDOR_RESTORE: "restaurar una tienda que estaba en eliminación pendiente",
   ACCOUNT_ACCESS_CHANGE: "cambiar el acceso de una cuenta (contraseña o correo de inicio de sesión)",
   PLAN_CHANGE: "cambiar el plan de una tienda",
   VERIFICATION_CHANGE: "decidir sobre la verificación de una tienda",
@@ -42,7 +47,24 @@ const TTL_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 30 * 1000;
 const MAX_ATTEMPTS = 5;
 
-export async function sendActionCode(user, action) {
+// Bloque 276 (pedido explícito — "al enviar el aviso al administrador debe aparecer el nombre
+// real de la tienda, nunca un id"): nombre de a quién afecta la acción, para mostrarlo en el
+// modal y en el correo. Los ids son únicos entre tablas, así que un id de la URL que coincide
+// con una tienda, un usuario de sistema o una persona identifica a ese registro con certeza.
+export async function describeActionTarget(req) {
+  const ids = [req.params?.id, req.params?.vendorId, req.params?.userId, req.body?.vendorId].filter((x) => typeof x === "string" && x.length > 5 && x.length < 40);
+  for (const id of ids) {
+    const vendor = await prisma.vendor.findUnique({ where: { id }, select: { companyName: true } });
+    if (vendor) return `la tienda "${vendor.companyName}"`;
+    const staff = await prisma.vendorStaff.findUnique({ where: { id }, select: { user: { select: { fullName: true } }, vendor: { select: { companyName: true } } } });
+    if (staff) return `${staff.user?.fullName ? `el usuario "${staff.user.fullName}" de ` : ""}la tienda "${staff.vendor?.companyName}"`;
+    const person = await prisma.user.findUnique({ where: { id }, select: { fullName: true, role: true } });
+    if (person && person.role !== "ADMIN") return `${person.role === "CUSTOMER" ? "el cliente" : "la persona"} "${person.fullName}"`;
+  }
+  return null;
+}
+
+export async function sendActionCode(user, action, target = null) {
   if (!ACTION_LABELS[action]) throw new AppError("Acción no reconocida.", 400);
   const last = await prisma.adminActionCode.findFirst({ where: { userId: user.id, action }, orderBy: { createdAt: "desc" } });
   if (last && Date.now() - last.createdAt.getTime() < RESEND_COOLDOWN_MS) {
@@ -53,9 +75,9 @@ export async function sendActionCode(user, action) {
   const result = await sendAdminDirectEmail({
     to: user.email,
     recipientName: user.fullName,
-    subject: `Código de confirmación: ${ACTION_LABELS[action]}`,
+    subject: `Código de confirmación: ${ACTION_LABELS[action]}${target ? ` (${target})` : ""}`,
     message:
-      `Tu código para confirmar la acción "${ACTION_LABELS[action]}" es:\n\n${code}\n\n` +
+      `Tu código para confirmar la acción "${ACTION_LABELS[action]}"${target ? ` sobre ${target}` : ""} es:\n\n${code}\n\n` +
       "Vence en 10 minutos y sirve una sola vez. Si no fuiste tú, ignora este mensaje y cambia tu contraseña.",
   });
   if (!result?.ok) {
@@ -108,6 +130,7 @@ export async function confirmActionCode(req, res, action) {
   res.status(403).json({
     error: code ? "El código es incorrecto o venció." : hasApp ? `Confirma con el código de tu aplicación para ${ACTION_LABELS[action]}.` : `Confirma con el código enviado a tu correo para ${ACTION_LABELS[action]}.`,
     totp: hasApp,
+    target: await describeActionTarget(req),
     code: "ACTION_CODE_REQUIRED",
     action,
     label: ACTION_LABELS[action],
@@ -118,8 +141,13 @@ export async function confirmActionCode(req, res, action) {
 
 // Middleware: exige el código (cabecera X-Action-Code) para ESTA acción. Sin código o con uno
 // malo responde 403 con `code: "ACTION_CODE_REQUIRED"`, que el panel usa para pedirlo.
+// `action` puede ser un texto fijo o una función (req) => acción, para rutas cuya acción depende
+// de lo que se pide (p. ej. editar una tienda es "bloquear", "desbloquear" o "modificar" según el cuerpo).
 export function requireActionCode(action) {
   return async (req, res, next) => {
-    if (await confirmActionCode(req, res, action)) next();
+    if (await confirmActionCode(req, res, typeof action === "function" ? action(req) : action)) next();
   };
 }
+
+// Editar una tienda: si el cambio bloquea o desbloquea, la acción es esa; si no, "modificar".
+export const vendorChangeAction = (req) => (req.body?.isBlocked === true ? "VENDOR_BLOCK" : req.body?.isBlocked === false ? "VENDOR_UNBLOCK" : "VENDOR_CHANGE");

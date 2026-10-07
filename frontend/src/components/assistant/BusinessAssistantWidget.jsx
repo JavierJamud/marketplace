@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageSquareText, X } from "lucide-react";
 import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
 
@@ -16,6 +16,8 @@ import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
 // panel, que solo se monta al abrir.
 export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFree, intro = "Conectado a tu negocio, solo lectura" }) {
   const [open, setOpen] = useState(false);
+  const dialogRef = useRef(null);
+  const toggleRef = useRef(null);
   // Bloque 262: tras la primera apertura el chat se queda montado (solo oculto), así
   // una respuesta en curso no se pierde al cerrarlo; el panel se sincroniza con el
   // servidor cada vez que se vuelve a abrir.
@@ -50,11 +52,22 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
     function onKey(e) {
       if (e.key === "Escape") setOpen(false);
     }
+    // Bloque 276 (pedido explícito — "si tengo el chat abierto y hago clic fuera, debe cerrarse"):
+    // un clic o toque fuera de la ventana la cierra. No cuentan el propio botón (que ya alterna) ni
+    // los diálogos modales abiertos encima (p. ej. el código de confirmación del admin).
+    function onPointerDown(e) {
+      const target = e.target;
+      if (dialogRef.current?.contains(target) || toggleRef.current?.contains(target)) return;
+      if (target.closest?.('[aria-modal="true"]')) return;
+      setOpen(false);
+    }
     window.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
     const previous = document.body.style.overflow;
     if (window.matchMedia("(max-width: 639px)").matches) document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
       document.body.style.overflow = previous;
     };
   }, [open]);
@@ -63,6 +76,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
     <>
       {mounted && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label="Asistente de negocio"
           hidden={!open}
@@ -86,6 +100,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
       {/* En celular el botón se oculta mientras la hoja está abierta (la hoja ya
           trae su propio botón de cerrar). */}
       <button
+        ref={toggleRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Cerrar el asistente de negocio" : "Abrir el asistente de negocio"}

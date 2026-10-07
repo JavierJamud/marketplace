@@ -2362,6 +2362,9 @@ model SiteSettings {
   offerCooldownDays        Int @default(7)
   // Bloque 272: días que una tienda eliminada por el admin espera antes de borrarse sola.
   vendorDeletionDays       Int @default(30)
+  // Bloque 276 (pedido explícito): mensajes por día que una tienda SIN plan de pago puede enviarle al
+  // asistente de negocio (5 por defecto, configurable en Admin > Seguridad). Con plan activo no hay tope.
+  freeAssistantDailyLimit  Int @default(5)
   offerDefaultDurationDays Int @default(30)
   // Bloque 118 (pedido explícito): política de comentarios/reseñas,
   // editable desde "Comentarios" del admin — antes constantes hardcodeadas

@@ -4,7 +4,7 @@ import * as announcementsController from "../controllers/announcements.controlle
 import * as campaignsController from "../controllers/campaigns.controller.js";
 import * as integrationsController from "../controllers/integrations.controller.js";
 import * as securityController from "../controllers/security.controller.js";
-import { requireActionCode } from "../lib/adminActionCode.js";
+import { requireActionCode, vendorChangeAction } from "../lib/adminActionCode.js";
 import * as aiModelsController from "../controllers/aiModels.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
 import { assistantRateLimit } from "../middleware/rateLimit.js";
@@ -44,7 +44,7 @@ router.get("/dashboard", adminController.getDashboard);
 router.get("/dashboard/sales-series", adminController.getDashboardSalesSeries);
 
 router.get("/vendors", adminController.listVendors);
-router.patch("/vendors/:id", requireActionCode("VENDOR_CHANGE"), adminController.updateVendor);
+router.patch("/vendors/:id", requireActionCode(vendorChangeAction), adminController.updateVendor);
 // Bloque 165: acciones de cuenta directas desde el admin — contraseña y
 // correo de LOGIN del vendedor (distinto de Vendor.email, ya cubierto por
 // updateVendor de arriba).
@@ -52,7 +52,7 @@ router.post("/vendors/:id/reset-password", requireActionCode("ACCOUNT_ACCESS_CHA
 router.patch("/vendors/:id/login-email", requireActionCode("ACCOUNT_ACCESS_CHANGE"), adminController.updateVendorLoginEmail);
 router.delete("/vendors/:id", requireActionCode("VENDOR_DELETE"), adminController.deleteVendor);
 // Bloque 272: eliminación pendiente (30 días): restaurar o eliminar ya, esto último con código al correo.
-router.post("/vendors/:id/restore-deletion", requireActionCode("VENDOR_CHANGE"), adminController.restoreVendorDeletion);
+router.post("/vendors/:id/restore-deletion", requireActionCode("VENDOR_RESTORE"), adminController.restoreVendorDeletion);
 router.delete("/vendors/:id/permanent", requireActionCode("DELETE_VENDOR_PERMANENT"), adminController.permanentlyDeleteVendor);
 router.post("/security/action-code", securityController.requestActionCode);
 router.get("/security/settings", securityController.getSecuritySettings);
@@ -74,7 +74,7 @@ router.get("/vendor-staff/:id/sessions", adminController.getVendorStaffSessionsB
 // Bloque 62: suspensión automática por inactividad (vendorLifecycle.job.js)
 // + reactivación manual con motivo obligatorio.
 router.get("/vendors/suspended", adminController.listSuspendedVendors);
-router.post("/vendors/:id/reactivate", requireActionCode("VENDOR_CHANGE"), adminController.reactivateVendor);
+router.post("/vendors/:id/reactivate", requireActionCode("VENDOR_UNBLOCK"), adminController.reactivateVendor);
 
 // Venta rápida: qué clientes SIN tienda tienen anuncios activos, agrupado
 // por dueño (pedido explícito).

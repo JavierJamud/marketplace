@@ -300,6 +300,38 @@ configurado (diario/semanal/mensual), revisa si hoy es el día que le toca y,
 si es así, le manda al personal con permiso de "ventas-manuales" sus totales
 del período. Corre a las **8:30am**.
 
+### B6c. Acceso total del asistente, cuota del plan gratis y voz — `lib/assistantQuery.js`, `lib/assistantPeople.js`
+
+**Acceso a toda la base de datos.** En el ámbito admin, `consultar_datos` ya no usa una lista de
+tablas escrita a mano: se genera desde el esquema de Prisma, así que TODA tabla existe para el
+asistente (ventas rápidas, agentes de ventas, personas, tiendas, clientes, pagos...) y las nuevas
+aparecen solas. Siguen vedadas: contraseñas, hashes, claves, secretos, códigos, números de
+identificación, documentos y fotos de verificación, enlaces a archivos y los chats privados de
+otros. Las relaciones se muestran con nombre (tienda, usuario, producto), nunca con id, y se puede
+filtrar por nombre de tienda. El admin SÍ puede ver correo, teléfono y perfil de las personas.
+
+**Herramientas nuevas** (solo lectura): `tiendas_por_estado` (junta TODAS las tiendas que no operan:
+suscripción suspendida, suspendida por inactividad, bloqueada, eliminación pendiente, con total y
+desglose), `buscar_persona` (perfil completo y enlaces al perfil archivado de verificación y a la
+tienda), `agentes_de_ventas` (cargo SALES_AGENT, la sección "Agentes de Ventas" o ventas manuales
+registradas), `ventas_rapidas`, `detalle_de_cliente` (compras, qué mira, carrito, favoritos). Las de
+vendedor reciben el vendorId de la sesión y solo ven a SUS clientes. Los enlaces aceptan `?q=` y
+`?archivo=` solo sobre rutas reales del catálogo.
+
+**Cuota del plan gratis.** `SiteSettings.freeAssistantDailyLimit` (5 por defecto; Admin > Seguridad,
+con código de confirmación). Una tienda sin plan de pago activo envía como máximo ese número de
+mensajes por día (desde la medianoche en la zona horaria de la plataforma); el servidor responde 429
+`ASSISTANT_QUOTA` y el chat muestra el aviso de suscribirse o esperar al día siguiente. Con plan
+activo no hay tope.
+
+**Interfaz.** Las tablas muestran 5 filas y "Ver todas (N)". Un clic fuera de la ventana la cierra
+(no cuenta el botón ni los diálogos modales encima). Botón de micrófono: graba, `/ai/transcribe`
+pasa la voz a texto y se envía como pregunta (`lib/useVoiceRecorder.js`).
+
+**Códigos de confirmación del admin.** Suspender o bloquear (`VENDOR_BLOCK`), reactivar o desbloquear
+(`VENDOR_UNBLOCK`) y restaurar de eliminación pendiente (`VENDOR_RESTORE`) tienen su propia acción, y
+el modal y el correo nombran a la tienda o persona afectada (nunca un id).
+
 ### B8c. Verificación en dos pasos con aplicación autenticadora — `lib/totp.js`
 
 Segundo paso del login para cliente, vendedor y admin (misma tabla `User`). Sin la app

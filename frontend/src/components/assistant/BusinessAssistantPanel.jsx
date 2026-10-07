@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, ArrowRight, Check, History, Maximize2, Minimize2, MessageSquareText, Plus, Trash2, X, ChevronLeft } from "lucide-react";
+import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, Square, Trash2, X, ChevronLeft } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
 // para los vendedores): una sola pantalla de chat para los dos paneles. El
@@ -65,6 +66,11 @@ const TOOL_LABELS = {
   errores_recientes: "Errores recientes",
   reportes_de_fraude: "Reportes de fraude",
   resumen_productos: "Catálogo",
+  tiendas_por_estado: "Estado de las tiendas",
+  buscar_persona: "Perfil de una persona",
+  agentes_de_ventas: "Agentes de ventas",
+  ventas_rapidas: "Venta rápida",
+  detalle_de_cliente: "Detalle de un cliente",
 };
 
 function formatTime(iso) {
@@ -132,8 +138,7 @@ async function askStreaming(endpoint, body, onEvent) {
   return final;
 }
 
-function requestErrorMessage(err) {
-  if (err.userMessage) return err.userMessage;
+function errorData(err) {
   let data = err.response?.data;
   if (typeof data === "string") {
     try {
@@ -142,7 +147,12 @@ function requestErrorMessage(err) {
       data = null;
     }
   }
-  return data?.error ?? "No se pudo obtener la respuesta. Prueba de nuevo.";
+  return data;
+}
+
+function requestErrorMessage(err) {
+  if (err.userMessage) return err.userMessage;
+  return errorData(err)?.error ?? "No se pudo obtener la respuesta. Prueba de nuevo.";
 }
 
 // Texto del asistente: párrafos y listas con "- ". Sin dangerouslySetInnerHTML:
@@ -208,7 +218,14 @@ function ProductCard({ product, onNavigate }) {
 // Tabla de la respuesta (tiendas, productos, pedidos...): cabecera de color, filas
 // con rayado suave y desplazamiento horizontal propio si no cabe, para no ensanchar
 // el chat. Todo el contenido es texto.
+const TABLE_PREVIEW_ROWS = 5;
+
 function AnswerTable({ table }) {
+  // Bloque 276 (pedido explícito — "la visualización se muestra en un máximo de cinco"): se ven
+  // las 5 primeras filas y el resto se despliega con "Ver todas".
+  const [expanded, setExpanded] = useState(false);
+  const hidden = Math.max(0, table.rows.length - TABLE_PREVIEW_ROWS);
+  const rows = expanded ? table.rows : table.rows.slice(0, TABLE_PREVIEW_ROWS);
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest">
       {table.title && <p className="border-b border-outline-variant bg-surface-container-low px-3 py-2 text-[12.5px] font-bold text-on-surface">{table.title}</p>}
@@ -224,7 +241,7 @@ function AnswerTable({ table }) {
             </tr>
           </thead>
           <tbody>
-            {table.rows.map((row, r) => (
+            {rows.map((row, r) => (
               <tr key={r} className={r % 2 === 1 ? "bg-surface-container/60" : ""}>
                 {row.map((cell, i) => (
                   <td key={i} className={`px-3 py-2 text-on-surface ${i === 0 ? "font-semibold" : "tabular-nums"}`}>
@@ -236,6 +253,17 @@ function AnswerTable({ table }) {
           </tbody>
         </table>
       </div>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex min-h-11 w-full items-center justify-center gap-1.5 border-t border-outline-variant text-[12.5px] font-semibold text-tertiary-accent transition hover:bg-surface-container focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-tertiary-accent"
+        >
+          {expanded ? "Ver menos" : `Ver todas (${table.rows.length})`}
+          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
@@ -320,6 +348,9 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
   const [seconds, setSeconds] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Bloque 276: cuota diaria de las tiendas sin plan de pago ({limit, used, remaining}) y voz.
+  const [quota, setQuota] = useState(null);
+  const voice = useVoiceRecorder();
   const initialized = useRef(false);
   const activeIdRef = useRef(null);
   const bottomRef = useRef(null);
@@ -344,6 +375,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
     setConversations(data.conversations ?? []);
     setActiveId(data.active?.id ?? null);
     setMessages(data.active?.messages ?? []);
+    setQuota(data.access?.quota ?? null);
   }, [data]);
 
   const startNew = useCallback(() => {
@@ -360,6 +392,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
     try {
       const fresh = (await api.get(endpoint)).data;
       setConversations(fresh.conversations ?? []);
+      setQuota(fresh.access?.quota ?? null);
       const id = activeIdRef.current;
       if (id) {
         if (!(fresh.conversations ?? []).some((c) => c.id === id)) return startNew();
@@ -376,6 +409,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
 
   useEffect(() => {
     if (isOpen && initialized.current && !busy) refresh();
+    if (!isOpen) voice.cancel();
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Segundos que lleva respondiendo.
@@ -410,13 +444,21 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
         { id: `a-${now}`, role: "assistant", content: result.reply, toolsUsed: result.toolsUsed, links: result.links, products: result.products, table: result.table, createdAt: now },
       ]);
       setActiveId(result.conversationId);
+      if (result.quota) setQuota(result.quota);
       setConversations((prev) => [{ id: result.conversationId, title: result.title, updatedAt: now }, ...prev.filter((c) => c.id !== result.conversationId)]);
     } catch (err) {
-      setError(requestErrorMessage(err));
+      const data = errorData(err);
+      if (data?.code === "ASSISTANT_QUOTA" && data.quota) setQuota(data.quota);
+      else setError(requestErrorMessage(err));
     } finally {
       setPending(null);
       setBusy(false);
     }
+  }
+
+  async function sendVoice() {
+    const spoken = await voice.stop();
+    if (spoken) await submit(spoken);
   }
 
   async function openConversation(id) {
@@ -472,6 +514,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
   const prompts = data?.access?.premium === false && quickPromptsFree ? quickPromptsFree : quickPrompts;
   const shown = pending ? [...messages, { role: "user", content: pending.content, createdAt: new Date(pending.startedAt).toISOString() }] : messages;
   const activeTitle = conversations.find((c) => c.id === activeId)?.title;
+  const quotaExhausted = !!quota && quota.remaining <= 0;
 
   return (
     <div className={wrapper}>
@@ -592,16 +635,53 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
             <div ref={bottomRef} />
           </div>
 
+          {quotaExhausted && (
+            <div className="border-t border-surface-container-high/70 bg-surface-container p-4 text-[13.5px] text-on-surface" role="alert">
+              <p className="mb-1 font-bold">Llegaste al límite de mensajes de hoy</p>
+              <p className="mb-3 text-on-surface-variant">
+                Con el plan gratis puedes enviar {quota.limit} mensajes al día al asistente. Para seguir administrando tu negocio sin límite, suscríbete al plan de pago; si no, vuelve mañana y tu cuota se restablece.
+              </p>
+              <Link
+                to="/vendedor/verificacion"
+                onClick={onNavigate}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-primary px-4 text-[13px] font-semibold text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+              >
+                Ver el plan de pago
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </div>
+          )}
+          {!quotaExhausted && quota && (
+            <p className="border-t border-surface-container-high/70 px-4 pt-2 text-[12px] text-on-surface-variant">
+              Plan gratis: te quedan {quota.remaining} de {quota.limit} mensajes hoy.
+            </p>
+          )}
           <form
+            hidden={quotaExhausted}
             onSubmit={(e) => {
               e.preventDefault();
               submit(text);
             }}
-            className="flex items-end gap-2 border-t border-surface-container-high/70 p-3"
+            className={`flex items-end gap-2 p-3 ${quota ? "pt-1.5" : "border-t border-surface-container-high/70"}`}
           >
             <label htmlFor="assistant-input" className="sr-only">
               Escribe tu pregunta
             </label>
+            {voice.state !== "idle" ? (
+              <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-error/40 bg-error/5 px-3.5 text-[13.5px]" role="status" aria-live="polite">
+                {voice.state === "recording" ? (
+                  <>
+                    <span className="h-2.5 w-2.5 flex-shrink-0 animate-pulse rounded-full bg-error motion-reduce:animate-none" aria-hidden="true" />
+                    <span className="flex-1 text-error">Grabando... toca el cuadro rojo para enviar</span>
+                    <button type="button" onClick={voice.cancel} aria-label="Cancelar la grabación" className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-on-surface-variant hover:text-error focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent">
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-on-surface-variant">Pasando tu voz a texto...</span>
+                )}
+              </div>
+            ) : (
             <textarea
               id="assistant-input"
               value={text}
@@ -614,12 +694,27 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
               }}
               rows={1}
               maxLength={600}
-              placeholder="Escribe tu pregunta"
+              placeholder="Escribe o graba tu pregunta"
               className="max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-xl border border-outline-variant bg-surface-container-lowest px-3.5 py-2.5 text-[14px] outline-none placeholder:text-on-surface-variant focus-visible:border-tertiary-accent"
             />
+            )}
+            {voice.supported && (
+              <button
+                type="button"
+                onClick={voice.state === "recording" ? sendVoice : voice.start}
+                disabled={busy || voice.state === "transcribing"}
+                aria-label={voice.state === "recording" ? "Detener y enviar el mensaje de voz" : "Grabar un mensaje de voz"}
+                title={voice.state === "recording" ? "Detener y enviar" : "Grabar un mensaje de voz"}
+                className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent ${
+                  voice.state === "recording" ? "bg-error text-white" : "bg-surface-container text-on-surface hover:bg-surface-container-high"
+                }`}
+              >
+                {voice.state === "recording" ? <Square className="h-4 w-4 fill-current" aria-hidden="true" /> : <Mic className="h-5 w-5" aria-hidden="true" />}
+              </button>
+            )}
             <button
               type="submit"
-              disabled={!text.trim() || busy}
+              disabled={!text.trim() || busy || voice.state !== "idle"}
               aria-label="Enviar pregunta"
               className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-secondary-container text-primary transition hover:brightness-95 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
             >

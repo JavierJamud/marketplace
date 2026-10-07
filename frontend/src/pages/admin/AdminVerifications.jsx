@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { User, FileText, Receipt, Check, Bot, UserCheck, CreditCard, Landmark, Clock, Eye, Archive, X, Pencil, Trash2, RotateCcw, ShieldCheck } from "lucide-react";
@@ -289,7 +290,7 @@ function VerificationArchiveModal({ vendor, onClose }) {
       <div className="max-h-[85vh] w-full max-w-[720px] overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
-            <Archive className="h-5 w-5 text-tertiary-accent" /> Archivo de verificación — {vendor.companyName}
+            <Archive className="h-5 w-5 text-tertiary-accent" /> Archivo de verificación: {vendor.companyName || archives?.[0]?.companyName || "tienda"}
           </h2>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full text-outline hover:bg-surface-container">
             <X className="h-4 w-4" />
@@ -534,6 +535,13 @@ export default function AdminVerifications() {
   // Bloque 72 (pedido explícito): { vendorId, companyName, verificationStatus }
   // de la tienda cuyo archivo de documentación se está viendo, o null.
   const [archiveVendor, setArchiveVendor] = useState(null);
+  // Bloque 276: el asistente de negocio enlaza al perfil archivado de una tienda con
+  // /admin/verificaciones?archivo=<tienda>; al llegar con ese parámetro se abre el archivo.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const archiveParam = searchParams.get("archivo");
+  useEffect(() => {
+    if (archiveParam) setArchiveVendor({ vendorId: archiveParam, companyName: "", verificationStatus: null });
+  }, [archiveParam]);
 
   // Bloque 144: mismo criterio que ["my-verification"]/["my-vendor"] del
   // lado del vendedor — el admin necesita ver el estado REAL de cada
@@ -988,7 +996,15 @@ export default function AdminVerifications() {
         />
       </ConfirmModal>
 
-      {archiveVendor && <VerificationArchiveModal vendor={archiveVendor} onClose={() => setArchiveVendor(null)} />}
+      {archiveVendor && (
+        <VerificationArchiveModal
+          vendor={archiveVendor}
+          onClose={() => {
+            setArchiveVendor(null);
+            if (archiveParam) setSearchParams({}, { replace: true });
+          }}
+        />
+      )}
     </div>
   );
 }

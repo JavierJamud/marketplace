@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
 
 // Bloque 262 (pedido explícito — "el asistente debe tener acceso total a todo lo
@@ -45,26 +46,91 @@ const T = {
   pagos_de_suscripcion: { model: "subscriptionPayment", label: "pagos de renovación de la suscripción", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { paymentMethod: "s", months: "n", amount: "n", currency: "s", claimedAt: "d", confirmedAt: "d", periodStart: "d", periodEnd: "d", createdAt: "d" } },
   cambios_de_estado_de_la_tienda: { model: "vendorStatusLog", label: "cambios de estado (suspensión, reactivación)", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { fromStatus: "s", toStatus: "s", reason: "s", at: "d" } },
   cambios_de_verificacion: { model: "verificationStatusLog", label: "historial de verificación y plan", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { fromStatus: "s", toStatus: "s", reason: "s", source: "s", at: "d" } },
+  personal_del_negocio: { model: "vendorStaff", label: "usuarios de sistema de la tienda (agentes de ventas y meseros)", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { staffType: "s", isActive: "b", receivesOrderNotifications: "b", createdAt: "d" } },
+  ventas_de_agentes: { model: "vendorStaffSale", label: "ventas manuales de los agentes de ventas", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { productName: "s", quantity: "n", unitPrice: "n", total: "n", note: "s", createdAt: "d" } },
+  cierres_de_caja_de_agentes: { model: "vendorStaffCashClose", label: "cierres de caja de los agentes", scope: (c) => ({ vendorStaff: { vendorId: c.vendorId } }), fields: { periodStart: "d", periodEnd: "d", totalSales: "n", reportedAt: "d", note: "s" } },
+  solicitudes_de_producto: { model: "productRequest", label: "productos que clientes pidieron a la tienda", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { createdAt: "d" } },
+  productos_de_los_pedidos: { model: "orderItem", label: "productos dentro de cada pedido (qué se compró)", scope: (c) => ({ order: { vendorId: c.vendorId } }), fields: { name: "s", quantity: "n", price: "n", size: "s", currency: "s" } },
   mesas: { model: "table", label: "mesas con QR", vendorRel: ["vendor"], scope: (c) => ({ vendorId: c.vendorId }), fields: { tableNumber: "n", label: "s" } },
 };
 
-// Solo el admin: tablas de toda la plataforma que no pertenecen a una tienda.
-const ADMIN_ONLY = {
-  tiendas: { model: "vendor", label: "todas las tiendas", adminScope: { deletedAt: null }, fields: { companyName: "s", planType: "s", verificationStatus: "s", status: "s", isBlocked: "b", isPrivate: "b", isRestaurant: "b", currency: "s", rating: "n", salesCount: "n", nextPaymentDueDate: "d", cancelAtPeriodEnd: "b", trialEndsAt: "d", createdAt: "d" } },
-  clientes: { model: "user", label: "clientes registrados (sin correo ni teléfono)", adminScope: { role: "CUSTOMER", deletedAt: null }, fields: { fullName: "s", isSuspended: "b", lastLoginAt: "d", createdAt: "d" } },
-  sesiones: { model: "session", label: "sesiones de toda la plataforma (sin usuario)", adminScope: {}, fields: { createdAt: "d", lastUsedAt: "d", expiresAt: "d", revokedAt: "d", userAgent: "s" } },
-  errores: { model: "errorLog", label: "errores del sistema", adminScope: {}, fields: { origin: "s", message: "s", resolved: "b", createdAt: "d" } },
-  anomalias_del_ranking: { model: "rankingAnomaly", label: "anomalías del ranking", adminScope: {}, fields: { kind: "s", status: "s", details: "s", detectedAt: "d" } },
-  solicitudes_de_ubicacion: { model: "locationSuggestion", label: "ubicaciones escritas a mano pendientes de revisar", adminScope: {}, fields: { kind: "s", name: "s", status: "s", mentionCount: "n", createdAt: "d" } },
+// Bloque 276 (pedido explícito — "el asistente del admin debe tener acceso total a la base de
+// datos, poder leer y visualizar todo"): en el ámbito ADMIN las tablas ya no son una lista
+// escrita a mano. Se generan desde el propio esquema de Prisma, así que TODA tabla del sistema
+// (ventas rápidas, agentes de ventas, personas, clientes, tiendas...) existe para el asistente y
+// cualquier tabla nueva que se agregue en el futuro aparece sola. Siguen fuera, siempre:
+// contraseñas, hashes, claves, secretos, códigos de verificación, números de identificación,
+// documentos y fotos de verificación, enlaces a archivos y las conversaciones privadas de otros.
+const DENY_MODELS = new Set(["Integration", "AdminActionCode", "TrustedDevice", "PendingRegistration", "AssistantMessage", "AssistantConversation", "VerificationRequest", "VerificationArchive"]);
+const SECRET_FIELD = /(hash|secret|token|password|totp|twofactor|resetcode|emailchangecode|apikey|passphrase|otp|cvv|iban|stripe|idnumber|taxid|selfie|signature|encrypted|enc$|url$|urls$|ipaddress)/i;
+const PRISMA_TYPE = { String: "s", Int: "n", Float: "n", Decimal: "n", BigInt: "n", DateTime: "d", Boolean: "b" };
+// Relaciones que se muestran con un nombre legible en vez de un id.
+const RELATION_PICK = { Vendor: "companyName", User: "fullName", Product: "name" };
+const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+
+// Nombres cortos en español para las tablas que más se preguntan; el resto se llama por el
+// nombre del modelo (ej. "customerListing").
+const ADMIN_ALIASES = {
+  tiendas: { model: "Vendor", label: "todas las tiendas (suspendidas: status=SUSPENDED; bloqueadas: isBlocked=true)", adminScope: { deletedAt: null } },
+  clientes: { model: "User", label: "clientes registrados con su perfil", adminScope: { role: "CUSTOMER", deletedAt: null } },
+  usuarios: { model: "User", label: "TODAS las personas con cuenta (clientes, dueños de tienda, administradores y usuarios de sistema) y su perfil", adminScope: { deletedAt: null } },
+  ventas_rapidas: { model: "CustomerListing", label: "anuncios de venta rápida publicados por clientes", adminScope: {} },
+  agentes_de_ventas: { model: "VendorStaff", label: "usuarios de sistema de las tiendas (agentes de ventas y meseros); staffType=SALES_AGENT son los agentes de ventas", adminScope: {} },
+  ventas_de_agentes: { model: "VendorStaffSale", label: "ventas manuales hechas por los agentes de ventas", adminScope: {} },
+  cierres_de_caja_de_agentes: { model: "VendorStaffCashClose", label: "cierres de caja de los agentes de ventas", adminScope: {} },
+  solicitudes_de_producto: { model: "ProductRequest", label: "productos que los clientes pidieron a las tiendas", adminScope: {} },
+  errores: { model: "ErrorLog", label: "errores del sistema", adminScope: {} },
+  sesiones: { model: "Session", label: "sesiones de toda la plataforma", adminScope: {} },
+  anomalias_del_ranking: { model: "RankingAnomaly", label: "anomalías del ranking", adminScope: {} },
+  solicitudes_de_ubicacion: { model: "LocationSuggestion", label: "ubicaciones escritas a mano pendientes de revisar", adminScope: {} },
 };
 
+function autoTable(modelName, label, adminScope = {}, described = true) {
+  const m = Prisma.dmmf.datamodel.models.find((x) => x.name === modelName);
+  if (!m) return null;
+  const fields = {};
+  for (const f of m.fields) {
+    if (f.kind === "object" || f.isList || SECRET_FIELD.test(f.name)) continue;
+    const type = PRISMA_TYPE[f.type] ?? (f.kind === "enum" ? "s" : null);
+    if (type) fields[f.name] = type;
+  }
+  const rels = m.fields
+    .filter((f) => f.kind === "object" && !f.isList && f.relationFromFields?.length && RELATION_PICK[f.type])
+    .map((f) => ({ key: f.name === "vendor" ? "tienda" : f.name, path: [f.name], pick: RELATION_PICK[f.type] }));
+  const vendorPath = m.fields.some((f) => f.name === "vendor" && f.kind === "object") ? ["vendor"] : null;
+  return { model: lowerFirst(modelName), label, adminScope, fields, rels, vendorPath, described };
+}
+
+function adminRegistry() {
+  const out = {};
+  const covered = new Set();
+  for (const [name, a] of Object.entries(ADMIN_ALIASES)) {
+    const t = autoTable(a.model, a.label, a.adminScope);
+    if (t) {
+      out[name] = t;
+      covered.add(a.model);
+    }
+  }
+  for (const [name, t] of Object.entries(T)) {
+    if (name === "sesiones_del_dueno") continue;
+    out[name] = { ...t, adminScope: {}, rels: t.vendorRel ? [{ key: "tienda", path: t.vendorRel, pick: "companyName" }] : [], vendorPath: t.vendorRel ?? null, described: true };
+    covered.add(t.model.charAt(0).toUpperCase() + t.model.slice(1));
+  }
+  for (const m of Prisma.dmmf.datamodel.models) {
+    if (DENY_MODELS.has(m.name) || covered.has(m.name)) continue;
+    const t = autoTable(m.name, m.name, {}, false);
+    if (t && Object.keys(t.fields).length) out[t.model] = t;
+  }
+  return out;
+}
+
 function registryFor(scope) {
-  if (scope === "VENDOR") return T;
-  const admin = {};
-  for (const [name, t] of Object.entries(T)) admin[name] = { ...t, adminScope: {} };
-  // En el ámbito admin, las sesiones del dueño no aplican (hay una tabla general).
-  delete admin.sesiones_del_dueno;
-  return { ...admin, ...ADMIN_ONLY };
+  if (scope === "VENDOR") {
+    const out = {};
+    for (const [name, t] of Object.entries(T)) out[name] = { ...t, rels: [], vendorPath: null, described: true };
+    return out;
+  }
+  return adminRegistry();
 }
 
 const clip = (v) => (typeof v === "string" && v.length > 140 ? `${v.slice(0, 140)}...` : v);
@@ -92,12 +158,13 @@ function condition(type, op, value) {
   return { [{ ">": "gt", ">=": "gte", "<": "lt", "<=": "lte" }[op]]: v };
 }
 
-function nestedSelect(path) {
-  return path.reduceRight((inner, key, i) => ({ [key]: i === path.length - 1 ? { select: { companyName: true } } : { select: inner } }), null);
+function nestedSelect(path, pick = "companyName") {
+  return path.reduceRight((inner, key, i) => ({ [key]: i === path.length - 1 ? { select: { [pick]: true } } : { select: inner } }), null);
 }
+const nestedWhere = (path, leaf) => path.reduceRight((inner, key) => ({ [key]: inner }), leaf);
 const dig = (row, path) => path.reduce((acc, k) => acc?.[k], row);
 
-function cleanRow(row, fieldTypes, vendorRel) {
+function cleanRow(row, fieldTypes, rels) {
   const out = {};
   for (const key of Object.keys(fieldTypes)) {
     let v = row[key];
@@ -109,13 +176,13 @@ function cleanRow(row, fieldTypes, vendorRel) {
     else if (typeof v === "object" && typeof v.toNumber === "function") v = Math.round(v.toNumber() * 100) / 100;
     out[key] = clip(v);
   }
-  if (vendorRel) out.tienda = dig(row, [...vendorRel])?.companyName ?? null;
+  for (const r of rels ?? []) out[r.key] = dig(row, r.path)?.[r.pick] ?? null;
   return out;
 }
 
 export function describeQueryTables(scope) {
   return Object.entries(registryFor(scope))
-    .map(([name, t]) => `${name} (${t.label}): ${Object.entries(t.fields).map(([f, ty]) => `${f}:${ty}`).join(", ")}`)
+    .map(([name, t]) => (t.described ? `${name} (${t.label}): ${Object.entries(t.fields).map(([f, ty]) => `${f}:${ty}`).join(", ")}` : name))
     .join("\n    ");
 }
 
@@ -124,12 +191,13 @@ export function makeQueryTool(scope) {
   const tables = Object.keys(registry);
   return {
     description:
-      "Consulta CUALQUIER tabla del negocio (solo lectura): pedidos, productos, reseñas, registro de actividad, inicios de sesión, mensajes, ofertas, códigos, clics, favoritos, pagos, etc. Úsala cuando ninguna otra herramienta dé el dato exacto. Filtra por campos con operadores (=, !=, >, >=, <, <=, contiene; las fechas como AAAA-MM-DD), ordena, cuenta (contar:true) o agrupa (agrupar_por, y sumar un campo numérico). Tipos: s=texto, n=número, d=fecha, b=sí/no. Tablas y campos:\n    " + describeQueryTables(scope),
-    args: '{ "tabla": "...", "filtros": [{"campo":"...","op":"=","valor":...}] (opcional), "orden": {"campo":"...","dir":"asc"|"desc"} (opcional), "limite": 1-15, "campos": ["..."] (opcional), "contar": true (opcional), "agrupar_por": "campo" (opcional), "sumar": "campo numérico" (opcional) }',
+      "Consulta CUALQUIER tabla del negocio (solo lectura): pedidos, productos, reseñas, registro de actividad, inicios de sesión, mensajes, ofertas, códigos, clics, favoritos, pagos, etc. Úsala cuando ninguna otra herramienta dé el dato exacto. Filtra por campos con operadores (=, !=, >, >=, <, <=, contiene; las fechas como AAAA-MM-DD), ordena, cuenta (contar:true) o agrupa (agrupar_por, y sumar un campo numérico). Tipos: s=texto, n=número, d=fecha, b=sí/no. Para filtrar por tienda usa \"tienda\":\"nombre\". Las tablas listadas solo con su nombre existen y tienen más campos: haz una consulta con limite 1 para verlos. Tablas y campos:\n    " + describeQueryTables(scope),
+    args: '{ "tabla": "...", "filtros": [{"campo":"...","op":"=","valor":...}] (opcional), "orden": {"campo":"...","dir":"asc"|"desc"} (opcional), "tienda": "nombre de la tienda" (opcional), "limite": 1-15, "campos": ["..."] (opcional), "contar": true (opcional), "agrupar_por": "campo" (opcional), "sumar": "campo numérico" (opcional) }',
     schema: z.object({
       tabla: z.enum(tables),
       filtros: z.array(z.object({ campo: z.string().max(40), op: z.enum(OPS), valor: z.union([z.string().max(120), z.number(), z.boolean()]) })).max(5).default([]),
       orden: z.object({ campo: z.string().max(40), dir: z.enum(["asc", "desc"]).default("desc") }).optional(),
+      tienda: z.string().max(60).optional(),
       limite: z.number().int().min(1).max(MAX_ROWS).default(8),
       campos: z.array(z.string().max(40)).max(12).optional(),
       contar: z.boolean().optional(),
@@ -150,7 +218,9 @@ export function makeQueryTool(scope) {
           if (!OPS_BY_TYPE[type].includes(f.op)) throw new Error(`El operador "${f.op}" no sirve con el campo ${f.campo} (tipo ${type}). Usa: ${OPS_BY_TYPE[type].join(", ")}`);
           return { [f.campo]: condition(type, f.op, f.valor) };
         });
-        const where = { AND: [base, ...mine] };
+        // Filtro por NOMBRE de tienda (la persona nunca conoce el id).
+        const byStore = args.tienda && scope === "ADMIN" && table.vendorPath ? [nestedWhere(table.vendorPath, { companyName: { contains: args.tienda, mode: "insensitive" } })] : [];
+        const where = { AND: [base, ...mine, ...byStore] };
         const delegate = prisma[table.model];
 
         if (args.agrupar_por) {
@@ -172,9 +242,9 @@ export function makeQueryTool(scope) {
         if (args.orden) must(args.orden.campo);
         const orderBy = args.orden ? { [args.orden.campo]: args.orden.dir } : undefined;
         const select = Object.fromEntries(shown.map((c) => [c, true]));
-        if (scope === "ADMIN" && table.vendorRel) Object.assign(select, nestedSelect(table.vendorRel));
+        if (scope === "ADMIN") for (const r of table.rels ?? []) Object.assign(select, nestedSelect(r.path, r.pick));
         const [total, rows] = await Promise.all([delegate.count({ where }), delegate.findMany({ where, select, orderBy, take: args.limite })]);
-        return { tabla: args.tabla, totalQueCoincide: total, mostrando: rows.length, filas: rows.map((r) => cleanRow(r, fieldTypes, scope === "ADMIN" ? table.vendorRel : null)) };
+        return { tabla: args.tabla, totalQueCoincide: total, mostrando: rows.length, filas: rows.map((r) => cleanRow(r, fieldTypes, scope === "ADMIN" ? table.rels : null)) };
       } catch (err) {
         return { error: `Consulta inválida: ${String(err?.message ?? err).slice(0, 200)}` };
       }

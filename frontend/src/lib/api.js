@@ -77,7 +77,7 @@ api.interceptors.response.use(
     // Bloque 272: 403 ACTION_CODE_REQUIRED = hace falta el código enviado al correo. Se pide en un
     // modal y la MISMA petición se repite con el código (si es incorrecto vuelve a preguntar).
     if (error.response?.status === 403 && error.response.data?.code === "ACTION_CODE_REQUIRED" && actionCodeHandler) {
-      const code = await actionCodeHandler({ action: error.response.data.action, label: error.response.data.label, wrong: !!error.response.data.wrong, totp: !!error.response.data.totp });
+      const code = await actionCodeHandler({ action: error.response.data.action, label: error.response.data.label, wrong: !!error.response.data.wrong, totp: !!error.response.data.totp, target: error.response.data.target ?? null });
       if (code) {
         original.headers["X-Action-Code"] = code;
         return api(original);

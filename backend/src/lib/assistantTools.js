@@ -12,6 +12,7 @@ import {
   inbox, offersAndCodes, teamAndTables, alerts, customersAndChat, storeProfile, ordersBreakdown, customersRanking, orderDetail, storesActivity,
 } from "./assistantData.js";
 import { makeQueryTool } from "./assistantQuery.js";
+import { storesByState, findPerson, salesAgents, quickSales, customerDetail } from "./assistantPeople.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA que "lee toda la
 // base de datos, estadísticas y algoritmos" y solo recomienda): registro de
@@ -647,6 +648,52 @@ const ADMIN_TOOLS = {
       };
     },
   },
+};
+
+
+// Bloque 276: herramientas de personas, estados de tiendas, agentes de ventas, ventas rápidas y
+// clientes. Las del vendedor reciben su vendorId de la sesión; las del admin leen toda la plataforma.
+ADMIN_TOOLS.tiendas_por_estado = {
+  description: "Cuántas tiendas hay en cada estado y CUÁLES son, con su nombre: activas, suspendidas por inactividad, bloqueadas por el admin y en eliminación pendiente (con motivo y fecha). Úsala SIEMPRE para 'tiendas suspendidas', 'bloqueadas' o 'eliminadas'; pon la lista en 'tabla'.",
+  args: "{}",
+  schema: z.object({}).strict(),
+  run: () => storesByState(),
+};
+ADMIN_TOOLS.buscar_persona = {
+  description: "Busca a UNA PERSONA por nombre, correo o teléfono entre TODAS las cuentas (clientes, dueños de tienda, administradores, usuarios de sistema) y devuelve todo su perfil: rol, contacto, ubicación, compras, su tienda (plan, verificación, estado) y los enlaces a su perfil archivado de verificación y a su tienda. Úsala para '¿quién es X?'.",
+  args: '{ "busqueda": "nombre, correo o teléfono" }',
+  schema: z.object({ busqueda: z.string().trim().min(2).max(80) }),
+  run: ({ busqueda }) => findPerson(busqueda),
+};
+ADMIN_TOOLS.agentes_de_ventas = {
+  description: "Usuarios de sistema de TODAS las tiendas: qué tiendas tienen agentes de ventas (o meseros), cuántos, quiénes son y sus ventas manuales de 30 días.",
+  args: '{ "tipo": "agentes"|"meseros"|"todos" }',
+  schema: z.object({ tipo: z.enum(["agentes", "meseros", "todos"]).default("agentes") }),
+  run: ({ tipo }) => salesAgents({ tipo }),
+};
+VENDOR_TOOLS.agentes_de_ventas = {
+  description: "Los usuarios de sistema de TU negocio (agentes de ventas y meseros): quiénes son, si están activos, su último acceso y sus ventas manuales de 30 días.",
+  args: '{ "tipo": "agentes"|"meseros"|"todos" }',
+  schema: z.object({ tipo: z.enum(["agentes", "meseros", "todos"]).default("todos") }),
+  run: ({ tipo }, ctx) => salesAgents({ vendorId: ctx.vendorId, tipo }),
+};
+ADMIN_TOOLS.ventas_rapidas = {
+  description: "La sección Venta rápida: anuncios que publican los clientes (activos, visibles, vendidos, vencidos), quiénes publican y los últimos anuncios.",
+  args: "{}",
+  schema: z.object({}).strict(),
+  run: () => quickSales(),
+};
+ADMIN_TOOLS.detalle_de_cliente = {
+  description: "Un CLIENTE concreto (por nombre) en toda la plataforma: contacto, compras y totales, productos que más compra, lo que visita y agrega al carrito, favoritos, pedidos de productos y reseñas.",
+  args: '{ "busqueda": "nombre del cliente" }',
+  schema: z.object({ busqueda: z.string().trim().min(2).max(80) }),
+  run: ({ busqueda }) => customerDetail({ search: busqueda }),
+};
+VENDOR_TOOLS.detalle_de_cliente = {
+  description: "Un CLIENTE de tu tienda (por nombre): sus compras en tu negocio, los productos que más compra, lo que visita y agrega al carrito, favoritos y reseñas. Solo cuenta lo que hizo en TU tienda.",
+  args: '{ "busqueda": "nombre del cliente" }',
+  schema: z.object({ busqueda: z.string().trim().min(2).max(80) }),
+  run: ({ busqueda }, ctx) => customerDetail({ vendorId: ctx.vendorId, search: busqueda }),
 };
 
 // Bloque 260 (pedido explícito — "acceso al historial del chat o otros chats"):

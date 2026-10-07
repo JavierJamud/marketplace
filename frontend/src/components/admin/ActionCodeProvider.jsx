@@ -23,11 +23,11 @@ export function ActionCodeProvider() {
   const [cooldown, setCooldown] = useState(0);
   const resolver = useRef(null);
 
-  const sendCode = useCallback(async (action) => {
+  const sendCode = useCallback(async (action, target) => {
     setSending(true);
     setInfo((i) => ({ ...i, error: "" }));
     try {
-      const { data } = await api.post("/admin/security/action-code", { action });
+      const { data } = await api.post("/admin/security/action-code", { action, target: target || undefined });
       setInfo({ sentTo: data.sentTo, error: "" });
       setEmailMode(true);
       setCooldown(RESEND_SECONDS);
@@ -41,15 +41,15 @@ export function ActionCodeProvider() {
   useEffect(() => {
     // La API llama a este manejador y espera el código (o null si se cancela).
     setActionCodeHandler(
-      ({ action, label, wrong, totp }) =>
+      ({ action, label, wrong, totp, target }) =>
         new Promise((resolve) => {
           resolver.current = resolve;
           setCode("");
-          setRequest({ action, label, wrong, totp });
+          setRequest({ action, label, wrong, totp, target });
           if (!wrong) setEmailMode(false);
           // Con la app activada no se manda correo hasta que se pida. Un código equivocado ya
           // tiene uno vigente en el correo: no se manda otro.
-          if (!wrong && !totp) sendCode(action);
+          if (!wrong && !totp) sendCode(action, target);
         })
     );
     return () => setActionCodeHandler(null);
@@ -91,14 +91,14 @@ export function ActionCodeProvider() {
         </div>
         <p className="mb-4 text-[13.5px] text-on-surface-variant">
           {appMode
-            ? `Para ${request.label}, escribe el código de 6 dígitos que muestra tu aplicación de autenticación.`
-            : `Para ${request.label} te enviamos un código de 6 dígitos${info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en 10 minutos y sirve una sola vez.`}
+            ? `Para ${request.label}${request.target ? ` (${request.target})` : ""}, escribe el código de 6 dígitos que muestra tu aplicación de autenticación.`
+            : `Para ${request.label}${request.target ? ` (${request.target})` : ""} te enviamos un código de 6 dígitos${info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en 10 minutos y sirve una sola vez.`}
         </p>
         <OtpInput label={appMode ? "Código de la aplicación" : "Código de confirmación"} value={code} onChange={setCode} length={6} autoFocus autoSubmit error={request.wrong ? "El código es incorrecto o venció." : info.error || undefined} />
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
           <button
             type="button"
-            onClick={() => sendCode(request.action)}
+            onClick={() => sendCode(request.action, request.target)}
             disabled={sending || (!appMode && cooldown > 0)}
             className="min-h-11 rounded-xl px-3 text-left text-[13px] font-semibold text-tertiary-accent disabled:opacity-50"
           >

@@ -1926,7 +1926,7 @@ export async function listAdminNotifications(_req, res) {
     ...recentOrders.map((o) => ({
       id: `order-${o.id}`,
       text: `Pedido nuevo ${o.code} — ${o.vendor.companyName} (${Number(o.total).toLocaleString("es-CU")} CUP)`,
-      to: "/admin/vendedores",
+      to: "/admin/tiendas",
       createdAt: o.createdAt,
     })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
