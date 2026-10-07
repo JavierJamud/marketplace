@@ -9,7 +9,7 @@ import { VerifiedStoresSlider } from "../../components/VerifiedStoresSlider.jsx"
 import { OffersSlider } from "../../components/OffersSlider.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
-import { MarketplaceChatWidget } from "../../components/MarketplaceChatWidget.jsx";
+import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
@@ -366,7 +366,7 @@ export default function Home() {
           true si el settings todavía no cargó, para no hacerlo parpadear.
           Bloque 238: además, oculto automáticamente si las IA están caídas
           (chatbotAvailable, estado cacheado cada 2 min en segundo plano). */}
-      {(settings?.showChatWidget ?? true) && (settings?.chatbotAvailable ?? true) && <MarketplaceChatWidget />}
+      <MarketplaceChatGate />
     </>
   );
 }
