@@ -109,6 +109,8 @@ function parseArgs(title, second, third) {
 
 // ─── Función interna ──────────────────────────────────────────────────────────
 function showToast(type, title, description, opts = {}) {
+  // Un aviso sin texto (p. ej. el error de una acción que la persona canceló en el modal de código) no se muestra.
+  if (typeof title === "string" && title.trim() === "") return undefined;
   const { icon, duration: customDuration, ...restOpts } = opts;
   const duration =
     customDuration ??

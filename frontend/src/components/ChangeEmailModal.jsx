@@ -25,6 +25,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
   const [newEmail, setNewEmail] = useState(currentEmail);
   const [currentPassword, setCurrentPassword] = useState("");
   const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState("");
 
   const requestCode = useMutation({
     mutationFn: async () => (await api.post("/auth/me/email/request-code", { newEmail, currentPassword })).data,
@@ -36,13 +37,16 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
   });
 
   const confirmCode = useMutation({
-    mutationFn: async () => (await api.post("/auth/me/email/confirm", { code })).data,
+    mutationFn: async (value) => (await api.post("/auth/me/email/confirm", { code: value ?? code })).data,
     onSuccess: () => {
       toast.success("Correo actualizado — inicia sesión de nuevo con tu correo nuevo.");
       clearLocalSession();
       navigate(loginPathFor(location.pathname), { replace: true });
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "Código inválido o vencido."),
+    onError: (err) => {
+      setCode("");
+      setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
+    },
   });
 
   return (
@@ -75,7 +79,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
             <p className="mb-4 text-[12.5px] text-outline">
               Revisa {currentEmail} y escribe el código que te mandamos (vence en 15 minutos).
             </p>
-            <OtpInput label="Código" length={8} charset="alphanumeric" autoFocus value={code} onChange={setCode} />
+            <OtpInput label="Código" length={8} charset="alphanumeric" autoFocus value={code} onChange={(v) => { setCode(v); setCodeError(""); }} onComplete={(v) => confirmCode.mutate(v)} error={codeError || undefined} />
             <div className="mt-5 flex gap-2.5">
               <Button variant="outline" className="flex-1" onClick={onClose} disabled={confirmCode.isPending}>Cancelar</Button>
               <Button className="flex-1" disabled={!code || confirmCode.isPending} onClick={() => confirmCode.mutate()}>

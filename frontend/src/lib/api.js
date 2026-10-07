@@ -83,6 +83,8 @@ api.interceptors.response.use(
         return api(original);
       }
       error.actionCodeCancelled = true;
+      // Cancelar no es un error: se vacía el mensaje para que los avisos del panel no muestren nada.
+      error.response.data = { ...error.response.data, error: "" };
     }
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;

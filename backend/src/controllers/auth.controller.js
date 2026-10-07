@@ -7,6 +7,7 @@ import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { hashToken } from "../utils/hashToken.js";
 import { consumeTotpCode } from "./twoFactorApp.controller.js";
+import { confirmActionCode } from "../lib/adminActionCode.js";
 import {
   sendPasswordResetEmail,
   sendTwoFactorCodeEmail,
@@ -760,6 +761,9 @@ export async function requestMyEmailChange(req, res) {
   const existing = await prisma.user.findUnique({ where: { email: newEmail } });
   if (existing && existing.id !== user.id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
 
+  // Bloque 275: para el administrador, antes de iniciar el cambio de correo se confirma con un código.
+  if (user.role === "ADMIN" && !(await confirmActionCode(req, res, "ADMIN_EMAIL_CHANGE"))) return;
+
   const code = generateEmailChangeCode();
   const emailChangeCodeHash = await bcrypt.hash(code, 10);
   const emailChangeCodeExpiresAt = new Date(Date.now() + EMAIL_CHANGE_CODE_TTL_MINUTES * 60 * 1000);
@@ -823,6 +827,10 @@ export async function updateMyPassword(req, res) {
 
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) throw new AppError("La contraseña actual no es correcta.", 401);
+
+  // Bloque 275 (pedido explícito): el administrador, después de poner la contraseña actual y las
+  // dos nuevas, confirma el cambio con un código enviado a su correo.
+  if (user.role === "ADMIN" && !(await confirmActionCode(req, res, "ADMIN_PASSWORD_CHANGE"))) return;
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });

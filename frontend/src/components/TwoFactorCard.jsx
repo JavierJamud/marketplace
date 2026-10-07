@@ -18,6 +18,7 @@ export default function TwoFactorCard() {
   const queryClient = useQueryClient();
   const [setup, setSetup] = useState(null); // { secret, otpauthUrl } mientras se activa
   const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [disabling, setDisabling] = useState(false);
   const [password, setPassword] = useState("");
@@ -41,14 +42,17 @@ export default function TwoFactorCard() {
     onError: errorMessage("No se pudo iniciar la activación."),
   });
   const enable = useMutation({
-    mutationFn: async () => (await api.post("/auth/2fa/app/enable", { code })).data,
+    mutationFn: async (value) => (await api.post("/auth/2fa/app/enable", { code: value ?? code })).data,
     onSuccess: () => {
       toast.success("Verificación en dos pasos activada.");
       setSetup(null);
       setCode("");
       refresh();
     },
-    onError: errorMessage("No se pudo activar."),
+    onError: (err) => {
+      setCode("");
+      setCodeError(err.response?.data?.error ?? "El código no coincide. Inténtalo de nuevo.");
+    },
   });
   const disable = useMutation({
     mutationFn: async () => (await api.post("/auth/2fa/app/disable", { password, code: disableCode })).data,
@@ -74,17 +78,17 @@ export default function TwoFactorCard() {
   const enabled = !!data?.enabled;
 
   return (
-    <section className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5">
-      <div className="mb-2 flex flex-wrap items-center gap-2.5">
-        <Smartphone className="h-[18px] w-[18px] text-tertiary-accent" aria-hidden="true" />
-        <h2 className="text-[15px] font-bold text-on-surface">Verificación en dos pasos con aplicación</h2>
+    <section className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-title-lg font-bold text-on-surface">
+        <Smartphone className="h-5 w-5 text-tertiary-accent" aria-hidden="true" />
+        <h2>Verificación en dos pasos con aplicación</h2>
         {!isLoading && (
           <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${enabled ? "bg-[#0CAE53]/15 text-[#087A38]" : "bg-surface-container text-on-surface-variant"}`}>
             {enabled ? "Activada" : "No activada"}
           </span>
         )}
       </div>
-      <p className="mb-4 text-[13px] leading-5 text-on-surface-variant">
+      <p className="mb-4 text-[12.5px] leading-5 text-outline">
         Al iniciar sesión te pediremos un código de 6 dígitos que genera una aplicación como Google Authenticator, Microsoft Authenticator o Authy. Si la activas, ese es el método predeterminado; si no la tienes
         activada, el código siempre se envía a tu correo. Si pierdes el teléfono, puedes pedir el código por correo.
       </p>
@@ -113,7 +117,7 @@ export default function TwoFactorCard() {
               {showSecret && <p className="mt-1 select-all break-all rounded-lg bg-surface-container px-3 py-2 font-mono text-[13px] tracking-wider text-on-surface">{setup.secret}</p>}
             </div>
           </div>
-          <OtpInput label="Código de la aplicación" value={code} onChange={setCode} length={6} />
+          <OtpInput label="Código de la aplicación" value={code} onChange={(v) => { setCode(v); setCodeError(""); }} onComplete={(v) => enable.mutate(v)} length={6} error={codeError || undefined} />
           <div className="mt-4 flex flex-wrap gap-2">
             <Button type="button" onClick={() => enable.mutate()} disabled={code.length !== 6 || enable.isPending}>
               {enable.isPending ? "Verificando..." : "Activar"}
@@ -140,7 +144,7 @@ export default function TwoFactorCard() {
           className="space-y-4 rounded-xl border border-surface-container-high bg-surface-container-low p-4"
         >
           <PasswordInput label="Tu contraseña" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
-          <OtpInput label="Código de la aplicación (o el que te enviemos al correo)" value={disableCode} onChange={setDisableCode} length={6} />
+          <OtpInput label="Código de la aplicación (o el que te enviemos al correo)" value={disableCode} onChange={setDisableCode} length={6} autoSubmit={!!password} />
           <button type="button" onClick={() => sendEmail.mutate()} disabled={sendEmail.isPending} className="min-h-11 text-[13px] font-semibold text-tertiary-accent disabled:opacity-50">
             {emailSent ? "Código enviado: revisa tu correo (reenviar)" : "No tengo mi teléfono: enviar el código a mi correo"}
           </button>

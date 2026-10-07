@@ -44,15 +44,15 @@ router.get("/dashboard", adminController.getDashboard);
 router.get("/dashboard/sales-series", adminController.getDashboardSalesSeries);
 
 router.get("/vendors", adminController.listVendors);
-router.patch("/vendors/:id", adminController.updateVendor);
+router.patch("/vendors/:id", requireActionCode("VENDOR_CHANGE"), adminController.updateVendor);
 // Bloque 165: acciones de cuenta directas desde el admin — contraseña y
 // correo de LOGIN del vendedor (distinto de Vendor.email, ya cubierto por
 // updateVendor de arriba).
-router.post("/vendors/:id/reset-password", adminController.resetVendorPassword);
-router.patch("/vendors/:id/login-email", adminController.updateVendorLoginEmail);
-router.delete("/vendors/:id", adminController.deleteVendor);
+router.post("/vendors/:id/reset-password", requireActionCode("ACCOUNT_ACCESS_CHANGE"), adminController.resetVendorPassword);
+router.patch("/vendors/:id/login-email", requireActionCode("ACCOUNT_ACCESS_CHANGE"), adminController.updateVendorLoginEmail);
+router.delete("/vendors/:id", requireActionCode("VENDOR_DELETE"), adminController.deleteVendor);
 // Bloque 272: eliminación pendiente (30 días): restaurar o eliminar ya, esto último con código al correo.
-router.post("/vendors/:id/restore-deletion", adminController.restoreVendorDeletion);
+router.post("/vendors/:id/restore-deletion", requireActionCode("VENDOR_CHANGE"), adminController.restoreVendorDeletion);
 router.delete("/vendors/:id/permanent", requireActionCode("DELETE_VENDOR_PERMANENT"), adminController.permanentlyDeleteVendor);
 router.post("/security/action-code", securityController.requestActionCode);
 router.get("/security/settings", securityController.getSecuritySettings);
@@ -66,21 +66,21 @@ router.get("/vendors/:id/table-orders", adminController.getVendorTableOrders);
 // vendedor"): mismas capacidades de vendorStaff.routes.js, tomando el
 // vendorId/staffId de la URL en vez de resolverlo del propio dueño.
 router.get("/vendors/:id/staff", adminController.listVendorStaff);
-router.patch("/vendor-staff/:id", adminController.updateVendorStaffByAdmin);
-router.post("/vendor-staff/:id/reset-password", adminController.resetVendorStaffPasswordByAdmin);
+router.patch("/vendor-staff/:id", requireActionCode("VENDOR_CHANGE"), adminController.updateVendorStaffByAdmin);
+router.post("/vendor-staff/:id/reset-password", requireActionCode("ACCOUNT_ACCESS_CHANGE"), adminController.resetVendorStaffPasswordByAdmin);
 router.get("/vendor-staff/:id/activity", adminController.getVendorStaffActivityByAdmin);
 router.get("/vendor-staff/:id/sessions", adminController.getVendorStaffSessionsByAdmin);
 
 // Bloque 62: suspensión automática por inactividad (vendorLifecycle.job.js)
 // + reactivación manual con motivo obligatorio.
 router.get("/vendors/suspended", adminController.listSuspendedVendors);
-router.post("/vendors/:id/reactivate", adminController.reactivateVendor);
+router.post("/vendors/:id/reactivate", requireActionCode("VENDOR_CHANGE"), adminController.reactivateVendor);
 
 // Venta rápida: qué clientes SIN tienda tienen anuncios activos, agrupado
 // por dueño (pedido explícito).
 router.get("/customer-listings", adminCustomerListingsController.listCustomerListingsByOwner);
-router.patch("/customer-listings/:id", adminCustomerListingsController.updateAdminCustomerListing);
-router.delete("/customer-listings/:id", adminCustomerListingsController.deleteAdminCustomerListing);
+router.patch("/customer-listings/:id", requireActionCode("CUSTOMER_CHANGE"), adminCustomerListingsController.updateAdminCustomerListing);
+router.delete("/customer-listings/:id", requireActionCode("CUSTOMER_CHANGE"), adminCustomerListingsController.deleteAdminCustomerListing);
 
 // Feature B: reportes de fraude sobre producto/tienda/venta rápida. Rutas
 // literales ("pending-count") ANTES de ":id/..." — mismo criterio que
@@ -88,8 +88,8 @@ router.delete("/customer-listings/:id", adminCustomerListingsController.deleteAd
 router.get("/reports/pending-count", adminReportsController.getFraudReportsPendingCount);
 router.get("/reports", adminReportsController.listFraudReports);
 router.post("/reports/:id/request-evidence", adminReportsController.requestEvidence);
-router.post("/reports/:id/dismiss", adminReportsController.dismissFraudReport);
-router.post("/reports/:id/resolve", adminReportsController.resolveFraudReport);
+router.post("/reports/:id/dismiss", requireActionCode("FRAUD_DECISION"), adminReportsController.dismissFraudReport);
+router.post("/reports/:id/resolve", requireActionCode("FRAUD_DECISION"), adminReportsController.resolveFraudReport);
 
 // Bloque 229 (Fase 2 del blindaje del ranking — pedido explícito): cola de
 // anomalías detectadas por reviewAnomaly.job.js/clickAnomaly.job.js. Mismo
@@ -102,23 +102,23 @@ router.post("/ranking-anomalies/:id/action", adminRankingAnomaliesController.act
 // Bloque 52: supervisión/edición de productos de cualquier vendedor.
 router.get("/products", adminProductsController.listAllProducts);
 router.get("/products/:id/stats", adminProductsController.getAdminProductStats);
-router.patch("/products/:id", adminProductsController.updateAdminProduct);
-router.delete("/products/:id", adminProductsController.deleteAdminProduct);
+router.patch("/products/:id", requireActionCode("VENDOR_CHANGE"), adminProductsController.updateAdminProduct);
+router.delete("/products/:id", requireActionCode("VENDOR_CHANGE"), adminProductsController.deleteAdminProduct);
 
 // Bloque 198: supervisión/edición de ventas manuales (usuarios de sistema)
 // de cualquier vendedor.
 router.get("/vendor-staff-sales", adminVendorStaffSalesController.listAllStaffSales);
 router.get("/vendor-staff-sales/vendors", adminVendorStaffSalesController.listVendorsWithStaffSales);
-router.patch("/vendor-staff-sales/:id", adminVendorStaffSalesController.updateStaffSale);
-router.delete("/vendor-staff-sales/:id", adminVendorStaffSalesController.deleteStaffSale);
+router.patch("/vendor-staff-sales/:id", requireActionCode("VENDOR_CHANGE"), adminVendorStaffSalesController.updateStaffSale);
+router.delete("/vendor-staff-sales/:id", requireActionCode("VENDOR_CHANGE"), adminVendorStaffSalesController.deleteStaffSale);
 
 router.get("/verifications", adminController.listVerifications);
-router.patch("/verifications/:id", adminController.updateVerification);
-router.patch("/verifications/:id/confirm-payment", adminController.confirmSubscriptionPayment);
+router.patch("/verifications/:id", requireActionCode("VERIFICATION_CHANGE"), adminController.updateVerification);
+router.patch("/verifications/:id/confirm-payment", requireActionCode("PAYMENT_CONFIRM"), adminController.confirmSubscriptionPayment);
 // Bloque 151 (pedido explícito): "restablecerlo para que él pueda
 // seleccionar otro diferente" — limpia el método elegido, el vendedor
 // vuelve a ver el selector desde su panel.
-router.patch("/verifications/:id/reset-payment-method", adminController.resetVerificationPaymentMethod);
+router.patch("/verifications/:id/reset-payment-method", requireActionCode("VERIFICATION_CHANGE"), adminController.resetVerificationPaymentMethod);
 // Bloque 64: "abrir para revisar" — PENDING_DOCS -> IN_REVIEW.
 router.post("/verifications/:id/start-review", adminController.startVerificationReview);
 
@@ -127,30 +127,30 @@ router.post("/verifications/:id/start-review", adminController.startVerification
 // transitionVendorVerification() al llegar a VERIFIED, acá solo viven
 // consulta/edición/borrado (gateado — ver deleteVerificationArchive).
 router.get("/vendors/:vendorId/verification-archive", verificationArchiveController.listVerificationArchive);
-router.patch("/verification-archive/:id", verificationArchiveController.updateVerificationArchive);
-router.delete("/verification-archive/:id", verificationArchiveController.deleteVerificationArchive);
+router.patch("/verification-archive/:id", requireActionCode("VERIFICATION_CHANGE"), verificationArchiveController.updateVerificationArchive);
+router.delete("/verification-archive/:id", requireActionCode("VERIFICATION_CHANGE"), verificationArchiveController.deleteVerificationArchive);
 router.get("/verification-archive/:id/file/:type", verificationArchiveController.getVerificationArchiveFile);
 
 // Bloque 46: Suscripciones Business — solo lectura + revocar, nunca genera
 // un link de pago nuevo (eso lo sigue haciendo únicamente el propio
 // vendedor, ver retryMyStripeCheckout en verification.routes.js).
 router.get("/subscriptions", adminController.listSubscriptions);
-router.post("/vendors/:id/revoke-business", adminController.revokeBusinessPlan);
+router.post("/vendors/:id/revoke-business", requireActionCode("PLAN_CHANGE"), adminController.revokeBusinessPlan);
 // Bloque 52: activación manual del Plan Premium, con motivo obligatorio.
-router.post("/vendors/:id/grant-business", adminController.grantBusinessPlan);
+router.post("/vendors/:id/grant-business", requireActionCode("PLAN_CHANGE"), adminController.grantBusinessPlan);
 
 // Bloque 153 (pedido explícito — "el admin debe aprobar los demás meses
 // pagos"): renovaciones de suscripción mientras la tienda ya está VERIFIED.
 router.get("/subscription-payments/pending", adminController.listPendingSubscriptionPayments);
-router.patch("/subscription-payments/:id/confirm", adminController.confirmSubscriptionRenewal);
+router.patch("/subscription-payments/:id/confirm", requireActionCode("PAYMENT_CONFIRM"), adminController.confirmSubscriptionRenewal);
 
 // Bloque 153 (pedido explícito — "si se desea cambiar el nombre o algo o
 // responsable se debe enviar la solicitud al admin para prevenir fraudes").
 router.get("/change-requests", adminController.listVendorChangeRequests);
-router.patch("/change-requests/:id", adminController.decideVendorChangeRequest);
+router.patch("/change-requests/:id", requireActionCode("VENDOR_CHANGE"), adminController.decideVendorChangeRequest);
 
 router.get("/customers", adminController.listCustomers);
-router.patch("/customers/:id", adminController.updateCustomer);
+router.patch("/customers/:id", requireActionCode("CUSTOMER_CHANGE"), adminController.updateCustomer);
 router.delete("/customers/:id", requireActionCode("DELETE_CUSTOMER"), adminController.deleteCustomer);
 
 // Bloque 47: barra de búsqueda + campana del panel admin, y correo directo
@@ -196,7 +196,7 @@ router.post("/integrations/resend/test", integrationsController.testResendIntegr
 // en que se registran, así que "/integrations/resend/test" nunca cae en
 // este :name genérico aunque calce con el patrón.
 router.post("/integrations/:name/test-ai", integrationsController.testAiProviderIntegration);
-router.patch("/integrations/:id", integrationsController.toggleIntegration);
+router.patch("/integrations/:id", requireActionCode("CHANGE_INTEGRATION_KEY"), integrationsController.toggleIntegration);
 
 // Bloque 244: solicitudes de país/provincia escritos a mano en el registro.
 // "pending-count" va ANTES de las rutas con :id para que no lo tome como id.
@@ -210,44 +210,44 @@ router.post("/locations/countries", locationsController.createCountry);
 // Rutas literales ANTES de la de :id — si no, Express matchea "activate-all"
 // como si fuera un id y nunca llega a esta acción.
 router.patch("/locations/countries/activate-all", locationsController.activateAllCountries);
-router.patch("/locations/countries/deactivate-all", locationsController.deactivateAllCountries);
-router.delete("/locations/countries/bulk", locationsController.bulkDeleteCountries);
+router.patch("/locations/countries/deactivate-all", requireActionCode("CATALOG_DELETE"), locationsController.deactivateAllCountries);
+router.delete("/locations/countries/bulk", requireActionCode("CATALOG_DELETE"), locationsController.bulkDeleteCountries);
 router.patch("/locations/countries/:id", locationsController.updateCountry);
-router.delete("/locations/countries/:id", locationsController.deleteCountry);
+router.delete("/locations/countries/:id", requireActionCode("CATALOG_DELETE"), locationsController.deleteCountry);
 router.get("/locations/provinces", locationsController.listProvincesForAdmin);
 router.post("/locations/provinces", locationsController.createProvince);
 router.patch("/locations/provinces/:id", locationsController.updateProvince);
-router.delete("/locations/provinces/:id", locationsController.deleteProvince);
+router.delete("/locations/provinces/:id", requireActionCode("CATALOG_DELETE"), locationsController.deleteProvince);
 router.get("/locations/provinces/:provinceId/municipalities", locationsController.listMunicipalitiesForAdmin);
 router.post("/locations/provinces/:provinceId/municipalities", locationsController.createMunicipality);
 router.patch("/locations/municipalities/:id", locationsController.updateMunicipality);
-router.delete("/locations/municipalities/:id", locationsController.deleteMunicipality);
+router.delete("/locations/municipalities/:id", requireActionCode("CATALOG_DELETE"), locationsController.deleteMunicipality);
 router.get("/business-categories", businessCategoriesController.listBusinessCategoriesAdmin);
 router.post("/business-categories", businessCategoriesController.createBusinessCategory);
 router.patch("/business-categories/:id", businessCategoriesController.updateBusinessCategory);
-router.delete("/business-categories/:id", businessCategoriesController.deleteBusinessCategory);
+router.delete("/business-categories/:id", requireActionCode("CATALOG_DELETE"), businessCategoriesController.deleteBusinessCategory);
 
 // Bloque 96: slider de varias imágenes en el hero — agregar (una o varias
 // juntas) y quitar una puntual, mismo patrón que /products/:id/images.
-router.post("/settings/hero-images", siteUpload.array("images", 6), settingsController.addHeroImages);
-router.delete("/settings/hero-images", settingsController.removeHeroImage);
+router.post("/settings/hero-images", requireActionCode("PLATFORM_BRANDING"), siteUpload.array("images", 6), settingsController.addHeroImages);
+router.delete("/settings/hero-images", requireActionCode("PLATFORM_BRANDING"), settingsController.removeHeroImage);
 // Bloque 52: reemplaza a plan-limits/plan-features (columnas pareadas
 // sueltas de SiteSettings) — un plan entero (límites, interruptores,
 // beneficios, nombre visible) por request, ver PlanConfig en schema.prisma.
 router.get("/plan-configs", settingsController.listPlanConfigs);
-router.patch("/plan-configs", settingsController.updatePlanConfig);
-router.patch("/settings/product-settings", settingsController.updateProductSettings);
-router.patch("/settings/offer-policy", settingsController.updateOfferPolicy);
+router.patch("/plan-configs", requireActionCode("PLAN_CONFIG_CHANGE"), settingsController.updatePlanConfig);
+router.patch("/settings/product-settings", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductSettings);
+router.patch("/settings/offer-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateOfferPolicy);
 // Bloque 237: política de "Venta rápida" (anuncios de clientes), misma
 // sección del admin que la de Ofertas (pedido explícito del dueño).
-router.patch("/settings/listing-policy", settingsController.updateListingPolicy);
-router.patch("/settings/review-policy", settingsController.updateReviewPolicy);
+router.patch("/settings/listing-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateListingPolicy);
+router.patch("/settings/review-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
-router.patch("/settings/product-payment-methods", settingsController.updateProductPaymentMethods);
-router.patch("/settings/branding", settingsController.updateBranding);
-router.patch("/settings/cup-payment", settingsController.updateCupPaymentSettings);
-router.patch("/settings/available-currencies", settingsController.updateAvailableCurrencies);
-router.patch("/settings/product-badges", settingsController.updateProductBadgeSettings);
+router.patch("/settings/product-payment-methods", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductPaymentMethods);
+router.patch("/settings/branding", requireActionCode("PLATFORM_BRANDING"), settingsController.updateBranding);
+router.patch("/settings/cup-payment", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateCupPaymentSettings);
+router.patch("/settings/available-currencies", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateAvailableCurrencies);
+router.patch("/settings/product-badges", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductBadgeSettings);
 
 // Bloque 46: anuncios programados (banners públicos) — mismo mecanismo de
 // subida que hero-image arriba (siteUpload), imagen opcional.
@@ -288,18 +288,18 @@ router.delete("/faq/:id", faqController.deleteFaq);
 // siempre permitido; eliminar un código solo si nunca se usó), solo que
 // sobre CUALQUIER vendedor, sin tener que entrar a Prisma Studio.
 router.get("/discount-codes", discountCodesController.listAllDiscountCodesAdmin);
-router.patch("/discount-codes/:id/active", discountCodesController.setDiscountCodeActiveAdmin);
-router.delete("/discount-codes/:id", discountCodesController.deleteDiscountCodeAdmin);
+router.patch("/discount-codes/:id/active", requireActionCode("VENDOR_CHANGE"), discountCodesController.setDiscountCodeActiveAdmin);
+router.delete("/discount-codes/:id", requireActionCode("VENDOR_CHANGE"), discountCodesController.deleteDiscountCodeAdmin);
 router.get("/store-offers", storeOffersController.listAllStoreOffersAdmin);
-router.patch("/store-offers/:id/active", storeOffersController.setStoreOfferActiveAdmin);
+router.patch("/store-offers/:id/active", requireActionCode("VENDOR_CHANGE"), storeOffersController.setStoreOfferActiveAdmin);
 
 // Bloque 22: moderación de comentarios — el vendedor no tiene acceso a
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar
 // los suyos y responder).
 router.get("/reviews", reviewsController.listAllReviews);
-router.patch("/reviews/:id/hidden", reviewsController.setReviewHidden);
-router.patch("/reviews/:id/resolve-report", reviewsController.resolveReviewReport);
-router.delete("/reviews/:id", reviewsController.deleteReview);
+router.patch("/reviews/:id/hidden", requireActionCode("CONTENT_MODERATION"), reviewsController.setReviewHidden);
+router.patch("/reviews/:id/resolve-report", requireActionCode("CONTENT_MODERATION"), reviewsController.resolveReviewReport);
+router.delete("/reviews/:id", requireActionCode("CONTENT_MODERATION"), reviewsController.deleteReview);
 
 // Bloque 33: rutas literales ANTES de ":id/resolve" no hacen falta acá (no
 // hay colisión con "unresolved-count", que es un path fijo distinto).

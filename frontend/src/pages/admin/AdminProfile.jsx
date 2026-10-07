@@ -97,7 +97,9 @@ export default function AdminProfile() {
             <Button variant="outline" onClick={() => setChangingEmail(true)}>Cambiar correo</Button>
           </div>
 
-          <PasswordCard />
+          <div className="mb-5">
+            <PasswordCard />
+          </div>
 
           <div className="mb-5">
             <TwoFactorCard />

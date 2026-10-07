@@ -325,11 +325,13 @@ día (9:45 hora Cuba) el cron avisa al admin 3 días antes y, al cumplirse
 `SiteSettings.vendorDeletionDays` (30 por defecto, editable en Admin → Seguridad), elimina
 la tienda con `finalizeUserDeletion`.
 
-Códigos de confirmación (`lib/adminActionCode.js`): las acciones sensibles del admin
-(eliminar una tienda o un cliente de forma definitiva, cambiar claves de integración y
-ajustes de seguridad) responden 403 `ACTION_CODE_REQUIRED` hasta recibir el código en la
-cabecera `X-Action-Code`. El código es de 6 dígitos, de una sola acción, un solo uso, vence a
-los 10 minutos, se bloquea tras 5 intentos y solo se pide otro cada 30 segundos. El panel lo
+Códigos de confirmación (`lib/adminActionCode.js`): TODA acción del admin que cambia algo de una
+empresa, un cliente o las reglas de la plataforma (eliminar a una tienda —incluido el primer paso,
+que la manda a eliminación pendiente—, editar, bloquear, cambiar plan, verificaciones, pagos,
+reportes de fraude, clientes, reseñas, planes, reglas, borrados de catálogo, integraciones, marca
+de la plataforma, y la contraseña y el correo del propio admin) responden 403 `ACTION_CODE_REQUIRED` hasta recibir el código en la
+cabecera `X-Action-Code`. El código es de 6 dígitos, de una sola acción, un solo uso (se gasta solo si la acción sale bien),
+vence a los 10 minutos, se bloquea tras 5 intentos y solo se pide otro cada 30 segundos. El panel lo
 pide solo (`ActionCodeProvider`) y repite la acción original con el código.
 
 ### B8. Eliminación de cuenta con período de gracia — `jobs/accountDeletion.job.js`

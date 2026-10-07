@@ -240,6 +240,8 @@ export default function Account({ mode = "customer" }) {
   const [twoFactorExpiresAt, setTwoFactorExpiresAt] = useState(null);
   // Bloque 273: "totp" = el código sale de la app autenticadora; "email" = llega al correo.
   const [twoFactorMethod, setTwoFactorMethod] = useState("email");
+  // Mensaje "código incorrecto" que se muestra debajo de las casillas (los 3 pasos de código).
+  const [codeError, setCodeError] = useState("");
   const [challengeToken, setChallengeToken] = useState("");
   const twoFactorSecondsLeft = useCountdownSeconds(twoFactorExpiresAt);
   // Bloque 59: código de verificación de correo (segundo paso del registro)
@@ -387,7 +389,9 @@ export default function Account({ mode = "customer" }) {
         navigate(destinationAfterLogin(user.role));
       });
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "Código inválido o vencido.");
+      // El código se borra para volver a escribirlo y se explica debajo de las casillas.
+      setTwoFactorCode("");
+      setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
     } finally {
       setLoading(false);
     }
@@ -558,7 +562,8 @@ export default function Account({ mode = "customer" }) {
         }
       });
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "Código inválido o vencido.");
+      setRegisterCode("");
+      setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
     } finally {
       setLoading(false);
     }
@@ -640,7 +645,8 @@ export default function Account({ mode = "customer" }) {
         setView("forgot-newpass");
       });
     } catch (err) {
-      toast.error(err.response?.data?.error ?? "Código inválido o vencido.");
+      setResetCode("");
+      setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
     } finally {
       setLoading(false);
     }
@@ -709,7 +715,7 @@ export default function Account({ mode = "customer" }) {
             </p>
           )}
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
-            <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={setTwoFactorCode} />
+            <OtpInput label="Código de verificación" required autoFocus autoSubmit value={twoFactorCode} onChange={(v) => { setTwoFactorCode(v); setCodeError(""); }} error={codeError || undefined} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || twoFactorCode.length !== 6}>
               {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
             </Button>
@@ -754,7 +760,7 @@ export default function Account({ mode = "customer" }) {
             Te mandamos un código de 6 dígitos a <strong>{form.email}</strong>. Vence en 10 minutos.
           </p>
           <form onSubmit={handleVerifyRegistration} className="space-y-4">
-            <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={setRegisterCode} />
+            <OtpInput label="Código de verificación" required autoFocus autoSubmit value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || registerCode.length !== 6}>
               {loading ? (
                 <>
@@ -808,7 +814,7 @@ export default function Account({ mode = "customer" }) {
                 Te mandamos un código de 6 dígitos a <strong>{resetEmail}</strong>. Vence en 15 minutos.
               </p>
               <form onSubmit={handleVerifyCode} className="space-y-4">
-                <OtpInput label="Código de verificación" required autoFocus value={resetCode} onChange={setResetCode} />
+                <OtpInput label="Código de verificación" required autoFocus autoSubmit value={resetCode} onChange={(v) => { setResetCode(v); setCodeError(""); }} error={codeError || undefined} />
                 <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || resetCode.length !== 6}>
                   {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar código"}
                 </Button>

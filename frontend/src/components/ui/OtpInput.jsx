@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import clsx from "clsx";
 
 // Bloque 258 (pedido explícito — "en vez de un solo cuadro donde se insertan los
@@ -13,11 +13,30 @@ import clsx from "clsx";
 //    siempre de izquierda a derecha, igual que el campo único anterior.
 // Accesibilidad: el grupo se anuncia con su etiqueta y cada casilla dice "Dígito
 // N de M". La primera lleva autocomplete="one-time-code".
-export function OtpInput({ label, required, value = "", onChange, length = 6, charset = "numeric", autoFocus = false, disabled = false, error }) {
+export function OtpInput({ label, required, value = "", onChange, length = 6, charset = "numeric", autoFocus = false, disabled = false, error, autoSubmit = false, onComplete }) {
   const refs = useRef([]);
+  const previousLength = useRef(value.length);
   const numeric = charset === "numeric";
   const clean = (text) => (numeric ? text.replace(/\D/g, "") : text.replace(/[^a-zA-Z0-9]/g, "").toUpperCase());
   const chars = Array.from({ length }, (_, i) => value[i] ?? "");
+
+  // Bloque 276 (pedido explícito — "al insertar el código el sistema lo valida solo, sin
+  // hacer clic en el botón"): al completar el último dígito se avisa (`onComplete`) y, con
+  // `autoSubmit`, se envía el formulario que contiene las casillas. Va en un setTimeout 0 para
+  // que el valor ya esté guardado en el estado del formulario cuando se envía.
+  function notifyComplete(next) {
+    if (next.length !== length) return;
+    setTimeout(() => {
+      onComplete?.(next);
+      if (autoSubmit) refs.current[length - 1]?.form?.requestSubmit();
+    }, 0);
+  }
+
+  // Si el código se borró desde afuera (porque era incorrecto), el cursor vuelve a la primera casilla.
+  useEffect(() => {
+    if (previousLength.current === length && value.length === 0) refs.current[0]?.focus();
+    previousLength.current = value.length;
+  }, [value, length]);
 
   function focusAt(index) {
     const target = refs.current[Math.max(0, Math.min(length - 1, index))];
@@ -33,6 +52,7 @@ export function OtpInput({ label, required, value = "", onChange, length = 6, ch
     const next = (value.slice(0, position) + text + value.slice(position + text.length)).slice(0, length);
     onChange(next);
     focusAt(position + text.length);
+    notifyComplete(next);
   }
 
   function handleChange(index, raw) {
@@ -81,7 +101,7 @@ export function OtpInput({ label, required, value = "", onChange, length = 6, ch
           {required && <span className="text-error"> *</span>}
         </span>
       )}
-      <div className={clsx("flex", compact ? "gap-1.5" : "gap-2 sm:gap-2.5")}>
+      <div className={clsx("flex", compact ? "gap-1" : "gap-1.5")}>
         {chars.map((char, i) => (
           <input
             key={i}
@@ -100,8 +120,8 @@ export function OtpInput({ label, required, value = "", onChange, length = 6, ch
             aria-label={`Dígito ${i + 1} de ${length}`}
             aria-invalid={error ? true : undefined}
             className={clsx(
-              "min-w-0 flex-1 rounded-xl border bg-surface-container-lowest text-center font-bold text-on-surface outline-none transition-colors",
-              compact ? "h-12 text-[19px]" : "h-14 text-[24px]",
+              "min-w-0 max-w-[3.5rem] flex-1 rounded-[6px] border bg-surface-container-lowest text-center font-bold text-on-surface outline-none transition-colors",
+              compact ? "h-11 text-[18px] sm:h-12 sm:text-[19px]" : "h-12 text-[22px] sm:h-14 sm:text-[24px]",
               "focus:border-primary-container focus:ring-2 focus:ring-primary-container/30 disabled:opacity-50",
               error ? "border-error" : char ? "border-primary-container" : "border-outline-variant"
             )}

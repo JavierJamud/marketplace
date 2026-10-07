@@ -84,7 +84,7 @@ export function ActionCodeProvider() {
         <p className="mb-4 text-[13.5px] text-on-surface-variant">
           Para {request.label} te enviamos un código de 6 dígitos{info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en 10 minutos y sirve una sola vez.
         </p>
-        <OtpInput label="Código de confirmación" value={code} onChange={setCode} length={6} autoFocus error={request.wrong ? "El código es incorrecto o venció." : info.error || undefined} />
+        <OtpInput label="Código de confirmación" value={code} onChange={setCode} length={6} autoFocus autoSubmit error={request.wrong ? "El código es incorrecto o venció." : info.error || undefined} />
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
           <button
             type="button"

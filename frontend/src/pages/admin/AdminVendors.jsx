@@ -642,8 +642,8 @@ export default function AdminVendors() {
       <ConfirmModal
         open={!!deleting}
         title={`¿Eliminar "${deleting?.companyName}"?`}
-        message={`La tienda se oculta de todo el sitio y su dueño no podrá entrar. No se borra todavía: queda en "Eliminación pendiente" durante ${deletionDays} días. Si no la restauras en ese plazo, se elimina sola y de forma definitiva. Puedes eliminarla antes desde el filtro "Eliminación pendiente" (se te pedirá un código enviado a tu correo).`}
-        confirmLabel={remove.isPending ? "Eliminando..." : "Sí, eliminar"}
+        message={`La tienda se oculta de todo el sitio y su dueño no podrá entrar. No se borra todavía: queda en "Eliminación pendiente" durante ${deletionDays} días. Si no la restauras en ese plazo, se elimina sola y de forma definitiva. Puedes eliminarla antes desde el filtro "Eliminación pendiente". Para confirmar este cambio se te pedirá un código enviado a tu correo.`}
+        confirmLabel={remove.isPending ? "Eliminando..." : "Continuar"}
         danger
         confirmDisabled={remove.isPending}
         onConfirm={() => remove.mutate(deleting.id)}
