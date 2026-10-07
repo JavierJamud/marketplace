@@ -360,10 +360,10 @@ export default function AdminIntegrations() {
       {/* Bloque 85/245: transparencia sobre la reparación automática. El admin
           ve acá POR QUÉ la lista de modelos de un proveedor puede cambiar sola. */}
       <div className="mb-[22px] rounded-[10px] bg-surface-container px-3.5 py-2.5 text-[12px] text-on-surface-variant">
-        Los modelos se vigilan con el tráfico real; solo se prueba con una consulta el que lleva más de una hora sin
-        usarse o estaba caído, y nunca uno cerca de su límite gratis. A las 3:00am se hace una revisión completa. Cuando
-        un modelo falla te llega un correo con la causa y qué hacer; si fue dado de baja, el sistema busca y prueba un
-        reemplazo y te avisa del resultado.
+        No hay pruebas automáticas que gasten tokens: si un modelo falla dos veces seguidas con clientes reales, queda
+        marcado caído y la consulta pasa al siguiente. Una vez al día (3:00am) se revisa la lista de modelos de cada API
+        y se reprueban solo los caídos. Tú puedes probar cualquier modelo a mano con "Probar". Si no queda ningún modelo
+        disponible, el chatbot se oculta en todo el sitio.
       </div>
 
       <AiQuotaPanel />

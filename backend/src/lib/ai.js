@@ -5,9 +5,9 @@ import { generateWithGemini, chatWithGemini } from "./gemini.js";
 import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq, TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "./groq.js";
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
-import { checkModel, setRepairAdvisor, classifyFailure } from "./aiModelRepair.js";
+import { setRepairAdvisor, classifyFailure } from "./aiModelRepair.js";
 import { markProviderCooldown, isProviderCoolingDown, clearProviderCooldown } from "./aiProviderCooldown.js";
-import { isChatbotHealthy, getModelHealthRows } from "./aiProviderHealth.js";
+import { isChatbotHealthy, getModelHealthRows, getModelHealth, upsertModelHealth } from "./aiProviderHealth.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
 import { AI_PRIORITY, getQuotaStatus, isWithinFreeQuota } from "./aiQuota.js";
 import { isFreeTierModel } from "./aiModelCatalog.js";
@@ -143,6 +143,27 @@ function logProviderSuccess(provider) {
 // (aiProviderCooldown.js) y sus modelos restantes se dejan para el FINAL de
 // esta misma cadena, solo como último recurso si ningún otro proveedor
 // respondió. Pasado el descanso, el proveedor vuelve solo a su lugar.
+const LIVE_FAILURES_BEFORE_DOWN = 2;
+const liveFailureStreak = new Map();
+
+async function noteLiveFailure(provider, failureText) {
+  const key = `${provider.name}::${provider.model}`;
+  const streak = (liveFailureStreak.get(key) ?? 0) + 1;
+  liveFailureStreak.set(key, streak);
+  if (streak < LIVE_FAILURES_BEFORE_DOWN) return;
+  const previous = await getModelHealth(provider.name, provider.model);
+  if (previous?.status === "down") return;
+  await upsertModelHealth(provider.name, provider.model, { status: "down", lastError: String(failureText).slice(0, 500), downSince: new Date() });
+}
+
+async function noteLiveSuccess(provider) {
+  const key = `${provider.name}::${provider.model}`;
+  liveFailureStreak.delete(key);
+  const previous = await getModelHealth(provider.name, provider.model);
+  if (previous?.status === "healthy") return;
+  await upsertModelHealth(provider.name, provider.model, { status: "healthy", lastError: null, downSince: null });
+}
+
 export async function callWithFallbackChain(providers, callFn, genericErrorMessage, { reportFailures = true } = {}) {
   let lastErr;
   const queue = [...providers];
@@ -156,6 +177,7 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
       const result = await callFn(provider);
       recordLatency(provider.name, Date.now() - start);
       clearProviderCooldown(provider.name);
+      void noteLiveSuccess(provider).catch(() => {});
       logProviderSuccess(provider);
       return result;
     } catch (err) {
@@ -176,9 +198,12 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
         `[ai] ${provider.name}/${provider.model} falló${accountLevel ? ` (${failure.kind === "quota" ? "cuota agotada" : "clave inválida"}: se salta todo ${provider.name})` : ""}${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo disponible)"}:`,
         err
       );
-      // La autorreparación solo se dispara por fallos del MODELO; una cuota agotada
-      // no se "repara" probando (cada prueba gastaría más cupo).
-      if (reportFailures && !accountLevel) void checkModel({ provider: provider.name, apiKey: provider.apiKey, model: provider.model, trigger: "live" }).catch(() => {});
+      // Bloque 282 (pedido explícito — "sin gastar tokens en comprobaciones"): un fallo
+      // en vivo ya NO dispara una consulta de prueba. Se cuenta, y con 2 fallos seguidos
+      // el modelo queda marcado caído (va al final de la cadena y, si no queda ninguno
+      // sano, el chatbot se oculta). Vuelve solo cuando responde bien a un pedido real,
+      // en la revisión diaria o cuando el admin lo prueba a mano.
+      if (reportFailures && !accountLevel) void noteLiveFailure(provider, failureText).catch(() => {});
     }
   }
   throw new AppError(genericErrorMessage, 503, { detail: lastErr?.details?.detail ?? "Todas las IA están cerca de su límite gratis o no respondieron." });

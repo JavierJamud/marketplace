@@ -1,4 +1,3 @@
-import cron from "node-cron";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
 import { checkModel, PROVIDERS } from "../lib/aiModelRepair.js";
 import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "../lib/aiModels.js";
@@ -20,10 +19,8 @@ import { getQuotaStatus } from "../lib/aiQuota.js";
 // verificada, "problema resuelto") en checkModel (lib/aiModelRepair.js), la
 // misma política que usan ai.js en vivo y el chequeo diario de las 3am.
 
-// Bloque 280/281: cada 10 minutos (antes cada 2), y sin gastar cupo (ver checkProvider).
-const CHECK_INTERVAL_CRON = "*/10 * * * *";
 // Un modelo caído se vuelve a probar con una consulta real como mucho una vez en este plazo.
-const RECENT_OK_MS = 60 * 60_000;
+const RECENT_OK_MS = 20 * 60 * 60_000; // la revisión diaria nunca reprueba dos veces el mismo día
 let running = false;
 
 // Chequea todos los modelos activos de UN proveedor en paralelo (la espera es
@@ -67,7 +64,9 @@ async function checkProvider(providerName, trigger) {
       const row = healthByModel.get(m.model);
       const checkedAgo = row?.lastCheckedAt ? Date.now() - new Date(row.lastCheckedAt).getTime() : Infinity;
       if (row?.status === "down") {
-        if (checkedAgo < RECENT_OK_MS) return { status: "down", outcome: "waiting_recheck" };
+        // Al arrancar nunca se gasta una consulta: un modelo caído se reprueba solo
+        // en la revisión diaria (o cuando el admin lo prueba a mano).
+        if (trigger === "boot" || checkedAgo < RECENT_OK_MS) return { status: "down", outcome: "waiting_daily_check" };
         return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
       }
       if (!listed) return { status: row?.status ?? "unknown", outcome: "list_unavailable" };
@@ -75,6 +74,7 @@ async function checkProvider(providerName, trigger) {
         await upsertModelHealth(providerName, m.model, { status: "healthy", lastError: null, downSince: null });
         return { status: "healthy", outcome: "listed_by_api" };
       }
+      if (trigger === "boot") return { status: row?.status ?? "unknown", outcome: "not_listed_wait_daily" };
       return checkModel({ provider: providerName, apiKey, model: m.model, trigger });
     })
   );
@@ -108,13 +108,11 @@ export async function runAiChatbotAvailabilityCheck() {
   }
 }
 
+// Bloque 282 (pedido explícito — "deshabilitar la verificación de modelos cada
+// pocos minutos; que el administrador los pruebe a mano"): ya no hay revisión
+// periódica. Solo hay una revisión al día (aiHealthCheck.job.js, 3:00am) y, al
+// arrancar el servidor, una lectura de la LISTA de modelos de cada API (gratis,
+// no gasta tokens) para saber qué modelos siguen existiendo.
 export function startAiChatbotAvailabilityJob() {
-  // Corrida inmediata al arrancar — sin esperar el primer tick, para que
-  // AiModelHealth no quede vacía/desactualizada justo después de un deploy o
-  // reinicio del backend.
-  runAiChatbotAvailabilityCheck().catch((err) => console.error("[aiChatbotAvailabilityJob] error en la corrida inicial:", err));
-
-  cron.schedule(CHECK_INTERVAL_CRON, () => {
-    runAiChatbotAvailabilityCheck().catch((err) => console.error("[aiChatbotAvailabilityJob] error:", err));
-  });
+  runAiModelsCheck("boot").catch((err) => console.error("[aiChatbotAvailabilityJob] error en la corrida inicial:", err));
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Gauge, Pencil } from "lucide-react";
-import toast from "../../lib/toast.jsx";
+import { useQuery } from "@tanstack/react-query";
+import { Gauge } from "lucide-react";
 import { api } from "../../lib/api.js";
 
 // Bloque 280 (pedido explícito): consumo del plan gratis de cada API de IA, en el
@@ -12,12 +11,6 @@ import { api } from "../../lib/api.js";
 
 const PERIOD = { minute: "por minuto", day: "por día" };
 const KIND = { requests: "Pedidos", tokens: "Tokens" };
-const LIMIT_FIELDS = [
-  ["rpm", "Pedidos por minuto"],
-  ["rpd", "Pedidos por día"],
-  ["tpm", "Tokens por minuto"],
-  ["tpd", "Tokens por día"],
-];
 
 function useNow(intervalMs = 1000) {
   const [now, setNow] = useState(() => Date.now());
@@ -62,66 +55,6 @@ function UsageBar({ w, now }) {
       <div className="mt-0.5 flex justify-between text-[11px] text-outline">
         <span>{w.source === "api" ? "Dato de la API" : "Estimado por la plataforma"}</span>
         {w.resetAt && <span>Se renueva en {countdown(w.resetAt, now)}</span>}
-      </div>
-    </div>
-  );
-}
-
-function LimitsEditor({ provider }) {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [values, setValues] = useState({});
-  useEffect(() => {
-    if (open) setValues(Object.fromEntries(LIMIT_FIELDS.map(([k]) => [k, provider.limits?.overrides?.[k] ?? ""])));
-  }, [open, provider.limits]);
-  const save = useMutation({
-    mutationFn: async () => {
-      const body = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v === "" ? null : Number(v)]));
-      return (await api.put(`/admin/ai-quota/${provider.provider}/limits`, body)).data;
-    },
-    onSuccess: () => {
-      toast.success("Límites gratis guardados.");
-      setOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["admin-ai-quota"] });
-    },
-    onError: (err) => toast.error(err?.response?.data?.error ?? "No se pudieron guardar los límites."),
-  });
-
-  if (!open) {
-    return (
-      <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-tertiary-accent hover:underline">
-        <Pencil size={13} aria-hidden="true" /> Ajustar límites gratis
-      </button>
-    );
-  }
-  return (
-    <div className="mt-2 rounded-xl border border-outline-variant p-3">
-      <p className="mb-2 text-[12px] text-on-surface-variant">
-        Solo hace falta si tu plan gratis tiene otros límites. Vacío = se usa el valor de la API o el conocido del plan gratis.
-      </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {LIMIT_FIELDS.map(([k, label]) => (
-          <label key={k} className="text-[12px] text-on-surface-variant">
-            {label}
-            <input
-              type="number"
-              min="1"
-              inputMode="numeric"
-              value={values[k] ?? ""}
-              placeholder={provider.limits?.defaults?.[k] != null ? String(provider.limits.defaults[k]) : "sin límite"}
-              onChange={(e) => setValues((v) => ({ ...v, [k]: e.target.value }))}
-              className="mt-1 h-10 w-full rounded-lg border border-outline-variant px-3 text-[13px] outline-none"
-            />
-          </label>
-        ))}
-      </div>
-      <div className="mt-3 flex gap-2">
-        <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-lg bg-primary px-4 py-2 text-[12.5px] font-semibold text-on-primary disabled:opacity-50">
-          Guardar
-        </button>
-        <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-outline-variant px-4 py-2 text-[12.5px] font-semibold text-on-surface-variant">
-          Cancelar
-        </button>
       </div>
     </div>
   );
@@ -213,7 +146,6 @@ export default function AiQuotaPanel() {
                   </div>
                 </div>
               ))}
-            {p.enabled && <LimitsEditor provider={p} />}
           </div>
         ))}
       </div>

@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "./integrations.controller.js";
 import { AI_PROVIDER_NAMES, DEFAULT_MODELS, getAllEffectiveModels, getEffectiveActiveModels } from "../lib/aiModels.js";
-import { AI_PRIORITY, getProviderQuotaOverview, getFreeLimitOverrides, setFreeLimitOverrides } from "../lib/aiQuota.js";
+import { AI_PRIORITY, getProviderQuotaOverview } from "../lib/aiQuota.js";
 import { TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "../lib/groq.js";
 import { PROVIDERS, probeModel, errorDetailOf, classifyFailure } from "../lib/aiModelRepair.js";
 import { friendlyModelError, markModelUnavailable, clearModelUnavailable, isFreeTierModel } from "../lib/aiModelCatalog.js";
@@ -193,7 +193,6 @@ export async function getAiQuota(_req, res) {
       enabled,
       available: enabled && textQuotas.some((q) => q.available),
       resumesAt: enabled && !textQuotas.some((q) => q.available) ? textQuotas.map((q) => q.resumesAt).filter(Boolean).sort()[0] ?? null : null,
-      limits: await getFreeLimitOverrides(provider),
       info: FREE_PLAN_INFO[provider],
       models: quotas.map((q) => ({ ...q, purpose: q.model === GROQ_TRANSCRIBE_MODEL ? "Voz a texto" : "Texto" })),
     });
@@ -202,17 +201,4 @@ export async function getAiQuota(_req, res) {
   const allExhausted = enabled.length > 0 && enabled.every((p) => !p.available);
   const nextResetAt = allExhausted ? enabled.map((p) => p.resumesAt).filter(Boolean).sort()[0] ?? null : null;
   res.json({ providers, allExhausted, nextResetAt, chatbotAvailable: await isChatbotHealthy() });
-}
-
-const limitsSchema = z.object({
-  rpm: z.number().int().positive().nullable().optional(),
-  rpd: z.number().int().positive().nullable().optional(),
-  tpm: z.number().int().positive().nullable().optional(),
-  tpd: z.number().int().positive().nullable().optional(),
-});
-
-export async function updateAiQuotaLimits(req, res) {
-  const provider = providerSchema.parse(req.params.provider);
-  const limits = await setFreeLimitOverrides(provider, limitsSchema.parse(req.body ?? {}));
-  res.json({ provider, limits });
 }

@@ -20,8 +20,8 @@ import { compactHistory } from "../lib/chatMemory.js";
 
 // Bloque 260: con el acceso ampliado a todo el negocio, una pregunta puede
 // necesitar cruzar más datos (p. ej. ventas + algoritmo + plan).
-const MAX_TOOL_CALLS = 6;
-const MAX_MODEL_CALLS = 9; // 6 herramientas + respuesta final + reintentos de formato
+const MAX_TOOL_CALLS = 3; // Bloque 282: máximo 3 consultas de datos por pregunta (antes 6)
+const MAX_MODEL_CALLS = 4; // Bloque 282: 3 consultas + la respuesta final (antes hasta 9)
 const HISTORY_MESSAGES = 20; // últimas 10 vueltas de la conversación abierta
 const MAX_RESULT_CHARS = 7000;
 const MAX_FINAL_CHARS = 900;
@@ -70,6 +70,7 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
       ? "- Solo hablas del negocio de esta persona. Si pide datos de otra tienda o de toda la plataforma, explica que eso no es de su negocio."
       : "- Hablas con la persona administradora: cuando pregunte por alguien, SÍ puedes dar su correo, teléfono, dirección y todo su perfil (es el panel de administración). Nunca contraseñas, claves, códigos de verificación ni documentos de identidad.",
     "- Si la pregunta no es sobre la administración del negocio, di con amabilidad que solo ayudas con eso.",
+    "- PRIMERO analiza la pregunta. Si se responde sin datos del negocio (saludos, dudas generales, cómo se usa una pantalla), responde de una vez, breve y sin herramientas. Si necesita datos, consulta como MÁXIMO 3 herramientas, eligiendo la más directa; nunca consultes 'por si acaso'. Si hay más detalle disponible, no lo traigas todo: ofrécelo con un enlace en 'links' a la pantalla donde se ve, o pregunta si quiere que profundices.",
     "- Respuestas MUY breves: 70 palabras como máximo, 90 si acompañan una tabla (3 a 5 frases cortas o hasta 4 viñetas con '- '). Primero el dato o la respuesta directa, luego una recomendación de una línea. Sin saludos, sin repetir la pregunta, sin explicar lo obvio. Sin asteriscos, sin títulos con # y sin rayas largas.",
     "- Da cifras con su moneda cuando aplique y di de qué periodo son. Nombra personas, productos y pedidos concretos con sus datos reales en vez de hablar en general.",
     "- Si el dato exacto no lo da una herramienta específica, usa consultar_datos: puede leer cualquier tabla con filtros, orden, conteos y agrupaciones. NUNCA digas 'no dispongo de datos' ni 'la consulta falló' sin haber probado antes consultar_datos con otra tabla o con otros filtros: casi todo está en la base de datos.",
@@ -336,6 +337,28 @@ export async function clearHistory({ scope, userId, vendorId = null }) {
 // argumento de ninguna herramienta.
 // `onProgress({ phase, tool?, detail? })` avisa en qué paso va (pensando, consultando
 // una herramienta, verificando, redactando) para que el chat lo muestre en vivo.
+// Bloque 282 (pedido explícito — "si el mensaje es solo un saludo o un ok, que se
+// conteste solo, sin usar la IA"): mensajes cortos de cortesía se contestan aquí
+// mismo, sin gastar una sola consulta.
+const SMALL_TALK = [
+  [/^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|saludos|qu[eé] tal|c[oó]mo est[aá]s)[\s!.?¿¡]*$/i, "¡Hola! ¿En qué te ayudo con tu negocio? Puedes preguntarme por ventas, pedidos, productos, clientes o tu plan."],
+  [/^(ok|okay|vale|dale|listo|perfecto|entendido|bien|de acuerdo|claro|s[ií]|no|ya)[\s!.?]*$/i, "Perfecto. Si necesitas algo más, pregúntame."],
+  [/^(gracias|muchas gracias|mil gracias|te agradezco)[\s!.?]*$/i, "¡Con gusto! Aquí estoy si necesitas algo más."],
+  [/^(adi[oó]s|chao|hasta luego|nos vemos)[\s!.?]*$/i, "¡Hasta luego!"],
+];
+
+export function smallTalkReply(message) {
+  const text = String(message || "").trim();
+  if (text.length > 40) return null;
+  for (const [pattern, reply] of SMALL_TALK) if (pattern.test(text)) return reply;
+  return null;
+}
+
+// Bloque 282 (pedido explícito): si pasaron más de 24 h desde el último mensaje de
+// una conversación, la siguiente pregunta abre una conversación NUEVA: la IA no
+// vuelve a leer una charla vieja (la anterior queda en el historial).
+const CONVERSATION_IDLE_MS = 24 * 60 * 60 * 1000;
+
 export async function runAssistant({ scope, userId, vendorId = null, who, message, planContext = null, conversationId = null, onProgress = () => {} }) {
   const tools = TOOLS_BY_SCOPE[scope];
   const { siteName } = await getBrandSettings();
@@ -344,13 +367,20 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   if (conversationId) {
     conversation = await prisma.assistantConversation.findFirst({ where: { id: conversationId, ...owner({ scope, userId, vendorId }) } });
     if (!conversation) throw new AppError("No encontré esa conversación.", 404);
+    if (Date.now() - new Date(conversation.updatedAt).getTime() > CONVERSATION_IDLE_MS) conversation = null;
   }
   const history = await getHistory({ scope, userId, vendorId, conversationId: conversation?.id });
 
+  // Un "sí"/"ok" que contesta una pregunta del asistente ("¿quieres que profundice?")
+  // no es cortesía: ese sí va a la IA, que sabe a qué se refiere.
+  const last = history[history.length - 1];
+  const answersQuestion = last?.role !== "user" && /\?\s*$/.test(String(last?.content ?? "")) && /^(s[ií]|no|ok|okay|dale|claro|vale|de acuerdo|perfecto)\b/i.test(message.trim());
+  const quick = answersQuestion ? null : smallTalkReply(message);
   const observations = [];
   const toolsUsed = [];
   const seenCalls = new Set();
-  let final = null;
+  let final = quick ? { text: quick, links: [], products: [], table: null } : null;
+
   let formatRetries = 0;
   let ungroundedRetries = 0;
   let verifyRetries = 0;
