@@ -5,6 +5,7 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 
 // Bloque 272 (pedido explícito): configuración de seguridad del administrador. Aquí vive el
 // plazo de la eliminación pendiente de tiendas ("esta configuración de 30 días se podrá
@@ -77,6 +78,10 @@ export default function AdminSecurity() {
         </form>
         {!valid && <p className="mt-2 text-[12.5px] text-error">Escribe un número entero entre 1 y 365.</p>}
       </section>
+
+      <div className="mt-5">
+        <TwoFactorCard />
+      </div>
     </div>
   );
 }

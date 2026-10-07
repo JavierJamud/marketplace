@@ -300,6 +300,21 @@ configurado (diario/semanal/mensual), revisa si hoy es el día que le toca y,
 si es así, le manda al personal con permiso de "ventas-manuales" sus totales
 del período. Corre a las **8:30am**.
 
+### B8c. Verificación en dos pasos con aplicación autenticadora — `lib/totp.js`
+
+Segundo paso del login para cliente, vendedor y admin (misma tabla `User`). Sin la app
+activada, el código de 6 dígitos llega al correo (como siempre). Con la app activada
+(Perfil o Admin → Seguridad: QR + clave manual + confirmación con un código) esa pasa a ser
+la forma PREDETERMINADA: el login no envía correo y responde `method: "totp"` con un
+`challengeToken` firmado de 10 minutos (prueba de que la contraseña fue correcta). Si la
+persona no tiene su app, "No tengo acceso a mi app" pide el código por correo con ese token.
+TOTP estándar RFC 6238 (HMAC-SHA1, 30 s, 6 dígitos, ventana ±1 paso; validado con los
+vectores del RFC). El secreto se guarda cifrado (AES-256-GCM, `lib/crypto.js`); un código ya
+usado no se acepta de nuevo (`totpLastStep`); tras 5 fallos en 10 minutos la cuenta deja de
+aceptar códigos de la APP, pero nunca se bloquea el código del correo ni desactivar con la
+contraseña (para que un tercero no pueda dejar afuera a alguien fallando a propósito).
+Desactivar pide contraseña + código (de la app o, si se perdió el teléfono, del correo).
+
 ### B8b. Eliminación pendiente de tiendas — `jobs/vendorDeletion.job.js`
 
 Cuando el admin elimina una tienda no se borra: queda en **eliminación pendiente**

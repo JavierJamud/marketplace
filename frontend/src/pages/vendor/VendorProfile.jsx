@@ -1,3 +1,4 @@
+import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 import { useEffect, useRef, useState } from "react";
 import { Link, useOutletContext, useNavigate, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -81,6 +82,11 @@ function SecurityCard() {
   });
 
   return (
+    <>
+      {/* Bloque 273: verificación en dos pasos con aplicación autenticadora. */}
+      <div className="mb-5">
+        <TwoFactorCard />
+      </div>
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
         <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Seguridad de la cuenta
@@ -105,6 +111,7 @@ function SecurityCard() {
         onCancel={() => setConfirming(false)}
       />
     </div>
+    </>
   );
 }
 

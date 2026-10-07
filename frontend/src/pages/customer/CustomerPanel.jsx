@@ -13,6 +13,7 @@ import { SuggestionBox } from "../../components/SuggestionBox.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { StoreCard } from "../../components/StoreCard.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
+import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { formatPrice } from "../../lib/format.js";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
@@ -776,6 +777,10 @@ export default function CustomerPanel() {
             </div>
 
             {changingEmail && <ChangeEmailModal currentEmail={customer?.email} onClose={() => setChangingEmail(false)} />}
+
+            <div className="mt-5 max-w-[480px]">
+              <TwoFactorCard />
+            </div>
 
             <div className="mt-5 max-w-[480px]">
               <DeleteAccountCard />

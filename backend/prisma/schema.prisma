@@ -798,6 +798,13 @@ model User {
   // (columna eliminada en esta misma migración) — ahora se pide siempre que
   // no haya un TrustedDevice vigente para esta cuenta (ver auth.controller.js).
   twoFactorCodeHash      String?
+  // Bloque 273: verificación en dos pasos con app autenticadora (TOTP). El secreto va CIFRADO
+  // (lib/crypto.js). totpPending* es el secreto de una activación a medio hacer (aún sin
+  // confirmar con un código); totpLastStep evita reutilizar un código ya usado.
+  totpSecretEnc          String?
+  totpPendingSecretEnc   String?
+  totpEnabledAt          DateTime?
+  totpLastStep           Int?
   twoFactorCodeExpiresAt DateTime?
 
   // Bloque 71 (pedido explícito): cambiar de correo deja de ser directo —

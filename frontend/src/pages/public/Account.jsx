@@ -238,6 +238,9 @@ export default function Account({ mode = "customer" }) {
   // manda el backend (auth.controller.js) — nunca "5 minutos" fijo acá, así
   // la cuenta regresiva sigue siendo exacta después de un reenvío.
   const [twoFactorExpiresAt, setTwoFactorExpiresAt] = useState(null);
+  // Bloque 273: "totp" = el código sale de la app autenticadora; "email" = llega al correo.
+  const [twoFactorMethod, setTwoFactorMethod] = useState("email");
+  const [challengeToken, setChallengeToken] = useState("");
   const twoFactorSecondsLeft = useCountdownSeconds(twoFactorExpiresAt);
   // Bloque 59: código de verificación de correo (segundo paso del registro)
   // — el email pendiente de verificar es siempre form.email, no hace falta
@@ -329,8 +332,10 @@ export default function Account({ mode = "customer" }) {
           setTwoFactorEmail(result.email);
           setTwoFactorCode("");
           setTwoFactorExpiresAt(result.twoFactorExpiresAt);
+          setTwoFactorMethod(result.method ?? "email");
+          setChallengeToken(result.challengeToken ?? "");
           setView("two-factor");
-          toast.success("Te enviamos un código a tu correo.");
+          if ((result.method ?? "email") === "email") toast.success("Te enviamos un código a tu correo.");
           return;
         }
         // Bloque 183 (pedido explícito — primer ingreso de un usuario de
@@ -576,7 +581,25 @@ export default function Account({ mode = "customer" }) {
   // siempre — el backend YA genera y manda un código nuevo en CADA llamada
   // (ver auth.controller.js), así que reenviar es simplemente repetir el
   // mismo login con las credenciales que ya están en el formulario.
+  // Bloque 273: "no tengo acceso a mi app": el código se envía al correo (con el token que
+  // entregó el login tras validar la contraseña).
+  async function handleSendEmailCodeInstead() {
+    setResendingCode(true);
+    try {
+      const { data } = await api.post("/auth/2fa/email-code", { challengeToken });
+      setTwoFactorMethod("email");
+      setTwoFactorExpiresAt(data.twoFactorExpiresAt);
+      setTwoFactorCode("");
+      toast.success("Te enviamos un código a tu correo.");
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "No se pudo enviar el código. Vuelve a iniciar sesión.");
+    } finally {
+      setResendingCode(false);
+    }
+  }
+
   async function handleResendTwoFactorCode() {
+    if (challengeToken) return handleSendEmailCodeInstead();
     setResendingCode(true);
     try {
       const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" ? mode : undefined);
@@ -664,35 +687,54 @@ export default function Account({ mode = "customer" }) {
       <AccountShell provinceCount={provinces?.length} mode={mode}>
         <div key={view} className="animate-step-in">
           <h1 className="mb-2 text-headline-md text-on-surface">Verificación en dos pasos</h1>
-          <p className="mb-6 text-body-md text-on-surface-variant">
-            Te mandamos un código de 6 dígitos a <strong>{twoFactorEmail}</strong>.{" "}
-            {twoFactorSecondsLeft > 0 ? (
-              <>
-                Vence en{" "}
-                <strong className="tabular-nums">
-                  {String(Math.floor(twoFactorSecondsLeft / 60)).padStart(2, "0")}:
-                  {String(twoFactorSecondsLeft % 60).padStart(2, "0")}
-                </strong>
-                .
-              </>
-            ) : (
-              "El código venció."
-            )}
-          </p>
+          {twoFactorMethod === "totp" ? (
+            <p className="mb-6 text-body-md text-on-surface-variant">
+              Abre tu aplicación de autenticación (Google Authenticator, Microsoft Authenticator, Authy...) e ingresa el código de 6 dígitos que muestra para esta cuenta.
+            </p>
+          ) : (
+            <p className="mb-6 text-body-md text-on-surface-variant">
+              Te mandamos un código de 6 dígitos a <strong>{twoFactorEmail}</strong>.{" "}
+              {twoFactorSecondsLeft > 0 ? (
+                <>
+                  Vence en{" "}
+                  <strong className="tabular-nums">
+                    {String(Math.floor(twoFactorSecondsLeft / 60)).padStart(2, "0")}:
+                    {String(twoFactorSecondsLeft % 60).padStart(2, "0")}
+                  </strong>
+                  .
+                </>
+              ) : (
+                "El código venció."
+              )}
+            </p>
+          )}
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
             <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={setTwoFactorCode} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || twoFactorCode.length !== 6}>
               {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
             </Button>
           </form>
-          <button
-            type="button"
-            onClick={handleResendTwoFactorCode}
-            disabled={twoFactorSecondsLeft > 0 || resendingCode}
-            className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
-          >
-            {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
-          </button>
+          {twoFactorMethod === "totp" ? (
+            <button type="button" onClick={handleSendEmailCodeInstead} disabled={resendingCode} className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50">
+              {resendingCode ? "Enviando..." : "No tengo acceso a mi app: enviar el código a mi correo"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleResendTwoFactorCode}
+                disabled={twoFactorSecondsLeft > 0 || resendingCode}
+                className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
+              >
+                {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
+              </button>
+              {challengeToken && (
+                <button type="button" onClick={() => { setTwoFactorMethod("totp"); setTwoFactorCode(""); }} className="mt-3 block text-label-md font-semibold text-tertiary-accent">
+                  Usar el código de mi aplicación
+                </button>
+              )}
+            </>
+          )}
           <button onClick={() => switchView("login")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
             ← Volver al login
           </button>

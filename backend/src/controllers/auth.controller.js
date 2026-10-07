@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { hashToken } from "../utils/hashToken.js";
+import { consumeTotpCode } from "./twoFactorApp.controller.js";
 import {
   sendPasswordResetEmail,
   sendTwoFactorCodeEmail,
@@ -80,9 +81,13 @@ function publicUser(user) {
     pendingEmail,
     emailChangeCodeHash,
     emailChangeCodeExpiresAt,
+    totpSecretEnc,
+    totpPendingSecretEnc,
+    totpLastStep,
     ...rest
   } = user;
-  return rest;
+  // Bloque 273: el panel solo necesita saber SI tiene activada la app autenticadora.
+  return { ...rest, totpEnabled: !!user.totpEnabledAt };
 }
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
@@ -370,6 +375,15 @@ export async function login(req, res) {
       })
     : null;
 
+  // Bloque 273 (pedido explícito): si la persona activó la app autenticadora, esa es la forma
+  // PREDETERMINADA del segundo paso: no se envía correo. Se devuelve un `challengeToken`
+  // firmado y de corta vida (prueba que ya puso bien la contraseña) para poder pedir, solo si
+  // lo necesita, el código por correo (POST /auth/2fa/email-code).
+  if (!trustedDevice && user.totpEnabledAt) {
+    const challengeToken = jwt.sign({ sub: user.id, purpose: "2fa-challenge" }, env.jwtSecret, { expiresIn: "10m" });
+    return res.json({ requiresTwoFactor: true, method: "totp", email: user.email, challengeToken });
+  }
+
   if (!trustedDevice) {
     const code = String(Math.floor(Math.random() * 10 ** TWO_FACTOR_CODE_LENGTH)).padStart(TWO_FACTOR_CODE_LENGTH, "0");
     const twoFactorCodeHash = await bcrypt.hash(code, 10);
@@ -398,7 +412,7 @@ export async function login(req, res) {
     // frontend) — así la cuenta regresiva es exacta incluso si hay latencia
     // de red entre que el backend generó el código y el navegador la
     // arranca, y sigue siendo exacta después de un reenvío.
-    return res.json({ requiresTwoFactor: true, email: user.email, twoFactorExpiresAt: twoFactorCodeExpiresAt });
+    return res.json({ requiresTwoFactor: true, method: "email", email: user.email, twoFactorExpiresAt: twoFactorCodeExpiresAt });
   }
 
   // Dispositivo de confianza válido — ventana rodante: se le extienden otros
@@ -417,6 +431,44 @@ export async function login(req, res) {
   res.json({ user: publicUser(user), ...tokens });
 }
 
+const emailCodeSchema = z.object({ challengeToken: z.string().min(10) });
+
+// Bloque 273: "no tengo acceso a mi app": envía el código por correo. Solo con el token que
+// entregó el login tras validar la contraseña, así nadie puede disparar correos a cuentas ajenas.
+export async function sendLoginEmailCode(req, res) {
+  const { challengeToken } = emailCodeSchema.parse(req.body);
+  let payload;
+  try {
+    payload = jwt.verify(challengeToken, env.jwtSecret, { algorithms: ["HS256"] });
+  } catch {
+    throw new AppError("La sesión de verificación venció. Vuelve a iniciar sesión.", 401);
+  }
+  if (payload.purpose !== "2fa-challenge") throw new AppError("Token inválido.", 401);
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  if (!user || user.isSuspended || user.deletedAt) throw new AppError("Esta cuenta no está disponible.", 403);
+  const twoFactorExpiresAt = await issueEmailTwoFactorCode(user);
+  res.json({ ok: true, twoFactorExpiresAt });
+}
+
+// Envía un código de un solo uso al correo de una persona ya autenticada (p. ej. para
+// desactivar la app autenticadora si perdió el teléfono).
+export async function sendMyEmailCode(req, res) {
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user) throw new AppError("Usuario no encontrado.", 404);
+  const twoFactorExpiresAt = await issueEmailTwoFactorCode(user);
+  res.json({ ok: true, twoFactorExpiresAt });
+}
+
+async function issueEmailTwoFactorCode(user) {
+  const code = String(Math.floor(Math.random() * 10 ** TWO_FACTOR_CODE_LENGTH)).padStart(TWO_FACTOR_CODE_LENGTH, "0");
+  const twoFactorCodeHash = await bcrypt.hash(code, 10);
+  const twoFactorCodeExpiresAt = new Date(Date.now() + TWO_FACTOR_CODE_TTL_MINUTES * 60 * 1000);
+  await prisma.user.update({ where: { id: user.id }, data: { twoFactorCodeHash, twoFactorCodeExpiresAt } });
+  const emailResult = await sendTwoFactorCodeEmail(user, code);
+  if (!emailResult.ok) console.warn(`[2FA] No se pudo enviar el código por correo (${emailResult.error}) — código de emergencia para ${user.email}: ${code}`);
+  return twoFactorCodeExpiresAt;
+}
+
 const verifyTwoFactorSchema = z.object({
   email: z.string().email(),
   code: z.string().length(TWO_FACTOR_CODE_LENGTH),
@@ -431,10 +483,14 @@ export async function verifyTwoFactorLogin(req, res) {
   const { email, code, browserId, context } = verifyTwoFactorSchema.parse(req.body);
   const user = await prisma.user.findUnique({ where: { email } });
 
+  // Bloque 273: el código puede ser el de la app autenticadora (predeterminado, si la tiene
+  // activada) o el enviado al correo (siempre disponible como respaldo).
+  const viaApp = user ? await consumeTotpCode(user, code) : false;
   const valid =
-    user?.twoFactorCodeHash && user?.twoFactorCodeExpiresAt && user.twoFactorCodeExpiresAt.getTime() > Date.now()
+    viaApp ||
+    (user?.twoFactorCodeHash && user?.twoFactorCodeExpiresAt && user.twoFactorCodeExpiresAt.getTime() > Date.now()
       ? await bcrypt.compare(code, user.twoFactorCodeHash)
-      : false;
+      : false);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
   assertRoleMatchesContext(user, context);

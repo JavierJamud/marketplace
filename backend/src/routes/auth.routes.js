@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as authController from "../controllers/auth.controller.js";
+import * as twoFactorApp from "../controllers/twoFactorApp.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { loginRateLimit, passwordResetRateLimit, registerRateLimit } from "../middleware/rateLimit.js";
 
@@ -33,6 +34,13 @@ router.post("/reset-password", passwordResetRateLimit, authController.resetPassw
 // login() en auth.controller.js) — mismo rate limit que el resto de los
 // endpoints de "código de 6 dígitos".
 router.post("/2fa/verify", passwordResetRateLimit, authController.verifyTwoFactorLogin);
+// Bloque 273: app autenticadora (TOTP). El código por correo sigue siendo el respaldo.
+router.post("/2fa/email-code", passwordResetRateLimit, authController.sendLoginEmailCode);
+router.get("/2fa/app/status", authenticate, twoFactorApp.status);
+router.post("/2fa/app/setup", authenticate, passwordResetRateLimit, twoFactorApp.setup);
+router.post("/2fa/app/enable", authenticate, passwordResetRateLimit, twoFactorApp.enable);
+router.post("/2fa/app/disable", authenticate, passwordResetRateLimit, twoFactorApp.disable);
+router.post("/2fa/send-code", authenticate, passwordResetRateLimit, authController.sendMyEmailCode);
 
 // Perfil propio — genéricos por rol (AdminProfile.jsx, VendorProfile.jsx y
 // CustomerPanel.jsx pegan a los mismos endpoints, ver auth.controller.js).
