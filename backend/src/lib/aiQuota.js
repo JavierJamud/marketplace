@@ -44,6 +44,8 @@ export const DEFAULT_FREE_LIMITS = {
 function modelFreeLimits(provider, model) {
   const id = String(model || "").toLowerCase();
   if (provider === "groq" && id.startsWith("whisper")) return { rpm: 20, rpd: 2000, tpm: null, tpd: null };
+  // gpt-oss (20b y 120b) en el plan gratis de Groq: 30 pedidos/min, 1.000/día, 8.000 tokens/min y 200.000/día.
+  if (provider === "groq" && id.includes("gpt-oss")) return { rpm: 30, rpd: 1000, tpm: 8000, tpd: 200000 };
   if (provider === "groq" && /8b|instant/.test(id)) return { rpm: 30, rpd: 14400, tpm: 6000, tpd: 500000 };
   if (provider === "gemini" && /flash-lite/.test(id)) return { rpm: 15, rpd: 1000 };
   return {};

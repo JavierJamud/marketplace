@@ -290,7 +290,8 @@ export default function AdminIntegrations({ embedded = false }) {
   const { data: aiModels } = useQuery({
     queryKey: ["admin-ai-models"],
     queryFn: async () => (await api.get("/admin/ai-models")).data.providers,
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
   const modelsByProvider = Object.fromEntries((aiModels ?? []).map((p) => [p.provider, p]));
 

@@ -65,7 +65,7 @@ export default function AiQuotaPanel() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["admin-ai-quota"],
     queryFn: async () => (await api.get("/admin/ai-quota")).data,
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   });
 
   return (

@@ -180,6 +180,16 @@ function cleanRow(row, fieldTypes, rels) {
   return out;
 }
 
+// Versión corta para el prompt: solo nombre y etiqueta de cada tabla. Los campos
+// completos pesaban ~2.000 tokens en CADA pedido a la IA (y el plan gratis de Groq
+// da 8.000 por minuto); la IA los ve al hacer una consulta con limite 1, o en el
+// mensaje de error si pide un campo que no existe.
+export function describeQueryTablesShort(scope) {
+  return Object.entries(registryFor(scope))
+    .map(([name, t]) => (t.described ? `${name} (${t.label})` : name))
+    .join(", ");
+}
+
 export function describeQueryTables(scope) {
   return Object.entries(registryFor(scope))
     .map(([name, t]) => (t.described ? `${name} (${t.label}): ${Object.entries(t.fields).map(([f, ty]) => `${f}:${ty}`).join(", ")}` : name))
@@ -191,7 +201,7 @@ export function makeQueryTool(scope) {
   const tables = Object.keys(registry);
   return {
     description:
-      "Consulta CUALQUIER tabla del negocio (solo lectura): pedidos, productos, reseñas, registro de actividad, inicios de sesión, mensajes, ofertas, códigos, clics, favoritos, pagos, etc. Úsala cuando ninguna otra herramienta dé el dato exacto. Filtra por campos con operadores (=, !=, >, >=, <, <=, contiene; las fechas como AAAA-MM-DD), ordena, cuenta (contar:true) o agrupa (agrupar_por, y sumar un campo numérico). Tipos: s=texto, n=número, d=fecha, b=sí/no. Para filtrar por tienda usa \"tienda\":\"nombre\". Las tablas listadas solo con su nombre existen y tienen más campos: haz una consulta con limite 1 para verlos. Tablas y campos:\n    " + describeQueryTables(scope),
+      "Consulta CUALQUIER tabla del negocio (solo lectura) cuando ninguna otra herramienta da el dato. Filtros con operadores (=, !=, >, >=, <, <=, contiene; fechas AAAA-MM-DD), orden, contar:true o agrupar_por (+ sumar). Para filtrar por tienda usa \"tienda\":\"nombre\". Si no conoces los campos de una tabla, haz una consulta con limite 1 y los verás. Tablas: " + describeQueryTablesShort(scope) + ".",
     args: '{ "tabla": "...", "filtros": [{"campo":"...","op":"=","valor":...}] (opcional), "orden": {"campo":"...","dir":"asc"|"desc"} (opcional), "tienda": "nombre de la tienda" (opcional), "limite": 1-15, "campos": ["..."] (opcional), "contar": true (opcional), "agrupar_por": "campo" (opcional), "sumar": "campo numérico" (opcional) }',
     schema: z.object({
       tabla: z.enum(tables),

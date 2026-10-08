@@ -9,6 +9,8 @@ import { sendAdminDirectEmail } from "../lib/email.js";
 import { getEffectiveActiveModels } from "../lib/aiModels.js";
 import { classifyModel, getUnavailableModel, getModelAvailable, getProbeState, CATEGORIES, CATEGORY_ORDER, isFreeTierModel } from "../lib/aiModelCatalog.js";
 import { getProviderQuotaOverview, isWithinFreeQuota } from "../lib/aiQuota.js";
+import { upsertModelHealth } from "../lib/aiProviderHealth.js";
+import { clearProviderCooldown } from "../lib/aiProviderCooldown.js";
 
 // Bloque 25: mismo patrón para CUALQUIER integración con key (Gemini, Groq,
 // Stripe, lo que se agregue después) — primeros 4 + últimos 4 caracteres a
@@ -291,9 +293,32 @@ export async function testAiProviderIntegration(req, res) {
     await provider.generate({ apiKey, prompt: AI_TEST_PROMPT, model });
   } catch (err) {
     const detail = err?.details?.detail || err?.message || "Error desconocido";
+    // Lo que muestra el panel tiene que ser lo que acaba de pasar: si la prueba
+    // falla, el modelo queda con ese error (y como caído si antes no lo estaba).
+    const before = await prisma.aiModelHealth.findUnique({ where: { provider_model: { provider: name, model } } }).catch(() => null);
+    await upsertModelHealth(name, model, {
+      status: "down",
+      lastError: String(detail).slice(0, 500),
+      lastCheckedAt: new Date(),
+      downSince: before?.status === "down" && before.downSince ? before.downSince : new Date(),
+    }).catch(() => {});
     throw new AppError(`${name} no respondió con el modelo "${model}": ${detail}`, 502, { detail });
   }
-  res.json({ ok: true, model, ms: Date.now() - start });
+  const ms = Date.now() - start;
+  // Pedido explícito: el estado se actualiza en el momento. Una prueba que
+  // responde deja el modelo activo (borra "Caído hace X h") y el proveedor
+  // vuelve a la cadena de inmediato.
+  await upsertModelHealth(name, model, {
+    status: "healthy",
+    lastError: null,
+    lastLatencyMs: ms,
+    lastCheckedAt: new Date(),
+    downSince: null,
+    downNotifiedAt: null,
+    repairFailedCount: 0,
+  }).catch(() => {});
+  clearProviderCooldown(name);
+  res.json({ ok: true, model, ms });
 }
 
 // Uso interno (otros servicios, ej. campaigns.controller.js) — nunca expuesto

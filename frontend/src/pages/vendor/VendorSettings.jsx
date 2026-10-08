@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -264,7 +265,12 @@ const SETTINGS_TABS = [
 export default function VendorSettings() {
   const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("general");
+  // La pestaña viaja en la URL (?tab=seguridad): el asistente y los enlaces
+  // pueden llevar directo a la sección exacta de Configuración.
+  const [tabParams, setTabParams] = useSearchParams();
+  const requestedTab = tabParams.get("tab");
+  const activeTab = SETTINGS_TABS.some((t) => t.id === requestedTab) ? requestedTab : "general";
+  const setActiveTab = (id) => setTabParams(id === "general" ? {} : { tab: id }, { replace: true });
   const [form, setForm] = useState({
     ownerIdNumber: "",
     companyAddress: "",

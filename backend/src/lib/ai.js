@@ -284,6 +284,9 @@ export async function streamRawText(prompt, { onDelta, onReset } = {}) {
             apiKey: provider.apiKey,
             model: provider.model,
             prompt,
+            // Groq cuenta contra su tope por minuto lo que se PIDE de salida; las
+            // respuestas del asistente son cortas, así que 900 sobra y no gasta cupo de más.
+            maxTokens: 900,
             onDelta: (piece) => {
               emitted = true;
               onDelta?.(piece);
