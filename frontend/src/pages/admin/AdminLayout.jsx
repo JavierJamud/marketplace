@@ -255,13 +255,16 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
   );
 }
 
+// Bloque 291 (pedido explícito — "las preguntas sugeridas deben ser de entrenamiento principal: qué
+// puedes hacer, un resumen de todo lo que puede hacer el asistente, cómo mejorar el negocio"): ninguna
+// nombra una tienda concreta, porque esa tienda puede no existir en la base de datos de quien las ve.
 const ADMIN_ASSISTANT_PROMPTS = [
-  "Dame un resumen del día de la plataforma",
+  "¿Qué puedes hacer por mí?",
+  "Dame un resumen de todo lo que puedes consultar en la plataforma",
+  "¿Cómo puedo mejorar el negocio de la plataforma?",
   "¿Qué debo atender primero hoy?",
-  "¿Qué suscripciones vencen pronto?",
-  "¿Quién inició sesión y qué actividad hubo hoy?",
-  "¿Cómo está posicionada la tienda TecnoHabana en el algoritmo?",
-  "¿Están funcionando bien las integraciones de IA?",
+  "¿Cómo funciona el algoritmo que posiciona las tiendas?",
+  "Dame un resumen de cómo va la plataforma esta semana",
 ];
 
 export default function AdminLayout() {

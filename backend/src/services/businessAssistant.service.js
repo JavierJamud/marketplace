@@ -60,6 +60,32 @@ function shortDescription(text, max = 140) {
 // En la segunda vuelta (ya hay datos consultados) la IA solo necesita saber CÓMO
 // llamar a otra herramienta si hiciera falta, no para qué sirve cada una: se
 // manda sin descripciones y esa vuelta pesa casi la mitad.
+// Bloque 291 (pedido explícito — "las preguntas sugeridas son de entrenamiento principal: qué puedes hacer,
+// un resumen de todo lo que puede hacer el asistente, cómo mejorar el negocio"): cuando la pregunta es sobre
+// el propio asistente o sobre cómo mejorar, responde con este resumen fijo (sin herramientas y sin cifras)
+// en vez de inventar capacidades. El clasificador de secciones puede dejar fuera herramientas, así que la
+// lista de capacidades no depende de ellas.
+const CAPABILITIES_INTENT = /qu[eé] (puedes|sabes|haces|puede hacer)|todo lo que (puedes|sabes)|c[oó]mo (me )?(ayudas|funcionas)|resumen de (todo|lo que)|c[oó]mo (puedo )?(mejorar|mejoro|crecer|vender m[aá]s)|c[oó]mo funciona el algoritmo/i;
+const CAPABILITIES = {
+  VENDOR: [
+    "Ventas y pedidos: ventas por día, semana o mes, pedidos recientes y su detalle, el mejor día de la semana y el producto más vendido.",
+    "Clientes: quiénes compran, cuáles son potenciales, qué miran y qué agregan al carrito, y el chat de tu tienda.",
+    "Productos: stock bajo o agotado, productos sin ventas, interés (clics y tiempo en la ficha) y reseñas.",
+    "Algoritmo: cómo se posiciona tu tienda en el catálogo, qué productos pierden posiciones y cómo subir.",
+    "Cuenta: plan y vencimiento, actividad e inicios de sesión, mensajes de la plataforma, ofertas y códigos, equipo y mesas.",
+    "Mejoras: consejos concretos con tus datos reales (stock, fichas completas con fotos, ofertas, reseñas, responder rápido) y el enlace a la pantalla donde hacerlo.",
+  ],
+  ADMIN: [
+    "Plataforma: resumen del día y de la semana, ventas, pedidos, tiendas y clientes nuevos.",
+    "Tiendas: estado de cada una (activas, suspendidas, bloqueadas, en eliminación), plan, verificación, actividad y la ficha del responsable.",
+    "Personas: perfil de cualquier cliente, dueño o usuario de sistema, con sus compras y actividad.",
+    "Pendientes: verificaciones, pagos por confirmar, reportes de fraude, anomalías del ranking, ubicaciones nuevas y errores.",
+    "Suscripciones y planes, vencimientos, agentes de ventas, ventas rápidas, inicios de sesión y estado de las IA.",
+    "Algoritmo del catálogo y base de datos: puede consultar cualquier tabla y explicar cómo se posiciona cada tienda.",
+    "Mejoras: qué atender primero y qué cambiar para que la plataforma crezca, con el enlace a la pantalla exacta.",
+  ],
+};
+
 function describeTools(tools, { compact = false, only = null } = {}) {
   const entries = Object.entries(tools);
   const shown = only ? entries.filter(([name]) => only.includes(name)) : entries;
@@ -96,6 +122,13 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
       ? "- Atajos: tiendas suspendidas/bloqueadas/eliminadas -> tiendas_por_estado; datos de una persona -> buscar_persona; agentes de ventas -> agentes_de_ventas; ventas rápidas -> ventas_rapidas; cliente concreto -> detalle_de_cliente; responsable o representante de una tienda -> ficha_del_responsable (con el enlace fichaCompletaConFotos en 'links'). Cuenta con el total que devuelve la herramienta y menciona el desglose por motivo. Perfil de persona o tienda: 'tabla' de dos columnas (Dato, Valor)."
       : "- Atajos: agentes de ventas o meseros -> agentes_de_ventas; un cliente de tu tienda -> detalle_de_cliente; qué producto llama la atención -> interes_de_clientes y productos_mas_vendidos.",
     "- Listas (tiendas, productos, pedidos, clientes, errores, pagos) van en 'tabla' (máx. 6 columnas y 15 filas; si la respuesta es 'hay N', la tabla trae esas N filas) y en el texto solo un resumen de una frase. Productos concretos: 'productos' con máximo 4 ids copiados de los datos.",
+    ...(CAPABILITIES_INTENT.test(message)
+      ? [
+          "",
+          "CAPACIDADES (la pregunta es sobre lo que puedes hacer o sobre cómo mejorar: responde YA, sin herramientas, con este resumen en viñetas '- ' de una línea cada una, hasta 90 palabras, sin cifras. Cierra proponiendo 2 preguntas concretas que la persona puede hacerte. Si pregunta cómo funciona el algoritmo y cómo subir posiciones, usa la herramienta como_funciona_el_algoritmo):",
+          ...CAPABILITIES[scope].map((c) => `- ${c}`),
+        ]
+      : []),
     "",
     "HERRAMIENTAS DISPONIBLES (todas de solo lectura):",
     describeTools(tools, { compact: observations.length > 0, only: sectionTools }),

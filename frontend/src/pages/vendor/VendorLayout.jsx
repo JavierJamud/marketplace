@@ -155,20 +155,21 @@ function VendorAccessBlockedGate({ vendor, supportWhatsapp, onLogout }) {
 
 // Bloque 259: preguntas rápidas del asistente. Una tienda sin plan de pago ve
 // otras, que además invitan a conocer lo que ganaría con la suscripción.
+// Bloque 291: las sugerencias enseñan qué puede hacer el asistente y cómo mejorar el negocio.
 const VENDOR_ASSISTANT_PROMPTS = [
-  "Resumen de mis ventas de hoy",
-  "¿Cómo está mi tienda en el algoritmo?",
-  "¿Cuándo vence mi suscripción?",
-  "¿Qué actividad hubo en mi cuenta esta semana?",
-  "¿Qué productos se están agotando?",
+  "¿Qué puedes hacer por mi tienda?",
+  "Dame un resumen de todo lo que puedes consultar de mi negocio",
+  "¿Cómo puedo mejorar mi negocio?",
+  "¿Cómo funciona el algoritmo y cómo subo posiciones?",
+  "Resume cómo me fue esta semana",
   "Dame consejos para esta semana",
 ];
 const VENDOR_ASSISTANT_PROMPTS_FREE = [
+  "¿Qué puedes hacer por mi tienda?",
   "¿Cómo puedo vender más con mi tienda?",
-  "¿Cómo está mi tienda en el algoritmo?",
+  "¿Cómo funciona el algoritmo y cómo subo posiciones?",
   "¿Qué le falta a mi tienda para atraer más clientes?",
   "¿Qué gano si verifico mi tienda y me suscribo?",
-  "Dame consejos para esta semana",
 ];
 
 export default function VendorLayout() {

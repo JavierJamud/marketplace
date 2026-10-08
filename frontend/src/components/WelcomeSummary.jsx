@@ -130,7 +130,12 @@ export function WeeklySummaryCard({ className = "" }) {
         </div>
       ) : (
         <>
-          <p className="mb-4 text-[13.5px] leading-5 text-on-surface-variant">{sentence(data)}</p>
+          {/* El texto lo arma el servidor con los números y el algoritmo reales de la semana. */}
+          <div className="mb-4 space-y-2 text-[13.5px] leading-[21px] text-on-surface-variant">
+            {(data.narrative?.length ? data.narrative : [sentence(data)]).map((paragraph, i) => (
+              <p key={i}>{paragraph}</p>
+            ))}
+          </div>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {data.stats.map((s) => (
               <div key={s.key} className="rounded-xl bg-surface-container px-3.5 py-3">
