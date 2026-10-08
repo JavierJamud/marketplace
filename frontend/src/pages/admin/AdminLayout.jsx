@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
 import { ActionCodeProvider } from "../../components/admin/ActionCodeProvider.jsx";
+import { searchSections } from "../../lib/sectionSearch.js";
 
 const NAV = [
   // Bloque 194 (pedido explícito — "cambiarla por el nombre Dashboard,
@@ -56,6 +57,26 @@ const NAV = [
   { to: "/admin/perfil", label: "Mi perfil", icon: UserCog },
 ];
 
+
+// Bloque 289: además del menú lateral, se buscan las pestañas de Configuración y lo que contienen.
+const CONFIG = "/admin/configuracion";
+const ADMIN_EXTRA_SECTIONS = [
+  { label: "Configuración: General", to: CONFIG, keywords: "nombre de la plataforma marca redes sociales whatsapp soporte zona horaria imagen principal hero home logo" },
+  { label: "Configuración: Tiendas y productos", to: `${CONFIG}?tab=catalogo`, keywords: "etiquetas productos nuevo popular politicas ofertas venta rapida comentarios resenas anuncios enlaces de imagen" },
+  { label: "Configuración: Planes y pagos", to: `${CONFIG}?tab=planes`, keywords: "planes precios suscripcion business regular pago cup transferencia tarjeta moneda" },
+  { label: "Configuración: Seguridad", to: `${CONFIG}?tab=seguridad`, keywords: "eliminacion de tiendas dias codigo de confirmacion verificacion en dos pasos autenticador asistente plan gratis mensajes por dia" },
+  { label: "Configuración: Integraciones", to: `${CONFIG}?tab=integraciones`, keywords: "ia groq nvidia gemini modelos claves api resend correo stripe pagos" },
+  { label: "Marca de la plataforma", to: "/admin/marca", keywords: "nombre logo imagen principal del sitio hero home redes whatsapp soporte" },
+  { label: "Imagen principal del sitio", to: "/admin/marca", keywords: "hero home portada banner" },
+  { label: "Eliminación pendiente de tiendas", to: `${CONFIG}?tab=seguridad`, keywords: "dias borrar tiendas plazo" },
+  { label: "Límite del asistente en el plan gratis", to: `${CONFIG}?tab=seguridad`, keywords: "mensajes por dia asistente de negocio" },
+  { label: "Verificación en dos pasos (mi cuenta)", to: "/admin/perfil", keywords: "autenticador app qr contrasena correo cambiar" },
+  { label: "Modelos de IA y claves", to: `${CONFIG}?tab=integraciones`, keywords: "groq nvidia gemini api" },
+];
+
+// Todas las secciones que se pueden buscar: el menú lateral y las subsecciones de arriba.
+const ADMIN_SEARCHABLE_SECTIONS = [...NAV.map((n) => ({ label: n.label, to: n.to })), ...ADMIN_EXTRA_SECTIONS];
+
 // Bloque 47: barra fija de búsqueda + notificaciones — visible en desktop y
 // mobile por igual (reemplaza el header que antes solo existía en mobile).
 function SearchAndNotifications({ onOpenSidebar, onLogout }) {
@@ -99,7 +120,8 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
     navigate(to);
   }
 
-  const hasResults = results && (results.vendors.length || results.customers.length || results.orders.length);
+  const sectionResults = useMemo(() => searchSections(ADMIN_SEARCHABLE_SECTIONS, q), [q]);
+  const hasResults = sectionResults.length > 0 || (results && (results.vendors.length || results.customers.length || results.orders.length));
   const notifTotal = notifications?.total ?? 0;
 
   return (
@@ -132,10 +154,20 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
           )}
         </div>
 
-        {searchOpen && debouncedQ.length >= 2 && (
+        {searchOpen && q.trim().length >= 2 && (
           <div className="absolute z-10 mt-1.5 w-full overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-            {!hasResults && <p className="p-3.5 text-[12.5px] text-outline">Sin resultados para "{debouncedQ}".</p>}
-            {results?.vendors.length > 0 && (
+            {!hasResults && <p className="p-3.5 text-[12.5px] text-outline">{debouncedQ === q.trim() && results ? `Sin resultados para "${q.trim()}".` : "Buscando..."}</p>}
+            {sectionResults.length > 0 && (
+              <div className="border-b border-surface-container py-1.5">
+                <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Secciones</div>
+                {sectionResults.map((s) => (
+                  <button key={s.to + s.label} onClick={() => goTo(s.to)} className="block min-h-11 w-full px-3.5 py-2 text-left text-[13px] hover:bg-surface-container">
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {results && debouncedQ === q.trim() && results.vendors.length > 0 && (
               <div className="border-b border-surface-container py-1.5">
                 <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Tiendas</div>
                 {results.vendors.map((r) => (
@@ -145,7 +177,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
                 ))}
               </div>
             )}
-            {results?.customers.length > 0 && (
+            {results && debouncedQ === q.trim() && results.customers.length > 0 && (
               <div className="border-b border-surface-container py-1.5">
                 <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Clientes</div>
                 {results.customers.map((r) => (
@@ -155,7 +187,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
                 ))}
               </div>
             )}
-            {results?.orders.length > 0 && (
+            {results && debouncedQ === q.trim() && results.orders.length > 0 && (
               <div className="py-1.5">
                 <div className="px-3.5 py-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Pedidos</div>
                 {results.orders.map((r) => (

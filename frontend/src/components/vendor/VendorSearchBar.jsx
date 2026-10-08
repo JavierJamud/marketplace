@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { searchSections } from "../../lib/sectionSearch.js";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ShoppingCart, UtensilsCrossed, Package, LayoutGrid, X } from "lucide-react";
@@ -33,13 +34,22 @@ const SECTIONS = [
   { label: "Mensajes", path: "/vendedor/mensajes" },
   { label: "Reseñas", path: "/vendedor/resenas" },
   { label: "Reportes de fraude", path: "/vendedor/reportes" },
-  { label: "Configuración", path: "/vendedor/configuracion" },
-  { label: "Horario de atención", path: "/vendedor/configuracion" },
-  { label: "Métodos de pago", path: "/vendedor/configuracion" },
-  { label: "Moneda de la tienda", path: "/vendedor/configuracion" },
-  { label: "Facturación y garantías", path: "/vendedor/configuracion" },
-  { label: "Cobertura y zonas de entrega", path: "/vendedor/configuracion" },
-  { label: "Mi perfil", path: "/vendedor/perfil" },
+  // Bloque 289: cada subsección lleva a SU pestaña de Configuración (?tab=) y se encuentra también
+  // por lo que contiene (`keywords`).
+  { label: "Configuración", path: "/vendedor/configuracion", keywords: "ajustes de la tienda" },
+  { label: "Configuración: General", path: "/vendedor/configuracion", keywords: "horario de atencion metodos de pago moneda de la tienda destino de los pedidos whatsapp tienda privada restaurante mesas" },
+  { label: "Horario de atención", path: "/vendedor/configuracion", keywords: "horas abierto cerrado dias" },
+  { label: "Métodos de pago", path: "/vendedor/configuracion", keywords: "efectivo transferencia tarjeta" },
+  { label: "Moneda de la tienda", path: "/vendedor/configuracion", keywords: "cup usd precios" },
+  { label: "Configuración: Cobertura y visibilidad", path: "/vendedor/configuracion?tab=cobertura", keywords: "zonas de entrega cobertura paises provincias visibilidad" },
+  { label: "Cobertura y zonas de entrega", path: "/vendedor/configuracion?tab=cobertura", keywords: "envios provincias paises" },
+  { label: "Configuración: Facturación y otros", path: "/vendedor/configuracion?tab=facturacion", keywords: "facturas garantias terminos politicas" },
+  { label: "Facturación y garantías", path: "/vendedor/configuracion?tab=facturacion", keywords: "factura garantia dias" },
+  { label: "Configuración: Seguridad", path: "/vendedor/configuracion?tab=seguridad", keywords: "contrasena verificacion en dos pasos autenticador sesiones" },
+  { label: "Configuración: Equipo y caja", path: "/vendedor/configuracion?tab=equipo", keywords: "usuarios agentes de ventas meseros cierre de caja" },
+  { label: "Cierre de caja", path: "/vendedor/configuracion?tab=equipo", keywords: "caja frecuencia semanal mensual" },
+  { label: "Usuarios de sistema", path: "/vendedor/usuarios", keywords: "agentes de ventas meseros equipo personal" },
+  { label: "Mi perfil", path: "/vendedor/perfil", keywords: "contrasena correo cuenta verificacion en dos pasos" },
 ];
 
 // Bloque 185 (bug real reportado en vivo — "si el usuario escribe
@@ -67,6 +77,7 @@ const SECTION_KEY_BY_PATH = {
 const OWNER_ONLY_SEARCH_PATHS = new Set([
   "/vendedor/verificacion",
   "/vendedor/configuracion",
+  "/vendedor/usuarios",
 ]);
 
 export function VendorSearchBar({ vendor, staffSections }) {
@@ -105,18 +116,19 @@ export function VendorSearchBar({ vendor, staffSections }) {
     };
   }, []);
 
-  const matchingSections =
-    query.trim().length >= 1
-      ? SECTIONS.filter((s) => {
-          if (s.restaurantOnly && !vendor?.isRestaurant) return false;
-          if (isStaff) {
-            if (OWNER_ONLY_SEARCH_PATHS.has(s.path)) return false;
-            const key = s.key ?? SECTION_KEY_BY_PATH[s.path];
-            if (key && !staffSections.includes(key)) return false;
-          }
-          return s.label.toLowerCase().includes(query.trim().toLowerCase());
-        }).slice(0, 5)
-      : [];
+  // Se filtra primero por lo que esta persona puede ver (tienda restaurante, usuario de sistema) y
+  // después se busca sin importar tildes ni mayúsculas (lib/sectionSearch.js).
+  const allowedSections = SECTIONS.filter((s) => {
+    if (s.restaurantOnly && !vendor?.isRestaurant) return false;
+    if (isStaff) {
+      const base = s.path.split("?")[0];
+      if (OWNER_ONLY_SEARCH_PATHS.has(base)) return false;
+      const key = s.key ?? SECTION_KEY_BY_PATH[base];
+      if (key && !staffSections.includes(key)) return false;
+    }
+    return true;
+  });
+  const matchingSections = query.trim().length >= 1 ? searchSections(allowedSections, query, 7) : [];
   // Bloque 185: mismo caso — un usuario sin la sección "productos" no debe
   // ver productos como resultado de búsqueda (llevaría a un link a
   // /vendedor/productos que el propio VendorLayout le va a rebotar igual,
