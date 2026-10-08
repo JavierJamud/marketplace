@@ -302,7 +302,7 @@ export async function testAiProviderIntegration(req, res) {
       lastCheckedAt: new Date(),
       downSince: before?.status === "down" && before.downSince ? before.downSince : new Date(),
     }).catch(() => {});
-    throw new AppError(`${name} no respondió con el modelo "${model}": ${detail}`, 502, { detail });
+    throw new AppError(`${name} no respondió con el modelo "${model}": ${detail}`, 422, { detail });
   }
   const ms = Date.now() - start;
   // Pedido explícito: el estado se actualiza en el momento. Una prueba que

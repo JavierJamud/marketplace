@@ -73,7 +73,10 @@ export function classifyModel(provider, id, meta = {}) {
 
 // Mensaje claro (en vez del cuerpo crudo del error del proveedor) cuando un
 // modelo de la lista no se puede usar con la clave de este admin.
-export function friendlyModelError(providerLabel, model, failureKind) {
+export function friendlyModelError(providerLabel, model, failureKind, detail = "") {
+  if (failureKind === "gone" && /blocked at the organization level|enable this model in the org settings/i.test(String(detail))) {
+    return `${providerLabel} tiene bloqueado "${model}" en tu organización, por eso no se puede agregar. Habilítalo en la configuración de límites de ${providerLabel} (console.groq.com/settings/limits) o elige otro modelo.`;
+  }
   if (failureKind === "gone") return `${providerLabel} lista el modelo "${model}", pero no está disponible para tu cuenta o ya fue retirado. Elige otro de la lista.`;
   if (failureKind === "auth") return `${providerLabel} rechazó la clave al probar "${model}". Revisa la clave de ${providerLabel}.`;
   if (failureKind === "quota") return `${providerLabel} llegó a su límite de uso al probar "${model}". Prueba de nuevo en unos minutos.`;

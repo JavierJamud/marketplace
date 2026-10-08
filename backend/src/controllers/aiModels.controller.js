@@ -123,7 +123,8 @@ export async function addAiModel(req, res) {
     // admin; se explica en una frase, y si el modelo no existe para esta cuenta
     // se marca en la lista para no volver a intentarlo.
     if (kind === "gone") markModelUnavailable(provider, model, detail);
-    throw new AppError(friendlyModelError(PROVIDERS[provider].label, model, kind), 502, { detail });
+    // 422 y no 502: un 502 lo intercepta el servidor web y el admin veía "Estamos en mantenimiento".
+    throw new AppError(friendlyModelError(PROVIDERS[provider].label, model, kind, detail), 422, { detail });
   }
   clearModelUnavailable(provider, model);
 

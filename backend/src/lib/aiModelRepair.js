@@ -114,6 +114,12 @@ export function errorDetailOf(err) {
 // español, para que el correo diga qué hacer y no solo "falló".
 export function classifyFailure(detail) {
   const text = String(detail || "").toLowerCase();
+  // Bloque 288: Groq responde 403 "permissions_error" cuando el modelo está bloqueado en la ORGANIZACIÓN
+  // (se habilita en console.groq.com/settings/limits). No es un problema de la clave: es ese modelo
+  // el que no se puede usar, así que se trata como "no disponible" y no aparta a todo el proveedor.
+  if (/blocked at the organization level|enable this model in the org settings|model_permission/.test(text)) {
+    return { kind: "gone", blocked: true, cause: "el modelo está bloqueado en la organización del proveedor", fix: "Habilítalo en la configuración de la organización del proveedor (Groq: console.groq.com/settings/limits) o elige otro modelo." };
+  }
   if (/\b401\b|\b403\b|api key|apikey|unauthor|forbidden|permission|invalid.*key|key.*invalid/.test(text)) {
     return { kind: "auth", cause: "la clave no es válida o no tiene permisos", fix: "Revisa o rota la clave en Admin → Integraciones: puede estar vencida, revocada o la cuenta sin permisos." };
   }

@@ -21,9 +21,9 @@ import AiModelsPanel from "../../components/admin/AiModelsPanel.jsx";
 // NIM (109s medidos una vez en vivo, el motivo real de por qué NVIDIA
 // sigue de último recurso).
 const SERVICE_META = {
-  gemini: { name: "Google AI Studio (Gemini)", desc: "Primer respaldo de IA — entra si Groq está inactivo o falla", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
-  groq: { name: "Groq", desc: "Proveedor PRINCIPAL de IA (el más rápido medido) — chatbot de tienda y 'Mejorar con IA'. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
-  nvidia: { name: "NVIDIA NIM", desc: "Último recurso de IA — entra si Groq y Gemini están inactivos o fallan (mucho más lento que los otros dos)", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
+  gemini: { name: "Google AI Studio (Gemini)", desc: "Último respaldo de IA — entra solo si Groq y NVIDIA están inactivos o fallan", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
+  groq: { name: "Groq", desc: "Proveedor PRINCIPAL de IA (se usa primero) — chatbot de tienda y 'Mejorar con IA'. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
+  nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA — entra si Groq está inactivo o falla (más lento que Groq)", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
   stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
