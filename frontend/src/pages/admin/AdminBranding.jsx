@@ -244,7 +244,7 @@ export default function AdminBranding({ mode = "brand" }) {
   const liveClock = useLiveClock(timezone);
 
   return (
-    <div className="max-w-[720px]">
+    <div className={mode === "brand" ? "max-w-[720px]" : undefined}>
       {mode === "brand" && (
         <>
       <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Marca de la plataforma</h1>

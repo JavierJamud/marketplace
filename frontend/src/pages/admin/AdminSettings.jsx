@@ -37,12 +37,18 @@ export default function AdminSettings() {
 
       <Tabs tabs={TABS} value={tab} onChange={(id) => setParams({ tab: id }, { replace: true })} className="mb-6" />
 
-      {tab === "general" && <AdminBranding mode="general" />}
-      {tab === "catalogo" && (
+      {tab === "general" && (
         <div className="max-w-[820px]">
+          <AdminBranding mode="general" />
+        </div>
+      )}
+      {tab === "catalogo" && (
+        // Bloque 292 (pedido explícito — "estas dos secciones están pegadas, no puede pasar"): las tarjetas
+        // de esta pestaña van en una columna con separación fija, todas del mismo ancho.
+        <div className="flex max-w-[820px] flex-col gap-5">
           <AdminBranding mode="catalog" />
           <ProductImageLinksPanel />
-          <h2 className="mb-3 mt-8 text-[15px] font-bold text-on-surface">Políticas de ofertas, venta rápida y comentarios</h2>
+          <h2 className="mt-3 text-[15px] font-bold text-on-surface">Políticas de ofertas, venta rápida y comentarios</h2>
           <OfferPolicyCard />
           <ListingPolicyCard />
           <ReviewPolicyCard />
