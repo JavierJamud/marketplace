@@ -286,7 +286,10 @@ function describe(entry) {
 
   const blocked = entry.blockedUntil > now;
   const stoppers = windows.filter((w) => w.nearLimit);
-  const available = !blocked && stoppers.length === 0;
+  // Bloque 286 (pedido explícito — "que se dé lo real que ofrece cada API"): ya no se
+  // frena por una estimación propia ("cerca del límite"). Un modelo solo queda fuera
+  // cuando la API misma respondió 429/402; los contadores quedan solo como dato.
+  const available = !blocked;
   const resumesAt = blocked
     ? Math.max(entry.blockedUntil, ...stoppers.map((w) => w.resetAt ?? 0))
     : stoppers.length

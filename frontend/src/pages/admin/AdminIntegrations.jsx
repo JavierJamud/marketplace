@@ -8,7 +8,6 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import ToggleSwitch from "../../components/admin/ToggleSwitch.jsx";
 import AiModelsPanel from "../../components/admin/AiModelsPanel.jsx";
-import AiQuotaPanel from "../../components/admin/AiQuotaPanel.jsx";
 
 // Bloque 45: Cerebras salió del sistema (su cuenta gratuita devolvía 402
 // Payment Required, no sirve para uso gratuito) — NVIDIA NIM lo reemplaza
@@ -359,8 +358,8 @@ export default function AdminIntegrations({ embedded = false }) {
       )}
       <div className="mb-[22px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
         Puedes activar, desactivar o rotar cada clave sin tocar el servidor. Orden de IA: Groq (principal), luego
-        NVIDIA NIM y por último Gemini. Cada una se usa solo mientras le quede cupo en su plan gratis: cerca del límite
-        se pasa a la siguiente y vuelve sola cuando se renueva. Un proveedor desactivado nunca se usa.
+        NVIDIA NIM y por último Gemini. Se usa el límite real que da cada proveedor: cuando uno responde que se
+        agotó, se pasa a la siguiente y vuelve sola cuando se renueva. Un proveedor desactivado nunca se usa.
       </div>
       {/* Bloque 85/245: transparencia sobre la reparación automática. El admin
           ve acá POR QUÉ la lista de modelos de un proveedor puede cambiar sola. */}
@@ -370,8 +369,6 @@ export default function AdminIntegrations({ embedded = false }) {
         y se reprueban solo los caídos. Tú puedes probar cualquier modelo a mano con "Probar". Si no queda ningún modelo
         disponible, el chatbot se oculta en todo el sitio.
       </div>
-
-      <AiQuotaPanel />
 
       <div className="flex flex-col gap-4">
         {ORDER.map((name) =>
