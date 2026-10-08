@@ -28,6 +28,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Respons
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
+import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
 
 function fmtMoney(amount, currency) {
   return `${Number(amount).toLocaleString("es-CU", { maximumFractionDigits: 0 })} ${currency}`;
@@ -256,12 +257,7 @@ export default function AdminDashboard() {
   return (
     <div>
       <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="mb-1 font-display text-[28px] font-extrabold tracking-tight text-on-surface">
-            Hola de nuevo, <span className="font-medium text-on-surface-variant">{firstName}</span>
-          </h1>
-          <p className="text-[13.5px] text-outline">Así va {siteName} hoy — toda la plataforma, en un vistazo.</p>
-        </div>
+        <WelcomeHeading name={firstName} />
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="inline-flex items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant">
             <CalendarDays className="h-4 w-4 text-outline" />
@@ -276,6 +272,8 @@ export default function AdminDashboard() {
           </Link>
         </div>
       </div>
+
+      <WeeklySummaryCard className="mb-5" />
 
       {/* ── Franja de KPIs ── */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

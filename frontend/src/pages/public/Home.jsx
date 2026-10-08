@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ShieldCheck, Store } from "lucide-react";
+import { PlusCircle, ShieldCheck, Store } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
@@ -320,9 +320,9 @@ export default function Home() {
             <div className="flex w-full flex-shrink-0 flex-col items-stretch gap-3 sm:w-auto sm:items-start">
               <Link
                 to="/vendedor/ingresar?tab=registro"
-                className="flex min-h-11 items-center justify-center whitespace-nowrap rounded-xl bg-secondary-container px-5 py-3 text-label-md text-on-secondary-container hover:brightness-95"
+                className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-secondary-container px-5 py-3 text-label-md text-on-secondary-container hover:brightness-95"
               >
-                Crear mi tienda gratis
+                <PlusCircle className="h-4 w-4" aria-hidden="true" /> Crear mi tienda gratis
               </Link>
               <Link
                 to="/tiendas"

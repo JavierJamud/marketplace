@@ -116,7 +116,7 @@ export function SearchBar() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => (results.length > 0 || vendorResults.length > 0) && setOpen(true)}
-          placeholder="Buscar productos, tiendas..."
+          placeholder="Buscar productos"
           aria-label="Buscar productos y tiendas"
           className="h-full w-full min-w-0 border-none bg-transparent text-[13px] text-white outline-none placeholder:text-white/85"
         />

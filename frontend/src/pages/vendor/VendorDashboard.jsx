@@ -1,3 +1,4 @@
+import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
 import { useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
@@ -432,12 +433,7 @@ export default function VendorDashboard() {
   return (
     <div>
       <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="mb-1 font-display text-[28px] font-extrabold tracking-tight text-on-surface">
-            Hola de nuevo, <span className="font-medium text-on-surface-variant">{vendor?.companyName}</span>
-          </h1>
-          <p className="text-[13.5px] text-outline">Así va tu tienda esta semana.</p>
-        </div>
+        <WelcomeHeading name={vendor?.companyName} />
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="inline-flex items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant">
             <CalendarDays className="h-4 w-4 text-outline" />
@@ -451,6 +447,8 @@ export default function VendorDashboard() {
           </Link>
         </div>
       </div>
+
+      <WeeklySummaryCard className="mb-5" />
 
       {/* ── Fila hero — 2 columnas (pedido explícito: "ventas por día" y
           "ventas de este mes" van uno debajo del otro, más anchos y no tan

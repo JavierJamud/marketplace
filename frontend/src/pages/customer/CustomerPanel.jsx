@@ -1,3 +1,4 @@
+import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -333,7 +334,9 @@ export default function CustomerPanel() {
       <div>
         {tab === "orders" && (
           <div>
-            <h1 className="mb-5 font-display text-headline-md text-on-surface">Mis pedidos</h1>
+            <WelcomeHeading name={(customer?.fullName ?? "").split(" ")[0] || "bienvenido"} className="mb-4" />
+            <WeeklySummaryCard className="mb-6" />
+            <h2 className="mb-5 font-display text-headline-md text-on-surface">Mis pedidos</h2>
             {ordersLoading && <p className="text-body-md text-on-surface-variant">Cargando pedidos...</p>}
             {!ordersLoading && orders?.length === 0 && (
               <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">

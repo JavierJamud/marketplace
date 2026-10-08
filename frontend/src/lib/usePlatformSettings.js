@@ -39,6 +39,8 @@ export function usePlatformSettings() {
   });
   return {
     siteName: data?.siteName || DEFAULT_SITE_NAME,
+    // Bloque 290: zona horaria de la plataforma, para el saludo y la hora de los paneles.
+    timezone: data?.timezone || null,
     logoUrl: logo,
     // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del
     // vendedor bloqueado/suspendido — null si el admin nunca lo cargó.
