@@ -145,7 +145,9 @@ function AccountShell({ provinceCount, mode = "customer", children }) {
   return (
     <div className="min-h-dvh animate-fade-up bg-background lg:grid lg:grid-cols-2">
       {/* Panel izquierdo — marca completa en desktop */}
-      <div className="hidden flex-col justify-center overflow-hidden bg-gradient-to-br from-primary-container to-primary px-14 py-14 lg:flex">
+      {/* Bloque 293 (pedido explícito — "el lado izquierdo no debe ampliarse ni estirarse con el formulario"):
+          el panel de marca queda fijo a la altura de la pantalla y solo se desplaza el formulario. */}
+      <div className="hidden flex-col justify-center overflow-hidden bg-gradient-to-br from-primary-container to-primary px-14 py-14 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:self-start">
         <Link to="/" className="mb-9 flex items-center gap-2.5">
           {logoUrl ? (
             <img src={logoUrl} alt={siteName} className="h-8 w-8 flex-shrink-0 rounded-md object-cover" />
@@ -355,7 +357,8 @@ export default function Account({ mode = "customer" }) {
   // los 2 pasos que había antes (ubicación de la persona + datos de la
   // tienda, redundantes entre sí); el del cliente sigue siendo su propia
   // ubicación.
-  const totalSteps = 3;
+  // Bloque 293: la tienda se registra en 4 pasos (datos, contraseña, tienda, ubicación) para que el formulario no sea tan largo.
+  const totalSteps = accountType === "vendor" ? 4 : 3;
 
   // Bloque 20: siempre habilitada (no solo para el paso de ubicación) — el
   // panel de marca usa provinces.length como stat real de "provincias".
@@ -1107,6 +1110,7 @@ export default function Account({ mode = "customer" }) {
                   pregunta dos veces. */}
               {step === 3 && accountType === "vendor" && (
                 <div key="step-3" className="animate-step-in space-y-4">
+                  <h2 className="text-title-lg font-bold text-on-surface">Tu tienda</h2>
                   <Input
                     label="Nombre de la tienda (público)"
                     required
@@ -1126,33 +1130,6 @@ export default function Account({ mode = "customer" }) {
                       Este nombre debe coincidir con tu documento de identidad — se puede llegar a verificar más adelante, de ser necesario.
                     </p>
                   </div>
-
-                  {/* Bloque 244 (pedido explícito): país, provincia y municipio
-                      salen del catálogo del admin; si no están, se escriben a
-                      mano y el admin los revisa (LocationPicker). La dirección
-                      de la tienda se pide cuando no hay un municipio real. */}
-                  <LocationPicker
-                    value={{
-                      countryId: storeForm.countryId,
-                      countryOther: storeForm.countryOther,
-                      provinceId: storeForm.provinceId,
-                      municipalityId: storeForm.municipalityId,
-                      municipalityOther: storeForm.municipalityOther,
-                      stateOther: storeForm.stateOther,
-                    }}
-                    onChange={(patch) => setStoreForm((prev) => ({ ...prev, ...patch }))}
-                    address={storeForm.companyAddress}
-                    onAddressChange={(companyAddress) => setStoreForm((prev) => ({ ...prev, companyAddress }))}
-                    onStatus={setLocStatus}
-                    labels={{
-                      country: "País donde va a operar tu tienda",
-                      countryOther: "Escribe el país donde va a operar tu tienda",
-                      province: "Provincia o estado donde prestas servicio",
-                      provinceOther: "Escribe la provincia o estado donde prestas servicio",
-                      municipality: "Municipio donde prestas servicio",
-                    }}
-                    addressLabel="Dirección de la tienda"
-                  />
 
                   <div>
                     <div className="flex items-center gap-2.5">
@@ -1203,6 +1180,38 @@ export default function Account({ mode = "customer" }) {
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {step === 4 && accountType === "vendor" && (
+                <div key="step-4" className="animate-step-in space-y-4">
+                  <h2 className="text-title-lg font-bold text-on-surface">Dónde está tu tienda</h2>
+                  {/* Bloque 244 (pedido explícito): país, provincia y municipio
+                      salen del catálogo del admin; si no están, se escriben a
+                      mano y el admin los revisa (LocationPicker). La dirección
+                      de la tienda se pide cuando no hay un municipio real. */}
+                  <LocationPicker
+                    value={{
+                      countryId: storeForm.countryId,
+                      countryOther: storeForm.countryOther,
+                      provinceId: storeForm.provinceId,
+                      municipalityId: storeForm.municipalityId,
+                      municipalityOther: storeForm.municipalityOther,
+                      stateOther: storeForm.stateOther,
+                    }}
+                    onChange={(patch) => setStoreForm((prev) => ({ ...prev, ...patch }))}
+                    address={storeForm.companyAddress}
+                    onAddressChange={(companyAddress) => setStoreForm((prev) => ({ ...prev, companyAddress }))}
+                    onStatus={setLocStatus}
+                    labels={{
+                      country: "País donde va a operar tu tienda",
+                      countryOther: "Escribe el país donde va a operar tu tienda",
+                      province: "Provincia o estado donde prestas servicio",
+                      provinceOther: "Escribe la provincia o estado donde prestas servicio",
+                      municipality: "Municipio donde prestas servicio",
+                    }}
+                    addressLabel="Dirección de la tienda"
+                  />
                 </div>
               )}
 
