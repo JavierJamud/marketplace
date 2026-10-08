@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUp, ArrowDown, Trash2, RefreshCw, Plus } from "lucide-react";
+import { Trash2, RefreshCw, Plus } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeSince } from "../../lib/relativeTime.js";
@@ -36,6 +36,36 @@ function ModelHealth({ model }) {
       <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-error" aria-hidden="true" />
       <span>Caído {timeSince(h.downSince ?? h.lastCheckedAt)}. Se avisó por correo.</span>
     </span>
+  );
+}
+
+// Cifras abreviadas (8000 -> 8K, 1000000 -> 1M) para que la línea de datos quepa en móvil.
+function compact(n) {
+  if (n == null) return null;
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${+(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+// Lo que la API informa de cada modelo. Todo viene de la API o de sus respuestas; lo que
+// todavía no se ha medido simplemente no se muestra.
+function ModelStats({ model }) {
+  const l = model.limits ?? {};
+  const parts = [
+    model.contextWindow ? `Contexto ${compact(model.contextWindow)}` : null,
+    l.tokensPerMinute ? `${compact(l.tokensPerMinute.limit)} tokens/min` : null,
+    l.tokensPerDay ? `${compact(l.tokensPerDay.limit)} tokens/día` : null,
+    l.requestsPerMinute ? `${compact(l.requestsPerMinute.limit)} pedidos/min` : null,
+    l.requestsPerDay ? `${compact(l.requestsPerDay.limit)} pedidos/día` : null,
+  ].filter(Boolean);
+  if (!model.isActive || (parts.length === 0 && !model.resting)) return null;
+  const used = Math.min(100, Math.round((model.usageRatio ?? 0) * 100));
+  return (
+    <p className="mt-1 text-[11.5px] text-on-surface-variant">
+      {parts.join(" · ")}
+      {parts.length > 0 && ` · usado ${used}%`}
+      {model.resting && <span className="font-semibold text-error">{parts.length > 0 ? " · " : ""}Descansando: {model.resting.reason}</span>}
+    </p>
   );
 }
 
@@ -100,11 +130,6 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
     onSuccess: refresh,
     onError: onError("No se pudo cambiar el modelo."),
   });
-  const move = useMutation({
-    mutationFn: async ({ id, direction }) => (await api.post(`/admin/ai-models/${id}/move`, { direction })).data,
-    onSuccess: refresh,
-    onError: onError("No se pudo cambiar el orden."),
-  });
   const remove = useMutation({
     mutationFn: async (id) => (await api.delete(`/admin/ai-models/${id}`)).data,
     onSuccess: () => {
@@ -114,7 +139,7 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
     onError: onError("No se pudo quitar el modelo."),
   });
 
-  const busy = add.isPending || toggle.isPending || move.isPending || remove.isPending;
+  const busy = add.isPending || toggle.isPending || remove.isPending;
   const candidate = (listQuery.isSuccess ? pick : typed).trim();
 
   return (
@@ -134,11 +159,11 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
         )}
       </div>
       <p className="mb-2.5 text-[11.5px] text-outline">
-        Se prueban en este orden. Si un modelo falla, la consulta sigue con el siguiente. Si un modelo se cae, el sistema busca uno nuevo, lo verifica y te avisa por correo.
+        Arriba van los que menos cupo han gastado. Cada consulta usa el primero disponible y, si ese modelo se agota o falla, pasa al siguiente de este mismo proveedor. Si un modelo desaparece de la lista de la API, el sistema busca uno nuevo, lo verifica y te avisa por correo.
       </p>
 
       <ul className="flex flex-col gap-2">
-        {models.map((m, index) => {
+        {models.map((m) => {
           const virtual = m.id === null;
           const isTesting = testingModel === m.model;
           return (
@@ -160,30 +185,9 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
                   <div className="mt-1">
                     <ModelHealth model={m} />
                   </div>
+                  <ModelStats model={m} />
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {!virtual && (
-                    <>
-                      <button
-                        type="button"
-                        className={BTN_ICON}
-                        aria-label={`Subir ${m.model} en el orden de prueba`}
-                        disabled={busy || index === 0}
-                        onClick={() => move.mutate({ id: m.id, direction: "up" })}
-                      >
-                        <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        className={BTN_ICON}
-                        aria-label={`Bajar ${m.model} en el orden de prueba`}
-                        disabled={busy || index === models.length - 1}
-                        onClick={() => move.mutate({ id: m.id, direction: "down" })}
-                      >
-                        <ArrowDown className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    </>
-                  )}
                   <button
                     type="button"
                     onClick={() => onTest(provider, m.model)}

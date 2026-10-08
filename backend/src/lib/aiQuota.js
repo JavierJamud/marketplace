@@ -37,7 +37,7 @@ export const AI_PRIORITY = ["groq", "nvidia", "gemini"];
 export const DEFAULT_FREE_LIMITS = {
   groq: { rpm: 30, rpd: 1000, tpm: 6000, tpd: 100000 },
   nvidia: { rpm: 40, rpd: null, tpm: null, tpd: null },
-  gemini: { rpm: 10, rpd: 250, tpm: 250000, tpd: 300000 },
+  gemini: { rpm: 5, rpd: 20, tpm: 250000, tpd: null },
 };
 
 // Límites propios de algunos modelos (por nombre).
@@ -45,9 +45,11 @@ function modelFreeLimits(provider, model) {
   const id = String(model || "").toLowerCase();
   if (provider === "groq" && id.startsWith("whisper")) return { rpm: 20, rpd: 2000, tpm: null, tpd: null };
   // gpt-oss (20b y 120b) en el plan gratis de Groq: 30 pedidos/min, 1.000/día, 8.000 tokens/min y 200.000/día.
-  if (provider === "groq" && id.includes("gpt-oss")) return { rpm: 30, rpd: 1000, tpm: 8000, tpd: 200000 };
+  if (provider === "groq" && (id.includes("gpt-oss") || id.includes("qwen"))) return { rpm: 30, rpd: 1000, tpm: 8000, tpd: 200000 };
   if (provider === "groq" && /8b|instant/.test(id)) return { rpm: 30, rpd: 14400, tpm: 6000, tpd: 500000 };
-  if (provider === "gemini" && /flash-lite/.test(id)) return { rpm: 15, rpd: 1000 };
+  // Cifras vistas en AI Studio (octubre 2026): solo valen hasta que la API o los errores 429 informen otra cosa.
+  if (provider === "gemini" && /flash-lite/.test(id)) return { rpm: 15, rpd: 500 };
+  if (provider === "gemini" && /gemma/.test(id)) return { rpm: 30, rpd: 14400, tpm: 16000 };
   return {};
 }
 

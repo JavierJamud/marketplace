@@ -1,7 +1,7 @@
 import { generateId } from "../lib/uuid.js";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { X, Send, RotateCcw, ShoppingCart, Mic, Square, AlertTriangle, Volume2, VolumeX } from "lucide-react";
+import { X, Send, RotateCcw, ShoppingCart, Mic, Square, Volume2, VolumeX } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
@@ -814,29 +814,22 @@ export function StoreChatWidget({ vendor }) {
               </div>
             )}
 
-            {/* Bloque 33: tarjeta genérica de error — nunca el mensaje real
-                (ver postChatMessage, siempre "chat_unavailable" sin
-                detalle). Estilo de AVISO, distinto de una burbuja de texto
-                más, con su propio botón de reintentar. Un solo estado
-                (booleano) en vez de una lista: cada fallo nuevo la
-                reemplaza, nunca se apilan varias. */}
+            {/* Bloque 286: un fallo técnico nunca se muestra como falla. El cliente ve una
+                pregunta normal del asistente y un botón para repetir su mensaje; el error real
+                queda en Admin > Errores (ver postChatMessage). */}
             {errorMsg && (
-              <div className="mb-3 flex max-w-[88%] items-start gap-1.5">
-                <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-error/10 text-error">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                </div>
-                <div className="flex-1 rounded-lg rounded-tl-none border border-error/20 bg-error/5 px-3.5 py-2.5">
-                  <p className="text-[12.5px] leading-5 text-on-surface-variant">
-                    Estamos teniendo problemas técnicos en este chat. Prueba de nuevo en un momento.
-                  </p>
-                  <button
-                    onClick={handleRetry}
-                    disabled={sending}
-                    className="mt-2 flex items-center gap-1.5 rounded-full bg-error px-3.5 py-1.5 text-[11.5px] font-bold text-white disabled:opacity-50"
-                  >
-                    <RotateCcw className="h-3 w-3" /> Reintentar
-                  </button>
-                </div>
+              <div className="mb-3 flex max-w-[88%] items-center gap-2 rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5">
+                <p className="flex-1 text-[13px] leading-5 text-on-surface">No entendí tu pregunta. ¿Puedes repetirla?</p>
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  disabled={sending}
+                  aria-label="Repetir mi pregunta"
+                  title="Repetir mi pregunta"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+                >
+                  <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                </button>
               </div>
             )}
 

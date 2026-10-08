@@ -403,7 +403,7 @@ export default function AdminLayout() {
       </div>
       {/* Bloque 259: asistente de negocio como botón flotante en TODAS las
           pantallas del panel del admin (antes era una sección del menú). */}
-      <BusinessAssistantWidget endpoint="/admin/business-assistant" quickPrompts={ADMIN_ASSISTANT_PROMPTS} />
+      <BusinessAssistantWidget endpoint="/admin/business-assistant" quickPrompts={ADMIN_ASSISTANT_PROMPTS} isAdmin />
       <ActionCodeProvider />
     </div>
   );

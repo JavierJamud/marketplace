@@ -35,7 +35,9 @@ export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assista
 // — si en pruebas reales resultara corto para algún caso, subir a 8, nunca
 // volver a 20.
 // Bloque 281: ahora van 4 mensajes completos + una memoria corta del resto (lib/chatMemory.js).
-const CANDIDATE_LIMIT = 10;
+// Bloque 287 (pedido explícito — "el menor consumo de tokens"): 6 candidatos bastan (el chat
+// muestra máximo 3 tarjetas); antes 10, y cada candidato viaja en el prompt de cada mensaje.
+const CANDIDATE_LIMIT = 6;
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 function isSessionExpired(lastMessage) {
@@ -906,7 +908,16 @@ async function loadAdminDocsParts(message) {
 // data real la resuelve el backend con consultas reales, el modelo solo
 // decide QUÉ PREGUNTAR o mostrar en base a eso, nunca inventa una zona o
 // stock que no esté en ese bloque.
-async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext, message) {
+// Bloque 287: la referencia fija de la plataforma (planes, precios, verificación: ~2.000
+// letras) solo viaja cuando la conversación trata de la plataforma, no en cada búsqueda.
+const PLATFORM_TOPIC_RE = /plan|suscrip|business|regular|verific|badge|registr|vender|vendedor|crear (una )?tienda|como (compr|vend|funcion)|comprar aqui|cuesta|cuanto vale|gratis|pagar|medios? de pago|politica|envio|devol|garantia|ayuda|soporte|que es /;
+function needsPlatformReference(message, history = []) {
+  const norm = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const recent = [message, ...history.filter((m) => m.role === "user").slice(-2).map((m) => m.content)];
+  return recent.some((t) => PLATFORM_TOPIC_RE.test(norm(t)));
+}
+
+async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext, message, history = []) {
   const fewShot = await buildFewShotBlock("GENERAL");
   const { siteName } = await getBrandSettings();
   const parts = [
@@ -926,9 +937,7 @@ ${vendorContext}
 
 ${zoneContext}
 
-${buildZeudinReference(siteName)}
-
-REGLAS:
+${needsPlatformReference(message, history) ? `${buildZeudinReference(siteName)}\n\n` : ""}REGLAS:
 - Idioma: español latinoamericano neutro (como se habla en Cuba) — NUNCA modismos ni gramática de España (nunca "vosotros"/"vuestro", "vale", "tío/tía", "coger" en el sentido de agarrar/tomar, "ordenador", "móvil" en vez de "celular", "vais", etc.).
 - Alcance: SOLO productos/tiendas de ${siteName} (los de arriba) e información general de la plataforma (qué es, cómo comprar, cómo vender, verificación, planes, medios de pago) usando CÓMO FUNCIONA ${siteName.toUpperCase()} de arriba y los documentos adjuntos si hay — responde siempre con esos datos concretos (nombre del plan, precio, qué incluye, pasos reales), NUNCA una respuesta genérica de folleto que no diga nada concreto. Nunca temas ajenos: si preguntan otra cosa, dilo breve y amable, sin responder el tema en sí.
 - Breve: 1-2 líneas por defecto, directo, simple y profesional — sin relleno, sin exclamaciones de más.
@@ -1082,7 +1091,7 @@ export async function postMarketplaceChatMessage(req, res) {
     searchMeta.poolStoreName = pool[0]?.vendor?.companyName;
     searchMeta.poolStoreSlug = pool[0]?.vendor?.slug;
 
-    const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message);
+    const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message, history);
     // Bloque 281: últimos mensajes tal cual + memoria corta del resto (lib/chatMemory.js).
     const { history: aiHistory, memory } = compactHistory(history);
     if (memory) systemParts.push({ text: memory });

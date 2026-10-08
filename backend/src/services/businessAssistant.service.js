@@ -3,6 +3,7 @@ import { AppError } from "../utils/AppError.js";
 import { streamRawText } from "../lib/ai.js";
 import { createFinalTextStreamer } from "../lib/aiStream.js";
 import { TOOLS_BY_SCOPE, LINKS_BY_SCOPE } from "../lib/assistantTools.js";
+import { pickSectionTools } from "../lib/assistantSections.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { compactHistory } from "../lib/chatMemory.js";
 
@@ -59,16 +60,20 @@ function shortDescription(text, max = 140) {
 // En la segunda vuelta (ya hay datos consultados) la IA solo necesita saber CÓMO
 // llamar a otra herramienta si hiciera falta, no para qué sirve cada una: se
 // manda sin descripciones y esa vuelta pesa casi la mitad.
-function describeTools(tools, { compact = false } = {}) {
-  return Object.entries(tools)
+function describeTools(tools, { compact = false, only = null } = {}) {
+  const entries = Object.entries(tools);
+  const shown = only ? entries.filter(([name]) => only.includes(name)) : entries;
+  const others = only ? entries.filter(([name]) => !only.includes(name)).map(([name]) => name) : [];
+  const text = shown
     .map(([name, t]) => {
       if (compact) return name === "consultar_datos" ? `- ${name} ${t.args}: ${t.description}` : `- ${name} ${t.args}`;
       return `- ${name} ${t.args}: ${name === "consultar_datos" ? t.description : shortDescription(t.description)}`;
     })
     .join("\n");
+  return others.length > 0 ? `${text}\n- Si ninguna sirve, también existen (se describen al pedirlas): ${others.join(", ")}` : text;
 }
 
-function buildPrompt({ scope, siteName, who, history, message, observations, mustFinish, planContext }) {
+function buildPrompt({ scope, siteName, who, history, message, observations, mustFinish, planContext, sectionTools = null }) {
   const tools = TOOLS_BY_SCOPE[scope];
   const links = LINKS_BY_SCOPE[scope];
   const today = new Date().toISOString().slice(0, 10);
@@ -93,7 +98,7 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
     "- Listas (tiendas, productos, pedidos, clientes, errores, pagos) van en 'tabla' (máx. 6 columnas y 15 filas; si la respuesta es 'hay N', la tabla trae esas N filas) y en el texto solo un resumen de una frase. Productos concretos: 'productos' con máximo 4 ids copiados de los datos.",
     "",
     "HERRAMIENTAS DISPONIBLES (todas de solo lectura):",
-    describeTools(tools, { compact: observations.length > 0 }),
+    describeTools(tools, { compact: observations.length > 0, only: sectionTools }),
     "",
     "PANTALLAS PARA 'links' (usa SOLO estas rutas exactas):",
     Object.entries(links)
@@ -402,6 +407,8 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   const answersQuestion = last?.role !== "user" && /\?\s*$/.test(String(last?.content ?? "")) && /^(s[ií]|no|ok|okay|dale|claro|vale|de acuerdo|perfecto)\b/i.test(message.trim());
   const quick = answersQuestion ? null : smallTalkReply(message);
   const startedAt = Date.now();
+  // Bloque 287: sección de la pregunta (clasificador local, 0 tokens); null = lista completa.
+  const sectionTools = pickSectionTools(scope, message, history);
   const observations = [];
   const toolsUsed = [];
   const seenCalls = new Set();
@@ -414,7 +421,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   for (let call = 0; call < MAX_MODEL_CALLS && !final; call++) {
     // Bloque 284: tope de tiempo total; pasado el plazo ya no se piden más datos.
     const mustFinish = toolsUsed.length >= MAX_TOOL_CALLS || Date.now() - startedAt > SOFT_DEADLINE_MS;
-    const prompt = buildPrompt({ scope, siteName, who, history, message, observations, mustFinish, planContext });
+    const prompt = buildPrompt({ scope, siteName, who, history, message, observations, mustFinish, planContext, sectionTools });
     onProgress({ phase: toolsUsed.length > 0 ? "composing" : "thinking" });
     // Bloque 284 (pedido explícito): la respuesta se escribe EN VIVO. Mientras el
     // modelo genera el JSON, el texto del campo "final" va saliendo a la pantalla.
@@ -478,7 +485,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
         const toolStart = Date.now();
         const args = tool.schema.safeParse(parsed.args ?? {});
         if (!args.success) {
-          observations.push({ tool: parsed.tool, output: JSON.stringify({ error: `Argumentos inválidos: ${args.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}` }) });
+          observations.push({ tool: parsed.tool, output: JSON.stringify({ error: `Argumentos inválidos: ${args.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}. Uso correcto: ${tool.args}${sectionTools && !sectionTools.includes(parsed.tool) ? `. ${shortDescription(tool.description, 300)}` : ""}` }) });
         } else {
           try {
             observations.push({ tool: parsed.tool, output: runResult(await tool.run(args.data, { vendorId, userId, scope, conversationId: conversation?.id })) });

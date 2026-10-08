@@ -6,7 +6,7 @@ import { generateWithGroq, chatWithGroq, transcribeAudioWithGroq, TRANSCRIBE_MOD
 import { generateWithNvidia, chatWithNvidia } from "./nvidia.js";
 import { PROMPTS, searchQueryCorrectionPrompt } from "./aiPrompts.js";
 import { setRepairAdvisor, classifyFailure } from "./aiModelRepair.js";
-import { markProviderCooldown, isProviderCoolingDown, clearProviderCooldown } from "./aiProviderCooldown.js";
+import { markProviderCooldown, isProviderCoolingDown, clearProviderLevelCooldown, markModelCooldown, isModelCoolingDown, clearModelCooldown, isAccountLevelText } from "./aiProviderCooldown.js";
 import { isChatbotHealthy, getModelHealthRows, getModelHealth, upsertModelHealth } from "./aiProviderHealth.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
 import { AI_PRIORITY, getQuotaStatus, isWithinFreeQuota } from "./aiQuota.js";
@@ -104,7 +104,8 @@ async function getActiveProviders() {
   }
   // Bloque 260: un proveedor que acaba de responder "clave inválida" o "cuota
   // agotada" descansa (aiProviderCooldown.js) y queda fuera hasta que pase el plazo.
-  const usable = pairs.filter((p) => !isProviderCoolingDown(p.name));
+  // Bloque 286: además del proveedor, cada modelo con su propio descanso.
+  const usable = pairs.filter((p) => !isProviderCoolingDown(p.name) && !isModelCoolingDown(p.name, p.model));
   const healthy = usable.filter((p) => !isDown(p.name, p.model));
   const down = usable.filter((p) => isDown(p.name, p.model));
   return [...healthy, ...down];
@@ -195,7 +196,8 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
     try {
       const result = await callFn(provider);
       recordLatency(provider.name, Date.now() - start, provider.model);
-      clearProviderCooldown(provider.name);
+      clearProviderLevelCooldown(provider.name);
+      clearModelCooldown(provider.name, provider.model);
       void noteLiveSuccess(provider).catch(() => {});
       logProviderSuccess(provider);
       return result;
@@ -203,18 +205,24 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
       lastErr = err;
       const failureText = `${err?.message ?? ""} ${err?.details?.detail ?? ""}`;
       const failure = classifyFailure(failureText);
-      const accountLevel = failure.kind === "quota" || failure.kind === "auth";
+      // Bloque 286: la clave inválida y los cobros (402) son de la cuenta y sacan a todo el
+      // proveedor. Un límite agotado (429) es del modelo: solo él descansa y los demás de la
+      // misma API siguen en la cadena. NVIDIA, que no publica límites, escala sola al
+      // proveedor entero si dos modelos distintos se agotan seguidos (ver aiProviderCooldown.js).
+      const accountLevel = failure.kind === "auth" || (failure.kind === "quota" && isAccountLevelText(failureText));
+      const modelLevel = failure.kind === "quota" && !accountLevel;
+      let providerOut = accountLevel;
       if (accountLevel) {
-        // Bloque 260 + 280: cuota agotada o clave inválida es de la CUENTA del
-        // proveedor: sus otros modelos fallarían igual y, con cuota, insistir
-        // podría pasarse del plan gratis. Se sacan todos de la cadena (ya no se
-        // reintentan "como último recurso") y el proveedor descansa.
         markProviderCooldown(provider.name, failure.kind, failureText);
+      } else if (modelLevel) {
+        providerOut = markModelCooldown(provider.name, provider.model, failure.kind, failureText).escalated;
+      }
+      if (providerOut) {
         for (let i = queue.length - 1; i >= 0; i--) if (queue[i].name === provider.name) queue.splice(i, 1);
       }
       const next = queue[0];
       logProviderFailure(
-        `[ai] ${provider.name}/${provider.model} falló${accountLevel ? ` (${failure.kind === "quota" ? "cuota agotada" : "clave inválida"}: se salta todo ${provider.name})` : ""}${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo disponible)"}:`,
+        `[ai] ${provider.name}/${provider.model} falló${providerOut ? ` (${failure.kind === "quota" ? "cuota agotada" : "clave inválida"}: se salta todo ${provider.name})` : modelLevel ? " (límite del modelo: descansa solo este modelo)" : ""}${next ? `, reintentando con ${next.name}/${next.model}` : " (era el último modelo disponible)"}:`,
         err
       );
       // Bloque 282 (pedido explícito — "sin gastar tokens en comprobaciones"): un fallo
@@ -222,7 +230,7 @@ export async function callWithFallbackChain(providers, callFn, genericErrorMessa
       // el modelo queda marcado caído (va al final de la cadena y, si no queda ninguno
       // sano, el chatbot se oculta). Vuelve solo cuando responde bien a un pedido real,
       // en la revisión diaria o cuando el admin lo prueba a mano.
-      if (reportFailures && !accountLevel) void noteLiveFailure(provider, failureText).catch(() => {});
+      if (reportFailures && !accountLevel && !modelLevel) void noteLiveFailure(provider, failureText).catch(() => {});
     }
   }
   throw new AppError(genericErrorMessage, 503, { detail: lastErr?.details?.detail ?? "Todas las IA están cerca de su límite gratis o no respondieron." });

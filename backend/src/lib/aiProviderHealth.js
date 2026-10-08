@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { isProviderCoolingDown, isModelCoolingDown } from "./aiProviderCooldown.js";
 import { isWithinFreeQuota } from "./aiQuota.js";
 
 // Bloque 238 (pedido explícito — "antes de mostrar el chatbot, verificar que
@@ -51,7 +52,8 @@ export async function isChatbotHealthy() {
   const rows = await getModelHealthRows();
   if (rows.length === 0) return true;
   for (const r of rows) {
-    if (r.status === "healthy" && r.model && (await isWithinFreeQuota(r.provider, r.model))) return true;
+    // Bloque 287: un modelo (o su proveedor entero) descansando por un 429/402 real tampoco cuenta.
+    if (r.status === "healthy" && r.model && !isProviderCoolingDown(r.provider) && !isModelCoolingDown(r.provider, r.model) && (await isWithinFreeQuota(r.provider, r.model))) return true;
   }
   return false;
 }

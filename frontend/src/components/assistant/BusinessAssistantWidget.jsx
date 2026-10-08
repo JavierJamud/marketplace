@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageSquareText, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { AlertTriangle, MessageSquareText, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
@@ -16,7 +17,7 @@ import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
 // círculo azul marino con el chat en naranja, y el nombre al lado. La cabecera
 // del chat (título, historial, chat nuevo, cerrar) ahora vive en el propio
 // panel, que solo se monta al abrir.
-export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFree, intro = "Conectado a tu negocio, solo lectura" }) {
+export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFree, intro = "Conectado a tu negocio, solo lectura", isAdmin = false }) {
   // Bloque 280 (pedido explícito): si todas las IA están en su límite gratis, el
   // asistente se oculta también en los paneles (mismo dato que usa la tienda).
   const { data: siteSettings } = useQuery({
@@ -82,7 +83,20 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
     };
   }, [open]);
 
-  if (siteSettings?.chatbotAvailable === false && !open) return null;
+  // Sin ningún modelo disponible el asistente se oculta para vendedores. El admin no lo pierde
+  // de vista: en su lugar ve un aviso que lleva a Integraciones.
+  if (siteSettings?.chatbotAvailable === false && !open) {
+    if (!isAdmin) return null;
+    return (
+      <Link
+        to="/admin/configuracion?tab=integraciones"
+        className="fixed bottom-4 right-4 z-[60] flex min-h-11 items-center gap-2 rounded-full border border-error/40 bg-surface-container-lowest px-4 py-2 text-[13px] font-bold text-error shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6"
+      >
+        <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+        La IA no tiene ningún modelo disponible. Revisar integraciones
+      </Link>
+    );
+  }
 
   return (
     <>
@@ -105,6 +119,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
             onToggleWide={toggleWide}
             onNavigate={() => setOpen(false)}
             onClose={() => setOpen(false)}
+            friendlyErrors={!isAdmin}
           />
         </div>
       )}

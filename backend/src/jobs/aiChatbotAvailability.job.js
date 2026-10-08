@@ -1,3 +1,4 @@
+import cron from "node-cron";
 import { getDecryptedCredential } from "../controllers/integrations.controller.js";
 import { checkModel, PROVIDERS } from "../lib/aiModelRepair.js";
 import { AI_PROVIDER_NAMES, getEffectiveActiveModels } from "../lib/aiModels.js";
@@ -119,6 +120,15 @@ export async function runAiChatbotAvailabilityCheck() {
 // periódica. Solo hay una revisión al día (aiHealthCheck.job.js, 3:00am) y, al
 // arrancar el servidor, una lectura de la LISTA de modelos de cada API (gratis,
 // no gasta tokens) para saber qué modelos siguen existiendo.
+// Bloque 286 (pedido explícito — "actualizar la lista de modelos 4 o 5 veces al día"): la
+// lista de modelos de cada API se vuelve a leer 5 veces al día (la revisión de las 3:00am
+// aparte). Leer la lista es gratis: no gasta tokens. Un modelo que sigue en la lista no se
+// toca; solo uno que desapareció (expirado) se confirma con una prueba mínima y se reemplaza.
+const LIST_REFRESH_CRON = "0 1,7,12,17,22 * * *";
+
 export function startAiChatbotAvailabilityJob() {
   runAiModelsCheck("boot").catch((err) => console.error("[aiChatbotAvailabilityJob] error en la corrida inicial:", err));
+  cron.schedule(LIST_REFRESH_CRON, () => {
+    runAiChatbotAvailabilityCheck().catch((err) => console.error("[aiChatbotAvailabilityJob] error al actualizar la lista:", err));
+  });
 }

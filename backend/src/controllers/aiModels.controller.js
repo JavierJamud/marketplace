@@ -3,7 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getDecryptedCredential } from "./integrations.controller.js";
 import { AI_PROVIDER_NAMES, DEFAULT_MODELS, getAllEffectiveModels, getEffectiveActiveModels } from "../lib/aiModels.js";
-import { AI_PRIORITY, getProviderQuotaOverview } from "../lib/aiQuota.js";
+import { AI_PRIORITY, getProviderQuotaOverview, getQuotaStatus } from "../lib/aiQuota.js";
+import { getModelCooldowns } from "../lib/aiProviderCooldown.js";
 import { TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "../lib/groq.js";
 import { PROVIDERS, probeModel, errorDetailOf, classifyFailure } from "../lib/aiModelRepair.js";
 import { friendlyModelError, markModelUnavailable, clearModelUnavailable, isFreeTierModel } from "../lib/aiModelCatalog.js";
@@ -16,7 +17,38 @@ import { getModelHealthRows, deleteModelHealth, isChatbotHealthy } from "../lib/
 
 const providerSchema = z.enum(AI_PROVIDER_NAMES);
 
-function serialize(config, healthByKey) {
+// Bloque 286: cada modelo muestra lo que la propia API informa (ventana de contexto
+// desde su lista, límites por minuto y por día aprendidos de sus respuestas). La
+// lista de modelos es gratis (no gasta tokens), así que se guarda 30 minutos.
+const CATALOG_TTL_MS = 30 * 60_000;
+const catalogCache = new Map(); // provider -> { at, byId: Map(id -> { contextWindow }) }
+
+async function contextWindows(provider) {
+  const cached = catalogCache.get(provider);
+  if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.byId;
+  const byId = new Map();
+  try {
+    const apiKey = await getDecryptedCredential(provider);
+    if (apiKey) {
+      const items = await PROVIDERS[provider].catalog({ apiKey });
+      for (const m of items ?? []) byId.set(m.id, { contextWindow: m.contextWindow ?? null });
+    }
+  } catch {
+    // Sin lista no hay dato de contexto; el resto del panel sigue igual.
+  }
+  catalogCache.set(provider, { at: Date.now(), byId });
+  return byId;
+}
+
+function limitsOf(status) {
+  const pick = (kind, period) => {
+    const w = status.windows.find((x) => x.kind === kind && x.period === period);
+    return w ? { limit: w.limit, source: w.source } : null;
+  };
+  return { tokensPerMinute: pick("tokens", "minute"), tokensPerDay: pick("tokens", "day"), requestsPerMinute: pick("requests", "minute"), requestsPerDay: pick("requests", "day") };
+}
+
+function serialize(config, healthByKey, extra = {}) {
   const health = healthByKey.get(`${config.provider}::${config.model}`);
   return {
     id: config.id, // null = modelo por defecto del código (el proveedor todavía no tiene filas)
@@ -28,18 +60,37 @@ function serialize(config, healthByKey) {
     health: health
       ? { status: health.status, lastError: health.lastError, lastLatencyMs: health.lastLatencyMs, downSince: health.downSince, lastCheckedAt: health.lastCheckedAt }
       : null,
+    ...extra,
   };
 }
 
 export async function listAiModels(_req, res) {
   const [byProvider, healthRows] = await Promise.all([getAllEffectiveModels(), getModelHealthRows()]);
   const healthByKey = new Map(healthRows.map((h) => [`${h.provider}::${h.model}`, h]));
-  const providers = AI_PROVIDER_NAMES.map((provider) => ({
-    provider,
-    label: PROVIDERS[provider].label,
-    defaultModel: DEFAULT_MODELS[provider],
-    models: byProvider[provider].map((m) => serialize({ ...m, provider }, healthByKey)),
-  }));
+  const cooldowns = getModelCooldowns();
+  const providers = [];
+  for (const provider of AI_PROVIDER_NAMES) {
+    const windows = await contextWindows(provider);
+    const rows = await Promise.all(
+      byProvider[provider].map(async (m, index) => {
+        const status = await getQuotaStatus(provider, m.model);
+        const cooling = cooldowns.find((c) => c.provider === provider && c.model === m.model);
+        return {
+          index,
+          usageRatio: status.usageRatio,
+          row: serialize({ ...m, provider }, healthByKey, {
+            usageRatio: Math.round(status.usageRatio * 100) / 100,
+            contextWindow: windows.get(m.model)?.contextWindow ?? null,
+            limits: limitsOf(status),
+            resting: cooling ? { secondsLeft: cooling.secondsLeft, reason: cooling.kind === "quota" ? "límite del modelo" : "descansando" } : status.available ? null : { secondsLeft: null, reason: status.reason },
+          }),
+        };
+      })
+    );
+    // Los modelos que menos cupo han gastado van arriba; a igual consumo, el orden del admin.
+    rows.sort((a, b) => Math.round(a.usageRatio * 10) - Math.round(b.usageRatio * 10) || a.index - b.index);
+    providers.push({ provider, label: PROVIDERS[provider].label, defaultModel: DEFAULT_MODELS[provider], models: rows.map((r) => r.row) });
+  }
   res.json({ providers });
 }
 

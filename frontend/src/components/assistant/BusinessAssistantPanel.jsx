@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, Square, Trash2, X, ChevronLeft } from "lucide-react";
+import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, RotateCcw, Square, Trash2, X, ChevronLeft } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
 import { RecordingIndicator, TranscribingIndicator } from "../RecordingIndicator.jsx";
@@ -340,9 +340,12 @@ const headerButton =
 // `quickPromptsFree`: preguntas rápidas para una tienda sin plan de pago (que
 // además recibe la recomendación del plan). `embedded`: llena el contenedor del
 // botón flotante. `isOpen`, `onNavigate` y `onClose` los pasa el botón flotante.
-export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPromptsFree, intro, embedded = false, isOpen = true, wide = false, onToggleWide, onNavigate, onClose }) {
+export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPromptsFree, intro, embedded = false, isOpen = true, wide = false, onToggleWide, onNavigate, onClose, friendlyErrors = false }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  // Con `friendlyErrors` (vendedores) un fallo del asistente nunca muestra el error real:
+  // se pide repetir la pregunta con un botón. El admin sí ve el aviso técnico.
+  const [retryText, setRetryText] = useState("");
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -424,12 +427,13 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
 
   useEffect(() => {
     if (isOpen) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, pending?.steps.length, pending?.streamed, error, showHistory, isOpen]);
+  }, [messages.length, pending?.steps.length, pending?.streamed, error, retryText, showHistory, isOpen]);
 
   async function submit(message) {
     const value = message.trim();
     if (!value || busy) return;
     setError("");
+    setRetryText("");
     setBusy(true);
     const startedAt = Date.now();
     setPending({ content: value, steps: ["Pensando"], startedAt });
@@ -460,6 +464,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
     } catch (err) {
       const data = errorData(err);
       if (data?.code === "ASSISTANT_QUOTA" && data.quota) setQuota(data.quota);
+      else if (friendlyErrors) setRetryText(value);
       else setError(requestErrorMessage(err));
     } finally {
       setPending(null);
@@ -654,6 +659,23 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
             {error && (
               <div className="rounded-xl border border-error/30 bg-error/5 px-4 py-3 text-[13.5px] text-error" role="alert">
                 {error}
+              </div>
+            )}
+            {retryText && (
+              <div className="flex justify-start" aria-live="polite">
+                <div className="flex w-full max-w-[88%] items-center gap-2 rounded-2xl rounded-bl-md bg-surface-container px-4 py-3 text-[14px] leading-[21px] text-on-surface lg:max-w-[82%]">
+                  <p className="flex-1">No entendí tu pregunta. ¿Puedes repetirla?</p>
+                  <button
+                    type="button"
+                    onClick={() => submit(retryText)}
+                    disabled={busy}
+                    aria-label="Repetir mi pregunta"
+                    title="Repetir mi pregunta"
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-secondary-container transition hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+                  >
+                    <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             )}
             <div ref={bottomRef} />

@@ -1,11 +1,7 @@
-// Bloque 260 (pedido explícito — "si se consume la cuota de una API, en vez de
-// cambiar a otro modelo de la misma API, debe saltar a otra de las API de
-// respaldo y seguir probando hasta que la principal se restablezca"): cuando un
-// proveedor responde "cuota agotada" (429) o "clave inválida", TODOS sus modelos
-// comparten ese problema (la cuota y la clave son de la cuenta, no del modelo),
-// así que probar otro modelo del mismo proveedor solo gasta tiempo en otro
-// fallo seguro. Este archivo guarda en memoria hasta cuándo se deja descansar a
-// cada proveedor; getActiveProviders (ai.js) manda sus modelos al final de la
+// Bloque 260 / 286: descansos en memoria. Una clave inválida o un cobro pendiente
+// (402) son de la cuenta: todo el proveedor descansa. Un límite agotado (429) es
+// del modelo en Groq y Gemini (Bloque 286), así que solo ese modelo descansa y los
+// demás de la misma API siguen. Este archivo guarda hasta cuándo descansa cada uno; getActiveProviders (ai.js) manda sus modelos al final de la
 // cadena mientras dure, y cuando vence el plazo vuelve a probarse solo con
 // tráfico real, en su orden normal de velocidad: así "se restablece" sin que
 // nadie tenga que intervenir. Archivo hoja (sin imports) para que ai.js y las
@@ -63,8 +59,79 @@ export function isProviderCoolingDown(provider) {
   return true;
 }
 
+// Un pedido que salió bien prueba que la clave y la cuenta funcionan: se levanta solo el
+// descanso del proveedor entero. Los descansos individuales de otros modelos siguen.
+export function clearProviderLevelCooldown(provider) {
+  cooldowns.delete(provider);
+}
+
 export function clearProviderCooldown(provider) {
   cooldowns.delete(provider);
+  for (const key of [...modelCooldowns.keys()]) if (key.startsWith(`${provider}::`)) modelCooldowns.delete(key);
+}
+
+// Descanso por MODELO. En Groq y Gemini el límite gratis es de cada modelo, no de la
+// cuenta: si uno se agota, los demás de la misma API siguen sirviendo. Solo una clave
+// inválida o un cobro (402) afectan al proveedor entero, y esos usan el descanso de arriba.
+const modelCooldowns = new Map(); // "provider::model" -> { until, kind, reason, at }
+// NVIDIA no publica sus límites: si dos modelos distintos agotan el cupo en esta ventana,
+// se trata como un límite de la cuenta y todo el proveedor descansa.
+const ACCOUNT_LEVEL_WINDOW_MS = 10 * 60_000;
+const ACCOUNT_LEVEL_MODELS = 2;
+const UNPUBLISHED_LIMITS = new Set(["nvidia"]);
+
+const modelKey = (provider, model) => `${provider}::${model}`;
+
+// Un cobro pendiente o una clave mala son de la cuenta, nunca de un modelo.
+export function isAccountLevelText(text) {
+  return /\b402\b|prepayment|credits are depleted|billing|insufficient.?(quota|credit)/i.test(String(text || ""));
+}
+
+export function markModelCooldown(provider, model, kind, detailText) {
+  const ms = cooldownFor(kind, detailText);
+  const now = Date.now();
+  const key = modelKey(provider, model);
+  const current = modelCooldowns.get(key);
+  const until = current && current.until > now + ms ? current.until : now + ms;
+  modelCooldowns.set(key, { until, kind, reason: String(detailText || "").slice(0, 160), at: now });
+  let escalated = false;
+  if (UNPUBLISHED_LIMITS.has(provider) || isAccountLevelText(detailText)) {
+    const recent = [...modelCooldowns.entries()].filter(([k, v]) => k.startsWith(`${provider}::`) && now - v.at < ACCOUNT_LEVEL_WINDOW_MS && v.until > now);
+    if (isAccountLevelText(detailText) || recent.length >= ACCOUNT_LEVEL_MODELS) {
+      markProviderCooldown(provider, kind, detailText);
+      escalated = true;
+    }
+  }
+  return { until, escalated };
+}
+
+export function isModelCoolingDown(provider, model) {
+  const key = modelKey(provider, model);
+  const entry = modelCooldowns.get(key);
+  if (!entry) return false;
+  if (entry.until <= Date.now()) {
+    modelCooldowns.delete(key);
+    return false;
+  }
+  return true;
+}
+
+export function clearModelCooldown(provider, model) {
+  modelCooldowns.delete(modelKey(provider, model));
+}
+
+export function getModelCooldowns() {
+  const now = Date.now();
+  const out = [];
+  for (const [key, entry] of modelCooldowns) {
+    if (entry.until <= now) {
+      modelCooldowns.delete(key);
+      continue;
+    }
+    const [provider, model] = key.split("::");
+    out.push({ provider, model, kind: entry.kind, secondsLeft: Math.ceil((entry.until - now) / 1000), reason: entry.reason });
+  }
+  return out;
 }
 
 export function getProviderCooldowns() {
