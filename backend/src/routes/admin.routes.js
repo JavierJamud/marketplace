@@ -27,6 +27,7 @@ import * as verificationArchiveController from "../controllers/verificationArchi
 import * as targetedOffersController from "../controllers/targetedOffers.controller.js";
 import * as adminVendorStaffSalesController from "../controllers/adminVendorStaffSales.controller.js";
 import * as adminRankingAnomaliesController from "../controllers/adminRankingAnomalies.controller.js";
+import * as partnersController from "../controllers/partners.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { siteUpload } from "../middleware/siteUpload.js";
@@ -36,6 +37,18 @@ const router = Router();
 
 // Todo el módulo admin exige rol ADMIN (rechaza 403 a vendedor/cliente).
 router.use(authenticate, requireRole("ADMIN"));
+
+// Socios de la API (Partner API): crear socios, llaves, permisos, cuotas, dominios e IP.
+router.get("/partners/scopes", partnersController.listScopes);
+router.get("/partners", partnersController.listPartners);
+router.post("/partners", partnersController.createPartner);
+router.get("/partners/:id", partnersController.getPartner);
+router.patch("/partners/:id", partnersController.updatePartner);
+router.get("/partners/:id/usage", partnersController.getPartnerUsage);
+router.get("/partners/:id/movements", partnersController.getPartnerMovements);
+router.post("/partners/:id/keys", partnersController.createKey);
+router.patch("/partners/:id/keys/:keyId", partnersController.updateKey);
+router.post("/partners/:id/keys/:keyId/revoke", partnersController.revokeKey);
 
 router.get("/dashboard", adminController.getDashboard);
 // Bloque 48: mismo criterio de rutas literales-antes-que-:id de arriba, pero

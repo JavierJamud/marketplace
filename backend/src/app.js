@@ -40,6 +40,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import vendorStaffRoutes from "./routes/vendorStaff.routes.js";
 import vendorStaffSalesRoutes from "./routes/vendorStaffSales.routes.js";
 import targetedOffersRoutes from "./routes/targetedOffers.routes.js";
+import partnerApiRoutes from "./routes/partnerApi.routes.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
@@ -63,6 +64,10 @@ export const app = express();
 if (env.nodeEnv === "production") app.set("trust proxy", 1);
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+
+// API pública de socios (/partner/v1): va ANTES del CORS general porque se protege con su propia
+// llave + dominio/IP registrados (ver middleware/partnerAuth.js), no con el allowlist del sitio.
+app.use("/partner/v1", partnerApiRoutes);
 
 // Auditoría de seguridad: antes `origin: env.frontendUrl` solo admitía UN
 // origen — si en producción el frontend termina sirviéndose desde más de

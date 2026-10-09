@@ -75,6 +75,9 @@ import AdminContacto from "./pages/admin/AdminContacto.jsx";
 import AdminAyuda from "./pages/admin/AdminAyuda.jsx";
 import AdminBranding from "./pages/admin/AdminBranding.jsx";
 import AdminOffers from "./pages/admin/AdminOffers.jsx";
+import AdminPartners from "./pages/admin/AdminPartners.jsx";
+import ApiSocios from "./pages/public/ApiSocios.jsx";
+import { capturePartnerRef } from "./lib/partnerRef.js";
 import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
 import AdminStoreOffers from "./pages/admin/AdminStoreOffers.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
@@ -111,6 +114,12 @@ function usePageTitle() {
   useEffect(() => {
     document.title = `${siteName} | Marketplace`;
   }, [siteName]);
+}
+
+// /vender?socio=CODIGO: guarda el código del socio de la API y sigue al registro de tienda.
+function VenderRedirect() {
+  capturePartnerRef();
+  return <Navigate to="/vendedor/ingresar?tab=registro" replace />;
 }
 
 export default function App() {
@@ -150,13 +159,14 @@ export default function App() {
             nunca por el login de cliente. Se retira la ruta entera en vez de
             dejarla como redirect — no vale la pena mantener un componente
             muerto solo para eso. */}
-        <Route path="/vender" element={<Navigate to="/vendedor/ingresar?tab=registro" replace />} />
+        <Route path="/vender" element={<VenderRedirect />} />
         <Route path="/mesa/:qrToken" element={<TableOrder />} />
         <Route path="/terminos" element={<Terms />} />
         <Route path="/privacidad" element={<Privacy />} />
         <Route path="/faq" element={<Faq />} />
         <Route path="/ayuda" element={<Ayuda />} />
         <Route path="/contacto" element={<Contacto />} />
+        <Route path="/api-socios" element={<ApiSocios />} />
       </Route>
 
       {/* Bloque 20: /cuenta pasa a ser una pantalla propia de viewport
@@ -242,6 +252,7 @@ export default function App() {
         <Route path="campanas" element={<AdminCampaigns />} />
         <Route path="suscripciones" element={<AdminSubscriptions />} />
         <Route path="ofertas" element={<AdminOffers />} />
+        <Route path="socios-api" element={<AdminPartners />} />
         <Route path="codigos-descuento" element={<AdminDiscountCodes />} />
         <Route path="ofertas-tienda" element={<AdminStoreOffers />} />
         <Route path="anuncios" element={<AdminAnnouncements />} />
