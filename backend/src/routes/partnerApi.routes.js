@@ -29,6 +29,13 @@ router.get("/locations/municipalities", requireScope("catalog:read"), c.listMuni
 
 router.post("/cart/validate", requireScope("cart:validate"), c.validateCart);
 
+// Cuerpo JSON mal formado o demasiado grande: 400/413 con código, nunca 500.
+router.use((err, _req, res, next) => {
+  if (err?.type === "entity.parse.failed" || err instanceof SyntaxError) return res.status(400).json({ error: "El cuerpo debe ser un JSON válido.", code: "invalid_json" });
+  if (err?.type === "entity.too.large") return res.status(413).json({ error: "El cuerpo es demasiado grande.", code: "body_too_large" });
+  next(err);
+});
+
 router.use((req, res) => res.status(404).json({ error: `Recurso no encontrado: ${req.method} ${req.path}`, code: "not_found" }));
 
 export default router;

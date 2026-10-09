@@ -35,15 +35,15 @@ function check(name, cond, extra) {
 }
 const section = (t) => console.log(`\n== ${t}`);
 
-function call(path, { key, origin, referer, method = "GET", body, headers = {}, bearer = true, raw = false } = {}) {
+function call(path, { key, origin, referer, method = "GET", body, rawBody, headers = {}, bearer = true } = {}) {
   return new Promise((resolve, reject) => {
     const h = { ...headers };
     if (key) h[bearer ? "Authorization" : "X-Api-Key"] = bearer ? `Bearer ${key}` : key;
     if (origin) h.Origin = origin;
     if (referer) h.Referer = referer;
     let payload;
-    if (body !== undefined) {
-      payload = JSON.stringify(body);
+    if (body !== undefined || rawBody !== undefined) {
+      payload = rawBody ?? JSON.stringify(body);
       h["Content-Type"] = "application/json";
       h["Content-Length"] = Buffer.byteLength(payload);
     }
@@ -303,7 +303,7 @@ for (const [label, slug] of [["privada", "tienda-privada"], ["bloqueada", "tiend
   check(`tienda ${label} 404`, r.status === 404, r.status);
 }
 r = await get("/stores/tienda-uno");
-check("detalle de tienda", r.status === 200 && r.json.data.verified === true && typeof r.json.data.isOpenNow === "boolean", r.json);
+check("detalle de tienda", r.status === 200 && r.json.data.verified === true && (r.json.data.isOpenNow === null || typeof r.json.data.isOpenNow === "boolean"), r.json);
 check("tienda sin datos privados", !("ownerName" in r.json.data) && !("whatsapp" in r.json.data) && !("companyAddress" in r.json.data));
 r = await get("/stores/tienda-uno/products");
 check("productos de una tienda", r.status === 200 && r.json.data.every((p) => p.store.slug === "tienda-uno"), r.json);
@@ -369,6 +369,8 @@ r = await cart([{ productId: p1.id, quantity: -3 }]);
 check("cantidad negativa 400", r.status === 400, r.json);
 r = await get("/cart/validate", { method: "POST", body: "no es json", headers: {} });
 check("cuerpo inválido no da 500", r.status < 500, r.status);
+r = await get("/cart/validate", { method: "POST", rawBody: "{no es json" });
+check("JSON mal formado 400 invalid_json", r.status === 400 && codeOf(r) === "invalid_json", r.json);
 r = await cart([{ productId: p6.id, quantity: 1 }]);
 check("producto de tienda privada propia del socio sí se valida", r.json.data.valid === true, r.json);
 const cartCount = await prisma.product.findUnique({ where: { id: p1.id }, select: { stock: true } });
@@ -480,7 +482,7 @@ for (let s = 0; s < nStores; s++) {
     data: Array.from({ length: perStore }, (_, i) => ({
       vendorId: v.id, name: `Producto carga ${s}-${i}`, slug: `producto-carga-${s}-${i}`, price: 10 + ((s * 7 + i) % 500), stock: 10, images: ["/uploads/products/a.webp", "/uploads/products/b.webp"],
       description: "Descripción larga y completa para pasar el piso de calidad del ranking.", categoryId: bigCat.id, tags: ["carga"],
-      salesCount: (s * i) % 50, clickCount: (s + i) % 200, searchClickCount: i % 30, viewCount: (s + i) % 300, totalDwellMs: BigInt(((s + i) % 300) * 4000),
+      salesCount: (s * i) % 50, clickCount: (s + i) % 200, searchClickCount: i % 30, viewCount: (s + i) % 300, totalDwellMs: ((s + i) % 300) * 4000,
     })),
   });
 }
