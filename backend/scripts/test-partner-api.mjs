@@ -35,6 +35,7 @@ function check(name, cond, extra) {
 }
 const section = (t) => console.log(`\n== ${t}`);
 
+const agent = new http.Agent({ keepAlive: true, maxSockets: 100 });
 function call(path, { key, origin, referer, method = "GET", body, rawBody, headers = {}, bearer = true } = {}) {
   return new Promise((resolve, reject) => {
     const h = { ...headers };
@@ -47,7 +48,7 @@ function call(path, { key, origin, referer, method = "GET", body, rawBody, heade
       h["Content-Type"] = "application/json";
       h["Content-Length"] = Buffer.byteLength(payload);
     }
-    const req = http.request({ host: "127.0.0.1", port: PORT, path, method, headers: h, agent: false }, (res) => {
+    const req = http.request({ host: "127.0.0.1", port: PORT, path, method, headers: h, agent }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => {
@@ -558,6 +559,7 @@ check("pasado el bloqueo vuelve a funcionar", r.status === 200, r.json);
 console.log(`\n${passed} comprobaciones correctas, ${failures.length} fallidas.`);
 if (failures.length) console.log("Fallidas:\n - " + failures.join("\n - "));
 await usage.flushUsage();
+agent.destroy();
 server.close();
 await prisma.$disconnect();
 process.exit(failures.length ? 1 : 0);

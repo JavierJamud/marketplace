@@ -86,7 +86,27 @@ async function buildProductWhere(partnerId, f) {
   return where;
 }
 
-async function rankedPool(where) {
+// El ranking de un mismo filtro cambia despacio (ventas, clics y reseñas se acumulan de a poco):
+// se guarda 30 s en memoria, y las solicitudes simultáneas iguales comparten un solo cálculo.
+const POOL_TTL_MS = 30_000;
+const POOL_MAX_ENTRIES = 200;
+const poolCache = new Map();
+function rankedPool(where) {
+  const cacheKey = JSON.stringify(where);
+  const hit = poolCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < POOL_TTL_MS) return hit.promise;
+  const promise = computeRankedPool(where);
+  poolCache.set(cacheKey, { at: Date.now(), promise });
+  promise.catch(() => poolCache.delete(cacheKey));
+  if (poolCache.size > POOL_MAX_ENTRIES) {
+    const now = Date.now();
+    for (const [k, v] of poolCache) if (now - v.at >= POOL_TTL_MS) poolCache.delete(k);
+    if (poolCache.size > POOL_MAX_ENTRIES) poolCache.delete(poolCache.keys().next().value);
+  }
+  return promise;
+}
+
+async function computeRankedPool(where) {
   const pool = await prisma.product.findMany({
     where,
     include: productInclude,
