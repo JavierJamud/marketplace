@@ -1,0 +1,6 @@
+
+# Los scripts del servidor Linux deben llegar siempre con saltos de línea LF (en Windows el checkout los volvía CRLF y bash fallaba)
+*.sh text eol=lf
+*.plantilla text eol=lf
+*.ejemplo text eol=lf
+deploy/servidor/estructura/** text eol=lf
