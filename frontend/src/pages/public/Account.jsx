@@ -314,6 +314,9 @@ export default function Account({ mode = "customer" }) {
   const [searchParams] = useSearchParams();
   // Nunca hay que elegir — está implícito en qué URL se usó para llegar acá.
   const accountType = mode === "vendor" ? "vendor" : "customer";
+  // Bloque 294: toda tienda nueva empieza en el plan Regular; su tope de mesas lo fija el admin.
+  const { maxTablesByPlan } = usePlatformSettings();
+  const maxTables = maxTablesByPlan?.REGULAR ?? null;
   const canRegister = mode !== "admin";
 
   // "login" | "register" | "register-verify" | "forgot-email" | "forgot-code" | "forgot-newpass" | "two-factor"
@@ -556,6 +559,10 @@ export default function Account({ mode = "customer" }) {
     if (accountType === "vendor") {
       if (storeForm.isRestaurant && !storeForm.tableCount) {
         toast.error("Indica la cantidad de mesas de tu restaurante.");
+        return;
+      }
+      if (storeForm.isRestaurant && maxTables != null && Number(storeForm.tableCount) > maxTables) {
+        toast.error(`Con el plan gratis puedes tener hasta ${maxTables} mesas. Escribe ${maxTables} o menos.`);
         return;
       }
       if (!storeForm.businessCategoryId) {
@@ -1171,12 +1178,14 @@ export default function Account({ mode = "customer" }) {
                         label="Número de mesas"
                         type="number"
                         min={1}
+                        max={maxTables ?? undefined}
                         required
                         value={storeForm.tableCount}
                         onChange={(e) => setStoreForm({ ...storeForm, tableCount: e.target.value })}
                       />
                       <p className="mt-1 text-label-sm text-outline">
                         Generamos un código QR por cada mesa apenas creas la tienda. Los pedidos te van a llegar al panel de vendedor.
+                        {maxTables != null && ` Con el plan gratis puedes tener hasta ${maxTables} mesas.`}
                       </p>
                     </div>
                   )}

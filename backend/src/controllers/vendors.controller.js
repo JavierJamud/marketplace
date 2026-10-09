@@ -154,8 +154,23 @@ function pickVendorColor(seed) {
 
 // Registro de tienda (el usuario ya debe existir y estar autenticado).
 // Empieza siempre en Plan Regular; el KYC/verificación se pide aparte.
+// Bloque 294 (pedido explícito — "el número de mesas al registrar un restaurante debe respetar el máximo
+// que el admin fija para el plan de esa tienda: con el plan gratis, 10 mesas es el tope"): valida el
+// número de mesas pedido contra PlanConfig.maxTables del plan (null = sin tope). Se usa al registrar la
+// tienda y al convertirla en restaurante, igual que ya hace createTable con "+ Agregar mesa".
+async function assertTableCountWithinPlan(planType, tableCount) {
+  if (!tableCount) return;
+  const config = await getPlanConfig(planType);
+  const max = config?.maxTables ?? null;
+  if (max !== null && tableCount > max) {
+    throw new AppError(`Tu plan permite hasta ${max} ${max === 1 ? "mesa" : "mesas"}. Escribe ${max} o menos.`, 400);
+  }
+}
+
 export async function createVendor(req, res) {
   const data = createVendorSchema.parse(req.body);
+  // Toda tienda nueva arranca en el plan Regular: ese es su tope de mesas.
+  if (data.isRestaurant) await assertTableCountWithinPlan("REGULAR", data.tableCount);
 
   const existing = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (existing) throw new AppError("Este usuario ya tiene una tienda registrada.", 409);
@@ -662,6 +677,8 @@ export async function updateMyVendor(req, res) {
   // "se hace restaurante recién ahora" — el chequeo de 0 mesas existentes
   // evita chocar con @@unique([vendorId, tableNumber]) si ya tuvo mesas
   // antes (se desactivó y se vuelve a activar).
+  // Cualquier cambio del número de mesas respeta el tope del plan de esta tienda.
+  if (data.tableCount) await assertTableCountWithinPlan(vendor.planType, data.tableCount);
   let seedTables;
   if (data.isRestaurant === true && !vendor.isRestaurant && data.tableCount) {
     const existingTableCount = await prisma.table.count({ where: { vendorId: vendor.id } });

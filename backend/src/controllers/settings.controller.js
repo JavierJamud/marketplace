@@ -8,6 +8,12 @@ import { env } from "../config/env.js";
 import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 
+// Bloque 294: tope de mesas de cada plan (null = sin tope), para los formularios del restaurante.
+async function tablesLimitByPlan() {
+  const configs = await getAllPlanConfigs();
+  return Object.fromEntries(configs.map((c) => [c.planType, c.maxTables ?? null]));
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SITE_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "site");
 
@@ -89,6 +95,9 @@ export async function getSettings(_req, res) {
       // chat cuando los 3 proveedores están caídos, en vez de dejar que el
       // cliente le escriba a un chat que ya se sabe que va a fallar.
       chatbotAvailable: await isChatbotHealthy(),
+      // Bloque 294: tope de mesas de cada plan (null = sin tope) para que los formularios de registro y de
+      // configuración del restaurante no dejen escribir más de lo que el plan permite.
+      maxTablesByPlan: await tablesLimitByPlan(),
       // Bloque 237: política de "Venta rápida" (anuncios clasificados de
       // clientes) — la necesitan tanto AdminOffers.jsx (tarjeta nueva) como
       // CustomerPanel.jsx (texto dinámico del ciclo de vida en 2 etapas).

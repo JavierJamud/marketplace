@@ -263,7 +263,7 @@ const SETTINGS_TABS = [
 ];
 
 export default function VendorSettings() {
-  const { siteName } = usePlatformSettings();
+  const { siteName, maxTablesByPlan } = usePlatformSettings();
   const queryClient = useQueryClient();
   // La pestaña viaja en la URL (?tab=seguridad): el asistente y los enlaces
   // pueden llevar directo a la sección exacta de Configuración.
@@ -527,6 +527,11 @@ export default function VendorSettings() {
       toast.error("Indica cuántas mesas tiene tu restaurante.");
       return;
     }
+    const tablesCap = maxTablesByPlan?.[vendor?.planType] ?? null;
+    if (form.isRestaurant && tablesCap != null && Number(form.tableCount) > tablesCap) {
+      toast.error(`Tu plan permite hasta ${tablesCap} mesas. Escribe ${tablesCap} o menos.`);
+      return;
+    }
     try {
       await Promise.all([saveProfile.mutateAsync(), saveSchedule.mutateAsync()]);
       toast.success("Cambios guardados.");
@@ -682,10 +687,14 @@ export default function VendorSettings() {
               label="Número de mesas"
               type="number"
               min={1}
+              max={maxTablesByPlan?.[vendor?.planType] ?? undefined}
               required
               value={form.tableCount}
               onChange={(e) => setForm((f) => ({ ...f, tableCount: e.target.value }))}
             />
+            {maxTablesByPlan?.[vendor?.planType] != null && (
+              <p className="mt-1 text-label-sm text-outline">Tu plan permite hasta {maxTablesByPlan[vendor.planType]} mesas.</p>
+            )}
             {!vendor?.isRestaurant && (
               <p className="mt-1 text-label-sm text-outline">Generamos un código QR por cada mesa apenas guardes.</p>
             )}

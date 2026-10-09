@@ -41,6 +41,8 @@ export function usePlatformSettings() {
     siteName: data?.siteName || DEFAULT_SITE_NAME,
     // Bloque 290: zona horaria de la plataforma, para el saludo y la hora de los paneles.
     timezone: data?.timezone || null,
+    // Bloque 294: tope de mesas por plan ({ REGULAR: 10, BUSINESS: null }); null = sin tope.
+    maxTablesByPlan: data?.maxTablesByPlan ?? {},
     logoUrl: logo,
     // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del
     // vendedor bloqueado/suspendido — null si el admin nunca lo cargó.
