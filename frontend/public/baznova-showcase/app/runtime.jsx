@@ -33,7 +33,7 @@ function CompositionStage({ width = 1280, height = 720, scenes, paused = false, 
     list.forEach((s) => { c[s.name] = acc; acc += s.dur; });
     return { CUES: c, total: acc };
   }, [list]);
-  const fixed = new URLSearchParams(location.search).get('t');
+  const fixed = new URLSearchParams(location.search).get('bz_t');
   const [T, setT] = React.useState(fixed != null ? +fixed : 0);
   const [scale, setScale] = React.useState(1);
   const box = React.useRef(null);

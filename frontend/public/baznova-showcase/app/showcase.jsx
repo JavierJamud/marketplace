@@ -21,6 +21,8 @@ const ICONS = {
   profile: 'M2 21a8 8 0 0 1 13.29-6M10 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM19 16v6M22 19h-6',
   laptop: 'M4 5h16v11H4zM2 19h20',
   check: 'M5 12l5 5L20 7',
+  spark: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z',
+  send: 'M5 12h14M13 6l6 6-6 6',
   chev: 'M15 18l-6-6 6-6',
   trend: 'm22 7-8.5 8.5-5-5L2 17M16 7h6v6',
   bag: 'M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.7z',
@@ -38,7 +40,7 @@ const ICONS = {
 function Ico({ k, s = 16, c = 'currentColor', w = 2 }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none', display: 'block' }}><path d={ICONS[k]} /></svg>;
 }
-const Badge = ({ s = 14 }) => <img src="assets/verified-badge.svg" alt="" style={{ width: s, height: s, flex: 'none' }} />;
+const Badge = ({ s = 14 }) => <svg width={s} height={s} viewBox="0 0 24 24" style={{ flex: 'none', display: 'block' }}><circle cx="12" cy="12" r="11" fill="#0cae53" /><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 
 const PRODUCTS = [
   { n: 'Zapatillas Urban Run', v: 'Moda Vedado', p: 2450, o: 3200, img: 'sneakers', b: '-23%', bc: '#ba1a1a', loc: 'La Habana', st: 'En stock' },
@@ -63,7 +65,7 @@ function MHeader({ n = 3 }) {
   return (
     <div style={{ position: 'absolute', left: 0, right: 0, top: 0, background: HDR, padding: '50px 14px 12px', boxShadow: '0 2px 12px rgba(0,0,0,0.18)', zIndex: 5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 30, height: 30, borderRadius: 8, background: ORANGE, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k="store" s={17} w={2.2} /></div>
+        <img src="assets/baznova-logo.png" alt="" style={{ width: 38, height: 38, flex: 'none', objectFit: 'contain', marginLeft: -4 }} />
         <span style={{ fontFamily: MONT, fontWeight: 800, fontSize: 19, color: '#fff', flex: 1 }}>Baz<span style={{ color: ORANGE }}>nova</span></span>
         <div style={{ position: 'relative', color: 'rgba(255,255,255,0.92)' }}><Ico k="cart" s={23} /><span style={{ position: 'absolute', top: -7, right: -8, background: ORANGE, color: NAVY, fontSize: 10, fontWeight: 800, width: 17, height: 17, borderRadius: 99, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span></div>
       </div>
@@ -95,7 +97,7 @@ function PCard({ p, i, T, t0, added }) {
   );
 }
 function MobileHome({ T, t0 }) {
-  const y = -A(T, 0, 1260, t0 + 1.0, t0 + 5.4, Easing.easeInOutSine);
+  const y = -A(T, 0, 1260, t0 + 1.0, t0 + 11.5, Easing.easeInOutSine);
   const cd = Math.max(0, 8077 - T * 1);
   const hh = String(Math.floor(cd / 3600)).padStart(2, '0'), mm = String(Math.floor((cd % 3600) / 60)).padStart(2, '0'), ss = String(Math.floor(cd % 60)).padStart(2, '0');
   return (
@@ -272,11 +274,134 @@ function TapCursor({ T, f0 }) {
   );
 }
 
+
+function MobileProduct({ T, f0 }) {
+  const s = Math.max(0, T - f0);
+  const zoom = 1 + 0.07 * A(T, 0, 1, f0, f0 + 6, Easing.linear);
+  const sel = s >= 1.8, added = s >= 3.4;
+  const press = s >= 3.15 && s < 3.4 ? 0.94 : 1;
+  const sheet = A(T, 0, 1, f0 + 4.2, f0 + 4.9, MOTION.enter);
+  const ck = A(T, 1, 0, f0 + 4.5, f0 + 5.2, MOTION.draw);
+  const rp = Math.min(1, Math.max(0, (s - 3.15) / 0.6));
+  const circ = (side, k) => <span style={{ position: 'absolute', top: 58, [side]: 14, width: 38, height: 38, borderRadius: 99, background: 'rgba(255,255,255,0.92)', color: INK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k={k} s={18} w={2.2} /></span>;
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: '#fbf9fa', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: 360, overflow: 'hidden', background: '#f1eff0' }}>
+        <img src={IMG('sneakers')} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scale(' + zoom + ')' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(14,26,40,0.55), transparent 35%)' }} />
+        {circ('left', 'chev')}{circ('right', 'heart')}
+        <span style={{ position: 'absolute', left: 16, bottom: 14, background: '#ba1a1a', color: '#fff', fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 99 }}>-23%</span>
+      </div>
+      <div style={{ padding: '16px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: TEAL }}>Moda Vedado<Badge s={14} /><span style={{ color: '#75777c', fontWeight: 500 }}>· La Habana</span></div>
+        <div style={{ fontFamily: MONT, fontWeight: 700, fontSize: 23, color: INK, margin: '4px 0 6px' }}>Zapatillas Urban Run</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>{[0, 1, 2, 3, 4].map((i) => <Ico key={i} k="star" s={15} c={ORANGE} w={0} />)}<span style={{ marginLeft: 6, fontSize: 12.5, color: '#44474c' }}><b style={{ color: INK }}>4.8</b> (124 reseñas)</span></div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, margin: '12px 0 14px' }}><span style={{ fontFamily: MONT, fontWeight: 800, fontSize: 27, color: INK }}>2 450 CUP</span><span style={{ fontSize: 14, color: '#75777c', textDecoration: 'line-through' }}>3 200 CUP</span></div>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 8 }}>Talla</div>
+        <div style={{ display: 'flex', gap: 8 }}>{['40', '41', '42', '43'].map((t) => { const on = sel && t === '42'; return <span key={t} style={{ width: 52, height: 40, borderRadius: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, background: on ? NAVY : '#fff', color: on ? '#fff' : INK, border: on ? '1.5px solid ' + NAVY : '1.5px solid #dcd9db' }}>{t}</span>; })}</div>
+        <div style={{ marginTop: 14, fontSize: 13, lineHeight: '19px', color: '#5b5e63' }}>Suela amortiguada y malla transpirable. Entrega a domicilio en La Habana.</div>
+      </div>
+      <div style={{ position: 'absolute', left: 14, right: 14, bottom: 22, height: 64, borderRadius: 22, background: '#fff', boxShadow: '0 8px 30px rgba(14,26,40,0.22)', display: 'flex', alignItems: 'center', gap: 10, padding: '0 9px', zIndex: 3 }}>
+        <span style={{ width: 46, height: 46, borderRadius: 14, background: '#f0edee', color: INK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k="heart" s={20} /></span>
+        <div style={{ position: 'relative', flex: 1, height: 46, borderRadius: 14, background: added ? NAVY : ORANGE, color: added ? '#fff' : '#643900', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 800, fontSize: 15, transform: 'scale(' + press + ')' }}>
+          {added ? <Ico k="check" s={18} w={3} /> : null}{added ? 'Agregado' : 'Agregar al carrito'}
+          {rp > 0 && rp < 1 ? <span style={{ position: 'absolute', left: '50%', top: '50%', width: 80, height: 80, marginLeft: -40, marginTop: -40, borderRadius: 99, background: 'rgba(14,26,40,0.18)', transform: 'scale(' + (0.3 + 2.2 * rp) + ')', opacity: 1 - rp }} /> : null}
+        </div>
+      </div>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(14,26,40,' + 0.5 * sheet + ')', zIndex: 5, pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: '#fff', borderRadius: '32px 32px 0 0', padding: '30px 24px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', transform: 'translateY(' + (1 - sheet) * 440 + 'px)' }}>
+          <div style={{ width: 86, height: 86, borderRadius: 99, background: '#0cae53', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 28px rgba(12,174,83,0.4)' }}><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" pathLength="1" strokeDasharray="1" strokeDashoffset={ck} /></svg></div>
+          <div style={{ marginTop: 16, fontFamily: MONT, fontWeight: 800, fontSize: 23, color: INK }}>¡Pedido realizado!</div>
+          <div style={{ marginTop: 4, fontSize: 13.5, color: '#75777c' }}>Zapatillas Urban Run · 1 ud.</div>
+          <div style={{ marginTop: 14, padding: '10px 18px', borderRadius: 14, background: '#f5f3f4', fontSize: 14, fontWeight: 700, color: INK }}>Total 2 750 CUP · envío incluido</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function MobileChat({ T, f0 }) {
+  const s = Math.max(0, T - f0);
+  const m1 = 'Busco audífonos inalámbricos, máximo 5 000 CUP', m2 = 'Agrega los Audífonos Pro a mi carrito';
+  const t1 = s < 0.8 ? 0 : s < 2.1 ? Math.floor((s - 0.8) / 1.3 * m1.length) : m1.length;
+  const t2 = s < 5.0 ? 0 : s < 6.1 ? Math.floor((s - 5.0) / 1.1 * m2.length) : m2.length;
+  const cur = s < 2.3 ? m1.slice(0, t1) : s < 6.3 ? m2.slice(0, t2) : '';
+  const E3 = (a, b) => A(T, 0, 1, f0 + a, f0 + b, MOTION.enter);
+  const bub = (bot, a, children) => <div style={{ alignSelf: bot ? 'flex-start' : 'flex-end', maxWidth: '84%', padding: '11px 14px', borderRadius: bot ? '18px 18px 18px 6px' : '18px 18px 6px 18px', background: bot ? '#fff' : NAVY, color: bot ? INK : '#fff', border: bot ? '1px solid #eae7e9' : 'none', fontSize: 14, lineHeight: '19px', opacity: a, transform: 'translateY(' + (1 - a) * 14 + 'px)', boxShadow: '0 2px 8px rgba(14,26,40,0.06)' }}>{children}</div>;
+  const dotsEl = <span style={{ display: 'flex', gap: 5, padding: '4px 2px' }}>{[0, 1, 2].map((i) => <span key={i} style={{ width: 8, height: 8, borderRadius: 9, background: '#9aa0a8', opacity: 0.35 + 0.65 * Math.abs(Math.sin(T * 7 - i * 0.9)) }} />)}</span>;
+  const items = [['Audífonos inalámbricos Pro', '3 890', 'headphones'], ['Auriculares Buds', '2 400', 'earbuds']];
+  const pick = s >= 6.3;
+  const scroll = A(T, 0, 70, f0 + 7.4, f0 + 8.2, Easing.easeInOutCubic);
+  const cta = E3(8.3, 8.8);
+  const sendOn = cur.length > 0;
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: '#f5f3f4', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, top: 0, background: '#fff', padding: '56px 16px 12px', display: 'flex', alignItems: 'center', gap: 11, boxShadow: '0 1px 0 #eae7e9', zIndex: 3 }}>
+        <span style={{ width: 34, height: 34, borderRadius: 99, background: '#f0edee', color: INK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k="chev" s={18} w={2.4} /></span>
+        <span style={{ width: 42, height: 42, borderRadius: 99, background: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><img src="assets/baznova-logo.png" alt="" style={{ width: 32, height: 32, objectFit: 'contain' }} /></span>
+        <div><div style={{ fontFamily: MONT, fontWeight: 700, fontSize: 16, color: INK }}>Asistente Baznova</div><div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: '#75777c' }}><span style={{ width: 7, height: 7, borderRadius: 9, background: '#0cae53' }} />IA · en línea</div></div>
+      </div>
+      <div style={{ padding: '124px 16px 0', display: 'flex', flexDirection: 'column', gap: 10, transform: 'translateY(' + -scroll + 'px)' }}>
+        {bub(true, E3(0.1, 0.6), '¡Hola! Soy el asistente de Baznova. ¿Qué producto buscas hoy?')}
+        {s >= 2.3 ? bub(false, E3(2.3, 2.8), m1) : null}
+        {s >= 2.8 && s < 3.6 ? bub(true, 1, dotsEl) : null}
+        {s >= 3.6 ? bub(true, E3(3.6, 4.1), 'Encontré 2 opciones verificadas cerca de ti:') : null}
+        {items.map(([n, p, im], i) => { const a = E3(4.3 + i * 0.4, 4.9 + i * 0.4); const on = pick && i === 0; return s >= 4.3 + i * 0.4 ? (
+          <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: 9, borderRadius: 16, background: '#fff', border: on ? '2px solid ' + TEAL : '1px solid #eae7e9', opacity: a, transform: 'translateY(' + (1 - a) * 18 + 'px)', boxShadow: on ? '0 6px 18px rgba(51,116,117,0.22)' : '0 4px 14px rgba(14,26,40,0.07)' }}>
+            <img src={IMG(im)} alt="" style={{ width: 54, height: 54, borderRadius: 12, objectFit: 'cover' }} />
+            <div style={{ flex: 1 }}><div style={{ fontSize: 13.5, fontWeight: 700, color: INK, lineHeight: '17px' }}>{n}</div><div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: TEAL }}>TecnoHabana<Badge s={13} /></div><div style={{ fontSize: 14.5, fontWeight: 800, color: INK, marginTop: 1 }}>{p} CUP</div></div>
+            <span style={{ padding: '8px 13px', borderRadius: 11, background: on && s >= 8.0 ? NAVY : ORANGE, color: on && s >= 8.0 ? '#fff' : '#643900', fontSize: 12.5, fontWeight: 800 }}>{on && s >= 8.0 ? 'Agregado ✓' : 'Ver'}</span>
+          </div>) : null; })}
+        {s >= 6.3 ? bub(false, E3(6.3, 6.8), m2) : null}
+        {s >= 6.8 && s < 7.6 ? bub(true, 1, dotsEl) : null}
+        {s >= 7.6 ? bub(true, E3(7.6, 8.1), '¡Listo! Agregué los Audífonos Pro a tu carrito. Te lo llevamos hoy a tu puerta.') : null}
+        {s >= 8.3 ? <div style={{ alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 16, background: ORANGE, color: '#643900', fontWeight: 800, fontSize: 14, opacity: cta, transform: 'scale(' + (0.9 + 0.1 * cta) + ')' }}><Ico k="cart" s={18} w={2.4} /><span style={{ flex: 1 }}>Carrito (1) · 3 890 CUP</span><span>Finalizar →</span></div> : null}
+      </div>
+      <div style={{ position: 'absolute', left: 14, right: 14, bottom: 22, height: 58, borderRadius: 29, background: '#fff', boxShadow: '0 8px 30px rgba(14,26,40,0.2)', display: 'flex', alignItems: 'center', padding: '0 8px 0 20px', gap: 10, zIndex: 3 }}>
+        <span style={{ flex: 1, fontSize: 13.5, color: sendOn ? INK : '#9aa0a8', whiteSpace: 'nowrap', overflow: 'hidden' }}>{sendOn ? cur : 'Pregúntale a la IA…'}{sendOn && Math.floor(T * 3) % 2 === 0 ? '|' : ''}</span>
+        <span style={{ width: 42, height: 42, borderRadius: 99, background: sendOn ? ORANGE : '#e8e5e7', color: sendOn ? '#643900' : '#9aa0a8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k="send" s={19} w={2.4} /></span>
+      </div>
+    </div>
+  );
+}
+function SellerList({ T, at, until }) {
+  const pop = A(T, 0, 1, at, at + 0.5, MOTION.enter) * (1 - A(T, 0, 1, until - 0.4, until, Easing.linear));
+  if (pop <= 0.001) return null;
+  const items = ['Sin comisiones por venta', 'Tu tienda gratis en minutos', 'Pedidos directo a tu WhatsApp', 'Clientes de toda Cuba'];
+  return (
+    <div style={{ position: 'absolute', left: 22, top: 150, width: 236, padding: 16, boxSizing: 'border-box', borderRadius: 20, background: 'rgba(255,255,255,0.97)', boxShadow: '0 16px 38px rgba(0,0,0,0.3)', opacity: pop, transform: 'translateX(' + (1 - pop) * -40 + 'px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+        <span style={{ width: 34, height: 34, borderRadius: 99, background: ORANGE, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center', transform: 'scale(' + (1 + 0.12 * Math.sin(T * 4)) + ')' }}><Ico k="store" s={18} w={2.2} /></span>
+        <div style={{ fontFamily: MONT, fontWeight: 800, fontSize: 15, color: INK, lineHeight: '17px' }}>Vende en Baznova</div>
+      </div>
+      {items.map((t, i) => { const a = A(T, 0, 1, at + 0.5 + i * 0.5, at + 1.0 + i * 0.5, MOTION.enter); const ck = A(T, 1, 0, at + 0.7 + i * 0.5, at + 1.2 + i * 0.5, MOTION.draw); return (
+        <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderTop: i ? '1px solid #f0edee' : 'none', opacity: a, transform: 'translateX(' + (1 - a) * -16 + 'px)' }}>
+          <span style={{ width: 22, height: 22, flex: 'none', borderRadius: 99, background: 'rgba(12,174,83,0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0a8f42" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" pathLength="1" strokeDasharray="1" strokeDashoffset={ck} /></svg></span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: '#2b2e33', lineHeight: '15px' }}>{t}</span>
+        </div>); })}
+      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 12, background: ORANGE, color: '#643900', fontWeight: 800, fontSize: 13, textAlign: 'center', transform: 'scale(' + (1 + 0.035 * Math.sin(T * 5)) + ')', opacity: A(T, 0, 1, at + 2.6, at + 3.0, Easing.linear) }}>Crea tu tienda gratis →</div>
+    </div>
+  );
+}
+function Chip({ T, at, until, x, y, k, tone, label, value, pings = [], sc = 1, rot = 0, w = 178 }) {
+  const pop = A(T, 0, 1, at, at + 0.55, MOTION.pop) * (1 - A(T, 0, 1, until - 0.4, until, Easing.linear));
+  if (pop <= 0.001) return null;
+  const q = (p) => Math.min(1, Math.max(0, (T - p) / 0.8));
+  const bump = pings.reduce((m, p) => Math.max(m, q(p) > 0 && q(p) < 1 ? Math.sin(Math.PI * q(p)) : 0), 0);
+  return (
+    <div style={{ position: 'absolute', left: x, top: y, width: w, padding: '12px 14px', boxSizing: 'border-box', borderRadius: 18, background: 'rgba(255,255,255,0.97)', boxShadow: '0 14px 34px rgba(0,0,0,0.28)', display: 'flex', alignItems: 'center', gap: 10, transform: 'rotate(' + rot * pop + 'deg) scale(' + Math.max(0, pop) * sc + ')', opacity: Math.min(1, pop * 1.4) }}>
+      {pings.map((p, i) => q(p) > 0 && q(p) < 1 ? <span key={i} style={{ position: 'absolute', inset: -3, borderRadius: 21, border: '2px solid ' + tone, opacity: 1 - q(p), transform: 'scale(' + (1 + 0.14 * q(p)) + ')' }} /> : null)}
+      <span style={{ width: 42, height: 42, flex: 'none', borderRadius: 99, background: tone, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', transform: 'scale(' + (1 + 0.22 * bump) + ')' }}><Ico k={k} s={21} w={2.2} /></span>
+      <div style={{ minWidth: 0 }}><div style={{ fontFamily: MONT, fontWeight: 800, fontSize: 19, color: INK, whiteSpace: 'nowrap' }}>{value}</div><div style={{ fontSize: 11, fontWeight: 600, color: '#6b6f75', lineHeight: '14px' }}>{label}</div></div>
+    </div>
+  );
+}
+
 const PW = 418, PH = 872;
 function Phone({ T, t0, mode, f0 }) {
   const flow = mode === 'flow';
   const btn = (side, top, h) => <div style={{ position: 'absolute', [side]: -4, top, width: 5, height: h, borderRadius: 3, background: 'linear-gradient(90deg,#6c727a,#a7adb5,#6c727a)' }} />;
-  const navO = flow ? 1 - A(T, 0, 1, f0 + 4.3, f0 + 4.8, Easing.linear) : 1;
+  const navO = (mode === 'product' || mode === 'chat') ? 0 : (flow ? 1 - A(T, 0, 1, f0 + 4.3, f0 + 4.8, Easing.linear) : 1);
+  const stc = mode === 'chat' ? INK : (flow && T > f0 + 4.5 ? INK : '#fff');
   const ti = 'linear-gradient(135deg,#c3c8cf 0%,#6b7179 22%,#2a2e34 48%,#6f757d 74%,#c9ced4 100%)';
   return (
     <div style={{ position: 'relative', width: PW, height: PH, transformStyle: 'preserve-3d' }}>
@@ -284,13 +409,15 @@ function Phone({ T, t0, mode, f0 }) {
       <div style={{ position: 'absolute', inset: 0, borderRadius: 70, background: 'linear-gradient(135deg,#2b3038,#1a1d23)', transform: 'translateZ(-10px) rotateY(180deg)', backfaceVisibility: 'hidden' }}>
         <div style={{ position: 'absolute', right: 26, top: 26, width: 128, height: 128, borderRadius: 34, background: 'rgba(255,255,255,0.08)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.12)' }} />
       </div>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: 70, padding: 5, boxSizing: 'border-box', background: ti, boxShadow: '0 60px 90px -30px rgba(0,0,0,0.7)', backfaceVisibility: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, borderRadius: 70, padding: 5, boxSizing: 'border-box', background: ti, boxShadow: '0 60px 90px -30px rgba(0,0,0,0.7), inset 0 0 0 1.5px rgba(255,255,255,0.5), inset 0 0 0 3px rgba(0,0,0,0.38), inset 0 8px 14px rgba(255,255,255,0.18)', backfaceVisibility: 'hidden' }}>
+        {[96, 780].map((yy) => [0, 1].map((sd) => <div key={yy + '-' + sd} style={{ position: 'absolute', top: yy, [sd ? 'right' : 'left']: 0, width: 5, height: 4, background: '#14171b', opacity: 0.85 }} />))}
+        {[[0, 0], [0, 1], [1, 0], [1, 1]].map(([v, hz]) => <div key={v + '' + hz} style={{ position: 'absolute', [v ? 'bottom' : 'top']: 38, [hz ? 'right' : 'left']: 0, width: 5, height: 3, background: '#14171b', opacity: 0.7 }} />)}
         {btn('left', 150, 34)}{btn('left', 214, 64)}{btn('left', 292, 64)}{btn('right', 250, 100)}
-        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 65, background: '#05070a', padding: 10, boxSizing: 'border-box' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 65, background: '#05070a', padding: 10, boxSizing: 'border-box', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 6px rgba(0,0,0,0.9)' }}>
           <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 56, overflow: 'hidden', background: '#fbf9fa' }}>
-            {flow ? <MobileFlow T={T} f0={f0} /> : <MobileHome T={T} t0={t0} />}
-            {flow ? null : <MHeader />}
-            <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 50, zIndex: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 30px 0 34px', color: flow && T > f0 + 4.5 ? INK : '#fff', fontSize: 14, fontWeight: 700 }}>
+            {mode === 'product' ? <MobileProduct T={T} f0={f0} /> : mode === 'chat' ? <MobileChat T={T} f0={f0} /> : flow ? <MobileFlow T={T} f0={f0} /> : <MobileHome T={T} t0={t0} />}
+            {mode === 'home' ? <MHeader /> : null}
+            <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 50, zIndex: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 30px 0 34px', color: stc, fontSize: 14, fontWeight: 700 }}>
               <span>9:41</span>
               <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                 <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="1" /><rect x="4.5" y="5" width="3" height="6" rx="1" /><rect x="9" y="2.5" width="3" height="8.5" rx="1" /><rect x="13.5" y="0" width="3" height="11" rx="1" /></svg>
@@ -317,6 +444,7 @@ const CARD = { padding: 20, borderRadius: 16, border: '1px solid rgba(234,231,23
 const DW = 1440, DH = 900;
 function Dashboard({ T, t0, tn }) {
   const g = (s, e) => A(T, 0, 1, t0 + s, t0 + e, Easing.easeOutCubic);
+  const scY = interpolate([0, 1.8, 3.4, 4.4, 6.0, 7.0, 8.3].map((x) => t0 + x), [0, 0, 460, 460, 980, 980, 0], Easing.easeInOutCubic)(T);
   const tone = { green: ['rgba(12,174,83,0.1)', '#0a8f42'], teal: ['rgba(51,116,117,0.12)', TEAL], orange: ['rgba(138,81,0,0.1)', '#8a5100'], blue: ['rgba(14,107,168,0.1)', '#0e6ba8'] };
   const ev = A(T, 0, 1, tn, tn + 1.2, Easing.easeOutCubic);
   const kp = [
@@ -349,9 +477,16 @@ function Dashboard({ T, t0, tn }) {
         <div style={{ marginTop: 12, padding: '0 6px', fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Julio Ramírez</div>
       </aside>
       <main style={{ flex: 1, minWidth: 0, padding: '8px 8px 0', position: 'relative' }}>
+        <div style={{ overflow: 'hidden', height: DH - 40, margin: '0 -8px', padding: '0 8px' }}><div style={{ transform: 'translateY(' + -scY + 'px)', paddingBottom: 40 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24 }}>
-          <div><div style={{ fontFamily: MONT, fontSize: 28, fontWeight: 700 }}>Dashboard</div><div style={{ marginTop: 4, fontSize: 14, color: '#75777c' }}>Hola de nuevo, <span style={{ fontWeight: 500, color: '#44474c' }}>TecnoHabana</span></div></div>
+          <div><div style={{ fontFamily: MONT, fontSize: 28, fontWeight: 700 }}>Dashboard</div><div style={{ marginTop: 4, fontSize: 14, color: '#75777c' }}>Bienvenido de nuevo, <span style={{ fontWeight: 500, color: '#44474c' }}>TecnoHabana</span></div></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 10, background: ORANGE, color: '#643900', fontSize: 13.5, fontWeight: 700 }}><Ico k="plus" s={15} w={2.6} />Nuevo producto</div>
+        </div>
+        <div style={{ position: 'relative', overflow: 'hidden', marginBottom: 20, padding: '18px 24px', borderRadius: 20, background: NAVY, color: '#fff', display: 'flex', alignItems: 'center', gap: 18, opacity: g(0, 0.7), transform: 'translateY(' + (1 - g(0, 0.7)) * 16 + 'px)' }}>
+          <div style={{ position: 'absolute', right: -40, top: -70, width: 230, height: 230, borderRadius: 99, background: 'rgba(254,152,0,0.2)' }} />
+          <span style={{ width: 50, height: 50, flex: 'none', borderRadius: 99, background: ORANGE, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}><Ico k="store" s={25} w={2.2} /></span>
+          <div style={{ flex: 1, position: 'relative' }}><div style={{ fontFamily: MONT, fontWeight: 800, fontSize: 21 }}>¡Bienvenido de nuevo, TecnoHabana!</div><div style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', marginTop: 3 }}>12 visitas nuevas hoy. Estos son tus pendientes:</div></div>
+          <div style={{ display: 'flex', gap: 10, position: 'relative' }}>{[['3', 'Pedidos por atender'], ['2', 'Mensajes sin leer'], ['1', 'Oferta por vencer']].map(([n, l]) => <div key={l} style={{ padding: '8px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.1)', textAlign: 'center' }}><div style={{ fontFamily: MONT, fontWeight: 800, fontSize: 20, color: ORANGE, lineHeight: '22px' }}>{n}</div><div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.75)' }}>{l}</div></div>)}</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 20, marginBottom: 20 }}>
           {kp.map(([t, sub, v, d, up, tn, ic], i) => {
@@ -429,6 +564,31 @@ function Dashboard({ T, t0, tn }) {
             </div>
           </div>
         </div>
+        <div style={{ marginTop: 28, fontFamily: MONT, fontWeight: 700, fontSize: 20 }}>Todo lo que puedes controlar</div>
+        <div style={{ fontSize: 13, color: '#75777c', margin: '2px 0 14px' }}>Herramientas avanzadas para vender más, sin comisiones por venta</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+          {[['box', 'Productos', 'Catálogo con variantes, fotos y stock en tiempo real', '', 'blue'], ['gift', 'Ofertas y códigos', 'Cupones, descuentos y ofertas relámpago', 'Popular', 'orange'], ['cart', 'Pedidos', 'WhatsApp, en línea y contra entrega en un solo lugar', '', 'green'], ['qr', 'Mesas / QR', 'Menú digital y pedidos desde la mesa', 'Nuevo', 'teal'], ['msg', 'Mensajes', 'Chat con clientes y respuestas rápidas', '', 'blue'], ['star', 'Reseñas', 'Calificaciones reales que generan confianza', '', 'orange'], ['alert', 'Reportes de fraude', 'Protección contra compras sospechosas', '', 'green'], ['spark', 'Asistente IA', 'Responde y recomienda tus productos 24/7', 'IA', 'teal']].map(([k, t, d, tag, tn2], i) => {
+            const a = A(T, 0, 1, t0 + 3.6 + i * 0.12, t0 + 4.3 + i * 0.12, Easing.easeOutCubic);
+            return <div key={t} style={{ ...CARD, padding: 16, opacity: a, transform: 'translateY(' + (1 - a) * 18 + 'px)' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>{iconBox(k, tone[tn2])}{tag ? <span style={{ padding: '2px 9px', borderRadius: 99, background: 'rgba(254,152,0,0.16)', color: '#8a5100', fontSize: 10.5, fontWeight: 800 }}>{tag}</span> : null}</div><div style={{ marginTop: 12, fontSize: 14.5, fontWeight: 700 }}>{t}</div><div style={{ marginTop: 3, fontSize: 12, lineHeight: '16px', color: '#6b6f75' }}>{d}</div></div>;
+          })}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginTop: 20 }}>
+          <div style={CARD}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 14, fontWeight: 700 }}><Badge s={20} />Tiendas verificadas</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+              {[['TecnoHabana', 'Tecnología', '4.8', TEAL], ['Casa Luna', 'Hogar', '4.9', ORANGE], ['Moda Vedado', 'Ropa y calzado', '4.7', '#232F3E']].map(([n, c, r, col], i) => {
+                const a = A(T, 0, 1, t0 + 5.6 + i * 0.2, t0 + 6.2 + i * 0.2, MOTION.enter);
+                return <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, background: '#f5f3f4', opacity: a, transform: 'scale(' + (0.9 + 0.1 * a) + ')' }}><span style={{ width: 40, height: 40, borderRadius: 99, background: col, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: MONT, fontWeight: 800 }}>{n[0]}</span><div><div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 700 }}>{n}<Badge s={15} /></div><div style={{ fontSize: 11.5, color: '#75777c' }}>{c} · ★ {r}</div></div></div>;
+              })}
+            </div>
+          </div>
+          <div style={{ ...CARD, background: ORANGE, border: 'none', color: NAVY, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6 }}>
+            <div style={{ fontFamily: MONT, fontWeight: 800, fontSize: 18 }}>Haz crecer tu negocio</div>
+            <div style={{ fontSize: 12.5, color: '#643900' }}>Registra tu tienda gratis y empieza a vender hoy.</div>
+            <div style={{ marginTop: 6, padding: '9px 14px', borderRadius: 10, background: NAVY, color: '#fff', fontWeight: 700, fontSize: 13, width: 'fit-content' }}>Crear mi tienda →</div>
+          </div>
+        </div>
+        </div></div>
         <div style={{ position: 'absolute', right: 8, top: 4, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 14, background: NAVY, color: '#fff', fontSize: 13, fontWeight: 600, boxShadow: '0 16px 36px rgba(14,26,40,0.4)', opacity: toast, transform: `translateY(${(1 - toast) * -24}px) scale(${0.92 + 0.08 * toast})`, zIndex: 5 }}>
           <span style={{ width: 30, height: 30, borderRadius: 99, background: ORANGE, color: NAVY, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ico k="cart" s={15} w={2.4} /></span>
           <div><div>Nuevo pedido <b style={{ color: ORANGE }}>#Z-2042</b></div><div style={{ fontSize: 11, opacity: 0.7 }}>Maykel Díaz · 6 640 CUP</div></div>
@@ -447,6 +607,16 @@ const Keys = () => (
   </div>
 );
 const Grill = ({ side }) => <div style={{ position: 'absolute', [side]: 10, top: 40, width: 30, height: 230, borderRadius: 6, backgroundImage: 'radial-gradient(circle, #7f858e 1.3px, transparent 1.6px)', backgroundSize: '7px 7px', opacity: 0.8 }} />;
+const EmbossLogo = ({ size = 150 }) => {
+  const m = { WebkitMaskImage: 'url(assets/logo.png)', maskImage: 'url(assets/logo.png)', WebkitMaskSize: 'contain', maskSize: 'contain', WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat', WebkitMaskPosition: 'center', maskPosition: 'center', position: 'absolute', inset: 0 };
+  return (
+    <div style={{ position: 'relative', width: size, height: size }}>
+      <div style={{ ...m, background: 'rgba(0,0,0,0.30)', transform: 'translate(2px,2px)', filter: 'blur(0.6px)' }} />
+      <div style={{ ...m, background: 'rgba(255,255,255,0.95)', transform: 'translate(-2px,-2px)', filter: 'blur(0.6px)' }} />
+      <div style={{ ...m, background: 'linear-gradient(135deg,#c9cdd4,#b4b9c1)' }} />
+    </div>
+  );
+};
 function Laptop({ T, lid, camX, camY, scale, x, y, show, t0, tn }) {
   const sc = (LW - 32) / DW;
   const edge = { position: 'absolute', background: 'linear-gradient(180deg,#d4d8de,#8d939c)' };
@@ -454,28 +624,30 @@ function Laptop({ T, lid, camX, camY, scale, x, y, show, t0, tn }) {
     <div style={{ position: 'absolute', left: x, top: y, width: 0, height: 0, visibility: show ? 'visible' : 'hidden', transformStyle: 'preserve-3d', transform: 'scale(' + scale + ') rotateX(' + camX + 'deg) rotateY(' + camY + 'deg)' }}>
       <div style={{ position: 'absolute', left: -LW / 2 - 30, top: LT + 2, width: LW + 60, height: LD + 70, transformOrigin: 'top', transform: 'rotateX(90deg)', background: 'radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.22) 45%, transparent 72%)', filter: 'blur(14px)' }} />
       <div style={{ position: 'absolute', left: -LW / 2, top: 0, width: LW, height: 0, transformStyle: 'preserve-3d' }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, width: LW, height: LD, transformOrigin: 'top', transform: 'rotateX(90deg)', borderRadius: '4px 4px 22px 22px', background: 'linear-gradient(180deg,#e0e3e7,#c4c8cf)', boxShadow: 'inset 0 0 0 1.5px #f1f3f5, inset 0 -10px 18px rgba(0,0,0,0.06)' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, width: LW, height: LD, transformOrigin: 'top', transform: 'rotateX(90deg)', borderRadius: '10px 10px 26px 26px', background: 'linear-gradient(180deg,#e0e3e7,#c4c8cf)', boxShadow: 'inset 0 0 0 1.5px #f1f3f5, inset 0 -10px 18px rgba(0,0,0,0.06)' }}>
           <Grill side="left" /><Grill side="right" />
           <Keys />
           <div style={{ position: 'absolute', left: '50%', top: 322, width: 340, height: 205, marginLeft: -170, borderRadius: 14, background: 'linear-gradient(180deg,#d6dae0,#c8ccd3)', boxShadow: 'inset 0 0 0 1.5px #aab0b8, inset 0 8px 16px rgba(255,255,255,0.4)' }} />
           <div style={{ position: 'absolute', left: 70, right: 70, top: -2, height: 16, borderRadius: '0 0 10px 10px', background: 'linear-gradient(180deg,#14171b,#3b4048 60%,#14171b)' }} />
         </div>
-        <div style={{ ...edge, left: 0, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)', borderRadius: '0 0 0 16px' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
-        <div style={{ ...edge, left: LW, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)', borderRadius: '0 0 16px 0' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /><div style={{ position: 'absolute', left: 104, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
-        <div style={{ ...edge, left: 0, top: 0, width: LW, height: LT, transform: 'translateZ(' + LD + 'px)', borderRadius: '0 0 20px 20px' }}>
+        <div style={{ ...edge, left: 0, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)', borderRadius: '0 0 0 24px' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
+        <div style={{ ...edge, left: LW, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)', borderRadius: '0 0 24px 0' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /><div style={{ position: 'absolute', left: 104, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
+        <div style={{ ...edge, left: 0, top: 0, width: LW, height: LT, transform: 'translateZ(' + LD + 'px)', borderRadius: '0 0 28px 28px' }}>
           <div style={{ position: 'absolute', left: '50%', top: 0, width: 130, height: 6, marginLeft: -65, borderRadius: '0 0 7px 7px', background: 'rgba(0,0,0,0.32)' }} />
           <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 3, background: 'rgba(255,255,255,0.7)' }} />
         </div>
         <div style={{ position: 'absolute', left: 0, top: -LH, width: LW, height: LH, transformOrigin: '50% 100%', transform: 'translateY(-1px) rotateX(' + lid + 'deg)', transformStyle: 'preserve-3d' }}>
-          {[1, 2, 3, 4, 5, 6, 7].map((n) => <div key={n} style={{ position: 'absolute', inset: 0, borderRadius: '16px 16px 4px 4px', background: 'linear-gradient(180deg,#cfd3d9,#9aa0a9)', transform: 'translateZ(' + (-n) + 'px)' }} />)}
-          <div style={{ position: 'absolute', inset: 0, borderRadius: '16px 16px 4px 4px', background: '#07090c', padding: BZ + 'px 16px ' + (BZ + 6) + 'px', boxSizing: 'border-box', backfaceVisibility: 'hidden', boxShadow: '0 0 0 2px #aab0b8, 0 0 0 4px #d6d9de' }}>
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => <div key={n} style={{ position: 'absolute', inset: 0, borderRadius: '24px 24px 6px 6px', background: 'linear-gradient(180deg,#cfd3d9,#9aa0a9)', transform: 'translateZ(' + (-n) + 'px)' }} />)}
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '24px 24px 6px 6px', background: '#07090c', padding: BZ + 'px 16px ' + (BZ + 6) + 'px', boxSizing: 'border-box', backfaceVisibility: 'hidden', boxShadow: '0 0 0 2px #aab0b8, 0 0 0 4px #d6d9de' }}>
             <div style={{ position: 'absolute', left: '50%', top: 6, width: 6, height: 6, marginLeft: -3, borderRadius: 9, background: '#1a2230' }} />
             <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 3, overflow: 'hidden', background: '#f5f3f4' }}>
               <div style={{ position: 'absolute', left: 0, top: 0, width: DW, height: DH, transform: 'scale(' + sc + ')', transformOrigin: '0 0' }}><Dashboard T={T} t0={t0} tn={tn} /></div>
               <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg,rgba(255,255,255,0.14) 0%,rgba(255,255,255,0) 35%)', pointerEvents: 'none' }} />
             </div>
           </div>
-          <div style={{ position: 'absolute', inset: 0, borderRadius: '16px 16px 4px 4px', background: 'repeating-linear-gradient(90deg,rgba(255,255,255,0.05) 0 2px,transparent 2px 5px), linear-gradient(135deg,#e1e3e7 0%,#b8bdc5 55%,#d5d8dd 100%)', transform: 'translateZ(-8px) rotateY(180deg) rotateZ(180deg)', backfaceVisibility: 'hidden', boxShadow: 'inset 0 0 0 2px #eceef1' }} />
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '24px 24px 6px 6px', background: 'repeating-linear-gradient(90deg,rgba(255,255,255,0.05) 0 2px,transparent 2px 5px), linear-gradient(135deg,#e1e3e7 0%,#b8bdc5 55%,#d5d8dd 100%)', transform: 'translateZ(-8px) rotateY(180deg) rotateZ(180deg)', backfaceVisibility: 'hidden', boxShadow: 'inset 0 0 0 2px #f1f3f5, inset 0 3px 0 rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <EmbossLogo size={150} />
+          </div>
         </div>
       </div>
     </div>
@@ -484,51 +656,73 @@ function Laptop({ T, lid, camX, camY, scale, x, y, show, t0, tn }) {
 
 function Piece() {
   const { T, CUES } = useComposition();
-  const E = CUES.Entrada, LA = CUES.Laptop, FO = CUES.Fondo, FI = CUES.Final;
-  const end = FI + 11.4;
-  const f0 = FI + 0.6;
-  const tn = f0 + 8.8;
+  const E = CUES.Entrada, TR = CUES.Trio, LA = CUES.Laptop, FO = CUES.Fondo, FI = CUES.Final;
+  const end = FI + 11.4, f0 = FI + 0.6, tn = f0 + 8.8;
   const fade = 1 - A(T, 0, 1, end - 0.9, end - 0.1, Easing.linear);
+  const chipsOn = !(window.BAZNOVA_OPTS && window.BAZNOVA_OPTS.chips === false);
 
-  // Phone
-  const rise = A(T, 900, 0, E + 0.2, E + 1.8, MOTION.enter);
-  const yawIn = A(T, -62, -34, E + 0.2, E + 1.8, MOTION.enter);
-  const yaw = T < E + 1.8 ? yawIn : interpolate([E + 1.8, E + 3.6, E + 5.6], [-34, 28, -8], Easing.easeInOutSine)(T);
-  const hold = A(T, 0, 1, E + 1.0, E + 2.4, MOTION.draw);
-  const exit = A(T, 0, 1, LA, LA + 1.3, Easing.easeInOutCubic);
-  const back = A(T, 0, 1, FO + 0.4, FO + 1.9, MOTION.enter);
+  const rise = A(T, 900, 0, E + 0.05, E + 1.0, MOTION.enter);
+  const yaw = T < E + 1.0 ? A(T, -62, -34, E + 0.05, E + 1.0, MOTION.enter) : interpolate([E + 1.0, E + 2.0, E + 3.1], [-34, 28, 0], Easing.easeInOutSine)(T);
+  const grow = A(T, 0, 1, E + 0.5, E + 1.4, MOTION.draw);
+  const flat = A(T, 0, 1, E + 2.0, E + 3.1, MOTION.draw);
+  const hold = grow * (1 - flat);
+  const exit = A(T, 0, 1, LA, LA + 0.9, Easing.easeInOutCubic);
+  const back = A(T, 0, 1, FO + 0.3, FO + 1.3, MOTION.enter);
   let ph;
-  if (T < LA) ph = { x: 0, y: rise, s: 0.64 + 0.03 * hold, rx: 7 * hold, ry: yaw, rz: -4 * hold };
-  else if (T < FO + 0.3) ph = { x: -820 * exit, y: -30 * exit, s: 0.67 - 0.1 * exit, rx: 7 + 6 * exit, ry: -8 - 70 * exit, rz: -4 - 10 * exit };
-  else ph = { x: -250, y: (1 - back) * 900, s: 0.64, rx: 3, ry: 14 - 38 * (1 - back), rz: -3 * (1 - back) };
+  if (T < LA) ph = { x: 0, y: rise, s: 0.64 + 0.03 * grow + 0.05 * flat, rx: 7 * hold, ry: yaw, rz: -4 * hold };
+  else if (T < FO + 0.3) ph = { x: -820 * exit, y: -30 * exit, s: 0.72 - 0.1 * exit, rx: 6 * exit, ry: -70 * exit, rz: -10 * exit };
+  else ph = { x: -250, y: -14 + (1 - back) * 900, s: 0.6, rx: 3, ry: 14 - 38 * (1 - back), rz: -3 * (1 - back) };
 
-  // Laptop
-  const show = T >= LA + 0.4;
-  const orbit = A(T, 0, 1, LA + 0.4, LA + 3.6, Easing.easeInOutCubic);
-  const lid = A(T, -90, 11, LA + 1.8, LA + 3.8, Easing.easeInOutCubic);
-  const toB = A(T, 0, 1, FO, FO + 1.7, MOTION.draw);
-  const drift = A(T, 0, -8, LA + 3.8, FO, Easing.linear);
+  const vis = A(T, 0, 1, TR + 0.1, TR + 0.8, MOTION.enter) * (1 - A(T, 0, 1, TR + 9.9, TR + 10.6, Easing.easeInOutCubic));
+  const sidesOn = T >= TR && T < LA;
+  const side = (sg, mode) => (
+    <div style={{ position: 'absolute', left: 640 - PW / 2, top: 360 - PH / 2, width: PW, height: PH, visibility: sidesOn ? 'visible' : 'hidden', transform: 'translate3d(' + sg * 310 * vis + 'px, ' + (1 - vis) * 30 + 'px, 0px) scale(' + (0.5 + 0.1 * vis) + ') rotateY(' + (-sg * 16 * vis) + 'deg)', transformStyle: 'preserve-3d' }}>
+      <Phone T={T} t0={0} mode={mode} f0={TR + 0.8} />
+    </div>
+  );
+
+  const show = T >= LA + 0.3;
+  const orbit = A(T, 0, 1, LA + 0.3, LA + 2.6, Easing.easeInOutCubic);
+  const lid = A(T, -90, 11, LA + 1.2, LA + 2.7, Easing.easeInOutCubic);
+  const toB = A(T, 0, 1, FO, FO + 1.2, MOTION.draw);
+  const drift = A(T, 0, -8, LA + 2.7, FO, Easing.linear);
   const camY = 50 * (1 - orbit) + drift - 22 * toB;
   const camX = -34 + 18 * orbit + 2 * toB;
   const lx = 640 + 300 * toB, ly = 380 + 30 * orbit - 6 * toB;
-  const lscale = (0.56 - 0.08 * toB - 0.06 * (1 - orbit)) * (0.4 + 0.6 * A(T, 0, 1, LA + 0.4, LA + 1.8, MOTION.enter));
+  const lscale = (0.56 - 0.05 * toB - 0.06 * (1 - orbit)) * (0.4 + 0.6 * A(T, 0, 1, LA + 0.3, LA + 1.2, MOTION.enter));
 
   const caps = [
     { at: E + 1.2, until: LA - 0.2, text: 'Tu tienda, en el bolsillo de tus clientes' },
-    { at: LA + 4.0, until: FO - 0.3, text: 'Panel del vendedor con estadísticas en tiempo real' },
+    { at: LA + 3.0, until: FO - 0.3, text: 'Panel del vendedor con estadísticas en tiempo real' },
   ];
   const finalCap = A(T, 0, 1, FO + 1.6, FO + 2.2, Easing.linear) * fade;
   const pill = A(T, 0, 1, f0 + 9.6, f0 + 10.2, Easing.linear) * fade;
+  const cnt = (a, b, s, e) => fmt(a + (b - a) * A(T, 0, 1, s, e, Easing.easeOutCubic));
 
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', fontFamily: INTER }}>
       <div style={{ position: 'absolute', inset: 0, perspective: 2400, perspectiveOrigin: '50% 30%', opacity: fade }}>
-        <Laptop T={T} t0={LA + 3.2} tn={tn} lid={lid} camX={camX} camY={camY} scale={lscale} x={lx} y={ly} show={show} />
+        {T >= LA ? <Laptop T={T} t0={LA + 2.7} tn={tn} lid={lid} camX={camX} camY={camY} scale={lscale} x={lx} y={ly} show={show} /> : null}
+        {sidesOn ? side(1, 'chat') : null}{sidesOn ? side(-1, 'product') : null}
         <div style={{ position: 'absolute', left: 640 - PW / 2, top: 360 - PH / 2, width: PW, height: PH, transform: 'translate3d(' + ph.x + 'px, ' + ph.y + 'px, 80px) scale(' + ph.s + ') rotateX(' + ph.rx + 'deg) rotateY(' + ph.ry + 'deg) rotateZ(' + ph.rz + 'deg)', transformStyle: 'preserve-3d' }}>
           <Phone T={T} t0={E + 1.0} mode={T < LA ? 'home' : 'flow'} f0={f0} />
         </div>
       </div>
-          </div>
+      {chipsOn ? <div style={{ position: 'absolute', inset: 0, opacity: fade, pointerEvents: 'none' }}>
+        <Chip T={T} at={TR + 1.2} until={TR + 9.8} x={12} y={92} sc={1.04} rot={-3} k="cart" tone={ORANGE} label="Pedidos realizados" value={cnt(1240, 1284, TR + 1.2, TR + 5.0)} pings={[TR + 5.0]} />
+        <Chip T={T} at={TR + 2.0} until={TR + 9.8} x={46} y={348} sc={0.82} rot={2.5} k="check" tone="#0cae53" label="Tiendas verificadas" value={cnt(0, 312, TR + 2.0, TR + 4.2)} pings={[TR + 4.2]} />
+        <Chip T={T} at={TR + 1.6} until={TR + 9.8} x={1092} y={196} sc={0.9} rot={3} k="box" tone={NAVY} label="Pedidos recibidos" value={cnt(96, 97, TR + 5.1, TR + 5.2)} pings={[TR + 5.1, TR + 8.4]} />
+        <Chip T={T} at={TR + 2.6} until={TR + 9.8} x={1070} y={470} sc={1.06} rot={-2} k="spark" tone="#8a5100" label="Asistente IA 24/7" value="2 opciones" pings={[TR + 4.4, TR + 8.4]} />
+        <Chip T={T} at={TR + 3.4} until={TR + 9.8} x={26} y={560} sc={0.74} rot={-2} k="users" tone={TEAL} label="Clientes nuevos" value={'+' + cnt(0, 48, TR + 3.4, TR + 6.4)} pings={[TR + 6.4]} />
+        <SellerList T={T} at={LA + 2.6} until={FO + 0.2} />
+        <Chip T={T} at={LA + 3.0} until={FO + 0.6} x={1086} y={110} sc={0.9} rot={2} k="trend" tone="#0a8f42" label="Ventas de la semana" value={cnt(88000, 90400, LA + 3.0, LA + 5.6)} pings={[]} />
+        <Chip T={T} at={LA + 3.5} until={FO + 0.6} x={1066} y={262} sc={1.05} rot={-2} k="cart" tone={ORANGE} label="Pedidos esta semana" value={cnt(30, 38, LA + 3.5, LA + 6)} pings={[tn]} />
+        <Chip T={T} at={LA + 4.0} until={FO + 0.6} x={1094} y={430} sc={0.84} rot={3} k="store" tone={TEAL} label="Vendedores nuevos hoy" value={'+' + cnt(0, 12, LA + 4.0, LA + 6.6)} pings={[LA + 6.6]} />
+        <Chip T={T} at={f0 + 1.2} until={end - 0.5} x={20} y={176} sc={1.0} rot={-2} k="box" tone={NAVY} label="Pedidos entregados" value={cnt(1284, 1291, f0 + 1.2, f0 + 6)} pings={[f0 + 6]} />
+        <Chip T={T} at={f0 + 2.2} until={end - 0.5} x={44} y={392} sc={0.82} rot={2.5} k="check" tone="#0cae53" label="Tiendas verificadas" value={cnt(300, 312, f0 + 2.2, f0 + 5)} pings={[f0 + 5]} />
+        <Chip T={T} at={f0 + 3.4} until={end - 0.5} x={1074} y={500} sc={0.92} rot={2} k="users" tone="#8a5100" label="Clientes satisfechos" value="98 %" pings={[f0 + 4.6, f0 + 8.8]} />
+      </div> : null}
+    </div>
   );
 }
 

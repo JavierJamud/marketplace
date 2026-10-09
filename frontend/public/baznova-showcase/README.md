@@ -24,7 +24,7 @@ El iframe es transparente: el fondo que tenga tu sección se ve detrás de los d
 ## Contenido
 
 - `index.html`: página de la animación.
-- `app/runtime.jsx`: motor de tiempo y easings (loop de 30.1 s).
+- `app/runtime.jsx`: motor de tiempo y easings (loop de ~39.6 s).
 - `app/showcase.jsx`: teléfono, laptop, web móvil y panel del vendedor.
 - `vendor/`: React 18 y Babel, local (sin CDN).
 - `assets/`: fotos de productos y sello de verificado.
@@ -34,4 +34,5 @@ Las fuentes Montserrat e Inter se cargan de Google Fonts; si no hay conexión us
 ## Ajustes
 
 - Duración de cada escena: `window.BAZNOVA_SCENES` en `index.html`.
+- Iconos animados (Pedidos realizados, Tiendas verificadas, etc.): \`window.BAZNOVA_OPTS = { chips: false }\` en `index.html` los quita.
 - Pausar: `<BaznovaShowcase paused />`.
