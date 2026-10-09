@@ -1,0 +1,30 @@
+# @NOMBRE@
+
+| Dato | Valor |
+| --- | --- |
+| Carpeta | `@RAIZ@` |
+| Categoría | @CATEGORIA_TXT@ |
+| Tipo | @TIPO@ |
+| Dominio | @DOMINIO_TXT@ |
+| Puerto de la API | @PUERTO_TXT@ |
+| Proceso PM2 | @PM2_TXT@ |
+| Base de datos | @DB_TXT@ |
+
+La ficha técnica (sin secretos) está en `proyecto.env`.
+
+## Carpetas
+
+| Carpeta | Qué lleva |
+| --- | --- |
+| `app/` | Código desplegado (`backend/` y `frontend/`). Se reemplaza en cada despliegue. |
+| `app.prev/` | La versión anterior, para volver atrás si algo falla. |
+| `web/` | El sitio publicado. Nginx sirve esta carpeta. |
+| `datos/` | Lo que no se pierde al desplegar: `uploads/`, `secretos/` y `release/`. |
+| `respaldos/` | Respaldos cifrados locales (los últimos; el historial largo está en Cloudflare R2). |
+| `logs/` | Registros del proyecto. |
+| `scripts/` | Scripts propios del proyecto. |
+| `nginx.conf` | Sitio de Nginx de este proyecto. |
+
+## Cómo se despliega
+
+Anota aquí los pasos reales de este proyecto (script de despliegue, comandos, dónde está el repositorio).

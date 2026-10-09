@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
-# ZeuDin Marketplace — Paso 2: instalar o ACTUALIZAR la aplicación.
-# Uso:  sudo DOMINIO=midominio.com bash 02-instalar-app.sh /ruta/zeudin-app.tar.gz
-#       (sin DOMINIO usa la IP pública del servidor, para probar antes del dominio)
+# Baznova Marketplace: instalar o ACTUALIZAR la aplicación (proyecto organizacion/baznova).
+# Uso:  sudo bash 02-instalar-app.sh /ruta/zeudin-app.tar.gz
+#       RAIZ=/opt/zeudin/organizacion/baznova (por defecto) es la carpeta del proyecto; su ficha es proyecto.env.
+#       DOMINIO_OVERRIDE=otro.com cambia el dominio guardado en la ficha.
 # Es seguro correrlo varias veces: nunca borra la base de datos ni los archivos subidos.
 set -euo pipefail
 ARCHIVO="${1:?Falta la ruta del .tar.gz del código}"
 BASE=/opt/zeudin
-DATA=$BASE/data
-APP=$BASE/app
-WEB=/var/www/zeudin
+RAIZ="${RAIZ:-$BASE/organizacion/baznova}"
+[ -f "$RAIZ/proyecto.env" ] || { echo "Falta $RAIZ/proyecto.env (la ficha del proyecto). Crea el proyecto con nuevo-proyecto.sh."; exit 1; }
+# shellcheck disable=SC1091
+source "$RAIZ/proyecto.env"
+DATA=$RAIZ/datos
+APP=$RAIZ/app
+WEB=$RAIZ/web
+SITIO="${CATEGORIA}-${CLIENTE:+$CLIENTE-}${PROYECTO}"
 IP_PUBLICA=$(curl -fs4 https://ifconfig.me || hostname -I | awk '{print $1}')
-# Si ya se conectó un dominio (paso 06), se recuerda en data/dominio y se reutiliza en cada actualización.
-DOMINIO="${DOMINIO:-$(cat $DATA/dominio 2>/dev/null || echo $IP_PUBLICA)}"
+# El dominio sale de la ficha; si se pasa DOMINIO_OVERRIDE, se guarda en ella para las próximas veces.
+if [ -n "${DOMINIO_OVERRIDE:-}" ]; then DOMINIO="$DOMINIO_OVERRIDE"; sed -i "s#^DOMINIO=.*#DOMINIO=$DOMINIO#" "$RAIZ/proyecto.env"; fi
+DOMINIO="${DOMINIO:-$IP_PUBLICA}"
 if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then ESQUEMA=http; else ESQUEMA=https; fi
 URL_PUBLICA="$ESQUEMA://$DOMINIO"
 if [ "$ESQUEMA" = https ]; then URLS_FRONT="$URL_PUBLICA,https://www.$DOMINIO"; else URLS_FRONT="$URL_PUBLICA"; fi
@@ -21,42 +28,43 @@ pm2 kill >/dev/null 2>&1 || true   # por si quedó un PM2 de root de la instalac
 
 echo ">> Usuario de sistema 'zeudin' (la app nunca corre como root)"
 id zeudin >/dev/null 2>&1 || useradd --system --create-home --home-dir $BASE --shell /bin/bash zeudin
-mkdir -p $DATA/uploads $DATA/backups $WEB
-chown -R zeudin:zeudin $BASE
+mkdir -p $DATA/uploads $DATA/secretos $DATA/release $RAIZ/respaldos $RAIZ/logs $RAIZ/scripts $WEB
+chown -R zeudin:zeudin $RAIZ
+chmod 751 $RAIZ; chmod 750 $DATA $RAIZ/respaldos; chmod 700 $DATA/secretos
 
 echo ">> Base de datos PostgreSQL"
-if [ ! -f $DATA/db_password ]; then
-  openssl rand -hex 24 > $DATA/db_password
-  chmod 600 $DATA/db_password; chown zeudin:zeudin $DATA/db_password
+if [ ! -f $DATA/secretos/db_password ]; then
+  openssl rand -hex 24 > $DATA/secretos/db_password
+  chmod 600 $DATA/secretos/db_password; chown zeudin:zeudin $DATA/secretos/db_password
 fi
-DB_PASS=$(cat $DATA/db_password)
+DB_PASS=$(cat $DATA/secretos/db_password)
 sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
 DO \$\$ BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'zeudin_app') THEN
-    CREATE ROLE zeudin_app LOGIN PASSWORD '$DB_PASS';
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USUARIO') THEN
+    CREATE ROLE $DB_USUARIO LOGIN PASSWORD '$DB_PASS';
   ELSE
-    ALTER ROLE zeudin_app PASSWORD '$DB_PASS';
+    ALTER ROLE $DB_USUARIO PASSWORD '$DB_PASS';
   END IF;
 END \$\$;
 SQL
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='zeudin'" | grep -q 1 || \
-  sudo -u postgres createdb -O zeudin_app zeudin
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='$DB_NOMBRE'" | grep -q 1 || \
+  sudo -u postgres createdb -O $DB_USUARIO $DB_NOMBRE
 # Las extensiones necesitan superusuario; la app no lo es (a propósito).
-sudo -u postgres psql -d zeudin -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;"
+sudo -u postgres psql -d $DB_NOMBRE -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;"
 
 echo ">> Variables de entorno de producción (se generan una sola vez)"
-ENVF=$DATA/.env.production
+ENVF=$DATA/secretos/.env.production
 if [ ! -f $ENVF ]; then
   cat > $ENVF <<EOF
 NODE_ENV=production
-PORT=4000
+PORT=$PUERTO_API
 FRONTEND_URL=$URLS_FRONT
 BACKEND_URL=$URL_PUBLICA/api
-DATABASE_URL="postgresql://zeudin_app:$DB_PASS@localhost:5432/zeudin?schema=public"
+DATABASE_URL="postgresql://$DB_USUARIO:$DB_PASS@localhost:5432/$DB_NOMBRE?schema=public"
 JWT_SECRET=$(openssl rand -hex 48)
 JWT_REFRESH_SECRET=$(openssl rand -hex 48)
 INTEGRATIONS_ENCRYPTION_KEY=$(openssl rand -hex 32)
-BACKUP_DIR=$DATA/backups
+BACKUP_DIR=$RAIZ/respaldos
 EOF
 else
   # Si cambió el dominio, se actualizan solo las URLs (los secretos se conservan).
@@ -68,7 +76,7 @@ echo ">> Código nuevo"
 rm -rf $APP.new && mkdir -p $APP.new
 tar -xzf "$ARCHIVO" -C $APP.new
 # Copia del código desplegado: va dentro de cada respaldo para poder restaurar sin GitHub.
-[ "$(readlink -f "$ARCHIVO")" = "$DATA/release.tar.gz" ] || cp "$ARCHIVO" $DATA/release.tar.gz
+[ "$(readlink -f "$ARCHIVO")" = "$DATA/release/release.tar.gz" ] || cp "$ARCHIVO" $DATA/release/release.tar.gz
 # Los archivos subidos y el .env viven FUERA del código, así una actualización nunca los toca.
 rm -rf $APP.new/backend/uploads
 ln -sfn $DATA/uploads $APP.new/backend/uploads
@@ -88,31 +96,37 @@ sudo -u zeudin npm ci --no-audit --no-fund
 sudo -u zeudin env VITE_API_URL=/api npm run build
 
 echo ">> Activando la versión nueva"
-rm -rf $APP.old
-if [ -d $APP/backend ]; then mv $APP $APP.old; else rm -rf $APP; fi
+rm -rf $RAIZ/app.prev
+if [ -d $APP/backend ]; then mv $APP $RAIZ/app.prev; else rm -rf $APP; fi
 mv $APP.new $APP
 rsync -a --delete $APP/frontend/dist/ $WEB/
+install -m 644 $APP/deploy/servidor/estructura/proyecto/README.web.md $WEB/README.md
 chown -R www-data:www-data $WEB
+# Scripts propios del proyecto (los trae el mismo paquete de código)
+mkdir -p $RAIZ/scripts
+cp $APP/deploy/proyecto/*.sh $RAIZ/scripts/ && chmod 750 $RAIZ/scripts/*.sh
+cp $APP/deploy/README.md $RAIZ/scripts/README-despliegue.md
+chown -R zeudin:zeudin $RAIZ/scripts
 
 echo ">> PM2: mantiene la API siempre encendida y la reinicia sola si falla o si el servidor se reinicia"
-cat > $BASE/ecosystem.config.cjs <<EOF
+cat > $RAIZ/ecosystem.config.cjs <<EOF
 module.exports = {
   apps: [{
-    name: "zeudin-api",
+    name: "$PM2_NOMBRE",
     cwd: "$APP/backend",
     script: "src/server.js",
     exec_mode: "fork",          // UNA sola instancia: los crons no deben correr duplicados
     instances: 1,
     max_memory_restart: "1500M",
     env: { NODE_ENV: "production", TZ: "America/Havana" },
-    out_file: "$BASE/logs/api.out.log",
-    error_file: "$BASE/logs/api.err.log",
+    out_file: "$RAIZ/logs/api.out.log",
+    error_file: "$RAIZ/logs/api.err.log",
     time: true,
   }],
 };
 EOF
-mkdir -p $BASE/logs && chown -R zeudin:zeudin $BASE/ecosystem.config.cjs $BASE/logs
-sudo -u zeudin pm2 startOrReload $BASE/ecosystem.config.cjs --update-env
+chown -R zeudin:zeudin $RAIZ/ecosystem.config.cjs $RAIZ/logs
+sudo -u zeudin pm2 startOrReload $RAIZ/ecosystem.config.cjs --update-env
 sudo -u zeudin pm2 save
 env PATH=$PATH:/usr/bin pm2 startup systemd -u zeudin --hp $BASE >/dev/null
 systemctl enable pm2-zeudin >/dev/null 2>&1 || true
@@ -124,13 +138,9 @@ sudo -u zeudin pm2 set pm2-logrotate:retain 10 >/dev/null 2>&1 || true
 
 echo ">> Nginx (sitio + API en /api + vista previa de tiendas para WhatsApp/Facebook)"
 if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then NOMBRES="$DOMINIO _"; else NOMBRES="$DOMINIO www.$DOMINIO"; fi
-cat > /etc/nginx/conf.d/zeudin-bots.conf <<'EOF'
-map $http_user_agent $zeudin_es_bot {
-  default 0;
-  ~*(facebookexternalhit|facebot|whatsapp|twitterbot|telegrambot|discordbot|slackbot|linkedinbot|pinterest|skypeuripreview|googlebot|bingbot) 1;
-}
-EOF
-cat > /etc/nginx/sites-available/zeudin <<EOF
+# El detector de bots (variable zeudin_es_bot) es común a todos los proyectos: lo crea crear-estructura.sh.
+[ -f /etc/nginx/conf.d/00-zeudin-bots.conf ] || { echo "Falta 00-zeudin-bots.conf: corre /opt/zeudin/plataforma/scripts/crear-estructura.sh"; exit 1; }
+cat > $RAIZ/nginx.conf <<EOF
 server {
     listen 80;
     listen [::]:80;
@@ -150,7 +160,7 @@ server {
 
     # API Express (todas sus rutas viven bajo /api en producción)
     location /api/ {
-        proxy_pass http://127.0.0.1:4000/;
+        proxy_pass http://127.0.0.1:$PUERTO_API/;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -180,8 +190,9 @@ server {
     }
 }
 EOF
-ln -sfn /etc/nginx/sites-available/zeudin /etc/nginx/sites-enabled/zeudin
-rm -f /etc/nginx/sites-enabled/default
+chown zeudin:zeudin $RAIZ/nginx.conf
+ln -sfn $RAIZ/nginx.conf /etc/nginx/sites-available/$SITIO.conf
+ln -sfn /etc/nginx/sites-available/$SITIO.conf /etc/nginx/sites-enabled/$SITIO.conf
 nginx -t && systemctl reload nginx
 
 # Si el dominio ya tiene certificado SSL, se vuelve a aplicar al Nginx recién escrito (sin pedir uno nuevo).
@@ -193,6 +204,6 @@ fi
 
 echo ">> Verificación"
 sleep 4
-curl -fsS http://127.0.0.1:4000/health && echo
-curl -fsS -o /dev/null -w "Sitio: HTTP %{http_code}\n" http://127.0.0.1/
+curl -fsS http://127.0.0.1:$PUERTO_API/health && echo
+curl -fsS -o /dev/null -w "Sitio: HTTP %{http_code}\n" -H "Host: $DOMINIO" http://127.0.0.1/
 echo "Listo: $URL_PUBLICA"

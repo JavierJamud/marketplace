@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ZeuDin Marketplace — Paso 1: preparar un servidor Ubuntu nuevo (ARM64 o x86).
+# ZeuDin: paso 1: preparar un servidor Ubuntu nuevo (ARM64 o x86).
 # Sirve para Oracle o para cualquier otro VPS. Ejecutar como: sudo bash 01-preparar-servidor.sh
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -48,6 +48,9 @@ if ! command -v node >/dev/null || ! node -v | grep -q '^v24'; then
   apt-get install -y nodejs
 fi
 npm install -g pm2@latest
+
+echo ">> Estructura de carpetas ZeuDin (/opt/zeudin)"
+bash "$(cd "$(dirname "$0")" && pwd)/crear-estructura.sh"
 
 echo ">> Listo. Versiones:"
 node -v; npm -v; pm2 -v; nginx -v 2>&1; psql --version; certbot --version; rclone version | head -1
