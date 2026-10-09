@@ -27,6 +27,7 @@ const ACTIVITY_THROTTLE_MS = 15 * 1000; // no escribir en localStorage en cada p
 export function loginPathFor(pathname) {
   if (pathname?.startsWith("/vendedor")) return "/vendedor/ingresar";
   if (pathname?.startsWith("/admin")) return "/admin/ingresar";
+  if (pathname?.startsWith("/socio")) return "/socio/ingresar";
   return "/";
 }
 

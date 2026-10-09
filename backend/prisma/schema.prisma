@@ -15,6 +15,10 @@ enum Role {
   CUSTOMER
   VENDOR
   ADMIN
+  // Bloque 299 (pedido explícito — "los paneles de los socios mantienen la estructura del sitio y de los
+  // paneles de Baznova"): cuenta de acceso de un socio de la API a su propio panel (solo lectura de sus
+  // métricas y llaves). Se vincula con Partner.userId; no es dueño de tienda ni cliente.
+  PARTNER
   // Bloque 183 (pedido explícito — "quiero que el vendedor... pueda crear
   // usuarios con roles dentro de su negocio... solo va a tener acceso a la
   // sección que él designe"): un User real, con su propia sesión/login,
@@ -726,6 +730,8 @@ model ProductOption {
 // ---------------------------------------------------------------------------
 
 model User {
+  // Bloque 299: si es una cuenta PARTNER, el socio al que pertenece.
+  partnerAccount Partner? @relation("PartnerPortalUser")
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
@@ -3413,9 +3419,12 @@ model Partner {
   // solo se ven por el enlace directo y en la API del propio socio (false).
   listInMarketplace Boolean  @default(true)
   notes        String?
+  // Bloque 299: usuario con el que el socio entra a su panel (/socio). Null = todavía sin acceso.
+  userId       String?       @unique
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
+  user    User?           @relation("PartnerPortalUser", fields: [userId], references: [id], onDelete: SetNull)
   keys    PartnerApiKey[]
   vendors Vendor[]
   usageHours PartnerApiUsageHour[]

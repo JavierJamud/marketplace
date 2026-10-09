@@ -76,6 +76,11 @@ import AdminAyuda from "./pages/admin/AdminAyuda.jsx";
 import AdminBranding from "./pages/admin/AdminBranding.jsx";
 import AdminOffers from "./pages/admin/AdminOffers.jsx";
 import AdminPartners from "./pages/admin/AdminPartners.jsx";
+import PartnerLayout from "./pages/partner/PartnerLayout.jsx";
+import PartnerDashboard from "./pages/partner/PartnerDashboard.jsx";
+import PartnerKeys from "./pages/partner/PartnerKeys.jsx";
+import PartnerMovements from "./pages/partner/PartnerMovements.jsx";
+import PartnerAccount from "./pages/partner/PartnerAccount.jsx";
 import ApiSocios from "./pages/public/ApiSocios.jsx";
 import { capturePartnerRef } from "./lib/partnerRef.js";
 import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
@@ -179,6 +184,21 @@ export default function App() {
           Account.jsx), solo cambia el copy y qué vistas ofrece cada una. */}
       <Route path="/vendedor/ingresar" element={<Account mode="vendor" />} />
       <Route path="/admin/ingresar" element={<Account mode="admin" />} />
+      {/* Bloque 299: panel del socio de la API (rol PARTNER), con la misma estructura que los demás paneles. */}
+      <Route path="/socio/ingresar" element={<Account mode="partner" />} />
+      <Route
+        path="/socio"
+        element={
+          <ProtectedRoute roles={["PARTNER"]} redirectTo="/socio/ingresar">
+            <PartnerLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<PartnerDashboard />} />
+        <Route path="llaves" element={<PartnerKeys />} />
+        <Route path="movimientos" element={<PartnerMovements />} />
+        <Route path="cuenta" element={<PartnerAccount />} />
+      </Route>
 
       {/* Panel de vendedor — Bloque 183 (pedido explícito): un usuario de
           sistema (VENDOR_STAFF) entra por esta MISMA puerta que el dueño —

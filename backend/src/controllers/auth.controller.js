@@ -296,7 +296,7 @@ const loginSchema = z.object({
   // "Credenciales inválidas" — mandaba un código innecesario y emitía
   // tokens reales por un instante para una cuenta que nunca debía poder
   // entrar por ahí. Ahora se corta acá, antes de mandar ningún código.
-  context: z.enum(["admin", "vendor"]).nullish(),
+  context: z.enum(["admin", "vendor", "partner"]).nullish(),
 });
 
 // Bloque 88 (pedido explícito, con el trade-off de seguridad ya explicado
@@ -310,6 +310,7 @@ const loginSchema = z.object({
 // login separado. Ambos roles son "de vendedor" a los ojos de este check.
 function assertRoleMatchesContext(user, context) {
   if (context === "admin" && user.role !== "ADMIN") throw new AppError("Esta cuenta no tiene permisos de administrador.", 401);
+  if (context === "partner" && user.role !== "PARTNER") throw new AppError("Esta cuenta no es de un socio de la API.", 401);
   if (context === "vendor" && user.role !== "VENDOR" && user.role !== "VENDOR_STAFF") {
     throw new AppError("Esta cuenta no es de vendedor.", 401);
   }
@@ -484,7 +485,7 @@ const verifyTwoFactorSchema = z.object({
   // Bloque 76: defensa en profundidad — login() ya corta antes de mandar el
   // código si el contexto no coincide, así que en la práctica esto nunca
   // debería dispararse, pero no cuesta nada repetir el chequeo acá también.
-  context: z.enum(["admin", "vendor"]).nullish(),
+  context: z.enum(["admin", "vendor", "partner"]).nullish(),
 });
 
 export async function verifyTwoFactorLogin(req, res) {

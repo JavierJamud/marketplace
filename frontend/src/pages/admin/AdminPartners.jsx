@@ -219,6 +219,45 @@ function Movements({ partnerId }) {
   );
 }
 
+// Bloque 299 (pedido explícito — panel del socio con la estructura de Baznova): el admin le da al socio acceso
+// a /socio con el correo de contacto del socio. La clave temporal se muestra UNA sola vez; "Reiniciar" crea otra.
+function PortalAccessCard({ partner }) {
+  const qc = useQueryClient();
+  const [access, setAccess] = useState(null);
+  const grant = useMutation({
+    mutationFn: async () => (await api.post(`/admin/partners/${partner.id}/portal-access`, {})).data.access,
+    onSuccess: (a) => {
+      setAccess(a);
+      qc.invalidateQueries({ queryKey: ["admin-partner", partner.id] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo crear el acceso."),
+  });
+  const has = !!partner.portal;
+  return (
+    <div className={`${CARD} mb-5 p-4`}>
+      <p className={LABEL}>Acceso del socio a su panel</p>
+      {has && !access && (
+        <p className="mb-2 text-[13px] text-on-surface-variant">
+          Entra en <code>{window.location.origin}/socio/ingresar</code> con <b>{partner.portal.email}</b>
+          {partner.portal.lastLoginAt ? ` · último ingreso ${new Date(partner.portal.lastLoginAt).toLocaleString("es-CU")}` : " · todavía no ha entrado"}.
+        </p>
+      )}
+      {!has && !access && <p className="mb-2 text-[13px] text-on-surface-variant">Todavía no tiene acceso. Se crea con el correo de contacto ({partner.contactEmail}) y una clave temporal.</p>}
+      {access && (
+        <div className="mb-3 rounded-xl bg-surface-container px-3.5 py-3 text-[13px]">
+          <p className="font-bold text-on-surface">Entrega estos datos al socio (la clave no se vuelve a mostrar):</p>
+          <p className="mt-1">Dirección: <code>{access.loginUrl}</code></p>
+          <p>Correo: <code>{access.email}</code></p>
+          <p>Clave temporal: <code>{access.temporaryPassword}</code></p>
+        </div>
+      )}
+      <button className={BTN_GHOST} disabled={grant.isPending} onClick={() => grant.mutate()}>
+        {has ? "Reiniciar clave de acceso" : "Dar acceso al panel"}
+      </button>
+    </div>
+  );
+}
+
 function PartnerDetail({ id, onBack }) {
   const qc = useQueryClient();
   const [keyModal, setKeyModal] = useState(null); // { existing? }
@@ -287,6 +326,8 @@ function PartnerDetail({ id, onBack }) {
         <p className="text-[12px] text-outline">Tiendas registradas por este enlace: <b>{fmt(partner.stores)}</b>. Este ajuste aplica a las tiendas que se registren desde ahora.</p>
       </div>
 
+      <PortalAccessCard partner={partner} />
+
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Hoy" value={fmt(usage.requestsToday)} hint="solicitudes" />
         <Stat label="Últimos 30 días" value={fmt(usage.requests)} hint="solicitudes" />
@@ -299,7 +340,7 @@ function PartnerDetail({ id, onBack }) {
           <p className="mb-3 text-[13px] font-bold text-on-surface">Solicitudes por día</p>
           <div className="flex h-28 items-end gap-1">
             {usage.byDay.map((d) => (
-              <div key={d.day} title={`${d.day}: ${fmt(d.requests)}`} className="flex-1 rounded-t bg-primary/70" style={{ height: `${Math.max(3, (d.requests / maxDay) * 100)}%` }} />
+              <div key={d.day} title={`${d.day}: ${fmt(d.requests)}`} className="max-w-[48px] flex-1 rounded-t bg-primary/70" style={{ height: `${Math.max(3, (d.requests / maxDay) * 100)}%` }} />
             ))}
           </div>
         </div>

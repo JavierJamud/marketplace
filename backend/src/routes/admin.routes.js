@@ -46,6 +46,7 @@ router.get("/partners/:id", partnersController.getPartner);
 router.patch("/partners/:id", partnersController.updatePartner);
 router.get("/partners/:id/usage", partnersController.getPartnerUsage);
 router.get("/partners/:id/movements", partnersController.getPartnerMovements);
+router.post("/partners/:id/portal-access", partnersController.grantPortalAccess);
 router.post("/partners/:id/keys", partnersController.createKey);
 router.patch("/partners/:id/keys/:keyId", partnersController.updateKey);
 router.post("/partners/:id/keys/:keyId/revoke", partnersController.revokeKey);

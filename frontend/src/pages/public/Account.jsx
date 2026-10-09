@@ -43,6 +43,11 @@ const SHELL_COPY = {
     subtitle: "Ingresa para gestionar tu tienda, tus productos y tus pedidos.",
     showStats: false,
   },
+  partner: {
+    headline: "Panel del socio",
+    subtitle: "Mira cómo usa tu sitio la API de Baznova: solicitudes, errores, llaves y cuotas.",
+    showStats: false,
+  },
   admin: {
     headline: "Panel de administración",
     subtitle: "Acceso exclusivo para el equipo — inicia sesión con tu cuenta de administrador.",
@@ -320,10 +325,10 @@ export default function Account({ mode = "customer" }) {
   // Bloque 294: toda tienda nueva empieza en el plan Regular; su tope de mesas lo fija el admin.
   const { maxTablesByPlan } = usePlatformSettings();
   const maxTables = maxTablesByPlan?.REGULAR ?? null;
-  const canRegister = mode !== "admin";
+  const canRegister = mode !== "admin" && mode !== "partner";
 
   // "login" | "register" | "register-verify" | "forgot-email" | "forgot-code" | "forgot-newpass" | "two-factor"
-  const [view, setView] = useState(mode === "admin" ? "login" : searchParams.get("tab") === "registro" ? "register" : "login");
+  const [view, setView] = useState(mode === "admin" || mode === "partner" ? "login" : searchParams.get("tab") === "registro" ? "register" : "login");
   const [twoFactorEmail, setTwoFactorEmail] = useState("");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   // Bloque 46 (pedido explícito — "vamos a corregir que en el inicio de
@@ -406,7 +411,7 @@ export default function Account({ mode = "customer" }) {
   // qué ve adentro según su rol/secciones, nunca esto de acá).
   function destinationAfterLogin(role) {
     if (role === "CUSTOMER" && isSafeNextPath) return nextPath;
-    return role === "ADMIN" ? "/admin" : role === "VENDOR" || role === "VENDOR_STAFF" ? "/vendedor" : "/cuenta/panel";
+    return role === "ADMIN" ? "/admin" : role === "PARTNER" ? "/socio" : role === "VENDOR" || role === "VENDOR_STAFF" ? "/vendedor" : "/cuenta/panel";
   }
 
   // /cuenta (mode="customer") acepta cualquier rol (comportamiento de
@@ -414,6 +419,7 @@ export default function Account({ mode = "customer" }) {
   // devuelto coincida con la URL usada.
   function roleAllowedForMode(role) {
     if (mode === "admin") return role === "ADMIN";
+    if (mode === "partner") return role === "PARTNER";
     if (mode === "vendor") return role === "VENDOR" || role === "VENDOR_STAFF";
     return true;
   }
@@ -423,7 +429,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" ? mode : undefined);
+        const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
         // Bloque 47: 2FA opt-in — en vez de navegar, muestra el paso de
         // "ingresa el código" (mismo patrón visual que forgot-code).
         if (result?.requiresTwoFactor) {
@@ -474,7 +480,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" ? mode : undefined);
+        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
         if (!roleAllowedForMode(user.role)) {
           logout();
           toast.error("Credenciales inválidas.");
@@ -710,7 +716,7 @@ export default function Account({ mode = "customer" }) {
     if (challengeToken) return handleSendEmailCodeInstead();
     setResendingCode(true);
     try {
-      const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" ? mode : undefined);
+      const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
       if (result?.requiresTwoFactor) {
         setTwoFactorExpiresAt(result.twoFactorExpiresAt);
         setTwoFactorCode("");
@@ -984,7 +990,7 @@ export default function Account({ mode = "customer" }) {
         {isLogin ? (
           <>
             <h1 className="mb-1 text-headline-md text-on-surface">
-              {mode === "admin" ? "Acceso de administrador" : mode === "vendor" ? "Ingresa a tu panel" : "Bienvenido de nuevo"}
+              {mode === "admin" ? "Acceso de administrador" : mode === "partner" ? "Acceso de socios" : mode === "vendor" ? "Ingresa a tu panel" : "Bienvenido de nuevo"}
             </h1>
             <p className="mb-6 text-body-md text-on-surface-variant">
               {mode === "admin"

@@ -12,6 +12,8 @@ import {
   MAX_RATE_PER_MINUTE,
   MAX_DAILY_LIMIT,
 } from "../lib/partnerScopes.js";
+import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { invalidatePartnerKeyCache } from "../middleware/partnerAuth.js";
 import { usageSummary, recentMovements, keysWithLive } from "../lib/partnerStats.js";
 import { siteUrl } from "../lib/partnerDto.js";
@@ -145,6 +147,29 @@ export async function createPartner(req, res) {
   res.status(201).json({ partner: { ...partner, signupUrl: `${siteUrl()}/vender?socio=${partner.code}` } });
 }
 
+// Bloque 299: el admin le da (o reinicia) al socio el acceso a su panel /socio. Se crea un usuario con rol
+// PARTNER con el correo de contacto del socio; la clave temporal se muestra UNA sola vez.
+const portalBody = z.object({ email: z.string().trim().toLowerCase().email().max(120).optional() });
+export async function grantPortalAccess(req, res) {
+  const partner = await getPartnerOr404(req.params.id);
+  const { email } = portalBody.parse(req.body ?? {});
+  const password = `Socio-${randomBytes(5).toString("hex")}`;
+  const passwordHash = await bcrypt.hash(password, 10);
+  let user;
+  if (partner.userId) {
+    user = await prisma.user.update({ where: { id: partner.userId }, data: { passwordHash, mustSetPassword: false, ...(email ? { email } : {}) } });
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+  } else {
+    const loginEmail = email ?? partner.contactEmail;
+    if (await prisma.user.findUnique({ where: { email: loginEmail } })) throw new AppError(`Ya existe una cuenta con el correo ${loginEmail}. Usa otro correo para el panel del socio.`, 409);
+    user = await prisma.user.create({ data: { email: loginEmail, passwordHash, role: "PARTNER", fullName: partner.contactName || partner.name, mustSetPassword: false } });
+    await prisma.partner.update({ where: { id: partner.id }, data: { userId: user.id } });
+  }
+  logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_portal_access", description: `Dio acceso al panel al socio "${partner.name}"`, meta: { partnerId: partner.id } });
+  // Única vez que se muestra la clave temporal.
+  res.status(201).json({ access: { email: user.email, temporaryPassword: password, loginUrl: `${siteUrl()}/socio/ingresar` } });
+}
+
 export async function getPartner(req, res) {
   const partner = await getPartnerOr404(req.params.id);
   const [keys, usage, stores] = await Promise.all([
@@ -152,7 +177,8 @@ export async function getPartner(req, res) {
     usageSummary(partner.id, 30),
     prisma.vendor.count({ where: { partnerId: partner.id } }),
   ]);
-  res.json({ partner: { ...partner, signupUrl: `${siteUrl()}/vender?socio=${partner.code}`, stores }, keys, usage });
+  const portalUser = partner.userId ? await prisma.user.findUnique({ where: { id: partner.userId }, select: { email: true, lastLoginAt: true } }) : null;
+  res.json({ partner: { ...partner, signupUrl: `${siteUrl()}/vender?socio=${partner.code}`, stores, portal: portalUser ? { email: portalUser.email, lastLoginAt: portalUser.lastLoginAt } : null }, keys, usage });
 }
 
 export async function updatePartner(req, res) {
