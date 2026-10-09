@@ -497,7 +497,7 @@ async function blast(total, conc, path) {
     while (next < total) {
       next += 1;
       const s = performance.now();
-      const res = await call(path, { key: big.secret });
+      const res = await call(P(path), { key: big.secret });
       lat.push(performance.now() - s);
       statuses.set(res.status, (statuses.get(res.status) ?? 0) + 1);
     }
