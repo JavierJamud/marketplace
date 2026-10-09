@@ -487,7 +487,7 @@ for (let s = 0; s < nStores; s++) {
   });
 }
 
-const big = await newKey({ name: "Carga", kind: "SERVER", allowedIps: ["127.0.0.1", "::1"], rateLimitPerMinute: 1_000_000, dailyLimit: 100_000_000 });
+const big = await newKey({ name: "Carga", kind: "SERVER", allowedIps: ["127.0.0.1", "::1"], rateLimitPerMinute: 100000, dailyLimit: 100_000_000 });
 async function blast(total, conc, path) {
   const lat = [];
   const statuses = new Map();
@@ -535,7 +535,7 @@ const atom = await newKey({ name: "Atómica", kind: "SERVER", allowedIps: ["127.
 let results = await Promise.all(Array.from({ length: 300 }, () => call(P("/categories"), { key: atom.secret })));
 let ok = results.filter((x) => x.status === 200).length;
 check("300 simultáneas con límite 100/min: exactamente 100 pasan", ok === 100 && results.filter((x) => x.status === 429).length === 200, { ok });
-const atomDay = await newKey({ name: "Atómica día", kind: "SERVER", allowedIps: ["127.0.0.1", "::1"], rateLimitPerMinute: 1_000_000, dailyLimit: 150 });
+const atomDay = await newKey({ name: "Atómica día", kind: "SERVER", allowedIps: ["127.0.0.1", "::1"], rateLimitPerMinute: 100000, dailyLimit: 150 });
 results = await Promise.all(Array.from({ length: 400 }, () => call(P("/categories"), { key: atomDay.secret })));
 ok = results.filter((x) => x.status === 200).length;
 check("400 simultáneas con límite diario 150: exactamente 150 pasan", ok === 150, { ok });
