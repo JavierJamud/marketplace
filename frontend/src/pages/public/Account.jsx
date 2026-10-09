@@ -16,6 +16,7 @@ import { Spinner } from "../../components/ui/Spinner.jsx";
 import { PlanComparisonModal } from "../../components/PlanComparisonModal.jsx";
 import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
+import { capturePartnerRef, getPartnerCode, clearPartnerRef } from "../../lib/partnerRef.js";
 
 function BrandStat({ value, label }) {
   return (
@@ -308,6 +309,8 @@ const emptyStoreForm = {
 // a la URL usada — nunca revelan que el email existe con otro rol (ver
 // roleAllowedForMode/handleLogin más abajo).
 export default function Account({ mode = "customer" }) {
+  // Enlace de socio que llegó directo a esta pantalla (…/vendedor/ingresar?socio=CODIGO).
+  useEffect(() => capturePartnerRef(), []);
   const { login, verifyTwoFactor, register, verifyRegistration, refreshRole, logout } = useAuth();
   const { siteName } = usePlatformSettings();
   const navigate = useNavigate();
@@ -614,6 +617,7 @@ export default function Account({ mode = "customer" }) {
 
         if (accountType === "vendor") {
           await api.post("/vendors", {
+            partnerCode: getPartnerCode(),
             companyName: storeForm.companyName,
             // Bloque 113/114 (pedido explícito): ya no se piden de nuevo en
             // el paso de la tienda — son los mismos que la persona cargó en
@@ -645,6 +649,7 @@ export default function Account({ mode = "customer" }) {
           // dice role CUSTOMER — sin refrescarlo, /vendedor/* devolvería 403
           // apenas se cierre el modal y se navegue al panel.
           await refreshRole();
+          clearPartnerRef();
           setShowPlanModal(true);
         } else {
           // Bloque 59 (pedido explícito): si ya había comprado como

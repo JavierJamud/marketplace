@@ -34,6 +34,7 @@ const NAV = [
   { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle },
   { to: "/admin/campanas", label: "Campañas", icon: Megaphone },
   { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard },
+  { to: "/admin/socios-api", label: "Socios de la API", icon: Plug },
   { to: "/admin/ofertas", label: "Ofertas", icon: Tag },
   // Auditoría de seguridad: antes no había ninguna supervisión de admin
   // sobre esto (Bloque 52) — ver discountCodes.controller.js/storeOffers.controller.js.

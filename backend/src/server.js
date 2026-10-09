@@ -13,6 +13,7 @@ import { startVendorDeletionJob } from "./jobs/vendorDeletion.job.js";
 import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
+import { startPartnerUsageFlusher } from "./lib/partnerUsage.js";
 
 app.listen(env.port, () => {
   console.log(`API escuchando en http://localhost:${env.port} y http://192.168.1.79:${env.port}`);
@@ -73,3 +74,5 @@ startClickAnomalyJob();
 // siguiente cron diario fijo libre después de reviewAnomaly (10:00) —
 // clickAnomaly no cuenta, corre cada 3h, no una vez al día.
 startTrialExpiryJob();
+// API de socios: vuelca cada pocos segundos los movimientos y totales de uso a la base.
+startPartnerUsageFlusher();

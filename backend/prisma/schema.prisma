@@ -1029,6 +1029,9 @@ model PlanConfig {
 model Vendor {
   id          String   @id @default(cuid())
   userId      String   @unique
+  // Socio de la API por cuyo enlace (baznova.com/vender?socio=CODIGO) se registró la
+  // tienda. null = registro directo en Baznova. Se fija al crear la tienda y no cambia.
+  partnerId   String?
   companyName String
   // Persona física responsable del negocio (KYC/contacto legal) — privado,
   // nunca se expone en los endpoints públicos de tienda (ver vendors.controller.js).
@@ -1271,6 +1274,7 @@ model Vendor {
   // separado del ciclo inicial de verificación (VerificationRequest/
   // VerificationArchive, Bloques 150-152), que sigue intacto tal cual.
   subscriptionPayments SubscriptionPayment[]
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   // Bloque 153 (pedido explícito — "todos los datos de la tienda no se
   // pueden modificar después de estar verificadas sin aprobación del
   // admin"): solicitudes de cambio a datos de identidad de una tienda ya
@@ -1293,6 +1297,7 @@ model Vendor {
   // Bloque 241: lista de tiendas del admin (filtro por plan, orden por fecha).
   @@index([planType, createdAt])
   @@index([adminDeletionRequestedAt])
+  @@index([partnerId])
 }
 
 // Bloque 194 (pedido explícito — "agregar una sección dentro del dashboard
@@ -3385,4 +3390,115 @@ model AiUsage {
   updatedAt DateTime @updatedAt
 
   @@id([provider, model])
+}
+
+// Socios de la API (Partner API, /partner/v1). Un socio es una empresa externa que muestra
+// productos de Baznova en su sitio y trae tiendas con su enlace de socio. La API solo LEE datos
+// (más la validación del carrito); crear tiendas sigue siendo en la página de registro de Baznova.
+enum PartnerStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Partner {
+  id           String        @id @default(cuid())
+  name         String
+  // Código del enlace de socio (baznova.com/vender?socio=CODIGO). Mayúsculas, 3 a 24 caracteres.
+  code         String        @unique
+  contactEmail String
+  contactName  String?
+  website      String?
+  status       PartnerStatus @default(ACTIVE)
+  // Las tiendas que trae este socio aparecen también en el marketplace de Baznova (true) o
+  // solo se ven por el enlace directo y en la API del propio socio (false).
+  listInMarketplace Boolean  @default(true)
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  keys    PartnerApiKey[]
+  vendors Vendor[]
+  usageHours PartnerApiUsageHour[]
+  logs    PartnerApiLog[]
+}
+
+enum PartnerKeyKind {
+  // Para el navegador del cliente final: llave pública, solo lectura, restringida a dominios.
+  BROWSER
+  // Para el servidor del socio: llave secreta, restringida a direcciones IP.
+  SERVER
+}
+
+enum PartnerKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+model PartnerApiKey {
+  id        String           @id @default(cuid())
+  partnerId String
+  name      String
+  kind      PartnerKeyKind
+  // Primeros caracteres de la llave, solo para reconocerla en el panel. La llave completa se
+  // muestra una única vez al crearla; en la base solo vive su huella SHA-256.
+  prefix    String
+  keyHash   String           @unique
+  // Grupos de endpoints permitidos (ver lib/partnerScopes.js).
+  scopes    String[]         @default([])
+  rateLimitPerMinute Int     @default(1200)
+  dailyLimit         Int     @default(500000)
+  // BROWSER: dominios (sin protocolo, ej. "mitienda.com"; "*.mitienda.com" admite subdominios).
+  allowedDomains String[]    @default([])
+  // SERVER: direcciones IPv4/IPv6 exactas.
+  allowedIps     String[]    @default([])
+  status    PartnerKeyStatus @default(ACTIVE)
+  expiresAt DateTime?
+  lastUsedAt DateTime?
+  createdAt DateTime         @default(now())
+  revokedAt DateTime?
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  logs    PartnerApiLog[]
+  usageHours PartnerApiUsageHour[]
+
+  @@index([partnerId])
+}
+
+// Movimientos recientes de la API (una fila por solicitud). Se limpia pasados 30 días; los
+// totales históricos viven en PartnerApiUsageHour.
+model PartnerApiLog {
+  id        String   @id @default(cuid())
+  partnerId String
+  keyId     String
+  endpoint  String
+  method    String
+  status    Int
+  ms        Int
+  ip        String?
+  origin    String?
+  createdAt DateTime @default(now())
+
+  partner Partner       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  key     PartnerApiKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId, createdAt])
+  @@index([keyId, createdAt])
+  @@index([createdAt])
+}
+
+// Totales por llave, hora y endpoint. Alimenta las métricas del panel del socio y del admin.
+model PartnerApiUsageHour {
+  keyId     String
+  hour      DateTime
+  endpoint  String
+  partnerId String
+  requests  Int      @default(0)
+  errors    Int      @default(0)
+  totalMs   BigInt   @default(0)
+
+  partner Partner       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  key     PartnerApiKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@id([keyId, hour, endpoint])
+  @@index([partnerId, hour])
 }

@@ -87,6 +87,9 @@ function flattenScheduleDays(days) {
 
 const createVendorSchema = z.object({
   companyName: z.string().min(2),
+  // Código del socio de la API (enlace baznova.com/vender?socio=CODIGO). Opcional; un código
+  // desconocido o de un socio suspendido se ignora sin bloquear el registro.
+  partnerCode: z.string().trim().toUpperCase().max(24).optional(),
   // Persona física responsable (KYC/contacto legal) — nunca se expone
   // públicamente, distinto del nombre de tienda que sí se muestra en Store.jsx.
   ownerName: z.string().min(2, "Falta el nombre del responsable del negocio."),
@@ -225,9 +228,17 @@ export async function createVendor(req, res) {
   // (no WhatsApp) — pueden cambiarlo después desde VendorSettings.jsx.
   const orderDestination = data.isRestaurant ? "PANEL" : "WHATSAPP";
 
+  // Atribución a un socio de la API: queda fija de por vida en la tienda.
+  const partner = data.partnerCode
+    ? await prisma.partner.findFirst({ where: { code: data.partnerCode, status: "ACTIVE" }, select: { id: true, listInMarketplace: true } })
+    : null;
+
   const vendor = await prisma.vendor.create({
     data: {
       userId: req.user.id,
+      partnerId: partner?.id ?? null,
+      // El socio decide si sus tiendas salen también en el marketplace de Baznova.
+      isPrivate: partner ? !partner.listInMarketplace : undefined,
       companyName: data.companyName,
       ownerName: data.ownerName,
       ownerIdNumber: data.ownerIdNumber,
