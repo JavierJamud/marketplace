@@ -231,8 +231,6 @@ router.delete("/business-categories/:id", requireActionCode("CATALOG_DELETE"), b
 
 // Bloque 96: slider de varias imágenes en el hero — agregar (una o varias
 // juntas) y quitar una puntual, mismo patrón que /products/:id/images.
-router.post("/settings/hero-images", requireActionCode("PLATFORM_BRANDING"), siteUpload.array("images", 6), settingsController.addHeroImages);
-router.delete("/settings/hero-images", requireActionCode("PLATFORM_BRANDING"), settingsController.removeHeroImage);
 // Bloque 52: reemplaza a plan-limits/plan-features (columnas pareadas
 // sueltas de SiteSettings) — un plan entero (límites, interruptores,
 // beneficios, nombre visible) por request, ver PlanConfig en schema.prisma.

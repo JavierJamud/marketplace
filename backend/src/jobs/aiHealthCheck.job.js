@@ -36,7 +36,11 @@ const PENDING_REASON = {
 // fallos que tuvo el sistema a las 3, las soluciones que se le dieron y lo que quedó
 // pendiente; y todo queda registrado en el panel"): se juntan los resultados de la
 // revisión, se guarda cada caso en Admin → Errores (resuelto o pendiente) y se manda
-// UN solo correo con el resumen. Si todo estaba bien, no se manda nada.
+// UN solo correo con el resumen.
+// Bloque 297 (pedido explícito — "el servidor del hosting hizo la revisión de las 3am pero no me llegó el
+// correo"): antes, si todo estaba bien (nada solucionado ni pendiente) no se mandaba nada, así que el
+// administrador no podía saber si la revisión había corrido. Ahora el correo se manda SIEMPRE, también
+// cuando todo está en orden, con el estado de cada modelo.
 export async function runAiHealthCheckJob() {
   beginDailyReport();
   let results = [];
@@ -74,7 +78,7 @@ export async function runAiHealthCheckJob() {
     await prisma.errorLog.create({ data: { origin: "AI_HEALTH_CHECK", message: `Revisión diaria de IA — pendiente: ${p.text}`, context: { provider: p.provider, model: p.model, errorDetail: p.errorDetail }, resolved: false } }).catch(() => {});
   }
 
-  if (solved.length || pending.length) {
+  {
     const lines = [
       "Resultado de la revisión diaria de los modelos de IA (3:00am).",
       "",
@@ -83,10 +87,16 @@ export async function runAiHealthCheckJob() {
       solved.length ? "" : "",
       pending.length ? "PENDIENTE (necesita tu revisión):" : "Nada quedó pendiente.",
       ...pending.map((p) => `- ${p.text}`),
+      !solved.length && !pending.length ? "Todos los modelos respondieron bien, no hizo falta cambiar nada." : "",
+      "",
+      results.length ? "ESTADO DE CADA MODELO:" : "No había modelos de IA activos para revisar.",
+      ...results.map((r) => `- ${LABELS[r.provider] ?? r.provider} · ${r.model}: ${r.status === "healthy" ? "responde bien" : r.status}`),
+      reordered.length ? `
+Orden por velocidad: ${reordered.join(" | ")}` : "",
       "",
       "Todo queda registrado en Admin → Errores. Los modelos se administran en Admin → Integraciones.",
     ].filter((l, i, a) => !(l === "" && a[i - 1] === ""));
-    const subject = pending.length ? `🟠 IA: revisión diaria — ${pending.length} pendiente(s)` : "✅ IA: revisión diaria — todo solucionado";
+    const subject = pending.length ? `🟠 IA: revisión diaria — ${pending.length} pendiente(s)` : solved.length ? "✅ IA: revisión diaria — todo solucionado" : "✅ IA: revisión diaria — todo en orden";
     await notifyAdminActionNeeded(subject, lines.join("\n"));
   }
 

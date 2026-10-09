@@ -6,7 +6,7 @@ import AdminBranding from "./AdminBranding.jsx";
 import AdminSecurity from "./AdminSecurity.jsx";
 import AdminIntegrations from "./AdminIntegrations.jsx";
 import { PlanConfigTab, CupPaymentSettingsCard } from "./AdminSubscriptions.jsx";
-import { OfferPolicyCard, ListingPolicyCard } from "./AdminOffers.jsx";
+import { ListingPolicyCard } from "./AdminOffers.jsx";
 import { ReviewPolicyCard } from "./AdminReviews.jsx";
 import { ProductImageLinksPanel } from "./AdminLocations.jsx";
 
@@ -48,8 +48,7 @@ export default function AdminSettings() {
         <div className="flex max-w-[820px] flex-col gap-5">
           <AdminBranding mode="catalog" />
           <ProductImageLinksPanel />
-          <h2 className="mt-3 text-[15px] font-bold text-on-surface">Políticas de ofertas, venta rápida y comentarios</h2>
-          <OfferPolicyCard />
+          <h2 className="mt-3 text-[15px] font-bold text-on-surface">Políticas de venta rápida y comentarios</h2>
           <ListingPolicyCard />
           <ReviewPolicyCard />
         </div>

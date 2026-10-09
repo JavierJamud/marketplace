@@ -2313,20 +2313,12 @@ model Integration {
 }
 
 // ---------------------------------------------------------------------------
-// Configuración global del sitio (fila única) — hoy solo las imágenes del
-// hero-slider de Home.jsx; si no hay fila o heroImages está vacío, el
-// frontend usa el placeholder actual (nunca rompe el layout).
+// Configuración global del sitio (fila única): marca, contacto, políticas y límites de la plataforma.
+// (Bloque 297: las imágenes del hero se eliminaron; el hero muestra la animación baznova-showcase.)
 // ---------------------------------------------------------------------------
 
 model SiteSettings {
   id String @id @default(cuid())
-  // Bloque 96 (pedido explícito): el hero de la Home pasa de una sola
-  // imagen fija a un slider — reemplaza a heroImageUrl (mismo patrón
-  // String[] que planFeaturesRegular/Business más abajo). Guarda rutas
-  // relativas completas ("/uploads/site/<archivo>"), mismo criterio que
-  // Product.images, así no hay que reconstruir el prefijo en cada lugar
-  // que lo lee. El orden del array es el orden real del slider.
-  heroImages String[] @default([])
   // Bloque 49: nombre y logo de la plataforma, editables desde "Marca de la
   // plataforma" en el admin — consumidos en todo el sitio (header, footer,
   // <title>, emails, PDFs, WhatsApp) vía usePlatformSettings() en vez de un
@@ -3220,6 +3212,9 @@ model Offer {
   // renderizar.
   buttonLabel    String?
   buttonUrl      String?
+  // Bloque 297 (pedido explícito — "si lleva código"): código de descuento o promoción que la oferta
+  // muestra al público; solo lo pone el admin.
+  couponCode     String?
   createdByAdmin Boolean          @default(false)
   status         OfferStatus      @default(ACTIVE)
   startsAt       DateTime         @default(now())

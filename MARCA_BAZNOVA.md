@@ -100,7 +100,7 @@ Los valores salen del tema del código (`frontend/tailwind.config.js`).
 - **Formato:** horizontal **3:2**, recomendado **1200 × 800 px** o más grande. Una imagen con otra proporción se ve completa pero con bandas a los lados.
 - **Fondo de la sección:** azul marino `#0E1A28`. La imagen debe verse bien sobre ese color: bordes limpios, sin fondo blanco que choque.
 - **El texto del Hero va aparte**, en la página. **La imagen no debe llevar texto, logos ni marcas de agua.**
-- Se pueden subir varias. El panel las carga en Configuración (Marca de la plataforma, "Imagen principal del sitio").
+- Hoy el Hero muestra la animación `baznova-showcase` (teléfono y laptop). Si algún día se vuelven a usar imágenes fijas, deben cumplir este formato.
 
 ---
 

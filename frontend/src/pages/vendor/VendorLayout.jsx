@@ -7,7 +7,6 @@ import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { VendorNotificationBell } from "../../components/vendor/VendorNotificationBell.jsx";
-import { OffersAnnouncementPopup } from "../../components/vendor/OffersAnnouncementPopup.jsx";
 import { TrialOfferPopup } from "../../components/vendor/TrialOfferPopup.jsx";
 import { TrialChecklistBanner } from "../../components/vendor/TrialChecklistBanner.jsx";
 import { TrialWelcomePopup } from "../../components/vendor/TrialWelcomePopup.jsx";
@@ -41,7 +40,6 @@ const NAV = [
   // necesidad real (el usuario solo pidió el nombre visible).
   { to: "/vendedor", label: "Dashboard", icon: LayoutDashboard, end: true, section: "resumen" },
   { to: "/vendedor/productos", label: "Productos", icon: Package, section: "productos" },
-  { to: "/vendedor/ofertas", label: "Ofertas", icon: Tag, section: "ofertas" },
   // Bloque 232 (pedido explícito — "la sección en el panel del vendedor de
   // crear código de oferta y crear oferta dentro de la tienda pueden estar
   // fusionadas y en una misma sección"): antes 2 links/secciones aparte
@@ -614,9 +612,6 @@ export default function VendorLayout() {
             usaba para su propio NAV. */}
         <Outlet context={{ vendor, isStaff, staffSectionPermissions: staffProfile?.sectionPermissions ?? null, mySections }} />
       </main>
-      {/* Bloque 183: nudge de marketing (crear una oferta) — decisión del
-          dueño, nunca se le muestra a un usuario de sistema. */}
-      {!isStaff && <OffersAnnouncementPopup vendor={vendor} />}
       {/* Bloque 235: mismo z-[80] que OffersAnnouncementPopup de arriba —
           nunca compiten de verdad por pantalla, uno exige
           trialStartedAt==null y el otro trialEndsAt!=null, mutuamente

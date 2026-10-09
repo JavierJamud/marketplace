@@ -61,13 +61,12 @@ const NAV = [
 // Bloque 289: además del menú lateral, se buscan las pestañas de Configuración y lo que contienen.
 const CONFIG = "/admin/configuracion";
 const ADMIN_EXTRA_SECTIONS = [
-  { label: "Configuración: General", to: CONFIG, keywords: "nombre de la plataforma marca redes sociales whatsapp soporte zona horaria imagen principal hero home logo" },
+  { label: "Configuración: General", to: CONFIG, keywords: "nombre de la plataforma marca redes sociales whatsapp soporte zona horaria logo" },
   { label: "Configuración: Tiendas y productos", to: `${CONFIG}?tab=catalogo`, keywords: "etiquetas productos nuevo popular politicas ofertas venta rapida comentarios resenas anuncios enlaces de imagen" },
   { label: "Configuración: Planes y pagos", to: `${CONFIG}?tab=planes`, keywords: "planes precios suscripcion business regular pago cup transferencia tarjeta moneda" },
   { label: "Configuración: Seguridad", to: `${CONFIG}?tab=seguridad`, keywords: "eliminacion de tiendas dias codigo de confirmacion verificacion en dos pasos autenticador asistente plan gratis mensajes por dia" },
   { label: "Configuración: Integraciones", to: `${CONFIG}?tab=integraciones`, keywords: "ia groq nvidia gemini modelos claves api resend correo stripe pagos" },
-  { label: "Marca de la plataforma", to: "/admin/marca", keywords: "nombre logo imagen principal del sitio hero home redes whatsapp soporte" },
-  { label: "Imagen principal del sitio", to: "/admin/marca", keywords: "hero home portada banner" },
+  { label: "Marca de la plataforma", to: "/admin/marca", keywords: "nombre logo redes whatsapp soporte" },
   { label: "Eliminación pendiente de tiendas", to: `${CONFIG}?tab=seguridad`, keywords: "dias borrar tiendas plazo" },
   { label: "Límite del asistente en el plan gratis", to: `${CONFIG}?tab=seguridad`, keywords: "mensajes por dia asistente de negocio" },
   { label: "Verificación en dos pasos (mi cuenta)", to: "/admin/perfil", keywords: "autenticador app qr contrasena correo cambiar" },

@@ -41,7 +41,6 @@ export async function getSettings(_req, res) {
   const plans = await getAllPlanConfigs();
   res.json({
     settings: {
-      heroImages: settings.heroImages,
       plans,
       allowProductImageLinks: settings.allowProductImageLinks,
       siteName: settings.siteName,
@@ -487,41 +486,6 @@ export async function updateProductBadgeSettings(req, res) {
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
   res.json({ settings: { availableProductBadges: updated.availableProductBadges, newBadgeDurationDays: updated.newBadgeDurationDays } });
-}
-
-// Bloque 96 (pedido explícito): el hero pasa de 1 imagen fija a un slider —
-// mismo patrón que addProductImages (products.controller.js): agrega al
-// array existente, nunca lo reemplaza entero, para poder subir de a una o
-// varias juntas sin perder las que ya había. A diferencia de las fotos de
-// KYC, estas imágenes son públicas por diseño (se sirven vía express.static,
-// ver app.js).
-export async function addHeroImages(req, res) {
-  if (!req.files?.length) throw new AppError("Sube al menos una imagen para el hero.", 400);
-
-  const newUrls = req.files.map((f) => `/uploads/site/${f.filename}`);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({
-    where: { id: settings.id },
-    data: { heroImages: [...settings.heroImages, ...newUrls] },
-  });
-  res.status(201).json({ settings: { heroImages: updated.heroImages } });
-}
-
-const removeHeroImageSchema = z.object({ url: z.string().min(1) });
-
-export async function removeHeroImage(req, res) {
-  const { url } = removeHeroImageSchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  if (!settings.heroImages.includes(url)) throw new AppError("Esa imagen no está en el hero.", 404);
-
-  const nextImages = settings.heroImages.filter((u) => u !== url);
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: { heroImages: nextImages } });
-
-  // Best-effort: borra el archivo físico también, no bloquea la respuesta si falla.
-  const filename = url.split("/").pop();
-  unlink(join(SITE_UPLOAD_DIR, filename)).catch(() => {});
-
-  res.json({ settings: { heroImages: updated.heroImages } });
 }
 
 // Bloque 49: uso INTERNO (emails, PDFs, prompts de IA, mensajes de error) —

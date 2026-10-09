@@ -35,7 +35,6 @@ import CustomerPanel from "./pages/customer/CustomerPanel.jsx";
 import VendorLayout from "./pages/vendor/VendorLayout.jsx";
 import VendorDashboard from "./pages/vendor/VendorDashboard.jsx";
 import VendorProducts from "./pages/vendor/VendorProducts.jsx";
-import VendorOffers from "./pages/vendor/VendorOffers.jsx";
 import VendorStoreOffers from "./pages/vendor/VendorStoreOffers.jsx";
 import VendorOrders from "./pages/vendor/VendorOrders.jsx";
 import VendorTables from "./pages/vendor/VendorTables.jsx";
@@ -185,7 +184,7 @@ export default function App() {
       >
         <Route index element={<VendorDashboard />} />
         <Route path="productos" element={<VendorProducts />} />
-        <Route path="ofertas" element={<VendorOffers />} />
+        <Route path="ofertas" element={<Navigate to="/vendedor/ofertas-tienda" replace />} />
         {/* Bloque 232 (pedido explícito — fusión de "Ofertas de tienda" y
             "Códigos de descuento" en una sola sección con pestañas,
             VendorStoreOffers.jsx): la ruta /codigos-descuento se retira

@@ -58,6 +58,8 @@ const createAdminOfferSchema = z
     htmlContent: z.string().optional(),
     buttonLabel: z.string().trim().max(30).optional().nullable(),
     buttonUrl: buttonUrlSchema.optional().nullable(),
+    // Bloque 297: código de descuento o promoción que se muestra en la oferta (opcional).
+    couponCode: z.string().trim().max(30).optional().nullable(),
     // Sin duración = no vence (default de las ofertas de admin). Si el admin
     // sí quiere que venza sola, manda esto.
     durationDays: z.coerce.number().int().min(1).max(365).optional(),
@@ -113,6 +115,7 @@ export async function createAdminOffer(req, res) {
         htmlContent,
         buttonLabel: data.buttonLabel || null,
         buttonUrl: data.buttonUrl || null,
+        couponCode: data.couponCode || null,
         createdByAdmin: true,
         startsAt,
         expiresAt,
@@ -136,6 +139,7 @@ const updateAdminOfferSchema = z.object({
   htmlContent: z.string().optional(),
   buttonLabel: z.string().trim().max(30).optional().nullable(),
   buttonUrl: z.union([buttonUrlSchema, z.literal("")]).optional().nullable(),
+  couponCode: z.string().trim().max(30).optional().nullable(),
   // El admin puede mover el status de CUALQUIER oferta — así se implementa
   // "modificar, eliminar, suspender y ocultar" tanto propias como de
   // vendedores que no cumplan las políticas (SUSPENDED = oculta, reversible).
@@ -161,6 +165,7 @@ export async function updateAdminOffer(req, res) {
     if (data.status !== undefined) patch.status = data.status;
     if (data.buttonLabel !== undefined) patch.buttonLabel = data.buttonLabel || null;
     if (data.buttonUrl !== undefined) patch.buttonUrl = data.buttonUrl || null;
+    if (data.couponCode !== undefined) patch.couponCode = data.couponCode || null;
 
     // Bloque 192: botón sin destino (o viceversa) no tiene sentido — se
     // valida contra el estado FINAL (lo que trae este patch + lo que ya

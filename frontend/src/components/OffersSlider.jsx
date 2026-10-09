@@ -70,6 +70,7 @@ function OfferCard({ offer }) {
   const external = to && isExternalUrl(to);
 
   if (offer.contentType === "HTML") {
+    // El HTML del admin vive dentro de la misma tarjeta (12:5, esquinas redondeadas) que las demás ofertas.
     return <div className="relative h-full w-full overflow-hidden rounded-3xl shadow-lg" dangerouslySetInnerHTML={{ __html: offer.htmlContent }} />;
   }
 
@@ -113,6 +114,11 @@ function OfferCard({ offer }) {
             mostraba tagline. line-clamp-2 porque la tarjeta es chica (12:5),
             un texto largo la desbordaría. */}
         {offer.description && <p className="mt-0.5 max-sm:hidden line-clamp-2 text-[11.5px] text-white/75">{offer.description}</p>}
+        {offer.couponCode && (
+          <span className="mt-1.5 inline-flex w-fit items-center gap-1 rounded-md border border-dashed border-white/70 bg-black/40 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-white">
+            Código: {offer.couponCode}
+          </span>
+        )}
         {offer.buttonLabel && offer.buttonUrl && (
           <span className="mt-2 inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11.5px] font-bold text-on-surface shadow">
             {offer.buttonLabel}

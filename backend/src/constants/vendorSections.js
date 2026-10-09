@@ -18,7 +18,6 @@
 export const VENDOR_SECTIONS = [
   { key: "resumen", label: "Resumen" },
   { key: "productos", label: "Productos" },
-  { key: "ofertas", label: "Ofertas" },
   { key: "codigos-descuento", label: "Códigos de descuento" },
   { key: "ofertas-tienda", label: "Ofertas de tienda" },
   { key: "pedidos", label: "Pedidos" },

@@ -661,16 +661,6 @@ export default function VendorVerification() {
               </div>
             ))}
           </div>
-          {/* Bloque 51: política de ofertas configurable por el admin (ver
-              AdminOffers.jsx) — se muestra acá para que el vendedor sepa,
-              desde su plan/suscripción, cada cuánto puede publicar y cuánto
-              dura activa una oferta por default. */}
-          {isBusiness && settings?.offerCooldownDays && (
-            <div className="mt-3 border-t border-surface-container-high pt-3 text-[12px] text-outline">
-              📢 Ofertas: puedes publicar/republicar una nueva cada <strong className="text-on-surface">{settings.offerCooldownDays} días</strong>,
-              activa hasta <strong className="text-on-surface">{settings.offerDefaultDurationDays} días</strong> por default.
-            </div>
-          )}
         </div>
       )}
 

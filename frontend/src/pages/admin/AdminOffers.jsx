@@ -118,6 +118,7 @@ function OfferModal({ offer, onClose }) {
   const [customPreview, setCustomPreview] = useState(null);
   const [buttonLabel, setButtonLabel] = useState(offer?.buttonLabel ?? "");
   const [buttonUrl, setButtonUrl] = useState(offer?.buttonUrl ?? "");
+  const [couponCode, setCouponCode] = useState(offer?.couponCode ?? "");
   const [durationDays, setDurationDays] = useState("");
   const [clearExpiry, setClearExpiry] = useState(false);
   const [status, setStatus] = useState(offer?.status ?? "ACTIVE");
@@ -180,6 +181,7 @@ function OfferModal({ offer, onClose }) {
       // form no ni intente mandar uno solo.
       form.append("buttonLabel", buttonLabel.trim());
       form.append("buttonUrl", buttonUrl.trim());
+      form.append("couponCode", couponCode.trim());
 
       if (contentType === "PRODUCT" && productImageUrl) form.append("imageUrl", productImageUrl);
       if (contentType === "CUSTOM" && customBlob) form.append("image", customBlob, "offer.jpg");
@@ -302,7 +304,7 @@ function OfferModal({ offer, onClose }) {
         {contentType === "CUSTOM" && (
           <div className="mb-4">
             <span className="mb-1.5 block text-label-md text-on-surface-variant">Imagen de la oferta</span>
-            <label className="relative flex aspect-[7/4] w-full max-w-[280px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-outline-variant bg-surface-container">
+            <label className="relative flex aspect-[12/5] w-full max-w-[360px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-outline-variant bg-surface-container">
               {customPreview ?? existingImagePreview ? (
                 <img src={customPreview ?? existingImagePreview} alt="" className="h-full w-full object-cover" />
               ) : (
@@ -318,7 +320,15 @@ function OfferModal({ offer, onClose }) {
               )}
               <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCustomFile} className="hidden" />
             </label>
-            <p className="mt-1.5 text-[11.5px] text-outline">Se publica con el mismo tamaño que subas — se acomoda sola en la grilla.</p>
+            <div className="mt-2 rounded-lg bg-tertiary-accent/[0.08] px-3 py-2 text-[11.5px] leading-[17px] text-tertiary-accent">
+              <p className="font-bold">Cómo preparar la imagen</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                <li>Tamaño recomendado: <strong>1200 × 500 px</strong> (proporción 12:5, la misma de la tarjeta del Home). Con otra proporción se recorta al centro.</li>
+                <li>En el Home se ven 3 tarjetas por fila en computadora y 1 en celular: usa letras grandes y deja libre la parte de abajo, donde la tarjeta pone el título y el botón.</li>
+                <li>Formatos JPG, PNG o WebP, de preferencia menos de 500 KB.</li>
+                <li>Sin texto pequeño: el título, la descripción, el descuento, el código y el botón se escriben en los campos de abajo.</li>
+              </ul>
+            </div>
           </div>
         )}
 
@@ -331,10 +341,16 @@ function OfferModal({ offer, onClose }) {
               placeholder="<div>...</div>"
               className="min-h-[120px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest p-3 font-mono text-[12px] outline-none"
             />
+            <p className="mt-1.5 text-[11.5px] leading-[17px] text-outline">
+              El HTML se muestra dentro de la misma tarjeta que las demás ofertas: proporción 12:5 (por ejemplo 420 × 175 px en una columna), esquinas redondeadas y todo lo que se salga queda recortado. Escribe el diseño con
+              estilos en línea (<code>style="..."</code>) y usa <code>width:100%;height:100%</code> en el contenedor principal. Por seguridad se eliminan los scripts y los eventos.
+            </p>
             {htmlContent.trim() && (
               <div className="mt-2 overflow-hidden rounded-lg border border-outline-variant p-2">
-                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Vista previa</div>
-                <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Vista previa (así se ve dentro de la tarjeta del Home)</div>
+                <div className="aspect-[12/5] w-full max-w-[420px]">
+                  <div className="relative h-full w-full overflow-hidden rounded-3xl shadow-lg" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                </div>
               </div>
             )}
           </div>
@@ -357,6 +373,7 @@ function OfferModal({ offer, onClose }) {
           </div>
           <Input label="Frase corta (opcional)" value={tagline} onChange={(e) => setTagline(e.target.value)} />
           <Input label="Etiqueta de descuento (opcional)" placeholder="Ej: -15%, 2x1" value={discountLabel} onChange={(e) => setDiscountLabel(e.target.value)} />
+          <Input label="Código de la oferta (opcional)" placeholder="Ej: BAZNOVA10" maxLength={30} value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} />
 
           {/* Bloque 192 (pedido explícito — "el admin puede agregar un
               botón a la oferta y un enlace también"): EXCLUSIVO de las
@@ -405,7 +422,7 @@ function OfferModal({ offer, onClose }) {
               className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[14px] outline-none disabled:opacity-50"
             />
             <p className="mt-1 text-[11px] text-outline">
-              A diferencia de las ofertas de vendedores, las del admin no vencen automáticamente salvo que pongas una duración aquí.
+              Las ofertas no vencen automáticamente salvo que pongas una duración aquí.
             </p>
             {isEdit && offer.expiresAt && (
               <label className="mt-2 flex items-center gap-2 text-[12px] font-semibold text-on-surface">
@@ -458,90 +475,6 @@ function OfferModal({ offer, onClose }) {
         onDiscard={dirtyModal.handleDiscard}
         onCancel={dirtyModal.handleKeepEditing}
       />
-    </div>
-  );
-}
-
-// Bloque 51 (pedido explícito): cada cuántos días un vendedor verificado
-// puede publicar/republicar una oferta, y cuánto dura activa por default —
-// antes hardcodeado en offers.controller.js, ahora editable acá. Se ve
-// reflejado de inmediato en VendorOffers.jsx (mismo GET /offers/me/list) y
-// en VendorVerification.jsx (plan/suscripción, mismo GET /settings).
-export function OfferPolicyCard() {
-  const queryClient = useQueryClient();
-  const { data: settings } = useQuery({
-    queryKey: ["site-settings"],
-    queryFn: async () => (await api.get("/settings")).data.settings,
-  });
-  const [cooldownDays, setCooldownDays] = useState("");
-  const [durationDays, setDurationDays] = useState("");
-
-  useEffect(() => {
-    if (settings) {
-      setCooldownDays(String(settings.offerCooldownDays));
-      setDurationDays(String(settings.offerDefaultDurationDays));
-    }
-  }, [settings]);
-
-  const save = useMutation({
-    mutationFn: async () =>
-      (
-        await api.patch("/admin/settings/offer-policy", {
-          offerCooldownDays: Number(cooldownDays),
-          offerDefaultDurationDays: Number(durationDays),
-        })
-      ).data,
-    onSuccess: () => {
-      toast.success("Política de ofertas actualizada.");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar la política."),
-  });
-
-  const dirty =
-    settings &&
-    cooldownDays !== "" &&
-    durationDays !== "" &&
-    (Number(cooldownDays) !== settings.offerCooldownDays || Number(durationDays) !== settings.offerDefaultDurationDays);
-
-  return (
-    <div className="mb-[18px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
-      <div className="mb-3 flex items-center gap-2 text-[14px] font-bold text-on-surface">
-        <Clock className="h-4 w-4 text-tertiary-accent" /> Política de ofertas de vendedores
-      </div>
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <div>
-          <span className="mb-1 block text-label-md text-on-surface-variant">Cada cuántos días puede publicar una oferta nueva</span>
-          <input
-            type="number"
-            min={1}
-            max={365}
-            value={cooldownDays}
-            onChange={(e) => setCooldownDays(e.target.value)}
-            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
-          />
-        </div>
-        <div>
-          <span className="mb-1 block text-label-md text-on-surface-variant">Duración por default de cada oferta (días)</span>
-          <input
-            type="number"
-            min={1}
-            max={365}
-            value={durationDays}
-            onChange={(e) => setDurationDays(e.target.value)}
-            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
-          />
-        </div>
-      </div>
-      <p className="mt-2 text-[11.5px] text-outline">
-        Se refleja de inmediato en el panel de cada vendedor: la sección "Ofertas" (reloj de cuándo puede publicar de nuevo)
-        y "Verificación y plan".
-      </p>
-      {dirty && (
-        <Button className="mt-3" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? "Guardando..." : "Guardar política"}
-        </Button>
-      )}
     </div>
   );
 }
@@ -1232,8 +1165,9 @@ export default function AdminOffers() {
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Ofertas</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
-        Crea ofertas oficiales (producto, imagen personalizada o HTML insertado), modera las de los vendedores, y lanza
-        ofertas dirigidas a un cliente, un vendedor, o un grupo puntual.
+        Las ofertas de la página principal las crea solo el administrador (producto, imagen personalizada o HTML insertado).
+        Las ofertas de cada tienda se ven únicamente dentro de su tienda. Aquí también lanzas ofertas dirigidas a un cliente,
+        un vendedor o un grupo puntual.
       </p>
 
       {/* Bloque 194: tab-bar simple — cambia qué lista+modal se muestra,
@@ -1261,9 +1195,8 @@ export default function AdminOffers() {
       ) : (
         <>
           <div className="mb-[18px] rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-            💡 Las ofertas del admin no vencen automáticamente salvo que les pongas una duración — así la sección "Ofertas"
-            del Home nunca se queda vacía por vencimiento. Si en algún momento no hay ninguna activa (ni del admin ni de
-            vendedores), la sección se oculta sola del Home.
+            💡 Estas son las únicas ofertas que aparecen en la sección "Ofertas" de la página principal. No vencen
+            automáticamente salvo que les pongas una duración. Si no hay ninguna activa, la sección se oculta sola.
           </div>
 
           <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">

@@ -722,7 +722,8 @@ function Piece() {
         <Chip T={T} at={f0 + 2.2} until={end - 0.5} x={44} y={392} sc={0.82} rot={2.5} k="check" tone="#0cae53" label="Tiendas verificadas" value={cnt(300, 312, f0 + 2.2, f0 + 5)} pings={[f0 + 5]} />
         <Chip T={T} at={f0 + 3.4} until={end - 0.5} x={1074} y={500} sc={0.92} rot={2} k="users" tone="#8a5100" label="Clientes satisfechos" value="98 %" pings={[f0 + 4.6, f0 + 8.8]} />
       </div> : null}
-    </div>
+      
+          </div>
   );
 }
 

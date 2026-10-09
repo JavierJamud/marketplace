@@ -20,7 +20,6 @@ function fmtCUP(n) {
 const SECTIONS = [
   { label: "Dashboard", path: "/vendedor" },
   { label: "Productos", path: "/vendedor/productos" },
-  { label: "Ofertas", path: "/vendedor/ofertas" },
   // Bloque 232: las 2 de abajo apuntan a la misma página fusionada (con
   // pestañas adentro) — cada una conserva su propio `key` de permiso (no
   // el de SECTION_KEY_BY_PATH, que es por-path y ya no alcanza con 2
@@ -67,7 +66,6 @@ const SECTIONS = [
 // dict por-path ya no puede distinguir cuál es cuál.
 const SECTION_KEY_BY_PATH = {
   "/vendedor/productos": "productos",
-  "/vendedor/ofertas": "ofertas",
   "/vendedor/pedidos": "pedidos",
   "/vendedor/mesas": "mesas",
   "/vendedor/mensajes": "mensajes",

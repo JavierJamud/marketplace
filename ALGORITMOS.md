@@ -332,6 +332,17 @@ pasa la voz a texto y se envía como pregunta (`lib/useVoiceRecorder.js`).
 (`VENDOR_UNBLOCK`) y restaurar de eliminación pendiente (`VENDOR_RESTORE`) tienen su propia acción, y
 el modal y el correo nombran a la tienda o persona afectada (nunca un id).
 
+### B6f. Portada: animación, ofertas del admin y correo de la revisión nocturna
+
+- El Hero muestra solo la animación `public/baznova-showcase` (iframe). Se eliminó todo lo de las imágenes del Hero (tarjeta del
+  admin, rutas, componente, columna `SiteSettings.heroImages`).
+- La sección "Ofertas de la semana" de la portada muestra únicamente ofertas creadas por el administrador (`Offer.createdByAdmin`):
+  imagen personalizada (1200 × 500 px, proporción 12:5), producto o HTML dentro de la misma tarjeta, con título, descripción,
+  frase, etiqueta de descuento, código (`Offer.couponCode`) y botón con enlace. Las ofertas de las tiendas viven en `StoreOffer` y solo
+  se ven dentro de cada tienda; los vendedores ya no publican ofertas en la portada.
+- La revisión de IA de las 3:00 a. m. (`jobs/aiHealthCheck.job.js`) ahora manda SIEMPRE el correo al administrador, también cuando
+  todo está en orden (antes no mandaba nada si no había nada que arreglar, y parecía que la revisión no había corrido).
+
 ### B6e. Ventana de 30 minutos en los códigos de confirmación y correo no registrado
 
 Una confirmación válida del admin (código del correo o de la app) deja abierta la MISMA acción durante 30 minutos

@@ -774,7 +774,6 @@ export const LINKS_BY_SCOPE = {
   VENDOR: {
     "/vendedor": "Dashboard",
     "/vendedor/productos": "Productos",
-    "/vendedor/ofertas": "Ofertas",
     "/vendedor/ofertas-tienda": "Ofertas y códigos",
     "/vendedor/pedidos": "Pedidos",
     "/vendedor/mesas": "Mesas / QR",
