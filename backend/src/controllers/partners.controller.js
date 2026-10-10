@@ -18,6 +18,8 @@ import { invalidatePartnerKeyCache } from "../middleware/partnerAuth.js";
 import { usageSummary, recentMovements, keysWithLive } from "../lib/partnerStats.js";
 import { siteUrl } from "../lib/partnerDto.js";
 import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
+import { encryptSecret, decryptSecret } from "../lib/crypto.js";
+import { sendPartnerNoticeEmail } from "../lib/email.js";
 
 // Sección "Socios de la API" del panel de administrador.
 
@@ -92,6 +94,54 @@ const updateKeyBody = z.object({
 
 function assertKeyRestrictions(domains, ips) {
   if (domains.length === 0 && ips.length === 0) throw new AppError("La credencial necesita al menos un dominio o una dirección IP autorizada.", 400);
+}
+
+// Crea la credencial de un socio. Se guarda su huella (para autenticar) y la credencial cifrada (para que el socio y el
+// admin puedan volver a verla). La credencial completa solo existe en claro en la respuesta y en el correo al socio.
+export async function issueKey(partnerId, { name, scopes, rateLimitPerMinute, dailyLimit, allowedDomains, allowedIps, expiresAt }, db = prisma) {
+  assertKeyRestrictions(allowedDomains, allowedIps);
+  const gen = generateApiKey();
+  const key = await db.partnerApiKey.create({
+    data: {
+      partnerId,
+      name,
+      prefix: gen.prefix,
+      keyHash: gen.hash,
+      keyEnc: JSON.stringify(encryptSecret(gen.raw)),
+      scopes,
+      rateLimitPerMinute,
+      dailyLimit,
+      allowedDomains,
+      allowedIps,
+      expiresAt: expiresAt ?? null,
+    },
+  });
+  return { key, raw: gen.raw };
+}
+
+// La credencial completa de una llave, o null si es una de las creadas antes de poder verse.
+export function revealKeyValue(key) {
+  if (!key?.keyEnc) return null;
+  try {
+    return decryptSecret(JSON.parse(key.keyEnc));
+  } catch {
+    return null;
+  }
+}
+
+// Correo al socio con su credencial (aprobación, creación o regeneración). Best-effort: nunca revierte el cambio.
+export async function emailPartnerKey(partner, raw, key, reason) {
+  const firstName = (partner.contactName || partner.name || "").split(" ")[0] || "socio";
+  const kind = reason === "approved" ? "approved" : "key";
+  return sendPartnerNoticeEmail(kind, partner.contactEmail, {
+    firstName,
+    companyName: partner.name,
+    apiKey: raw,
+    partnerCode: partner.code,
+    domains: key.allowedDomains,
+    ips: key.allowedIps,
+    reason,
+  }).catch(() => ({ ok: false }));
 }
 
 async function getPartnerOr404(id) {
@@ -203,29 +253,56 @@ export async function createKey(req, res) {
   const data = createKeyBody.parse(req.body);
   const allowedDomains = listDomains(data.allowedDomains);
   const allowedIps = listIps(data.allowedIps);
-  assertKeyRestrictions(allowedDomains, allowedIps);
-  // Un socio tiene una sola credencial: para cambiarla se revoca la actual y se crea otra.
+  // Un socio tiene una sola credencial: para cambiarla se regenera.
   const active = await prisma.partnerApiKey.count({ where: { partnerId: partner.id, status: "ACTIVE" } });
-  if (active > 0) throw new AppError("Este socio ya tiene su credencial activa. Revócala primero si necesitas crear una nueva.", 409);
-  const gen = generateApiKey();
-  const key = await prisma.partnerApiKey.create({
-    data: {
-      partnerId: partner.id,
-      name: data.name,
-      prefix: gen.prefix,
-      keyHash: gen.hash,
-      scopes: data.scopes,
-      rateLimitPerMinute: data.rateLimitPerMinute,
-      dailyLimit: data.dailyLimit,
-      allowedDomains,
-      allowedIps,
-      expiresAt: data.expiresAt ?? null,
-    },
+  if (active > 0) throw new AppError("Este socio ya tiene su credencial activa. Para cambiarla, regénerala.", 409);
+  const { key, raw } = await issueKey(partner.id, { ...data, allowedDomains, allowedIps });
+  logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_key_created", description: `Creó la credencial "${key.name}" para el socio "${partner.name}"`, meta: { partnerId: partner.id, keyId: key.id } });
+  const emailed = await emailPartnerKey(partner, raw, key, "created");
+  const { keyHash, keyEnc, ...safe } = key;
+  res.status(201).json({ key: safe, secret: raw, emailed: !!emailed?.ok });
+}
+
+// Regenerar: la credencial vieja se revoca y se crea otra con la misma configuración (permisos, límites, dominios, IP).
+// Solo el administrador puede hacerlo. El socio recibe la nueva por correo.
+export async function regenerateKey(req, res) {
+  const partner = await getPartnerOr404(req.params.id);
+  const old = await prisma.partnerApiKey.findFirst({ where: { id: req.params.keyId, partnerId: partner.id } });
+  if (!old) throw new AppError("Credencial no encontrada.", 404);
+  const { key, raw } = await prisma.$transaction(async (tx) => {
+    await tx.partnerApiKey.update({ where: { id: old.id }, data: { status: "REVOKED", revokedAt: new Date() } });
+    const gen = generateApiKey();
+    const created = await tx.partnerApiKey.create({
+      data: {
+        partnerId: partner.id,
+        name: old.name,
+        prefix: gen.prefix,
+        keyHash: gen.hash,
+        keyEnc: JSON.stringify(encryptSecret(gen.raw)),
+        scopes: old.scopes,
+        rateLimitPerMinute: old.rateLimitPerMinute,
+        dailyLimit: old.dailyLimit,
+        allowedDomains: old.allowedDomains,
+        allowedIps: old.allowedIps,
+        expiresAt: old.expiresAt,
+      },
+    });
+    return { key: created, raw: gen.raw };
   });
-  logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_key_created", description: `Creó la llave "${key.name}" para el socio "${partner.name}"`, meta: { partnerId: partner.id, keyId: key.id } });
-  const { keyHash, ...safe } = key;
-  // Única vez que se muestra la llave completa.
-  res.status(201).json({ key: safe, secret: gen.raw });
+  invalidatePartnerKeyCache();
+  logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_key_regenerated", description: `Regeneró la credencial del socio "${partner.name}"`, meta: { partnerId: partner.id, oldKeyId: old.id, keyId: key.id } });
+  const emailed = await emailPartnerKey(partner, raw, key, "regenerated");
+  const { keyHash, keyEnc, ...safe } = key;
+  res.status(201).json({ key: safe, secret: raw, emailed: !!emailed?.ok });
+}
+
+// Ver la credencial vigente de un socio (solo administrador).
+export async function revealPartnerKey(req, res) {
+  const partner = await getPartnerOr404(req.params.id);
+  const key = await prisma.partnerApiKey.findFirst({ where: { partnerId: partner.id, status: "ACTIVE" }, orderBy: { createdAt: "desc" } });
+  if (!key) return res.json({ apiKey: null, reason: "none" });
+  const apiKey = revealKeyValue(key);
+  res.json({ keyId: key.id, apiKey, reason: apiKey ? null : "legacy" });
 }
 
 export async function updateKey(req, res) {
@@ -250,7 +327,7 @@ export async function updateKey(req, res) {
   });
   invalidatePartnerKeyCache();
   logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_key_updated", description: `Cambió la llave "${updated.name}"`, meta: { partnerId: key.partnerId, keyId: key.id } });
-  const { keyHash, ...safe } = updated;
+  const { keyHash, keyEnc, ...safe } = updated;
   res.json({ key: safe });
 }
 

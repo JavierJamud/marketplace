@@ -40,6 +40,8 @@ export const ACTION_LABELS = {
   ADMIN_PASSWORD_CHANGE: "cambiar tu contraseña",
   ADMIN_EMAIL_CHANGE: "cambiar el correo de tu cuenta",
   PLATFORM_BRANDING: "cambiar los datos de la plataforma (nombre, redes, soporte o zona horaria)",
+  // Bloque 303: credenciales y acceso de los socios de la API (aprobar solicitudes, regenerar o revocar llaves).
+  PARTNER_MANAGE: "gestionar la credencial o el acceso de un socio de la API",
 };
 
 const CODE_LENGTH = 6;
@@ -52,7 +54,8 @@ const MAX_ATTEMPTS = 5;
 // una confirmación válida deja abierta la MISMA acción (mismo tipo, misma persona) durante 30 minutos.
 // Quedan fuera las que protegen el acceso a la propia cuenta: siempre piden código nuevo.
 const GRACE_MS = 30 * 60 * 1000;
-const NO_GRACE = new Set(["ADMIN_PASSWORD_CHANGE", "ADMIN_EMAIL_CHANGE", "DISABLE_ADMIN_2FA"]);
+// Bloque 303: la credencial de un socio también pide código nuevo cada vez (regenerar o aprobar no se encadenan).
+const NO_GRACE = new Set(["ADMIN_PASSWORD_CHANGE", "ADMIN_EMAIL_CHANGE", "DISABLE_ADMIN_2FA", "PARTNER_MANAGE"]);
 async function inGrace(userId, action) {
   if (NO_GRACE.has(action)) return false;
   const recent = await prisma.adminActionCode.findFirst({ where: { userId, action, usedAt: { gte: new Date(Date.now() - GRACE_MS) } }, select: { id: true } });

@@ -149,6 +149,9 @@ export async function structuredSearch(req, res) {
     // Bloque 157: "solo para pedido de mesa" — nunca aparece en Home ni en
     // el catálogo, sin importar qué tan bien rankee.
     hiddenFromStore: false,
+    // Bloque 208 y 304: un restaurante con menú oculto (solo se ve escaneando el QR de la mesa) no debe salir en el
+    // catálogo ni en la búsqueda, igual que ya no sale en su propia página.
+    NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
     // Bloque 52: excedente del cupo de productos del plan — sigue existiendo
     // para el vendedor, nunca en un listado público (ver planConfig.js).
     overQuota: false,

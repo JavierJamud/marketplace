@@ -46,6 +46,8 @@ const productQuerySchema = pageSchema.extend({
   minPrice: z.coerce.number().min(0).max(1e9).optional(),
   maxPrice: z.coerce.number().min(0).max(1e9).optional(),
   currency: z.enum(["CUP", "USD"]).optional(),
+  // Métodos de pago que acepta el producto (igual que el filtro del catálogo del sitio), separados por coma.
+  payment: z.string().trim().max(120).optional(),
   onlyVerified: bool.optional(),
   inStock: bool.optional(),
   sort: z.enum(["relevance", "newest", "price-asc", "price-desc", "rating"]).default("relevance"),
@@ -56,8 +58,8 @@ async function categoryIdsWithChildren(categoryId) {
   return [categoryId, ...children.map((c) => c.id)];
 }
 
-async function buildProductWhere(partnerId, f) {
-  const base = visibleProductWhere(partnerId);
+async function buildProductWhere(partnerId, f, opts = {}) {
+  const base = visibleProductWhere(partnerId, opts);
   const and = [...base.AND];
   if (f.q) {
     // Misma búsqueda que el sitio de Baznova: por nombre sin importar mayúsculas, tildes ni signos y,
@@ -78,6 +80,7 @@ async function buildProductWhere(partnerId, f) {
     categoryId: f.categoryId ? { in: await categoryIdsWithChildren(f.categoryId) } : undefined,
     price: f.minPrice !== undefined || f.maxPrice !== undefined ? { gte: f.minPrice, lte: f.maxPrice } : undefined,
     currency: f.currency,
+    paymentMethods: f.payment ? { hasSome: f.payment.split(",").map((s) => s.trim()).filter(Boolean) } : undefined,
   };
   if (f.storeSlug) where.vendor = { ...base.vendor, slug: f.storeSlug };
   if (f.onlyVerified) where.vendor = { ...where.vendor, verificationStatus: "VERIFIED" };
@@ -86,7 +89,7 @@ async function buildProductWhere(partnerId, f) {
 
 // El ranking de un mismo filtro cambia despacio (ventas, clics y reseñas se acumulan de a poco):
 // se guarda 30 s en memoria, y las solicitudes simultáneas iguales comparten un solo cálculo.
-const POOL_TTL_MS = 30_000;
+const POOL_TTL_MS = 5_000;
 const POOL_MAX_ENTRIES = 200;
 const poolCache = new Map();
 function rankedPool(where) {
@@ -123,12 +126,17 @@ async function computeRankedPool(where) {
 
 export async function listProducts(req, res) {
   const f = productQuerySchema.parse(req.query);
-  const where = await buildProductWhere(req.partner.id, f);
+  // La página de una tienda muestra también los agotados ("próximamente disponibles"); el catálogo general no.
+  const where = await buildProductWhere(req.partner.id, f, { includeOutOfStock: !!req.includeOutOfStock });
 
   if (f.sort === "relevance") {
     const ranked = await rankedPool(where);
     const start = (f.page - 1) * f.pageSize;
-    return res.json({ data: ranked.slice(start, start + f.pageSize).map(productDto), meta: { ...meta(f, ranked.length), rankedPoolLimit: RANK_POOL } });
+    const pageRows = ranked.slice(start, start + f.pageSize);
+    // El ranking se guarda unos segundos, pero la visibilidad se vuelve a comprobar en cada solicitud: un producto
+    // pausado, agotado u oculto, o una tienda bloqueada, desaparece de inmediato igual que en el sitio.
+    const live = new Set((await prisma.product.findMany({ where: { ...where, id: { in: pageRows.map((p) => p.id) } }, select: { id: true } })).map((p) => p.id));
+    return res.json({ data: pageRows.filter((p) => live.has(p.id)).map(productDto), meta: { ...meta(f, ranked.length), rankedPoolLimit: RANK_POOL } });
   }
   const orderBy =
     f.sort === "price-asc" ? [{ price: "asc" }]
@@ -157,7 +165,7 @@ export async function listFeatured(req, res) {
 
 export async function getProduct(req, res) {
   const product = await prisma.product.findFirst({
-    where: { ...visibleProductWhere(req.partner.id), id: req.params.id },
+    where: { ...visibleProductWhere(req.partner.id, { includeOutOfStock: true }), id: req.params.id },
     include: productInclude,
   });
   if (!product) throw new AppError("Producto no encontrado.", 404);
@@ -232,12 +240,30 @@ async function findStore(partnerId, slug) {
 export async function getStore(req, res) {
   const v = await findStore(req.partner.id, req.params.slug);
   const { isOpen, nextOpenLabel } = isVendorOpenNow(v.schedules, v.timezone);
-  res.json({ data: storeDto(v, { productCount: v._count.products, isOpenNow: isOpen, nextOpenLabel: nextOpenLabel ?? null, timezone: v.timezone }) });
+  const [grouped, deliveryCountries] = await Promise.all([
+    prisma.review.groupBy({ by: ["rating"], where: { vendorId: v.id, rating: { not: null }, isHidden: false }, _count: { _all: true } }),
+    prisma.vendorDeliveryCountry.findMany({ where: { vendorId: v.id }, include: { country: { select: { id: true, name: true } } } }),
+  ]);
+  const breakdown = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const g of grouped) breakdown[g.rating] = g._count._all;
+  res.json({
+    data: storeDto(v, {
+      productCount: v._count.products,
+      isOpenNow: isOpen,
+      nextOpenLabel: nextOpenLabel ?? null,
+      timezone: v.timezone,
+      schedules: (v.schedules ?? []).map((s) => ({ dayOfWeek: s.dayOfWeek, opensAt: s.opensAt, closesAt: s.closesAt, isClosed: s.isClosed })),
+      deliveryCountries: deliveryCountries.map((d) => d.country),
+      warranty: { terms: v.warrantyTerms ?? null, defaultDays: v.warrantyDefaultDays ?? null },
+      reviewStats: { total: Object.values(breakdown).reduce((a, b) => a + b, 0), breakdown },
+    }),
+  });
 }
 
 export async function listStoreProducts(req, res) {
   await findStore(req.partner.id, req.params.slug);
   req.query.storeSlug = req.params.slug;
+  req.includeOutOfStock = true;
   return listProducts(req, res);
 }
 

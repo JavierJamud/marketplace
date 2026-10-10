@@ -4,7 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { placeOrder } from "./orders.controller.js";
 import { getSubscriptionPricing } from "./settings.controller.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
-import { visibleVendorWhere, absUrl, siteUrl } from "../lib/partnerDto.js";
+import { visibleVendorWhere, visibleProductWhere, absUrl, siteUrl } from "../lib/partnerDto.js";
 import { orderWhatsAppText, whatsappUrl, mixedTotalLabel } from "../lib/orderWhatsapp.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 
@@ -187,6 +187,11 @@ export async function createPartnerOrder(req, res) {
   // Un producto repetido en dos líneas se rechaza: se manda una sola línea con la cantidad total.
   const ids = body.items.map((i) => i.productId);
   if (new Set(ids).size !== ids.length) throw new AppError("Un producto aparece en más de una línea. Junta las cantidades en una sola línea.", 400);
+
+  // Más estricto que el sitio: solo se puede pedir lo que esta credencial puede VER en el catálogo (nada de productos
+  // de menú oculto ni de tiendas que no le corresponden), aunque alguien conozca el id.
+  const visibleCount = await prisma.product.count({ where: { ...visibleProductWhere(partnerId, { includeOutOfStock: true }), id: { in: ids }, vendorId: store.id } });
+  if (visibleCount !== ids.length) throw new AppError("Uno o más productos no están disponibles para pedir.", 400);
 
   // Cobertura geográfica: la provincia existe, y el municipio (o ciudad, en estados) es coherente con ella.
   const province = await prisma.province.findUnique({ where: { id: body.shippingProvinceId } });

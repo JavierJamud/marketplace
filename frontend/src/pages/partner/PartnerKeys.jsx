@@ -1,9 +1,41 @@
 import { useQuery } from "@tanstack/react-query";
-import { Globe, KeyRound } from "lucide-react";
+import { Copy, Globe, KeyRound } from "lucide-react";
+import toast from "../../lib/toast.jsx";
+import { copyToClipboard } from "../../lib/clipboard.js";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { Bar } from "./PartnerDashboard.jsx";
+
+// Tu credencial, siempre visible: no se oculta ni se muestra una sola vez. Solo Baznova puede regenerarla.
+function ApiKeyCard() {
+  const { user } = useAuth();
+  const { data, isLoading } = useQuery({ queryKey: ["partner-portal-api-key", user?.id], queryFn: async () => (await api.get("/partner-portal/api-key")).data });
+  const copy = async (text, ok) => ((await copyToClipboard(text)) ? toast.success(ok) : toast.error("No se pudo copiar."));
+  return (
+    <section className={`${CARD} mb-5 p-5`} aria-labelledby="cred-title">
+      <h2 id="cred-title" className="mb-1 text-[15px] font-bold text-on-surface">Tu credencial de la API</h2>
+      <p className="mb-3 text-[12.5px] text-outline">Es la única que necesitas: productos, tiendas, carrito, pedidos y planes. Envíala en cada solicitud con <code>Authorization: Bearer</code>. Si se filtra, avisa a Baznova: solo el equipo puede regenerarla.</p>
+      {isLoading && <p className="text-[13px] text-outline">Cargando...</p>}
+      {data && !data.apiKey && (
+        <p className="text-[13px] text-on-surface-variant">
+          {data.reason === "legacy" ? "Esta credencial se creó antes de poder verse aquí. Pídele a Baznova que la regenere y te llegará la nueva por correo." : "Todavía no tienes credencial. Baznova te la creará cuando apruebe tu solicitud."}
+        </p>
+      )}
+      {data?.apiKey && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="min-h-11 flex-1 break-all rounded-xl bg-surface-container px-3 py-3 text-[12.5px] text-on-surface" data-testid="partner-api-key">{data.apiKey}</code>
+            <button onClick={() => copy(data.apiKey, "Credencial copiada.")} className="flex min-h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-3 text-[13px] font-semibold text-on-surface hover:bg-surface-container">
+              <Copy className="h-4 w-4" aria-hidden="true" /> Copiar
+            </button>
+          </div>
+          <p className="mt-3 text-[12px] text-outline">Dirección de la API: <code className="break-all text-on-surface">{data.apiBase}</code></p>
+        </>
+      )}
+    </section>
+  );
+}
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleString("es-CU", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Nunca");
 
@@ -27,7 +59,9 @@ export default function PartnerKeys() {
         <IconCircle icon={KeyRound} tone="teal" />
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Credencial y cuotas</h1>
       </div>
-      <p className="mb-5 text-[13.5px] text-outline">Tienes una sola credencial para toda la API: productos, carrito, pedidos y planes. Si necesitas cambiarla, o agregar sitios autorizados, pídeselo a Baznova.</p>
+      <p className="mb-5 text-[13.5px] text-outline">Tienes una sola credencial para toda la API: productos, carrito, pedidos y planes. Regenerarla o cambiar sus sitios autorizados solo lo hace Baznova.</p>
+
+      <ApiKeyCard />
 
       {isLoading && <p className="text-[13.5px] text-outline">Cargando...</p>}
       {!isLoading && keys.length === 0 && <div className={`${CARD} p-6 text-[13.5px] text-outline`}>Todavía no tienes tu credencial. Baznova la creará cuando tu sitio esté listo.</div>}

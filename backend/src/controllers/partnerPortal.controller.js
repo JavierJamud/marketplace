@@ -6,6 +6,7 @@ import { PARTNER_SCOPES } from "../lib/partnerScopes.js";
 import { paginationQuerySchema, pageMeta } from "../lib/pagination.js";
 import { z } from "zod";
 import { plansForPartner } from "./partnerOrders.controller.js";
+import { revealKeyValue } from "./partners.controller.js";
 import { logActivity } from "../lib/activityLog.js";
 
 // Bloque 299: API del panel del socio (/partner-portal). Solo lectura: el socio ve sus propias métricas,
@@ -45,6 +46,15 @@ export async function getPortalMovements(req, res) {
   const status = Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599 ? rawStatus : undefined;
   const { total, rows } = await recentMovements(partner.id, { ...p, keyId, status });
   res.json({ movements: rows, ...pageMeta(p, total) });
+}
+
+// La credencial vigente del socio. Siempre se puede volver a ver; regenerarla o cambiarla solo lo hace el administrador.
+export async function getPortalApiKey(req, res) {
+  const partner = await myPartner(req);
+  const key = await prisma.partnerApiKey.findFirst({ where: { partnerId: partner.id, status: "ACTIVE" }, orderBy: { createdAt: "desc" } });
+  if (!key) return res.json({ apiKey: null, reason: "none" });
+  const apiKey = revealKeyValue(key);
+  res.json({ apiKey, prefix: key.prefix, reason: apiKey ? null : "legacy", apiBase: `${String(process.env.BACKEND_URL || "http://localhost:4000").replace(/\/+$/, "")}/partner/v1` });
 }
 
 export async function getPortalPlans(req, res) {

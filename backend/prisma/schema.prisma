@@ -149,6 +149,9 @@ enum CampaignStatus {
 
 enum EmailType {
   ORDER_CONFIRMATION
+  // Bloque 303: avisos del ciclo de socios de la API (solicitud recibida, aprobada con su credencial, credencial
+  // nueva o regenerada, rechazada).
+  PARTNER_NOTICE
   // Bloque 302: aviso a la tienda de que recibió un pedido nuevo.
   NEW_ORDER_VENDOR
   STATUS_UPDATE
@@ -3442,6 +3445,7 @@ model Partner {
   logs    PartnerApiLog[]
   orders  Order[]
   planPrices PartnerPlanPrice[]
+  application PartnerApplication?
 }
 
 enum PartnerKeyStatus {
@@ -3457,6 +3461,9 @@ model PartnerApiKey {
   // muestra una única vez al crearla; en la base solo vive su huella SHA-256.
   prefix    String
   keyHash   String           @unique
+  // Bloque 303: la credencial completa, cifrada (AES-256-GCM como las demás credenciales), para que el socio y el
+  // admin puedan volver a verla. Null en las credenciales creadas antes: esas se regeneran.
+  keyEnc    String?
   // Grupos de endpoints permitidos (ver lib/partnerScopes.js).
   scopes    String[]         @default([])
   rateLimitPerMinute Int     @default(1200)
@@ -3528,4 +3535,36 @@ model PartnerPlanPrice {
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
   @@id([partnerId, planType])
+}
+
+enum PartnerApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Bloque 303: solicitud de alguien que quiere usar la API de socios. La contraseña se guarda ya con hash; al
+// aprobarla se crea el socio, su usuario del panel (rol PARTNER) y su credencial.
+model PartnerApplication {
+  id           String                   @id @default(cuid())
+  firstName    String
+  lastName     String
+  phone        String
+  email        String
+  companyName  String
+  website      String?
+  description  String
+  passwordHash String
+  status       PartnerApplicationStatus @default(PENDING)
+  rejectReason String?
+  reviewedAt   DateTime?
+  reviewedById String?
+  partnerId    String?                  @unique
+  ip           String?
+  createdAt    DateTime                 @default(now())
+
+  partner Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([email])
 }

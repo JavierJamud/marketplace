@@ -6,6 +6,7 @@ import { getBrandSettings } from "../controllers/settings.controller.js";
 import { logError } from "./errorLog.js";
 import { orderConfirmationEmail } from "../templates/orderConfirmation.js";
 import { newOrderVendorEmail } from "../templates/newOrderVendor.js";
+import { partnerApplicationReceivedEmail, partnerApprovedEmail, partnerKeyChangedEmail, partnerRejectedEmail } from "../templates/partnerNotices.js";
 import { statusUpdateEmail } from "../templates/statusUpdate.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
@@ -108,6 +109,16 @@ export async function sendNewOrderVendorEmail(order, { partnerName } = {}) {
   const { subject, html } = await newOrderVendorEmail({ order, partnerName });
   const result = await sendViaResend({ to, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "NEW_ORDER_VENDOR", to, subject, result });
+  return result;
+}
+
+// Avisos del ciclo de socios de la API. kind: received | approved | key | rejected. Siempre al correo del socio.
+const PARTNER_TEMPLATES = { received: partnerApplicationReceivedEmail, approved: partnerApprovedEmail, key: partnerKeyChangedEmail, rejected: partnerRejectedEmail };
+export async function sendPartnerNoticeEmail(kind, to, data) {
+  if (!to) return { ok: false, error: "Sin correo" };
+  const { subject, html } = await PARTNER_TEMPLATES[kind](data);
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "PARTNER_NOTICE", to, subject, result });
   return result;
 }
 

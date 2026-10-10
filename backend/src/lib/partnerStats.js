@@ -58,7 +58,7 @@ export async function keysWithLive(partnerId) {
   const keys = await prisma.partnerApiKey.findMany({ where: { partnerId }, orderBy: { createdAt: "desc" } });
   return Promise.all(
     keys.map(async (k) => {
-      const { keyHash, ...safe } = k;
+      const { keyHash, keyEnc, ...safe } = k;
       return { ...safe, live: k.status === "ACTIVE" ? await liveCounters(k) : null };
     })
   );

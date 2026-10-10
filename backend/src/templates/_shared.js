@@ -388,7 +388,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
 <mjml>
   <mj-head>
     <mj-title>${title}</mj-title>
-    ${preview ? `<mj-preview>${preview}</mj-preview>` : ""}
+    ${preview ? `<mj-preview>${esc(preview)}</mj-preview>` : ""}
     <mj-attributes>
       <mj-all font-family="${FONT_STACK}" />
       <mj-text font-size="14px" color="#44474c" line-height="21px" />

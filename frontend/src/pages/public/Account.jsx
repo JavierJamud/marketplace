@@ -1022,6 +1022,11 @@ export default function Account({ mode = "customer" }) {
               <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading}>
                 {loading ? (<><Spinner className="text-white" /> Entrando...</>) : "Entrar"}
               </Button>
+              {mode === "partner" && (
+                <p className="text-center text-label-sm text-outline">
+                  ¿Aún no tienes cuenta de socio? <Link to="/socios/solicitar" className="font-semibold text-tertiary-accent hover:underline">Solicita acceso a la API</Link>
+                </p>
+              )}
             </form>
           </>
         ) : (

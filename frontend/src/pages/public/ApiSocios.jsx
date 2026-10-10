@@ -163,13 +163,20 @@ export default function ApiSocios() {
       </p>
 
       <div className="mb-10 grid gap-3 sm:grid-cols-3">
-        {[[KeyRound, "1. Pide tu credencial", "El equipo de Baznova crea tu cuenta de socio y te entrega una sola credencial."], [Globe, "2. Autoriza tu sitio", "Funciona solo desde los dominios o IP registrados."], [Gauge, "3. Conecta", "Envía la credencial en cada solicitud y usa los datos en tu sitio."]].map(([Icon, t, d]) => (
+        {[[KeyRound, "1. Pide tu credencial", "Envías una solicitud; si la aprobamos, te llega tu credencial por correo."], [Globe, "2. Autoriza tu sitio", "Funciona solo desde los dominios o IP registrados."], [Gauge, "3. Conecta", "Envía la credencial en cada solicitud y usa los datos en tu sitio."]].map(([Icon, t, d]) => (
           <div key={t} className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
             <Icon className="mb-2 h-5 w-5 text-primary" />
             <p className="text-[14px] font-bold text-on-surface">{t}</p>
             <p className="text-[12.5px] text-on-surface-variant">{d}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mb-10 rounded-2xl border border-tertiary-accent/30 bg-tertiary-accent/5 p-4">
+        <p className="text-[14px] font-bold text-on-surface">¿Aún no tienes credencial?</p>
+        <p className="mb-3 text-[13px] text-on-surface-variant">Envía una solicitud con tus datos. Un administrador la revisa y, si la aprueba, recibes tu credencial por correo.</p>
+        <a href="/socios/solicitar" className="inline-flex min-h-11 items-center rounded-xl bg-primary px-4 text-[13px] font-semibold text-white hover:bg-primary/90">Solicitar acceso a la API</a>
+        <a href="/socio/ingresar" className="ml-2 inline-flex min-h-11 items-center rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container">Ya tengo cuenta</a>
       </div>
 
       <Section id="inicio" title="Empezar">

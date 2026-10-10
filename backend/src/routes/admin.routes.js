@@ -28,6 +28,7 @@ import * as targetedOffersController from "../controllers/targetedOffers.control
 import * as adminVendorStaffSalesController from "../controllers/adminVendorStaffSales.controller.js";
 import * as adminRankingAnomaliesController from "../controllers/adminRankingAnomalies.controller.js";
 import * as partnersController from "../controllers/partners.controller.js";
+import * as partnerApps from "../controllers/partnerApplications.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { siteUpload } from "../middleware/siteUpload.js";
@@ -46,10 +47,16 @@ router.get("/partners/:id", partnersController.getPartner);
 router.patch("/partners/:id", partnersController.updatePartner);
 router.get("/partners/:id/usage", partnersController.getPartnerUsage);
 router.get("/partners/:id/movements", partnersController.getPartnerMovements);
-router.post("/partners/:id/portal-access", partnersController.grantPortalAccess);
-router.post("/partners/:id/keys", partnersController.createKey);
-router.patch("/partners/:id/keys/:keyId", partnersController.updateKey);
-router.post("/partners/:id/keys/:keyId/revoke", partnersController.revokeKey);
+// Bloque 303: todo lo que cambia el acceso o la credencial de un socio pide el código de confirmación del admin.
+router.post("/partners/:id/portal-access", requireActionCode("PARTNER_MANAGE"), partnersController.grantPortalAccess);
+router.get("/partners/:id/api-key", partnersController.revealPartnerKey);
+router.post("/partners/:id/keys", requireActionCode("PARTNER_MANAGE"), partnersController.createKey);
+router.patch("/partners/:id/keys/:keyId", requireActionCode("PARTNER_MANAGE"), partnersController.updateKey);
+router.post("/partners/:id/keys/:keyId/regenerate", requireActionCode("PARTNER_MANAGE"), partnersController.regenerateKey);
+router.post("/partners/:id/keys/:keyId/revoke", requireActionCode("PARTNER_MANAGE"), partnersController.revokeKey);
+router.get("/partner-applications", partnerApps.listApplications);
+router.post("/partner-applications/:id/approve", requireActionCode("PARTNER_MANAGE"), partnerApps.approveApplication);
+router.post("/partner-applications/:id/reject", partnerApps.rejectApplication);
 
 router.get("/dashboard", adminController.getDashboard);
 // Bloque 48: mismo criterio de rutas literales-antes-que-:id de arriba, pero

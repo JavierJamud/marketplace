@@ -83,6 +83,7 @@ import PartnerMovements from "./pages/partner/PartnerMovements.jsx";
 import PartnerPlans from "./pages/partner/PartnerPlans.jsx";
 import PartnerAccount from "./pages/partner/PartnerAccount.jsx";
 import ApiSocios from "./pages/public/ApiSocios.jsx";
+import SolicitudSocio from "./pages/public/SolicitudSocio.jsx";
 import { capturePartnerRef } from "./lib/partnerRef.js";
 import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
 import AdminStoreOffers from "./pages/admin/AdminStoreOffers.jsx";
@@ -173,6 +174,7 @@ export default function App() {
         <Route path="/ayuda" element={<Ayuda />} />
         <Route path="/contacto" element={<Contacto />} />
         <Route path="/api-socios" element={<ApiSocios />} />
+        <Route path="/socios/solicitar" element={<SolicitudSocio />} />
       </Route>
 
       {/* Bloque 20: /cuenta pasa a ser una pantalla propia de viewport

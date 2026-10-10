@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Plug, Plus, Copy, KeyRound, ArrowLeft, Ban, CheckCircle2, X, ExternalLink } from "lucide-react";
+import { Plug, Plus, Copy, KeyRound, ArrowLeft, Ban, CheckCircle2, X, ExternalLink, Eye, EyeOff, RefreshCw, Inbox } from "lucide-react";
 import { IconCircle, CARD } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
@@ -98,7 +98,7 @@ function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
     },
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["admin-partner", partnerId] });
-      onDone(d.secret ?? null);
+      onDone(d.secret ?? null, d.emailed);
     },
     onError: (e) => toast.error(errMsg(e, "No se pudo guardar la llave.")),
   });
@@ -244,11 +244,43 @@ function PortalAccessCard({ partner }) {
   );
 }
 
+// La credencial vigente del socio: el admin puede verla cuando quiera. Las creadas antes de que se pudieran ver
+// solo se pueden reemplazar con "Regenerar".
+function ApiKeyBox({ partnerId, activeKey }) {
+  const [shown, setShown] = useState(false);
+  const { data } = useQuery({
+    queryKey: ["admin-partner-api-key", partnerId, activeKey?.id],
+    queryFn: async () => (await api.get(`/admin/partners/${partnerId}/api-key`)).data,
+    enabled: !!activeKey,
+  });
+  if (!activeKey) return null;
+  const value = data?.apiKey ?? null;
+  return (
+    <div className={`${CARD} mb-3 p-4`}>
+      <p className={LABEL}>Credencial vigente</p>
+      {data && !value ? (
+        <p className="text-[13px] text-on-surface-variant">Esta credencial se creó antes de poder verse. Regénerala y el socio recibirá la nueva por correo.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="min-h-[44px] flex-1 break-all rounded-xl bg-surface-container px-3 py-3 text-[12.5px] text-on-surface" data-testid="admin-api-key">{value ? (shown ? value : `${value.slice(0, 12)}${"•".repeat(24)}`) : "Cargando..."}</code>
+          <button className={BTN_GHOST} disabled={!value} onClick={() => setShown((s) => !s)} aria-pressed={shown}>
+            {shown ? <><EyeOff className="h-4 w-4" /> Ocultar</> : <><Eye className="h-4 w-4" /> Ver</>}
+          </button>
+          <button className={BTN_GHOST} disabled={!value} onClick={async () => { (await copyToClipboard(value)) ? toast.success("Credencial copiada.") : toast.error("No se pudo copiar."); }}>
+            <Copy className="h-4 w-4" /> Copiar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PartnerDetail({ id, onBack }) {
   const qc = useQueryClient();
   const [keyModal, setKeyModal] = useState(null); // { existing? }
   const [secret, setSecret] = useState(null);
   const [revoke, setRevoke] = useState(null);
+  const [regen, setRegen] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-partner", id],
@@ -268,6 +300,16 @@ function PartnerDetail({ id, onBack }) {
       qc.invalidateQueries({ queryKey: ["admin-partners"] });
     },
     onError: (e) => toast.error(errMsg(e, "No se pudo actualizar.")),
+  });
+  const doRegen = useMutation({
+    mutationFn: async (keyId) => (await api.post(`/admin/partners/${id}/keys/${keyId}/regenerate`)).data,
+    onSuccess: (d) => {
+      setRegen(null);
+      setSecret({ value: d.secret, emailed: d.emailed, regenerated: true });
+      qc.invalidateQueries({ queryKey: ["admin-partner", id] });
+      qc.invalidateQueries({ queryKey: ["admin-partner-api-key", id] });
+    },
+    onError: (e) => toast.error(errMsg(e, "No se pudo regenerar la credencial.")),
   });
   const doRevoke = useMutation({
     mutationFn: async (keyId) => (await api.post(`/admin/partners/${id}/keys/${keyId}/revoke`)).data,
@@ -336,6 +378,7 @@ function PartnerDetail({ id, onBack }) {
         <h2 className="text-[16px] font-bold text-on-surface">Credencial de la API</h2>
         {!keys.some((k) => k.status === "ACTIVE") && <button className={BTN_PRIMARY} onClick={() => setKeyModal({})}><Plus className="h-4 w-4" /> Crear credencial</button>}
       </div>
+      <ApiKeyBox partnerId={id} activeKey={keys.find((k) => k.status === "ACTIVE")} />
       {keys.length === 0 ? (
         <EmptyState icon={KeyRound} title="Sin credencial" description="Crea la credencial del socio para que empiece a usar la API." />
       ) : (
@@ -363,6 +406,7 @@ function PartnerDetail({ id, onBack }) {
               {k.status === "ACTIVE" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button className={BTN_GHOST} onClick={() => setKeyModal({ existing: k })}>Editar</button>
+                  <button className={BTN_GHOST} onClick={() => setRegen(k)}><RefreshCw className="h-4 w-4" /> Regenerar</button>
                   <button className={`${BTN} border border-error/40 text-error hover:bg-error/5`} onClick={() => setRevoke(k)}>Revocar</button>
                 </div>
               )}
@@ -395,16 +439,29 @@ function PartnerDetail({ id, onBack }) {
 
       {keyModal && scopeData && (
         <Modal wide title={keyModal.existing ? "Editar credencial" : "Nueva credencial"} onClose={() => setKeyModal(null)}>
-          <KeyForm partnerId={id} scopes={scopeData.scopes} defaults={scopeData.defaults} existing={keyModal.existing} onDone={(s) => { setKeyModal(null); if (s) setSecret(s); else toast.success("Llave actualizada."); }} />
+          <KeyForm partnerId={id} scopes={scopeData.scopes} defaults={scopeData.defaults} existing={keyModal.existing} onDone={(s, emailed) => { setKeyModal(null); if (s) setSecret({ value: s, emailed }); else toast.success("Credencial actualizada."); }} />
         </Modal>
       )}
       {secret && (
-        <Modal title="Copia la llave ahora" onClose={() => setSecret(null)}>
-          <p className="mb-3 text-[13px] text-on-surface-variant">Es la única vez que se muestra completa. Si se pierde, hay que crear otra.</p>
-          <code className="block break-all rounded-xl bg-surface-container p-3 text-[12.5px] text-on-surface">{secret}</code>
-          <button className={`${BTN_PRIMARY} mt-3 w-full`} onClick={async () => { (await copyToClipboard(secret)) ? toast.success("Llave copiada.") : toast.error("No se pudo copiar."); }}><Copy className="h-4 w-4" /> Copiar llave</button>
+        <Modal title={secret.regenerated ? "Credencial regenerada" : "Credencial creada"} onClose={() => setSecret(null)}>
+          <p className="mb-3 text-[13px] text-on-surface-variant">
+            {secret.emailed ? "Le enviamos esta credencial por correo al socio." : "No se pudo enviar el correo al socio: entrégale esta credencial por otro medio."}
+            {secret.regenerated ? " La anterior dejó de funcionar." : ""} También quedará visible aquí y en su panel.
+          </p>
+          <code className="block break-all rounded-xl bg-surface-container p-3 text-[12.5px] text-on-surface">{secret.value}</code>
+          <button className={`${BTN_PRIMARY} mt-3 w-full`} onClick={async () => { (await copyToClipboard(secret.value)) ? toast.success("Credencial copiada.") : toast.error("No se pudo copiar."); }}><Copy className="h-4 w-4" /> Copiar credencial</button>
         </Modal>
       )}
+      <ConfirmModal
+        open={!!regen}
+        title="¿Regenerar la credencial?"
+        message="La actual deja de funcionar de inmediato y se crea una nueva con la misma configuración. El socio la recibe por correo y debe cambiarla en su sitio."
+        confirmLabel={doRegen.isPending ? "Regenerando..." : "Regenerar"}
+        danger
+        confirmDisabled={doRegen.isPending}
+        onConfirm={() => doRegen.mutate(regen.id)}
+        onCancel={() => setRegen(null)}
+      />
       <ConfirmModal
         open={!!revoke}
         title="¿Revocar esta llave?"
@@ -419,10 +476,108 @@ function PartnerDetail({ id, onBack }) {
   );
 }
 
+const STATUS_LABEL = { PENDING: "En revisión", APPROVED: "Aprobada", REJECTED: "Rechazada" };
+
+function ApplicationRow({ app }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState(null); // "approve" | "reject"
+  const [domains, setDomains] = useState(app.website ? (() => { try { return new URL(app.website).hostname; } catch { return ""; } })() : "");
+  const [ips, setIps] = useState("");
+  const [reason, setReason] = useState("");
+  const done = (msg) => {
+    toast.success(msg);
+    setMode(null);
+    qc.invalidateQueries({ queryKey: ["admin-partner-applications"] });
+    qc.invalidateQueries({ queryKey: ["admin-partners"] });
+  };
+  const approve = useMutation({
+    mutationFn: async () => (await api.post(`/admin/partner-applications/${app.id}/approve`, { allowedDomains: linesToList(domains), allowedIps: linesToList(ips) })).data,
+    onSuccess: (d) => done(d.emailed ? "Solicitud aprobada. El socio recibió su credencial por correo." : "Solicitud aprobada, pero no se pudo enviar el correo: entrégale la credencial desde su ficha."),
+    onError: (e) => toast.error(errMsg(e, "No se pudo aprobar.")),
+  });
+  const reject = useMutation({
+    mutationFn: async () => (await api.post(`/admin/partner-applications/${app.id}/reject`, { reason })).data,
+    onSuccess: () => done("Solicitud rechazada. Se le avisó por correo."),
+    onError: (e) => toast.error(errMsg(e, "No se pudo rechazar.")),
+  });
+  return (
+    <div className={`${CARD} p-4`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-[14px] font-bold text-on-surface">{app.companyName}</p>
+          <p className="text-[12.5px] text-outline">{app.firstName} {app.lastName} · {app.email} · {app.phone}</p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${app.status === "PENDING" ? "bg-[#fe9800]/15 text-[#8A5100]" : app.status === "APPROVED" ? "bg-verified/10 text-verified-dark" : "bg-error/10 text-error"}`}>{STATUS_LABEL[app.status]}</span>
+      </div>
+      <button className="mt-2 min-h-11 text-[12.5px] font-semibold text-tertiary-accent hover:underline" onClick={() => setOpen((o) => !o)}>{open ? "Ocultar detalle" : "Ver detalle"}</button>
+      {open && (
+        <div className="mt-1 space-y-1 text-[13px] text-on-surface-variant">
+          {app.website && <p>Sitio: {app.website}</p>}
+          <p>Para qué la quiere: {app.description}</p>
+          <p>Recibida: {fmtDate(app.createdAt)}</p>
+          {app.rejectReason && <p>Motivo del rechazo: {app.rejectReason}</p>}
+        </div>
+      )}
+      {app.status === "PENDING" && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button className={BTN_PRIMARY} onClick={() => setMode("approve")}><CheckCircle2 className="h-4 w-4" /> Aprobar y crear credencial</button>
+          <button className={`${BTN} border border-error/40 text-error hover:bg-error/5`} onClick={() => setMode("reject")}>Rechazar</button>
+        </div>
+      )}
+      {mode === "approve" && (
+        <Modal title={`Aprobar a ${app.companyName}`} onClose={() => setMode(null)}>
+          <form onSubmit={(e) => { e.preventDefault(); approve.mutate(); }} className="space-y-3">
+            <p className="text-[13px] text-on-surface-variant">Se crea su cuenta de socio con la contraseña que eligió, su credencial de la API, y se le envía todo por correo.</p>
+            <div><label className={LABEL}>Dominios autorizados (uno por línea)</label><textarea className={`${INPUT} py-2`} rows={2} value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="mitienda.com" /></div>
+            <div><label className={LABEL}>Direcciones IP autorizadas (una por línea)</label><textarea className={`${INPUT} py-2`} rows={2} value={ips} onChange={(e) => setIps(e.target.value)} placeholder="203.0.113.10" /></div>
+            <button className={`${BTN_PRIMARY} w-full`} disabled={approve.isPending}>{approve.isPending ? "Aprobando..." : "Aprobar y enviar credencial"}</button>
+          </form>
+        </Modal>
+      )}
+      {mode === "reject" && (
+        <Modal title={`Rechazar a ${app.companyName}`} onClose={() => setMode(null)}>
+          <form onSubmit={(e) => { e.preventDefault(); reject.mutate(); }} className="space-y-3">
+            <div><label className={LABEL}>Motivo (se lo enviamos por correo)</label><textarea className={`${INPUT} py-2`} rows={3} value={reason} onChange={(e) => setReason(e.target.value)} required minLength={3} /></div>
+            <button className={`${BTN_PRIMARY} w-full`} disabled={reject.isPending || reason.trim().length < 3}>{reject.isPending ? "Rechazando..." : "Rechazar solicitud"}</button>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function ApplicationsTab() {
+  const [status, setStatus] = useState("PENDING");
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-partner-applications", status],
+    queryFn: async () => (await api.get("/admin/partner-applications", { params: { status: status || undefined, pageSize: 50 } })).data,
+    refetchInterval: 20000,
+  });
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Filtrar solicitudes">
+        {[["PENDING", "En revisión"], ["APPROVED", "Aprobadas"], ["REJECTED", "Rechazadas"], ["", "Todas"]].map(([v, l]) => (
+          <button key={v} onClick={() => setStatus(v)} aria-pressed={status === v} className={`min-h-11 rounded-full border px-3.5 text-[12.5px] font-semibold ${status === v ? "border-primary bg-primary/10 text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"}`}>{l}</button>
+        ))}
+      </div>
+      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {!isLoading && !data?.applications.length && <EmptyState icon={Inbox} title="No hay solicitudes" description="Cuando alguien pida usar la API desde /socios/solicitar, aparecerá aquí." />}
+      <div className="space-y-3">{data?.applications.map((a) => <ApplicationRow key={a.id} app={a} />)}</div>
+    </div>
+  );
+}
+
 export default function AdminPartners() {
   const [selected, setSelected] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState("socios");
   const [q, setQ] = useState("");
+  const { data: appsInfo } = useQuery({
+    queryKey: ["admin-partner-applications", "PENDING"],
+    queryFn: async () => (await api.get("/admin/partner-applications", { params: { status: "PENDING", pageSize: 50 } })).data,
+    refetchInterval: 20000,
+  });
   const { data, isLoading } = useQuery({
     queryKey: ["admin-partners", q],
     queryFn: async () => (await api.get("/admin/partners", { params: { q: q || undefined, pageSize: 100 } })).data,
@@ -441,15 +596,21 @@ export default function AdminPartners() {
         Empresas que muestran productos de Baznova en su sitio y traen tiendas con su enlace.{" "}
         <a href="/api-socios" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-tertiary-accent hover:underline">Ver documentación <ExternalLink className="h-3.5 w-3.5" /></a>
       </p>
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap gap-2" role="tablist">
+        {[["socios", "Socios"], ["solicitudes", `Solicitudes${appsInfo?.pending ? ` (${appsInfo.pending})` : ""}`]].map(([v, l]) => (
+          <button key={v} role="tab" aria-selected={tab === v} onClick={() => setTab(v)} className={`min-h-11 rounded-full border px-4 text-[13px] font-semibold ${tab === v ? "border-primary bg-primary/10 text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"}`}>{l}</button>
+        ))}
+      </div>
+      {tab === "solicitudes" && <ApplicationsTab />}
+      {tab === "socios" && <div className="mb-4 flex flex-wrap gap-2">
         <input className={`${INPUT} max-w-xs`} placeholder="Buscar socio" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className={BTN_PRIMARY} onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nuevo socio</button>
-      </div>
+      </div>}
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
-      {!isLoading && !data?.partners.length && <EmptyState icon={Plug} title="Todavía no hay socios" description="Crea el primero para darle sus llaves de la API." />}
+      {tab === "socios" && isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {tab === "socios" && !isLoading && !data?.partners.length && <EmptyState icon={Plug} title="Todavía no hay socios" description="Crea el primero para darle sus llaves de la API." />}
 
-      {data?.partners.length > 0 && (
+      {tab === "socios" && data?.partners.length > 0 && (
         <div className="overflow-x-auto rounded-2xl border border-surface-container-high bg-surface-container-lowest">
           <table className="w-full text-left text-[13px]">
             <thead>

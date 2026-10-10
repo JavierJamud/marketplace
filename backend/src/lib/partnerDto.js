@@ -28,11 +28,11 @@ export const PUBLIC_PRODUCT_FILTER = {
   overQuota: false,
 };
 
-export function visibleProductWhere(partnerId) {
+export function visibleProductWhere(partnerId, { includeOutOfStock = false } = {}) {
   return {
     ...PUBLIC_PRODUCT_FILTER,
     AND: [
-      { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] },
+      ...(includeOutOfStock ? [] : [{ OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] }]),
       // Menú de mesa oculto: esos productos no salen en la tienda pública.
       { NOT: { availableForTableMenu: true, vendor: { menuPublic: false } } },
     ],
@@ -44,6 +44,7 @@ export const productInclude = {
   vendor: { select: { slug: true, companyName: true, verificationStatus: true, logoUrl: true } },
   category: { select: { id: true, name: true, slug: true } },
   priceTiers: { orderBy: { minQty: "asc" } },
+  options: { select: { name: true, values: true } },
 };
 
 export function productDto(p) {
@@ -63,6 +64,13 @@ export function productDto(p) {
     sizes: p.sizes ?? [],
     badge: p.badge ?? null,
     inStock: p.unlimitedStock || p.stock > 0,
+    // Mismos datos de disponibilidad que muestra el sitio: sin seguimiento de stock (siempre disponible), cantidad
+    // total y cantidad por talla.
+    unlimitedStock: p.unlimitedStock,
+    stock: p.unlimitedStock ? null : p.stock,
+    sizeStock: p.unlimitedStock ? null : (p.sizeStock ?? null),
+    paymentMethods: p.paymentMethods ?? [],
+    options: (p.options ?? []).map((o) => ({ name: o.name, values: o.values })),
     rating: num(p.rating),
     reviewCount: p.reviewCount,
     isFeatured: p.isFeatured,
@@ -92,6 +100,9 @@ export function storeDto(v, extra = {}) {
     logoUrl: absUrl(v.logoUrl),
     color: v.color,
     verified: v.verificationStatus === "VERIFIED",
+    whatsapp: v.whatsapp ?? null,
+    acceptedPaymentMethods: v.acceptedPaymentMethods ?? [],
+    orderDestination: v.orderDestination,
     rating: num(v.rating),
     isRestaurant: v.isRestaurant,
     currency: v.currency,
