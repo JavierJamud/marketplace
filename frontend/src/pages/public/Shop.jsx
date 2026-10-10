@@ -218,7 +218,7 @@ export default function Shop() {
             {!isLoading && products.length === 0 && (
               <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest py-16 text-center">
                 <div className="mb-1.5 text-title-lg font-semibold text-on-surface">
-                  {hasProvinceFilter ? `Sin stock en ${provinceName}` : "No hay productos que coincidan con estos filtros"}
+                  {hasProvinceFilter ? `Sin stock en ${provinceName}` : q.trim() ? `No encontramos productos con el nombre “${q.trim()}”` : "No hay productos que coincidan con estos filtros"}
                 </div>
                 {hasProvinceFilter && (
                   <>

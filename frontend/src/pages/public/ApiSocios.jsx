@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
-import { Copy, Play, KeyRound, Globe, Server, Gauge } from "lucide-react";
+import { Copy, Play, KeyRound, Globe, Gauge } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Documentación pública de la API de socios, con una consola para probar las llamadas con la
-// propia llave. La llave solo vive en memoria de esta pestaña.
+// propia credencial. La credencial solo vive en memoria de esta pestaña.
 
 const BASE = (() => {
   const b = String(api.defaults.baseURL ?? "").replace(/\/$/, "");
@@ -14,7 +14,7 @@ const BASE = (() => {
 })();
 
 const ENDPOINTS = [
-  { id: "me", scope: "Siempre", method: "GET", path: "/me", title: "Mi llave", desc: "Permisos, límites y cuánto queda de cuota, más el enlace de registro de tiendas.", params: [] },
+  { id: "me", scope: "Siempre", method: "GET", path: "/me", title: "Mi credencial", desc: "Permisos, límites y cuánto queda de cuota, más el enlace de registro de tiendas.", params: [] },
   { id: "products", scope: "products:read", method: "GET", path: "/products", title: "Productos", desc: "Lista con filtros. Por defecto va ordenada por el ranking real de Baznova.",
     params: [["q", "Texto a buscar"], ["categoryId", "Categoría (incluye subcategorías)"], ["storeSlug", "Solo una tienda"], ["provinceId", "Provincia"], ["municipalityId", "Municipio"], ["minPrice", "Precio mínimo"], ["maxPrice", "Precio máximo"], ["currency", "CUP o USD"], ["onlyVerified", "true: solo tiendas verificadas"], ["sort", "relevance, newest, price-asc, price-desc, rating"], ["page", "Página (1)"], ["pageSize", "Por página (20, máx. 50)"]] },
   { id: "featured", scope: "ranking:read", method: "GET", path: "/products/featured", title: "Destacados", desc: "Los mejor posicionados según ventas, clics, reseñas y calidad del contenido.", params: [["limit", "Cantidad (12, máx. 50)"], ["categoryId", "Categoría"], ["storeSlug", "Tienda"]] },
@@ -30,8 +30,13 @@ const ENDPOINTS = [
   { id: "business-categories", scope: "catalog:read", method: "GET", path: "/business-categories", title: "Tipos de negocio", desc: "Tipos de tienda disponibles.", params: [] },
   { id: "provinces", scope: "catalog:read", method: "GET", path: "/locations/provinces", title: "Provincias", desc: "Provincias y estados activos.", params: [] },
   { id: "municipalities", scope: "catalog:read", method: "GET", path: "/locations/municipalities", title: "Municipios", desc: "Municipios de una provincia.", params: [["provinceId", "Obligatorio"]] },
-  { id: "cart", scope: "cart:validate", method: "POST", path: "/cart/validate", title: "Validar carrito", desc: "Revisa precios vigentes, stock y totales por tienda y moneda. No guarda nada ni crea pedidos.", params: [],
+  { id: "cart", scope: "cart:validate", method: "POST", path: "/cart/validate", title: "Validar carrito", desc: "Revisa precios vigentes, stock y totales por tienda y moneda. Un carrito con productos de más de una tienda es inválido (multiple_stores). No guarda nada.", params: [],
     body: '{\n  "items": [\n    { "productId": "ID_DEL_PRODUCTO", "quantity": 2 }\n  ]\n}' },
+  { id: "checkout", scope: "cart:validate", method: "GET", path: "/stores/{slug}/checkout", title: "Requisitos del pedido", desc: "Campos del formulario, métodos de pago, provincias donde entrega la tienda, si está abierta y a dónde llega el pedido (panel, WhatsApp o ambos).", path_params: ["slug"], params: [] },
+  { id: "order-create", scope: "cart:validate", method: "POST", path: "/orders", title: "Crear pedido", desc: "Crea un pedido real con las mismas reglas que el checkout de Baznova: llega al panel del vendedor y la respuesta trae el enlace de WhatsApp con el mensaje. Exige la cabecera Idempotency-Key.", params: [],
+    body: '{\n  "storeSlug": "SLUG_DE_LA_TIENDA",\n  "channel": "cod",\n  "customerName": "Nombre Apellido",\n  "customerPhone": "+5355512345",\n  "customerEmail": "cliente@correo.com",\n  "shippingProvinceId": "ID_PROVINCIA",\n  "shippingMunicipalityId": "ID_MUNICIPIO",\n  "shippingAddress": "Calle y número",\n  "items": [{ "productId": "ID_DEL_PRODUCTO", "quantity": 1 }]\n}' },
+  { id: "order-get", scope: "cart:validate", method: "GET", path: "/orders/{code}", title: "Estado de un pedido", desc: "Estado de un pedido creado con tu credencial.", path_params: ["code"], params: [] },
+  { id: "plans", scope: "plans:read", method: "GET", path: "/plans", title: "Planes y precios", desc: "Planes de Baznova con el precio base y tu precio final por mes.", params: [] },
 ];
 
 const CODE = "overflow-x-auto rounded-xl bg-[#0f172a] p-4 text-[12.5px] leading-relaxed text-[#e2e8f0]";
@@ -81,7 +86,7 @@ function Console() {
   }, [ep, vals]);
 
   async function send() {
-    if (!key.trim()) return toast.error("Pega tu llave de navegador.");
+    if (!key.trim()) return toast.error("Pega tu credencial.");
     setBusy(true);
     setRes(null);
     const started = performance.now();
@@ -112,7 +117,7 @@ function Console() {
       <div>
         <label className="mb-1 block text-[12px] font-bold text-on-surface-variant">Llave de navegador</label>
         <input className={`${INPUT} font-mono`} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="bzp_pub_..." />
-        <p className="mt-1 text-[11.5px] text-outline">Solo se usa en esta pestaña y no se guarda. Las llaves de servidor no funcionan aquí.</p>
+        <p className="mt-1 text-[11.5px] text-outline">Solo se usa en esta pestaña y no se guarda. Las llamadas de esta consola salen de tu navegador, así que tu dominio o IP deben estar autorizados.</p>
       </div>
       <div>
         <label className="mb-1 block text-[12px] font-bold text-on-surface-variant">Recurso</label>
@@ -154,11 +159,11 @@ export default function ApiSocios() {
     <div className="mx-auto max-w-[900px] px-4 py-10">
       <h1 className="mb-2 font-display text-[32px] font-extrabold tracking-tight text-on-surface">API para socios</h1>
       <p className="mb-8 text-[15px] text-on-surface-variant">
-        Muestra los productos y tiendas de {siteName} en tu sitio, valida carritos y trae tiendas con tu enlace de socio. La API es de solo lectura.
+        Muestra los productos y tiendas de {siteName} en tu sitio, valida carritos, recibe pedidos reales y trae tiendas con tu enlace de socio.
       </p>
 
       <div className="mb-10 grid gap-3 sm:grid-cols-3">
-        {[[KeyRound, "1. Pide tu llave", "El equipo de Baznova crea tu cuenta de socio y te entrega las llaves."], [Globe, "2. Autoriza tu sitio", "Cada llave funciona solo desde los dominios o IP registrados."], [Gauge, "3. Conecta", "Envía la llave en cada solicitud y usa los datos en tu sitio."]].map(([Icon, t, d]) => (
+        {[[KeyRound, "1. Pide tu credencial", "El equipo de Baznova crea tu cuenta de socio y te entrega una sola credencial."], [Globe, "2. Autoriza tu sitio", "Funciona solo desde los dominios o IP registrados."], [Gauge, "3. Conecta", "Envía la credencial en cada solicitud y usa los datos en tu sitio."]].map(([Icon, t, d]) => (
           <div key={t} className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
             <Icon className="mb-2 h-5 w-5 text-primary" />
             <p className="text-[14px] font-bold text-on-surface">{t}</p>
@@ -170,41 +175,42 @@ export default function ApiSocios() {
       <Section id="inicio" title="Empezar">
         <p>Dirección base de la API:</p>
         <Code>{BASE}</Code>
-        <p>Envía tu llave en el encabezado <code>Authorization</code> (o en <code>X-Api-Key</code>). Todas las respuestas son JSON con la forma <code>{"{ data, meta }"}</code>.</p>
-        <Code>{`curl "${BASE}/products?pageSize=5" \\\n  -H "Authorization: Bearer TU_LLAVE"`}</Code>
+        <p>Envía tu credencial en el encabezado <code>Authorization</code> (o en <code>X-Api-Key</code>). Todas las respuestas son JSON con la forma <code>{"{ data, meta }"}</code>.</p>
+        <Code>{`curl "${BASE}/products?pageSize=5" \\\n  -H "Authorization: Bearer TU_CREDENCIAL"`}</Code>
       </Section>
 
-      <Section id="llaves" title="Tipos de llave">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
-            <Globe className="mb-2 h-5 w-5 text-primary" />
-            <p className="font-bold text-on-surface">Navegador</p>
-            <p className="text-[13px]">Empieza con <code>bzp_pub_</code>. Va en el código de tu página y solo funciona desde los dominios que registraste.</p>
-          </div>
-          <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
-            <Server className="mb-2 h-5 w-5 text-primary" />
-            <p className="font-bold text-on-surface">Servidor</p>
-            <p className="text-[13px]">Empieza con <code>bzp_sec_</code>. Es secreta: úsala solo en tu servidor, que debe tener una IP registrada. Si se usa desde un navegador se rechaza.</p>
-          </div>
-        </div>
-        <p>Si una llave se filtra, avisa a Baznova: se revoca al instante y se crea otra.</p>
+      <Section id="llaves" title="Tu credencial">
+        <p>Cada socio tiene <b>una sola credencial</b>, que empieza con <code>bzp_key_</code>. Con ella usas todo: productos, tiendas, carrito, pedidos y planes. Funciona desde tu sitio web (se comprueba el dominio) y desde tu servidor (se comprueba la IP): basta con que coincida uno de los dos.</p>
+        <p>Una credencial puesta en el código de una página se puede ver. Para crear pedidos, lo más seguro es llamar a la API desde tu servidor. Si se filtra, avisa a Baznova: se revoca al instante y se crea otra.</p>
+      </Section>
+
+      <Section id="pedidos" title="Cómo crear un pedido">
+        <p>Es el mismo proceso que el checkout de Baznova, con reglas más estrictas porque no puede haber un pedido a medias:</p>
+        <ol className="list-decimal space-y-1 pl-5">
+          <li>Valida el carrito con <code>POST /cart/validate</code>. Todos los productos deben ser de la misma tienda.</li>
+          <li>Pide los requisitos con <code>{"GET /stores/{slug}/checkout"}</code>: campos, métodos de pago y provincias donde entrega.</li>
+          <li>Crea el pedido con <code>POST /orders</code> y una cabecera <code>Idempotency-Key</code> única por pedido. Si repites la misma clave, recibes el mismo pedido y no se duplica.</li>
+          <li>Si la tienda recibe por WhatsApp, abre <code>data.whatsapp.url</code> para que el cliente envíe el pedido. Si recibe por panel, ya le llegó al vendedor.</li>
+        </ol>
+        <p>El precio y el total siempre los calcula Baznova. Se rechaza cualquier campo que no esté en el formulario, un teléfono sin código de país, un municipio que no sea de la provincia, una provincia donde la tienda no entrega, productos pausados o sin stock, y más de 60 pedidos en 5 minutos.</p>
+        <Code>{`curl -X POST "${BASE}/orders" \\\n  -H "Authorization: Bearer TU_CREDENCIAL" \\\n  -H "Idempotency-Key: pedido-2026-0001" \\\n  -H "Content-Type: application/json" \\\n  -d '{"storeSlug":"mi-tienda","channel":"cod","customerName":"Ana Pérez","customerPhone":"+5355512345","customerEmail":"ana@correo.com","shippingProvinceId":"ID","shippingMunicipalityId":"ID","shippingAddress":"Calle 1 entre 2 y 3","items":[{"productId":"ID","quantity":1}]}'`}</Code>
       </Section>
 
       <Section id="ejemplos" title="Ejemplos">
-        <p>En el navegador (llave de navegador):</p>
-        <Code>{`const res = await fetch("${BASE}/products/featured?limit=8", {\n  headers: { Authorization: "Bearer bzp_pub_..." },\n});\nconst { data } = await res.json();`}</Code>
-        <p>En tu servidor con Node (llave de servidor):</p>
+        <p>En el navegador:</p>
+        <Code>{`const res = await fetch("${BASE}/products/featured?limit=8", {\n  headers: { Authorization: "Bearer bzp_key_..." },\n});\nconst { data } = await res.json();`}</Code>
+        <p>En tu servidor con Node:</p>
         <Code>{`const res = await fetch("${BASE}/stores?pageSize=20", {\n  headers: { Authorization: \`Bearer \${process.env.BAZNOVA_KEY}\` },\n});\nconst { data, meta } = await res.json();`}</Code>
         <p>Validar un carrito:</p>
-        <Code>{`const res = await fetch("${BASE}/cart/validate", {\n  method: "POST",\n  headers: { Authorization: "Bearer bzp_pub_...", "Content-Type": "application/json" },\n  body: JSON.stringify({ items: [{ productId: "ID", quantity: 2 }] }),\n});`}</Code>
+        <Code>{`const res = await fetch("${BASE}/cart/validate", {\n  method: "POST",\n  headers: { Authorization: "Bearer bzp_key_...", "Content-Type": "application/json" },\n  body: JSON.stringify({ items: [{ productId: "ID", quantity: 2 }] }),\n});`}</Code>
       </Section>
 
       <Section id="limites" title="Límites y errores">
-        <p>Cada llave tiene un límite por minuto y otro por día, amplios y pensados solo para frenar bots. Cada respuesta incluye <code>X-RateLimit-Remaining</code> y <code>X-DailyLimit-Remaining</code>. Al pasarte recibes <code>429</code> con <code>Retry-After</code> en segundos.</p>
+        <p>Tu credencial tiene un límite por minuto y otro por día, amplios y pensados solo para frenar bots. Cada respuesta incluye <code>X-RateLimit-Remaining</code> y <code>X-DailyLimit-Remaining</code>. Al pasarte recibes <code>429</code> con <code>Retry-After</code> en segundos.</p>
         <div className="overflow-x-auto rounded-xl border border-surface-container-high">
           <table className="w-full text-left text-[13px]">
             <tbody>
-              {[["401", "missing_key, invalid_key, revoked_key, expired_key", "Falta la llave o no es válida."], ["403", "origin_not_allowed, secret_key_in_browser, scope_missing, partner_suspended", "Sitio o IP no autorizados, o la llave no tiene ese permiso."], ["404", "not_found", "El recurso no existe o no está disponible."], ["429", "rate_limit, daily_limit", "Demasiadas solicitudes."]].map(([c, k, d]) => (
+              {[["401", "missing_key, invalid_key, revoked_key, expired_key", "Falta la credencial o no es válida."], ["403", "origin_not_allowed, scope_missing, partner_suspended", "Sitio o IP no autorizados, o la llave no tiene ese permiso."], ["404", "not_found", "El recurso no existe o no está disponible."], ["429", "rate_limit, daily_limit", "Demasiadas solicitudes."]].map(([c, k, d]) => (
                 <tr key={c} className="border-b border-surface-container last:border-b-0"><td className="px-3 py-2 font-bold text-on-surface">{c}</td><td className="px-3 py-2 font-mono text-[12px]">{k}</td><td className="px-3 py-2">{d}</td></tr>
               ))}
             </tbody>
@@ -234,7 +240,7 @@ export default function ApiSocios() {
       </Section>
 
       <Section id="probar" title="Probar la API">
-        <p>Pega una llave de navegador y haz una llamada real.</p>
+        <p>Pega tu credencial y haz una llamada real.</p>
         <Console />
       </Section>
     </div>

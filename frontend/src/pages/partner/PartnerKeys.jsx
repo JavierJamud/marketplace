@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Globe, KeyRound, Server } from "lucide-react";
+import { Globe, KeyRound } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle } from "../../components/dashboard/DashboardCard.jsx";
@@ -25,12 +25,12 @@ export default function PartnerKeys() {
     <div className="max-w-[980px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={KeyRound} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Llaves y cuotas</h1>
+        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Credencial y cuotas</h1>
       </div>
-      <p className="mb-5 text-[13.5px] text-outline">Tus llaves de la API. Si necesitas una nueva, cambiar sus permisos o sus sitios autorizados, pídeselo a Baznova.</p>
+      <p className="mb-5 text-[13.5px] text-outline">Tienes una sola credencial para toda la API: productos, carrito, pedidos y planes. Si necesitas cambiarla, o agregar sitios autorizados, pídeselo a Baznova.</p>
 
       {isLoading && <p className="text-[13.5px] text-outline">Cargando...</p>}
-      {!isLoading && keys.length === 0 && <div className={`${CARD} p-6 text-[13.5px] text-outline`}>Todavía no tienes llaves. Baznova te las creará cuando tu sitio esté listo.</div>}
+      {!isLoading && keys.length === 0 && <div className={`${CARD} p-6 text-[13.5px] text-outline`}>Todavía no tienes tu credencial. Baznova la creará cuando tu sitio esté listo.</div>}
 
       <div className="space-y-4">
         {keys.map((k) => (
@@ -38,7 +38,7 @@ export default function PartnerKeys() {
             <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2.5">
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10 text-tertiary-accent">
-                  {k.kind === "SERVER" ? <Server className="h-[18px] w-[18px]" aria-hidden="true" /> : <Globe className="h-[18px] w-[18px]" aria-hidden="true" />}
+                  <Globe className="h-[18px] w-[18px]" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-bold text-on-surface">{k.name}</div>
@@ -50,16 +50,12 @@ export default function PartnerKeys() {
 
             <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-[13px] sm:grid-cols-2">
               <div>
-                <dt className="text-[11.5px] text-on-surface-variant">Tipo</dt>
-                <dd className="font-semibold text-on-surface">{k.kind === "SERVER" ? "Servidor (llave secreta, por IP)" : "Navegador (llave pública, por dominio)"}</dd>
-              </div>
-              <div>
                 <dt className="text-[11.5px] text-on-surface-variant">Último uso</dt>
                 <dd className="font-semibold text-on-surface">{fmtDate(k.lastUsedAt)}</dd>
               </div>
               <div>
-                <dt className="text-[11.5px] text-on-surface-variant">{k.kind === "SERVER" ? "Direcciones IP autorizadas" : "Sitios autorizados"}</dt>
-                <dd className="break-words font-semibold text-on-surface">{(k.kind === "SERVER" ? k.allowedIps : [...k.allowedDomains, ...k.allowedIps]).join(", ") || "Ninguno"}</dd>
+                <dt className="text-[11.5px] text-on-surface-variant">Sitios y direcciones IP autorizados</dt>
+                <dd className="break-words font-semibold text-on-surface">{[...k.allowedDomains, ...k.allowedIps].join(", ") || "Ninguno"}</dd>
               </div>
               <div>
                 <dt className="text-[11.5px] text-on-surface-variant">Vence</dt>

@@ -105,9 +105,9 @@ export default function PartnerDashboard() {
 
           <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div className={`${CARD} p-5`}>
-              <CardHeader icon={Gauge} tone="teal" title="Cuota de tus llaves" subtitle="Lo que has usado ahora mismo" />
+              <CardHeader icon={Gauge} tone="teal" title="Cuota de tu credencial" subtitle="Lo que has usado ahora mismo" />
               <div className="mt-3 space-y-4">
-                {keys.length === 0 && <p className="text-[13px] text-outline">No tienes llaves activas. Pídele a Baznova que te cree una.</p>}
+                {keys.length === 0 && <p className="text-[13px] text-outline">No tienes una credencial activa. Pídele a Baznova que te cree una.</p>}
                 {keys.map((k) => (
                   <div key={k.id}>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">

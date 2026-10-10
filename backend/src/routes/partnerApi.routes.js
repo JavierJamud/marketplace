@@ -1,5 +1,6 @@
 import express, { Router } from "express";
 import * as c from "../controllers/partnerApi.controller.js";
+import * as o from "../controllers/partnerOrders.controller.js";
 import { partnerCors, partnerAuth, requireScope } from "../middleware/partnerAuth.js";
 
 // API pública de socios: /partner/v1. Se monta ANTES del CORS general de app.js porque tiene su
@@ -28,6 +29,11 @@ router.get("/locations/provinces", requireScope("catalog:read"), c.listProvinces
 router.get("/locations/municipalities", requireScope("catalog:read"), c.listMunicipalities);
 
 router.post("/cart/validate", requireScope("cart:validate"), c.validateCart);
+router.get("/stores/:slug/checkout", requireScope("cart:validate"), o.getCheckoutRequirements);
+router.post("/orders", requireScope("cart:validate"), o.createPartnerOrder);
+router.get("/orders/:code", requireScope("cart:validate"), o.getPartnerOrder);
+
+router.get("/plans", requireScope("plans:read"), o.listPlans);
 
 // Cuerpo JSON mal formado o demasiado grande: 400/413 con código, nunca 500.
 router.use((err, _req, res, next) => {

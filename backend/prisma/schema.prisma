@@ -1708,7 +1708,13 @@ model Order {
   discountCodeId String?
   discountAmount Decimal? @db.Decimal(12, 2)
 
+  // Bloque 300: pedido hecho a través de la API de un socio. idempotencyKey evita que un reintento
+  // de red cree el pedido dos veces (único por socio).
+  partnerId      String?
+  idempotencyKey String?
+
   vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  partner  Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   customer User?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   discountCode DiscountCode? @relation(fields: [discountCodeId], references: [id], onDelete: SetNull)
   items    OrderItem[]
@@ -1717,6 +1723,7 @@ model Order {
   // Bloque 241: agregados por tienda en una ventana de fechas (ventas y
   // pedidos de 30 días en las listas del admin y el asistente).
   @@index([vendorId, createdAt])
+  @@unique([partnerId, idempotencyKey])
 }
 
 // Historial de emails transaccionales (confirmación, cambio de estado,
@@ -3429,13 +3436,8 @@ model Partner {
   vendors Vendor[]
   usageHours PartnerApiUsageHour[]
   logs    PartnerApiLog[]
-}
-
-enum PartnerKeyKind {
-  // Para el navegador del cliente final: llave pública, solo lectura, restringida a dominios.
-  BROWSER
-  // Para el servidor del socio: llave secreta, restringida a direcciones IP.
-  SERVER
+  orders  Order[]
+  planPrices PartnerPlanPrice[]
 }
 
 enum PartnerKeyStatus {
@@ -3447,7 +3449,6 @@ model PartnerApiKey {
   id        String           @id @default(cuid())
   partnerId String
   name      String
-  kind      PartnerKeyKind
   // Primeros caracteres de la llave, solo para reconocerla en el panel. La llave completa se
   // muestra una única vez al crearla; en la base solo vive su huella SHA-256.
   prefix    String
@@ -3456,9 +3457,9 @@ model PartnerApiKey {
   scopes    String[]         @default([])
   rateLimitPerMinute Int     @default(1200)
   dailyLimit         Int     @default(500000)
-  // BROWSER: dominios (sin protocolo, ej. "mitienda.com"; "*.mitienda.com" admite subdominios).
+  // Dominios desde los que se puede llamar con la llave (sin protocolo, ej. "mitienda.com"; "*.mitienda.com" admite subdominios).
   allowedDomains String[]    @default([])
-  // SERVER: direcciones IPv4/IPv6 exactas.
+  // Direcciones IPv4/IPv6 exactas del servidor del socio. Basta con que coincida el dominio O la IP.
   allowedIps     String[]    @default([])
   status    PartnerKeyStatus @default(ACTIVE)
   expiresAt DateTime?
@@ -3510,4 +3511,17 @@ model PartnerApiUsageHour {
 
   @@id([keyId, hour, endpoint])
   @@index([partnerId, hour])
+}
+
+// Bloque 300: extra que el socio le suma al precio base de cada plan de Baznova (nunca por debajo).
+model PartnerPlanPrice {
+  partnerId String
+  planType  PlanType
+  extraCup  Decimal  @default(0) @db.Decimal(12, 2)
+  extraUsd  Decimal  @default(0) @db.Decimal(12, 2)
+  updatedAt DateTime @updatedAt
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@id([partnerId, planType])
 }

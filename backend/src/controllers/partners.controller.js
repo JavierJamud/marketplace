@@ -73,7 +73,6 @@ const keyFields = {
 };
 const createKeyBody = z.object({
   name: keyFields.name,
-  kind: z.enum(["BROWSER", "SERVER"]),
   scopes: keyFields.scopes.default(DEFAULT_PARTNER_SCOPES),
   rateLimitPerMinute: keyFields.rateLimitPerMinute.default(DEFAULT_RATE_PER_MINUTE),
   dailyLimit: keyFields.dailyLimit.default(DEFAULT_DAILY_LIMIT),
@@ -91,10 +90,8 @@ const updateKeyBody = z.object({
   expiresAt: keyFields.expiresAt.optional(),
 });
 
-function assertKeyRestrictions(kind, domains, ips) {
-  if (kind === "SERVER" && ips.length === 0) throw new AppError("Una llave de servidor necesita al menos una dirección IP autorizada.", 400);
-  if (kind === "SERVER" && domains.length > 0) throw new AppError("Una llave de servidor se autoriza por IP, no por dominio.", 400);
-  if (kind === "BROWSER" && domains.length === 0 && ips.length === 0) throw new AppError("Una llave de navegador necesita al menos un dominio autorizado.", 400);
+function assertKeyRestrictions(domains, ips) {
+  if (domains.length === 0 && ips.length === 0) throw new AppError("La credencial necesita al menos un dominio o una dirección IP autorizada.", 400);
 }
 
 async function getPartnerOr404(id) {
@@ -206,13 +203,15 @@ export async function createKey(req, res) {
   const data = createKeyBody.parse(req.body);
   const allowedDomains = listDomains(data.allowedDomains);
   const allowedIps = listIps(data.allowedIps);
-  assertKeyRestrictions(data.kind, allowedDomains, allowedIps);
-  const gen = generateApiKey(data.kind);
+  assertKeyRestrictions(allowedDomains, allowedIps);
+  // Un socio tiene una sola credencial: para cambiarla se revoca la actual y se crea otra.
+  const active = await prisma.partnerApiKey.count({ where: { partnerId: partner.id, status: "ACTIVE" } });
+  if (active > 0) throw new AppError("Este socio ya tiene su credencial activa. Revócala primero si necesitas crear una nueva.", 409);
+  const gen = generateApiKey();
   const key = await prisma.partnerApiKey.create({
     data: {
       partnerId: partner.id,
       name: data.name,
-      kind: data.kind,
       prefix: gen.prefix,
       keyHash: gen.hash,
       scopes: data.scopes,
@@ -236,7 +235,7 @@ export async function updateKey(req, res) {
   const data = updateKeyBody.parse(req.body);
   const allowedDomains = data.allowedDomains ? listDomains(data.allowedDomains) : key.allowedDomains;
   const allowedIps = data.allowedIps ? listIps(data.allowedIps) : key.allowedIps;
-  assertKeyRestrictions(key.kind, allowedDomains, allowedIps);
+  assertKeyRestrictions(allowedDomains, allowedIps);
   const updated = await prisma.partnerApiKey.update({
     where: { id: key.id },
     data: {

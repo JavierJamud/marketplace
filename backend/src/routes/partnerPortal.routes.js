@@ -9,5 +9,7 @@ router.use(authenticate, requireRole("PARTNER"));
 router.get("/me", portal.getPortalMe);
 router.get("/overview", portal.getPortalOverview);
 router.get("/movements", portal.getPortalMovements);
+router.get("/plans", portal.getPortalPlans);
+router.put("/plans/:planType", portal.setPortalPlanPrice);
 
 export default router;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, KeyRound, Activity, BookOpen, UserCog, Menu, LogOut, Store } from "lucide-react";
+import { LayoutDashboard, Wallet, KeyRound, Activity, BookOpen, UserCog, Menu, LogOut, Store } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -11,7 +11,8 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 // barra superior en tarjeta, contenido a la derecha). Solo cambia el menú: es el panel del socio de la API.
 const NAV = [
   { to: "/socio", label: "Resumen", icon: LayoutDashboard, end: true },
-  { to: "/socio/llaves", label: "Llaves y cuotas", icon: KeyRound },
+  { to: "/socio/llaves", label: "Credencial y cuotas", icon: KeyRound },
+  { to: "/socio/planes", label: "Planes y ganancias", icon: Wallet },
   { to: "/socio/movimientos", label: "Movimientos", icon: Activity },
   { to: "/socio/cuenta", label: "Mi cuenta", icon: UserCog },
 ];

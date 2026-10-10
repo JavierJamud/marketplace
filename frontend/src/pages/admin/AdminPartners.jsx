@@ -75,7 +75,6 @@ function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
   const qc = useQueryClient();
   const [f, setF] = useState({
     name: existing?.name ?? "",
-    kind: existing?.kind ?? "BROWSER",
     scopes: existing?.scopes ?? scopes.map((s) => s.id),
     rateLimitPerMinute: existing?.rateLimitPerMinute ?? defaults.rateLimitPerMinute,
     dailyLimit: existing?.dailyLimit ?? defaults.dailyLimit,
@@ -95,7 +94,7 @@ function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
         expiresAt: f.expiresAt ? new Date(`${f.expiresAt}T23:59:59`).toISOString() : null,
       };
       if (existing) return (await api.patch(`/admin/partners/${partnerId}/keys/${existing.id}`, body)).data;
-      return (await api.post(`/admin/partners/${partnerId}/keys`, { ...body, kind: f.kind })).data;
+      return (await api.post(`/admin/partners/${partnerId}/keys`, body)).data;
     },
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["admin-partner", partnerId] });
@@ -104,31 +103,18 @@ function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
     onError: (e) => toast.error(errMsg(e, "No se pudo guardar la llave.")),
   });
   const toggleScope = (id) => setF({ ...f, scopes: f.scopes.includes(id) ? f.scopes.filter((s) => s !== id) : [...f.scopes, id] });
-  const isServer = f.kind === "SERVER";
   return (
     <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-3">
-      <div><label className={LABEL}>Nombre de la llave</label><input className={INPUT} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required minLength={2} placeholder="Ej. Sitio web principal" /></div>
-      {!existing && (
-        <div>
-          <label className={LABEL}>Tipo</label>
-          <div className="grid grid-cols-2 gap-2">
-            {[["BROWSER", "Navegador", "Llave pública, por dominio"], ["SERVER", "Servidor", "Llave secreta, por IP"]].map(([k, t, d]) => (
-              <button type="button" key={k} onClick={() => setF({ ...f, kind: k })} className={`min-h-[44px] rounded-xl border p-3 text-left ${f.kind === k ? "border-primary bg-primary/5" : "border-outline-variant"}`}>
-                <span className="block text-[13px] font-bold text-on-surface">{t}</span>
-                <span className="block text-[11.5px] text-outline">{d}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {!isServer && (
-        <div>
-          <label className={LABEL}>Dominios autorizados (uno por línea)</label>
-          <textarea className={`${INPUT} py-2`} rows={3} value={f.domains} onChange={(e) => setF({ ...f, domains: e.target.value })} placeholder={"mitienda.com\n*.mitienda.com"} />
-        </div>
-      )}
+      <div><label className={LABEL}>Nombre de la credencial</label><input className={INPUT} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required minLength={2} placeholder="Ej. Sitio web principal" /></div>
+      <p className="rounded-xl bg-surface-container p-3 text-[12px] text-on-surface-variant">
+        Cada socio tiene una sola credencial. Sirve desde su sitio web (por dominio) y desde su servidor (por IP): basta con que coincida uno de los dos.
+      </p>
       <div>
-        <label className={LABEL}>{isServer ? "Direcciones IP autorizadas (una por línea)" : "Direcciones IP adicionales (opcional)"}</label>
+        <label className={LABEL}>Dominios autorizados (uno por línea)</label>
+        <textarea className={`${INPUT} py-2`} rows={3} value={f.domains} onChange={(e) => setF({ ...f, domains: e.target.value })} placeholder={"mitienda.com\n*.mitienda.com"} />
+      </div>
+      <div>
+        <label className={LABEL}>Direcciones IP autorizadas (una por línea)</label>
         <textarea className={`${INPUT} py-2`} rows={2} value={f.ips} onChange={(e) => setF({ ...f, ips: e.target.value })} placeholder="203.0.113.10" />
       </div>
       <div>
@@ -147,7 +133,7 @@ function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
         <div><label className={LABEL}>Por día</label><input type="number" min={1} className={INPUT} value={f.dailyLimit} onChange={(e) => setF({ ...f, dailyLimit: e.target.value })} /></div>
       </div>
       <div><label className={LABEL}>Vence el (opcional)</label><input type="date" className={INPUT} value={f.expiresAt} onChange={(e) => setF({ ...f, expiresAt: e.target.value })} /></div>
-      <button className={`${BTN_PRIMARY} w-full`} disabled={save.isPending || f.scopes.length === 0}>{save.isPending ? "Guardando..." : existing ? "Guardar cambios" : "Crear llave"}</button>
+      <button className={`${BTN_PRIMARY} w-full`} disabled={save.isPending || f.scopes.length === 0}>{save.isPending ? "Guardando..." : existing ? "Guardar cambios" : "Crear credencial"}</button>
     </form>
   );
 }
@@ -347,18 +333,18 @@ function PartnerDetail({ id, onBack }) {
       )}
 
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-[16px] font-bold text-on-surface">Llaves de la API</h2>
-        <button className={BTN_PRIMARY} onClick={() => setKeyModal({})}><Plus className="h-4 w-4" /> Nueva llave</button>
+        <h2 className="text-[16px] font-bold text-on-surface">Credencial de la API</h2>
+        {!keys.some((k) => k.status === "ACTIVE") && <button className={BTN_PRIMARY} onClick={() => setKeyModal({})}><Plus className="h-4 w-4" /> Crear credencial</button>}
       </div>
       {keys.length === 0 ? (
-        <EmptyState icon={KeyRound} title="Sin llaves" description="Crea una llave para que el socio empiece a usar la API." />
+        <EmptyState icon={KeyRound} title="Sin credencial" description="Crea la credencial del socio para que empiece a usar la API." />
       ) : (
         <div className="space-y-3">
           {keys.map((k) => (
             <div key={k.id} className={`${CARD} p-4 ${k.status === "REVOKED" ? "opacity-60" : ""}`}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-[14px] font-bold text-on-surface">{k.name} <span className="ml-1 rounded-full bg-surface-container-high px-2 py-0.5 text-[10.5px] font-bold text-outline">{k.kind === "BROWSER" ? "Navegador" : "Servidor"}</span></p>
+                  <p className="text-[14px] font-bold text-on-surface">{k.name}</p>
                   <p className="font-mono text-[12px] text-outline">{k.prefix}…</p>
                 </div>
                 <StatusPill ok={k.status === "ACTIVE"} yes="Activa" no="Revocada" />
@@ -408,7 +394,7 @@ function PartnerDetail({ id, onBack }) {
       <Movements partnerId={id} />
 
       {keyModal && scopeData && (
-        <Modal wide title={keyModal.existing ? "Editar llave" : "Nueva llave"} onClose={() => setKeyModal(null)}>
+        <Modal wide title={keyModal.existing ? "Editar credencial" : "Nueva credencial"} onClose={() => setKeyModal(null)}>
           <KeyForm partnerId={id} scopes={scopeData.scopes} defaults={scopeData.defaults} existing={keyModal.existing} onDone={(s) => { setKeyModal(null); if (s) setSecret(s); else toast.success("Llave actualizada."); }} />
         </Modal>
       )}

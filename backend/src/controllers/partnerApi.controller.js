@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { rankFeaturedProducts } from "../lib/productRanking.js";
+import { findProductIdsByName, findProductIdsByTrigram } from "./search.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { liveCounters } from "../lib/partnerUsage.js";
@@ -59,15 +60,12 @@ async function buildProductWhere(partnerId, f) {
   const base = visibleProductWhere(partnerId);
   const and = [...base.AND];
   if (f.q) {
-    const q = f.q;
-    and.push({
-      OR: [
-        { name: { contains: q, mode: "insensitive" } },
-        { description: { contains: q, mode: "insensitive" } },
-        { tags: { has: q.toLowerCase() } },
-        { vendor: { companyName: { contains: q, mode: "insensitive" } } },
-      ],
-    });
+    // Misma búsqueda que el sitio de Baznova: por nombre sin importar mayúsculas, tildes ni signos y,
+    // solo si no hay coincidencia, por parecido (errores de escritura). Si nada se parece, la lista
+    // llega vacía; nunca se devuelven productos sin relación con lo buscado.
+    let ids = await findProductIdsByName(f.q, 500);
+    if (ids.length === 0) ids = await findProductIdsByTrigram(f.q, 100);
+    and.push({ id: { in: ids } });
   }
   if (f.provinceId) {
     and.push({
@@ -412,6 +410,11 @@ export async function validateCart(req, res) {
     });
     if (!problem) group.totals[p.currency] = Math.round(((group.totals[p.currency] ?? 0) + lineTotal) * 100) / 100;
   }
+  // Regla de Baznova: un pedido es de una sola tienda. Un carrito con productos de varias tiendas no es válido.
+  if (stores.size > 1) {
+    valid = false;
+    issues.push({ problem: "multiple_stores", message: "Un pedido solo puede tener productos de una tienda. Separa el carrito por tienda." });
+  }
   res.json({ data: { valid, stores: [...stores.values()], issues } });
 }
 
@@ -423,7 +426,7 @@ export async function getMe(req, res) {
   res.json({
     data: {
       partner: { name: req.partner.name, code: req.partner.code },
-      key: { name: k.name, kind: k.kind, prefix: k.prefix, scopes: k.scopes, allowedDomains: k.allowedDomains, allowedIps: k.allowedIps, expiresAt: k.expiresAt },
+      key: { name: k.name, prefix: k.prefix, scopes: k.scopes, allowedDomains: k.allowedDomains, allowedIps: k.allowedIps, expiresAt: k.expiresAt },
       quota: live,
       signupUrl: `${siteUrl()}/vender?socio=${encodeURIComponent(req.partner.code)}`,
       availableScopes: PARTNER_SCOPES.map(({ id, label }) => ({ id, label })),

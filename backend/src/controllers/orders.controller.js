@@ -34,7 +34,7 @@ const E164_REGEX = /^\+\d{7,15}$/;
 // de contacto/entrega son obligatorios, sin excepción (Bloque 6).
 // Bloque 14: 3 opciones de checkout (antes whatsapp/cod/transfer) — ver
 // CHANNEL_MAP y el comentario en schema.prisma sobre el enum OrderChannel.
-const createOrderSchema = z.object({
+export const createOrderSchema = z.object({
   vendorId: z.string(),
   channel: z.enum(["cod", "online", "cash", "table"]),
   customerName: z.string().min(2, "Falta el nombre del cliente."),
@@ -63,7 +63,7 @@ const createOrderSchema = z.object({
   discountCode: z.string().trim().optional(),
 });
 
-const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: "TABLE" };
+export const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: "TABLE" };
 
 // Sin Stripe/PayPal ni ninguna pasarela: el pago se coordina siempre directo
 // entre cliente y vendedor (contra entrega, en línea con la tienda, o
@@ -71,6 +71,27 @@ const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: "TABLE"
 export async function createOrder(req, res) {
   const data = createOrderSchema.parse(req.body);
 
+  // Autenticación opcional: si viene un token válido, asocia el pedido al cliente.
+  let customerId;
+  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
+  if (token) {
+    try {
+      // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
+      // el algoritmo esperado en vez de confiar en el "alg" del propio token.
+      const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
+      customerId = payload.sub;
+    } catch {
+      // token inválido/expirado: seguimos como pedido de invitado
+    }
+  }
+
+  const order = await placeOrder(data, { customerId });
+  res.status(201).json({ order });
+}
+
+// Bloque 300: el registro del pedido vive aquí para que la web de Baznova y la API de socios
+// (POST /partner/v1/orders) pasen por exactamente las mismas reglas, avisos y descuentos.
+export async function placeOrder(data, { customerId, partnerId = null, idempotencyKey = null } = {}) {
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
 
@@ -111,6 +132,11 @@ export async function createOrder(req, res) {
   const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { priceTiers: true } });
 
   if (products.length !== productIds.length) throw new AppError("Uno o más productos ya no están disponibles.", 400);
+  // Un producto pausado, oculto de la tienda o fuera del cupo del plan no se puede pedir aunque
+  // alguien conozca su id (antes solo se comprobaba que existiera).
+  if (products.some((p) => !p.isActive || p.hiddenFromStore || p.overQuota)) {
+    throw new AppError("Uno o más productos ya no están disponibles.", 400);
+  }
 
   // Regla de negocio no negociable: un solo vendedor por pedido.
   const otherVendorProduct = products.find((p) => p.vendorId !== data.vendorId);
@@ -172,20 +198,6 @@ export async function createOrder(req, res) {
   });
   const subtotal = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
-  // Autenticación opcional: si viene un token válido, asocia el pedido al cliente.
-  let customerId;
-  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
-  if (token) {
-    try {
-      // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
-      // el algoritmo esperado en vez de confiar en el "alg" del propio token.
-      const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
-      customerId = payload.sub;
-    } catch {
-      // token inválido/expirado: seguimos como pedido de invitado
-    }
-  }
-
   // Bloque 29: ya NO se descuenta stock acá — el pedido queda registrado
   // como NEW ("Pendiente") sin tocar Product.stock. El descuento real recién
   // pasa cuando el vendedor confirma la venta desde su panel
@@ -241,6 +253,8 @@ export async function createOrder(req, res) {
         // que no se pueda falsear qué canal de aviso usó el pedido.
         notificationChannel: vendor.orderDestination,
         tableNumber: data.tableNumber,
+        partnerId,
+        idempotencyKey,
         total,
         discountCodeId,
         discountAmount,
@@ -303,7 +317,7 @@ export async function createOrder(req, res) {
     });
   }
 
-  res.status(201).json({ order });
+  return order;
 }
 
 // --- Panel de vendedor -------------------------------------------------

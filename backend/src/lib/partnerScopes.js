@@ -8,7 +8,8 @@ export const PARTNER_SCOPES = [
   { id: "offers:read", label: "Ofertas del sitio", description: "Ofertas activas publicadas por Baznova.", endpoints: ["GET /offers"] },
   { id: "store-offers:read", label: "Ofertas de tiendas", description: "Ofertas y códigos de descuento públicos de cada tienda.", endpoints: ["GET /stores/:slug/offers"] },
   { id: "catalog:read", label: "Categorías y ubicaciones", description: "Categorías, tipos de negocio, provincias y municipios.", endpoints: ["GET /categories", "GET /business-categories", "GET /locations/provinces", "GET /locations/municipalities"] },
-  { id: "cart:validate", label: "Validar carrito", description: "Comprueba precios, stock y totales de un carrito. No guarda nada ni crea pedidos.", endpoints: ["POST /cart/validate"] },
+  { id: "cart:validate", label: "Carrito y pedidos", description: "Valida un carrito y crea pedidos reales: llegan al panel del vendedor y por WhatsApp igual que en Baznova.", endpoints: ["POST /cart/validate", "GET /stores/:slug/checkout", "POST /orders", "GET /orders/:code"] },
+  { id: "plans:read", label: "Planes y precios", description: "Planes de Baznova con el precio base y el precio final del socio.", endpoints: ["GET /plans"] },
 ];
 
 export const PARTNER_SCOPE_IDS = PARTNER_SCOPES.map((s) => s.id);

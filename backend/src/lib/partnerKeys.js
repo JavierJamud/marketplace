@@ -1,20 +1,21 @@
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 
-const PREFIX = { BROWSER: "bzp_pub_", SERVER: "bzp_sec_" };
+// Una sola credencial por socio: sirve desde el navegador (por dominio) y desde el servidor (por IP).
+const PREFIX = "bzp_key_";
 
 export function hashKey(rawKey) {
   return createHash("sha256").update(String(rawKey)).digest("hex");
 }
 
 // Devuelve la llave completa (se muestra una sola vez), su huella y un prefijo para reconocerla.
-export function generateApiKey(kind) {
-  const raw = `${PREFIX[kind] ?? PREFIX.SERVER}${randomBytes(24).toString("hex")}`;
-  return { raw, hash: hashKey(raw), prefix: raw.slice(0, PREFIX.BROWSER.length + 6) };
+export function generateApiKey() {
+  const raw = `${PREFIX}${randomBytes(24).toString("hex")}`;
+  return { raw, hash: hashKey(raw), prefix: raw.slice(0, PREFIX.length + 6) };
 }
 
 export function looksLikeApiKey(value) {
-  return typeof value === "string" && /^bzp_(pub|sec)_[0-9a-f]{48}$/.test(value);
+  return typeof value === "string" && /^bzp_(key|pub|sec)_[0-9a-f]{48}$/.test(value);
 }
 
 // "https://www.MiTienda.com/ruta" -> "www.mitienda.com"; "*.mitienda.com" se conserva.

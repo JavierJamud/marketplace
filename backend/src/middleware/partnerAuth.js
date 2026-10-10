@@ -81,24 +81,12 @@ export async function partnerAuth(req, res, next) {
     recordUsage({ partnerId: key.partnerId, keyId: key.id, endpoint: "(rechazada)", method: req.method, status, ms: Date.now() - started, ip, origin, counted: false });
   };
 
-  let allowed = false;
-  if (key.kind === "SERVER") {
-    if (origin) {
-      logOnly(403);
-      return deny(res, 403, "secret_key_in_browser", "Las llaves de servidor no se pueden usar desde un navegador. Usa una llave de navegador.");
-    }
-    allowed = ipMatches(ip, key.allowedIps);
-  } else {
-    allowed = domainMatches(host, key.allowedDomains) || ipMatches(ip, key.allowedIps) || (!!host && consoleHosts().includes(host));
-  }
+  // Una sola llave para todo: desde un navegador se valida el dominio (Origin/Referer) y desde un
+  // servidor la IP. Basta con que coincida uno de los dos que el admin configuró para esta llave.
+  const allowed = domainMatches(host, key.allowedDomains) || ipMatches(ip, key.allowedIps) || (!!host && consoleHosts().includes(host));
   if (!allowed) {
     logOnly(403);
-    return deny(
-      res,
-      403,
-      "origin_not_allowed",
-      key.kind === "SERVER" ? "Esta dirección IP no está autorizada para esta llave." : "Este sitio web no está autorizado para esta llave."
-    );
+    return deny(res, 403, "origin_not_allowed", "Este sitio web o esta dirección IP no está autorizado para esta llave.");
   }
 
   const quota = await consumeQuota(key);

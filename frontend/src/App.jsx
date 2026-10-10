@@ -80,6 +80,7 @@ import PartnerLayout from "./pages/partner/PartnerLayout.jsx";
 import PartnerDashboard from "./pages/partner/PartnerDashboard.jsx";
 import PartnerKeys from "./pages/partner/PartnerKeys.jsx";
 import PartnerMovements from "./pages/partner/PartnerMovements.jsx";
+import PartnerPlans from "./pages/partner/PartnerPlans.jsx";
 import PartnerAccount from "./pages/partner/PartnerAccount.jsx";
 import ApiSocios from "./pages/public/ApiSocios.jsx";
 import { capturePartnerRef } from "./lib/partnerRef.js";
@@ -196,6 +197,7 @@ export default function App() {
       >
         <Route index element={<PartnerDashboard />} />
         <Route path="llaves" element={<PartnerKeys />} />
+        <Route path="planes" element={<PartnerPlans />} />
         <Route path="movimientos" element={<PartnerMovements />} />
         <Route path="cuenta" element={<PartnerAccount />} />
       </Route>

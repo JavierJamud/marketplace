@@ -26,7 +26,7 @@ const NAME_MATCH_LIMIT = 500;
 // comparan letras y números reales. Se aplica siempre DESPUÉS de
 // unaccent()+lower(), nunca antes (el orden importa: unaccent ya resolvió
 // tildes/mayúsculas, esto solo pule lo que queda).
-async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
+export async function findProductIdsByName(q, limit = NAME_MATCH_LIMIT) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
     WHERE "isActive" = true AND "hiddenFromStore" = false AND "overQuota" = false
@@ -82,19 +82,22 @@ async function findVendorIdsByCompanyName(q, limit) {
 // resuelve). pg_trgm (extensión habilitada en la migración
 // 20260727020000) mide similitud entre trigramas de caracteres — tolera
 // una letra de más/menos/cambiada sin que el cliente escriba el nombre
-// exacto. Umbral bajo (0.15) a propósito: mejor mostrar algo aproximado que
-// nada, el cliente decide si le sirve.
-const TRIGRAM_THRESHOLD = 0.15;
+// exacto. Se usa word_similarity (la palabra escrita contra la palabra más parecida del nombre) y
+// un umbral de 0.55: "zapatilas" encuentra "Zapatillas" y "audifonoz" encuentra "Audífonos", pero
+// una búsqueda que no se parece a nada ("laptop", "xyzabc") devuelve cero resultados y el sitio
+// muestra "no hay resultados" en vez de productos que no tienen que ver (antes era 0.15 sobre el
+// nombre completo y salían productos sin relación).
+const TRIGRAM_THRESHOLD = 0.55;
 
 // Bloque 58: misma normalización de puntuación que las búsquedas literales
 // de arriba, para que una coma/punto de más o de menos no le baje la
 // similitud a un match que en el fondo es el mismo texto.
-async function findProductIdsByTrigram(q, limit) {
+export async function findProductIdsByTrigram(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Product"
     WHERE "isActive" = true
-      AND similarity(regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
-    ORDER BY similarity(regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) DESC
+      AND word_similarity(regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
+    ORDER BY word_similarity(regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(name)), '[^a-z0-9]+', ' ', 'g')) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);
@@ -104,8 +107,8 @@ async function findVendorIdsByTrigram(q, limit) {
   const rows = await prisma.$queryRaw`
     SELECT id FROM "Vendor"
     WHERE "isBlocked" = false AND "status" = 'ACTIVE' AND "isPrivate" = false
-      AND similarity(regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
-    ORDER BY similarity(regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g')) DESC
+      AND word_similarity(regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g')) > ${TRIGRAM_THRESHOLD}
+    ORDER BY word_similarity(regexp_replace(unaccent(lower(${q})), '[^a-z0-9]+', ' ', 'g'), regexp_replace(unaccent(lower("companyName")), '[^a-z0-9]+', ' ', 'g')) DESC
     LIMIT ${limit}
   `;
   return rows.map((r) => r.id);

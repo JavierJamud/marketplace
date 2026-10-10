@@ -45,7 +45,7 @@ const SHELL_COPY = {
   },
   partner: {
     headline: "Panel del socio",
-    subtitle: "Mira cómo usa tu sitio la API de Baznova: solicitudes, errores, llaves y cuotas.",
+    subtitle: "Mira cómo usa tu sitio la API de Baznova: solicitudes, errores, credencial, cuotas y planes.",
     showStats: false,
   },
   admin: {
