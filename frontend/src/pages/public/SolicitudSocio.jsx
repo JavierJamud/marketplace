@@ -12,7 +12,7 @@ import { Button } from "../../components/ui/Button.jsx";
 // Solicitud para usar la API de socios. Quien la envía crea al mismo tiempo su contraseña; un administrador la revisa
 // y, si la aprueba, le crea la cuenta de socio y le manda la credencial de la API por correo. Hasta entonces no
 // puede entrar al panel.
-const EMPTY = { firstName: "", lastName: "", phone: "", email: "", companyName: "", website: "", description: "", password: "", confirm: "", acceptTerms: false };
+const EMPTY = { firstName: "", lastName: "", phone: "", email: "", companyName: "", site1: "", site2: "", description: "", password: "", confirm: "", acceptTerms: false };
 
 export default function SolicitudSocio() {
   const { siteName } = usePlatformSettings();
@@ -29,7 +29,7 @@ export default function SolicitudSocio() {
           phone: f.phone,
           email: f.email,
           companyName: f.companyName,
-          website: f.website.trim() || undefined,
+          websites: [f.site1.trim(), f.site2.trim()].filter(Boolean),
           description: f.description,
           password: f.password,
           acceptTerms: f.acceptTerms,
@@ -66,7 +66,11 @@ export default function SolicitudSocio() {
     <div className="mx-auto max-w-[620px] px-4 py-10">
       <h1 className="mb-2 font-display text-[30px] font-extrabold tracking-tight text-on-surface">Solicita usar la API de {siteName}</h1>
       <p className="mb-6 text-[14.5px] text-on-surface-variant">
-        Cuéntanos quién eres y para qué la quieres. Un administrador revisa cada solicitud; si la aprueba, recibirás tu credencial por correo. ¿Ya tienes cuenta de socio? <Link to="/socio/ingresar" className="font-semibold text-tertiary-accent hover:underline">Entra a tu panel</Link>.
+        Cuéntanos quién eres y para qué la quieres. Un administrador revisa cada solicitud; si la aprueba, recibirás tu credencial por correo.
+      </p>
+      <p className="mb-6 text-[14.5px] text-on-surface-variant">
+        ¿Ya tienes cuenta de socio?{" "}
+        <Link to="/socio/ingresar" className="inline-flex min-h-11 items-center font-semibold text-tertiary-accent hover:underline">Entra a tu panel</Link>
       </p>
 
       <form onSubmit={submit} className="space-y-4 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5 shadow-sm" noValidate>
@@ -79,7 +83,12 @@ export default function SolicitudSocio() {
           <PhoneInput label="Teléfono" required value={f.phone} onChange={(v) => setF((s) => ({ ...s, phone: v }))} />
         </div>
         <Input label="Nombre de tu negocio o sitio" required value={f.companyName} onChange={set("companyName")} autoComplete="organization" />
-        <Input label="Sitio web (opcional)" type="url" placeholder="https://" value={f.website} onChange={set("website")} autoComplete="url" />
+        <fieldset className="space-y-3">
+          <legend className="mb-1 text-label-md text-on-surface-variant">Sitios desde los que usarás la API <span className="text-error">*</span></legend>
+          <Input label="Sitio web" type="url" required placeholder="https://mitienda.com" value={f.site1} onChange={set("site1")} autoComplete="url" />
+          <Input label="Segundo sitio (opcional)" type="url" placeholder="http://localhost:3000" value={f.site2} onChange={set("site2")} />
+          <p className="text-[12px] text-outline">Puedes indicar hasta dos: por ejemplo tu sitio y un localhost para trabajar desde tu computadora. La credencial solo funcionará desde esos sitios.</p>
+        </fieldset>
         <div>
           <label htmlFor="desc" className="mb-1 block text-label-sm font-semibold text-on-surface">¿Para qué usarás la API?</label>
           <textarea id="desc" required minLength={20} rows={4} value={f.description} onChange={set("description")} className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2 text-[14px] text-on-surface focus:border-tertiary-accent focus:outline-none focus:ring-2 focus:ring-tertiary-accent/30" placeholder="Qué vas a mostrar, a quiénes les vendes y cómo piensas conectarla." />

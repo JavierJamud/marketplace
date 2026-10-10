@@ -30,8 +30,8 @@ router.get("/locations/municipalities", requireScope("catalog:read"), c.listMuni
 
 router.post("/cart/validate", requireScope("cart:validate"), c.validateCart);
 router.get("/stores/:slug/checkout", requireScope("cart:validate"), o.getCheckoutRequirements);
-router.post("/orders", requireScope("cart:validate"), o.createPartnerOrder);
-router.get("/orders/:code", requireScope("cart:validate"), o.getPartnerOrder);
+router.post("/orders", requireScope("orders:create"), o.createPartnerOrder);
+router.get("/orders/:code", requireScope("orders:create"), o.getPartnerOrder);
 
 router.get("/plans", requireScope("plans:read"), o.listPlans);
 

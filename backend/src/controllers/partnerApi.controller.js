@@ -65,7 +65,7 @@ async function buildProductWhere(partnerId, f, opts = {}) {
     // Misma búsqueda que el sitio de Baznova: por nombre sin importar mayúsculas, tildes ni signos y,
     // solo si no hay coincidencia, por parecido (errores de escritura). Si nada se parece, la lista
     // llega vacía; nunca se devuelven productos sin relación con lo buscado.
-    let ids = await findProductIdsByName(f.q, 500);
+    let ids = await findProductIdsByName(f.q, 3000);
     if (ids.length === 0) ids = await findProductIdsByTrigram(f.q, 100);
     and.push({ id: { in: ids } });
   }

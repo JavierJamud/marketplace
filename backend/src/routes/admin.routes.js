@@ -49,12 +49,13 @@ router.get("/partners/:id/usage", partnersController.getPartnerUsage);
 router.get("/partners/:id/movements", partnersController.getPartnerMovements);
 // Bloque 303: todo lo que cambia el acceso o la credencial de un socio pide el código de confirmación del admin.
 router.post("/partners/:id/portal-access", requireActionCode("PARTNER_MANAGE"), partnersController.grantPortalAccess);
-router.get("/partners/:id/api-key", partnersController.revealPartnerKey);
+router.get("/partners/:id/api-key", requireActionCode("PARTNER_MANAGE"), partnersController.revealPartnerKey);
 router.post("/partners/:id/keys", requireActionCode("PARTNER_MANAGE"), partnersController.createKey);
 router.patch("/partners/:id/keys/:keyId", requireActionCode("PARTNER_MANAGE"), partnersController.updateKey);
 router.post("/partners/:id/keys/:keyId/regenerate", requireActionCode("PARTNER_MANAGE"), partnersController.regenerateKey);
 router.post("/partners/:id/keys/:keyId/revoke", requireActionCode("PARTNER_MANAGE"), partnersController.revokeKey);
 router.get("/partner-applications", partnerApps.listApplications);
+router.patch("/partner-applications/:id", partnerApps.editApplication);
 router.post("/partner-applications/:id/approve", requireActionCode("PARTNER_MANAGE"), partnerApps.approveApplication);
 router.post("/partner-applications/:id/reject", partnerApps.rejectApplication);
 

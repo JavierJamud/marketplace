@@ -5,6 +5,8 @@ import { env } from "../config/env.js";
 
 const trim = (u) => u.replace(/\/+$/, "");
 export const siteUrl = () => trim(env.frontendUrl);
+// Dirección base de la API de socios, la misma en la API, el panel y los correos.
+export const apiBase = () => `${trim(env.backendUrl)}/partner/v1`;
 
 export function absUrl(path) {
   if (!path) return null;

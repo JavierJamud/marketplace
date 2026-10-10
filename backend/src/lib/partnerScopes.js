@@ -8,7 +8,8 @@ export const PARTNER_SCOPES = [
   { id: "offers:read", label: "Ofertas del sitio", description: "Ofertas activas publicadas por Baznova.", endpoints: ["GET /offers"] },
   { id: "store-offers:read", label: "Ofertas de tiendas", description: "Ofertas y códigos de descuento públicos de cada tienda.", endpoints: ["GET /stores/:slug/offers"] },
   { id: "catalog:read", label: "Categorías y ubicaciones", description: "Categorías, tipos de negocio, provincias y municipios.", endpoints: ["GET /categories", "GET /business-categories", "GET /locations/provinces", "GET /locations/municipalities"] },
-  { id: "cart:validate", label: "Carrito y pedidos", description: "Valida un carrito y crea pedidos reales: llegan al panel del vendedor y por WhatsApp igual que en Baznova.", endpoints: ["POST /cart/validate", "GET /stores/:slug/checkout", "POST /orders", "GET /orders/:code"] },
+  { id: "cart:validate", label: "Carrito", description: "Comprueba precios, stock y totales de un carrito y trae los requisitos del pedido de una tienda. No crea pedidos.", endpoints: ["POST /cart/validate", "GET /stores/:slug/checkout"] },
+  { id: "orders:create", label: "Crear pedidos", description: "Crea pedidos reales (llegan al panel del vendedor y por WhatsApp igual que en Baznova) y consulta su estado.", endpoints: ["POST /orders", "GET /orders/:code"] },
   { id: "plans:read", label: "Planes y precios", description: "Planes de Baznova con el precio base y el precio final del socio.", endpoints: ["GET /plans"] },
 ];
 

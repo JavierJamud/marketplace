@@ -7,7 +7,7 @@ import { logActivity } from "../lib/activityLog.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { sendPartnerNoticeEmail } from "../lib/email.js";
 import { normalizeDomain, normalizeIp, hostFromOrigin } from "../lib/partnerKeys.js";
-import { DEFAULT_PARTNER_SCOPES, DEFAULT_RATE_PER_MINUTE, DEFAULT_DAILY_LIMIT } from "../lib/partnerScopes.js";
+import { DEFAULT_PARTNER_SCOPES, PARTNER_SCOPE_IDS, DEFAULT_RATE_PER_MINUTE, DEFAULT_DAILY_LIMIT } from "../lib/partnerScopes.js";
 import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
 import { codeFromName, issueKey, emailPartnerKey } from "./partners.controller.js";
 
@@ -17,6 +17,23 @@ import { codeFromName, issueKey, emailPartnerKey } from "./partners.controller.j
 
 const E164 = /^\+\d{7,15}$/;
 
+// Hasta dos sitios desde los que usará la API: el suyo y, por ejemplo, un localhost para trabajar en su computadora.
+// Cada uno debe ser una dirección http(s) con un dominio válido; no se repiten.
+const websiteUrl = z
+  .string()
+  .trim()
+  .max(200)
+  .refine((v) => /^https?:\/\//i.test(v), "Cada sitio debe empezar con http:// o https://")
+  .refine((v) => !!normalizeDomain(hostFromOrigin(v)), "Ese sitio no tiene un dominio válido (ejemplo: https://mitienda.com o http://localhost:3000).");
+const websitesField = z
+  .array(websiteUrl)
+  .min(1, "Indica el sitio web desde el que usarás la API.")
+  .max(2, "Puedes indicar hasta dos sitios.")
+  .refine((arr) => new Set(arr.map((u) => normalizeDomain(hostFromOrigin(u)))).size === arr.length, "Los dos sitios no pueden tener el mismo dominio.");
+
+// Dominios que se autorizan en la credencial a partir de los sitios de la solicitud.
+export const domainsFromWebsites = (websites = []) => [...new Set(websites.map((u) => normalizeDomain(hostFromOrigin(u))).filter(Boolean))];
+
 const applicationBody = z
   .object({
     firstName: z.string().trim().min(2, "Escribe tu nombre.").max(60),
@@ -24,7 +41,7 @@ const applicationBody = z
     phone: z.string().trim().regex(E164, "El teléfono debe llevar el código de país, por ejemplo +5355512345."),
     email: z.string().trim().toLowerCase().email("Escribe un correo válido.").max(120),
     companyName: z.string().trim().min(2, "Escribe el nombre de tu negocio o sitio.").max(80),
-    website: z.string().trim().url("El sitio web debe empezar con https://").max(200).optional().or(z.literal("")),
+    websites: websitesField,
     description: z.string().trim().min(20, "Cuéntanos con más detalle cómo usarás la API (mínimo 20 caracteres).").max(1000),
     password: z
       .string()
@@ -52,7 +69,8 @@ export async function submitApplication(req, res) {
       phone: data.phone,
       email: data.email,
       companyName: data.companyName,
-      website: data.website || null,
+      website: data.websites[0],
+      websites: data.websites,
       description: data.description,
       passwordHash: await bcrypt.hash(data.password, 10),
       ip: req.ip ?? null,
@@ -92,6 +110,8 @@ const list = (arr, normalize, what) => {
 };
 
 const approveBody = z.object({
+  // Servicios de la API a los que tendrá acceso. Por defecto, todos.
+  scopes: z.array(z.enum(PARTNER_SCOPE_IDS)).min(1, "Elige al menos un servicio.").default(DEFAULT_PARTNER_SCOPES),
   allowedDomains: z.array(z.string().max(253)).max(20).default([]),
   allowedIps: z.array(z.string().max(45)).max(20).default([]),
   listInMarketplace: z.boolean().default(true),
@@ -112,11 +132,8 @@ export async function approveApplication(req, res) {
   const body = approveBody.parse(req.body ?? {});
   let domains = list(body.allowedDomains, normalizeDomain, "un dominio");
   const ips = list(body.allowedIps, normalizeIp, "una dirección IP");
-  // Si el admin no puso nada, se autoriza el dominio del sitio que indicó la persona.
-  if (domains.length === 0 && ips.length === 0 && app.website) {
-    const host = normalizeDomain(hostFromOrigin(app.website));
-    if (host) domains = [host];
-  }
+  // Si el admin no puso nada, se autorizan los dominios de los sitios que indicó la persona en su solicitud.
+  if (domains.length === 0 && ips.length === 0) domains = domainsFromWebsites(app.websites.length ? app.websites : [app.website].filter(Boolean));
   if (domains.length === 0 && ips.length === 0) {
     throw new AppError("Indica al menos un dominio o una dirección IP autorizados para la credencial.", 400);
   }
@@ -135,7 +152,7 @@ export async function approveApplication(req, res) {
         code,
         contactEmail: app.email,
         contactName: `${app.firstName} ${app.lastName}`,
-        website: app.website,
+        website: app.websites[0] ?? app.website,
         listInMarketplace: body.listInMarketplace,
         notes: `Solicitud aprobada. ${app.description}`.slice(0, 1000),
         userId: user.id,
@@ -143,7 +160,7 @@ export async function approveApplication(req, res) {
     });
     const issued = await issueKey(
       partner.id,
-      { name: `Credencial de ${app.companyName}`.slice(0, 60), scopes: DEFAULT_PARTNER_SCOPES, rateLimitPerMinute: DEFAULT_RATE_PER_MINUTE, dailyLimit: DEFAULT_DAILY_LIMIT, allowedDomains: domains, allowedIps: ips },
+      { name: `Credencial de ${app.companyName}`.slice(0, 60), scopes: body.scopes, rateLimitPerMinute: DEFAULT_RATE_PER_MINUTE, dailyLimit: DEFAULT_DAILY_LIMIT, allowedDomains: domains, allowedIps: ips },
       tx
     );
     await tx.partnerApplication.update({ where: { id: app.id }, data: { status: "APPROVED", partnerId: partner.id, reviewedAt: new Date(), reviewedById: req.user.id } });
@@ -153,6 +170,35 @@ export async function approveApplication(req, res) {
   logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_application_approved", description: `Aprobó la solicitud de "${app.companyName}" (${app.email})`, meta: { partnerId: partner.id, applicationId: app.id } });
   const emailed = await emailPartnerKey({ ...partner, contactName: app.firstName }, raw, key, "approved");
   res.status(201).json({ partner: { id: partner.id, name: partner.name, code: partner.code }, emailed: !!emailed?.ok });
+}
+
+// PATCH /admin/partner-applications/:id: el admin corrige los datos de una solicitud en revisión antes de resolverla.
+// La contraseña no se edita desde aquí: es de la persona.
+const editBody = z
+  .object({
+    firstName: applicationBody.shape.firstName,
+    lastName: applicationBody.shape.lastName,
+    phone: applicationBody.shape.phone,
+    email: applicationBody.shape.email,
+    companyName: applicationBody.shape.companyName,
+    websites: websitesField,
+    description: applicationBody.shape.description,
+  })
+  .partial()
+  .strict();
+
+export async function editApplication(req, res) {
+  const app = await prisma.partnerApplication.findUnique({ where: { id: req.params.id } });
+  if (!app) throw new AppError("Solicitud no encontrada.", 404);
+  if (app.status !== "PENDING") throw new AppError("Solo se puede editar una solicitud en revisión.", 409);
+  const data = editBody.parse(req.body ?? {});
+  if (data.email && data.email !== app.email) {
+    if (await prisma.user.findUnique({ where: { email: data.email }, select: { id: true } })) throw new AppError("Ya existe una cuenta con ese correo.", 409);
+    if (await prisma.partnerApplication.findFirst({ where: { email: data.email, status: "PENDING", id: { not: app.id } }, select: { id: true } })) throw new AppError("Ya hay otra solicitud en revisión con ese correo.", 409);
+  }
+  const updated = await prisma.partnerApplication.update({ where: { id: app.id }, data: { ...data, ...(data.websites ? { website: data.websites[0] } : {}) } });
+  logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_application_edited", description: `Editó la solicitud de "${updated.companyName}"`, meta: { applicationId: app.id, fields: Object.keys(data) } });
+  res.json({ application: publicApp(updated) });
 }
 
 const rejectBody = z.object({ reason: z.string().trim().min(3, "Escribe el motivo.").max(500) });

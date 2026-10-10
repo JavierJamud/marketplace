@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { usageSummary, recentMovements, keysWithLive } from "../lib/partnerStats.js";
-import { siteUrl } from "../lib/partnerDto.js";
+import { siteUrl, apiBase } from "../lib/partnerDto.js";
 import { PARTNER_SCOPES } from "../lib/partnerScopes.js";
 import { paginationQuerySchema, pageMeta } from "../lib/pagination.js";
 import { z } from "zod";
@@ -9,10 +9,9 @@ import { plansForPartner } from "./partnerOrders.controller.js";
 import { revealKeyValue } from "./partners.controller.js";
 import { logActivity } from "../lib/activityLog.js";
 
-// Bloque 299: API del panel del socio (/partner-portal). Solo lectura: el socio ve sus propias métricas,
-// llaves (nunca el valor secreto: solo el prefijo), cuotas y movimientos. Crear o cambiar llaves lo sigue
-// haciendo el administrador de Baznova. El socio sale SIEMPRE de la sesión (Partner.userId), nunca de un id
-// que mande el navegador.
+// Panel del socio (/partner-portal). El socio ve sus métricas, su credencial completa (siempre visible), sus cuotas y
+// movimientos, y fija el precio final de sus planes. NO puede crear, regenerar ni cambiar la credencial: eso solo lo hace
+// el administrador de Baznova. El socio sale SIEMPRE de la sesión (Partner.userId), nunca de un id que mande el navegador.
 async function myPartner(req) {
   const partner = await prisma.partner.findUnique({ where: { userId: req.user.id } });
   if (!partner) throw new AppError("Tu cuenta no está vinculada a ningún socio.", 404);
@@ -25,7 +24,7 @@ export async function getPortalMe(req, res) {
   res.json({
     partner: { name: partner.name, code: partner.code, status: partner.status, contactEmail: partner.contactEmail, website: partner.website, listInMarketplace: partner.listInMarketplace, stores, signupUrl: `${siteUrl()}/vender?socio=${partner.code}` },
     docsUrl: `${siteUrl()}/api-socios`,
-    apiBase: `${process.env.BACKEND_URL || "http://localhost:4000"}/partner/v1`,
+    apiBase: apiBase(),
     scopes: PARTNER_SCOPES.map(({ id, label, description, endpoints }) => ({ id, label, description, endpoints })),
   });
 }
@@ -54,7 +53,7 @@ export async function getPortalApiKey(req, res) {
   const key = await prisma.partnerApiKey.findFirst({ where: { partnerId: partner.id, status: "ACTIVE" }, orderBy: { createdAt: "desc" } });
   if (!key) return res.json({ apiKey: null, reason: "none" });
   const apiKey = revealKeyValue(key);
-  res.json({ apiKey, prefix: key.prefix, reason: apiKey ? null : "legacy", apiBase: `${String(process.env.BACKEND_URL || "http://localhost:4000").replace(/\/+$/, "")}/partner/v1` });
+  res.json({ apiKey, prefix: key.prefix, reason: apiKey ? null : "legacy", apiBase: apiBase() });
 }
 
 export async function getPortalPlans(req, res) {

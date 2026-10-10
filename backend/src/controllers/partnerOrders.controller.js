@@ -172,9 +172,14 @@ export async function createPartnerOrder(req, res) {
   const partnerId = req.partner.id;
 
   // Reintento con la misma clave: se devuelve el pedido ya creado, no uno nuevo.
-  const previous = await prisma.order.findFirst({ where: { partnerId, idempotencyKey: key }, include: { ...orderInclude } });
+  const previous = await prisma.order.findFirst({ where: { partnerId, idempotencyKey: key }, include: orderInclude });
   if (previous) {
     const store = await prisma.vendor.findUnique({ where: { id: previous.vendorId } });
+    // La misma clave con un pedido distinto es un error del cliente: se avisa en vez de devolverle otro pedido.
+    const sameItems = body.items.length === previous.items.length && body.items.every((i) => previous.items.some((p) => p.productId === i.productId && p.quantity === i.quantity));
+    if (store.slug !== body.storeSlug || previous.customerEmail !== body.customerEmail || !sameItems) {
+      throw new AppError("Esa Idempotency-Key ya se usó con un pedido distinto. Usa una clave nueva para cada pedido.", 409, { code: "idempotency_key_reused" });
+    }
     return res.status(200).json({ data: orderDto(previous, store, { replayed: true }) });
   }
 
@@ -230,7 +235,7 @@ export async function createPartnerOrder(req, res) {
   } catch (err) {
     // Dos peticiones simultáneas con la misma clave: gana una, la otra recibe ese mismo pedido.
     if (err?.code === "P2002") {
-      const again = await prisma.order.findFirst({ where: { partnerId, idempotencyKey: key }, include: { ...orderInclude } });
+      const again = await prisma.order.findFirst({ where: { partnerId, idempotencyKey: key }, include: orderInclude });
       if (again) return res.status(200).json({ data: orderDto(again, store, { replayed: true }) });
     }
     throw err;
@@ -241,7 +246,7 @@ export async function createPartnerOrder(req, res) {
 // GET /orders/:code: estado de un pedido hecho con esta misma cuenta de socio.
 export async function getPartnerOrder(req, res) {
   const code = z.string().trim().min(3).max(40).parse(req.params.code);
-  const order = await prisma.order.findFirst({ where: { partnerId: req.partner.id, code }, include: { ...orderInclude } });
+  const order = await prisma.order.findFirst({ where: { partnerId: req.partner.id, code }, include: orderInclude });
   if (!order) throw new AppError("Pedido no encontrado.", 404);
   const store = await prisma.vendor.findUnique({ where: { id: order.vendorId } });
   res.json({ data: orderDto(order, store) });

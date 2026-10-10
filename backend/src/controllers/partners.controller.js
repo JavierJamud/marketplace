@@ -204,6 +204,7 @@ export async function grantPortalAccess(req, res) {
   const passwordHash = await bcrypt.hash(password, 10);
   let user;
   if (partner.userId) {
+    if (email && (await prisma.user.findFirst({ where: { email, id: { not: partner.userId } }, select: { id: true } }))) throw new AppError(`Ya existe una cuenta con el correo ${email}.`, 409);
     user = await prisma.user.update({ where: { id: partner.userId }, data: { passwordHash, mustSetPassword: false, ...(email ? { email } : {}) } });
     await prisma.session.deleteMany({ where: { userId: user.id } });
   } else {
@@ -269,25 +270,11 @@ export async function regenerateKey(req, res) {
   const partner = await getPartnerOr404(req.params.id);
   const old = await prisma.partnerApiKey.findFirst({ where: { id: req.params.keyId, partnerId: partner.id } });
   if (!old) throw new AppError("Credencial no encontrada.", 404);
+  if (old.status !== "ACTIVE") throw new AppError("Esa credencial ya fue reemplazada o revocada.", 409);
   const { key, raw } = await prisma.$transaction(async (tx) => {
-    await tx.partnerApiKey.update({ where: { id: old.id }, data: { status: "REVOKED", revokedAt: new Date() } });
-    const gen = generateApiKey();
-    const created = await tx.partnerApiKey.create({
-      data: {
-        partnerId: partner.id,
-        name: old.name,
-        prefix: gen.prefix,
-        keyHash: gen.hash,
-        keyEnc: JSON.stringify(encryptSecret(gen.raw)),
-        scopes: old.scopes,
-        rateLimitPerMinute: old.rateLimitPerMinute,
-        dailyLimit: old.dailyLimit,
-        allowedDomains: old.allowedDomains,
-        allowedIps: old.allowedIps,
-        expiresAt: old.expiresAt,
-      },
-    });
-    return { key: created, raw: gen.raw };
+    await tx.partnerApiKey.updateMany({ where: { partnerId: partner.id, status: "ACTIVE" }, data: { status: "REVOKED", revokedAt: new Date() } });
+    const issued = await issueKey(partner.id, { name: old.name, scopes: old.scopes, rateLimitPerMinute: old.rateLimitPerMinute, dailyLimit: old.dailyLimit, allowedDomains: old.allowedDomains, allowedIps: old.allowedIps, expiresAt: old.expiresAt }, tx);
+    return { key: issued.key, raw: issued.raw };
   });
   invalidatePartnerKeyCache();
   logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_key_regenerated", description: `Regeneró la credencial del socio "${partner.name}"`, meta: { partnerId: partner.id, oldKeyId: old.id, keyId: key.id } });

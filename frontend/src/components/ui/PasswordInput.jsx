@@ -35,7 +35,7 @@ export const PasswordInput = forwardRef(function PasswordInput({ label, error, r
           onClick={() => setVisible((v) => !v)}
           tabIndex={-1}
           aria-label={visible ? "Ocultar contraseña" : "Mostrar contraseña"}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
+          className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center text-outline hover:text-on-surface-variant"
         >
           {visible ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
         </button>

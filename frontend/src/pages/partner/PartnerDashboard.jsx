@@ -88,7 +88,7 @@ export default function PartnerDashboard() {
         <p className="text-[13.5px] text-outline">Cargando tus métricas...</p>
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 [&>*:last-child:nth-child(odd)]:col-span-2 sm:[&>*:last-child:nth-child(odd)]:col-span-1">
             <Kpi icon={Activity} label="Solicitudes de hoy" value={fmt(usage.requestsToday)} hint={`${fmt(usage.errorsToday)} con error`} />
             <Kpi icon={Gauge} label="Últimos 30 días" value={fmt(usage.requests)} hint="solicitudes" />
             <Kpi icon={AlertTriangle} label="Errores (30 días)" value={fmt(usage.errors)} hint={`${fmt(usage.rejected)} rechazadas por límite o sitio`} />
@@ -112,7 +112,6 @@ export default function PartnerDashboard() {
                   <div key={k.id}>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
                       <span className="font-semibold text-on-surface">{k.name}</span>
-                      <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">{k.kind === "SERVER" ? "Servidor" : "Navegador"}</span>
                     </div>
                     {k.live && (
                       <div className="mt-1.5 space-y-1.5">
@@ -148,7 +147,7 @@ export default function PartnerDashboard() {
                     <th className="px-2 py-2">Recurso</th>
                     <th className="px-2 py-2">Solicitudes</th>
                     <th className="px-2 py-2">Errores</th>
-                    <th className="px-2 py-2">Tiempo medio</th>
+                    <th className="hidden px-2 py-2 sm:table-cell">Tiempo medio</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -159,10 +158,10 @@ export default function PartnerDashboard() {
                   )}
                   {usage.byEndpoint.map((e) => (
                     <tr key={e.endpoint} className="border-b border-surface-container last:border-b-0">
-                      <td className="px-2 py-2 font-mono text-on-surface">{e.endpoint}</td>
+                      <td className="break-all px-2 py-2 font-mono text-on-surface">{e.endpoint}</td>
                       <td className="px-2 py-2 tabular-nums">{fmt(e.requests)}</td>
                       <td className={`px-2 py-2 tabular-nums ${e.errors ? "font-bold text-error" : ""}`}>{fmt(e.errors)}</td>
-                      <td className="px-2 py-2 tabular-nums">{fmt(e.avgMs)} ms</td>
+                      <td className="hidden px-2 py-2 tabular-nums sm:table-cell">{fmt(e.avgMs)} ms</td>
                     </tr>
                   ))}
                 </tbody>

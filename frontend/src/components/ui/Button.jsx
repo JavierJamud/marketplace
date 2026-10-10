@@ -12,7 +12,7 @@ const VARIANTS = {
 const SIZES = {
   sm: "h-9 px-3 text-label-sm",
   md: "h-11 px-5 text-label-md",
-  lg: "h-13 px-6 text-title-lg",
+  lg: "h-12 px-6 text-title-lg",
 };
 
 export function Button({ variant = "primary", size = "md", className, children, ...props }) {

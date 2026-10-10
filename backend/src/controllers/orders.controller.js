@@ -238,7 +238,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
 
     return tx.order.create({
       data: {
-        code: `Z-${Date.now().toString(36).toUpperCase()}`,
+        code: `Z-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 4).toUpperCase()}`,
         vendorId: data.vendorId,
         customerId,
         customerName: data.customerName,

@@ -3553,6 +3553,8 @@ model PartnerApplication {
   email        String
   companyName  String
   website      String?
+  // Hasta dos sitios desde los que usará la API (su sitio y, por ejemplo, un localhost para probar).
+  websites     String[]                 @default([])
   description  String
   passwordHash String
   status       PartnerApplicationStatus @default(PENDING)

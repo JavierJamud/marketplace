@@ -1,12 +1,12 @@
 import { env } from "../config/env.js";
 import { emailShell, ctaButton, smallNote, paragraph, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
+import { apiBase } from "../lib/partnerDto.js";
 
 // Correos del ciclo de socios de la API: solicitud recibida, aprobada (con su credencial), credencial nueva o
 // regenerada, y rechazada. Todo lo que escribe la persona (nombre, empresa, motivo) va escapado.
 
 const trim = (u) => String(u).replace(/\/+$/, "");
-const apiBase = () => `${trim(env.backendUrl)}/partner/v1`;
 const docsUrl = () => `${trim(env.frontendUrl)}/api-socios`;
 const loginUrl = () => `${trim(env.frontendUrl)}/socio/ingresar`;
 

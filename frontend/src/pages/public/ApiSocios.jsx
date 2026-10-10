@@ -33,9 +33,9 @@ const ENDPOINTS = [
   { id: "cart", scope: "cart:validate", method: "POST", path: "/cart/validate", title: "Validar carrito", desc: "Revisa precios vigentes, stock y totales por tienda y moneda. Un carrito con productos de más de una tienda es inválido (multiple_stores). No guarda nada.", params: [],
     body: '{\n  "items": [\n    { "productId": "ID_DEL_PRODUCTO", "quantity": 2 }\n  ]\n}' },
   { id: "checkout", scope: "cart:validate", method: "GET", path: "/stores/{slug}/checkout", title: "Requisitos del pedido", desc: "Campos del formulario, métodos de pago, provincias donde entrega la tienda, si está abierta y a dónde llega el pedido (panel, WhatsApp o ambos).", path_params: ["slug"], params: [] },
-  { id: "order-create", scope: "cart:validate", method: "POST", path: "/orders", title: "Crear pedido", desc: "Crea un pedido real con las mismas reglas que el checkout de Baznova: llega al panel del vendedor y la respuesta trae el enlace de WhatsApp con el mensaje. Exige la cabecera Idempotency-Key.", params: [],
+  { id: "order-create", scope: "orders:create", method: "POST", path: "/orders", title: "Crear pedido", desc: "Crea un pedido real con las mismas reglas que el checkout de Baznova: llega al panel del vendedor y la respuesta trae el enlace de WhatsApp con el mensaje. Exige la cabecera Idempotency-Key.", params: [],
     body: '{\n  "storeSlug": "SLUG_DE_LA_TIENDA",\n  "channel": "cod",\n  "customerName": "Nombre Apellido",\n  "customerPhone": "+5355512345",\n  "customerEmail": "cliente@correo.com",\n  "shippingProvinceId": "ID_PROVINCIA",\n  "shippingMunicipalityId": "ID_MUNICIPIO",\n  "shippingAddress": "Calle y número",\n  "items": [{ "productId": "ID_DEL_PRODUCTO", "quantity": 1 }]\n}' },
-  { id: "order-get", scope: "cart:validate", method: "GET", path: "/orders/{code}", title: "Estado de un pedido", desc: "Estado de un pedido creado con tu credencial.", path_params: ["code"], params: [] },
+  { id: "order-get", scope: "orders:create", method: "GET", path: "/orders/{code}", title: "Estado de un pedido", desc: "Estado de un pedido creado con tu credencial.", path_params: ["code"], params: [] },
   { id: "plans", scope: "plans:read", method: "GET", path: "/plans", title: "Planes y precios", desc: "Planes de Baznova con el precio base y tu precio final por mes.", params: [] },
 ];
 
