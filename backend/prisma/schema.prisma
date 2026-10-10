@@ -149,6 +149,8 @@ enum CampaignStatus {
 
 enum EmailType {
   ORDER_CONFIRMATION
+  // Bloque 302: aviso a la tienda de que recibió un pedido nuevo.
+  NEW_ORDER_VENDOR
   STATUS_UPDATE
   MANUAL
   PASSWORD_RESET
@@ -1209,6 +1211,8 @@ model Vendor {
   // VERIFIED hasta nextPaymentDueDate. El cron de verificationPayment.job.js
   // (o el webhook customer.subscription.deleted de Stripe, que dispara solo
   // al llegar cancel_at_period_end) recién ahí transiciona a NOT_STARTED.
+  // Bloque 302: la tienda decide si quiere un correo por cada pedido nuevo (web o API de un socio).
+  notifyNewOrderEmail Boolean @default(true)
   cancelAtPeriodEnd Boolean @default(false)
   // Bloque 198 (pedido explícito — "se podrán enviar recordatorios a los
   // usuarios en caso de que el vendedor asigne un día que sea el día para

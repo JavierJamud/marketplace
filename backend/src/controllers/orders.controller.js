@@ -4,11 +4,10 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
-import { sendOrderConfirmationEmail, sendOrderStatusEmail, sendManualOrderEmail } from "../lib/email.js";
+import { sendOrderConfirmationEmail, sendNewOrderVendorEmail, sendOrderStatusEmail, sendManualOrderEmail } from "../lib/email.js";
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
-import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { getPlanLimit } from "../lib/planConfig.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
@@ -290,19 +289,10 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
       body: `Pedido ${order.code} de ${order.customerName ?? "un cliente"} por ${totalLabel} — está en tu sección de Pedidos.`,
     },
   });
-  // Mismo mecanismo que "algo necesita revisión" (verificaciones, pagos
-  // reclamados, etc. — ver el comentario de notifyAdminActionNeeded): un
-  // correo directo al admin, best-effort, nunca bloquea la respuesta al
-  // cliente. No hay forma real de saber si el admin "está logeado" en un
-  // sistema sin sesión persistente del lado del servidor — el envío siempre
-  // sale, igual que el resto de estos avisos; si el admin ya está mirando
-  // el panel, la campanita (ver listAdminNotifications) se lo muestra ahí
-  // también, sin esperar a que abra el correo.
-  await notifyAdminActionNeeded(
-    `Pedido nuevo: ${order.code}`,
-    `${order.vendor.companyName} recibió un pedido nuevo (${order.code}) de ${order.customerName ?? "un cliente"} por ${totalLabel}. Estado: Nuevo (pendiente de confirmar).`,
-    order.vendorId
-  );
+  // Aviso por correo a la TIENDA (no al administrador): llega al correo de la tienda si ella lo tiene activado
+  // en su configuración. Best-effort, nunca bloquea ni revierte el pedido.
+  const partner = partnerId ? await prisma.partner.findUnique({ where: { id: partnerId }, select: { name: true } }) : null;
+  await sendNewOrderVendorEmail(order, { partnerName: partner?.name }).catch(() => {});
 
   // Solo se registra si el pedido se hizo logueado — un pedido de invitado no
   // tiene ningún User al que atarle la fila de ActivityLog.

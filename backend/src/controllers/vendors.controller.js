@@ -602,6 +602,8 @@ const updateVendorSchema = z.object({
   // schema.prisma para lo que decide cada valor ahora (ya no gatea si se
   // crea el Order, eso siempre pasa; solo qué le ofrece la confirmación).
   orderDestination: z.enum(["WHATSAPP", "PANEL", "BOTH"]).optional(),
+  // Bloque 302: correo a la tienda por cada pedido nuevo (web o API de un socio).
+  notifyNewOrderEmail: z.boolean().optional(),
   acceptedPaymentMethods: z.array(z.string().trim().min(1)).optional(),
   // Bloque 65: cambiar la moneda operativa de la tienda DESPUÉS del registro
   // — a propósito nunca convierte los precios de los productos ya cargados
@@ -737,6 +739,7 @@ export async function updateMyVendor(req, res) {
       tables: seedTables ? { create: seedTables } : undefined,
       planType,
       orderDestination,
+      notifyNewOrderEmail: data.notifyNewOrderEmail,
       acceptedPaymentMethods: data.acceptedPaymentMethods,
       currency: data.currency,
       businessCategoryId: data.businessCategoryId,

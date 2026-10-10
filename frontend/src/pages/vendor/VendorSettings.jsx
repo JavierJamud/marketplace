@@ -10,7 +10,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Tabs } from "../../components/ui/Tabs.jsx";
 import { SecurityCard } from "./VendorProfile.jsx";
 import { CashCloseSettingsPanel } from "./VendorUsers.jsx";
-import { Users, X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode, Clock } from "lucide-react";
+import { Mail, Users, X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode, Clock } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
@@ -275,6 +275,7 @@ export default function VendorSettings() {
     ownerIdNumber: "",
     companyAddress: "",
     orderDestination: "WHATSAPP",
+    notifyNewOrderEmail: true,
     // Bloque 77 (pedido explícito): tienda privada — no aparece en el
     // catálogo público/buscador, sigue funcionando 100% normal por su link
     // directo (mismo /tienda/:slug de siempre, ver el card de abajo).
@@ -337,6 +338,7 @@ export default function VendorSettings() {
       ownerIdNumber: vendor.ownerIdNumber ?? "",
       companyAddress: vendor.companyAddress ?? "",
       orderDestination: vendor.orderDestination ?? "WHATSAPP",
+      notifyNewOrderEmail: vendor.notifyNewOrderEmail ?? true,
       isPrivate: vendor.isPrivate ?? false,
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
       currency: vendor.currency ?? "CUP",
@@ -832,6 +834,26 @@ export default function VendorSettings() {
             );
           })}
         </div>
+      </div>
+
+      {/* Bloque 302: aviso por correo de cada pedido nuevo. Se manda al correo de la tienda, nunca al administrador. */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <Mail className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Aviso de pedidos por correo
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Cuando entra un pedido nuevo, ya sea desde Baznova o desde el sitio de un socio, te lo enviamos al correo de tu tienda
+          ({vendor?.email || vendor?.user?.email || "el de tu cuenta"}). El pedido siempre aparece en "Mis pedidos", sin importar lo que elijas aquí.
+        </p>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[13.5px] font-semibold text-on-surface">
+          <input
+            type="checkbox"
+            className="h-5 w-5 flex-shrink-0 accent-[#337475]"
+            checked={!!form.notifyNewOrderEmail}
+            onChange={(e) => setForm((f) => ({ ...f, notifyNewOrderEmail: e.target.checked }))}
+          />
+          Quiero recibir un correo por cada pedido nuevo
+        </label>
       </div>
 
       {/* Bloque 174 (pedido explícito — "al crear una cuenta se debe

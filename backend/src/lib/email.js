@@ -5,6 +5,7 @@ import { getIntegrationConfig } from "../controllers/integrations.controller.js"
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { logError } from "./errorLog.js";
 import { orderConfirmationEmail } from "../templates/orderConfirmation.js";
+import { newOrderVendorEmail } from "../templates/newOrderVendor.js";
 import { statusUpdateEmail } from "../templates/statusUpdate.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
@@ -94,6 +95,19 @@ export async function sendOrderConfirmationEmail(order) {
   const { subject, html } = await orderConfirmationEmail(order);
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_CONFIRMATION", to: order.customerEmail, subject, result });
+  return result;
+}
+
+// Aviso a la tienda de un pedido nuevo. Va al correo de la tienda (Vendor.email) y, si no lo tiene, al de la
+// cuenta del dueño; nunca al administrador. Best-effort: no cuenta contra el límite mensual de correos manuales.
+export async function sendNewOrderVendorEmail(order, { partnerName } = {}) {
+  const vendor = await prisma.vendor.findUnique({ where: { id: order.vendorId }, select: { email: true, notifyNewOrderEmail: true, user: { select: { email: true } } } });
+  if (!vendor?.notifyNewOrderEmail) return { ok: false, skipped: true };
+  const to = vendor.email || vendor.user?.email;
+  if (!to) return { ok: false, error: "La tienda no tiene correo" };
+  const { subject, html } = await newOrderVendorEmail({ order, partnerName });
+  const result = await sendViaResend({ to, subject, html, fromName: order.vendor.companyName });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "NEW_ORDER_VENDOR", to, subject, result });
   return result;
 }
 
