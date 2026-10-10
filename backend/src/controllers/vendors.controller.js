@@ -1,3 +1,4 @@
+import { toPublicVendor } from "../lib/publicVendor.js";
 import { z } from "zod";
 import { unlink, readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -369,7 +370,7 @@ export async function getVendorBySlug(req, res) {
   // mano antes de responder.) Bloque 108 (pedido explícito): salesCount se
   // suma a esta lista — es un dato interno de la tienda (visible en su
   // propio panel), no algo para mostrarle a un visitante anónimo por ahora.
-  const { ownerName, ownerIdNumber, companyAddress, salesCount, ...publicVendor } = vendor;
+  const publicVendor = toPublicVendor(vendor);
 
   // Bloque 22: desglose de calificaciones (cuántas reseñas de 5/4/3/2/1
   // estrellas) para el widget de estadísticas de Store.jsx. Mismo universo
@@ -442,7 +443,7 @@ export async function listVendors(req, res) {
   vendors.sort((a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0));
 
   // ownerName es privado — ver nota en getVendorBySlug.
-  res.json({ vendors: withComputedVendorFieldsList(vendors.map(({ ownerName, ...v }) => v)) });
+  res.json({ vendors: withComputedVendorFieldsList(vendors.map(toPublicVendor)) });
 }
 
 // Bloque 183: resolveMyVendor (no un findUnique directo por userId) — es lo

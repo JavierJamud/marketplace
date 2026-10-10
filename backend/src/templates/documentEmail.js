@@ -1,4 +1,4 @@
-import { emailShell, paragraph, smallNote, resolveAssetUrl } from "./_shared.js";
+import { emailShell, paragraph, smallNote, resolveAssetUrl, esc } from "./_shared.js";
 
 // Bloque 49: antes invoices.controller.js armaba HTML crudo (<p> sin
 // ningún estilo) a mano en vez de pasar por un template — con el resto del
@@ -15,8 +15,8 @@ export async function invoiceEmail({ vendor, order, customerName }) {
     storeLogoUrl: resolveAssetUrl(vendor.logoUrl),
     accentColor: vendor.color || undefined,
     bodyMjml: `
-      ${paragraph(`Hola${customerName ? ` ${customerName}` : ""},`)}
-      ${paragraph(`Adjuntamos la factura de tu compra en <strong>${vendor.companyName}</strong> (pedido ${order.code}).`)}
+      ${paragraph(`Hola${customerName ? ` ${esc(customerName)}` : ""},`)}
+      ${paragraph(`Adjuntamos la factura de tu compra en <strong>${esc(vendor.companyName)}</strong> (pedido ${order.code}).`)}
       ${smallNote("¡Gracias por tu compra!")}
     `,
   });
@@ -32,8 +32,8 @@ export async function warrantyEmail({ vendor, order, customerName, warrantyDays 
     storeLogoUrl: resolveAssetUrl(vendor.logoUrl),
     accentColor: vendor.color || undefined,
     bodyMjml: `
-      ${paragraph(`Hola${customerName ? ` ${customerName}` : ""},`)}
-      ${paragraph(`Adjuntamos el certificado de garantía de tu compra en <strong>${vendor.companyName}</strong> (pedido ${order.code}), válido por <strong>${warrantyDays} día(s)</strong>.`)}
+      ${paragraph(`Hola${customerName ? ` ${esc(customerName)}` : ""},`)}
+      ${paragraph(`Adjuntamos el certificado de garantía de tu compra en <strong>${esc(vendor.companyName)}</strong> (pedido ${order.code}), válido por <strong>${warrantyDays} día(s)</strong>.`)}
     `,
   });
   return { subject, html };

@@ -1,4 +1,4 @@
-import { emailShell, paragraph } from "./_shared.js";
+import { emailShell, paragraph, esc } from "./_shared.js";
 
 // Mismos 3 estados de KitchenStatus (schema.prisma), no una paleta paralela.
 const STATUS_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo para retirar" };
@@ -13,8 +13,8 @@ export async function tableOrderStatusEmail({ vendorName, tableNumber, kitchenSt
   const subject = `Mesa ${tableNumber} en ${vendorName}: ${label}`;
   const html = await emailShell({
     preview: `Tu pedido de la mesa ${tableNumber} en ${vendorName} ahora está: ${label}`,
-    title: `Mesa ${tableNumber} — ${vendorName}`,
-    storeName: vendorName,
+    title: `Mesa ${esc(tableNumber)} — ${esc(vendorName)}`,
+    storeName: esc(vendorName),
     accentColor: color,
     badge: { label, color },
     bodyMjml: `

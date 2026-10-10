@@ -212,8 +212,8 @@ export function AuthProvider({ children }) {
   // Segundo paso del login — mismo resultado final que login() (tokens +
   // user), validando el código de 6 dígitos. Además marca este navegador
   // como de confianza por 30 días (deviceToken) para no volver a pedirlo.
-  const verifyTwoFactor = async (email, code, context) => {
-    const { data } = await api.post("/auth/2fa/verify", { email, code, browserId: getBrowserId(), context });
+  const verifyTwoFactor = async (email, code, context, challengeToken) => {
+    const { data } = await api.post("/auth/2fa/verify", { email, code, browserId: getBrowserId(), context, challengeToken: challengeToken || undefined });
     localStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));

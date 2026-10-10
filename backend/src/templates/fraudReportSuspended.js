@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, smallNote, paragraph } from "./_shared.js";
+import { emailShell, ctaButton, smallNote, paragraph, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // autoResolved:true (venció el plazo sin respuesta) o el admin decidió
@@ -14,7 +14,7 @@ export async function fraudReportSuspendedEmail({ fullName, targetLabel, reason 
     badge: { label: "Suspendido", color: "#ba1a1a" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${fullName ?? ""}, tu <strong>${targetLabel}</strong> fue suspendido: <strong>${reason}</strong>.`)}
+      ${paragraph(`Hola ${esc(fullName)}, tu <strong>${targetLabel}</strong> fue suspendido: <strong>${esc(reason)}</strong>.`)}
       ${smallNote("Si crees que esto es un error, contáctanos — un admin puede revisar el caso de nuevo.")}
       ${paragraph("Nada se borra — tus datos siguen intactos, solo dejó de estar visible públicamente.")}
       ${ctaButton("Contactar soporte", `${env.frontendUrl}/contacto`)}

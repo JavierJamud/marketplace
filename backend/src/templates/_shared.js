@@ -120,6 +120,13 @@ const FONT_STACK = "Helvetica, Arial, sans-serif";
 // Bloque 284 (pedido explícito — "asuntos variados y personalizados para que no parezca
 // una campaña ni caiga en spam"): elige un asunto entre varias redacciones según una
 // semilla (el código, el pedido...), así dos correos seguidos no llevan el mismo asunto.
+// Escapa texto escrito por una persona (nombre, dirección, mensaje) antes de meterlo en el MJML.
+// paragraph/smallNote reciben HTML a propósito (<strong>, <br/>), así que el escape va en cada dato
+// de usuario; sin esto, un pedido anónimo puede mandar HTML propio dentro de un correo de la plataforma.
+export function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
 export function pickVariant(seed, options) {
   let h = 0;
   for (const ch of String(seed ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -213,7 +220,7 @@ export function itemsTable(items) {
       (i) => `<tr>
         <td style="padding:8px 0;border-bottom:1px solid #f0edee;width:48px;">${itemThumbHtml(i.imageUrl)}</td>
         <td style="padding:8px 0 8px 10px;border-bottom:1px solid #f0edee;color:#1b1b1d;font-size:13.5px;">
-          ${i.quantity}× ${i.name}${i.size ? `<span style="color:#75777c;"> (talla ${i.size})</span>` : ""}
+          ${i.quantity}× ${esc(i.name)}${i.size ? `<span style="color:#75777c;"> (talla ${esc(i.size)})</span>` : ""}
         </td>
         <td style="padding:8px 0;border-bottom:1px solid #f0edee;text-align:right;color:#1b1b1d;font-size:13.5px;white-space:nowrap;">${fmtCUP(Number(i.price) * i.quantity)}</td>
       </tr>`

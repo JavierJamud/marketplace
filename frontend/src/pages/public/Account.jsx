@@ -480,7 +480,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
+        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined, challengeToken);
         if (!roleAllowedForMode(user.role)) {
           logout();
           toast.error("Credenciales inválidas.");

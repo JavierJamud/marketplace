@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant } from "./_shared.js";
+import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 71 (pedido explícito): va SIEMPRE al correo VIEJO (el que ya está en
@@ -19,7 +19,7 @@ export async function emailChangeCodeEmail({ fullName, code, newEmail }) {
     badge: { label: "Seguridad de la cuenta", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${fullName ?? ""}, alguien pidió cambiar el correo de tu cuenta a <strong>${newEmail}</strong>. Usa este código para confirmarlo — vence en <strong>15 minutos</strong>.`)}
+      ${paragraph(`Hola ${esc(fullName)}, alguien pidió cambiar el correo de tu cuenta a <strong>${esc(newEmail)}</strong>. Usa este código para confirmarlo — vence en <strong>15 minutos</strong>.`)}
       ${codeBlock(code)}
       ${smallNote("Si no pediste este cambio, ignora este correo — tu correo actual sigue siendo el mismo y nadie puede cambiarlo sin este código.")}
       ${ctaButton(`Ir a ${siteName}`, `${env.frontendUrl}/cuenta`)}

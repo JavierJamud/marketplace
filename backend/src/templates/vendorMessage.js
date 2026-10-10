@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, paragraph, resolveAssetUrl } from "./_shared.js";
+import { emailShell, ctaButton, paragraph, resolveAssetUrl, esc } from "./_shared.js";
 
 // order: { code, vendor: {companyName, color} }, subject/message: texto que escribió el vendedor
 export async function vendorMessageEmail({ order, subject, message }) {
@@ -11,15 +11,15 @@ export async function vendorMessageEmail({ order, subject, message }) {
   const html = await emailShell({
     preview: message.slice(0, 120),
     title: subject,
-    storeName: order.vendor.companyName,
+    storeName: esc(order.vendor.companyName),
     storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     // Si la tienda tiene su propio color de marca, el header lo usa — si no,
     // cae al navy genérico de la plataforma (mismo comportamiento que el
     // avatar de la tienda en VendorLayout/Store.jsx).
     accentColor: order.vendor.color || undefined,
     bodyMjml: `
-      ${paragraph(`Mensaje de <strong style="color:#1b1b1d;">${order.vendor.companyName}</strong> sobre tu pedido ${order.code}`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
-      ${paragraph(message.replace(/\n/g, "<br/>"), { color: "#44474c", size: "14px", lineHeight: "22px" })}
+      ${paragraph(`Mensaje de <strong style="color:#1b1b1d;">${esc(order.vendor.companyName)}</strong> sobre tu pedido ${esc(order.code)}`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
+      ${paragraph(esc(message).replace(/\n/g, "<br/>"), { color: "#44474c", size: "14px", lineHeight: "22px" })}
       ${ctaButton("Ver mi pedido", `${env.frontendUrl}/cuenta/panel`)}
     `,
   });

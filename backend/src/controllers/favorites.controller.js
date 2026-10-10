@@ -1,3 +1,4 @@
+import { toPublicVendor } from "../lib/publicVendor.js";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -25,7 +26,13 @@ export async function listMyFavorites(req, res) {
       },
     },
   });
-  res.json({ favorites });
+  // La fila Vendor completa lleva datos legales y de facturación del dueño: al cliente solo le llega la parte pública.
+  const safe = favorites.map((fav) => ({
+    ...fav,
+    vendor: toPublicVendor(fav.vendor),
+    product: fav.product ? { ...fav.product, vendor: toPublicVendor(fav.product.vendor) } : fav.product,
+  }));
+  res.json({ favorites: safe });
 }
 
 const addFavoriteSchema = z

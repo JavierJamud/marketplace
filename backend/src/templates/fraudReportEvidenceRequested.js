@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, smallNote, paragraph } from "./_shared.js";
+import { emailShell, ctaButton, smallNote, paragraph, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Feature B (pedido explícito): "pedir evidencia... con un plazo — si no se
@@ -20,10 +20,10 @@ export async function fraudReportEvidenceRequestedEmail({ fullName, targetLabel,
     bodyMjml: `
       ${paragraph(
         isLastReminder
-          ? `Hola ${fullName ?? ""}, este es un recordatorio: mañana vence el plazo para responder al reporte sobre tu <strong>${targetLabel}</strong>. Si no respondes, se suspende automáticamente por fraude.`
-          : `Hola ${fullName ?? ""}, un cliente reportó tu <strong>${targetLabel}</strong> por posible fraude. Esto fue lo que dijo:`
+          ? `Hola ${esc(fullName)}, este es un recordatorio: mañana vence el plazo para responder al reporte sobre tu <strong>${targetLabel}</strong>. Si no respondes, se suspende automáticamente por fraude.`
+          : `Hola ${esc(fullName)}, un cliente reportó tu <strong>${targetLabel}</strong> por posible fraude. Esto fue lo que dijo:`
       )}
-      ${!isLastReminder ? paragraph(`"${message}"`, { color: "#232F3E", padding: "0 0 14px", size: "13.5px" }) : ""}
+      ${!isLastReminder ? paragraph(`"${esc(message)}"`, { color: "#232F3E", padding: "0 0 14px", size: "13.5px" }) : ""}
       ${smallNote(`Tienes <strong>${deadlineDays} días</strong> desde el reporte para responder con una explicación (y, si tienes, una captura que lo respalde). Si no respondes a tiempo, se suspende automáticamente por fraude.`)}
       ${paragraph("Si esto es un malentendido o ya resolviste el problema con el cliente, cuéntanoslo — no se toma ninguna acción si tu explicación es razonable.")}
       ${ctaButton("Responder al reporte", ctaUrl)}

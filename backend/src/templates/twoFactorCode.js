@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant } from "./_shared.js";
+import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
 // Bloque 47/60: código de 6 dígitos obligatorio en cada login salvo que el
@@ -20,7 +20,7 @@ export async function twoFactorCodeEmail({ fullName, code }) {
     badge: { label: "Verificación en dos pasos", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${fullName ?? ""}, alguien está iniciando sesión en tu cuenta. Usa este código para completar el ingreso — vence en <strong>5 minutos</strong>.`)}
+      ${paragraph(`Hola ${esc(fullName)}, alguien está iniciando sesión en tu cuenta. Usa este código para completar el ingreso — vence en <strong>5 minutos</strong>.`)}
       ${codeBlock(code)}
       ${smallNote("Si no intentaste ingresar, cambia tu contraseña — alguien más la tiene.")}
       ${ctaButton(`Ir a ${siteName}`, `${env.frontendUrl}/cuenta`)}

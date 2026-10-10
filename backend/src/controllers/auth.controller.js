@@ -486,21 +486,39 @@ const verifyTwoFactorSchema = z.object({
   // código si el contexto no coincide, así que en la práctica esto nunca
   // debería dispararse, pero no cuesta nada repetir el chequeo acá también.
   context: z.enum(["admin", "vendor", "partner"]).nullish(),
+  // Prueba de que la contraseña ya se validó (la entrega login()). Sin ella la app autenticadora no
+  // se acepta: antes bastaban el correo y el código de la app para entrar sin contraseña.
+  challengeToken: z.string().nullish(),
 });
 
+// true solo si el token es un reto 2FA vigente emitido por login() para ESTA cuenta.
+function isChallengeFor(user, challengeToken) {
+  if (!user || !challengeToken) return false;
+  try {
+    const payload = jwt.verify(challengeToken, env.jwtSecret, { algorithms: ["HS256"] });
+    return payload.purpose === "2fa-challenge" && payload.sub === user.id;
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyTwoFactorLogin(req, res) {
-  const { email, code, browserId, context } = verifyTwoFactorSchema.parse(req.body);
+  const { email, code, browserId, context, challengeToken } = verifyTwoFactorSchema.parse(req.body);
   const user = await prisma.user.findUnique({ where: { email } });
 
   // Bloque 273: el código puede ser el de la app autenticadora (predeterminado, si la tiene
   // activada) o el enviado al correo (siempre disponible como respaldo).
-  const viaApp = user ? await consumeTotpCode(user, code) : false;
+  // La app solo cuenta como segundo factor si la contraseña ya pasó (challengeToken del login).
+  const viaApp = user && isChallengeFor(user, challengeToken) ? await consumeTotpCode(user, code) : false;
   const valid =
     viaApp ||
     (user?.twoFactorCodeHash && user?.twoFactorCodeExpiresAt && user.twoFactorCodeExpiresAt.getTime() > Date.now()
       ? await bcrypt.compare(code, user.twoFactorCodeHash)
       : false);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
+
+  // Misma regla que login(): una cuenta suspendida o eliminada no abre sesión aunque el código sea válido.
+  if (user.isSuspended || user.deletedAt) throw new AppError("Esta cuenta no está disponible.", 403);
 
   assertRoleMatchesContext(user, context);
 

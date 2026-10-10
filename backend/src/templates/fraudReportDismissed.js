@@ -1,4 +1,4 @@
-import { emailShell, ctaButton, smallNote, paragraph } from "./_shared.js";
+import { emailShell, ctaButton, smallNote, paragraph, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { env } from "../config/env.js";
 
@@ -14,7 +14,7 @@ export async function fraudReportDismissedEmail({ fullName, targetLabel, ctaUrl 
     badge: { label: "Resuelto", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${fullName ?? ""}, revisamos el reporte sobre tu <strong>${targetLabel}</strong> junto con tu respuesta y no vamos a tomar ninguna acción — sigue funcionando con normalidad.`)}
+      ${paragraph(`Hola ${esc(fullName)}, revisamos el reporte sobre tu <strong>${targetLabel}</strong> junto con tu respuesta y no vamos a tomar ninguna acción — sigue funcionando con normalidad.`)}
       ${smallNote("Gracias por responder a tiempo. Esto no queda como un antecedente contra tu cuenta.")}
       ${ctaButton(`Ir a ${siteName}`, ctaUrl ?? env.frontendUrl)}
     `,

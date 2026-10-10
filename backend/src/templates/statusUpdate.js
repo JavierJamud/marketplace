@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, itemsTable, totalRow, paragraph, fmtCUP, resolveAssetUrl, pickVariant } from "./_shared.js";
+import { emailShell, ctaButton, itemsTable, totalRow, paragraph, fmtCUP, resolveAssetUrl, pickVariant, esc } from "./_shared.js";
 
 // Mismos labels/colores que VendorOrders.jsx y CustomerPanel.jsx — una sola
 // paleta de estados en todo el sistema, no una paralela para email.
@@ -21,12 +21,12 @@ export async function statusUpdateEmail(order) {
   const html = await emailShell({
     preview: `${order.vendor.companyName} actualizó tu pedido ${order.code} a "${label}"`,
     title: "Actualización de tu pedido",
-    storeName: order.vendor.companyName,
+    storeName: esc(order.vendor.companyName),
     storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     accentColor: color,
     badge: { label, color },
     bodyMjml: `
-      ${paragraph(`Tu pedido <strong>${order.code}</strong> en <strong>${order.vendor.companyName}</strong> cambió de estado:`)}
+      ${paragraph(`Tu pedido <strong>${esc(order.code)}</strong> en <strong>${esc(order.vendor.companyName)}</strong> cambió de estado:`)}
       ${itemsWithImages.length > 0 ? itemsTable(itemsWithImages) : ""}
       ${order.total != null ? totalRow("Total", fmtCUP(order.total)) : ""}
       ${ctaButton("Ver detalles", `${env.frontendUrl}/cuenta/panel`)}

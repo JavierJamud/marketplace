@@ -37,7 +37,9 @@ export async function getPortalMovements(req, res) {
   const partner = await myPartner(req);
   const p = paginationQuerySchema.parse(req.query);
   const keyId = typeof req.query.keyId === "string" ? req.query.keyId : undefined;
-  const status = req.query.status ? Number(req.query.status) : undefined;
+  // Un filtro que no sea un código HTTP (p. ej. "abc") se ignora en vez de llegar a Prisma como NaN y dar 500.
+  const rawStatus = Number(req.query.status);
+  const status = Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599 ? rawStatus : undefined;
   const { total, rows } = await recentMovements(partner.id, { ...p, keyId, status });
   res.json({ movements: rows, ...pageMeta(p, total) });
 }
