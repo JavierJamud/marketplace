@@ -1022,7 +1022,6 @@ model PlanConfig {
 
   // --- Interruptores de función ----------------------------------------
   allowAiChatbot      Boolean @default(true)
-  allowHomeOffers     Boolean @default(true)
   allowStoreOffers    Boolean @default(true)
   allowDiscountCodes  Boolean @default(true)
   allowQrTables       Boolean @default(true)

@@ -24,7 +24,12 @@ function FaqItem({ id, q, a, isOpen, onToggle }) {
         <span className="text-[14px] font-bold text-on-surface">{q}</span>
         <ChevronDown className={`h-4 w-4 flex-shrink-0 text-outline transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
-      {isOpen && <p className="px-5 pb-4 text-[13.5px] leading-5 text-on-surface-variant">{a}</p>}
+      {isOpen &&
+        (/<\/?[a-z][^>]*>/i.test(a ?? "") ? (
+          <div className="faq-rich px-5 pb-4 text-[13.5px] leading-5 text-on-surface-variant" dangerouslySetInnerHTML={{ __html: a }} />
+        ) : (
+          <p className="whitespace-pre-line px-5 pb-4 text-[13.5px] leading-5 text-on-surface-variant">{a}</p>
+        ))}
     </div>
   );
 }

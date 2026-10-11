@@ -309,3 +309,10 @@
     backdrop-filter: none;
   }
 }
+
+/* Respuestas de preguntas frecuentes con formato (listas, énfasis, enlaces) */
+.faq-rich p + p, .faq-rich ul, .faq-rich ol { margin-top: 0.5rem; }
+.faq-rich ul { list-style: disc; padding-left: 1.25rem; }
+.faq-rich ol { list-style: decimal; padding-left: 1.25rem; }
+.faq-rich a { color: var(--faq-link, #337475); text-decoration: underline; }
+.faq-rich strong, .faq-rich b { font-weight: 700; }

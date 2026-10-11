@@ -1,3 +1,4 @@
+import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -266,6 +267,7 @@ export default function AdminLocations() {
   const pendingSuggestions = pendingData?.count ?? 0;
   const [selectedCountryId, setSelectedCountryId] = useState(null);
   const [countrySearch, setCountrySearch] = useState("");
+  const [provinceSearch, setProvinceSearch] = useState("");
   const [countryModal, setCountryModal] = useState(null);
   const [provinceModal, setProvinceModal] = useState(null);
   const [municipalityFor, setMunicipalityFor] = useState(null);
@@ -303,6 +305,7 @@ export default function AdminLocations() {
     if (!selectedCountryId) return [];
     return provinces.filter((p) => p.country?.id === selectedCountryId);
   }, [provinces, selectedCountryId]);
+  const visibleProvinces = useMemo(() => countryProvinces.filter((p) => matchesQuery(p.name, provinceSearch) || matchesQuery(p.code, provinceSearch)), [countryProvinces, provinceSearch]);
 
   const toggleCountry = useMutation({
     mutationFn: async (c) => (await api.patch(`/admin/locations/countries/${c.id}`, { isActive: !c.isActive })).data,
@@ -507,9 +510,20 @@ export default function AdminLocations() {
                 </div>
               </div>
 
+              {countryProvinces.length > 8 && (
+                <SearchBox
+                  className="mb-3"
+                  value={provinceSearch}
+                  onChange={setProvinceSearch}
+                  placeholder={`Buscar en ${selectedCountry.name}`}
+                  resultText={provinceSearch.trim() ? `${visibleProvinces.length} de ${countryProvinces.length} subdivisiones` : undefined}
+                />
+              )}
+
               {/* Subdivisions List */}
               <div className="flex flex-col gap-3">
-                {countryProvinces.map((p) => {
+                {provinceSearch.trim() && visibleProvinces.length === 0 && <p className="text-[13px] text-on-surface-variant">No hay subdivisiones que coincidan con “{provinceSearch.trim()}”.</p>}
+                {visibleProvinces.map((p) => {
                   const isExpanded = expandedProvinceIds.has(p.id);
                   return (
                     <div

@@ -301,6 +301,7 @@ router.put("/static-pages/:slug", staticPagesController.updateStaticPage);
 
 // Bloque 53: preguntas frecuentes — sección propia, separada de "Páginas".
 router.get("/faq", faqController.listAdminFaqs);
+router.post("/faq/batch", faqController.batchCreateFaqs);
 router.post("/faq", faqController.createFaq);
 router.patch("/faq/:id", faqController.updateFaq);
 router.delete("/faq/:id", faqController.deleteFaq);

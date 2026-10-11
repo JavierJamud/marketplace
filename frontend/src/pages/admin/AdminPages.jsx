@@ -65,40 +65,40 @@ function EditPageModal({ page, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-surface-container-lowest p-6">
-        <div className="mb-1 flex items-center justify-between">
+      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-surface-container-lowest p-4 sm:p-6">
+        <div className="mb-1 flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <h2 className="text-title-lg font-bold text-on-surface">{PAGE_META[page.slug].label}</h2>
           <a
             href={PAGE_META[page.slug].path}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1 text-[12.5px] font-semibold text-tertiary-accent hover:underline"
+            className="flex min-h-11 items-center gap-1 text-[12.5px] font-semibold text-tertiary-accent hover:underline"
           >
             Ver página pública <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
-        <p className="mb-3 text-[12.5px] text-outline">
-          HTML libre — se sanitiza al guardar (se sacan scripts y atributos de evento). Déjalo vacío y guarda para volver
+        <p className="mb-3 shrink-0 text-[12.5px] text-outline">
+          HTML libre. Se sanitiza al guardar (se sacan scripts y atributos de evento). Déjalo vacío y guarda para volver
           al contenido predeterminado.
         </p>
         <textarea
           value={html}
           onChange={(e) => setHtml(e.target.value)}
           placeholder="<h1>Título</h1>\n<p>Contenido...</p>"
-          className="min-h-[360px] flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest p-3.5 font-mono text-[12.5px] outline-none focus:border-tertiary-accent"
+          className="min-h-[180px] flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest p-3.5 font-mono text-[12.5px] outline-none focus:border-tertiary-accent"
         />
-        <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="mt-4 flex shrink-0 flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
             onClick={() => setConfirmingRestore(true)}
             disabled={restore.isPending || save.isPending || !page.htmlContent}
-            className="flex items-center gap-1.5 rounded-full border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant disabled:opacity-40"
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-full border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant disabled:opacity-40"
           >
             <RotateCcw className="h-3.5 w-3.5" /> Restaurar predeterminado
           </button>
-          <div className="flex gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5 sm:flex">
             <Button variant="outline" onClick={onClose} disabled={save.isPending || restore.isPending}>Cancelar</Button>
             <Button onClick={() => save.mutate()} disabled={save.isPending || restore.isPending}>
               {save.isPending ? "Guardando..." : "Guardar cambios"}

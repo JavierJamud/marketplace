@@ -1,3 +1,4 @@
+import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -46,6 +47,8 @@ export default function Stores() {
     queryFn: async () => (await api.get("/business-categories")).data.categories,
   });
   const selectedBusinessCategory = businessCategories?.find((c) => c.id === businessCategoryId);
+  const [categorySearch, setCategorySearch] = useState("");
+  const shownCategories = (businessCategories ?? []).filter((c) => c.id === businessCategoryId || matchesQuery(c.name, categorySearch));
 
   const { data: vendors, isLoading } = useQuery({
     queryKey: ["vendors", provinceId, municipalityId, isRestaurant, businessCategoryId, isVerified],
@@ -112,13 +115,16 @@ export default function Stores() {
               <CategoryIcon name={selectedBusinessCategory.icon} className="h-3.5 w-3.5 text-tertiary-accent" />
             </span>
           )}
+          {businessCategories && businessCategories.length > 12 && (
+            <SearchBox className="w-full sm:w-56" value={categorySearch} onChange={setCategorySearch} placeholder="Buscar tipo de negocio" />
+          )}
           <select
             value={businessCategoryId}
             onChange={(e) => setBusinessCategoryId(e.target.value)}
             className="rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-[13px] font-semibold text-on-surface outline-none"
           >
             <option value="">Todos los tipos de negocio</option>
-            {businessCategories?.map((c) => (
+            {shownCategories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

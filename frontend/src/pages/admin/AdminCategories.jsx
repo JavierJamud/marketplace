@@ -1,3 +1,4 @@
+import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Icons from "lucide-react";
@@ -145,6 +146,7 @@ export default function AdminCategories() {
   const [modalState, setModalState] = useState(null); // null | {} | category
   const [toDelete, setToDelete] = useState(null);
 
+  const [search, setSearch] = useState("");
   const { data: categories, isLoading } = useQuery({
     queryKey: ["admin-business-categories"],
     queryFn: async () => (await api.get("/admin/business-categories")).data.categories,
@@ -193,10 +195,20 @@ export default function AdminCategories() {
         </button>
       </div>
 
+      {categories && categories.length > 6 && (
+        <SearchBox
+          className="mb-3"
+          value={search}
+          onChange={setSearch}
+          placeholder="Buscar categoría por nombre"
+          resultText={search.trim() ? `${(categories ?? []).filter((c) => matchesQuery(c.name, search)).length} de ${categories.length} categorías` : undefined}
+        />
+      )}
+
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        {categories?.map((c) => (
+        {categories?.filter((c) => matchesQuery(c.name, search)).map((c) => (
           <div key={c.id} className="flex items-center gap-3 border-b border-surface-container px-4 py-3 last:border-b-0">
             <GripVertical className="h-4 w-4 flex-shrink-0 text-outline/40" />
             <span className="w-8 flex-shrink-0 text-center text-[11.5px] font-bold text-outline">{c.sortOrder}</span>
@@ -222,6 +234,7 @@ export default function AdminCategories() {
           </div>
         ))}
         {!isLoading && !categories?.length && <p className="p-4 text-body-md text-on-surface-variant">Todavía no hay categorías cargadas.</p>}
+        {!isLoading && !!categories?.length && !categories.some((c) => matchesQuery(c.name, search)) && <p className="p-4 text-body-md text-on-surface-variant">No hay categorías que coincidan con “{search.trim()}”.</p>}
       </div>
 
       {modalState && <CategoryModal category={modalState.id ? modalState : null} onClose={() => setModalState(null)} />}

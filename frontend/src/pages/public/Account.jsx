@@ -1,3 +1,4 @@
+import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -392,6 +393,8 @@ export default function Account({ mode = "customer" }) {
     enabled: !isLogin && accountType === "vendor",
   });
   const selectedBusinessCategory = businessCategories?.find((c) => c.id === storeForm.businessCategoryId);
+  const [categorySearch, setCategorySearch] = useState("");
+  const shownCategories = (businessCategories ?? []).filter((c) => c.id === storeForm.businessCategoryId || matchesQuery(c.name, categorySearch));
 
   function switchView(next) {
     setView(next);
@@ -1155,6 +1158,9 @@ export default function Account({ mode = "customer" }) {
                   </div>
 
                   <div>
+                    {businessCategories && businessCategories.length > 12 && (
+                      <SearchBox className="mb-2" value={categorySearch} onChange={setCategorySearch} placeholder="Buscar tu tipo de negocio" />
+                    )}
                     <div className="flex items-center gap-2.5">
                       <Select
                         label="Tipo de negocio"
@@ -1164,7 +1170,7 @@ export default function Account({ mode = "customer" }) {
                         className="flex-1"
                       >
                         <option value="">Selecciona el rubro de tu tienda</option>
-                        {businessCategories?.map((c) => (
+                        {shownCategories.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
                           </option>

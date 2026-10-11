@@ -1,3 +1,4 @@
+import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -64,7 +65,10 @@ function CategoryPill({ c }) {
 // invisible en una sola línea) contra el del contenedor.
 // Bloque 248 (auditoría 004, hallazgo 9): si el sistema pide reducir el
 // movimiento NO hay animación: es una fila que se desliza con el dedo.
-function CategoryMarquee({ categories }) {
+function CategoryMarquee({ categories: allCategories }) {
+  const [search, setSearch] = useState("");
+  const searching = search.trim().length > 0;
+  const categories = searching ? allCategories.filter((c) => matchesQuery(c.name, search)) : allCategories;
   const containerRef = useRef(null);
   const measureRef = useRef(null);
   const [overflowing, setOverflowing] = useState(false);
@@ -92,6 +96,27 @@ function CategoryMarquee({ categories }) {
     return () => ro.disconnect();
   }, [categories, swipeRow]);
 
+  const searchBox = allCategories.length > 12 ? (
+    <SearchBox className="mx-auto mt-4 max-w-md" value={search} onChange={setSearch} placeholder="Buscar tu tipo de negocio" resultText={searching ? `${categories.length} de ${allCategories.length} categorías` : undefined} />
+  ) : null;
+
+  if (searching) {
+    return (
+      <div>
+        {categories.length > 0 ? (
+          <div className="flex flex-wrap justify-center gap-2.5">
+            {categories.map((c) => (
+              <CategoryPill key={c.id} c={c} />
+            ))}
+          </div>
+        ) : (
+          <p className="py-4 text-center text-[13.5px] text-on-surface-variant">No hay categorías que coincidan con “{search.trim()}”.</p>
+        )}
+        {searchBox}
+      </div>
+    );
+  }
+
   if (swipeRow) {
     return (
       <div className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:-mx-gutter sm:px-gutter [&::-webkit-scrollbar]:hidden">
@@ -107,6 +132,7 @@ function CategoryMarquee({ categories }) {
   const track = overflowing ? [...categories, ...categories] : categories;
 
   return (
+    <div>
     <div ref={containerRef} className="relative overflow-hidden" style={overflowing ? { WebkitMaskImage: EDGE_FADE_MASK, maskImage: EDGE_FADE_MASK } : undefined}>
       {/* Copia invisible, fuera de flujo, SIEMPRE en una sola línea: solo sirve
           para medir. `invisible` (visibility:hidden) y no opacity-0, para que
@@ -122,6 +148,8 @@ function CategoryMarquee({ categories }) {
           <CategoryPill key={`${c.id}-${i}`} c={c} />
         ))}
       </div>
+    </div>
+    {searchBox}
     </div>
   );
 }
