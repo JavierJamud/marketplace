@@ -3,6 +3,7 @@
 // Es seguro repetirlo: solo AGREGA lo que falta (por código, nombre o slug) y nunca modifica ni borra lo que ya existe.
 // Uso (desde la carpeta backend, con DATABASE_URL en el entorno):  node prisma/seed-catalogos.mjs [--dry-run]
 import { PrismaClient } from "@prisma/client";
+import { readFileSync } from "node:fs";
 
 const DRY = process.argv.includes("--dry-run");
 const prisma = new PrismaClient();
@@ -265,6 +266,60 @@ for (const c of COUNTRIES) {
   }
 }
 
-console.log(`${DRY ? "[simulación] " : ""}Agregado: ${stats.badges} etiquetas, ${stats.business} tipos de negocio, ${stats.countries} países, ${stats.provinces} provincias o estados.` + (stats.skipped ? ` (${stats.skipped} etiquetas omitidas por el máximo de 20)` : ""));
-console.log(`Totales ahora: etiquetas ${(await prisma.siteSettings.findFirst())?.availableProductBadges.length ?? 0}, tipos de negocio ${await prisma.businessCategory.count()}, países ${await prisma.country.count()}, provincias o estados ${await prisma.province.count()}.`);
+// ---- Cuba (provincias, municipios y cercanía entre provincias), categorías de producto y los tipos de negocio originales.
+// Los datos salen de prisma/catalogos-cuba.json (exportado de la base de desarrollo).
+const cuba = JSON.parse(readFileSync(new URL("./catalogos-cuba.json", import.meta.url), "utf8"));
+stats.municipalities = 0; stats.links = 0; stats.categories = 0;
+{
+  let country = await prisma.country.findUnique({ where: { code: cuba.cuba.code } });
+  if (!country) {
+    if (!DRY) country = await prisma.country.create({ data: { code: cuba.cuba.code, name: cuba.cuba.name } });
+    stats.countries++;
+  }
+  const provinceByCode = {};
+  for (const pv of cuba.provincias) {
+    let row = await prisma.province.findUnique({ where: { code: pv.code } });
+    if (!row && country) row = await prisma.province.findFirst({ where: { countryId: country.id, name: pv.name } });
+    if (!row) {
+      if (!DRY && country) row = await prisma.province.create({ data: { code: pv.code, name: pv.name, type: pv.type, countryId: country.id } });
+      stats.provinces++;
+    }
+    if (row) provinceByCode[pv.code] = row;
+    if (!row) continue;
+    const have = new Set((await prisma.municipality.findMany({ where: { provinceId: row.id }, select: { name: true } })).map((m) => norm(m.name)));
+    for (const name of pv.municipios) {
+      if (have.has(norm(name))) continue;
+      if (!DRY) await prisma.municipality.create({ data: { provinceId: row.id, name } });
+      stats.municipalities++;
+    }
+  }
+  for (const [a, b] of cuba.adyacencias) {
+    const A = provinceByCode[a], B = provinceByCode[b];
+    if (!A || !B) continue;
+    const found = await prisma.provinceAdjacency.findFirst({ where: { OR: [{ provinceAId: A.id, provinceBId: B.id }, { provinceAId: B.id, provinceBId: A.id }] } });
+    if (found) continue;
+    if (!DRY) await prisma.provinceAdjacency.create({ data: { provinceAId: A.id, provinceBId: B.id } });
+    stats.links++;
+  }
+  // categorías de producto: primero las principales y después sus subcategorías
+  const catBySlug = Object.fromEntries((await prisma.category.findMany()).map((c) => [c.slug, c]));
+  for (const c of [...cuba.categorias.filter((x) => !x.parent), ...cuba.categorias.filter((x) => x.parent)]) {
+    if (catBySlug[c.slug]) continue;
+    const parent = c.parent ? catBySlug[c.parent] : null;
+    if (!DRY) catBySlug[c.slug] = await prisma.category.create({ data: { slug: c.slug, name: c.name, parentId: parent?.id ?? null } });
+    stats.categories++;
+  }
+  // tipos de negocio originales
+  const slugs = new Set((await prisma.businessCategory.findMany({ select: { slug: true } })).map((b) => b.slug));
+  let order = (await prisma.businessCategory.aggregate({ _max: { sortOrder: true } }))._max.sortOrder ?? -1;
+  for (const b of cuba.tiposDeNegocio) {
+    if (slugs.has(b.slug)) continue;
+    order++;
+    if (!DRY) await prisma.businessCategory.create({ data: { name: b.name, slug: b.slug, icon: b.icon, sortOrder: order, active: true } });
+    stats.business++;
+  }
+}
+
+console.log(`${DRY ? "[simulación] " : ""}Agregado: ${stats.badges} etiquetas, ${stats.business} tipos de negocio, ${stats.countries} países, ${stats.provinces} provincias o estados, ${stats.municipalities} municipios, ${stats.links} cercanías, ${stats.categories} categorías de producto.` + (stats.skipped ? ` (${stats.skipped} etiquetas omitidas por el máximo de 20)` : ""));
+console.log(`Totales ahora: etiquetas ${(await prisma.siteSettings.findFirst())?.availableProductBadges.length ?? 0}, tipos de negocio ${await prisma.businessCategory.count()}, países ${await prisma.country.count()}, provincias o estados ${await prisma.province.count()}, municipios ${await prisma.municipality.count()}, categorías de producto ${await prisma.category.count()}.`);
 await prisma.$disconnect();

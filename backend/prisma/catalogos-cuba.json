@@ -1,0 +1,419 @@
+{
+ "cuba": {
+  "code": "CU",
+  "name": "CUBA"
+ },
+ "provincias": [
+  {
+   "code": "art",
+   "name": "Artemisa",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "cmg",
+   "name": "Camagüey",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "cav",
+   "name": "Ciego de Ávila",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "cfg",
+   "name": "Cienfuegos",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "grm",
+   "name": "Granma",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "gtm",
+   "name": "Guantánamo",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "hlg",
+   "name": "Holguín",
+   "type": "PROVINCE",
+   "municipios": [
+    "Antilla",
+    "Báguanos",
+    "Banes",
+    "Calixto García",
+    "Gibara",
+    "Holguín",
+    "Mayarí",
+    "Moa"
+   ]
+  },
+  {
+   "code": "ijv",
+   "name": "Isla de la Juventud",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "hab",
+   "name": "La Habana",
+   "type": "PROVINCE",
+   "municipios": [
+    "Arroyo Naranjo",
+    "Boyeros",
+    "Centro Habana",
+    "Cerro",
+    "Cotorro",
+    "Diez de Octubre",
+    "Guanabacoa",
+    "Habana del Este",
+    "Habana Vieja",
+    "La Lisa",
+    "Marianao",
+    "Playa",
+    "Plaza de la Revolución",
+    "Regla",
+    "San Miguel del Padrón"
+   ]
+  },
+  {
+   "code": "ltu",
+   "name": "Las Tunas",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "mat",
+   "name": "Matanzas",
+   "type": "PROVINCE",
+   "municipios": [
+    "Cárdenas",
+    "Colón",
+    "Jagüey Grande",
+    "Jovellanos",
+    "Los Arabos",
+    "Matanzas",
+    "Varadero"
+   ]
+  },
+  {
+   "code": "may",
+   "name": "Mayabeque",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "pri",
+   "name": "Pinar del Río",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "ssp",
+   "name": "Sancti Spíritus",
+   "type": "PROVINCE",
+   "municipios": []
+  },
+  {
+   "code": "stg",
+   "name": "Santiago de Cuba",
+   "type": "PROVINCE",
+   "municipios": [
+    "Contramaestre",
+    "Guamá",
+    "Mella",
+    "Palma Soriano",
+    "San Luis",
+    "Santiago de Cuba",
+    "Segundo Frente",
+    "Songo-La Maya",
+    "Tercer Frente"
+   ]
+  },
+  {
+   "code": "vcl",
+   "name": "Villa Clara",
+   "type": "PROVINCE",
+   "municipios": [
+    "Caibarién",
+    "Camajuaní",
+    "Cifuentes",
+    "Manicaragua",
+    "Placetas",
+    "Remedios",
+    "Sagua la Grande",
+    "Santa Clara"
+   ]
+  }
+ ],
+ "adyacencias": [
+  [
+   "pri",
+   "art"
+  ],
+  [
+   "art",
+   "pri"
+  ],
+  [
+   "art",
+   "hab"
+  ],
+  [
+   "art",
+   "may"
+  ],
+  [
+   "hab",
+   "art"
+  ],
+  [
+   "hab",
+   "may"
+  ],
+  [
+   "may",
+   "hab"
+  ],
+  [
+   "may",
+   "art"
+  ],
+  [
+   "may",
+   "mat"
+  ],
+  [
+   "mat",
+   "may"
+  ],
+  [
+   "mat",
+   "cfg"
+  ],
+  [
+   "mat",
+   "vcl"
+  ],
+  [
+   "cfg",
+   "mat"
+  ],
+  [
+   "cfg",
+   "vcl"
+  ],
+  [
+   "cfg",
+   "ssp"
+  ],
+  [
+   "vcl",
+   "mat"
+  ],
+  [
+   "vcl",
+   "cfg"
+  ],
+  [
+   "vcl",
+   "ssp"
+  ],
+  [
+   "ssp",
+   "vcl"
+  ],
+  [
+   "ssp",
+   "cfg"
+  ],
+  [
+   "ssp",
+   "cav"
+  ],
+  [
+   "cav",
+   "ssp"
+  ],
+  [
+   "cav",
+   "cmg"
+  ],
+  [
+   "cmg",
+   "cav"
+  ],
+  [
+   "cmg",
+   "ltu"
+  ],
+  [
+   "ltu",
+   "cmg"
+  ],
+  [
+   "ltu",
+   "grm"
+  ],
+  [
+   "ltu",
+   "hlg"
+  ],
+  [
+   "grm",
+   "ltu"
+  ],
+  [
+   "grm",
+   "hlg"
+  ],
+  [
+   "grm",
+   "stg"
+  ],
+  [
+   "hlg",
+   "ltu"
+  ],
+  [
+   "hlg",
+   "grm"
+  ],
+  [
+   "hlg",
+   "stg"
+  ],
+  [
+   "stg",
+   "grm"
+  ],
+  [
+   "stg",
+   "hlg"
+  ],
+  [
+   "stg",
+   "gtm"
+  ],
+  [
+   "gtm",
+   "stg"
+  ]
+ ],
+ "categorias": [
+  {
+   "slug": "alimentos",
+   "name": "Alimentos",
+   "parent": null
+  },
+  {
+   "slug": "restaurante-bebidas",
+   "name": "Bebidas",
+   "parent": "restaurante"
+  },
+  {
+   "slug": "belleza",
+   "name": "Belleza",
+   "parent": null
+  },
+  {
+   "slug": "restaurante-entrantes",
+   "name": "Entrantes",
+   "parent": "restaurante"
+  },
+  {
+   "slug": "hogar",
+   "name": "Hogar",
+   "parent": null
+  },
+  {
+   "slug": "moda",
+   "name": "Moda",
+   "parent": null
+  },
+  {
+   "slug": "restaurante-platos-fuertes",
+   "name": "Platos fuertes",
+   "parent": "restaurante"
+  },
+  {
+   "slug": "restaurante",
+   "name": "Restaurantes",
+   "parent": null
+  },
+  {
+   "slug": "servicios",
+   "name": "Servicios",
+   "parent": null
+  },
+  {
+   "slug": "tech",
+   "name": "Tecnología",
+   "parent": null
+  }
+ ],
+ "tiposDeNegocio": [
+  {
+   "slug": "cafeteria",
+   "name": "cafeteria",
+   "icon": "Users"
+  },
+  {
+   "slug": "restaurantes",
+   "name": "Restaurantes",
+   "icon": "UtensilsCrossed"
+  },
+  {
+   "slug": "moda-y-ropa",
+   "name": "Moda y ropa",
+   "icon": "Shirt"
+  },
+  {
+   "slug": "belleza-y-cuidado-personal",
+   "name": "Belleza y cuidado personal",
+   "icon": "Sparkles"
+  },
+  {
+   "slug": "tecnologia",
+   "name": "Tecnología",
+   "icon": "Smartphone"
+  },
+  {
+   "slug": "ferreteria",
+   "name": "Ferretería",
+   "icon": "Hammer"
+  },
+  {
+   "slug": "hogar-y-decoracion",
+   "name": "Hogar y decoración",
+   "icon": "Sofa"
+  },
+  {
+   "slug": "supermercado-y-abarrotes",
+   "name": "Supermercado y abarrotes",
+   "icon": "ShoppingCart"
+  },
+  {
+   "slug": "farmacia-y-salud",
+   "name": "Farmacia y salud",
+   "icon": "Pill"
+  },
+  {
+   "slug": "mascotas",
+   "name": "Mascotas",
+   "icon": "PawPrint"
+  },
+  {
+   "slug": "servicios-y-reparaciones",
+   "name": "Servicios y reparaciones",
+   "icon": "Wrench"
+  }
+ ]
+}
