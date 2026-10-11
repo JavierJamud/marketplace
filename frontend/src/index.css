@@ -323,3 +323,22 @@
 .prose-static .nota-legal { margin: 1.25rem 0 2rem; padding: 0.25rem 1.1rem; border: 1px solid theme("colors.outline.variant"); border-radius: 0.75rem; background: theme("colors.surface.container-low"); }
 .prose-static h3 { margin-top: 1.1em; }
 .prose-static code { font-size: 0.9em; }
+
+/* Centro de ayuda: tarjetas de temas y bloque final de contacto */
+.prose-static .ayuda-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; margin: 1.5rem 0 2.5rem; }
+@media (min-width: 640px) { .prose-static .ayuda-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .prose-static .ayuda-grid { grid-template-columns: repeat(3, 1fr); } }
+.prose-static .ayuda-card { display: flex; flex-direction: column; gap: 0.25rem; min-height: 44px; padding: 1.1rem 1.25rem; border: 1px solid theme("colors.surface.container-high"); border-radius: 0.5rem; background: theme("colors.surface.container-lowest"); text-decoration: none; transition: box-shadow 0.15s; }
+.prose-static .ayuda-card:hover { box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1); }
+.prose-static .ayuda-card strong { font-size: 0.95rem; color: theme("colors.on-surface.DEFAULT"); }
+.prose-static .ayuda-card span { font-size: 0.8125rem; line-height: 1.25rem; color: theme("colors.on-surface.variant"); }
+.prose-static [id] { scroll-margin-top: 6rem; }
+.prose-static .ayuda-cta { margin: 3rem 0 0; padding: 1.75rem; border-radius: 0.75rem; background: linear-gradient(135deg, theme("colors.primary.DEFAULT"), theme("colors.primary.container")); }
+.prose-static .ayuda-cta h2 { margin: 0 0 0.25rem; color: #fff; }
+.prose-static .ayuda-cta p { margin: 0 0 1rem; color: rgba(255, 255, 255, 0.75); }
+.prose-static .ayuda-boton { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1.25rem; border-radius: 0.25rem; background: theme("colors.secondary.container"); color: theme("colors.on-secondary.container"); font-weight: 600; text-decoration: none; }
+
+/* El reset de Tailwind quita los marcadores de lista; en los textos editables hacen falta */
+.prose-static ul { list-style: disc; }
+.prose-static ol { list-style: decimal; }
+.prose-static > :first-child { margin-top: 0; }
