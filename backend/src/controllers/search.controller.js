@@ -316,7 +316,7 @@ const AUTOCOMPLETE_VENDOR_LIMIT = 4;
 export async function autocompleteSearch(req, res) {
   const q = String(req.query.q ?? "").trim();
   const onlyVerified = req.query.onlyVerified === "true";
-  if (q.length < AUTOCOMPLETE_MIN_CHARS) return res.json({ products: [], vendors: [], hasMore: false });
+  if (q.length < AUTOCOMPLETE_MIN_CHARS) return res.json({ products: [], vendors: [], categories: [], hasMore: false });
   const lowerQ = q.toLowerCase();
 
   const vendorSelect = { companyName: true, slug: true, verificationStatus: true, planType: true };
@@ -412,5 +412,13 @@ export async function autocompleteSearch(req, res) {
     vendors = reorderByIds(fuzzyVendors, fuzzyVendorIds).slice(0, AUTOCOMPLETE_VENDOR_LIMIT);
   }
 
-  res.json({ products, vendors: withComputedVendorFieldsList(vendors), hasMore: ranked.length > AUTOCOMPLETE_LIMIT });
+  // Tipos de negocio (panadería, farmacia...) cuyo nombre coincide, para ir directo a las tiendas de ese rubro. Son pocas
+  // filas, así que se filtra en memoria ignorando tildes y mayúsculas.
+  const fold = (s) => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const foldedQ = fold(q);
+  const categories = (await prisma.businessCategory.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, icon: true } }))
+    .filter((c) => fold(c.name).includes(foldedQ))
+    .slice(0, 4);
+
+  res.json({ products, vendors: withComputedVendorFieldsList(vendors), categories, hasMore: ranked.length > AUTOCOMPLETE_LIMIT });
 }

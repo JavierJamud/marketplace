@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Search, Store, BadgeCheck } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { VerifiedBadge } from "../ui/VerifiedBadge.jsx";
+import { CategoryIcon } from "../ui/CategoryIcon.jsx";
 
 const DEBOUNCE_MS = 280;
 const MIN_CHARS = 2;
@@ -26,6 +27,7 @@ export function SearchBar() {
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [vendorResults, setVendorResults] = useState([]);
+  const [categoryResults, setCategoryResults] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -58,6 +60,7 @@ export function SearchBar() {
     if (trimmed.length < MIN_CHARS) {
       setResults([]);
       setVendorResults([]);
+      setCategoryResults([]);
       setOpen(false);
       setLoading(false);
       return;
@@ -73,12 +76,14 @@ export function SearchBar() {
         if (requestId !== requestIdRef.current) return;
         setResults(data.products);
         setVendorResults(data.vendors ?? []);
+        setCategoryResults(data.categories ?? []);
         setHasMore(data.hasMore);
         setOpen(true);
       } catch {
         if (requestId === requestIdRef.current) {
           setResults([]);
           setVendorResults([]);
+          setCategoryResults([]);
         }
       } finally {
         if (requestId === requestIdRef.current) setLoading(false);
@@ -145,8 +150,30 @@ export function SearchBar() {
 
           {loading ? (
             <p className="px-3.5 py-4 text-center text-[12.5px] text-outline">Buscando...</p>
-          ) : results.length > 0 || vendorResults.length > 0 ? (
+          ) : results.length > 0 || vendorResults.length > 0 || categoryResults.length > 0 ? (
             <>
+              {categoryResults.length > 0 && (
+                <>
+                  <p className="px-3.5 pt-2.5 text-[10.5px] font-bold uppercase tracking-wide text-outline">Tipos de negocio</p>
+                  {categoryResults.map((c) => (
+                    <Link
+                      key={c.id}
+                      to={`/tiendas?businessCategoryId=${c.id}`}
+                      onClick={closeAfterSelect}
+                      className="flex min-h-11 items-center gap-3 border-b border-surface-container px-3.5 py-2.5 last:border-b-0 hover:bg-surface-container"
+                    >
+                      <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
+                        <CategoryIcon name={c.icon} className="h-5 w-5 text-tertiary-accent" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-on-surface">{c.name}</div>
+                        <div className="text-[11.5px] text-outline">Ver tiendas de este tipo</div>
+                      </div>
+                    </Link>
+                  ))}
+                </>
+              )}
+
               {vendorResults.length > 0 && (
                 <>
                   <p className="px-3.5 pt-2.5 text-[10.5px] font-bold uppercase tracking-wide text-outline">Tiendas</p>
@@ -179,7 +206,7 @@ export function SearchBar() {
 
               {results.length > 0 && (
                 <>
-                  {vendorResults.length > 0 && <p className="px-3.5 pt-2.5 text-[10.5px] font-bold uppercase tracking-wide text-outline">Productos</p>}
+                  {(vendorResults.length > 0 || categoryResults.length > 0) && <p className="px-3.5 pt-2.5 text-[10.5px] font-bold uppercase tracking-wide text-outline">Productos</p>}
                   {results.map((p) => (
                     <Link
                       key={p.id}
