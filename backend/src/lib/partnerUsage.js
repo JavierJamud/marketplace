@@ -106,7 +106,7 @@ export async function liveCounters(key, now = Date.now()) {
 }
 
 // Freno contra quien prueba llaves al azar: demasiados intentos inválidos desde una IP.
-const AUTH_FAIL_LIMIT = 120;
+const AUTH_FAIL_LIMIT = 30;
 export function tooManyAuthFailures(ip, now = Date.now()) {
   const w = authFails.get(ip);
   return !!w && now - w.start < MINUTE_MS && w.count >= AUTH_FAIL_LIMIT;

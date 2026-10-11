@@ -116,7 +116,7 @@ function Console() {
     <div className="space-y-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
       <div>
         <label className="mb-1 block text-[12px] font-bold text-on-surface-variant">Llave de navegador</label>
-        <input className={`${INPUT} font-mono`} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="bzp_pub_..." />
+        <input className={`${INPUT} font-mono`} type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="bzp_key_..." />
         <p className="mt-1 text-[11.5px] text-outline">Solo se usa en esta pestaña y no se guarda. Las llamadas de esta consola salen de tu navegador, así que tu dominio o IP deben estar autorizados.</p>
       </div>
       <div>
