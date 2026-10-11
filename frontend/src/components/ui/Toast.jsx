@@ -100,7 +100,7 @@ function ToastIcon({ name, size = 20, color }) {
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
-export function Toast({ type = "success", title, description, visible, duration = 3000, icon: iconProp }) {
+export function Toast({ type = "success", title, description, visible, duration = 3000, icon: iconProp, action }) {
   const iconName = iconProp ?? type;
   // Bloque 217 (pedido explícito, con captura): "producto eliminado" es un
   // success técnico (la acción terminó sin error), pero eliminar/quitar es
@@ -206,6 +206,19 @@ export function Toast({ type = "success", title, description, visible, duration 
           )}
         </div>
       </div>
+
+      {/* Acción opcional (p. ej. "Reportar el problema"): botón de 44 px de alto */}
+      {action && (
+        <div style={{ padding: "0 16px 12px" }}>
+          <button
+            type="button"
+            onClick={action.onClick}
+            style={{ width: "100%", minHeight: 44, borderRadius: 10, border: `1px solid ${colors.main}`, background: "#ffffff", color: colors.text, fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+          >
+            {action.label}
+          </button>
+        </div>
+      )}
 
       {/* ── Barra de progreso (izquierda → derecha) ────────────────────── */}
       <div

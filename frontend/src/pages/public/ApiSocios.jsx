@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Copy, Play, KeyRound, Globe, Gauge } from "lucide-react";
+import { Copy, Play, KeyRound, Globe, Gauge, Store, ShoppingCart, Wallet, Activity, ShieldCheck, Layers } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
@@ -157,27 +157,48 @@ export default function ApiSocios() {
   const { siteName } = usePlatformSettings();
   return (
     <div className="mx-auto max-w-[900px] px-4 py-10">
-      <h1 className="mb-2 font-display text-[32px] font-extrabold tracking-tight text-on-surface">API para socios</h1>
-      <p className="mb-8 text-[15px] text-on-surface-variant">
-        Muestra los productos y tiendas de {siteName} en tu sitio, valida carritos, recibe pedidos reales y trae tiendas con tu enlace de socio.
-      </p>
+      <header className="mb-8">
+        <h1 className="mb-2 font-display text-[32px] font-extrabold tracking-tight text-on-surface">API para socios</h1>
+        <p className="mb-5 max-w-[640px] text-[15px] text-on-surface-variant">
+          Conecta tu sitio con {siteName}: muestra sus productos y tiendas, arma el carrito y recibe pedidos reales, con las mismas reglas que el sitio original. Esta página explica qué hace la API, cómo se usa y cómo conseguir tu credencial.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <a href="/socios/solicitar" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-primary px-5 text-[14px] font-semibold text-white hover:bg-primary/90">Solicitar acceso a la API</a>
+          <a href="/socio/ingresar" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-outline-variant px-5 text-[14px] font-semibold text-on-surface hover:bg-surface-container">Ya tengo una credencial: entrar a mi panel</a>
+        </div>
+      </header>
 
-      <div className="mb-10 grid gap-3 sm:grid-cols-3">
-        {[[KeyRound, "1. Pide tu credencial", "Envías una solicitud; si la aprobamos, te llega tu credencial por correo."], [Globe, "2. Autoriza tu sitio", "Funciona solo desde los dominios o IP registrados."], [Gauge, "3. Conecta", "Envía la credencial en cada solicitud y usa los datos en tu sitio."]].map(([Icon, t, d]) => (
-          <div key={t} className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
-            <Icon className="mb-2 h-5 w-5 text-primary" />
-            <p className="text-[14px] font-bold text-on-surface">{t}</p>
-            <p className="text-[12.5px] text-on-surface-variant">{d}</p>
-          </div>
-        ))}
-      </div>
+      <Section id="ventajas" title="Por qué integrarla a tu negocio">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            [Store, "El mismo catálogo que Baznova", "Productos, tiendas, reseñas y calificaciones salen del mismo catálogo y con el mismo ranking real, siempre al día. No copias datos: los consultas."],
+            [ShoppingCart, "Pedidos reales, no simulados", "Un pedido hecho desde tu sitio le llega al vendedor en su panel y por WhatsApp, igual que uno hecho en Baznova, con las mismas reglas de stock, tallas, descuentos y cobertura."],
+            [KeyRound, "Una sola credencial", "Con una credencial usas productos, tiendas, carrito, pedidos y planes. Los servicios a los que tiene acceso los define Baznova al aprobarte."],
+            [ShieldCheck, "Control sobre tu acceso", "Tu credencial solo funciona desde los sitios que registraste y tiene límites por minuto y por día. Solo Baznova puede regenerarla."],
+            [Wallet, "Tus propios precios de plan", "Ves los planes de Baznova, les sumas tu extra (nunca por debajo del precio base) y consultas tu ganancia estimada en tu panel."],
+            [Activity, "Un panel con tus métricas", "Solicitudes por día, errores, tiempos de respuesta, cuota usada y movimientos recientes de tu credencial."],
+            [Layers, "Tiendas con tu enlace", "Las tiendas que se registran con tu enlace de socio quedan asociadas a ti."],
+          ].map(([Icon, title, text]) => (
+            <div key={title} className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+              <Icon className="mb-2 h-5 w-5 text-primary" aria-hidden="true" />
+              <p className="text-[14px] font-bold text-on-surface">{title}</p>
+              <p className="text-[13px] text-on-surface-variant">{text}</p>
+            </div>
+          ))}
+        </div>
+      </Section>
 
-      <div className="mb-10 rounded-2xl border border-tertiary-accent/30 bg-tertiary-accent/5 p-4">
-        <p className="text-[14px] font-bold text-on-surface">¿Aún no tienes credencial?</p>
-        <p className="mb-3 text-[13px] text-on-surface-variant">Envía una solicitud con tus datos. Un administrador la revisa y, si la aprueba, recibes tu credencial por correo.</p>
-        <a href="/socios/solicitar" className="inline-flex min-h-11 items-center rounded-xl bg-primary px-4 text-[13px] font-semibold text-white hover:bg-primary/90">Solicitar acceso a la API</a>
-        <a href="/socio/ingresar" className="ml-2 inline-flex min-h-11 items-center rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container">Ya tengo cuenta</a>
-      </div>
+      <Section id="pasos" title="Cómo empezar">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[[KeyRound, "1. Pide tu credencial", "Envías una solicitud con tus datos y los sitios desde los que usarás la API (hasta dos). Un administrador la revisa."], [Globe, "2. Recibe tu acceso", "Si la aprueba, te llega la credencial por correo y entras a tu panel de socio con la contraseña que elegiste."], [Gauge, "3. Conecta tu sitio", "Envía la credencial en cada solicitud y usa los datos en tu sitio. Abajo está todo lo que puedes pedir."]].map(([Icon, t, d]) => (
+            <div key={t} className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+              <Icon className="mb-2 h-5 w-5 text-primary" aria-hidden="true" />
+              <p className="text-[14px] font-bold text-on-surface">{t}</p>
+              <p className="text-[12.5px] text-on-surface-variant">{d}</p>
+            </div>
+          ))}
+        </div>
+      </Section>
 
       <Section id="inicio" title="Empezar">
         <p>Dirección base de la API:</p>

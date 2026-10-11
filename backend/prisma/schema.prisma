@@ -247,6 +247,8 @@ enum ErrorOrigin {
   // sin responder, distinto de BOT_TIENDA/BOT_GENERAL (esos son fallos en
   // vivo de una charla real, este es el chequeo programado de fondo).
   AI_HEALTH_CHECK
+  // Bloque 305: reporte manual de una persona (cliente, vendedor o visitante) cuando algo no le funcionó.
+  REPORTE_USUARIO
   OTRO
 }
 

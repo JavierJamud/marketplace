@@ -87,3 +87,12 @@ export const assistantRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Demasiadas preguntas seguidas al asistente. Espera unos minutos y prueba de nuevo." },
 });
+
+// Bloque 305: reportes manuales de errores. Generoso para uso real, evita que un script llene la bandeja del admin.
+export const errorReportRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Ya enviaste varios reportes. Prueba de nuevo en unos minutos." },
+});

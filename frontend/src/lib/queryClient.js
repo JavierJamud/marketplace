@@ -1,4 +1,6 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryCache, QueryClient } from "@tanstack/react-query";
+import toast from "./toast.jsx";
+import { isTechnicalFailure } from "./errorReport.js";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 
 // Bloque 136 (pedido explícito — "quiero que el sitio empiece a alojar
@@ -9,7 +11,19 @@ import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persist
 // — se vuelve el default general en vez de repetirse caso por caso) para
 // que volver a una pantalla ya visitada, dentro de esa ventana, no dispare
 // ni siquiera un refetch de fondo silencioso, no solo que se vea instantáneo.
+// Una consulta que falla por un problema técnico avisa con el mismo mensaje amable y el botón de reporte, como mucho una
+// vez por minuto (las consultas de fondo se repiten y no deben llenar la pantalla de avisos).
+let lastQueryToastAt = 0;
+const queryCache = new QueryCache({
+  onError: (error) => {
+    if (!isTechnicalFailure(error) || Date.now() - lastQueryToastAt < 60_000) return;
+    lastQueryToastAt = Date.now();
+    toast.error("");
+  },
+});
+
 export const queryClient = new QueryClient({
+  queryCache,
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000,

@@ -1,3 +1,4 @@
+import { isTechnicalFailure, recordApiFailure } from "./errorReport.js";
 import axios from "axios";
 
 // Bloque 182 (bug real reportado en vivo — "tengo problemas al cargar mi
@@ -105,6 +106,8 @@ api.interceptors.response.use(
         sessionExpiredHandler?.();
       }
     }
+    // Fallo técnico (sin conexión o error del servidor): se recuerda para poder ofrecer el reporte del problema.
+    if (isTechnicalFailure(error)) recordApiFailure(error);
     return Promise.reject(error);
   }
 );

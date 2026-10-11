@@ -11,6 +11,7 @@ import { api } from "../../lib/api.js";
 const ORIGIN_FILTERS = [
   { id: "all", label: "Todos", origins: null },
   { id: "bots", label: "Solo bots", origins: ["BOT_TIENDA", "BOT_GENERAL"] },
+  { id: "reportes", label: "Reportes de usuarios", origins: ["REPORTE_USUARIO"] },
   { id: "emails", label: "Solo emails", origins: ["EMAIL_RESEND"] },
   { id: "pagos", label: "Solo pagos", origins: ["STRIPE"] },
   { id: "audio", label: "Transcripción de audio", origins: ["TRANSCRIPCION_AUDIO"] },
@@ -29,6 +30,7 @@ const ORIGIN_LABELS = {
   EMAIL_RESEND: "Email (Resend)",
   STRIPE: "Stripe",
   TRANSCRIPCION_AUDIO: "Transcripción de audio",
+  REPORTE_USUARIO: "Reporte de usuario",
   OTRO: "Otro",
 };
 
@@ -124,7 +126,23 @@ export default function AdminErrors() {
               )}
             </div>
 
-            <p className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-on-surface">{e.message}</p>
+            {e.origin === "REPORTE_USUARIO" && e.context ? (
+              <div className="space-y-1.5 text-[13.5px] text-on-surface">
+                <p className="whitespace-pre-wrap break-words font-semibold">{e.context.description}</p>
+                <p className="text-[12.5px] text-on-surface-variant">
+                  {e.context.who?.kind === "cuenta" ? `${e.context.who.name ?? e.context.who.email} (${e.context.who.role}${e.context.who.vendor ? `, tienda ${e.context.who.vendor.name}` : ""})` : "Visitante sin sesión"}
+                  {e.context.contactEmail ? ` · ${e.context.contactEmail}` : ""}
+                  {e.context.page ? ` · pantalla ${e.context.page}` : ""}
+                </p>
+                {e.context.request?.path && (
+                  <p className="font-mono text-[12px] text-error">
+                    Falló: {e.context.request.method} {e.context.request.path} {e.context.request.status ?? "sin respuesta"} {e.context.request.message}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-on-surface">{e.message}</p>
+            )}
 
             {e.context && (
               <pre className="mt-2.5 max-h-40 overflow-auto rounded-md bg-surface-container p-3 text-[11px] leading-relaxed text-on-surface-variant">

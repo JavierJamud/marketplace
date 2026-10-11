@@ -38,3 +38,22 @@ export async function authenticate(req, _res, next) {
   req.user = { id: payload.sub, role: payload.role };
   next();
 }
+
+// Identifica a la persona SI trae una sesión válida, y sigue sin ella (visitante). Mismo chequeo que `authenticate`
+// (firma, vencimiento y sesión viva en la base), pero nunca responde 401.
+export async function optionalAuth(req, _res, next) {
+  try {
+    const header = req.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+    if (token) {
+      const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
+      if (payload.sid) {
+        const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { revokedAt: true, expiresAt: true } });
+        if (session && !session.revokedAt && session.expiresAt.getTime() > Date.now()) req.user = { id: payload.sub, role: payload.role };
+      }
+    }
+  } catch {
+    // token inválido o vencido: se trata como visitante
+  }
+  next();
+}

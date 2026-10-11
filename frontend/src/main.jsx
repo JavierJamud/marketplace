@@ -1,3 +1,4 @@
+import ReportErrorModal from "./components/ReportErrorModal.jsx";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -45,6 +46,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             <CartProvider>
               <App />
               <CacheNotice />
+              <ReportErrorModal />
               {/* Toaster: contenedor posicionado en top-right.
                   El diseño visual completo (card, sombra, animaciones) lo
                   gestiona <Toast> en components/ui/Toast.jsx — el Toaster

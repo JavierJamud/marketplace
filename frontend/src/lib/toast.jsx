@@ -40,6 +40,7 @@
 import { toast as hotToast } from "react-hot-toast";
 import React from "react";
 import { Toast } from "../components/ui/Toast.jsx";
+import { FRIENDLY_TITLE, FRIENDLY_HINT, getRecentFailure, shouldShowFriendlyToast, openErrorReport } from "./errorReport.js";
 
 // ─── Duración adaptativa según contenido ─────────────────────────────────────
 const DURATION_TITLE    = 2800;  // solo título
@@ -111,11 +112,13 @@ function parseArgs(title, second, third) {
 function showToast(type, title, description, opts = {}) {
   // Un aviso sin texto (p. ej. el error de una acción que la persona canceló en el modal de código) no se muestra.
   if (typeof title === "string" && title.trim() === "") return undefined;
-  const { icon, duration: customDuration, ...restOpts } = opts;
+  const { icon, duration: customDuration, action, ...restOpts } = opts;
   const duration =
     customDuration ??
     (type === "loading"
       ? Infinity
+      : action
+      ? 9000
       : description
       ? DURATION_WITH_DESC
       : DURATION_TITLE);
@@ -129,6 +132,7 @@ function showToast(type, title, description, opts = {}) {
         visible={t.visible}
         duration={duration === Infinity ? 0 : duration}
         icon={icon ?? inferIcon(type, title, description)}
+        action={action ? { label: action.label, onClick: () => { hotToast.dismiss(t.id); action.onClick(); } } : undefined}
       />
     ),
     {
@@ -146,6 +150,12 @@ const toast = {
     return showToast("success", title, description, options);
   },
   error: (title, second, third) => {
+    // Si el error viene de un fallo técnico (sin conexión o error del servidor), la persona no ve un "error": ve que hay
+    // un problema de conexión en ese momento, con un botón para reportarlo a la plataforma.
+    if (getRecentFailure()) {
+      if (!shouldShowFriendlyToast()) return undefined;
+      return showToast("warning", FRIENDLY_TITLE, FRIENDLY_HINT, { icon: "warning", action: { label: "Reportar el problema", onClick: () => openErrorReport() } });
+    }
     const { description, options } = parseArgs(title, second, third);
     return showToast("error", title, description, options);
   },
