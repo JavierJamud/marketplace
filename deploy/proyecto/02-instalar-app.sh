@@ -140,6 +140,14 @@ echo ">> Nginx (sitio + API en /api + vista previa de tiendas para WhatsApp/Face
 if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then NOMBRES="$DOMINIO _"; else NOMBRES="$DOMINIO www.$DOMINIO"; fi
 # El detector de bots (variable zeudin_es_bot) es común a todos los proyectos: lo crea crear-estructura.sh.
 [ -f /etc/nginx/conf.d/00-zeudin-bots.conf ] || { echo "Falta 00-zeudin-bots.conf: corre /opt/zeudin/plataforma/scripts/crear-estructura.sh"; exit 1; }
+cat > $RAIZ/cabeceras-seguridad.conf <<'CABECERAS'
+add_header X-Content-Type-Options nosniff always;
+add_header Referrer-Policy strict-origin-when-cross-origin always;
+add_header X-Frame-Options SAMEORIGIN always;
+add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=(self), payment=()" always;
+CABECERAS
+chown zeudin:zeudin $RAIZ/cabeceras-seguridad.conf
+
 cat > $RAIZ/nginx.conf <<EOF
 server {
     listen 80;
@@ -155,8 +163,9 @@ server {
     gzip_comp_level 5;
     gzip_types text/css application/javascript application/json image/svg+xml text/plain;
 
-    add_header X-Content-Type-Options nosniff always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    # Cabeceras de seguridad. Se incluyen también dentro de cada location que define su propio add_header, porque Nginx
+    # no hereda los add_header del server cuando un location declara alguno.
+    include $RAIZ/cabeceras-seguridad.conf;
 
     # API Express (todas sus rutas viven bajo /api en producción)
     location /api/ {
@@ -180,12 +189,14 @@ server {
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        include $RAIZ/cabeceras-seguridad.conf;
         try_files \$uri =404;
     }
 
     # SPA de React: cualquier ruta cae en index.html (sin caché, para ver siempre la última versión)
     location / {
         add_header Cache-Control "no-cache";
+        include $RAIZ/cabeceras-seguridad.conf;
         try_files \$uri \$uri/ /index.html;
     }
 }

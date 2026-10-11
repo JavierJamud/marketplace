@@ -15,8 +15,10 @@ import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { startPartnerUsageFlusher } from "./lib/partnerUsage.js";
 
-app.listen(env.port, () => {
-  console.log(`API escuchando en http://localhost:${env.port} y http://192.168.1.79:${env.port}`);
+// En producción la API solo escucha dentro del servidor (Nginx la publica en /api); en desarrollo, en toda la red local.
+const host = process.env.NODE_ENV === "production" ? "127.0.0.1" : undefined;
+app.listen(env.port, host, () => {
+  console.log(`API escuchando en el puerto ${env.port}`);
 });
 
 // Venta rápida de clientes: borra los anuncios vencidos a los 30 días (y sus

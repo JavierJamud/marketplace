@@ -68,6 +68,9 @@ function CategoryMarquee({ categories }) {
   const containerRef = useRef(null);
   const measureRef = useRef(null);
   const [overflowing, setOverflowing] = useState(false);
+  // Duración de una vuelta según el largo real de la lista: velocidad fija y lenta (unos 14 px por segundo) para dar
+  // tiempo a leer, sin importar cuántas categorías haya.
+  const [loopSeconds, setLoopSeconds] = useState(100);
   const reducedMotion = usePrefersReducedMotion();
   // Bloque 254 (pedido explícito): también en celular las categorías se mueven
   // solas (el Bloque 248 las había dejado fijas, solo deslizables con el dedo).
@@ -81,6 +84,7 @@ function CategoryMarquee({ categories }) {
     function check() {
       // +1px de margen para no entrar en modo marquee por redondeos de sub-pixel.
       setOverflowing(measure.scrollWidth > container.clientWidth + 1);
+      setLoopSeconds(Math.max(100, Math.round(measure.scrollWidth / 14)));
     }
     check();
     const ro = new ResizeObserver(check);
@@ -113,7 +117,7 @@ function CategoryMarquee({ categories }) {
           <CategoryPill key={c.id} c={c} />
         ))}
       </div>
-      <div className={overflowing ? "category-marquee-track flex w-max animate-marquee gap-2.5" : "flex flex-wrap justify-center gap-2.5"}>
+      <div className={overflowing ? "category-marquee-track flex w-max animate-marquee gap-2.5" : "flex flex-wrap justify-center gap-2.5"} style={overflowing ? { animationDuration: `${loopSeconds}s` } : undefined}>
         {track.map((c, i) => (
           <CategoryPill key={`${c.id}-${i}`} c={c} />
         ))}

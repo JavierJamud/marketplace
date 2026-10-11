@@ -108,6 +108,7 @@ export function Footer() {
           no tapa el texto legal. */}
       <div className="container-app pb-24 pt-5 text-[12.5px] text-white/60 md:pb-6 md:pt-6">
         © {new Date().getFullYear()} {siteName}. Marketplace multivendedor · Cuba.
+        <span className="mt-1 block text-white/55 sm:ml-2 sm:mt-0 sm:inline">Versión v{__APP_VERSION__}</span>
       </div>
     </footer>
   );
