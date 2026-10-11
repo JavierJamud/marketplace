@@ -399,22 +399,22 @@ function Chip({ T, at, until, x, y, k, tone, label, value, pings = [], sc = 1, r
 const PW = 418, PH = 872;
 function Phone({ T, t0, mode, f0 }) {
   const flow = mode === 'flow';
-  const btn = (side, top, h) => <div style={{ position: 'absolute', [side]: -4, top, width: 5, height: h, borderRadius: 3, background: 'linear-gradient(90deg,#6c727a,#a7adb5,#6c727a)' }} />;
+  const btn = (side, top, h) => <div style={{ position: 'absolute', [side]: -4, top, width: 5, height: h, borderRadius: 3, background: 'linear-gradient(90deg,#7d786f,#d6d2c9,#7d786f)', boxShadow: '0 0 0 1px rgba(0,0,0,0.25)' }} />;
   const navO = (mode === 'product' || mode === 'chat') ? 0 : (flow ? 1 - A(T, 0, 1, f0 + 4.3, f0 + 4.8, Easing.linear) : 1);
   const stc = mode === 'chat' ? INK : (flow && T > f0 + 4.5 ? INK : '#fff');
-  const ti = 'linear-gradient(135deg,#c3c8cf 0%,#6b7179 22%,#2a2e34 48%,#6f757d 74%,#c9ced4 100%)';
+  const ti = 'linear-gradient(135deg,#e3dfd6 0%,#a8a39a 25%,#6d6962 50%,#b3aea5 75%,#e6e2d9 100%)';
   return (
     <div style={{ position: 'relative', width: PW, height: PH, transformStyle: 'preserve-3d' }}>
-      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => <div key={i} style={{ position: 'absolute', inset: 0, borderRadius: 70, background: ti, transform: 'translateZ(' + (-i) + 'px)' }} />)}
-      <div style={{ position: 'absolute', inset: 0, borderRadius: 70, background: 'linear-gradient(135deg,#2b3038,#1a1d23)', transform: 'translateZ(-10px) rotateY(180deg)', backfaceVisibility: 'hidden' }}>
+      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => <div key={i} style={{ position: 'absolute', inset: 0, borderRadius: 70, background: ti, transform: 'translateZ(' + (-i) + 'px)' }} />)}
+      <div style={{ position: 'absolute', inset: 0, borderRadius: 70, background: 'linear-gradient(135deg,#2b3038,#1a1d23)', transform: 'translateZ(-13px) rotateY(180deg)', backfaceVisibility: 'hidden' }}>
         <div style={{ position: 'absolute', right: 26, top: 26, width: 128, height: 128, borderRadius: 34, background: 'rgba(255,255,255,0.08)', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.12)' }} />
       </div>
-      <div style={{ position: 'absolute', inset: 0, borderRadius: 70, padding: 5, boxSizing: 'border-box', background: ti, boxShadow: '0 60px 90px -30px rgba(0,0,0,0.7), inset 0 0 0 1.5px rgba(255,255,255,0.5), inset 0 0 0 3px rgba(0,0,0,0.38), inset 0 8px 14px rgba(255,255,255,0.18)', backfaceVisibility: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, borderRadius: 70, padding: 9, boxSizing: 'border-box', background: ti, boxShadow: '0 60px 90px -30px rgba(0,0,0,0.7), inset 0 0 0 1.5px rgba(255,255,255,0.85), inset 0 0 0 3px rgba(60,56,50,0.45), inset 0 0 0 5px rgba(255,255,255,0.22), inset 0 10px 16px rgba(255,255,255,0.3)', backfaceVisibility: 'hidden' }}>
         {[96, 780].map((yy) => [0, 1].map((sd) => <div key={yy + '-' + sd} style={{ position: 'absolute', top: yy, [sd ? 'right' : 'left']: 0, width: 5, height: 4, background: '#14171b', opacity: 0.85 }} />))}
         {[[0, 0], [0, 1], [1, 0], [1, 1]].map(([v, hz]) => <div key={v + '' + hz} style={{ position: 'absolute', [v ? 'bottom' : 'top']: 38, [hz ? 'right' : 'left']: 0, width: 5, height: 3, background: '#14171b', opacity: 0.7 }} />)}
         {btn('left', 150, 34)}{btn('left', 214, 64)}{btn('left', 292, 64)}{btn('right', 250, 100)}
-        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 65, background: '#05070a', padding: 10, boxSizing: 'border-box', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 6px rgba(0,0,0,0.9)' }}>
-          <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 56, overflow: 'hidden', background: '#fbf9fa' }}>
+        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 61, background: '#05070a', padding: 6, boxSizing: 'border-box', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 0 6px rgba(0,0,0,0.9)' }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 55, overflow: 'hidden', background: '#fbf9fa' }}>
             {mode === 'product' ? <MobileProduct T={T} f0={f0} /> : mode === 'chat' ? <MobileChat T={T} f0={f0} /> : flow ? <MobileFlow T={T} f0={f0} /> : <MobileHome T={T} t0={t0} />}
             {mode === 'home' ? <MHeader /> : null}
             <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 50, zIndex: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 30px 0 34px', color: stc, fontSize: 14, fontWeight: 700 }}>
@@ -619,33 +619,33 @@ const EmbossLogo = ({ size = 150 }) => {
 };
 function Laptop({ T, lid, camX, camY, scale, x, y, show, t0, tn }) {
   const sc = (LW - 32) / DW;
-  const edge = { position: 'absolute', background: 'linear-gradient(180deg,#d4d8de,#8d939c)' };
+  const edge = { position: 'absolute', background: 'linear-gradient(180deg,#e6e2d9,#a8a39a 55%,#7a766f)', boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.8), inset 0 -2px 0 rgba(0,0,0,0.25)' };
   return (
     <div style={{ position: 'absolute', left: x, top: y, width: 0, height: 0, visibility: show ? 'visible' : 'hidden', transformStyle: 'preserve-3d', transform: 'scale(' + scale + ') rotateX(' + camX + 'deg) rotateY(' + camY + 'deg)' }}>
       <div style={{ position: 'absolute', left: -LW / 2 - 30, top: LT + 2, width: LW + 60, height: LD + 70, transformOrigin: 'top', transform: 'rotateX(90deg)', background: 'radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.22) 45%, transparent 72%)', filter: 'blur(14px)' }} />
       <div style={{ position: 'absolute', left: -LW / 2, top: 0, width: LW, height: 0, transformStyle: 'preserve-3d' }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, width: LW, height: LD, transformOrigin: 'top', transform: 'rotateX(90deg)', borderRadius: '10px 10px 26px 26px', background: 'linear-gradient(180deg,#e0e3e7,#c4c8cf)', boxShadow: 'inset 0 0 0 1.5px #f1f3f5, inset 0 -10px 18px rgba(0,0,0,0.06)' }}>
+        <div style={{ position: 'absolute', left: 0, top: 0, width: LW, height: LD, transformOrigin: 'top', transform: 'rotateX(90deg)', borderRadius: 6, background: 'linear-gradient(180deg,#d9d5cc,#bfbab1)', boxShadow: 'inset 0 0 0 2px #f1eee7, inset 0 0 0 3.5px #8f8a82, inset 0 -10px 18px rgba(0,0,0,0.08)' }}>
           <Grill side="left" /><Grill side="right" />
           <Keys />
-          <div style={{ position: 'absolute', left: '50%', top: 322, width: 340, height: 205, marginLeft: -170, borderRadius: 14, background: 'linear-gradient(180deg,#d6dae0,#c8ccd3)', boxShadow: 'inset 0 0 0 1.5px #aab0b8, inset 0 8px 16px rgba(255,255,255,0.4)' }} />
+          <div style={{ position: 'absolute', left: '50%', top: 322, width: 340, height: 205, marginLeft: -170, borderRadius: 14, background: 'linear-gradient(180deg,#cfcbc2,#c1bcb3)', boxShadow: 'inset 0 0 0 1.5px #98938a, inset 0 8px 16px rgba(255,255,255,0.4)' }} />
           <div style={{ position: 'absolute', left: 70, right: 70, top: -2, height: 16, borderRadius: '0 0 10px 10px', background: 'linear-gradient(180deg,#14171b,#3b4048 60%,#14171b)' }} />
         </div>
-        <div style={{ ...edge, left: 0, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)', borderRadius: '0 0 0 24px' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
-        <div style={{ ...edge, left: LW, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)', borderRadius: '0 0 24px 0' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /><div style={{ position: 'absolute', left: 104, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
-        <div style={{ ...edge, left: 0, top: 0, width: LW, height: LT, transform: 'translateZ(' + LD + 'px)', borderRadius: '0 0 28px 28px' }}>
+        <div style={{ ...edge, left: 0, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
+        <div style={{ ...edge, left: LW, top: 0, width: LD, height: LT, transformOrigin: 'left top', transform: 'rotateY(-90deg)' }}><div style={{ position: 'absolute', left: 60, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /><div style={{ position: 'absolute', left: 104, top: 9, width: 34, height: 6, borderRadius: 3, background: 'rgba(0,0,0,0.35)' }} /></div>
+        <div style={{ ...edge, left: 0, top: 0, width: LW, height: LT, transform: 'translateZ(' + LD + 'px)', borderRadius: '0 0 6px 6px' }}>
           <div style={{ position: 'absolute', left: '50%', top: 0, width: 130, height: 6, marginLeft: -65, borderRadius: '0 0 7px 7px', background: 'rgba(0,0,0,0.32)' }} />
           <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 3, background: 'rgba(255,255,255,0.7)' }} />
         </div>
         <div style={{ position: 'absolute', left: 0, top: -LH, width: LW, height: LH, transformOrigin: '50% 100%', transform: 'translateY(-1px) rotateX(' + lid + 'deg)', transformStyle: 'preserve-3d' }}>
-          {[1, 2, 3, 4, 5, 6, 7].map((n) => <div key={n} style={{ position: 'absolute', inset: 0, borderRadius: '24px 24px 6px 6px', background: 'linear-gradient(180deg,#cfd3d9,#9aa0a9)', transform: 'translateZ(' + (-n) + 'px)' }} />)}
-          <div style={{ position: 'absolute', inset: 0, borderRadius: '24px 24px 6px 6px', background: '#07090c', padding: BZ + 'px 16px ' + (BZ + 6) + 'px', boxSizing: 'border-box', backfaceVisibility: 'hidden', boxShadow: '0 0 0 2px #aab0b8, 0 0 0 4px #d6d9de' }}>
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => <div key={n} style={{ position: 'absolute', inset: 0, borderRadius: '12px 12px 4px 4px', background: 'linear-gradient(180deg,#d6d2c9,#8f8a82)', transform: 'translateZ(' + (-n) + 'px)' }} />)}
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '12px 12px 4px 4px', background: '#07090c', padding: BZ + 'px 16px ' + (BZ + 6) + 'px', boxSizing: 'border-box', backfaceVisibility: 'hidden', boxShadow: '0 0 0 3px #8f8a82, 0 0 0 6px #d9d5cc, 0 0 0 7px #f1eee7' }}>
             <div style={{ position: 'absolute', left: '50%', top: 6, width: 6, height: 6, marginLeft: -3, borderRadius: 9, background: '#1a2230' }} />
             <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 3, overflow: 'hidden', background: '#f5f3f4' }}>
               <div style={{ position: 'absolute', left: 0, top: 0, width: DW, height: DH, transform: 'scale(' + sc + ')', transformOrigin: '0 0' }}><Dashboard T={T} t0={t0} tn={tn} /></div>
               <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg,rgba(255,255,255,0.14) 0%,rgba(255,255,255,0) 35%)', pointerEvents: 'none' }} />
             </div>
           </div>
-          <div style={{ position: 'absolute', inset: 0, borderRadius: '24px 24px 6px 6px', background: 'repeating-linear-gradient(90deg,rgba(255,255,255,0.05) 0 2px,transparent 2px 5px), linear-gradient(135deg,#e1e3e7 0%,#b8bdc5 55%,#d5d8dd 100%)', transform: 'translateZ(-8px) rotateY(180deg) rotateZ(180deg)', backfaceVisibility: 'hidden', boxShadow: 'inset 0 0 0 2px #f1f3f5, inset 0 3px 0 rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '12px 12px 4px 4px', background: 'repeating-linear-gradient(90deg,rgba(255,255,255,0.05) 0 2px,transparent 2px 5px), linear-gradient(135deg,#e3dfd6 0%,#a8a39a 55%,#d6d2c9 100%)', transform: 'translateZ(-8px) rotateY(180deg) rotateZ(180deg)', backfaceVisibility: 'hidden', boxShadow: 'inset 0 0 0 2px #f1f3f5, inset 0 3px 0 rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <EmbossLogo size={150} />
           </div>
         </div>
