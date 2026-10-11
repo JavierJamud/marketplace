@@ -1,4 +1,4 @@
-import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
+import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -392,9 +392,11 @@ export default function Account({ mode = "customer" }) {
     queryFn: async () => (await api.get("/business-categories")).data.categories,
     enabled: !isLogin && accountType === "vendor",
   });
-  const selectedBusinessCategory = businessCategories?.find((c) => c.id === storeForm.businessCategoryId);
-  const [categorySearch, setCategorySearch] = useState("");
-  const shownCategories = (businessCategories ?? []).filter((c) => c.id === storeForm.businessCategoryId || matchesQuery(c.name, categorySearch));
+  const businessCategoryOptions = (businessCategories ?? []).map((c) => ({
+    value: c.id,
+    label: c.name,
+    icon: <CategoryIcon name={c.icon} className="h-5 w-5 text-tertiary-accent" />,
+  }));
 
   function switchView(next) {
     setView(next);
@@ -1158,30 +1160,15 @@ export default function Account({ mode = "customer" }) {
                   </div>
 
                   <div>
-                    {businessCategories && businessCategories.length > 12 && (
-                      <SearchBox className="mb-2" value={categorySearch} onChange={setCategorySearch} placeholder="Buscar tu tipo de negocio" />
-                    )}
-                    <div className="flex items-center gap-2.5">
-                      <Select
-                        label="Tipo de negocio"
-                        required
-                        value={storeForm.businessCategoryId}
-                        onChange={(e) => setStoreForm({ ...storeForm, businessCategoryId: e.target.value })}
-                        className="flex-1"
-                      >
-                        <option value="">Selecciona el rubro de tu tienda</option>
-                        {shownCategories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </Select>
-                      {selectedBusinessCategory && (
-                        <div className="mt-6 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-tertiary-accent/10">
-                          <CategoryIcon name={selectedBusinessCategory.icon} className="h-5 w-5 text-tertiary-accent" />
-                        </div>
-                      )}
-                    </div>
+                    <ComboSelect
+                      label="Tipo de negocio"
+                      required
+                      value={storeForm.businessCategoryId}
+                      onChange={(v) => setStoreForm({ ...storeForm, businessCategoryId: v })}
+                      options={businessCategoryOptions}
+                      placeholder="Escribe y elige el rubro de tu tienda"
+                      emptyText="Ningún tipo de negocio coincide. Prueba con otra palabra."
+                    />
                     <p className="mt-1 text-label-sm text-outline">Puedes cambiarlo después desde tu panel.</p>
                   </div>
 

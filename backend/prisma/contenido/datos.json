@@ -1,13 +1,13 @@
 {
-  "EMPRESA_DIRECCION": "",
+  "EMPRESA_DIRECCION": "Las Vegas, NV 89103, Estados Unidos",
   "CORREO_CONTACTO": "soporte@zeudin.com",
   "WHATSAPP": "+1 469 507 4046",
   "HORARIO": "Lunes a sábado, 9:00 a 18:00 (hora de Cuba)",
-  "DMCA_AGENTE": "",
-  "DMCA_DIRECCION": "",
-  "DMCA_CORREO": "",
-  "DMCA_REGISTRO": "",
-  "LEY_APLICABLE": "",
+  "DMCA_AGENTE": "Agente de pruebas, Zeudin Group",
+  "DMCA_DIRECCION": "Las Vegas, NV 89103, Estados Unidos",
+  "DMCA_CORREO": "dmca@zeudin.com",
+  "DMCA_REGISTRO": "DMCA-1000000",
+  "LEY_APLICABLE": "el estado de Nevada, Estados Unidos, y las leyes federales de Estados Unidos que resulten aplicables",
   "ARBITRO": "la American Arbitration Association (AAA)",
-  "SEDE_ARBITRAL": ""
+  "SEDE_ARBITRAL": "Las Vegas, Nevada, Estados Unidos"
 }
