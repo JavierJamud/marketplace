@@ -36,6 +36,19 @@ Reglas de contenido:
 - Nunca inventes características, materiales, tallas o precios que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
+  // Venta rápida: una persona (sin tienda) vende algo suyo. Texto claro, honesto y útil para quien compra.
+  listing: ({ currentText, productName, siteName }) => `Eres un redactor de anuncios clasificados para ${siteName}, un marketplace de Cuba. Una persona publica una venta rápida${productName ? ` de "${productName}"` : ""} y escribió este borrador:
+"${currentText}"
+
+Tu tarea: reescríbelo como la descripción final del anuncio, clara y confiable, para que quien lo lea sepa qué se vende y decida contactar.
+
+Reglas de contenido:
+- Español neutro/cubano, tono cercano y honesto. Primera persona del vendedor cuando suene natural ("vendo", "tiene").
+- Máximo 450 caracteres en total. Frases cortas. Puede usar un salto de línea o dos para separar datos (estado, características, entrega).
+- Menciona solo lo que el borrador ya dice o sugiere (estado, marca, modelo, capacidad, accesorios, motivo de venta, si negocia). NUNCA inventes datos, medidas, garantías ni precios.
+- Sin mayúsculas sostenidas, sin signos de exclamación repetidos, sin emojis salvo uno si encaja. No incluyas el teléfono ni el precio: eso ya se muestra aparte.
+
+${OUTPUT_RULES}`,
   store: ({ currentText, vendorName, siteName }) => `Eres un copywriter experto en e-commerce para ${siteName}, un marketplace multivendedor de Cuba.
 La tienda "${vendorName}" escribió este borrador de descripción para su perfil público:
 "${currentText}"

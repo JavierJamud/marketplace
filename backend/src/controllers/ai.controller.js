@@ -48,6 +48,18 @@ export async function generateProductOrStoreDescription(req, res) {
   res.json({ description });
 }
 
+// Descripción de una venta rápida (la pide un cliente sin tienda desde su panel). Genera texto y nunca guarda nada.
+const listingAiSchema = z.object({
+  currentText: z.string().trim().min(5, "Escribe primero una breve descripción.").max(1500),
+  name: z.string().trim().max(120).optional(),
+});
+
+export async function generateListingDescription(req, res) {
+  const { currentText, name } = listingAiSchema.parse(req.body);
+  const description = await generateDescription("listing", { currentText, productName: name });
+  res.json({ description });
+}
+
 // Bloque 32: endpoint compartido por AMBOS bots (tienda y general) — graban
 // un audio, este endpoint lo transcribe y el frontend manda el texto
 // resultante al flujo normal de chat de cada uno. Público (sin login, sin

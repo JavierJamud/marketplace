@@ -7,6 +7,7 @@ import { chatRateLimit } from "../middleware/rateLimit.js";
 
 const router = Router();
 
+router.post("/generate-listing-description", authenticate, requireRole("CUSTOMER", "ADMIN"), chatRateLimit, aiController.generateListingDescription);
 router.post("/generate-description", authenticate, requireRole("VENDOR", "ADMIN"), aiController.generateProductOrStoreDescription);
 
 // Bloque 32: transcripción de audio para ambos bots (tienda y general) — sin

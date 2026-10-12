@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircle, Package, ChevronLeft, ShieldAlert } from "lucide-react";
+import { MessageCircle, Package, ChevronLeft, ShieldAlert, MapPin, Phone } from "lucide-react";
+import { conditionLabel } from "../../components/customer/ListingFormFields.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { waLink } from "../../lib/whatsapp.js";
@@ -47,6 +48,7 @@ export default function QuickSaleDetail() {
   }
 
   const images = listing.images ?? [];
+  const tiers = [...(listing.priceTiers ?? [])].sort((a, b) => a.minQty - b.minQty);
   const image = images[selectedImage] ? `${api.defaults.baseURL}${images[selectedImage]}` : null;
   const message = `Hola, vi tu anuncio "${listing.name}" (${formatPrice(listing.price, listing.currency)}) en ${siteName} y me interesa.`;
 
@@ -87,30 +89,72 @@ export default function QuickSaleDetail() {
         </div>
 
         <div>
-          <span className="mb-2 inline-block rounded-full bg-tertiary-accent/10 px-3 py-1 text-[11.5px] font-bold text-tertiary-accent">
-            Venta rápida — publicado por un cliente
-          </span>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-tertiary-accent/10 px-3 py-1 text-[11.5px] font-bold text-tertiary-accent">
+              Venta rápida · Publicado por {listing.owner?.name ?? "un cliente"}
+            </span>
+            {conditionLabel(listing.condition) && <span className="rounded-full bg-secondary-container/30 px-3 py-1 text-[11.5px] font-bold text-on-secondary-container">{conditionLabel(listing.condition)}</span>}
+            {listing.quantity > 1 && <span className="rounded-full bg-surface-container px-3 py-1 text-[11.5px] font-bold text-on-surface-variant">{listing.quantity} disponibles</span>}
+          </div>
           <h1 className="mb-2 text-headline-md text-on-surface">{listing.name}</h1>
-          <div className="mb-5 text-title-lg font-bold text-secondary">{formatPrice(listing.price, listing.currency)}</div>
-          {listing.owner?.province?.name && <p className="mb-3 text-[13px] text-on-surface-variant">Ubicación: <strong className="text-on-surface">{listing.owner.province.name}</strong></p>}
-          <p className="mb-7 whitespace-pre-line text-body-md text-on-surface-variant">{listing.description}</p>
+          <div className="mb-1 text-title-lg font-bold text-secondary">
+            {formatPrice(listing.price, listing.currency)}
+            {(listing.quantity > 1 || tiers.length > 0) && <span className="ml-1.5 text-[13px] font-semibold text-outline">por unidad</span>}
+          </div>
+          {tiers.length > 0 && (
+            <ul className="mb-4 mt-2 flex flex-col gap-1.5 rounded-xl bg-surface-container/60 p-3 text-[13px] text-on-surface">
+              {tiers.map((t) => (
+                <li key={t.minQty} className="flex justify-between gap-3">
+                  <span>Desde {t.minQty} unidades</span>
+                  <span className="font-bold">{formatPrice(t.price, listing.currency)} c/u</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {(listing.owner?.province?.name || listing.locationNote) && (
+            <p className="mb-3 mt-3 flex items-start gap-1.5 text-[13px] text-on-surface-variant">
+              <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <span>
+                <strong className="text-on-surface">{[listing.locationNote, listing.owner?.province?.name].filter(Boolean).join(", ")}</strong>
+              </span>
+            </p>
+          )}
+          <p className="mb-4 whitespace-pre-line text-body-md text-on-surface-variant">{listing.description}</p>
+          {listing.tags?.length > 0 && (
+            <div className="mb-6 flex flex-wrap gap-1.5">
+              {listing.tags.map((t) => (
+                <Link key={t} to={`/ventas-rapidas?q=${encodeURIComponent(t)}`} className="inline-flex min-h-8 items-center rounded-full bg-surface-container px-3 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container-high">
+                  #{t}
+                </Link>
+              ))}
+            </div>
+          )}
 
-          <a
-            href={waLink(listing.owner.phone, message)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-6 py-3 text-label-md font-bold text-white shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
-          >
-            <MessageCircle className="h-[18px] w-[18px]" />
-            Pedir por WhatsApp
-          </a>
+          {/* Las ventas van directo con quien publicó el anuncio: WhatsApp o llamada al teléfono que dejó. */}
+          <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+            <div className="text-[12px] font-bold uppercase tracking-wide text-outline">Contacta a quien lo vende</div>
+            <div className="mt-1 text-[15px] font-bold text-on-surface">{listing.owner?.name ?? "Cliente de " + siteName}</div>
+            {listing.owner?.phone && <div className="mt-0.5 flex items-center gap-1.5 text-[14px] text-on-surface-variant"><Phone className="h-4 w-4" aria-hidden="true" /> {listing.owner.phone}</div>}
+            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <a
+                href={waLink(listing.owner.phone, message)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-label-md font-bold text-white shadow-md transition-all hover:brightness-95"
+              >
+                <MessageCircle className="h-[18px] w-[18px]" />
+                Pedir por WhatsApp
+              </a>
+              <a href={`tel:${String(listing.owner.phone).replace(/[^\d+]/g, "")}`} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-outline-variant px-5 text-label-md font-bold text-on-surface hover:bg-surface-container">
+                <Phone className="h-[18px] w-[18px]" />
+                Llamar
+              </a>
+            </div>
+          </div>
 
-          {/* Pedido explícito: solo visible para clientes logueados. */}
+          {/* Solo visible para clientes con sesión. */}
           {user?.role === "CUSTOMER" && (
-            <button
-              onClick={() => setReportFraudOpen(true)}
-              className="ml-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-outline hover:text-error"
-            >
+            <button onClick={() => setReportFraudOpen(true)} className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-[12.5px] font-semibold text-outline hover:text-error">
               <ShieldAlert className="h-4 w-4" /> Reportar estafa
             </button>
           )}

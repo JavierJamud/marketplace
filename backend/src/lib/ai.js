@@ -258,12 +258,15 @@ export async function generateDescription(kind, context) {
   const { siteName } = await getBrandSettings();
   const prompt = (PROMPTS[kind] ?? PROMPTS.product)({ ...context, siteName });
   const text = await callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "La IA no pudo generar el texto — prueba de nuevo en un momento.");
-  return kind === "store" ? fitToLimit(text, STORE_DESCRIPTION_MAX) : text;
+  if (kind === "store") return fitToLimit(text, STORE_DESCRIPTION_MAX);
+  if (kind === "listing") return fitToLimit(text, LISTING_AI_MAX);
+  return text;
 }
 
 // La descripción de la tienda tiene un tope de caracteres para que quepa entera en su encabezado: si la IA se pasa, se corta en
 // la última oración (o palabra) completa que entre.
 export const STORE_DESCRIPTION_MAX = 200;
+const LISTING_AI_MAX = 600;
 function fitToLimit(text, max) {
   const clean = String(text ?? "").trim();
   if (clean.length <= max) return clean;

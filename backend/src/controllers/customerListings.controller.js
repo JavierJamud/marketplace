@@ -21,15 +21,60 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // de dueño, no de tienda (este cliente no tiene una).
 export const CUSTOMER_LISTING_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "customer-listings");
 
+export const LISTING_NAME_MAX = 80;
+export const LISTING_DESCRIPTION_MAX = 1000;
+export const LISTING_TAGS_MAX = 8;
+
+const tierSchema = z.object({ minQty: z.number().int().min(2, "La cantidad mínima es 2."), price: z.number().positive() });
+
 export const customerListingSchema = z.object({
-  name: z.string().trim().min(2, "El título es obligatorio."),
+  name: z.string().trim().min(2, "El título es obligatorio.").max(LISTING_NAME_MAX, `El título admite hasta ${LISTING_NAME_MAX} caracteres.`),
   description: z.preprocess(
     (v) => v ?? "",
-    z.string().trim().min(10, "Cuéntale al comprador qué es (mínimo 10 caracteres).")
+    z
+      .string()
+      .trim()
+      .min(10, "Cuéntale al comprador qué es (mínimo 10 caracteres).")
+      .max(LISTING_DESCRIPTION_MAX, `La descripción admite hasta ${LISTING_DESCRIPTION_MAX} caracteres.`)
   ),
   price: z.number().positive(),
   currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
+  tags: z
+    .array(z.string().trim().min(2).max(24))
+    .max(LISTING_TAGS_MAX, `Máximo ${LISTING_TAGS_MAX} palabras clave.`)
+    .optional()
+    .transform((arr) => (arr ? [...new Set(arr.map((x) => x.toLowerCase()))] : undefined)),
+  condition: z.enum(["NEW", "USED", "REFURBISHED"]).nullish(),
+  quantity: z.number().int().min(1).max(9999).nullish(),
+  priceTiers: z.array(tierSchema).max(3, "Máximo 3 precios por cantidad.").nullish(),
+  showOwnerName: z.boolean().optional(),
+  locationNote: z.string().trim().max(80, "La zona admite hasta 80 caracteres.").nullish(),
 });
+
+// Los precios por cantidad tienen que bajar a medida que sube la cantidad y ser menores al precio por unidad.
+export function validateTiers(price, tiers) {
+  if (!tiers?.length) return null;
+  const sorted = [...tiers].sort((a, b) => a.minQty - b.minQty);
+  let previous = Number(price);
+  const seen = new Set();
+  for (const t of sorted) {
+    if (seen.has(t.minQty)) throw new AppError("Hay dos precios para la misma cantidad.", 400);
+    seen.add(t.minQty);
+    if (t.price >= previous) throw new AppError("Cada precio por cantidad debe ser menor que el anterior y que el precio por unidad.", 400);
+    previous = t.price;
+  }
+  return sorted;
+}
+
+// Lo que ve el público: el nombre del dueño solo sale si él lo permitió; el teléfono sí (el contacto es el objetivo del anuncio).
+export function toPublicListing(l) {
+  // ownerId tampoco sale: con el nombre oculto serviría para enlazar varios anuncios a la misma persona.
+  const { owner, ownerId, ...rest } = l;
+  return {
+    ...rest,
+    owner: { phone: owner?.phone ?? null, province: owner?.province ?? null, name: l.showOwnerName ? owner?.fullName ?? null : null },
+  };
+}
 
 async function getAvailableCurrencies() {
   const s = await prisma.siteSettings.findFirst({ select: { availableCurrencies: true } });
@@ -100,9 +145,11 @@ export async function createListing(req, res) {
   }
 
   const now = new Date();
+  const tiers = validateTiers(data.price, data.priceTiers);
   const listing = await prisma.customerListing.create({
     data: {
       ...data,
+      priceTiers: tiers ?? undefined,
       ownerId: req.user.id,
       // Igual que Product: se crea siempre en pausa, sin fotos — la primera
       // imagen es lo que lo activa (ver addListingImages).
@@ -123,6 +170,11 @@ export async function updateListing(req, res) {
 
   const data = customerListingSchema.partial().parse(req.body);
   if (data.currency) await assertCurrencyAllowed(data.currency);
+  // Los precios por cantidad se validan contra el precio vigente (el nuevo, si también cambia).
+  if (data.priceTiers !== undefined || data.price !== undefined) {
+    const tiers = data.priceTiers !== undefined ? data.priceTiers : existing.priceTiers;
+    data.priceTiers = validateTiers(data.price ?? existing.price, tiers) ?? (data.priceTiers === null ? null : undefined);
+  }
 
   // expiresAt/publicVisibleUntil nunca se tocan acá a propósito — los dos se
   // fijan una sola vez al crear, con la política vigente en ese momento.
@@ -228,7 +280,7 @@ export async function listPublicListings(req, res) {
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  res.json({ listings });
+  res.json({ listings: listings.map(toPublicListing) });
 }
 
 export async function getPublicListing(req, res) {
@@ -238,5 +290,5 @@ export async function getPublicListing(req, res) {
     include: { owner: PUBLIC_OWNER },
   });
   if (!listing) throw new AppError("Anuncio no encontrado.", 404);
-  res.json({ listing });
+  res.json({ listing: toPublicListing(listing) });
 }

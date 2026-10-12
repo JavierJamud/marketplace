@@ -14,7 +14,11 @@ export function AiGenerateButton({ kind, currentText, productName, onGenerated }
   const hasEnoughText = (currentText ?? "").trim().length >= 5;
 
   const generate = useMutation({
-    mutationFn: async () => (await api.post("/ai/generate-description", { kind, currentText, productName })).data,
+    mutationFn: async () =>
+      // La venta rápida de un cliente (sin tienda) tiene su propio endpoint y su propio prompt.
+      kind === "listing"
+        ? (await api.post("/ai/generate-listing-description", { currentText, name: productName })).data
+        : (await api.post("/ai/generate-description", { kind, currentText, productName })).data,
     onSuccess: (data) => onGenerated(data.description),
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo mejorar la descripción. Intenta de nuevo."),
   });

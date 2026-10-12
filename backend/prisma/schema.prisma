@@ -2928,6 +2928,18 @@ model CustomerListing {
   // El dueño lo marca manualmente al vender — no borra el cupo de 5 hasta
   // que además lo elimina (puede querer dejarlo un tiempo como referencia).
   isSold      Boolean         @default(false)
+  // Palabras clave para que lo encuentren (hasta 8).
+  tags        String[]        @default([])
+  // Estado del artículo: NEW (nuevo), USED (usado) o REFURBISHED (reacondicionado). Opcional.
+  condition   String?
+  // Unidades disponibles (opcional; vacío = una sola o no se especifica).
+  quantity    Int?
+  // Precio por cantidad: [{ minQty, price }] (precio POR UNIDAD a partir de esa cantidad), máximo 3.
+  priceTiers  Json?
+  // El dueño decide si su nombre se muestra en el anuncio. Falso = "Publicado por un cliente".
+  showOwnerName Boolean       @default(false)
+  // Zona o municipio donde se entrega o se encuentra (texto libre, opcional).
+  locationNote String?
   createdAt   DateTime        @default(now())
   // Fijado UNA sola vez al crear (createdAt + listingExpiryDays vigente en
   // ese momento, ver SiteSettings/getListingPolicy) — nunca se recalcula en

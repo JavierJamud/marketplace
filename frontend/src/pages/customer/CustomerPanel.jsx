@@ -10,6 +10,8 @@ import { Spinner } from "../../components/ui/Spinner.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
+import { ConditionPicker, TagsInput, PriceTiersEditor } from "../../components/customer/ListingFormFields.jsx";
 import { SuggestionBox } from "../../components/SuggestionBox.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { StoreCard } from "../../components/StoreCard.jsx";
@@ -43,7 +45,9 @@ const TABS = [
   { id: "suggestions", label: "Sugerencias" },
 ];
 
-const LISTING_EMPTY_FORM = { name: "", description: "", price: "", currency: "USD" };
+const LISTING_NAME_MAX = 80;
+const LISTING_DESC_MAX = 1000;
+const LISTING_EMPTY_FORM = { name: "", description: "", price: "", currency: "USD", condition: "", quantity: "", priceTiers: [], tags: [], showOwnerName: false, locationNote: "" };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function daysRemaining(dateStr) {
@@ -195,14 +199,36 @@ export default function CustomerPanel() {
 
   function openEditListing(listing) {
     setEditingListing(listing);
-    setListingForm({ name: listing.name, description: listing.description, price: listing.price, currency: listing.currency });
+    setListingForm({
+      name: listing.name,
+      description: listing.description,
+      price: listing.price,
+      currency: listing.currency,
+      condition: listing.condition ?? "",
+      quantity: listing.quantity ?? "",
+      priceTiers: (listing.priceTiers ?? []).map((t) => ({ minQty: t.minQty, price: t.price })),
+      tags: listing.tags ?? [],
+      showOwnerName: !!listing.showOwnerName,
+      locationNote: listing.locationNote ?? "",
+    });
     setSavedListing(listing);
     setListingModalOpen(true);
   }
 
   const saveListing = useMutation({
     mutationFn: async () => {
-      const payload = { ...listingForm, price: Number(listingForm.price) };
+      const payload = {
+        name: listingForm.name,
+        description: listingForm.description,
+        price: Number(listingForm.price),
+        currency: listingForm.currency,
+        condition: listingForm.condition || null,
+        quantity: listingForm.quantity === "" ? null : Number(listingForm.quantity),
+        priceTiers: listingForm.priceTiers.filter((t) => t.minQty !== "" && t.price !== "").map((t) => ({ minQty: Number(t.minQty), price: Number(t.price) })),
+        tags: listingForm.tags,
+        showOwnerName: listingForm.showOwnerName,
+        locationNote: listingForm.locationNote.trim() || null,
+      };
       if (editingListing) return (await api.patch(`/customer-listings/${editingListing.id}`, payload)).data.listing;
       return (await api.post("/customer-listings", payload)).data.listing;
     },
@@ -572,23 +598,51 @@ export default function CustomerPanel() {
                   </div>
 
                   <div className="flex flex-col gap-3.5">
-                    <Input label="Título" value={listingForm.name} onChange={(e) => setListingForm({ ...listingForm, name: e.target.value })} />
                     <div>
-                      <span className="mb-1 block text-label-md text-on-surface-variant">Descripción</span>
+                      <Input label="Título" maxLength={LISTING_NAME_MAX} value={listingForm.name} onChange={(e) => setListingForm({ ...listingForm, name: e.target.value })} />
+                      <p className="mt-1 text-right text-[11.5px] text-outline">{listingForm.name.length}/{LISTING_NAME_MAX}</p>
+                    </div>
+                    <div>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-label-md text-on-surface-variant">Descripción</span>
+                        <AiGenerateButton kind="listing" currentText={listingForm.description} productName={listingForm.name} onGenerated={(text) => setListingForm((f) => ({ ...f, description: text.slice(0, LISTING_DESC_MAX) }))} />
+                      </div>
                       <textarea
                         value={listingForm.description}
+                        maxLength={LISTING_DESC_MAX}
                         onChange={(e) => setListingForm({ ...listingForm, description: e.target.value })}
-                        placeholder="Cuéntale al comprador qué es, el estado, etc. (mínimo 10 caracteres)"
-                        className="min-h-[80px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
+                        placeholder="Cuéntale al comprador qué es, el estado, marca o modelo, accesorios, por qué lo vendes... (mínimo 10 caracteres)"
+                        className="min-h-[110px] w-full resize-y rounded border border-outline-variant bg-surface-container-lowest px-3.5 py-3 text-body-md outline-none"
                       />
+                      <p className="mt-1 text-right text-[11.5px] text-outline">{listingForm.description.length}/{LISTING_DESC_MAX}</p>
                     </div>
+                    <ConditionPicker value={listingForm.condition} onChange={(condition) => setListingForm((f) => ({ ...f, condition }))} />
                     <div className="grid grid-cols-[1fr_110px] gap-3">
-                      <Input label="Precio" type="number" min={1} value={listingForm.price} onChange={(e) => setListingForm({ ...listingForm, price: e.target.value })} />
+                      <Input label="Precio por unidad" type="number" min={1} value={listingForm.price} onChange={(e) => setListingForm({ ...listingForm, price: e.target.value })} />
                       <Select label="Moneda" value={listingForm.currency} onChange={(e) => setListingForm({ ...listingForm, currency: e.target.value })}>
                         {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </Select>
+                    </div>
+                    <Input label="Unidades disponibles (opcional)" type="number" min={1} value={listingForm.quantity} onChange={(e) => setListingForm({ ...listingForm, quantity: e.target.value })} />
+                    <PriceTiersEditor value={listingForm.priceTiers} onChange={(priceTiers) => setListingForm((f) => ({ ...f, priceTiers }))} unitPrice={Number(listingForm.price)} currency={listingForm.currency} />
+                    <TagsInput value={listingForm.tags} onChange={(tags) => setListingForm((f) => ({ ...f, tags }))} />
+                    <Input label="Zona o municipio (opcional)" maxLength={80} value={listingForm.locationNote} onChange={(e) => setListingForm({ ...listingForm, locationNote: e.target.value })} placeholder="Ej.: Vista Alegre, Santiago de Cuba" />
+                    <div className="rounded-xl bg-surface-container/60 p-3.5">
+                      <label className="flex cursor-pointer items-start gap-3">
+                        <input type="checkbox" className="mt-1 h-5 w-5 accent-tertiary-accent" checked={listingForm.showOwnerName} onChange={(e) => setListingForm({ ...listingForm, showOwnerName: e.target.checked })} />
+                        <span>
+                          <span className="block text-[13.5px] font-semibold text-on-surface">Mostrar mi nombre en el anuncio</span>
+                          <span className="block text-[12px] text-on-surface-variant">
+                            {listingForm.showOwnerName ? `Aparecerá "Publicado por ${customer?.fullName ?? "tu nombre"}".` : 'Si lo dejas apagado, aparecerá "Publicado por un cliente".'}
+                          </span>
+                        </span>
+                      </label>
+                      <p className="mt-2.5 border-t border-surface-container-high pt-2.5 text-[12px] text-on-surface-variant">
+                        Los compradores te contactan directo por WhatsApp o llamada al teléfono de tu perfil:{" "}
+                        <strong className="text-on-surface">{customer?.phone || "agrégalo en la pestaña Perfil"}</strong>.
+                      </p>
                     </div>
                     <Button className="w-full" onClick={() => saveListing.mutate()} disabled={saveListing.isPending}>
                       {saveListing.isPending ? "Guardando..." : editingListing ? "Guardar cambios" : "Crear anuncio"}
