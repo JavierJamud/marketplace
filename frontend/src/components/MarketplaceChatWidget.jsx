@@ -176,6 +176,36 @@ function OrderStatusForm({ initialCode, onResult }) {
   );
 }
 
+// Cancelar un pedido desde el chat: nombre con el que compró, número de pedido y motivo. No hace falta tener cuenta.
+function CancelOrderForm({ initialCode, onResult }) {
+  const [form, setForm] = useState({ name: "", code: initialCode ?? "", reason: "" });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data } = await api.post("/assistant/cancel-order", { name: form.name.trim(), code: form.code.trim(), reason: form.reason.trim() });
+      onResult(data.text, data.links);
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "No se pudo cancelar. Revisa los datos e inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const input = "h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent";
+  return (
+    <form onSubmit={submit} className="-mt-1 mb-3 flex w-full max-w-[95%] flex-col gap-2 rounded-lg border border-surface-container-high bg-surface-container-lowest p-3">
+      <input className={input} value={form.name} onChange={set("name")} placeholder="Tu nombre (como en el pedido)" aria-label="Tu nombre" autoComplete="name" required minLength={2} />
+      <input className={input} value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="Número de pedido (Z-1234)" aria-label="Número de pedido" required minLength={4} />
+      <textarea className={`${input} h-20 resize-none py-2`} value={form.reason} onChange={set("reason")} placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación" required minLength={3} maxLength={500} />
+      <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-error text-[13px] font-bold text-white disabled:opacity-50">
+        {busy ? "Cancelando..." : "Cancelar mi pedido"}
+      </button>
+    </form>
+  );
+}
+
 // Problema con un pedido o con la web: antes de avisar a quien corresponde (vendedor del pedido o admin) se piden nombre, teléfono
 // y correo, y un mensaje opcional.
 function SupportForm({ kind: initialKind, initialCode, onResult }) {
@@ -774,6 +804,12 @@ export function MarketplaceChatWidget() {
                   {m.actions?.orderForm && i === messages.length - 1 && (
                     <OrderStatusForm
                       initialCode={m.actions.orderForm.code}
+                      onResult={(text, links) => setMessages((prev) => [...prev, { id: generateId(), role: "model", content: text, actions: links?.length ? { links } : null, products: [], vendors: [] }])}
+                    />
+                  )}
+                  {m.actions?.cancelForm && i === messages.length - 1 && (
+                    <CancelOrderForm
+                      initialCode={m.actions.cancelForm.code}
                       onResult={(text, links) => setMessages((prev) => [...prev, { id: generateId(), role: "model", content: text, actions: links?.length ? { links } : null, products: [], vendors: [] }])}
                     />
                   )}

@@ -19,6 +19,7 @@ import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { formatPrice } from "../../lib/format.js";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
+import { CancelOrderModal, CancelBlockedModal, EditOrderModal } from "../../components/customer/CustomerOrderActions.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -70,6 +71,9 @@ export default function CustomerPanel() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("orders");
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [orderToEdit, setOrderToEdit] = useState(null);
+  const [orderBlocked, setOrderBlocked] = useState(null);
 
   const [profileForm, setProfileForm] = useState({ fullName: "", phone: "" });
   const [addressForm, setAddressForm] = useState({ provinceId: "", address: "" });
@@ -381,9 +385,34 @@ export default function CustomerPanel() {
                       </div>
                     ))}
                   </div>
+                  {/* Cancelar o cambiar el pedido: el servidor decide qué corresponde según el estado (canCancel / canEdit). */}
+                  {(o.canEdit || o.canCancel || o.canAskToCancel) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-surface-container pt-3">
+                      {o.canEdit && (
+                        <button type="button" onClick={() => setOrderToEdit(o)} className="min-h-11 rounded-lg bg-surface-container px-4 text-[13px] font-bold text-on-surface hover:bg-surface-container-high">
+                          Modificar pedido
+                        </button>
+                      )}
+                      {o.canCancel && (
+                        <button type="button" onClick={() => setOrderToCancel(o)} className="min-h-11 rounded-lg bg-error/10 px-4 text-[13px] font-bold text-error hover:bg-error/15">
+                          Cancelar pedido
+                        </button>
+                      )}
+                      {/* Ya en preparación, en camino o entregado: no se cancela desde aquí; se le explica cómo y se le manda un correo. */}
+                      {o.canAskToCancel && (
+                        <button type="button" onClick={() => setOrderBlocked(o)} className="min-h-11 rounded-lg bg-surface-container px-4 text-[13px] font-bold text-on-surface hover:bg-surface-container-high">
+                          Cancelar pedido
+                        </button>
+                      )}
+                      {o.canAskToCancel && <span className="text-[12px] text-outline">La tienda ya lo está atendiendo: te decimos cómo cancelarlo.</span>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
+            {orderToCancel && <CancelOrderModal order={orderToCancel} onClose={() => setOrderToCancel(null)} />}
+            {orderToEdit && <EditOrderModal order={orderToEdit} onClose={() => setOrderToEdit(null)} />}
+            {orderBlocked && <CancelBlockedModal order={orderBlocked} onClose={() => setOrderBlocked(null)} />}
           </div>
         )}
 

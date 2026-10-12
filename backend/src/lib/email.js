@@ -9,6 +9,7 @@ import { orderConfirmationEmail } from "../templates/orderConfirmation.js";
 import { newOrderVendorEmail } from "../templates/newOrderVendor.js";
 import { partnerApplicationReceivedEmail, partnerApprovedEmail, partnerKeyChangedEmail, partnerRejectedEmail } from "../templates/partnerNotices.js";
 import { statusUpdateEmail } from "../templates/statusUpdate.js";
+import { orderCancelHelpEmail } from "../templates/orderCancelHelp.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
 import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
@@ -161,6 +162,16 @@ export async function sendOrderStatusEmail(order) {
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
   return result;
+}
+
+// Correo al cliente que intentó cancelar un pedido que la tienda ya empezó a atender: le dice qué pedido es y cómo contactar a la
+// tienda. Devuelve true si salió. Tipo STATUS_UPDATE (informativo, no cuenta contra el límite de correos manuales de la tienda).
+export async function sendOrderCancelHelpEmail(order) {
+  if (!order.customerEmail) return false;
+  const { subject, html } = await orderCancelHelpEmail(order);
+  const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
+  return result?.ok !== false;
 }
 
 // Envío manual: acá SÍ importa el resultado — el caller (controller) decide

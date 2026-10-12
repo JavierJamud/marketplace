@@ -722,3 +722,150 @@ export async function sendManualEmail(req, res) {
 
   res.status(201).json({ ok: true });
 }
+
+// --- Acciones del cliente sobre su pedido --------------------------------
+// Un cliente solo puede cancelar o cambiar su pedido mientras esté pendiente (recibido y SIN confirmar por la tienda). Cuando la tienda lo
+// confirma y empieza a prepararlo o enviarlo, el cliente tiene que contactar a la tienda directamente: la plataforma no lo cancela.
+// Cada acción queda en el historial del pedido y avisa al vendedor en su panel al momento.
+
+export const CUSTOMER_CAN_CANCEL = ["NEW"];
+export const CUSTOMER_CAN_EDIT = ["NEW"];
+
+const ORDER_EMAIL_INCLUDE = {
+  vendor: { select: { companyName: true, logoUrl: true } },
+  items: { include: { product: { select: { images: true } } } },
+};
+
+// Datos de la tienda para que el cliente la contacte (los que la tienda ya publica en su página).
+export async function storeContactFor(vendorId) {
+  const v = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { companyName: true, slug: true, whatsapp: true, email: true, companyAddress: true } });
+  return v ? { name: v.companyName, slug: v.slug, whatsapp: v.whatsapp ?? null, email: v.email ?? null, address: v.companyAddress ?? null } : null;
+}
+
+async function notifyVendorOfCustomerAction(order, { type, title, body }) {
+  await prisma.vendorNotification.create({ data: { vendorId: order.vendorId, type, refCode: order.code, title, body } }).catch(() => {});
+}
+
+// Cancela el pedido a nombre del cliente. `via` dice desde dónde ("su cuenta" o "el asistente") para el historial.
+export async function cancelOrderForCustomer(order, reason, via = "su cuenta") {
+  const cleanReason = String(reason ?? "").trim();
+  if (order.status === "CANCELLED") throw new AppError("Este pedido ya estaba cancelado.", 400);
+  if (!CUSTOMER_CAN_CANCEL.includes(order.status)) {
+    throw new AppError("La tienda ya empezó a atender este pedido, así que no se puede cancelar desde aquí. Contacta directamente a la tienda.", 409);
+  }
+  if (cleanReason.length < 3) throw new AppError("Escribe el motivo de la cancelación.", 400);
+
+  const items = await prisma.orderItem.findMany({ where: { orderId: order.id } });
+  // Si la tienda ya había confirmado la venta, el stock ya se descontó: se devuelve.
+  const shouldRestock = order.status !== "NEW";
+  let isUnlimited = new Map();
+  if (shouldRestock) {
+    const ids = [...new Set(items.map((i) => i.productId).filter(Boolean))];
+    const products = await prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, unlimitedStock: true } });
+    isUnlimited = new Map(products.map((p) => [p.id, p.unlimitedStock]));
+  }
+
+  const storedReason = `Cancelado por el cliente: ${cleanReason}`;
+  const updated = await prisma.$transaction(async (tx) => {
+    // Mismo estado de origen exigido en el UPDATE: si la tienda lo cambió justo ahora, no se pisa.
+    const claimed = await tx.order.updateMany({ where: { id: order.id, status: order.status }, data: { status: "CANCELLED", cancelReason: storedReason } });
+    if (claimed.count === 0) throw new AppError("El pedido cambió de estado hace un momento. Revísalo e inténtalo de nuevo.", 409);
+    if (shouldRestock) {
+      for (const item of items) {
+        if (!item.productId || isUnlimited.get(item.productId)) continue;
+        if (item.size) await incrementSizeStock(tx, item.productId, item.size, item.quantity);
+        else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
+      }
+    }
+    return tx.order.findUnique({ where: { id: order.id }, include: ORDER_EMAIL_INCLUDE });
+  });
+
+  await recordOrderEvent(order.id, "CANCELLED", `Cliente (${via}): ${cleanReason}`);
+  await resolveNewOrderNotices(order.vendorId, order.code);
+  await notifyVendorOfCustomerAction(order, {
+    type: "ORDER_CANCELLED_BY_CUSTOMER",
+    title: "Pedido cancelado por el cliente",
+    body: `${order.customerName ?? "El cliente"} canceló el pedido ${order.code}. Motivo: ${cleanReason}`,
+  });
+  await sendOrderStatusEmail(updated).catch(() => {});
+  return updated;
+}
+
+export const customerItemsSchema = z
+  .array(z.object({ productId: z.string(), quantity: z.number().int().min(1).max(999), size: z.string().nullish() }))
+  .min(1, "El pedido necesita al menos un producto. Si ya no lo quieres, cancélalo.")
+  .max(50);
+
+// Cambia los productos de un pedido pendiente: quitar, cambiar cantidades o agregar otros de la misma tienda.
+export async function editOrderItemsForCustomer(order, rawItems, via = "su cuenta") {
+  if (!CUSTOMER_CAN_EDIT.includes(order.status)) {
+    throw new AppError("Este pedido ya fue confirmado por la tienda, así que no se puede modificar. Puedes cancelarlo o escribirle a la tienda.", 400);
+  }
+  if (order.discountCodeId) {
+    throw new AppError("Este pedido usó un código de descuento y no se puede modificar. Cancélalo y haz uno nuevo.", 400);
+  }
+  const items = customerItemsSchema.parse(rawItems);
+
+  // Una misma línea (producto y talla) no puede repetirse: se suman.
+  const merged = new Map();
+  for (const i of items) {
+    const key = `${i.productId}|${i.size ?? ""}`;
+    merged.set(key, { productId: i.productId, size: i.size ?? undefined, quantity: (merged.get(key)?.quantity ?? 0) + i.quantity });
+  }
+  const lines = [...merged.values()];
+
+  const previous = await prisma.orderItem.findMany({ where: { orderId: order.id } });
+  const productIds = [...new Set(lines.map((l) => l.productId))];
+  const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { priceTiers: true } });
+  if (products.length !== productIds.length) throw new AppError("Uno o más productos ya no están disponibles.", 400);
+  const byId = Object.fromEntries(products.map((p) => [p.id, p]));
+
+  const unavailable = [];
+  for (const l of lines) {
+    const p = byId[l.productId];
+    if (p.vendorId !== order.vendorId) throw new AppError("Todos los productos deben ser de la misma tienda.", 400);
+    const wasInOrder = previous.some((x) => x.productId === l.productId);
+    // Un producto que ya estaba en el pedido se puede conservar aunque se haya pausado; uno nuevo tiene que estar a la venta.
+    if (!wasInOrder && (!p.isActive || p.hiddenFromStore || p.overQuota)) throw new AppError(`"${p.name}" ya no está disponible.`, 400);
+    if (p.sizes.length > 0 && !p.sizes.includes(l.size)) throw new AppError(`Elige una talla válida para "${p.name}".`, 400);
+    if (p.sizes.length === 0) l.size = undefined;
+    if (!p.unlimitedStock) {
+      const available = l.size ? Number(p.sizeStock?.[l.size] ?? 0) : p.stock;
+      if (l.quantity > available) unavailable.push({ productId: p.id, name: p.name, requested: l.quantity, available, size: l.size ?? null });
+    }
+  }
+  if (unavailable.length) throw new AppError("Algunos productos no tienen suficiente stock.", 409, { insufficientStock: unavailable });
+
+  const newItems = lines.map((l) => {
+    const p = byId[l.productId];
+    const before = previous.find((x) => x.productId === l.productId && (x.size ?? null) === (l.size ?? null));
+    return {
+      productId: p.id,
+      name: p.name,
+      price: resolveUnitPrice(p.price, p.priceTiers, l.quantity),
+      currency: p.currency,
+      quantity: l.quantity,
+      size: l.size ?? null,
+      selectedOptions: before?.selectedOptions ?? undefined,
+    };
+  });
+  const total = newItems.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.order.updateMany({ where: { id: order.id, status: "NEW" }, data: { total } });
+    if (claimed.count === 0) throw new AppError("La tienda acaba de atender este pedido y ya no se puede modificar.", 409);
+    await tx.orderItem.deleteMany({ where: { orderId: order.id } });
+    await tx.orderItem.createMany({ data: newItems.map((i) => ({ ...i, orderId: order.id })) });
+    return tx.order.findUnique({ where: { id: order.id }, include: { items: true, vendor: { select: { companyName: true, slug: true, color: true } } } });
+  });
+
+  const units = newItems.reduce((s, i) => s + i.quantity, 0);
+  const summary = `${newItems.length} ${newItems.length === 1 ? "producto" : "productos"}, ${units} ${units === 1 ? "unidad" : "unidades"}`;
+  await recordOrderEvent(order.id, "EDITED_BY_CUSTOMER", `Cliente (${via}): ${summary}`);
+  await notifyVendorOfCustomerAction(order, {
+    type: "ORDER_EDITED_BY_CUSTOMER",
+    title: "Pedido modificado por el cliente",
+    body: `${order.customerName ?? "El cliente"} cambió los productos del pedido ${order.code}: ahora son ${summary}, total ${Number(total).toLocaleString("es-CU")} ${newItems[0].currency}. Revísalo antes de confirmarlo.`,
+  });
+  return updated;
+}

@@ -12,6 +12,7 @@ const ORDER_CODE = /\bZ-[A-Z0-9]{4,}\b/i;
 const MAX_LEN = 160; // un mensaje largo suele ser una búsqueda o una pregunta compuesta: lo resuelve el modelo
 
 const RE = {
+  cancel: /(cancel|anul|elimin|deshac|ya no quiero|no quiero (el|mi|este) (pedido|orden)).{0,40}(pedido|orden|compra)|(pedido|orden|compra).{0,30}(cancel|anul|equivoc|errone|por error)|me equivoque (en|con) (el|mi) pedido/,
   order: /(estado|seguimiento|rastre|donde (esta|va|anda)|como va|consult|revis|ver|saber|verific).{0,30}(pedido|orden|compra)|(mi|el) (pedido|orden)|numero de (pedido|orden)|ya (hice|realice) (un|mi) pedido/,
   plans: /\bplanes\b|\bplan (business|regular|gratis|premium)\b|que plan\b|suscripci|membresia|cuanto cuesta (vender|abrir|tener|la tienda)|precio.{0,15}(vender|tienda|business)/,
   sell: /(como|quiero|puedo|deseo|necesito|donde).{0,30}(vender|abrir.{0,10}tienda|crear.{0,10}tienda|registrar.{0,10}(tienda|negocio)|tener.{0,10}tienda)|registrar mi (tienda|negocio)|vender en /,
@@ -42,6 +43,19 @@ function nameMatches(typed, stored) {
   const s = new Set(nameTokens(stored));
   if (!t.length || !s.size) return false;
   return t.some((x) => x.length >= 3) && t.every((x) => s.has(x));
+}
+
+// Pedido que el cliente puede mostrar como suyo: con el número y el nombre con el que compró (o con la sesión iniciada con el correo
+// del pedido). Mismo criterio que la consulta de estado: si algo no coincide no se dice qué falló, para que nadie pueda ir probando
+// números de pedido.
+export async function findOrderForCustomer({ code, name, sessionEmail }) {
+  const cleanCode = String(code ?? "").trim().toUpperCase();
+  if (!/^Z-[A-Z0-9]{4,}$/.test(cleanCode)) return null;
+  const order = await prisma.order.findUnique({ where: { code: cleanCode }, include: { vendor: { select: { companyName: true, slug: true, whatsapp: true, email: true, companyAddress: true } } } });
+  if (!order) return null;
+  const owner = !!sessionEmail && !!order.customerEmail && order.customerEmail.trim().toLowerCase() === sessionEmail.trim().toLowerCase();
+  if (!owner && !nameMatches(name, order.customerName)) return null;
+  return order;
 }
 
 const money = (n) => `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -105,6 +119,12 @@ export async function routeAssistantIntent(message, { sessionEmail } = {}) {
 
   const done = (a, followUps = []) => ({ text: a.text, actions: { links: (a.links ?? []).filter(Boolean) }, followUps });
 
+  if (RE.cancel.test(m)) {
+    return {
+      text: "Puedo cancelar tu pedido solo si la tienda todavía no lo ha confirmado. Necesito tu nombre, el número de pedido (formato Z-1234) y el motivo; primero reviso en qué estado está.",
+      actions: { cancelForm: { code: codeInMessage ? codeInMessage.toUpperCase() : "" } },
+    };
+  }
   if (RE.problem.test(m)) {
     const web = /pagina|web|sitio|app|aplicacion|funciona|error/.test(m) && !/pedido|orden|compra/.test(m);
     return {

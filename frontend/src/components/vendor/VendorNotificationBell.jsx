@@ -17,7 +17,7 @@ function timeAgo(iso) {
 
 // A dónde lleva cada tipo de aviso. Los que no tienen un lugar propio solo se dan por atendidos.
 function destinationFor(n) {
-  if (n.type === "NEW_ORDER") return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
+  if (n.type === "NEW_ORDER" || n.type === "ORDER_CANCELLED_BY_CUSTOMER" || n.type === "ORDER_EDITED_BY_CUSTOMER") return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
   if (n.type === "SUPPORT_CASE") return "/vendedor/pedidos";
   if (n.type === "VENDOR_STAFF_OUT_OF_STOCK") return "/vendedor/productos";
   if (n.type.startsWith("FRAUD_REPORT")) return "/vendedor/reportes";
@@ -45,7 +45,7 @@ export function VendorNotificationBell() {
   const { data } = useQuery({
     queryKey: ["vendor-notifications"],
     queryFn: async () => (await api.get("/vendors/me/notifications")).data,
-    refetchInterval: 20000,
+    refetchInterval: 8000,
   });
 
   const markRead = useMutation({

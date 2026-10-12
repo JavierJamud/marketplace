@@ -10,7 +10,8 @@ import { chatWithStoreAssistant } from "../lib/ai.js";
 import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
-import { routeAssistantIntent, orderStatusAnswer, ORDER_FAIL } from "../lib/assistantIntents.js";
+import { routeAssistantIntent, orderStatusAnswer, findOrderForCustomer, ORDER_FAIL } from "../lib/assistantIntents.js";
+import { cancelOrderForCustomer } from "./orders.controller.js";
 import { createSupportCase } from "../services/supportCase.service.js";
 import { tightenReply, getLiveSnapshot } from "../lib/assistantStyle.js";
 import { planFactsForPrompt } from "../lib/platformFacts.js";
@@ -1249,6 +1250,63 @@ export async function postOrderStatus(req, res) {
   const result = await orderStatusAnswer({ code, name, sessionEmail });
   if (!result.ok) return res.json({ ok: false, text: ORDER_FAIL });
   res.json({ ok: true, text: result.text, links: result.links });
+}
+
+const cancelOrderSchema = z.object({
+  code: z.string().trim().min(4).max(30),
+  name: z.string().trim().min(2).max(80),
+  reason: z.string().trim().min(3, "Escribe el motivo de la cancelación.").max(500),
+});
+
+// El cliente pide cancelar su pedido desde el chat con su nombre y el número de pedido (no hace falta tener cuenta). Se cancela con el
+// mismo motivo que se anota para la tienda y se le avisa a la tienda al momento.
+export async function postCancelOrder(req, res) {
+  const { code, name, reason } = cancelOrderSchema.parse(req.body);
+  const sessionEmail = await resolveSessionEmail(resolveOptionalUserId(req));
+  const order = await findOrderForCustomer({ code, name, sessionEmail });
+  if (!order) return res.json({ ok: false, text: ORDER_FAIL });
+
+  // Primero se revisa el estado actual del pedido. Solo se cancela si sigue pendiente (la tienda aún no lo confirma). Si ya está en
+  // preparación, en camino o entregado, no se cancela: se aconseja contactar a la tienda y se muestran sus datos.
+  if (order.status !== "NEW") {
+    const v = order.vendor;
+    const stateText = { PREPARING: "en preparación", READY: "en camino", DELIVERED: "entregado", CANCELLED: "cancelado" }[order.status] ?? "en proceso";
+    if (order.status === "CANCELLED") return res.json({ ok: false, text: `El pedido **${order.code}** ya estaba cancelado.` });
+    const contact = [
+      v.whatsapp ? `- WhatsApp: ${v.whatsapp}` : null,
+      v.email ? `- Correo: ${v.email}` : null,
+      v.companyAddress ? `- Dirección: ${v.companyAddress}` : null,
+    ].filter(Boolean);
+    const links = [
+      v.whatsapp ? { label: `WhatsApp de ${v.companyName}`, href: `https://wa.me/${String(v.whatsapp).replace(/\D/g, "")}?text=${encodeURIComponent(`Hola, quiero cancelar mi pedido ${order.code}.`)}` } : null,
+      v.slug ? { label: `Ver ${v.companyName}`, href: `/tienda/${v.slug}` } : null,
+    ].filter(Boolean);
+    return res.json({
+      ok: false,
+      contactStore: true,
+      text: [
+        `Tu pedido **${order.code}** de **${v.companyName}** ya está **${stateText}**, así que no se puede cancelar desde aquí: solo se cancela antes de que la tienda lo confirme.`,
+        "",
+        `Contacta directamente a **${v.companyName}** y dile tu número de pedido:`,
+        ...contact,
+      ].join("\n"),
+      links,
+    });
+  }
+
+  try {
+    await cancelOrderForCustomer(order, reason, "el asistente");
+  } catch (err) {
+    if (err instanceof AppError && err.statusCode < 500) {
+      const links = order.vendor?.slug ? [{ label: `Ver ${order.vendor.companyName}`, href: `/tienda/${order.vendor.slug}` }] : [];
+      return res.json({ ok: false, text: err.message, links });
+    }
+    throw err;
+  }
+  res.json({
+    ok: true,
+    text: `Listo: cancelé el pedido **${order.code}** de ${order.vendor.companyName}. Ya le avisamos a la tienda y quedó anotado tu motivo: "${reason}".`,
+  });
 }
 
 const supportCaseSchema = z.object({

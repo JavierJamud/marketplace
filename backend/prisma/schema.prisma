@@ -2773,6 +2773,9 @@ enum VendorNotificationType {
   NEW_ORDER
   // Un cliente reportó un problema con un pedido desde el asistente del sitio.
   SUPPORT_CASE
+  // El cliente canceló su pedido, o cambió sus productos, desde su cuenta o desde el asistente.
+  ORDER_CANCELLED_BY_CUSTOMER
+  ORDER_EDITED_BY_CUSTOMER
 }
 
 model VendorNotification {

@@ -8,6 +8,7 @@ export const ORDER_EVENT_LABEL = {
   READY: "Listo para entregar",
   DELIVERED: "Entregado al cliente",
   CANCELLED: "Pedido cancelado",
+  EDITED_BY_CUSTOMER: "Productos modificados por el cliente",
   INVOICE_SENT: "Factura enviada al cliente",
   INVOICE_DOWNLOADED: "Factura generada",
   WARRANTY_SENT: "Garantía enviada al cliente",

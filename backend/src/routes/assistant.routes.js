@@ -16,6 +16,7 @@ const router = Router();
 router.get("/chat", assistantController.getMarketplaceChatHistory);
 router.get("/suggestions", assistantController.getChatSuggestions);
 router.post("/order-status", orderStatusRateLimit, assistantController.postOrderStatus);
+router.post("/cancel-order", orderStatusRateLimit, assistantController.postCancelOrder);
 router.post("/support-case", supportCaseRateLimit, assistantController.postSupportCase);
 router.post("/chat", chatRateLimit, streamable(assistantController.postMarketplaceChatMessage));
 
