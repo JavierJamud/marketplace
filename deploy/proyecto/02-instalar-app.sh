@@ -93,7 +93,8 @@ sudo -u zeudin npx prisma migrate deploy
 echo ">> Frontend: compilación (la API se llama por /api en el mismo dominio)"
 cd $APP.new/frontend
 sudo -u zeudin npm ci --no-audit --no-fund
-sudo -u zeudin env VITE_API_URL=/api npm run build
+# FRONTEND_URL es el dominio real: las etiquetas de vista previa (og:image) del index deben llevar la dirección pública, no localhost.
+sudo -u zeudin env VITE_API_URL=/api FRONTEND_URL="$URL_PUBLICA" npm run build
 
 echo ">> Activando la versión nueva"
 rm -rf $RAIZ/app.prev
