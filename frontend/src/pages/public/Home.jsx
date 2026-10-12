@@ -11,6 +11,7 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
+import { TrendingSearches } from "../../components/TrendingSearches.jsx";
 
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
@@ -396,26 +397,7 @@ export default function Home() {
           )}
         </section>
 
-        {/* Texto de presentación: dice con palabras normales qué es el sitio y enlaza a las secciones principales, para que
-            Google y las personas entiendan de qué trata la plataforma. */}
-        <section className="container-app pb-12 md:pb-16" aria-labelledby="acerca-home">
-          <h2 id="acerca-home" className="mb-3 font-display text-title-lg text-on-surface md:text-headline-md">
-            Tu tienda en línea en Cuba: compra cerca de ti
-          </h2>
-          <p className="max-w-[820px] text-body-md text-on-surface-variant">
-            {settings?.siteName || "Baznova"} reúne tiendas locales y restaurantes de toda Cuba en un solo lugar. Encuentra productos de alimentos, ropa,
-            tecnología, hogar y belleza, o pide comida a domicilio en tu provincia. Elige entre tiendas verificadas, haz tu pedido directo por WhatsApp
-            y paga contra entrega o por transferencia. Si tienes un negocio, abre tu tienda gratis, publica tus productos y recibe pedidos con tu
-            propio menú QR.
-          </p>
-          <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-label-md font-semibold text-tertiary-accent">
-            <li><Link className="inline-flex min-h-11 items-center hover:underline" to="/tiendas">Tiendas y restaurantes en Cuba</Link></li>
-            <li><Link className="inline-flex min-h-11 items-center hover:underline" to="/catalogo">Catálogo de productos</Link></li>
-            <li><Link className="inline-flex min-h-11 items-center hover:underline" to="/ventas-rapidas">Ventas rápidas</Link></li>
-            <li><Link className="inline-flex min-h-11 items-center hover:underline" to="/vendedor/ingresar?tab=registro">Vender en {settings?.siteName || "Baznova"}</Link></li>
-            <li><Link className="inline-flex min-h-11 items-center hover:underline" to="/faq">Preguntas frecuentes</Link></li>
-          </ul>
-        </section>
+        <TrendingSearches />
           </>
         ) : (
           <div className="min-h-[100vh]" aria-hidden="true" />

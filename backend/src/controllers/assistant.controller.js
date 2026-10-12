@@ -11,6 +11,7 @@ import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { routeAssistantIntent, orderStatusAnswer, ORDER_FAIL } from "../lib/assistantIntents.js";
+import { createSupportCase } from "../services/supportCase.service.js";
 import { planFactsForPrompt } from "../lib/platformFacts.js";
 import { getAssistantSuggestions, getLearningOverview, computeLearningSnapshot, setAutoLearn } from "../lib/assistantLearning.js";
 import { getBrandSettings } from "./settings.controller.js";
@@ -1228,6 +1229,23 @@ export async function postOrderStatus(req, res) {
   const result = await orderStatusAnswer({ code, name, sessionEmail });
   if (!result.ok) return res.json({ ok: false, text: ORDER_FAIL });
   res.json({ ok: true, text: result.text, links: result.links });
+}
+
+const supportCaseSchema = z.object({
+  kind: z.enum(["ORDER", "WEB"]),
+  name: z.string().trim().min(2, "Escribe tu nombre.").max(80),
+  phone: z.string().trim().regex(/^\+?[0-9 ()-]{6,20}$/, "Escribe un teléfono válido."),
+  email: z.string().trim().toLowerCase().email("Escribe un correo válido.").max(120),
+  message: z.string().trim().max(1000).optional(),
+  orderCode: z.string().trim().max(30).optional(),
+});
+
+// El cliente deja sus datos y, si quiere, un mensaje: se avisa al vendedor del pedido o al admin (ver supportCase.service.js).
+export async function postSupportCase(req, res) {
+  const data = supportCaseSchema.parse(req.body);
+  const { routedTo, vendorName } = await createSupportCase(data);
+  const who = routedTo === "vendor" ? `a ${vendorName}` : "al equipo de la plataforma";
+  res.status(201).json({ ok: true, text: `Listo, ya le avisamos ${who}. Te van a contactar al ${data.phone} o a ${data.email}.` });
 }
 
 // --- Admin: aprendizaje automático del asistente ----------------------------

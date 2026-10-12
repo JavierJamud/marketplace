@@ -18,6 +18,7 @@ const RE = {
   buy: /como (compro|comprar|hago (un|mi) pedido|pido|se compra|funciona la compra)|quiero comprar$|como pedir/,
   verification: /verific(ar|acion|ada).{0,25}(tienda|negocio|cuenta|vendedor)|insignia|badge|sello de verificad|como (me )?verifico/,
   login: /(iniciar|inicio|entrar|acceder|ingresar|loguear|abrir).{0,15}(sesion|cuenta|panel)|\blogin\b|olvide.{0,15}(contrasena|clave|password)|recuperar.{0,15}(contrasena|clave)|no puedo (entrar|ingresar|acceder)/,
+  problem: /(problema|queja|reclam|denunci|estaf|me robaron|no (me )?(llego|llegaron|ha llegado|han llegado)|nunca (me )?llego|pedido (incorrecto|equivocado|danado|roto|mal|incompleto)|me (cobraron|enviaron) (mal|de mas|otro)|(pagina|web|sitio|app|aplicacion) (no |esta |se )?(funciona|carga|abre|cae|traba|rota|caida)|no funciona|da(ndo)? error|hablar con (un |el |una )?(humano|persona|administrador|vendedor|soporte)|contactar (al )?(soporte|administrador))/,
   register: /(registr|crear|abrir|hacer|sacar).{0,15}(cuenta|usuario|perfil)|como (me )?registro|registrarme|darme de alta|sign ?up/,
 };
 
@@ -92,6 +93,15 @@ export async function routeAssistantIntent(message, { sessionEmail } = {}) {
 
   const done = (a, followUps = []) => ({ text: a.text, actions: { links: (a.links ?? []).filter(Boolean) }, followUps });
 
+  if (RE.problem.test(m)) {
+    const web = /pagina|web|sitio|app|aplicacion|funciona|error/.test(m) && !/pedido|orden|compra/.test(m);
+    return {
+      text: web
+        ? "Lamento el problema con la web. Déjame tus datos y lo que pasó para avisar al equipo; te contactarán directamente."
+        : "Lamento el problema con tu pedido. Déjame tus datos y lo que pasó para avisar a quien corresponde; te contactarán directamente.",
+      actions: { supportForm: { kind: web ? "WEB" : "ORDER", code: codeInMessage ? codeInMessage.toUpperCase() : "" } },
+    };
+  }
   if (codeInMessage || RE.order.test(m)) {
     if (codeInMessage) {
       const result = await orderStatusAnswer({ code: codeInMessage, name: nameFromMessage(raw), sessionEmail });

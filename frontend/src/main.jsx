@@ -20,10 +20,19 @@ import "@fontsource/inter/latin-500.css";
 import "@fontsource/inter/latin-600.css";
 import "@fontsource/inter/latin-700.css";
 import "./index.css";
+import { reloadOnceForNewVersion } from "./components/ErrorBoundary.jsx";
+import { UnsavedGuardProvider } from "./lib/unsavedGuard.jsx";
+
+// Vite avisa cuando falla la descarga de un archivo de la página (versión nueva publicada): se recarga una vez.
+window.addEventListener("vite:preloadError", (e) => {
+  e.preventDefault();
+  reloadOnceForNewVersion();
+});
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <UnsavedGuardProvider>
       {/* Bloque 136 (pedido explícito): PersistQueryClientProvider en vez
           del QueryClientProvider de siempre — hidrata el caché desde
           localStorage ANTES de que las páginas monten, así una pantalla ya
@@ -71,6 +80,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           </LocationProvider>
         </AuthProvider>
       </PersistQueryClientProvider>
+      </UnsavedGuardProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

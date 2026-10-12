@@ -71,6 +71,8 @@ const AdminErrors = lazy(() => import("./pages/admin/AdminErrors.jsx"));
 const AdminChat = lazy(() => import("./pages/admin/AdminChat.jsx"));
 const AdminLocations = lazy(() => import("./pages/admin/AdminLocations.jsx"));
 const AdminCategories = lazy(() => import("./pages/admin/AdminCategories.jsx"));
+const AdminSupportCases = lazy(() => import("./pages/admin/AdminSupportCases.jsx"));
+const AdminProductCategories = lazy(() => import("./pages/admin/AdminProductCategories.jsx"));
 const AdminProfile = lazy(() => import("./pages/admin/AdminProfile.jsx"));
 const AdminPages = lazy(() => import("./pages/admin/AdminPages.jsx"));
 const AdminFaq = lazy(() => import("./pages/admin/AdminFaq.jsx"));
@@ -307,6 +309,8 @@ export default function App() {
         <Route path="errores" element={<AdminErrors />} />
         <Route path="ubicaciones" element={<AdminLocations />} />
         <Route path="categorias" element={<AdminCategories />} />
+        <Route path="casos-soporte" element={<AdminSupportCases />} />
+        <Route path="categorias-producto" element={<AdminProductCategories />} />
         <Route path="paginas" element={<AdminPages />} />
         <Route path="preguntas-frecuentes" element={<AdminFaq />} />
         <Route path="contacto" element={<AdminContacto />} />

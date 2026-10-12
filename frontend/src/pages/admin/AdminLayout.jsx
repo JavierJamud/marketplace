@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Boxes, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -49,6 +49,8 @@ const NAV = [
   { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount" },
   { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2, badge: "locationSuggestionsCount" },
   { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags },
+  { to: "/admin/casos-soporte", label: "Casos de soporte", icon: LifeBuoy },
+  { to: "/admin/categorias-producto", label: "Categorías de producto", icon: Boxes },
   // Bloque 53: "Páginas" quedó solo para Términos/Privacidad — FAQ, Contacto
   // y Centro de ayuda pasaron a tener su propia entrada de menú.
   { to: "/admin/paginas", label: "Términos y privacidad", icon: FileText },

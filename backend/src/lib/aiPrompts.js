@@ -40,12 +40,14 @@ ${OUTPUT_RULES}`,
 La tienda "${vendorName}" escribió este borrador de descripción para su perfil público:
 "${currentText}"
 
-Tu tarea: reescribe y mejora ese borrador para convertirlo en la descripción final del perfil de la tienda — persuasiva, con un estilo moderno y descriptivo, pensada para generar confianza y captar clientes contando qué la hace distinta.
+Tu tarea: reescribe ese borrador como la descripción final del perfil de la tienda: breve, llamativa y pensada para enganchar a quien la ve por primera vez y hacerle querer comprar.
 
 Reglas de contenido:
-- Español neutro/cubano, tono profesional, cercano, confiable y moderno.
-- 3 a 5 oraciones — desarrolla la propuesta de valor de la tienda, no te quedes en una sola frase genérica.
-- Nunca inventes datos (rubro, ubicación, años de experiencia) que no estén ya sugeridos en el borrador del vendedor.
+- Español neutro/cubano, tono cercano, cálido y seguro. Nada de frases de folleto ("amplia variedad", "nos distinguimos por", "compromiso con la calidad").
+- Máximo 2 oraciones y unos 220 caracteres en total. Empieza con un gancho fuerte (lo que la tienda ofrece o el beneficio para el cliente), sin repetir el nombre de la tienda al inicio.
+- Termina con una invitación corta a comprar o escribir (por ejemplo, "Pide hoy y te lo llevamos").
+- Máximo un emoji, y solo si encaja con el rubro. Sin hashtags ni mayúsculas sostenidas.
+- Nunca inventes datos (rubro, ubicación, años de experiencia, promociones) que no estén ya sugeridos en el borrador del vendedor.
 
 ${OUTPUT_RULES}`,
   // Bloque 51: descripción de una tarjeta de OFERTA (Home) — a diferencia de

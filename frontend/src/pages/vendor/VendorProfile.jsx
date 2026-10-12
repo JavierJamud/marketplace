@@ -1,4 +1,5 @@
 import TwoFactorCard from "../../components/TwoFactorCard.jsx";
+import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { useEffect, useRef, useState } from "react";
 import { Link, useOutletContext, useNavigate, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -364,6 +365,15 @@ function StoreInfoCard() {
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios."),
   });
+
+  // Aviso al salir con cambios sin guardar (lib/unsavedGuard.jsx).
+  const dirty =
+    !!vendor &&
+    (form.companyName !== vendor.companyName ||
+      form.description !== (vendor.description ?? "") ||
+      form.whatsapp !== vendor.whatsapp ||
+      form.businessCategoryId !== (vendor.businessCategory?.id ?? ""));
+  useUnsavedGuard(dirty, () => save.mutateAsync());
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">

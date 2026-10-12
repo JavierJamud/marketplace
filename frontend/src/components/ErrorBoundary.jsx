@@ -9,6 +9,25 @@ import { openErrorReport } from "../lib/errorReport.js";
 // dejaba una pantalla blanca, sin ningún aviso. Esto envuelve TODAS las
 // rutas (ver App.jsx) para que ese caso siempre caiga acá en vez de a una
 // pantalla vacía.
+// Tras un despliegue, una pestaña que ya estaba abierta pide archivos de la versión anterior que ya no existen ("Failed to
+// fetch dynamically imported module"). No es un fallo real: basta recargar para bajar la versión nueva. Se recarga sola una
+// vez (con una marca para no entrar en bucle si el problema fuera otro).
+export function isStaleChunkError(error) {
+  return /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk [\w-]+ failed|Unable to preload CSS/i.test(String(error?.message ?? error));
+}
+
+export function reloadOnceForNewVersion() {
+  try {
+    const last = Number(sessionStorage.getItem("chunk_reload_at") || 0);
+    if (Date.now() - last < 15000) return false;
+    sessionStorage.setItem("chunk_reload_at", String(Date.now()));
+  } catch {
+    return false;
+  }
+  window.location.reload();
+  return true;
+}
+
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -20,6 +39,7 @@ export class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
+    if (isStaleChunkError(error) && reloadOnceForNewVersion()) return;
     console.error("ErrorBoundary atrapó un error de render:", error, info);
     this.failure = { method: "RENDER", path: window.location.pathname, status: null, message: String(error?.message ?? error).slice(0, 300), at: new Date().toISOString() };
   }

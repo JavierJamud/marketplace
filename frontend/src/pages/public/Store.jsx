@@ -693,7 +693,7 @@ export default function Store() {
       )}
 
       {/* COMENTARIOS */}
-      <div ref={reviewsRef} id="resenas" className="container-app pt-11">
+      <div ref={reviewsRef} id="resenas" className="container-app pb-16 pt-11">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Comentarios de compradores</h2>
         <p className="mb-5 text-label-sm text-outline">
           Públicos y visibles para todos. Solo compradores registrados pueden comentar —{" "}

@@ -44,7 +44,7 @@ export default function Product() {
   const { vendorSlug, productSlug } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { addItem, items } = useCart();
+  const { addItem, updateQuantity, items } = useCart();
   const { user } = useAuth();
   const { siteName, reviewDedupHours, maxReviewsPerProductPerPeriod } = usePlatformSettings();
   const [qty, setQty] = useState(1);
@@ -247,7 +247,10 @@ export default function Product() {
   const cartQuantity = product ? items.find((i) => i.productId === product.id && i.size === (hasSizes ? selectedSize : null))?.quantity ?? 0 : 0;
   // Techo real: lo que ya tienes en el carrito cuenta contra el stock total,
   // así no se puede acumular más de lo disponible entre pantallas distintas.
-  const remainingStock = product ? Math.max(0, (stockForSelection ?? Infinity) - cartQuantity) : Infinity;
+  const remainingStock = product ? Math.max(0, stockForSelection ?? Infinity) : Infinity;
+  // La cantidad del control es la que queda en el carrito: si ya hay unidades de este producto (y talla), arranca en esa cifra y el
+  // botón solo ofrece "Actualizar carrito" cuando la cambias. Así no se duplican líneas ni se suman unidades por error.
+  const qtyChanged = cartQuantity > 0 && qty !== cartQuantity;
 
   // Bug real reportado en vivo: el cliente ponía cantidad 2 con una talla que
   // tenía 2+ en stock, cambiaba a otra talla con solo 1 disponible, y el
@@ -259,6 +262,11 @@ export default function Product() {
   useEffect(() => {
     if (remainingStock > 0 && qty > remainingStock) setQty(remainingStock);
   }, [remainingStock]);
+
+  useEffect(() => {
+    setQty(cartQuantity > 0 ? Math.min(cartQuantity, remainingStock || cartQuantity) : 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product?.id, selectedSize, cartQuantity]);
 
   // Bloque 69 (mismo criterio que Store.jsx): si venimos de /cuenta?next=...
   // #resenas tras loguearnos para reseñar, llevar la vista directo ahí.
@@ -341,6 +349,14 @@ export default function Product() {
     // `addItem` solo abrió CartConflictModal sin agregar nada de verdad
     // (carrito con otra tienda) — el toast de éxito solo sale si `addItem`
     // confirma que agregó de verdad.
+    if (cartQuantity > 0) {
+      if (qty === cartQuantity) return;
+      updateQuantity(product.id, qty, hasSizes ? selectedSize : null);
+      toast.success("Carrito actualizado ✓");
+      setAdded(true);
+      setTimeout(() => setAdded(false), 2000);
+      return;
+    }
     const result = addItem(
       {
         id: product.id,
@@ -607,39 +623,53 @@ export default function Product() {
               (RequestProductButton), que no usa ninguna cantidad — el
               stepper no tiene sentido ahí, así que se oculta del todo en vez
               de mostrar un número que no representa nada real. */}
-          {remainingStock > 0 && (
-            <div className="mb-3.5 flex items-center gap-3.5">
-              <div className="flex items-center rounded border border-outline-variant">
-                <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[46px] w-10 items-center justify-center text-lg text-on-surface">
-                  <Minus className="h-4 w-4" />
-                </button>
-                <div className="w-[42px] text-center text-title-lg font-semibold">{qty}</div>
-                <button
-                  onClick={() => setQty((q) => Math.min(q + 1, remainingStock || 1))}
-                  disabled={qty >= remainingStock}
-                  className={`flex h-[46px] w-10 items-center justify-center text-lg ${qty >= remainingStock ? "cursor-not-allowed text-outline/40" : "text-on-surface"}`}
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          )}
           {!product.unlimitedStock && product.stock === 0 ? (
             <RequestProductButton productId={product.id} alreadyRequested={product.alreadyRequested} />
           ) : (
-            <button
-              onClick={handleAddToCart}
-              disabled={hasSizes ? !selectedSize || remainingStock === 0 : remainingStock === 0}
-              className="mb-2 flex h-12 w-full items-center justify-center gap-2 rounded bg-secondary-container text-label-md font-bold text-on-secondary-container hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+            <div
+              className={`mb-2 flex h-12 w-full items-stretch overflow-hidden rounded-full border ${
+                cartQuantity > 0 && !qtyChanged ? "border-tertiary-accent/40 bg-tertiary-accent/10" : "border-transparent bg-secondary-container"
+              } ${hasSizes && !selectedSize ? "opacity-60" : ""}`}
             >
-              <ShoppingCart className="h-[18px] w-[18px]" />{" "}
-              {hasSizes && !selectedSize ? "Elige una talla" : remainingStock === 0 ? "Sin stock disponible" : "Agregar al carrito"}
-            </button>
+              {remainingStock > 0 && (!hasSizes || selectedSize) && (
+                <div className="flex flex-shrink-0 items-center border-r border-black/10">
+                  <button
+                    type="button"
+                    aria-label="Menos unidades"
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    disabled={qty <= 1}
+                    className="flex h-full w-11 items-center justify-center text-on-secondary-container disabled:opacity-40"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <span aria-live="polite" className="min-w-[28px] text-center text-[15px] font-bold text-on-secondary-container">{qty}</span>
+                  <button
+                    type="button"
+                    aria-label="Más unidades"
+                    onClick={() => setQty((q) => Math.min(q + 1, remainingStock || 1))}
+                    disabled={qty >= remainingStock}
+                    className="flex h-full w-11 items-center justify-center text-on-secondary-container disabled:opacity-40"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                disabled={hasSizes ? !selectedSize || remainingStock === 0 : remainingStock === 0}
+                className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 text-label-md font-bold text-on-secondary-container hover:brightness-95 disabled:cursor-not-allowed"
+              >
+                <ShoppingCart className="h-[18px] w-[18px] flex-shrink-0" />
+                <span className="truncate">
+                  {hasSizes && !selectedSize ? "Elige una talla" : remainingStock === 0 ? "Sin stock disponible" : qtyChanged ? "Actualizar carrito" : cartQuantity > 0 ? "En tu carrito" : "Agregar al carrito"}
+                </span>
+              </button>
+            </div>
           )}
-          {cartQuantity > 0 && (
+          {cartQuantity > 0 && cartQuantity >= remainingStock && remainingStock > 0 && (
             <p className="mb-2 text-center text-[12.5px] font-semibold text-tertiary-accent">
-              🛒 Ya tienes {cartQuantity} en tu carrito
-              {remainingStock === 0 && product.stock > 0 && " · alcanzaste el máximo disponible"}
+              Tienes en el carrito todo lo disponible.
             </p>
           )}
           {added && (
@@ -668,7 +698,7 @@ export default function Product() {
           pueden llevar reseñas" — antes esta sección era de solo lectura,
           sin ningún formulario para publicar una nueva). Mismo patrón que
           Store.jsx, con `productId` sumado al payload. */}
-      <section ref={reviewsRef} id="resenas" className="container-app pt-14">
+      <section ref={reviewsRef} id="resenas" className="container-app pb-16 pt-14 sm:pb-20">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Reseñas de clientes</h2>
         <p className="mb-5 text-label-sm text-outline">
           Públicas y visibles para todos. Solo compradores registrados pueden reseñar —{" "}

@@ -37,7 +37,9 @@ const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rod
 async function createSession(user, browserId) {
   const resolvedBrowserId = browserId || randomUUID();
   await prisma.session.updateMany({
-    where: { userId: user.id, browserId: resolvedBrowserId, revokedAt: null },
+    // Un solo inicio de sesión por navegador: al entrar una cuenta (aunque sea otra distinta) se cierra la que hubiera abierta
+    // en este mismo navegador o dispositivo.
+    where: { browserId: resolvedBrowserId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
 

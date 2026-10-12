@@ -4,6 +4,7 @@ import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from 
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
 import { rankFeaturedProducts } from "../lib/productRanking.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
+import { recordSearchTerm, getTrendingSearches } from "../lib/trendingSearches.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
 // "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
@@ -278,7 +279,14 @@ export async function structuredSearch(req, res) {
   }
 
   const withBestSeller = await attachBestSellerFlag(products);
+  if (cleanQ) recordSearchTerm(cleanQ, withBestSeller.length);
   res.json({ products: withBestSeller.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })), nearbyProvinces });
+}
+
+// Lo más buscado por los clientes (ya filtrado y redactado por IA). Lo lee la portada.
+export async function trendingSearches(_req, res) {
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({ items: await getTrendingSearches() });
 }
 
 // --- Bloque 22: autocompletado en vivo -------------------------------------

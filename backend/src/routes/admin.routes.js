@@ -17,6 +17,7 @@ import * as errorLogsController from "../controllers/errorLogs.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
 import * as staticPagesController from "../controllers/staticPages.controller.js";
 import * as faqController from "../controllers/faq.controller.js";
+import * as categoriesController from "../controllers/categories.controller.js";
 import * as discountCodesController from "../controllers/discountCodes.controller.js";
 import * as storeOffersController from "../controllers/storeOffers.controller.js";
 import * as adminOffersController from "../controllers/adminOffers.controller.js";
@@ -181,6 +182,8 @@ router.delete("/customers/:id", requireActionCode("DELETE_CUSTOMER"), adminContr
 // puntual (distinto del envío masivo de /campaigns).
 router.get("/search", adminController.adminSearch);
 router.get("/notifications", adminController.listAdminNotifications);
+router.get("/support-cases", adminController.listSupportCases);
+router.patch("/support-cases/:id/resolve", adminController.resolveSupportCase);
 router.post("/emails", adminController.sendAdminEmail);
 
 // Bloque 70 (pedido explícito): historial de acciones de vendedores/clientes
@@ -246,6 +249,10 @@ router.get("/locations/provinces/:provinceId/municipalities", locationsControlle
 router.post("/locations/provinces/:provinceId/municipalities", locationsController.createMunicipality);
 router.patch("/locations/municipalities/:id", locationsController.updateMunicipality);
 router.delete("/locations/municipalities/:id", requireActionCode("CATALOG_DELETE"), locationsController.deleteMunicipality);
+router.get("/product-categories", categoriesController.listCategoriesAdmin);
+router.post("/product-categories", categoriesController.createCategory);
+router.patch("/product-categories/:id", categoriesController.updateCategoryAdmin);
+router.delete("/product-categories/:id", requireActionCode("CATALOG_DELETE"), categoriesController.deleteCategoryAdmin);
 router.get("/business-categories", businessCategoriesController.listBusinessCategoriesAdmin);
 router.post("/business-categories", businessCategoriesController.createBusinessCategory);
 router.patch("/business-categories/:id", businessCategoriesController.updateBusinessCategory);

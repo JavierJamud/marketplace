@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { Link, useSearchParams, useOutletContext, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -425,6 +426,10 @@ export default function VendorVerification() {
     }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Aviso al salir con datos escritos o fotos tomadas que todavía no se enviaron. El trámite no se puede guardar a medias:
+  // solo se puede descartar o seguir completándolo.
+  useUnsavedGuard(!!(fullName || idNumber || companyTaxId || selfieBlob || idBlob || selfieVideoBlob || idDocumentType), undefined);
 
   const submit = useMutation({
     mutationFn: async () => {

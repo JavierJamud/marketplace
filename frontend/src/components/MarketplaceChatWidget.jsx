@@ -175,6 +175,54 @@ function OrderStatusForm({ initialCode, onResult }) {
   );
 }
 
+// Problema con un pedido o con la web: antes de avisar a quien corresponde (vendedor del pedido o admin) se piden nombre, teléfono
+// y correo, y un mensaje opcional.
+function SupportForm({ kind: initialKind, initialCode, onResult }) {
+  const [kind, setKind] = useState(initialKind ?? "ORDER");
+  const [form, setForm] = useState({ name: "", phone: "", email: "", message: "", orderCode: initialCode ?? "" });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data } = await api.post("/assistant/support-case", {
+        kind,
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        message: form.message.trim() || undefined,
+        orderCode: kind === "ORDER" && form.orderCode.trim() ? form.orderCode.trim() : undefined,
+      });
+      onResult(data.text);
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "No se pudo enviar. Revisa los datos e inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const input = "h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent";
+  return (
+    <form onSubmit={submit} className="-mt-1 mb-3 flex w-full max-w-[95%] flex-col gap-2 rounded-lg border border-surface-container-high bg-surface-container-lowest p-3">
+      <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Tipo de problema">
+        {[["ORDER", "Mi pedido"], ["WEB", "La web"]].map(([value, label]) => (
+          <button key={value} type="button" onClick={() => setKind(value)} aria-pressed={kind === value} className={`min-h-11 rounded-lg border text-[12.5px] font-semibold ${kind === value ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <input className={input} value={form.name} onChange={set("name")} placeholder="Tu nombre" aria-label="Tu nombre" autoComplete="name" required minLength={2} />
+      <input className={input} value={form.phone} onChange={set("phone")} placeholder="Tu teléfono" aria-label="Tu teléfono" type="tel" autoComplete="tel" inputMode="tel" required />
+      <input className={input} value={form.email} onChange={set("email")} placeholder="Tu correo" aria-label="Tu correo" type="email" autoComplete="email" required />
+      {kind === "ORDER" && <input className={input} value={form.orderCode} onChange={(e) => setForm((f) => ({ ...f, orderCode: e.target.value.toUpperCase() }))} placeholder="Número de pedido (Z-1234)" aria-label="Número de pedido" />}
+      <textarea className={`${input} h-20 resize-none py-2`} value={form.message} onChange={set("message")} placeholder="Cuéntanos qué pasó (opcional)" aria-label="Mensaje opcional" maxLength={1000} />
+      <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-primary-container text-[13px] font-bold text-white disabled:opacity-50">
+        {busy ? "Enviando..." : "Enviar aviso"}
+      </button>
+    </form>
+  );
+}
+
 // Mismo componente que StoreChatWidget.jsx (Bloque 34) — no se comparte a
 // propósito, mismo criterio de siempre de mantener los dos widgets como
 // hermanos independientes sin importar uno del otro.
@@ -724,6 +772,13 @@ export function MarketplaceChatWidget() {
                     <OrderStatusForm
                       initialCode={m.actions.orderForm.code}
                       onResult={(text, links) => setMessages((prev) => [...prev, { id: generateId(), role: "model", content: text, actions: links?.length ? { links } : null, products: [], vendors: [] }])}
+                    />
+                  )}
+                  {m.actions?.supportForm && i === messages.length - 1 && (
+                    <SupportForm
+                      kind={m.actions.supportForm.kind}
+                      initialCode={m.actions.supportForm.code}
+                      onResult={(text) => setMessages((prev) => [...prev, { id: generateId(), role: "model", content: text, actions: null, products: [], vendors: [] }])}
                     />
                   )}
                   {/* Bloque 34: rediseñadas como lista vertical (no

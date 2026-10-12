@@ -118,9 +118,29 @@ export function AuthProvider({ children }) {
   // MISMA pestaña que hizo el cambio, solo en las demás) y se cierra
   // igual — ninguna debe quedar con la vista de adentro sin datos.
   useEffect(() => {
+    // Id de la persona dueña de un token de acceso (campo "sub" del JWT), sin verificarlo: solo sirve para saber si otra
+    // pestaña entró con una cuenta distinta.
+    function tokenOwner(token) {
+      try {
+        return JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).sub ?? null;
+      } catch {
+        return null;
+      }
+    }
     function onStorage(e) {
-      if (e.key === ACCESS_TOKEN_KEY && !e.newValue && userRef.current) {
+      if (e.key !== ACCESS_TOKEN_KEY || !userRef.current) return;
+      if (!e.newValue) {
         clearLocalSession();
+        navigate(loginPathFor(locationRef.current.pathname), { replace: true });
+        return;
+      }
+      // Otra pestaña inició sesión con OTRA cuenta: aquí solo puede haber una sesión a la vez, así que esta pestaña se
+      // cierra (sin tocar las llaves nuevas, que son de la otra pestaña).
+      const owner = tokenOwner(e.newValue);
+      if (owner && owner !== userRef.current.id) {
+        queryClient.clear();
+        setUser(null);
+        setIdleWarningActive(false);
         navigate(loginPathFor(locationRef.current.pathname), { replace: true });
       }
     }

@@ -1835,8 +1835,24 @@ export async function adminSearch(req, res) {
 // estrictamente "acción pendiente").
 const RECENT_ORDERS_WINDOW_MS = 2 * 60 * 60 * 1000;
 
+// Casos que los clientes le contaron al asistente (problemas con un pedido o con la web) y que quedaron para el admin.
+export async function listSupportCases(_req, res) {
+  const cases = await prisma.supportCase.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 100,
+    include: { vendor: { select: { companyName: true, slug: true } } },
+  });
+  res.json({ cases });
+}
+
+export async function resolveSupportCase(req, res) {
+  const updated = await prisma.supportCase.update({ where: { id: req.params.id }, data: { status: "RESOLVED", resolvedAt: new Date() } }).catch(() => null);
+  if (!updated) throw new AppError("Caso no encontrado.", 404);
+  res.json({ case: updated });
+}
+
 export async function listAdminNotifications(_req, res) {
-  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders] = await Promise.all([
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases] = await Promise.all([
     prisma.vendor.findMany({
       where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } },
       select: { id: true, companyName: true, createdAt: true },
@@ -1885,9 +1901,16 @@ export async function listAdminNotifications(_req, res) {
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
+    prisma.supportCase.findMany({ where: { status: "OPEN", vendorId: null }, select: { id: true, name: true, kind: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5 }),
   ]);
 
   const items = [
+    ...openSupportCases.map((c) => ({
+      id: `support-${c.id}`,
+      text: `${c.kind === "ORDER" ? "Problema con un pedido" : "Problema con la web"}: ${c.name}`,
+      to: "/admin/casos-soporte",
+      createdAt: c.createdAt,
+    })),
     ...pendingVerifications.map((v) => ({
       id: `verification-${v.id}`,
       text: `Verificación pendiente: ${v.companyName}`,

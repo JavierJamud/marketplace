@@ -97,6 +97,15 @@ export const orderStatusRateLimit = rateLimit({
   message: { error: "Demasiadas consultas de pedidos. Espera unos minutos y prueba de nuevo." },
 });
 
+// Problemas que el cliente le cuenta al asistente: pocos por hora, cada uno avisa por correo a una persona real.
+export const supportCaseRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Ya enviaste varios reportes. Espera un rato antes de enviar otro." },
+});
+
 // Bloque 305: reportes manuales de errores. Generoso para uso real, evita que un script llene la bandeja del admin.
 export const errorReportRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,

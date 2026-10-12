@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
+import { CategoryPicker } from "../../components/CategoryPicker.jsx";
 import { Pencil, Trash2, X, ArrowUpDown, Star, Ruler, Layers, Package } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
@@ -507,28 +508,7 @@ function ProductModal({ product, planType, isRestaurant, categories, onClose, ve
             />
           </div>
 
-          <Select
-            label="Categoría"
-            required
-            value={form.categoryId}
-            onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-          >
-            <option value="" disabled>
-              Elige una categoría...
-            </option>
-            {categories?.map((c) =>
-              c.children?.length ? (
-                <optgroup key={c.id} label={c.name}>
-                  <option value={c.id}>{c.name} (general)</option>
-                  {c.children.map((child) => (
-                    <option key={child.id} value={child.id}>{child.name}</option>
-                  ))}
-                </optgroup>
-              ) : (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              )
-            )}
-          </Select>
+          <CategoryPicker label="Categoría" required value={form.categoryId} onChange={(id) => setForm((f) => ({ ...f, categoryId: id }))} categories={categories} />
 
           <div className="grid grid-cols-[1fr_1fr_120px] gap-3">
             <Input label="Precio" type="number" min={1} required value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
@@ -1026,6 +1006,16 @@ export default function VendorProducts() {
     next.delete("editar");
     setSearchParams(next, { replace: true });
   }, [editId, isLoading, data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ?nuevo=1 (desde los pasos para activar el Premium): abre el formulario de producto nuevo.
+  const wantsNew = searchParams.get("nuevo");
+  useEffect(() => {
+    if (!wantsNew || isLoading) return;
+    if (!(data?.limit != null && (data?.products?.length ?? 0) >= data.limit)) setModalState({ mode: "new" });
+    const next = new URLSearchParams(searchParams);
+    next.delete("nuevo");
+    setSearchParams(next, { replace: true });
+  }, [wantsNew, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function closeModal() {
     setModalState(null);

@@ -4,7 +4,7 @@ import * as assistantController from "../controllers/assistant.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { assistantDocUpload } from "../middleware/assistantDocUpload.js";
-import { chatRateLimit, orderStatusRateLimit } from "../middleware/rateLimit.js";
+import { chatRateLimit, orderStatusRateLimit, supportCaseRateLimit } from "../middleware/rateLimit.js";
 
 const router = Router();
 
@@ -16,6 +16,7 @@ const router = Router();
 router.get("/chat", assistantController.getMarketplaceChatHistory);
 router.get("/suggestions", assistantController.getChatSuggestions);
 router.post("/order-status", orderStatusRateLimit, assistantController.postOrderStatus);
+router.post("/support-case", supportCaseRateLimit, assistantController.postSupportCase);
 router.post("/chat", chatRateLimit, streamable(assistantController.postMarketplaceChatMessage));
 
 // Admin: entrenar al bot general con documentación.

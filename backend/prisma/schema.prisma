@@ -422,6 +422,9 @@ model Category {
   parentId String?
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
+  // true cuando la creó un vendedor al cargar un producto (el admin la puede revisar, renombrar, mover o eliminar).
+  isUserCreated Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
   products Product[]
   vendors  Vendor[] @relation("VendorCategory")
@@ -1269,6 +1272,7 @@ model Vendor {
   engagements   VendorEngagement[]
   messages      VendorMessage[]
   notifications VendorNotification[]
+  supportCases  SupportCase[]
   deliveryCountries VendorDeliveryCountry[]
   favorites     Favorite[]
   chatMessages  ChatMessage[]
@@ -2352,6 +2356,8 @@ model SiteSettings {
   // cada día con lo que preguntan y buscan los clientes (ver lib/assistantLearning.js).
   botAutoLearn         Boolean   @default(true)
   botLearningSnapshot  Json?
+  // "Lo más buscado" de la portada: términos elegidos y frases generadas por IA (lib/trendingSearches.js).
+  trendingSearches Json?
   botLearningAt        DateTime?
   // Bloque 49: nombre y logo de la plataforma, editables desde "Marca de la
   // plataforma" en el admin — consumidos en todo el sitio (header, footer,
@@ -2760,6 +2766,8 @@ enum VendorNotificationType {
   // pedido normal (no de mesa) nunca generaba ninguna VendorNotification —
   // solo los pedidos de mesa tenían aviso propio (NewOrderPopup.jsx).
   NEW_ORDER
+  // Un cliente reportó un problema con un pedido desde el asistente del sitio.
+  SUPPORT_CASE
 }
 
 model VendorNotification {
@@ -3581,4 +3589,47 @@ model PartnerApplication {
 
   @@index([status, createdAt])
   @@index([email])
+}
+
+// Búsquedas reales de clientes que dieron resultados (en minúsculas y sin tildes). Alimenta "Lo más buscado" de la portada.
+model SearchTerm {
+  id             String   @id @default(cuid())
+  term           String   @unique
+  count          Int      @default(1)
+  blocked        Boolean  @default(false)
+  lastSearchedAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([count])
+}
+
+// Problema que un cliente le cuenta al asistente (pedido o sitio web). Se guarda con los datos de contacto que dejó y se avisa
+// al vendedor del pedido (si lo hay) o al admin, con aviso en el panel y por correo.
+enum SupportCaseKind {
+  ORDER
+  WEB
+}
+
+enum SupportCaseStatus {
+  OPEN
+  RESOLVED
+}
+
+model SupportCase {
+  id         String            @id @default(cuid())
+  kind       SupportCaseKind
+  status     SupportCaseStatus @default(OPEN)
+  name       String
+  phone      String
+  email      String
+  message    String?
+  orderCode  String?
+  vendorId   String?
+  createdAt  DateTime          @default(now())
+  resolvedAt DateTime?
+
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([vendorId])
 }

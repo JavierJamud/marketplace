@@ -21,7 +21,7 @@ export function UnsavedChangesModal({ open, onSave, onDiscard, onCancel, saving 
           <AlertTriangle className="h-6 w-6 text-primary" />
         </div>
         <h2 className="mb-2 text-[16px] font-bold text-on-surface">Tienes cambios sin guardar</h2>
-        <p className="mb-5 text-[13.5px] leading-relaxed text-on-surface-variant">¿Quieres guardarlos antes de salir?</p>
+        <p className="mb-5 text-[13.5px] leading-relaxed text-on-surface-variant">{onSave ? "¿Quieres guardarlos antes de salir?" : "Si sales ahora, lo que escribiste se perderá."}</p>
         <div className="flex flex-col gap-2">
           {onSave && (
             <button

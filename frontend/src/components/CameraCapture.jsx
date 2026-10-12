@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, RotateCcw, AlertTriangle, ArrowLeftCircle, ArrowRightCircle, ScanFace } from "lucide-react";
+import { createFaceDetector, faceDetectionSupported } from "../lib/faceDetection.js";
 
 const COUNTDOWN_SECONDS = 3;
 
@@ -22,7 +23,9 @@ const COUNTDOWN_SECONDS = 3;
 // El botón "Capturar" manual SIEMPRE queda disponible en los 2 casos — la
 // detección automática es un plus, nunca lo único que puede disparar la
 // foto (así ningún navegador queda sin poder completar el trámite).
-const hasFaceDetector = typeof window !== "undefined" && "FaceDetector" in window;
+// Detección de rostro en cualquier navegador: el detector nativo (Chrome/Edge) o MediaPipe (Firefox, Safari y el resto), ver
+// lib/faceDetection.js. Antes solo funcionaba en Chrome y en los demás la selfie había que tomarla a mano.
+const hasFaceDetector = faceDetectionSupported();
 const hasMediaRecorder = typeof window !== "undefined" && "MediaRecorder" in window;
 
 // Cuánto tiene que durar la cara bien encuadrada (o el documento quieto)
@@ -147,43 +150,46 @@ export function CameraCapture({ shape, label, instructions, facingMode = "user",
     let lastRun = 0;
 
     if (shape === "oval") {
-      if (!faceDetectorRef.current) {
-        try {
-          faceDetectorRef.current = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-        } catch {
-          return; // API presente pero falló al construir — se queda en manual.
-        }
-      }
-      const tick = (ts) => {
-        if (cancelled) return;
-        if (ts - lastRun >= DETECT_INTERVAL_MS && videoRef.current?.readyState >= 2) {
-          lastRun = ts;
-          faceDetectorRef.current
-            .detect(videoRef.current)
-            .then((faces) => {
-              if (cancelled) return;
-              const ok = faces.length === 1 && isFaceWellFramed(faces[0], videoRef.current);
-              if (ok) {
-                stableFramesRef.current += 1;
-                setFaceState("detected");
-                if (stableFramesRef.current >= REQUIRED_STABLE_FRAMES) {
-                  cancelled = true;
-                  startCountdown();
-                  return;
+      const begin = () => {
+        const tick = (ts) => {
+          if (cancelled) return;
+          if (ts - lastRun >= DETECT_INTERVAL_MS && videoRef.current?.readyState >= 2) {
+            lastRun = ts;
+            Promise.resolve(faceDetectorRef.current.detect(videoRef.current))
+              .then((faces) => {
+                if (cancelled) return;
+                const ok = faces.length === 1 && isFaceWellFramed(faces[0], videoRef.current);
+                if (ok) {
+                  stableFramesRef.current += 1;
+                  setFaceState("detected");
+                  if (stableFramesRef.current >= REQUIRED_STABLE_FRAMES) {
+                    cancelled = true;
+                    startCountdown();
+                    return;
+                  }
+                } else {
+                  stableFramesRef.current = 0;
+                  setFaceState("searching");
                 }
-              } else {
-                stableFramesRef.current = 0;
-                setFaceState("searching");
-              }
-            })
-            .catch(() => {
-              // Un frame que falla no rompe nada — simplemente no cuenta
-              // para la racha de frames estables.
-            });
-        }
+              })
+              .catch(() => {
+                // Un frame que falla no rompe nada: simplemente no cuenta para la racha de frames estables.
+              });
+          }
+          detectRafRef.current = requestAnimationFrame(tick);
+        };
         detectRafRef.current = requestAnimationFrame(tick);
       };
-      detectRafRef.current = requestAnimationFrame(tick);
+      if (faceDetectorRef.current) begin();
+      else {
+        // El detector puede tardar unos segundos la primera vez (descarga del modelo); la captura manual sigue disponible.
+        createFaceDetector()
+          .then((det) => {
+            faceDetectorRef.current = det;
+            if (!cancelled) begin();
+          })
+          .catch(() => {});
+      }
     } else {
       // Documento: estabilidad de frames (poco movimiento) + contraste real
       // (hay algo adentro del marco, no una superficie lisa) — ver el
