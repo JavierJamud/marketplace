@@ -240,6 +240,8 @@ server {
 
     # SPA de React: cualquier ruta cae en index.html (sin caché, para ver siempre la última versión)
     location / {
+        # SSI: la portada recibe la precarga de su primera imagen (ver /api/hero-preload e index.html).
+        ssi on;
         add_header Cache-Control "no-cache";
         include $RAIZ/cabeceras-seguridad.conf;
         try_files \$uri \$uri/ /index.html;

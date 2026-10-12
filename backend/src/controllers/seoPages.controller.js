@@ -280,3 +280,15 @@ ${images.map((i) => `<img src="${esc(i)}" alt="${esc(product.name)}" width="400"
     })
   );
 }
+
+// Precarga de la primera imagen del encabezado. Nginx la inserta en el HTML de la portada (SSI, ver index.html) para que
+// el navegador empiece a bajarla desde el primer momento, sin esperar a la aplicación ni a /settings.
+export async function heroPreload(_req, res) {
+  const settings = await prisma.siteSettings.findFirst({ select: { heroImages: true } });
+  const first = settings?.heroImages?.[0];
+  res.set({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  if (!first) return res.send("");
+  const full = `${env.backendUrl}${first}`;
+  const small = full.replace(/\.(webp|png|jpe?g)$/i, ".w720.webp");
+  res.send(`<link rel="preload" as="image" href="${esc(full)}" imagesrcset="${esc(small)} 720w, ${esc(full)} 1200w" imagesizes="(min-width: 1024px) 600px, 92vw" fetchpriority="high" />`);
+}

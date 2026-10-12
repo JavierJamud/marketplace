@@ -56,7 +56,7 @@ import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
 import { renderStoreOgImagePng } from "./controllers/og.controller.js";
-import { renderStorePage, renderProductPage, sitemapXml } from "./controllers/seoPages.controller.js";
+import { renderStorePage, renderProductPage, sitemapXml, heroPreload } from "./controllers/seoPages.controller.js";
 
 export const app = express();
 
@@ -171,6 +171,7 @@ app.use("/uploads/reports", express.static(REPORT_UPLOAD_DIR));
 app.get("/og/tienda/:slug", renderStorePage);
 app.get("/og/producto/:vendorSlug/:productSlug", renderProductPage);
 app.get("/sitemap.xml", sitemapXml);
+app.get("/hero-preload", heroPreload);
 app.get("/og/tienda/:slug/imagen.png", renderStoreOgImagePng);
 
 app.use("/auth", authRoutes);

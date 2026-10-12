@@ -18,7 +18,7 @@ function cleanScript(code) {
 
 export function cleanHtml(html) {
   return html
-    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<!--(?!#)[\s\S]*?-->/g, "") // conserva las directivas SSI de Nginx (<!--# ... -->)
     .replace(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g, (m, attrs, code) => {
       const type = /\btype\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1];
       if (type && type !== "module" && type !== "text/javascript") return m;

@@ -142,6 +142,11 @@ function VenderRedirect() {
 
 export default function App() {
   useRouteSeo();
+  // Avisa al logo de carga (index.html) que la primera pantalla ya se pintó y puede retirarse.
+  useEffect(() => {
+    window.__appReady = true;
+    window.dispatchEvent(new Event("app:ready"));
+  }, []);
   return (
     <>
       <RouteLoader />

@@ -64,6 +64,7 @@
     <meta name="keywords" content="tienda en línea Cuba, comprar en Cuba, marketplace Cuba, tiendas locales, comida a domicilio Cuba, restaurantes La Habana, pago contra entrega, pedido por WhatsApp, tiendas verificadas" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <meta name="theme-color" content="#0e1a28" />
+    <!--# if expr="$request_uri = /^\/(\?.*)?$/" --><!--# include virtual="/api/hero-preload" --><!--# endif -->
     <!-- Para asistentes y agentes de IA: catálogo de recursos (ARD) y guía en Markdown. -->
     <link rel="ard" href="/.well-known/ard.json" />
     <link rel="alternate" type="text/markdown" href="/llms.txt" title="Guía para asistentes de IA" />
@@ -224,12 +225,9 @@
          de descargar y parsear). public/ se sirve tal cual, sin pasar por
          el bundler, en dev y en build — por eso acá es un <script> normal,
          sin type="module". -->
-    <script src="/logo-loader.js"></script>
-    <!-- Bloque 125: opentype.js (MIT), copia local del build UMD — ver el
-         comentario largo del <style> de arriba. Tiene que cargar ANTES del
-         <script> de abajo que lo usa (`window.opentype`), por eso va acá,
-         en orden, no con `defer`/`async`. -->
-    <script src="/opentype.min.js"></script>
+    <!-- async: el ícono se define en cuanto llega el archivo, sin frenar el dibujo de la página. -->
+    <script async src="/logo-loader.js"></script>
+    <!-- opentype.js (para dibujar el nombre letra por letra) lo carga el script del preloader en segundo plano. -->
     <div
       id="app-preloader"
       style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#0e1a28;transition:opacity 400ms ease;"
@@ -404,7 +402,7 @@
         // nombre real: no se pinta NADA hasta saber las dos cosas a la vez
         // (pedido explícito del usuario — "no debería poner ZeuDin al
         // principio y luego flashear rápido y poner el nombre real").
-        var fontSettled = !window.opentype;
+        var fontSettled = false;
         var resolvedName = null;
 
         function escapeHtml(s) {
@@ -497,13 +495,28 @@
         // opentype.min.js no cargó (script bloqueado/red lenta), `opentype`
         // no existe (fontSettled ya arrancó en true) — se queda con el
         // texto plano sin animar.
-        if (window.opentype) {
-          opentype.load("/fonts/Fredoka.ttf", function (err, font) {
-            if (!err && font) loadedFont = font;
-            fontSettled = true;
-            renderIfReady();
-          });
+        // opentype.js y la fuente llegan en segundo plano (no bloquean el primer dibujo). Si tardan más de 2,5 s o fallan,
+        // el nombre se muestra como texto normal.
+        function settleFont() {
+          if (fontSettled) return;
+          fontSettled = true;
+          renderIfReady();
         }
+        (function loadOpentype() {
+          var s = document.createElement("script");
+          s.src = "/opentype.min.js";
+          s.async = true;
+          s.onload = function () {
+            if (!window.opentype) return settleFont();
+            opentype.load("/fonts/Fredoka.ttf", function (err, font) {
+              if (!err && font) loadedFont = font;
+              settleFont();
+            });
+          };
+          s.onerror = settleFont;
+          document.head.appendChild(s);
+          setTimeout(settleFont, 2500);
+        })();
 
         // Bloque 182 (bug real reportado en vivo — "no me carga el backend
         // cuando cambio de red o no tengo internet"): antes usaba el
@@ -732,8 +745,8 @@
             tryReveal(token);
           }, SLIDE_TRIGGER_MS);
           setTimeout(function () {
-            if (token !== cycleToken) return;
-            if (pageLoaded && settingsLoaded && nameRevealedThisCycle) {
+            if (token !== cycleToken || hidden) return;
+            if (appReady && settingsLoaded) {
               hidePreloader();
             } else {
               startCycle(); // sigue cargando -> vuelve al punto inicial y repite
@@ -741,6 +754,30 @@
           }, ICON_DURATION_MS);
         }
         startCycle();
+
+        // Se retira en cuanto la página está lista para verse (React pintó la primera pantalla y llegó el nombre del
+        // sitio), sin esperar a que bajen todas las imágenes, y nunca antes de MIN_VISIBLE_MS para que el logo no parpadee.
+        // Si los ajustes no responden, se retira igual a los MAX_WAIT_MS: la página ya sabe mostrar su propio aviso.
+        var MIN_VISIBLE_MS = 1200;
+        var MAX_WAIT_MS = 4000;
+        var startedAt = Date.now();
+        var appReady = !!window.__appReady;
+        var hidden = false;
+        function maybeHide() {
+          if (hidden || !appReady) return;
+          var elapsed = Date.now() - startedAt;
+          if (!settingsLoaded && elapsed < MAX_WAIT_MS) return;
+          if (elapsed < MIN_VISIBLE_MS) {
+            setTimeout(maybeHide, MIN_VISIBLE_MS - elapsed);
+            return;
+          }
+          hidePreloader();
+        }
+        window.addEventListener("app:ready", function () {
+          appReady = true;
+          maybeHide();
+        });
+        setTimeout(maybeHide, MAX_WAIT_MS);
 
         function fetchSettings() {
           fetch(API_BASE + "/settings")
@@ -750,6 +787,7 @@
               resolvedName = name || "";
               settingsLoaded = true;
               renderIfReady();
+              maybeHide();
             })
             .catch(function () {
               setTimeout(fetchSettings, SETTINGS_RETRY_MS);
@@ -758,6 +796,7 @@
         fetchSettings();
 
         function hidePreloader() {
+          hidden = true;
           var el = document.getElementById("app-preloader");
           if (!el) return;
           if (statusTimer) {
