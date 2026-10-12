@@ -7,6 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
 import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
+import { createHeroVariant, smallVariantName } from "../lib/heroVariants.js";
 
 // Bloque 294: tope de mesas de cada plan (null = sin tope), para los formularios del restaurante.
 async function tablesLimitByPlan() {
@@ -494,6 +495,8 @@ export async function addHeroImages(req, res) {
   if (!req.files?.length) throw new AppError("Sube al menos una imagen para el hero.", 400);
 
   const newUrls = req.files.map((f) => `/uploads/site/${f.filename}`);
+  // Versión pequeña para celulares (si falla, el sitio usa la original).
+  await Promise.all(req.files.map((f) => createHeroVariant(SITE_UPLOAD_DIR, f.filename).catch(() => {})));
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({
     where: { id: settings.id },
@@ -515,6 +518,7 @@ export async function removeHeroImage(req, res) {
   // Se borra también el archivo, sin bloquear la respuesta si falla.
   const filename = url.split("/").pop();
   unlink(join(SITE_UPLOAD_DIR, filename)).catch(() => {});
+  unlink(join(SITE_UPLOAD_DIR, smallVariantName(filename))).catch(() => {});
 
   res.json({ settings: { heroImages: updated.heroImages } });
 }

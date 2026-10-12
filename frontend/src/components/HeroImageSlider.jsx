@@ -7,6 +7,7 @@ import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 // falta para el cambio; el avance lo marca el fin de esa animación, así que pasar el dedo o el ratón por encima la pausa
 // sin que se desincronice. Las imágenes pueden tener fondo transparente: se ven sobre el color del encabezado.
 const AUTOPLAY_SECONDS = 8;
+const smallVariant = (url) => url.replace(/\.(webp|png|jpe?g)$/i, ".w720.webp");
 
 export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[340px]" }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -48,6 +49,13 @@ export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[34
             <img
               key={url}
               src={url}
+              // En celular se usa la versión de 720 px (la crea el servidor al subir). Si no existiera, se quita srcset y se
+              // carga la original.
+              srcSet={`${smallVariant(url)} 720w, ${url} 1200w`}
+              sizes="(min-width: 1024px) 600px, 92vw"
+              onError={(e) => {
+                if (e.currentTarget.hasAttribute("srcset")) e.currentTarget.removeAttribute("srcset");
+              }}
               alt={i === 0 ? alt : ""}
               loading={i === 0 ? "eager" : "lazy"}
               fetchpriority={i === 0 ? "high" : "low"}
