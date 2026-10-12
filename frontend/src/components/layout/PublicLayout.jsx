@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { PageLoader } from "../ui/PageLoader.jsx";
 import { Header } from "./Header.jsx";
 import { Footer } from "./Footer.jsx";
 import { CartDrawer } from "./CartDrawer.jsx";
@@ -25,7 +27,10 @@ export function PublicLayout() {
     <div className="flex min-h-dvh flex-col">
       {!isTableOrder && <Header />}
       <main className="flex-1">
-        <Outlet />
+        {/* Las pantallas se descargan al abrirse: mientras llega una, el encabezado y el pie siguen en su lugar. */}
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
       </main>
       <Footer />
       <CartDrawer />

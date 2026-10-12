@@ -150,7 +150,7 @@ export default function Home() {
   // con uno oculto: duplicarían el autoplay y la carga de imágenes).
   const isLargeScreen = useMediaQuery("(min-width: 1024px)");
 
-  const { data: businessCategories } = useQuery({
+  const { data: businessCategories, status: categoriesStatus } = useQuery({
     queryKey: ["business-categories"],
     queryFn: async () => (await api.get("/business-categories")).data.categories,
   });
@@ -184,17 +184,22 @@ export default function Home() {
   // Bloque 50: sin fallback de "no hay ofertas": si vuelve vacío, la sección
   // entera no se monta, a diferencia de Destacados/Tiendas verificadas que
   // sí muestran un EmptyState.
-  const { data: offers } = useQuery({
+  const { data: offers, status: offersStatus } = useQuery({
     queryKey: ["home-active-offers"],
     queryFn: async () => (await api.get("/offers/active")).data.offers,
   });
 
-  const { data: settings } = useQuery({
+  const { data: settings, status: settingsStatus } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
   // Imágenes del Hero que sube el admin (HeroImageSlider hace el fundido entre ellas).
   const heroImages = (settings?.heroImages ?? []).map((u) => `${api.defaults.baseURL}${u}`);
+  // Sin que nada salte al cargar (Google lo mide como "cambios de diseño"): mientras llegan los ajustes se reserva el lugar
+  // del slider, y las secciones de abajo se pintan cuando ya se sabe si hay categorías y ofertas.
+  const settingsLoading = settingsStatus === "pending";
+  const showHeroSlot = settingsLoading || heroImages.length > 0;
+  const belowHeroReady = categoriesStatus !== "pending" && offersStatus !== "pending";
 
   return (
     <>
@@ -208,7 +213,7 @@ export default function Home() {
             principal y sin flecha). Le habla al comprador; lo de los
             vendedores vive en su propia tarjeta más abajo. */}
         <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
-          <div className={`container-app grid grid-cols-1 items-center gap-6 py-6 lg:gap-12 lg:py-8 ${heroImages.length > 0 ? "lg:grid-cols-[1.05fr_1fr]" : ""}`}>
+          <div className={`container-app grid grid-cols-1 items-center gap-6 py-6 lg:gap-12 lg:py-8 ${showHeroSlot ? "lg:grid-cols-[1.05fr_1fr]" : ""}`}>
             <div>
               <h1 className="mb-3 font-display text-headline-lg text-white md:mb-4 md:text-display-lg">
                 Compra cerca de ti, a <span className="text-secondary-container">vendedores</span> de tu provincia.
@@ -219,9 +224,13 @@ export default function Home() {
               {/* Bloque 252 (pedido explícito): en celular las imágenes del slider
                   van justo debajo del texto del hero (en la auditoría 004 se
                   habían ocultado ahí por altura; el dueño las quiere visibles). */}
-              {!isLargeScreen && heroImages.length > 0 && (
+              {!isLargeScreen && showHeroSlot && (
                 <div className="mb-6">
-                  <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} heightClass="h-[220px] sm:h-[300px]" />
+                  {settingsLoading ? (
+                    <div className="h-[268px] sm:h-[348px]" aria-hidden="true" />
+                  ) : (
+                    <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} heightClass="h-[220px] sm:h-[300px]" />
+                  )}
                 </div>
               )}
               {/* Bloque 255 (pedido explícito): el radio de los botones es el mismo de las
@@ -245,10 +254,12 @@ export default function Home() {
               </div>
             </div>
 
-            {isLargeScreen && heroImages.length > 0 && <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />}
+            {isLargeScreen && showHeroSlot && (settingsLoading ? <div className="h-[368px] lg:h-[388px]" aria-hidden="true" /> : <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />)}
           </div>
         </section>
 
+        {belowHeroReady ? (
+          <>
         {/* CATEGORÍAS (en realidad es tipo de negocio de la tienda: filtra
             TIENDAS por rubro, ver Stores.jsx). */}
         {homeCategories.length > 0 && (
@@ -327,6 +338,10 @@ export default function Home() {
               src={vendorMockupImage}
               alt=""
               aria-hidden="true"
+              width={640}
+              height={640}
+              loading="lazy"
+              decoding="async"
               className="pointer-events-none absolute bottom-0 hidden select-none drop-shadow-2xl md:right-4 md:block md:w-64 lg:right-8 lg:w-80"
             />
             <div className="max-w-[560px] xl:min-w-0 xl:flex-1">
@@ -355,7 +370,7 @@ export default function Home() {
                 pegada al borde inferior de la tarjeta (-mb-6 anula el relleno),
                 en vez del relleno fijo de ~224px que reservaba el Bloque 106. */}
             <div className="-mx-3 -mb-6 flex w-[calc(100%+1.5rem)] justify-center md:hidden">
-              <img src={vendorMockupImageMobile} alt="" aria-hidden="true" className="pointer-events-none w-full max-w-[460px] select-none drop-shadow-2xl" />
+              <img src={vendorMockupImageMobile} alt="" aria-hidden="true" width={920} height={518} loading="lazy" decoding="async" className="pointer-events-none h-auto w-full max-w-[460px] select-none drop-shadow-2xl" />
             </div>
           </div>
         </section>
@@ -401,6 +416,10 @@ export default function Home() {
             <li><Link className="inline-flex min-h-11 items-center hover:underline" to="/faq">Preguntas frecuentes</Link></li>
           </ul>
         </section>
+          </>
+        ) : (
+          <div className="min-h-[100vh]" aria-hidden="true" />
+        )}
       </div>
       {/* Bloque 52: apagable desde el admin (Marca de la plataforma). Default
           true si el settings todavía no cargó, para no hacerlo parpadear.

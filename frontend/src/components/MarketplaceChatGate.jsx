@@ -1,6 +1,8 @@
+import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api.js";
-import { MarketplaceChatWidget } from "./MarketplaceChatWidget.jsx";
+// El chat se descarga aparte, después de la página: no retrasa la primera carga.
+const MarketplaceChatWidget = lazy(() => import("./MarketplaceChatWidget.jsx").then((m) => ({ default: m.MarketplaceChatWidget })));
 
 // Bloque 269 (pedido explícito — "el chatbot de la página principal debe mostrarse
 // también en la página de tiendas y en la del catálogo de productos"): antes se
@@ -14,5 +16,9 @@ export function MarketplaceChatGate() {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
   if (!(settings?.showChatWidget ?? true) || !(settings?.chatbotAvailable ?? true)) return null;
-  return <MarketplaceChatWidget />;
+  return (
+    <Suspense fallback={null}>
+      <MarketplaceChatWidget />
+    </Suspense>
+  );
 }

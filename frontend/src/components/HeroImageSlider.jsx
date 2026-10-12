@@ -50,13 +50,17 @@ export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[34
               src={url}
               alt={i === 0 ? alt : ""}
               loading={i === 0 ? "eager" : "lazy"}
+              fetchpriority={i === 0 ? "high" : "low"}
+              decoding="async"
               className={`absolute inset-0 h-full w-full object-contain will-change-[transform,opacity] ${reducedMotion ? "" : "transition-[transform,opacity] duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)]"} ${motion}`}
             />
           );
         })}
       </div>
+      {/* La fila de puntos siempre ocupa su alto (aunque haya una sola imagen) para que nada se mueva al cargar. */}
+      <div className="mt-1 flex h-11 items-center justify-center">
       {images.length > 1 && (
-        <div className="mt-1 flex items-center justify-center">
+        <>
           {images.map((url, i) => (
             <button
               key={url}
@@ -64,7 +68,7 @@ export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[34
               onClick={() => goTo(i)}
               aria-label={`Ver imagen ${i + 1} de ${images.length}`}
               aria-current={i === activeIndex}
-              className="flex h-6 items-center justify-center px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
+              className="flex h-11 min-w-[32px] items-center justify-center px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
             >
               <span className={`relative block h-2 overflow-hidden rounded-full bg-white/40 transition-all duration-500 ${i === activeIndex ? "w-9" : "w-2"}`}>
                 {i === activeIndex && (
@@ -79,8 +83,9 @@ export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[34
               </span>
             </button>
           ))}
-        </div>
+        </>
       )}
+      </div>
     </div>
   );
 }

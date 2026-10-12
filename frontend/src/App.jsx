@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
+import { PageLoader } from "./components/ui/PageLoader.jsx";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { applySeo } from "./lib/seo.js";
 import { isNoindexPath, isDynamicSeoPath, staticSeoFor } from "./lib/seoRoutes.js";
@@ -12,88 +13,88 @@ import { usePlatformSettings } from "./lib/usePlatformSettings.js";
 
 // Público
 import Home from "./pages/public/Home.jsx";
-import Shop from "./pages/public/Shop.jsx";
-import Product from "./pages/public/Product.jsx";
-import Store from "./pages/public/Store.jsx";
-import Stores from "./pages/public/Stores.jsx";
-import QuickSaleListings from "./pages/public/QuickSaleListings.jsx";
-import QuickSaleDetail from "./pages/public/QuickSaleDetail.jsx";
-import Cart from "./pages/public/Cart.jsx";
-import SharedCart from "./pages/public/SharedCart.jsx";
-import Checkout from "./pages/public/Checkout.jsx";
-import Account from "./pages/public/Account.jsx";
-import TableOrder from "./pages/public/TableOrder.jsx";
-import Terms from "./pages/public/Terms.jsx";
-import Privacy from "./pages/public/Privacy.jsx";
-import Faq from "./pages/public/Faq.jsx";
-import Ayuda from "./pages/public/Ayuda.jsx";
-import Contacto from "./pages/public/Contacto.jsx";
+const Shop = lazy(() => import("./pages/public/Shop.jsx"));
+const Product = lazy(() => import("./pages/public/Product.jsx"));
+const Store = lazy(() => import("./pages/public/Store.jsx"));
+const Stores = lazy(() => import("./pages/public/Stores.jsx"));
+const QuickSaleListings = lazy(() => import("./pages/public/QuickSaleListings.jsx"));
+const QuickSaleDetail = lazy(() => import("./pages/public/QuickSaleDetail.jsx"));
+const Cart = lazy(() => import("./pages/public/Cart.jsx"));
+const SharedCart = lazy(() => import("./pages/public/SharedCart.jsx"));
+const Checkout = lazy(() => import("./pages/public/Checkout.jsx"));
+const Account = lazy(() => import("./pages/public/Account.jsx"));
+const TableOrder = lazy(() => import("./pages/public/TableOrder.jsx"));
+const Terms = lazy(() => import("./pages/public/Terms.jsx"));
+const Privacy = lazy(() => import("./pages/public/Privacy.jsx"));
+const Faq = lazy(() => import("./pages/public/Faq.jsx"));
+const Ayuda = lazy(() => import("./pages/public/Ayuda.jsx"));
+const Contacto = lazy(() => import("./pages/public/Contacto.jsx"));
 import NotFound from "./pages/public/NotFound.jsx";
 
 // Cliente
-import CustomerPanel from "./pages/customer/CustomerPanel.jsx";
+const CustomerPanel = lazy(() => import("./pages/customer/CustomerPanel.jsx"));
 
 // Vendedor
-import VendorLayout from "./pages/vendor/VendorLayout.jsx";
-import VendorDashboard from "./pages/vendor/VendorDashboard.jsx";
-import VendorProducts from "./pages/vendor/VendorProducts.jsx";
-import VendorStoreOffers from "./pages/vendor/VendorStoreOffers.jsx";
-import VendorOrders from "./pages/vendor/VendorOrders.jsx";
-import VendorTables from "./pages/vendor/VendorTables.jsx";
-import VendorVerification from "./pages/vendor/VendorVerification.jsx";
-import PagoManual from "./pages/vendor/PagoManual.jsx";
-import VendorChat from "./pages/vendor/VendorChat.jsx";
-import VendorReviews from "./pages/vendor/VendorReviews.jsx";
-import VendorSettings from "./pages/vendor/VendorSettings.jsx";
-import VendorProfile from "./pages/vendor/VendorProfile.jsx";
-import VendorFraudReports from "./pages/vendor/VendorFraudReports.jsx";
-import VendorManualSales from "./pages/vendor/VendorManualSales.jsx";
-import VendorUsers from "./pages/vendor/VendorUsers.jsx";
-import StaffProfile from "./pages/vendor/StaffProfile.jsx";
+const VendorLayout = lazy(() => import("./pages/vendor/VendorLayout.jsx"));
+const VendorDashboard = lazy(() => import("./pages/vendor/VendorDashboard.jsx"));
+const VendorProducts = lazy(() => import("./pages/vendor/VendorProducts.jsx"));
+const VendorStoreOffers = lazy(() => import("./pages/vendor/VendorStoreOffers.jsx"));
+const VendorOrders = lazy(() => import("./pages/vendor/VendorOrders.jsx"));
+const VendorTables = lazy(() => import("./pages/vendor/VendorTables.jsx"));
+const VendorVerification = lazy(() => import("./pages/vendor/VendorVerification.jsx"));
+const PagoManual = lazy(() => import("./pages/vendor/PagoManual.jsx"));
+const VendorChat = lazy(() => import("./pages/vendor/VendorChat.jsx"));
+const VendorReviews = lazy(() => import("./pages/vendor/VendorReviews.jsx"));
+const VendorSettings = lazy(() => import("./pages/vendor/VendorSettings.jsx"));
+const VendorProfile = lazy(() => import("./pages/vendor/VendorProfile.jsx"));
+const VendorFraudReports = lazy(() => import("./pages/vendor/VendorFraudReports.jsx"));
+const VendorManualSales = lazy(() => import("./pages/vendor/VendorManualSales.jsx"));
+const VendorUsers = lazy(() => import("./pages/vendor/VendorUsers.jsx"));
+const StaffProfile = lazy(() => import("./pages/vendor/StaffProfile.jsx"));
 
 // Admin
-import AdminLayout from "./pages/admin/AdminLayout.jsx";
-import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
-import AdminVendors from "./pages/admin/AdminVendors.jsx";
-import AdminSuspendedVendors from "./pages/admin/AdminSuspendedVendors.jsx";
-import AdminVerifications from "./pages/admin/AdminVerifications.jsx";
-import AdminCustomers from "./pages/admin/AdminCustomers.jsx";
-import AdminActivityLog from "./pages/admin/AdminActivityLog.jsx";
-import AdminSuggestions from "./pages/admin/AdminSuggestions.jsx";
-import AdminReviews from "./pages/admin/AdminReviews.jsx";
-import AdminCampaigns from "./pages/admin/AdminCampaigns.jsx";
-import AdminSubscriptions from "./pages/admin/AdminSubscriptions.jsx";
-import AdminAnnouncements from "./pages/admin/AdminAnnouncements.jsx";
-import AdminSettings from "./pages/admin/AdminSettings.jsx";
-import AdminAssistant from "./pages/admin/AdminAssistant.jsx";
-import AdminErrors from "./pages/admin/AdminErrors.jsx";
-import AdminChat from "./pages/admin/AdminChat.jsx";
-import AdminLocations from "./pages/admin/AdminLocations.jsx";
-import AdminCategories from "./pages/admin/AdminCategories.jsx";
-import AdminProfile from "./pages/admin/AdminProfile.jsx";
-import AdminPages from "./pages/admin/AdminPages.jsx";
-import AdminFaq from "./pages/admin/AdminFaq.jsx";
-import AdminContacto from "./pages/admin/AdminContacto.jsx";
-import AdminAyuda from "./pages/admin/AdminAyuda.jsx";
-import AdminBranding from "./pages/admin/AdminBranding.jsx";
-import AdminOffers from "./pages/admin/AdminOffers.jsx";
-import AdminPartners from "./pages/admin/AdminPartners.jsx";
-import PartnerLayout from "./pages/partner/PartnerLayout.jsx";
-import PartnerDashboard from "./pages/partner/PartnerDashboard.jsx";
-import PartnerKeys from "./pages/partner/PartnerKeys.jsx";
-import PartnerMovements from "./pages/partner/PartnerMovements.jsx";
-import PartnerPlans from "./pages/partner/PartnerPlans.jsx";
-import PartnerAccount from "./pages/partner/PartnerAccount.jsx";
-import ApiSocios from "./pages/public/ApiSocios.jsx";
-import SolicitudSocio from "./pages/public/SolicitudSocio.jsx";
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout.jsx"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard.jsx"));
+const AdminVendors = lazy(() => import("./pages/admin/AdminVendors.jsx"));
+const AdminSuspendedVendors = lazy(() => import("./pages/admin/AdminSuspendedVendors.jsx"));
+const AdminVerifications = lazy(() => import("./pages/admin/AdminVerifications.jsx"));
+const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers.jsx"));
+const AdminActivityLog = lazy(() => import("./pages/admin/AdminActivityLog.jsx"));
+const AdminSuggestions = lazy(() => import("./pages/admin/AdminSuggestions.jsx"));
+const AdminReviews = lazy(() => import("./pages/admin/AdminReviews.jsx"));
+const AdminCampaigns = lazy(() => import("./pages/admin/AdminCampaigns.jsx"));
+const AdminSubscriptions = lazy(() => import("./pages/admin/AdminSubscriptions.jsx"));
+const AdminAnnouncements = lazy(() => import("./pages/admin/AdminAnnouncements.jsx"));
+const AdminSettings = lazy(() => import("./pages/admin/AdminSettings.jsx"));
+const AdminAssistant = lazy(() => import("./pages/admin/AdminAssistant.jsx"));
+const AdminErrors = lazy(() => import("./pages/admin/AdminErrors.jsx"));
+const AdminChat = lazy(() => import("./pages/admin/AdminChat.jsx"));
+const AdminLocations = lazy(() => import("./pages/admin/AdminLocations.jsx"));
+const AdminCategories = lazy(() => import("./pages/admin/AdminCategories.jsx"));
+const AdminProfile = lazy(() => import("./pages/admin/AdminProfile.jsx"));
+const AdminPages = lazy(() => import("./pages/admin/AdminPages.jsx"));
+const AdminFaq = lazy(() => import("./pages/admin/AdminFaq.jsx"));
+const AdminContacto = lazy(() => import("./pages/admin/AdminContacto.jsx"));
+const AdminAyuda = lazy(() => import("./pages/admin/AdminAyuda.jsx"));
+const AdminBranding = lazy(() => import("./pages/admin/AdminBranding.jsx"));
+const AdminOffers = lazy(() => import("./pages/admin/AdminOffers.jsx"));
+const AdminPartners = lazy(() => import("./pages/admin/AdminPartners.jsx"));
+const PartnerLayout = lazy(() => import("./pages/partner/PartnerLayout.jsx"));
+const PartnerDashboard = lazy(() => import("./pages/partner/PartnerDashboard.jsx"));
+const PartnerKeys = lazy(() => import("./pages/partner/PartnerKeys.jsx"));
+const PartnerMovements = lazy(() => import("./pages/partner/PartnerMovements.jsx"));
+const PartnerPlans = lazy(() => import("./pages/partner/PartnerPlans.jsx"));
+const PartnerAccount = lazy(() => import("./pages/partner/PartnerAccount.jsx"));
+const ApiSocios = lazy(() => import("./pages/public/ApiSocios.jsx"));
+const SolicitudSocio = lazy(() => import("./pages/public/SolicitudSocio.jsx"));
 import { capturePartnerRef } from "./lib/partnerRef.js";
-import AdminDiscountCodes from "./pages/admin/AdminDiscountCodes.jsx";
-import AdminStoreOffers from "./pages/admin/AdminStoreOffers.jsx";
-import AdminProducts from "./pages/admin/AdminProducts.jsx";
-import AdminManualSales from "./pages/admin/AdminManualSales.jsx";
-import AdminCustomerListings from "./pages/admin/AdminCustomerListings.jsx";
-import AdminFraudReports from "./pages/admin/AdminFraudReports.jsx";
-import AdminRankingAnomalies from "./pages/admin/AdminRankingAnomalies.jsx";
+const AdminDiscountCodes = lazy(() => import("./pages/admin/AdminDiscountCodes.jsx"));
+const AdminStoreOffers = lazy(() => import("./pages/admin/AdminStoreOffers.jsx"));
+const AdminProducts = lazy(() => import("./pages/admin/AdminProducts.jsx"));
+const AdminManualSales = lazy(() => import("./pages/admin/AdminManualSales.jsx"));
+const AdminCustomerListings = lazy(() => import("./pages/admin/AdminCustomerListings.jsx"));
+const AdminFraudReports = lazy(() => import("./pages/admin/AdminFraudReports.jsx"));
+const AdminRankingAnomalies = lazy(() => import("./pages/admin/AdminRankingAnomalies.jsx"));
 
 // Bloque 183 (pedido explícito — "esa foto saldrá en el perfil del
 // usuario... podrá ver su foto con su nombre, su correo... y la sección a
@@ -145,6 +146,9 @@ export default function App() {
     <>
       <RouteLoader />
       <ErrorBoundary>
+      {/* Las pantallas que no son de la portada (paneles, cuenta, pago, ayuda) se descargan solo cuando se abren:
+          el primer ingreso al sitio baja mucho menos JavaScript. */}
+      <Suspense fallback={<PageLoader />}>
       <Routes>
       {/* Sitio público (comprador + vendedor sin cuenta) */}
       <Route element={<PublicLayout />}>
@@ -309,6 +313,7 @@ export default function App() {
 
       <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
       </ErrorBoundary>
     </>
   );

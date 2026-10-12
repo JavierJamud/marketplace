@@ -11,7 +11,7 @@ function Logo() {
   return (
     <Link to="/" aria-label={siteName} className="flex h-11 min-w-11 flex-shrink-0 items-center justify-center gap-2.5">
       {logoUrl ? (
-        <img src={logoUrl} alt={siteName} className="h-[34px] w-[34px] flex-shrink-0 rounded object-cover" />
+        <img src={logoUrl} alt="" width={34} height={34} className="h-[34px] w-[34px] flex-shrink-0 rounded object-cover" />
       ) : (
         <div className="flex h-[34px] w-[34px] items-center justify-center rounded bg-secondary-container font-display text-lg font-extrabold text-primary">
           {siteName.charAt(0).toUpperCase()}

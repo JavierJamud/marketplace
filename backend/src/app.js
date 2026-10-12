@@ -145,19 +145,22 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "zeudin-marketpl
 app.use("/brand", express.static(join(dirname(fileURLToPath(import.meta.url)), "assets")));
 // Imágenes del sitio (hero, etc.) — a diferencia de uploads/kyc, esto es
 // público por diseño: sin credenciales, solo marketing.
-app.use("/uploads/site", express.static(SITE_UPLOAD_DIR));
+// Las imágenes subidas llevan un nombre único (uuid) y nunca se reescriben: cambiar una imagen crea otro archivo. Por eso se
+// pueden guardar un año en el navegador y en Cloudflare, lo que acelera mucho las visitas repetidas.
+const IMMUTABLE_FILES = { maxAge: "365d", immutable: true };
+app.use("/uploads/site", express.static(SITE_UPLOAD_DIR, IMMUTABLE_FILES));
 // Fotos de producto — públicas también, son parte del catálogo (Bloque 13).
-app.use("/uploads/products", express.static(PRODUCT_UPLOAD_DIR));
+app.use("/uploads/products", express.static(PRODUCT_UPLOAD_DIR, IMMUTABLE_FILES));
 // Logo/portada de tienda subidos por el vendedor (Bloque 133) — públicas,
 // mismo criterio que /uploads/products de arriba.
-app.use("/uploads/vendor-branding", express.static(VENDOR_BRANDING_DIR));
-app.use("/uploads/vendor-staff", express.static(STAFF_PHOTO_UPLOAD_DIR));
+app.use("/uploads/vendor-branding", express.static(VENDOR_BRANDING_DIR, IMMUTABLE_FILES));
+app.use("/uploads/vendor-staff", express.static(STAFF_PHOTO_UPLOAD_DIR, IMMUTABLE_FILES));
 // Imágenes de ofertas personalizadas (Bloque 51) — públicas, mismo criterio.
-app.use("/uploads/offers", express.static(OFFER_UPLOAD_DIR));
+app.use("/uploads/offers", express.static(OFFER_UPLOAD_DIR, IMMUTABLE_FILES));
 // Fotos de reseñas (Bloque 52) — públicas, son parte del comentario visible.
-app.use("/uploads/reviews", express.static(REVIEW_UPLOAD_DIR));
+app.use("/uploads/reviews", express.static(REVIEW_UPLOAD_DIR, IMMUTABLE_FILES));
 // Fotos de anuncios de venta rápida de clientes — públicas, mismo criterio.
-app.use("/uploads/customer-listings", express.static(CUSTOMER_LISTING_UPLOAD_DIR));
+app.use("/uploads/customer-listings", express.static(CUSTOMER_LISTING_UPLOAD_DIR, IMMUTABLE_FILES));
 // Capturas de reportes de fraude — públicas para que el admin abra el link
 // directo desde AdminFraudReports.jsx, mismo criterio que las de reseña.
 app.use("/uploads/reports", express.static(REPORT_UPLOAD_DIR));

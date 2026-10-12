@@ -11,6 +11,14 @@ import { CacheNotice } from "./components/CacheNotice.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { CartProvider } from "./context/CartContext.jsx";
 import { LocationProvider } from "./context/LocationContext.jsx";
+// Fuentes servidas desde el propio sitio (antes Google Fonts): sin bloqueo por un tercero y con caché de un año.
+import "@fontsource/montserrat/latin-600.css";
+import "@fontsource/montserrat/latin-700.css";
+import "@fontsource/montserrat/latin-800.css";
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(

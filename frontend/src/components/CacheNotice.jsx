@@ -35,7 +35,7 @@ export function CacheNotice() {
             Almacenamos datos de forma temporal para mejorar su experiencia de navegación y recomendarle contenido de
             interés.{" "}
             <Link to="/privacidad" className="font-semibold text-tertiary-accent underline">
-              Más información
+              Más información sobre privacidad y cookies
             </Link>
           </p>
         </div>

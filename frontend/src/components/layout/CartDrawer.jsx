@@ -77,11 +77,13 @@ export function CartDrawer() {
           ras de pantalla), esquinas redondeadas y transición ease-out-expo
           (traslado + fade + leve escala) para una sensación más "moderna"
           que un simple slide lineal. */}
-      <aside
+      {/* Cerrado: `inert` saca el panel del foco del teclado y de los lectores de pantalla (no basta aria-hidden si tiene botones). */}
+      <div
         role="dialog"
         aria-modal="true"
         aria-label="Carrito de compras"
         aria-hidden={!isDrawerOpen}
+        inert={isDrawerOpen ? undefined : ""}
         className={`fixed inset-y-3 right-3 left-3 z-[61] flex origin-right flex-col overflow-hidden rounded-[28px] bg-surface-container-lowest shadow-[0_24px_70px_-12px_rgba(20,20,30,0.35)] ring-1 ring-black/[0.04] transition-all duration-[420ms] ease-[cubic-bezier(0.16,1,0.3,1)] sm:inset-y-4 sm:left-auto sm:right-4 sm:w-full sm:max-w-[400px] ${
           isDrawerOpen
             ? "pointer-events-auto translate-x-0 scale-100 opacity-100"
@@ -333,7 +335,7 @@ export function CartDrawer() {
             </div>
           </>
         )}
-      </aside>
+      </div>
 
       {confirmingClear && (
         <ConfirmDeleteModal

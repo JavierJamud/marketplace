@@ -220,6 +220,15 @@ server {
         rewrite ^ /index.html break;
     }
 
+    # Archivos fijos de public/ (fuente y script del preloader, íconos, sonidos, imagen para compartir): casi nunca cambian,
+    # así que se guardan 30 días en el navegador. Si alguno cambia, se renombra (como og-baznova-3.png).
+    location ~* ^/(opentype\.min\.js|logo-loader\.js|fonts/|sounds/|favicon|apple-touch-icon|og-baznova|email-logo) {
+        expires 30d;
+        add_header Cache-Control "public";
+        include $RAIZ/cabeceras-seguridad.conf;
+        try_files \$uri =404;
+    }
+
     # Archivos del build con hash en el nombre: caché de 1 año
     location /assets/ {
         expires 1y;

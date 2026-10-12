@@ -2,7 +2,7 @@
 <html lang="es-CU">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Bloque 214 (pedido explícito): favicon real de la marca, subido a
          mano en public/ (favicon.svg/favicon.ico/apple-touch-icon.png) — ya
          no el placeholder de la Auditoría 2026-08-06 (inicial "Z"/"B" sobre
@@ -23,12 +23,6 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" sizes="any" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&family=Fredoka:wght@600;700&display=swap"
-      rel="stylesheet"
-    />
     <!-- Bloque 123 (pedido explícito — "que el estilo de la fuente de las
          letras [del nombre del preloader] tenga bordes redondeados"):
          Fredoka sumada SOLO para el nombre del preloader (ver
@@ -161,9 +155,10 @@
 
       /* Bloque 134 (pedido explícito — "quiero que bloquees el zoom por
          completo de la página, así el cliente por error no perderá el
-         contexto de la página"): el <meta name="viewport"> de arriba ya
-         trae maximum-scale=1/user-scalable=no, pero Safari de iOS (desde
-         iOS 10) lo IGNORA a propósito — es una decisión de accesibilidad
+         contexto de la página"): el bloqueo lo hacen este CSS y el script
+         del <body> (el <meta name="viewport"> ya no limita la escala: Google
+         lo marca como fallo de accesibilidad y Safari de iOS
+         lo ignora a propósito — es una decisión de accesibilidad
          de Apple, ningún meta tag lo puede evitar. touch-action:manipulation
          es la vía estándar que sí funciona en iOS/Android modernos: le
          dice al navegador que este elemento solo espera pan/click, nunca

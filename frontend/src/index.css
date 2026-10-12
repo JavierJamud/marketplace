@@ -344,5 +344,5 @@
 .prose-static > :first-child { margin-top: 0; }
 
 /* Barra de progreso del punto activo del slider del Hero: se llena en el tiempo que dura la imagen y, al terminar, pasa a la siguiente */
-@keyframes hero-progress { from { width: 0; } to { width: 100%; } }
-.hero-progress { animation-name: hero-progress; animation-timing-function: linear; animation-fill-mode: forwards; width: 0; }
+@keyframes hero-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.hero-progress { width: 100%; transform: scaleX(0); transform-origin: left center; animation-name: hero-progress; animation-timing-function: linear; animation-fill-mode: forwards; }
