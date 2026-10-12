@@ -120,6 +120,13 @@ ${body}
 </html>`;
 }
 
+function notFound(res, siteName) {
+  res
+    .status(404)
+    .set({ "Content-Type": "text/html; charset=utf-8", "X-Robots-Tag": "noindex" })
+    .send(`<!doctype html><html lang="es"><head><meta charset="UTF-8" /><title>No encontrado | ${esc(siteName)}</title><meta name="robots" content="noindex" /></head><body><h1>No encontrado</h1><p><a href="${esc(ORIGIN)}/">Ir a ${esc(siteName)}</a></p></body></html>`);
+}
+
 const money = (n, cur) => `${Number(n).toLocaleString("es-CU")} ${cur}`;
 
 export async function renderStorePage(req, res) {
@@ -144,8 +151,9 @@ export async function renderStorePage(req, res) {
       products: { where: visibleProductWhere, take: 24, orderBy: { createdAt: "desc" }, select: { name: true, slug: true, price: true, currency: true } },
     },
   });
-  // Sin datos reales que mostrar: se manda a la página de la aplicación, que ya sabe decir "tienda no encontrada".
-  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || vendor.isPrivate) return res.redirect(302, canonical);
+  // Sin datos reales que mostrar: 404 de verdad (Google deja de listar la dirección). Nunca una redirección a la misma URL,
+  // que Nginx volvería a entregar al bot en bucle.
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || vendor.isPrivate) return notFound(res, siteName);
 
   const loc = vendor.locations[0];
   const province = loc?.province?.name ?? loc?.stateOther ?? null;
@@ -216,7 +224,7 @@ export async function renderProductPage(req, res) {
       vendor: { select: { companyName: true, locations: { take: 1, select: { stateOther: true, province: { select: { name: true } }, municipality: { select: { name: true } } } } } },
     },
   });
-  if (!product) return res.redirect(302, canonical);
+  if (!product) return notFound(res, siteName);
 
   const loc = product.vendor.locations[0];
   const place = loc?.municipality?.name ?? loc?.province?.name ?? loc?.stateOther ?? null;

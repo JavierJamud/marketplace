@@ -209,7 +209,15 @@ server {
         add_header X-Robots-Tag "noindex, nofollow" always;
         add_header Cache-Control "no-cache";
         include $RAIZ/cabeceras-seguridad.conf;
-        try_files \$uri /index.html;
+        # Se sirve index.html desde aquí mismo (con break): si se usara try_files hacia /index.html, Nginx saltaría a otro
+        # location y se perdería la cabecera X-Robots-Tag.
+        try_files \$uri @spa_privado;
+    }
+    location @spa_privado {
+        add_header X-Robots-Tag "noindex, nofollow" always;
+        add_header Cache-Control "no-cache";
+        include $RAIZ/cabeceras-seguridad.conf;
+        rewrite ^ /index.html break;
     }
 
     # Archivos del build con hash en el nombre: caché de 1 año
