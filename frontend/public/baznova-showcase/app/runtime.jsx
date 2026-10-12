@@ -34,6 +34,9 @@ function CompositionStage({ width = 1280, height = 720, scenes, paused = false, 
     return { CUES: c, total: acc };
   }, [list]);
   const fixed = new URLSearchParams(location.search).get('bz_t');
+  // Versión ligera (teléfonos y tabletas): repite solo las escenas de los teléfonos y se salta la laptop en 3D, que agotaba la
+  // memoria de Safari en iPhone y cerraba la página.
+  const loopTotal = window.BAZNOVA_LITE && CUES.Laptop ? CUES.Laptop : total;
   const [T, setT] = React.useState(fixed != null ? +fixed : 0);
   const [scale, setScale] = React.useState(1);
   const box = React.useRef(null);
@@ -48,10 +51,11 @@ function CompositionStage({ width = 1280, height = 720, scenes, paused = false, 
   }, [width]);
   React.useEffect(() => {
     if (paused || fixed != null) return;
-    let raf, last = performance.now(), t = 0;
+    let raf, last = performance.now(), t = 0, lastDraw = 0;
     const tick = (now) => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      if (vis.current) { t = (t + dt) % total; setT(t); }
+      // 30 cuadros por segundo bastan y a la mitad de trabajo: menos memoria y batería en teléfonos y portátiles modestos.
+      if (vis.current) { t = (t + dt) % loopTotal; if (now - lastDraw >= 33) { lastDraw = now; setT(t); } }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

@@ -611,8 +611,8 @@ const EmbossLogo = ({ size = 150 }) => {
   const m = { WebkitMaskImage: 'url(assets/logo.png)', maskImage: 'url(assets/logo.png)', WebkitMaskSize: 'contain', maskSize: 'contain', WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat', WebkitMaskPosition: 'center', maskPosition: 'center', position: 'absolute', inset: 0 };
   return (
     <div style={{ position: 'relative', width: size, height: size }}>
-      <div style={{ ...m, background: 'rgba(0,0,0,0.30)', transform: 'translate(2px,2px)', filter: 'blur(0.6px)' }} />
-      <div style={{ ...m, background: 'rgba(255,255,255,0.95)', transform: 'translate(-2px,-2px)', filter: 'blur(0.6px)' }} />
+      <div style={{ ...m, background: 'rgba(0,0,0,0.30)', transform: 'translate(2px,2px)' }} />
+      <div style={{ ...m, background: 'rgba(255,255,255,0.95)', transform: 'translate(-2px,-2px)' }} />
       <div style={{ ...m, background: 'linear-gradient(135deg,#c9cdd4,#b4b9c1)' }} />
     </div>
   );
@@ -622,7 +622,7 @@ function Laptop({ T, lid, camX, camY, scale, x, y, show, t0, tn }) {
   const edge = { position: 'absolute', background: 'linear-gradient(180deg,#e6e2d9,#a8a39a 55%,#7a766f)', boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.8), inset 0 -2px 0 rgba(0,0,0,0.25)' };
   return (
     <div style={{ position: 'absolute', left: x, top: y, width: 0, height: 0, visibility: show ? 'visible' : 'hidden', transformStyle: 'preserve-3d', transform: 'scale(' + scale + ') rotateX(' + camX + 'deg) rotateY(' + camY + 'deg)' }}>
-      <div style={{ position: 'absolute', left: -LW / 2 - 30, top: LT + 2, width: LW + 60, height: LD + 70, transformOrigin: 'top', transform: 'rotateX(90deg)', background: 'radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.22) 45%, transparent 72%)', filter: 'blur(14px)' }} />
+      <div style={{ position: 'absolute', left: -LW / 2 - 30, top: LT + 2, width: LW + 60, height: LD + 70, transformOrigin: 'top', transform: 'rotateX(90deg)', background: 'radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.22) 45%, transparent 72%)' }} />
       <div style={{ position: 'absolute', left: -LW / 2, top: 0, width: LW, height: 0, transformStyle: 'preserve-3d' }}>
         <div style={{ position: 'absolute', left: 0, top: 0, width: LW, height: LD, transformOrigin: 'top', transform: 'rotateX(90deg)', borderRadius: 6, background: 'linear-gradient(180deg,#d9d5cc,#bfbab1)', boxShadow: 'inset 0 0 0 2px #f1eee7, inset 0 0 0 3.5px #8f8a82, inset 0 -10px 18px rgba(0,0,0,0.08)' }}>
           <Grill side="left" /><Grill side="right" />
@@ -658,7 +658,7 @@ function Piece() {
   const { T, CUES } = useComposition();
   const E = CUES.Entrada, TR = CUES.Trio, LA = CUES.Laptop, FO = CUES.Fondo, FI = CUES.Final;
   const end = FI + 11.4, f0 = FI + 0.6, tn = f0 + 8.8;
-  const fade = 1 - A(T, 0, 1, end - 0.9, end - 0.1, Easing.linear);
+  const fade = window.BAZNOVA_LITE ? 1 - A(T, 0, 1, LA - 0.9, LA - 0.1, Easing.linear) : 1 - A(T, 0, 1, end - 0.9, end - 0.1, Easing.linear);
   const chipsOn = !(window.BAZNOVA_OPTS && window.BAZNOVA_OPTS.chips === false);
 
   const rise = A(T, 900, 0, E + 0.05, E + 1.0, MOTION.enter);

@@ -11,14 +11,10 @@
 <body>
 <div id="root"></div>
 <script>window.BAZNOVA_SCENES = '[{"name":"Entrada","dur":3.6},{"name":"Trio","dur":11},{"name":"Laptop","dur":11},{"name":"Fondo","dur":2.6},{"name":"Final","dur":11.4}]';
-window.BAZNOVA_OPTS = { chips: true };</script>
+window.BAZNOVA_OPTS = { chips: true };
+window.BAZNOVA_LITE = matchMedia('(pointer: coarse)').matches || /[?&]lite=1/.test(location.search);</script>
 <script src="vendor/react.production.min.js"></script>
 <script src="vendor/react-dom.production.min.js"></script>
-<script src="vendor/babel.min.js"></script>
-<script type="text/babel" src="app/runtime.jsx"></script>
-<script type="text/babel" src="app/showcase.jsx"></script>
-<script type="text/babel">
-  ReactDOM.createRoot(document.getElementById('root')).render(<BaznovaShowcase />);
-</script>
+<script src="app/showcase.bundle.js"></script>
 </body>
 </html>

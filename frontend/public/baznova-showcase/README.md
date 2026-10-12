@@ -26,7 +26,8 @@ El iframe es transparente: el fondo que tenga tu sección se ve detrás de los d
 - `index.html`: página de la animación.
 - `app/runtime.jsx`: motor de tiempo y easings (loop de ~39.6 s).
 - `app/showcase.jsx`: teléfono, laptop, web móvil y panel del vendedor.
-- `vendor/`: React 18 y Babel, local (sin CDN).
+- `app/showcase.bundle.js`: los dos .jsx ya compilados (es lo que carga index.html). Se regenera con `npm run build:showcase` en `frontend/` cada vez que se edite un .jsx.
+- `vendor/`: React 18, local (sin CDN). Ya no se usa Babel en el navegador.
 - `assets/`: fotos de productos y sello de verificado.
 
 Las fuentes Montserrat e Inter se cargan de Google Fonts; si no hay conexión usa la fuente del sistema.
