@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Sparkles, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
@@ -231,6 +232,23 @@ export default function AdminBranding({ mode = "brand" }) {
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  // Aviso al salir con cambios sin guardar: se comparan los campos con lo guardado y, si la persona elige "Guardar y salir",
+  // se guardan solo las tarjetas modificadas.
+  const dirtyName = !!settings && name.trim() !== (settings.siteName ?? "").trim();
+  const dirtySocial = !!settings && ["whatsappUrl", "instagramUrl", "facebookUrl"].some((k) => social[k].trim() !== (settings[k] ?? "").trim());
+  const dirtySupport = !!settings && supportWhatsapp.trim() !== (settings.supportWhatsapp ?? "").trim();
+  const dirtyTimezone = !!settings && timezone !== (settings.timezone ?? "America/Havana");
+  const dirtyBadges = !!settings && (JSON.stringify(productBadges) !== JSON.stringify(settings.availableProductBadges ?? []) || Number(newBadgeDurationDays) !== (settings.newBadgeDurationDays ?? 14));
+  useUnsavedGuard(dirtyName || dirtySocial || dirtySupport || dirtyTimezone || dirtyBadges, async () => {
+    const jobs = [];
+    if (dirtyName) jobs.push(saveName.mutateAsync());
+    if (dirtySocial) jobs.push(saveSocial.mutateAsync());
+    if (dirtySupport) jobs.push(saveSupportWhatsapp.mutateAsync());
+    if (dirtyTimezone) jobs.push(saveTimezone.mutateAsync());
+    if (dirtyBadges) jobs.push(saveProductBadges.mutateAsync());
+    await Promise.all(jobs);
   });
 
   function addProductBadge() {

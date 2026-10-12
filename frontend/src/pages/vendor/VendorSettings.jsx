@@ -17,6 +17,7 @@ import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
 
@@ -332,8 +333,18 @@ export default function VendorSettings() {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
 
+  // Foto de lo guardado (formulario y horarios) para saber si hay cambios sin guardar al cambiar de sección.
+  const [baseline, setBaseline] = useState(null);
+  const wantBaseline = useRef(false);
+  useEffect(() => {
+    if (!wantBaseline.current) return;
+    wantBaseline.current = false;
+    setBaseline(JSON.stringify({ form, days }));
+  }, [form, days]);
+
   useEffect(() => {
     if (!vendor) return;
+    wantBaseline.current = true;
     setForm({
       ownerIdNumber: vendor.ownerIdNumber ?? "",
       companyAddress: vendor.companyAddress ?? "",
@@ -527,17 +538,18 @@ export default function VendorSettings() {
     setErrors({});
     if (form.isRestaurant && !form.tableCount) {
       toast.error("Indica cuántas mesas tiene tu restaurante.");
-      return;
+      return false;
     }
     const tablesCap = maxTablesByPlan?.[vendor?.planType] ?? null;
     if (form.isRestaurant && tablesCap != null && Number(form.tableCount) > tablesCap) {
       toast.error(`Tu plan permite hasta ${tablesCap} mesas. Escribe ${tablesCap} o menos.`);
-      return;
+      return false;
     }
     try {
       await Promise.all([saveProfile.mutateAsync(), saveSchedule.mutateAsync()]);
       toast.success("Cambios guardados.");
       invalidateVendor();
+      return true;
     } catch (err) {
       const fieldErrors = err.response?.data?.details?.fieldErrors ?? {};
       if (Object.keys(fieldErrors).length > 0) {
@@ -546,8 +558,13 @@ export default function VendorSettings() {
       } else {
         toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios.");
       }
+      return false;
     }
   }
+
+  useUnsavedGuard(baseline !== null && JSON.stringify({ form, days }) !== baseline, async () => {
+    if (!(await handleSaveAll())) throw new Error("No se guardó");
+  });
 
   // Bloque 52: los límites por plan ahora vienen de settings.plans
   // (PlanConfig del backend) — antes eran columnas pareadas sueltas
