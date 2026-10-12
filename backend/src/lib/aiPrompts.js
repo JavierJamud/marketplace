@@ -44,7 +44,7 @@ Tu tarea: reescribe ese borrador como la descripción final del perfil de la tie
 
 Reglas de contenido:
 - Español neutro/cubano, tono cercano, cálido y seguro. Nada de frases de folleto ("amplia variedad", "nos distinguimos por", "compromiso con la calidad").
-- Máximo 2 oraciones y unos 220 caracteres en total. Empieza con un gancho fuerte (lo que la tienda ofrece o el beneficio para el cliente), sin repetir el nombre de la tienda al inicio.
+- Máximo 2 oraciones y 180 caracteres en total (límite estricto: el texto debe caber completo en el encabezado de la tienda). Empieza con un gancho fuerte (lo que la tienda ofrece o el beneficio para el cliente), sin repetir el nombre de la tienda al inicio.
 - Termina con una invitación corta a comprar o escribir (por ejemplo, "Pide hoy y te lo llevamos").
 - Máximo un emoji, y solo si encaja con el rubro. Sin hashtags ni mayúsculas sostenidas.
 - Nunca inventes datos (rubro, ubicación, años de experiencia, promociones) que no estén ya sugeridos en el borrador del vendedor.

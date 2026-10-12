@@ -8,6 +8,7 @@ import { sendOrderConfirmationEmail, sendNewOrderVendorEmail, sendOrderStatusEma
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
+import { recordOrderEvent } from "../lib/orderEvents.js";
 import { getPlanLimit } from "../lib/planConfig.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
@@ -105,7 +106,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
     if (!province) throw new AppError("La provincia/estado indicado no existe.", 400);
 
     const [vendorLocations, vendorDeliveryCountries] = await Promise.all([
-      prisma.vendorLocation.findMany({ where: { vendorId: data.vendorId }, select: { provinceId: true, countryId: true } }),
+      prisma.vendorLocation.findMany({ where: { vendorId: data.vendorId }, select: { provinceId: true, countryId: true, municipalityId: true } }),
       prisma.vendorDeliveryCountry.findMany({ where: { vendorId: data.vendorId }, select: { countryId: true } }),
     ]);
 
@@ -125,6 +126,16 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
     if (configuredCountryIds.size > 0 && province.countryId && !configuredCountryIds.has(province.countryId)) {
       throw new AppError("Esta tienda no entrega en el país seleccionado.", 400);
     }
+    // Si la tienda limitó esa provincia a ciertos municipios, el pedido solo puede ir a uno de ellos.
+    const municipalityIds = vendorLocations.filter((l) => l.provinceId === province.id && l.municipalityId).map((l) => l.municipalityId);
+    if (municipalityIds.length > 0 && data.shippingMunicipalityId && !municipalityIds.includes(data.shippingMunicipalityId)) {
+      throw new AppError("Esta tienda no entrega en el municipio seleccionado.", 400);
+    }
+  }
+
+  // La forma de coordinar el pago la define la tienda: no se acepta una que la tienda no ofrece.
+  if (data.channel !== "table" && !(vendor.checkoutPaymentOptions ?? ["cod", "online", "cash"]).includes(data.channel)) {
+    throw new AppError("Esta tienda no ofrece esa forma de pago. Elige otra de las disponibles.", 400);
   }
 
   const productIds = data.items.map((i) => i.productId);
@@ -268,6 +279,8 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
     });
   });
 
+  await recordOrderEvent(order.id, "CREATED");
+
   // Confirmación al cliente — best-effort, nunca bloquea ni revierte el pedido.
   await sendOrderConfirmationEmail(order);
 
@@ -320,7 +333,7 @@ export async function listMyOrders(req, res) {
 
   const orders = await prisma.order.findMany({
     where: { vendorId: vendor.id },
-    include: { items: true },
+    include: { items: true, events: { orderBy: { createdAt: "asc" } } },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
@@ -442,6 +455,8 @@ export async function updateOrderStatus(req, res) {
     });
   });
 
+  await recordOrderEvent(id, status, status === "CANCELLED" ? reason.trim() : null);
+
   if (status === "CANCELLED") {
     logActivity({
       actorId: req.user.id,
@@ -529,6 +544,8 @@ export async function confirmOrderSale(req, res) {
   // pedido Pendiente del mismo vendedor pidiendo alguno de ellos quedó sin
   // alcance. Es solo un aviso para que el vendedor decida (notificar al
   // cliente o dejarlo pendiente tal cual); nunca se toca ese otro pedido acá.
+  await recordOrderEvent(id, "CONFIRMED");
+
   const productIds = [...new Set(order.items.map((i) => i.productId).filter(Boolean))];
   const atRiskOrders = await findAtRiskSiblingOrders({ vendorId: vendor.id, excludeOrderId: id, productIds });
 

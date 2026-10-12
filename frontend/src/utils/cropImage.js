@@ -24,22 +24,17 @@ export async function getCroppedImageBlob(imageSrc, pixelCrop, mimeType = "image
   if (!image.naturalWidth || !image.naturalHeight) {
     throw new Error("La imagen no terminó de cargar. Intenta de nuevo.");
   }
+  // El marco puede salirse de la foto (al alejarla para verla completa): lo que queda fuera se rellena de blanco. Se dibuja
+  // la foto entera desplazada, así sirve igual cuando el marco cae del todo dentro de ella.
+  const width = Math.max(1, Math.round(pixelCrop.width));
+  const height = Math.max(1, Math.round(pixelCrop.height));
   const canvas = document.createElement("canvas");
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
-
-  ctx.drawImage(
-    image,
-    pixelCrop.x,
-    pixelCrop.y,
-    pixelCrop.width,
-    pixelCrop.height,
-    0,
-    0,
-    pixelCrop.width,
-    pixelCrop.height
-  );
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(image, -pixelCrop.x, -pixelCrop.y, image.naturalWidth, image.naturalHeight);
 
   return new Promise((resolve, reject) => {
     canvas.toBlob(

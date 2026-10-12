@@ -13,7 +13,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { PageLoader } from "../../components/ui/PageLoader.jsx";
-import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
+import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { PackageSearch } from "lucide-react";
 import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
@@ -34,11 +34,6 @@ function imgUrl(path) {
   if (!path) return null;
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
-
-// Bloque 199: mismo mapa compartido que VendorProducts.jsx/Shop.jsx — antes
-// decía "Transferencia CUP" acá, distinto de lo que mostraba el propio
-// formulario del vendedor ("Transferencia").
-const PAY_LABELS = PRODUCT_PAYMENT_METHOD_LABEL;
 
 export default function Product() {
   const { vendorSlug, productSlug } = useParams();
@@ -594,9 +589,9 @@ export default function Product() {
                 VendorProducts.jsx) ni algo que el cliente entienda al
                 leerlo tal cual. Se filtra en vez de traducirlo — no
                 corresponde mostrarlo como si fuera un método de pago. */}
-            {(product.paymentMethods ?? []).filter((m) => m !== "table").map((m) => (
-              <span key={m} className="rounded-full bg-surface-container px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">
-                {PAY_LABELS[m] ?? m}
+            {(store?.checkoutPaymentOptions?.length ? store.checkoutPaymentOptions : CHECKOUT_PAY_CHOICES.map((o) => o.id)).map((id) => (
+              <span key={id} className="rounded-full bg-surface-container px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">
+                {CHECKOUT_PAY_CHOICES.find((o) => o.id === id)?.title ?? id}
               </span>
             ))}
             {/* Pedido explícito: en vez de dejar ese espacio con el valor

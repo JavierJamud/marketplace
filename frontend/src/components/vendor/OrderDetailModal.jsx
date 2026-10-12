@@ -1,8 +1,22 @@
 import { X } from "lucide-react";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
+function fmtCUP(n, currency = "CUP") {
+  return `${Number(n).toLocaleString("es-CU")} ${currency}`;
 }
+
+// Mismos nombres que usa el servidor para el registro del pedido (lib/orderEvents.js).
+const EVENT_LABEL = {
+  CREATED: "Pedido recibido",
+  CONFIRMED: "Venta confirmada",
+  PREPARING: "En preparación",
+  READY: "Listo para entregar",
+  DELIVERED: "Entregado al cliente",
+  CANCELLED: "Pedido cancelado",
+  INVOICE_SENT: "Factura enviada al cliente",
+  INVOICE_DOWNLOADED: "Factura generada",
+  WARRANTY_SENT: "Garantía enviada al cliente",
+  WARRANTY_DOWNLOADED: "Garantía generada",
+};
 
 const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
 const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
@@ -51,7 +65,7 @@ export function OrderDetailModal({ order, onClose }) {
                 {it.quantity} × {it.name}
                 {it.size && ` (${it.size})`}
               </span>
-              <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity)}</span>
+              <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity, it.currency)}</span>
             </div>
           ))}
         </div>
@@ -65,7 +79,23 @@ export function OrderDetailModal({ order, onClose }) {
 
         <div className="mt-3 flex items-center justify-between border-t border-surface-container-high pt-3">
           <span className="text-[13px] font-semibold text-on-surface-variant">Total</span>
-          <span className="text-[18px] font-bold text-primary">{fmtCUP(o.total)}</span>
+          <span className="text-[18px] font-bold text-primary">{fmtCUP(o.total, o.items[0]?.currency)}</span>
+        </div>
+
+        {/* Historial con fecha y hora: lo que le pasó al pedido y los documentos que se enviaron al cliente. */}
+        <div className="mt-4 border-t border-surface-container-high pt-3">
+          <h4 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-outline">Historial del pedido</h4>
+          <ul className="flex flex-col gap-1.5">
+            {[...(o.events?.some((e) => e.type === "CREATED") ? [] : [{ id: "created", type: "CREATED", createdAt: o.createdAt }]), ...(o.events ?? [])].map((e) => (
+              <li key={e.id} className="flex items-start justify-between gap-3 text-[12.5px]">
+                <span className="text-on-surface">
+                  <span className="font-semibold">{EVENT_LABEL[e.type] ?? e.type}</span>
+                  {e.detail && <span className="text-outline"> · {e.detail}</span>}
+                </span>
+                <span className="flex-shrink-0 text-outline">{new Date(e.createdAt).toLocaleString("es-CU", { dateStyle: "medium", timeStyle: "short" })}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>

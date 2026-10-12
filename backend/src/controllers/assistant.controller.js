@@ -52,6 +52,16 @@ function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
 }
 
+function fmtPrice(n, currency = "CUP") {
+  return `${Number(n).toLocaleString("es-CU")} ${currency || "CUP"}`;
+}
+
+// Precios por cantidad (mayoreo) del producto, para que el modelo los vea y los diga: "36+ u: 220 USD, 72+ u: 210 USD".
+function tiersText(p) {
+  if (!p.priceTiers?.length) return "";
+  return ` · precios por cantidad (por unidad): ${p.priceTiers.map((t) => `desde ${t.minQty} u: ${fmtPrice(t.price, p.currency)}`).join(", ")}`;
+}
+
 // Bloque 34 — bug real encontrado en vivo: el modelo a veces deja sintaxis
 // JSON colgando dentro del STRING de un suggestedFollowUp (ej. una vez
 // devolvió literalmente "Buscar otra]}:" como sugerencia) — mismo tipo de
@@ -102,7 +112,11 @@ const CANDIDATE_VENDOR_SELECT = {
   verificationStatus: true,
   locations: { include: { province: true, municipality: true }, take: 1 },
 };
-const CANDIDATE_INCLUDE = { vendor: { select: CANDIDATE_VENDOR_SELECT }, options: { select: { name: true, values: true } } };
+const CANDIDATE_INCLUDE = {
+  vendor: { select: CANDIDATE_VENDOR_SELECT },
+  options: { select: { name: true, values: true } },
+  priceTiers: { orderBy: { minQty: "asc" }, select: { minQty: true, price: true } },
+};
 // Cuántos productos como máximo se traen de la base para ANALIZAR zonas —
 // más ancho que CANDIDATE_LIMIT (lo que de verdad se muestra como tarjeta),
 // porque hace falta ver el panorama completo (todas las provincias/
@@ -710,7 +724,7 @@ function candidatesText(products) {
   if (!products.length) return "(Sin resultados para esta búsqueda.)";
   return products
     .map((p, i) => {
-      const price = fmtCUP(p.price) + (p.oldPrice ? ` (antes ${fmtCUP(p.oldPrice)})` : "");
+      const price = fmtPrice(p.price, p.currency) + (p.oldPrice ? ` (antes ${fmtPrice(p.oldPrice, p.currency)})` : "") + tiersText(p);
       const stock = p.unlimitedStock ? "disponible siempre (sin límite de stock)" : p.stock > 0 ? `stock ${p.stock}` : "AGOTADO";
       const verified = p.vendor.verificationStatus === "VERIFIED" ? " · tienda verificada" : "";
       const loc = p.vendor.locations?.[0];
@@ -733,6 +747,7 @@ function toCardProduct(p) {
     slug: p.slug,
     price: p.price,
     oldPrice: p.oldPrice,
+    currency: p.currency,
     description: p.description,
     images: p.images,
     stock: p.stock,

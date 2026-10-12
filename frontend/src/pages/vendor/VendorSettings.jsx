@@ -14,6 +14,7 @@ import { Mail, Users, X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, Chec
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { QRCodeSVG } from "qrcode.react";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
+import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
@@ -282,6 +283,7 @@ export default function VendorSettings() {
     // directo (mismo /tienda/:slug de siempre, ver el card de abajo).
     isPrivate: false,
     acceptedPaymentMethods: [],
+    checkoutPaymentOptions: ["cod", "online", "cash"],
     currency: "CUP",
     warrantyTerms: "",
     warrantyDefaultDays: "",
@@ -352,6 +354,7 @@ export default function VendorSettings() {
       notifyNewOrderEmail: vendor.notifyNewOrderEmail ?? true,
       isPrivate: vendor.isPrivate ?? false,
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
+      checkoutPaymentOptions: vendor.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : ["cod", "online", "cash"],
       currency: vendor.currency ?? "CUP",
       warrantyTerms: vendor.warrantyTerms ?? "",
       warrantyDefaultDays: vendor.warrantyDefaultDays != null ? String(vendor.warrantyDefaultDays) : "",
@@ -736,6 +739,44 @@ export default function VendorSettings() {
             </p>
           </div>
         )}
+      </div>
+
+      {/* Cómo coordina el pago el cliente al terminar su compra: vale para toda la tienda (no por producto). Por defecto están
+          las tres; el cliente solo ve las que dejes marcadas. */}
+      <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <Wallet className="h-5 w-5 text-tertiary-accent" /> Cómo coordinas el pago
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Son las opciones que ve tu cliente al completar su pedido. Aplican a toda tu tienda. Deja marcadas solo las que aceptas.
+        </p>
+        <div className="flex flex-col gap-2">
+          {CHECKOUT_PAY_CHOICES.map((o) => {
+            const checked = form.checkoutPaymentOptions.includes(o.id);
+            const onlyOne = checked && form.checkoutPaymentOptions.length === 1;
+            return (
+              <label key={o.id} className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${checked ? "border-tertiary-accent bg-tertiary-accent/5" : "border-outline-variant"}`}>
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-tertiary-accent"
+                  checked={checked}
+                  disabled={onlyOne}
+                  onChange={() =>
+                    setForm((f) => ({
+                      ...f,
+                      checkoutPaymentOptions: checked ? f.checkoutPaymentOptions.filter((x) => x !== o.id) : [...f.checkoutPaymentOptions, o.id],
+                    }))
+                  }
+                />
+                <span>
+                  <span className="block text-[13.5px] font-semibold text-on-surface">{o.title}</span>
+                  <span className="block text-[12px] text-outline">{o.sub}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {form.checkoutPaymentOptions.length === 1 && <p className="mt-2 text-[12px] text-outline">Debe quedar al menos una opción.</p>}
       </div>
 
       {/* Bloque 47: Métodos de pago (chips — el selector nunca se había

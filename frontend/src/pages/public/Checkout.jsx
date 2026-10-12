@@ -10,6 +10,7 @@ import { waLink } from "../../lib/whatsapp.js";
 import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 
 // Bloque 231: "Fecha y hora" del ticket de confirmación — mismo formato
@@ -28,11 +29,7 @@ function singleCurrencySubtotal(items) {
   return items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
 }
 
-const PAY_OPTIONS = [
-  { id: "cod", title: "Pago contra entrega", sub: "Coordinado por WhatsApp con el vendedor" },
-  { id: "online", title: "Pago en línea con el vendedor", sub: "Transferencia, Zelle, etc. — arreglan método y monto directo por WhatsApp" },
-  { id: "cash", title: "Efectivo", sub: "Coordinas el lugar y momento por WhatsApp" },
-];
+const PAY_OPTIONS = CHECKOUT_PAY_CHOICES;
 
 // Bloque 68 (pedido explícito): mensaje de WhatsApp del pedido YA
 // confirmado (con datos reales del cliente, siempre completados en el
@@ -130,6 +127,16 @@ export default function Checkout() {
   // al default silenciosamente.
   const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
 
+  // Solo las formas de pago que la tienda dejó activas (por defecto, las tres).
+  const payOptions = useMemo(() => {
+    const allowed = vendor?.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : PAY_OPTIONS.map((p) => p.id);
+    const list = PAY_OPTIONS.filter((p) => allowed.includes(p.id));
+    return list.length ? list : PAY_OPTIONS;
+  }, [vendor]);
+  useEffect(() => {
+    if (!payOptions.some((p) => p.id === pay)) setPay(payOptions[0].id);
+  }, [payOptions, pay]);
+
   // Derive vendor's delivery countries
   const vendorCountries = useMemo(() => {
     if (!vendor) return [];
@@ -198,6 +205,14 @@ export default function Checkout() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo aplicar el código."),
   });
 
+  // Si la tienda entrega solo en algunos municipios de esa provincia, el cliente solo ve esos.
+  const deliverableMunicipalities = useMemo(() => {
+    const allowedIds = new Set(
+      (vendor?.locations ?? []).filter((l) => l.provinceId === form.provinceId && l.municipalityId).map((l) => l.municipalityId)
+    );
+    return allowedIds.size ? municipalitiesForProvince.filter((m) => allowedIds.has(m.id)) : municipalitiesForProvince;
+  }, [vendor, form.provinceId, municipalitiesForProvince]);
+
   const selectedProvince = useMemo(() => {
     if (!form.provinceId) return null;
     return provinces?.find((p) => p.id === form.provinceId) ?? vendorProvincesForCountry.find((p) => p.id === form.provinceId) ?? null;
@@ -225,7 +240,8 @@ export default function Checkout() {
           vendorId,
           channel: pay,
           customerName: form.customerName,
-          customerPhone: form.customerPhone,
+          // El teléfono de una cuenta puede estar guardado sin el "+" del código de país: el servidor lo exige.
+          customerPhone: /^\+/.test(form.customerPhone.trim()) ? form.customerPhone.trim() : `+${form.customerPhone.replace(/\D/g, "")}`,
           customerEmail: form.customerEmail,
           shippingProvinceId: form.provinceId || undefined,
           shippingMunicipalityId: !isStateSelected ? form.municipalityId || undefined : undefined,
@@ -296,7 +312,6 @@ export default function Checkout() {
 
   if (done && confirmedInfo) {
     const showWhatsappCta = confirmedInfo.orderDestination !== "PANEL";
-    const showPanelNote = confirmedInfo.orderDestination !== "WHATSAPP";
     const href = showWhatsappCta ? waLink(confirmedInfo.vendorWhatsapp, buildOrderWhatsAppText(confirmedInfo)) : null;
 
     return (
@@ -304,8 +319,8 @@ export default function Checkout() {
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-verified/10 text-verified">
           <CheckCircle2 className="h-8 w-8" />
         </div>
-        <h1 className="text-center text-display-sm font-extrabold text-on-surface">¡Pedido realizado!</h1>
-        <p className="mt-1.5 text-center text-body-md text-on-surface-variant">Gracias por tu compra en {confirmedInfo.vendorName}.</p>
+        <h1 className="text-center text-display-sm font-extrabold text-on-surface">¡Pedido enviado con éxito!</h1>
+        <p className="mt-1.5 text-center text-body-md text-on-surface-variant">{confirmedInfo.vendorName} ya recibió tu pedido. Gracias por tu compra.</p>
 
         {/* Bloque 231 (pedido explícito, con imagen de referencia — "vamos a
             mejorar esa ventana, debe mostrarse más moderno, usaremos este
@@ -333,6 +348,39 @@ export default function Checkout() {
             <div className="mt-4">
               <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Fecha y hora</div>
               <div className="mt-0.5 text-[13px] font-semibold text-on-surface">{fmtDateTime(confirmedInfo.createdAt)}</div>
+            </div>
+            <div className="mt-4">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-outline">
+                Detalle: {confirmedInfo.items.length} {confirmedInfo.items.length === 1 ? "producto" : "productos"}, {confirmedInfo.items.reduce((s, i) => s + i.quantity, 0)} {confirmedInfo.items.reduce((s, i) => s + i.quantity, 0) === 1 ? "unidad" : "unidades"}
+              </div>
+              <ul className="mt-1.5 flex flex-col gap-1.5">
+                {confirmedInfo.items.map((it, idx) => (
+                  <li key={idx} className="flex items-start justify-between gap-3 text-[12.5px] text-on-surface">
+                    <span className="min-w-0">
+                      <span className="font-semibold">{it.quantity} × {it.name}</span>
+                      {it.size && <span className="text-outline"> · talla {it.size}</span>}
+                      <span className="block text-[11px] text-outline">{formatPrice(it.unitPrice, it.currency)} c/u</span>
+                    </span>
+                    <span className="flex-shrink-0 font-semibold">{formatPrice(it.unitPrice * it.quantity, it.currency)}</span>
+                  </li>
+                ))}
+              </ul>
+              {confirmedInfo.discount && (
+                <div className="mt-1.5 flex justify-between text-[12px] text-verified-dark">
+                  <span>Descuento ({confirmedInfo.discount.code})</span>
+                  <span>-{formatPrice(confirmedInfo.discount.amount)}</span>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 text-[12.5px] text-on-surface sm:grid-cols-2">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Entrega en</div>
+                <div className="mt-0.5 font-semibold">{confirmedInfo.address || confirmedInfo.provinceName}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Forma de pago</div>
+                <div className="mt-0.5 font-semibold">{confirmedInfo.payTitle}</div>
+              </div>
             </div>
             <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-surface-container/60 p-3">
               <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary text-on-primary">
@@ -386,14 +434,16 @@ export default function Checkout() {
             )}
           </div>
         )}
-        {showPanelNote && (
-          <div className="mt-6 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-left">
-            <p className="text-body-md text-on-surface-variant">
-              Tu pedido ya quedó guardado en el panel de <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span>.
-              Te van a contactar pronto para coordinar la entrega.
-            </p>
-          </div>
-        )}
+        <div className="mt-6 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-left">
+          <h2 className="text-title-md font-bold text-on-surface">¿Qué sigue?</h2>
+          <ul className="mt-2 flex flex-col gap-2 text-body-md text-on-surface-variant">
+            <li>
+              Un empleado de <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> revisará tu pedido y te contactará
+              por WhatsApp o por teléfono al <span className="font-semibold text-on-surface">{confirmedInfo.customerPhone}</span>.
+            </li>
+            <li>La tienda atiende los pedidos en el orden en que van llegando. Te pedimos paciencia: te van a contactar.</li>
+          </ul>
+        </div>
 
         <div className="mt-8 text-center">
           <Link to={`/tienda/${confirmedInfo.vendorSlug}`} className="text-label-lg font-bold text-tertiary-accent hover:underline">
@@ -522,7 +572,7 @@ export default function Checkout() {
                     className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
                   >
                     <option value="">Municipio *</option>
-                    {municipalitiesForProvince.map((m) => (
+                    {deliverableMunicipalities.map((m) => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
@@ -553,7 +603,7 @@ export default function Checkout() {
               No se cobra nada aquí: se arregla directo con la tienda. {siteName} nunca procesa ni recibe pagos.
             </p>
             <div className="flex flex-col gap-3">
-              {PAY_OPTIONS.map((pm) => (
+              {payOptions.map((pm) => (
                 <label
                   key={pm.id}
                   onClick={() => setPay(pm.id)}

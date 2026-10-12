@@ -9,6 +9,7 @@ import { chatWithStoreAssistant } from "../lib/ai.js";
 import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
+import { resolveUnitPrice } from "../lib/pricing.js";
 import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planConfig.js";
@@ -93,6 +94,8 @@ const PRODUCT_SELECT_FIELDS = {
   description: true,
   price: true,
   oldPrice: true,
+  currency: true,
+  priceTiers: { orderBy: { minQty: "asc" }, select: { minQty: true, price: true } },
   stock: true,
   unlimitedStock: true,
   images: true,
@@ -141,6 +144,16 @@ function isSessionExpired(lastMessage) {
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
+}
+
+function fmtPrice(n, currency = "CUP") {
+  return `${Number(n).toLocaleString("es-CU")} ${currency || "CUP"}`;
+}
+
+// Precios por cantidad (mayoreo) del producto, para que el modelo los vea y los diga: "36+ u: 220 USD, 72+ u: 210 USD".
+function tiersText(p) {
+  if (!p.priceTiers?.length) return "";
+  return ` · precios por cantidad (por unidad): ${p.priceTiers.map((t) => `desde ${t.minQty} u: ${fmtPrice(t.price, p.currency)}`).join(", ")}`;
 }
 
 // Bloque 34 — bug real encontrado en vivo: el modelo a veces deja sintaxis
@@ -445,7 +458,8 @@ function cartText(products, cartQuantities) {
     .map(([productId, qty]) => {
       const p = products.find((prod) => prod.id === productId);
       if (!p) return null;
-      return `${qty}x ${p.name} (${fmtCUP(p.price)} c/u, subtotal ${fmtCUP(p.price * qty)})`;
+      const unit = resolveUnitPrice(p.price, p.priceTiers, qty);
+      return `${qty}x ${p.name} (${fmtPrice(unit, p.currency)} c/u, subtotal ${fmtPrice(unit * qty, p.currency)})`;
     })
     .filter(Boolean);
   if (!lines.length) return "TU CARRITO ACTUAL (en esta tienda): vacío — no tiene ningún producto agregado ahora mismo.";
@@ -456,7 +470,7 @@ function catalogText(products, cartQuantities) {
   if (!products.length) return "(Sin productos publicados.)";
   return products
     .map((p, i) => {
-      const price = fmtCUP(p.price) + (p.oldPrice ? ` (antes ${fmtCUP(p.oldPrice)})` : "");
+      const price = fmtPrice(p.price, p.currency) + (p.oldPrice ? ` (antes ${fmtPrice(p.oldPrice, p.currency)})` : "") + tiersText(p);
       const inCart = cartQuantities[p.id] ?? 0;
       const available = Math.max(0, p.stock - inCart);
       let stock;
@@ -537,6 +551,7 @@ REGLAS:
   · Nunca respondas con un "no está disponible" genérico que no aclare cuál de los dos casos es.
   · Usa siempre el catálogo de ESTE mensaje, no lo que dijiste en un turno anterior de la misma charla — si el stock cambió entre mensajes, el dato de ahora manda, no lo que dijiste antes.
   · Esta regla va ANTES que la de "venta natural" de abajo: un "quiero comprar X" es TAMBIÉN una pregunta de disponibilidad, no una excepción — nunca invites a "agregarlo al carrito" ni lo presentes como buena opción sin antes aplicar este chequeo. Si está agotado, la respuesta empieza aclarando eso, no vendiendo el producto.
+- PRECIOS POR CANTIDAD: si un producto del catálogo trae "precios por cantidad", ESOS son sus descuentos por volumen: si preguntan por mejor precio, mayoreo o comprar muchas unidades, responde con el precio por unidad que corresponde a la cantidad que dicen (el de mayor "desde" que alcancen) y su total. Nunca digas que no hay descuentos por cantidad si el producto los trae. Usa siempre la moneda que muestra el catálogo (USD, CUP...), nunca otra.
 - Venta natural: sugiere lo relacionado o con descuento (oldPrice = precio anterior) cuando aplique, sin forzar en cada mensaje — nunca para un producto agotado (ver regla de arriba).
 - Nunca digas "ya lo agregué", "ya está en tu carrito", "ya lo saqué" ni "ya vacié el carrito" — ninguna forma de pasado para una acción de carrito, esa confirmación la da la interfaz, no tú. Si el cliente pide agregar/sacar/vaciar, habla en presente/futuro ("te lo agrego ahora", "dale, lo saco", "listo, vacío el carrito") y usa "addToCart"/"removeFromCart"/"clearCart" (abajo) según corresponda — texto y acción SIEMPRE juntos, nunca uno sin el otro.
 - ACCIONES DE CARRITO (bug real ya visto: el cliente pidió vaciar el carrito, el bot dijo que sí pero el carrito real no cambió): "removeFromCart" y "clearCart" son las ÚNICAS formas reales de sacar/vaciar el carrito — decir "listo, lo saqué" o "ya está vacío" SIN incluir la acción correspondiente en el JSON no hace nada de verdad, el carrito real del cliente queda intacto. Si pide sacar un producto ENTERO del carrito (todas sus unidades), usa "removeFromCart" con su número de catálogo. Si pide sacar solo ALGUNAS unidades de un producto que tiene 2 o más ("quita uno", "saca una unidad", "déjame solo uno", "elimina uno de los dos"), usa "reduceCart" con la cantidad a QUITAR (no la que queda) y NUNCA "removeFromCart": sacar la línea entera borraría también las unidades que el cliente quiere conservar. Mira "TU CARRITO ACTUAL" para saber cuántas tiene. Si pide vaciar/borrar TODO el carrito ("vacía el carrito", "borra todo", "empezar de cero"), usa "clearCart": true. Nunca uses estas acciones por iniciativa propia, solo cuando el cliente lo pida explícito.
@@ -600,6 +615,7 @@ function toCardProduct(p) {
     slug: p.slug,
     price: p.price,
     oldPrice: p.oldPrice,
+    currency: p.currency,
     description: p.description,
     images: p.images,
     stock: p.stock,

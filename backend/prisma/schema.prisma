@@ -1105,6 +1105,9 @@ model Vendor {
   menuPublic Boolean @default(true)
   planType    PlanType @default(REGULAR)
   orderDestination OrderDestination @default(WHATSAPP)
+  // Cómo puede el cliente coordinar el pago al terminar su compra en esta tienda (cod = contra entrega, online = pago en línea
+  // coordinado por WhatsApp, cash = efectivo). Por tienda, no por producto. Por defecto están las tres.
+  checkoutPaymentOptions String[] @default(["cod", "online", "cash"])
   // Bloque 64: reemplaza el booleano `isVerified` (guardado aparte,
   // desincronizable — ver el enum arriba) — este es el ÚNICO campo que
   // cualquier parte del sitio debe leer para saber si el badge/IA/destacado
@@ -1731,6 +1734,7 @@ model Order {
   discountCode DiscountCode? @relation(fields: [discountCodeId], references: [id], onDelete: SetNull)
   items    OrderItem[]
   emailLogs EmailLog[]
+  events   OrderEvent[]
 
   // Bloque 241: agregados por tienda en una ventana de fechas (ventas y
   // pedidos de 30 días en las listas del admin y el asistente).
@@ -3632,4 +3636,18 @@ model SupportCase {
 
   @@index([status, createdAt])
   @@index([vendorId])
+}
+
+// Registro de lo que le pasa a un pedido, con fecha y hora: recibido, confirmado, preparando, listo, entregado, cancelado y
+// documentos enviados (factura, garantía). Alimenta el registro que llevan los PDF y el historial del pedido en el panel.
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  type      String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
 }

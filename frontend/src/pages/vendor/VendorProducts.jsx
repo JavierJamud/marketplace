@@ -452,13 +452,6 @@ function ProductModal({ product, planType, isRestaurant, categories, onClose, ve
     addImageLink.mutate(url);
   }
 
-  function togglePayment(id) {
-    setForm((f) => ({
-      ...f,
-      paymentMethods: f.paymentMethods.includes(id) ? f.paymentMethods.filter((m) => m !== id) : [...f.paymentMethods, id],
-    }));
-  }
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
@@ -805,28 +798,6 @@ function ProductModal({ product, planType, isRestaurant, categories, onClose, ve
               </div>
             </div>
           )}
-
-          <div className={SECTION_BOX}>
-            <span className="mb-1.5 block text-[13px] font-bold text-on-surface">Métodos de pago</span>
-            {planType === "REGULAR" ? (
-              <p className="text-label-sm text-outline">Plan Regular: solo pedidos por WhatsApp.</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {["whatsapp", ...(siteSettings?.productPaymentMethods ?? ["cod", "prepaid"])].map((id) => (
-                  <label key={id} className="flex items-center gap-2 text-body-md text-on-surface">
-                    <input
-                      type="checkbox"
-                      checked={form.paymentMethods.includes(id)}
-                      disabled={id === "whatsapp"}
-                      onChange={() => togglePayment(id)}
-                    />
-                    {PAYMENT_METHOD_LABEL[id] ?? id}
-                    {id === "whatsapp" && <span className="text-label-sm text-outline">(por default, siempre activo)</span>}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
 
           <div className={SECTION_BOX}>
             <span className="mb-3 block text-[13px] font-bold text-on-surface">

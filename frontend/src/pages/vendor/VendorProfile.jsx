@@ -410,9 +410,11 @@ function StoreInfoCard() {
             rows={3}
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            maxLength={200}
             className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
             placeholder="Describe lo que vendes y tu propuesta de valor..."
           />
+          <p className={`mt-1 text-right text-[11.5px] ${form.description.length >= 190 ? "font-semibold text-tertiary-accent" : "text-outline"}`}>{form.description.length}/200</p>
         </div>
         <Input label="WhatsApp de atención al cliente" value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} placeholder="+5350000000" />
         <div className="flex items-center gap-3">

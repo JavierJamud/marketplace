@@ -101,7 +101,7 @@ const createVendorSchema = z.object({
   // invoices.controller.js: sin esto no se puede generar ningún PDF.
   ownerIdNumber: z.string().trim().min(1).optional(),
   companyAddress: z.string().trim().min(1).optional(),
-  description: z.string().optional(),
+  description: z.string().max(200, "La descripción de la tienda admite hasta 200 caracteres.").optional(),
   whatsapp: z.string().regex(E164_REGEX, "El WhatsApp debe incluir código de país (ej. +5355512345)."),
   // Bloque 11: obligatorio — puede ser el mismo correo personal de la cuenta,
   // el frontend lo prellena pero permite editarlo.
@@ -579,7 +579,7 @@ const updateVendorSchema = z.object({
   // de zod tal cual, en vez de guardar null como corresponde.
   ownerIdNumber: z.string().trim().min(1).optional().nullable(),
   companyAddress: z.string().trim().min(1).optional().nullable(),
-  description: z.string().optional().nullable(),
+  description: z.string().max(200, "La descripción de la tienda admite hasta 200 caracteres.").optional().nullable(),
   whatsapp: z.string().regex(E164_REGEX, "El WhatsApp debe incluir código de país (ej. +5355512345).").optional(),
   email: z.string().email().optional(),
   logoUrl: z.string().optional().nullable(),
@@ -604,6 +604,7 @@ const updateVendorSchema = z.object({
   orderDestination: z.enum(["WHATSAPP", "PANEL", "BOTH"]).optional(),
   // Bloque 302: correo a la tienda por cada pedido nuevo (web o API de un socio).
   notifyNewOrderEmail: z.boolean().optional(),
+  checkoutPaymentOptions: z.array(z.enum(["cod", "online", "cash"])).min(1, "Deja al menos una forma de coordinar el pago.").optional(),
   acceptedPaymentMethods: z.array(z.string().trim().min(1)).optional(),
   // Bloque 65: cambiar la moneda operativa de la tienda DESPUÉS del registro
   // — a propósito nunca convierte los precios de los productos ya cargados
@@ -740,6 +741,7 @@ export async function updateMyVendor(req, res) {
       planType,
       orderDestination,
       notifyNewOrderEmail: data.notifyNewOrderEmail,
+      checkoutPaymentOptions: data.checkoutPaymentOptions ? [...new Set(data.checkoutPaymentOptions)] : undefined,
       acceptedPaymentMethods: data.acceptedPaymentMethods,
       currency: data.currency,
       businessCategoryId: data.businessCategoryId,

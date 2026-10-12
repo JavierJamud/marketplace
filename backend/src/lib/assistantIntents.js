@@ -27,7 +27,7 @@ const wantsVendor = (m) => /tienda|negocio|vender|vendedor|restaurante/.test(m);
 // ---------------------------------------------------------------- estado de un pedido
 
 const ORDER_STATUS = {
-  NEW: { label: "Recibido", detail: "La tienda aún debe confirmarlo." },
+  NEW: { label: "Recibido", detail: "La tienda recibió tu pedido y un empleado lo revisará. Los pedidos se atienden en el orden en que llegan: ten paciencia, te van a contactar por WhatsApp o por teléfono." },
   PREPARING: { label: "En preparación", detail: "La tienda confirmó tu pedido y lo está preparando." },
   READY: { label: "Listo o en camino", detail: "Tu pedido está listo para entregarse o ya va en camino." },
   DELIVERED: { label: "Entregado", detail: "El pedido fue entregado." },
@@ -51,7 +51,7 @@ export async function orderStatusAnswer({ code, name, sessionEmail }) {
   if (!/^Z-[A-Z0-9]{4,}$/.test(cleanCode)) return { ok: false, reason: "code" };
   const order = await prisma.order.findUnique({
     where: { code: cleanCode },
-    include: { items: { select: { id: true } }, vendor: { select: { companyName: true, slug: true } } },
+    include: { items: { select: { name: true, quantity: true, price: true, size: true, currency: true } }, vendor: { select: { companyName: true, slug: true } } },
   });
   const owner = !!sessionEmail && !!order?.customerEmail && order.customerEmail.trim().toLowerCase() === sessionEmail.trim().toLowerCase();
   // Mismo mensaje si el código no existe o el nombre no coincide: nadie puede usarlo para saber qué pedidos existen.
@@ -59,16 +59,28 @@ export async function orderStatusAnswer({ code, name, sessionEmail }) {
 
   const st = ORDER_STATUS[order.status] ?? { label: order.status, detail: "" };
   const date = new Date(order.createdAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" });
+  const units = order.items.reduce((s, i) => s + i.quantity, 0);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const itemLines = order.items.map((i) => `  - ${i.quantity} × ${i.name}${i.size ? ` (talla ${i.size})` : ""}: ${Number(i.price).toLocaleString("es-CU")} ${i.currency} c/u`);
+  const currencies = new Set(order.items.map((i) => i.currency));
+  const totalText = currencies.size === 1 ? `${Number(order.total).toLocaleString("es-CU")} ${[...currencies][0]}` : money(order.total);
+  const channel = { COD: "Pago contra entrega", ONLINE: "Pago en línea con la tienda", CASH: "Efectivo", TABLE: "Pedido de mesa" }[order.channel];
   const text = [
     `Pedido **${order.code}** de ${order.vendor.companyName}:`,
     "",
     `- Estado: **${st.label}**`,
     `- Fecha: ${date}`,
-    `- Productos: ${order.items.length}`,
-    `- Total: ${money(order.total)}`,
+    `- Contenido: ${plural(order.items.length, "producto", "productos")}, ${plural(units, "unidad", "unidades")} en total`,
+    ...itemLines,
+    channel ? `- Forma de pago: ${channel}` : null,
+    `- Total: ${totalText}`,
     "",
     st.detail,
-  ].join("\n");
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+
   return { ok: true, text, links: [{ label: `Ver ${order.vendor.companyName}`, href: `/tienda/${order.vendor.slug}` }] };
 }
 

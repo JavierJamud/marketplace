@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../lib/toast.jsx";
 import { FileText, ShieldCheck, Download, Mail } from "lucide-react";
 import { api, getErrorMessage } from "../lib/api.js";
@@ -29,6 +29,7 @@ function downloadBlob(blob, filename) {
 // Vendido (confirmOrderSale ya corrió), nunca sobre uno Pendiente.
 export function DocumentModal({ kind, order, vendor, onClose }) {
   const isWarranty = kind === "warranty";
+  const queryClient = useQueryClient();
   const [customerName, setCustomerName] = useState(order.customerName ?? "");
   const [customerIdNumber, setCustomerIdNumber] = useState("");
   const [customerPhone, setCustomerPhone] = useState(order.customerPhone ?? "");
@@ -55,13 +56,19 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
     onSuccess: (blob) => {
       downloadBlob(blob, `${endpoint === "invoice" ? "factura" : "garantia"}-${order.code}.pdf`);
       toast.success(`PDF de ${docLabel} descargado.`);
+      queryClient.invalidateQueries({ queryKey: ["my-orders"] });
     },
     onError: async (err) => toast.error(await getErrorMessage(err, `No se pudo generar la ${docLabel}.`)),
   });
 
   const sendEmail = useMutation({
     mutationFn: async () => (await api.post(`/orders/${order.id}/${endpoint}/email`, { ...buildPayload(), sendTo: sendTo.trim() })).data,
-    onSuccess: () => toast.success(`${isWarranty ? "Garantía" : "Factura"} enviada a ${sendTo}.`),
+    onSuccess: () => {
+      toast.success(`${isWarranty ? "Garantía" : "Factura"} enviada a ${sendTo}.`);
+      // Queda anotado en el historial del pedido: se refresca y la ventana se cierra sola.
+      queryClient.invalidateQueries({ queryKey: ["my-orders"] });
+      onClose();
+    },
     onError: async (err) => toast.error(await getErrorMessage(err, `No se pudo enviar la ${docLabel}.`)),
   });
 

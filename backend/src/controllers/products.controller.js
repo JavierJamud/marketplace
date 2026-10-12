@@ -486,6 +486,7 @@ export async function getProductBySlug(req, res) {
   const serviceAreas = [...new Set(serviceLocations.map((l) => l.province?.name ?? l.stateOther).filter(Boolean))];
   const storeInfo = {
     isOpenNow: isOpen, // null = la tienda no cargó horario
+    checkoutPaymentOptions: vendor.checkoutPaymentOptions,
     nextOpenLabel,
     serviceAreas,
     // Cuba es donde ya atiende la tienda: "también entrega en Cuba" no aporta nada.

@@ -239,7 +239,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
 
               {/* Descripción */}
               {v.description && (
-                <p className="mt-2 line-clamp-2 max-w-[500px] text-[13px] leading-relaxed text-white/65">{v.description}</p>
+                <p className="mt-2 line-clamp-3 max-w-[680px] text-[13px] leading-relaxed text-white/65">{v.description}</p>
               )}
             </div>
           </div>

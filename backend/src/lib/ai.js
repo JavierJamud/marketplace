@@ -257,7 +257,20 @@ export async function generateDescription(kind, context) {
   }
   const { siteName } = await getBrandSettings();
   const prompt = (PROMPTS[kind] ?? PROMPTS.product)({ ...context, siteName });
-  return callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "La IA no pudo generar el texto — prueba de nuevo en un momento.");
+  const text = await callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "La IA no pudo generar el texto — prueba de nuevo en un momento.");
+  return kind === "store" ? fitToLimit(text, STORE_DESCRIPTION_MAX) : text;
+}
+
+// La descripción de la tienda tiene un tope de caracteres para que quepa entera en su encabezado: si la IA se pasa, se corta en
+// la última oración (o palabra) completa que entre.
+export const STORE_DESCRIPTION_MAX = 200;
+function fitToLimit(text, max) {
+  const clean = String(text ?? "").trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const sentence = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (sentence > max * 0.4) return cut.slice(0, sentence + 1).trim();
+  return cut.replace(/\s+\S*$/, "").replace(/[,;:\s]+$/, "") + ".";
 }
 
 // Bloque 246: texto libre de IA para el asistente de negocio — misma cadena de

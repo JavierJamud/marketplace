@@ -5,6 +5,8 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { generateInvoicePdf, generateWarrantyPdf } from "../lib/pdf.js";
 import { sendDocumentEmail } from "../lib/email.js";
 import { invoiceEmail, warrantyEmail } from "../templates/documentEmail.js";
+import { recordOrderEvent } from "../lib/orderEvents.js";
+import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 
 // Bloque 29: factura/garantía solo tienen sentido sobre un pedido que
 // realmente se vendió (stock ya descontado en confirmOrderSale) — un
@@ -16,14 +18,13 @@ import { invoiceEmail, warrantyEmail } from "../templates/documentEmail.js";
 // vez de generar un documento incompleto.
 async function loadConfirmedOrderForVendor(userId, orderId) {
   const vendor = await resolveMyVendor(userId);
-  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true, events: { orderBy: { createdAt: "asc" } }, discountCode: { select: { code: true } } } });
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   if (order.status === "NEW") throw new AppError("Este pedido todavía no fue confirmado — confirma la venta antes de generar la factura o garantía.", 400);
   if (order.status === "CANCELLED") throw new AppError("Este pedido fue rechazado/cancelado, no se puede facturar.", 400);
 
+  // Los documentos llevan solo datos de la empresa (nunca los del titular), así que basta con la dirección de la empresa.
   const missing = [];
-  if (!vendor.ownerName) missing.push("responsable del negocio");
-  if (!vendor.ownerIdNumber) missing.push("identificación del responsable");
   if (!vendor.companyAddress) missing.push("dirección de la empresa");
   if (missing.length > 0) {
     throw new AppError(`Completa los datos de facturación de tu tienda antes de generar documentos (falta: ${missing.join(", ")}). Puedes cargarlos en Configuración.`, 400);
@@ -61,7 +62,25 @@ const warrantySchema = z.object(warrantyBaseFields);
 const warrantyEmailSchema = z.object({ ...warrantyBaseFields, sendTo: z.string().email("Ingresa un correo válido.") });
 
 function pdfItemsFrom(orderItems) {
-  return orderItems.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price }));
+  return orderItems.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price, currency: i.currency, size: i.size, selectedOptions: i.selectedOptions }));
+}
+
+async function pdfContext(order) {
+  const province = order.shippingProvinceId ? await prisma.province.findUnique({ where: { id: order.shippingProvinceId }, select: { name: true } }) : null;
+  return { events: order.events, province };
+}
+
+// Deja constancia del movimiento en el pedido y en el historial de la cuenta del vendedor.
+async function recordDocumentMovement(req, { vendor, order, type, action, description, detail }) {
+  await recordOrderEvent(order.id, type, detail);
+  logActivity({
+    actorId: req.user.id,
+    actorRole: actorRoleForVendorAction(req),
+    vendorId: vendor.id,
+    action,
+    description: `${description} (pedido ${order.code})`,
+    meta: { orderId: order.id, orderCode: order.code },
+  });
 }
 
 export async function downloadInvoice(req, res) {
@@ -69,7 +88,8 @@ export async function downloadInvoice(req, res) {
   const data = invoiceSchema.parse(req.body);
   const { vendor, order } = await loadConfirmedOrderForVendor(req.user.id, id);
 
-  const pdfBuffer = await generateInvoicePdf({ vendor, order, items: pdfItemsFrom(order.items), customer: resolveCustomer(data, order) });
+  const pdfBuffer = await generateInvoicePdf({ vendor, order, items: pdfItemsFrom(order.items), customer: resolveCustomer(data, order), ...(await pdfContext(order)) });
+  await recordDocumentMovement(req, { vendor, order, type: "INVOICE_DOWNLOADED", action: "invoice_generated", description: "Generó la factura" });
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="factura-${order.code}.pdf"`);
@@ -82,7 +102,7 @@ export async function emailInvoice(req, res) {
   const { vendor, order } = await loadConfirmedOrderForVendor(req.user.id, id);
   const customer = resolveCustomer(data, order);
 
-  const pdfBuffer = await generateInvoicePdf({ vendor, order, items: pdfItemsFrom(order.items), customer });
+  const pdfBuffer = await generateInvoicePdf({ vendor, order, items: pdfItemsFrom(order.items), customer, ...(await pdfContext(order)) });
   const { subject, html } = await invoiceEmail({ vendor, order, customerName: customer.name });
 
   const result = await sendDocumentEmail({
@@ -96,6 +116,7 @@ export async function emailInvoice(req, res) {
     pdfBuffer,
   });
   if (!result.ok) throw new AppError(`No se pudo enviar el correo: ${result.error}`, 502);
+  await recordDocumentMovement(req, { vendor, order, type: "INVOICE_SENT", action: "invoice_sent", description: `Envió la factura a ${data.sendTo}`, detail: data.sendTo });
 
   res.status(201).json({ ok: true });
 }
@@ -131,7 +152,8 @@ export async function downloadWarranty(req, res) {
   assertWarrantySectionComplete(vendor);
   const items = selectWarrantyItems(order, data.orderItemIds);
 
-  const pdfBuffer = await generateWarrantyPdf({ vendor, order, items: pdfItemsFrom(items), warrantyDays: data.warrantyDays, customer: resolveCustomer(data, order) });
+  const pdfBuffer = await generateWarrantyPdf({ vendor, order, items: pdfItemsFrom(items), warrantyDays: data.warrantyDays, customer: resolveCustomer(data, order), ...(await pdfContext(order)) });
+  await recordDocumentMovement(req, { vendor, order, type: "WARRANTY_DOWNLOADED", action: "warranty_generated", description: "Generó la garantía", detail: `${data.warrantyDays} días` });
 
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="garantia-${order.code}.pdf"`);
@@ -146,7 +168,7 @@ export async function emailWarranty(req, res) {
   const items = selectWarrantyItems(order, data.orderItemIds);
   const customer = resolveCustomer(data, order);
 
-  const pdfBuffer = await generateWarrantyPdf({ vendor, order, items: pdfItemsFrom(items), warrantyDays: data.warrantyDays, customer });
+  const pdfBuffer = await generateWarrantyPdf({ vendor, order, items: pdfItemsFrom(items), warrantyDays: data.warrantyDays, customer, ...(await pdfContext(order)) });
   const { subject, html } = await warrantyEmail({ vendor, order, customerName: customer.name, warrantyDays: data.warrantyDays });
 
   const result = await sendDocumentEmail({
@@ -160,6 +182,7 @@ export async function emailWarranty(req, res) {
     pdfBuffer,
   });
   if (!result.ok) throw new AppError(`No se pudo enviar el correo: ${result.error}`, 502);
+  await recordDocumentMovement(req, { vendor, order, type: "WARRANTY_SENT", action: "warranty_sent", description: `Envió la garantía a ${data.sendTo}`, detail: `${data.sendTo} · ${data.warrantyDays} días` });
 
   res.status(201).json({ ok: true });
 }

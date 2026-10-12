@@ -13,14 +13,15 @@ import { revealText, appendWord } from "../lib/revealText.js";
 import { postChatStreaming } from "../lib/streamChat.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
+import { useCloseOnOutsideClick } from "../lib/useCloseOnOutsideClick.js";
 import { ChatMarkdown } from "./ChatMarkdown.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
 const MIN_RECORDING_MS = 600;
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
+function fmtCUP(n, currency = "CUP") {
+  return `${Number(n).toLocaleString("es-CU")} ${currency || "CUP"}`;
 }
 function imgUrl(path) {
   if (!path) return null;
@@ -268,10 +269,10 @@ function MarketplaceProductCard({ product }) {
         <p className="truncate text-[12.5px] font-semibold text-on-surface">{product.name}</p>
         {product.description && <p className="truncate text-[11px] text-outline">{product.description}</p>}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          <span className="text-[12.5px] font-bold text-on-surface">{fmtCUP(product.price)}</span>
+          <span className="text-[12.5px] font-bold text-on-surface">{fmtCUP(product.price, product.currency)}</span>
           {product.oldPrice && (
             <>
-              <span className="text-[10.5px] text-outline line-through">{fmtCUP(product.oldPrice)}</span>
+              <span className="text-[10.5px] text-outline line-through">{fmtCUP(product.oldPrice, product.currency)}</span>
               <span className="rounded-full bg-error/10 px-1.5 py-0.5 text-[9.5px] font-bold text-error">-{discount}%</span>
             </>
           )}
@@ -329,6 +330,7 @@ function SeeAllButton({ to, label, icon: Icon }) {
 export function MarketplaceChatWidget() {
   const { siteName } = usePlatformSettings();
   const [open, setOpen] = useState(false);
+  useCloseOnOutsideClick(open, () => setOpen(false));
   const [text, setText] = useState("");
   const [messages, setMessages] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -649,6 +651,7 @@ export function MarketplaceChatWidget() {
 
       {open && (
         <div
+          data-chat-panel
           className={
             // Bloque 51 (pedido explícito): antes el panel de mobile arrancaba
             // en bottom-0, pintando justo encima del botón (mismo z-[60],

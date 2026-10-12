@@ -22,6 +22,15 @@ export function ImageCropUploader({
   const [rawSrc, setRawSrc] = useState(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  // Zoom con el que la foto entera cabe dentro del marco (se calcula al cargar la foto y al conocer el tamaño del marco).
+  const [media, setMedia] = useState(null);
+  // Marco fijo con la proporción real de la tarjeta: lo que se ve dentro es lo que se guarda. coverZoom llena el marco;
+  // fitZoom deja ver la foto entera (con margen blanco si no tiene la misma proporción).
+  const FRAME_W = 340;
+  const cropSize = { width: FRAME_W, height: Math.round(FRAME_W / aspect) };
+  const coverZoom = media ? Math.max(cropSize.width / media.width, cropSize.height / media.height) : 1;
+  const fitZoom = media ? Math.min(cropSize.width / media.width, cropSize.height / media.height) : 1;
+  const minZoom = Math.min(fitZoom, coverZoom);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   const [preview, setPreview] = useState(null);
   // Bug real (Bloque 52): confirmar el recorte antes de que react-easy-crop
@@ -46,6 +55,7 @@ export function ImageCropUploader({
     setCrop({ x: 0, y: 0 });
     setZoom(1);
     setMediaReady(false);
+    setMedia(null);
     setCroppedAreaPixels(null);
     e.target.value = "";
   }
@@ -94,7 +104,8 @@ export function ImageCropUploader({
       {rawSrc && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
           <div className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-surface-container-lowest p-5">
-            <h4 className="mb-3 text-title-md text-on-surface">Ajusta el recorte</h4>
+            <h4 className="mb-1 text-title-md text-on-surface">Acomoda tu foto</h4>
+            <p className="mb-3 text-[12px] text-outline">El marco es exactamente lo que se verá en la tarjeta del producto. Arrastra la foto para moverla y usa el control para acercarla o alejarla.</p>
             <div className="relative h-[280px] w-full overflow-hidden rounded-lg bg-black">
               <Cropper
                 image={rawSrc}
@@ -104,7 +115,16 @@ export function ImageCropUploader({
                 onCropChange={setCrop}
                 onZoomChange={setZoom}
                 onCropComplete={(_area, areaPixels) => setCroppedAreaPixels(areaPixels)}
-                onMediaLoaded={() => setMediaReady(true)}
+                cropSize={cropSize}
+                onMediaLoaded={(m) => {
+                  setMedia(m);
+                  setZoom(Math.max(cropSize.width / m.width, cropSize.height / m.height));
+                  setMediaReady(true);
+                }}
+                minZoom={minZoom}
+                maxZoom={Math.max(3, coverZoom * 3)}
+                restrictPosition={zoom >= coverZoom - 0.001}
+                showGrid={false}
               />
               {!mediaReady && (
                 <div className="absolute inset-0 flex items-center justify-center text-[12.5px] font-semibold text-white/70">
@@ -116,13 +136,21 @@ export function ImageCropUploader({
               <ZoomIn className="h-4 w-4 flex-shrink-0 text-outline" />
               <input
                 type="range"
-                min={1}
-                max={3}
-                step={0.05}
+                min={minZoom}
+                max={Math.max(3, coverZoom * 3)}
+                step={0.01}
                 value={zoom}
                 onChange={(e) => setZoom(Number(e.target.value))}
                 className="w-full"
               />
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => { setCrop({ x: 0, y: 0 }); setZoom(coverZoom); }} className="min-h-11 rounded-lg border border-outline-variant text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container">
+                Llenar el marco
+              </button>
+              <button type="button" onClick={() => { setCrop({ x: 0, y: 0 }); setZoom(fitZoom); }} disabled={fitZoom >= coverZoom - 0.001} className="min-h-11 rounded-lg border border-outline-variant text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-40">
+                Ver la foto completa
+              </button>
             </div>
             <div className="mt-4 flex gap-2.5">
               <Button type="button" variant="outline" className="flex-1" onClick={() => setRawSrc(null)} disabled={confirming}>

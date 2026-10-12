@@ -14,14 +14,15 @@ import { RecordingIndicator, TranscribingIndicator } from "./RecordingIndicator.
 import { revealText, appendWord } from "../lib/revealText.js";
 import { postChatStreaming } from "../lib/streamChat.js";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
+import { useCloseOnOutsideClick } from "../lib/useCloseOnOutsideClick.js";
 import { ChatMarkdown } from "./ChatMarkdown.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
 const MIN_RECORDING_MS = 600;
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
+function fmtCUP(n, currency = "CUP") {
+  return `${Number(n).toLocaleString("es-CU")} ${currency || "CUP"}`;
 }
 
 function imgUrl(path) {
@@ -140,10 +141,10 @@ function ChatProductCard({ product, vendor }) {
         <p className="truncate text-[12.5px] font-semibold text-on-surface">{product.name}</p>
         {product.description && <p className="truncate text-[11px] text-outline">{product.description}</p>}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          <span className="text-[12.5px] font-bold text-on-surface">{fmtCUP(product.price)}</span>
+          <span className="text-[12.5px] font-bold text-on-surface">{fmtCUP(product.price, product.currency)}</span>
           {product.oldPrice && (
             <>
-              <span className="text-[10.5px] text-outline line-through">{fmtCUP(product.oldPrice)}</span>
+              <span className="text-[10.5px] text-outline line-through">{fmtCUP(product.oldPrice, product.currency)}</span>
               <span className="rounded-full bg-error/10 px-1.5 py-0.5 text-[9.5px] font-bold text-error">-{discount}%</span>
             </>
           )}
@@ -243,6 +244,7 @@ export function StoreChatWidget({ vendor }) {
   const { siteName } = usePlatformSettings();
   const { vendorId: cartVendorId, items, total, addItem, removeItem, reduceItem, clearCart } = useCart();
   const [open, setOpen] = useState(false);
+  useCloseOnOutsideClick(open, () => setOpen(false));
   const [text, setText] = useState("");
   const [messages, setMessages] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -622,6 +624,7 @@ export function StoreChatWidget({ vendor }) {
 
       {open && (
         <div
+          data-chat-panel
           className={
             // Mobile: bottom-sheet con dvh (no vh) — en Safari/Chrome mobile
             // real, vh se calcula contra el viewport GRANDE (barra de
@@ -730,7 +733,7 @@ export function StoreChatWidget({ vendor }) {
             >
               <span className="flex items-center gap-1.5">
                 <ShoppingCart className="h-3.5 w-3.5" />
-                Carrito: {cartCount} {cartCount === 1 ? "ítem" : "ítems"} · {fmtCUP(total)}
+                Carrito: {cartCount} {cartCount === 1 ? "ítem" : "ítems"} · {fmtCUP(total, items[0]?.currency)}
               </span>
               <span className="text-[11px]">Ver →</span>
             </Link>
