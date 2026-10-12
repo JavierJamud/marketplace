@@ -336,6 +336,43 @@ if [ -f /etc/systemd/system/zeudin-respaldo.timer ] && grep -q "OnCalendar=Sun" 
   systemctl restart zeudin-respaldo.timer
 fi
 
+echo ">> Firewall: los puertos 80 y 443 solo aceptan a Cloudflare (nadie puede saltarse su protección)"
+if [ -f /etc/nginx/conf.d/cloudflare-ip-real.conf ]; then
+  install -m 755 $APP/deploy/proyecto/08-solo-cloudflare.sh /usr/local/bin/baznova-solo-cloudflare.sh
+  cat > /etc/systemd/system/baznova-solo-cloudflare.service <<'UNIT'
+[Unit]
+Description=Puertos 80 y 443 solo para Cloudflare (Baznova)
+After=network-online.target netfilter-persistent.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/baznova-solo-cloudflare.sh
+[Install]
+WantedBy=multi-user.target
+UNIT
+  cat > /etc/systemd/system/baznova-solo-cloudflare-semanal.service <<'UNIT'
+[Unit]
+Description=Actualiza los rangos de Cloudflare del firewall (Baznova)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/baznova-solo-cloudflare.sh
+UNIT
+  cat > /etc/systemd/system/baznova-solo-cloudflare-semanal.timer <<'UNIT'
+[Unit]
+Description=Actualiza los rangos de Cloudflare del firewall cada semana
+[Timer]
+OnCalendar=Mon *-*-* 04:20:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable baznova-solo-cloudflare.service baznova-solo-cloudflare-semanal.timer >/dev/null 2>&1 || true
+  systemctl start baznova-solo-cloudflare-semanal.timer
+  systemctl restart baznova-solo-cloudflare.service || echo "AVISO: no se pudo aplicar la restricción a Cloudflare (los puertos siguen abiertos)"
+fi
+
 echo ">> Verificación"
 sleep 4
 curl -fsS http://127.0.0.1:$PUERTO_API/health && echo
