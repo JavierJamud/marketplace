@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { PlusCircle, ShieldCheck, Store } from "lucide-react";
@@ -167,6 +167,20 @@ export default function Home() {
     queryFn: async () => (await api.get("/business-categories")).data.categories,
   });
 
+  // Solo se muestran los tipos de negocio que ya tienen al menos una tienda visible, y nunca dos con el mismo nombre.
+  // Sin tiendas no hay ninguno; cuando se registra la primera, aparece el tipo de negocio que eligió.
+  const homeCategories = useMemo(() => {
+    const fold = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+    const seen = new Set();
+    return (businessCategories ?? []).filter((c) => {
+      if (!(c.vendorCount > 0)) return false;
+      const key = fold(c.name);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [businessCategories]);
+
   const { data: featured } = useQuery({
     queryKey: ["home-featured", provinceId],
     queryFn: async () => (await api.get("/search", { params: { provinceId: provinceId || undefined } })).data.products,
@@ -247,10 +261,10 @@ export default function Home() {
 
         {/* CATEGORÍAS (en realidad es tipo de negocio de la tienda: filtra
             TIENDAS por rubro, ver Stores.jsx). */}
-        {businessCategories?.length > 0 && (
+        {homeCategories.length > 0 && (
           <section className="container-app pt-8 md:pt-11">
             <SectionHead title="Explora por categoría" to="/tiendas" />
-            <CategoryMarquee categories={businessCategories} />
+            <CategoryMarquee categories={homeCategories} />
           </section>
         )}
 

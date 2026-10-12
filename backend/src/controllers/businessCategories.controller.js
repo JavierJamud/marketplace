@@ -85,8 +85,18 @@ const createSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+// Nunca dos tipos de negocio con el mismo nombre, sin importar tildes ni mayúsculas.
+const foldName = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+async function assertNameFree(name, exceptId) {
+  const all = await prisma.businessCategory.findMany({ select: { id: true, name: true } });
+  if (all.some((c) => c.id !== exceptId && foldName(c.name) === foldName(name))) {
+    throw new AppError(`Ya existe un tipo de negocio llamado "${name}".`, 409);
+  }
+}
+
 export async function createBusinessCategory(req, res) {
   const data = createSchema.parse(req.body);
+  await assertNameFree(data.name);
   const icon = resolveLucideIconName(data.icon);
   if (!icon) throw new AppError(`"${data.icon}" no es un ícono válido de lucide-react.`, 400);
 
@@ -117,6 +127,7 @@ export async function updateBusinessCategory(req, res) {
 
   const existing = await prisma.businessCategory.findUnique({ where: { id } });
   if (!existing) throw new AppError("Categoría no encontrada.", 404);
+  if (data.name) await assertNameFree(data.name, id);
 
   if (data.icon) {
     const icon = resolveLucideIconName(data.icon);
