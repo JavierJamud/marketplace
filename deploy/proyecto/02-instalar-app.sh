@@ -171,6 +171,10 @@ server {
     # no hereda los add_header del server cuando un location declara alguno.
     include $RAIZ/cabeceras-seguridad.conf;
 
+    # \$es_portada = 1 solo en la portada (con o sin parámetros): el HTML la usa para precargar la imagen del encabezado.
+    set \$es_portada 0;
+    if (\$request_uri ~ "^/(\?.*)?\$") { set \$es_portada 1; }
+
     # Una sola dirección para Google: www redirige al dominio sin www (evita contenido duplicado).
     $REDIR_WWW
 
