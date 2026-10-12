@@ -119,6 +119,7 @@ module.exports = {
     exec_mode: "fork",          // UNA sola instancia: los crons no deben correr duplicados
     instances: 1,
     max_memory_restart: "1500M",
+    kill_timeout: 10000,        // da tiempo a terminar las peticiones en curso antes de apagar
     env: { NODE_ENV: "production", TZ: "America/Havana" },
     out_file: "$RAIZ/logs/api.out.log",
     error_file: "$RAIZ/logs/api.err.log",

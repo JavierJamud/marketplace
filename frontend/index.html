@@ -805,6 +805,54 @@
       })();
     </script>
 
+    <!-- Vigilante de carga: si la conexión se corta a mitad de camino (cambio de red del celular, señal inestable), el navegador
+         puede quedarse con el HTML y sin los scripts, y el logo giraría para siempre. Aquí se avisa, se ofrece "Reintentar" y la
+         página se recarga sola (máximo 3 veces seguidas) hasta que la aplicación esté lista. -->
+    <script>
+      (function () {
+        var KEY = "boot_retry_n";
+        var n = 0;
+        try { n = Number(sessionStorage.getItem(KEY)) || 0; } catch (e) {}
+        var help = null;
+        function reload() {
+          try { sessionStorage.setItem(KEY, String(n + 1)); } catch (e) {}
+          var u = new URL(location.href);
+          u.searchParams.set("_r", Date.now().toString(36));
+          location.replace(u.toString());
+        }
+        function showHelp() {
+          if (help || window.__appReady) return;
+          var host = document.getElementById("app-preloader");
+          if (!host) return;
+          help = document.createElement("div");
+          help.setAttribute("role", "status");
+          help.style.cssText = "position:absolute;left:0;right:0;bottom:11vh;text-align:center;color:#fff;font:600 14px/1.4 Inter,system-ui,sans-serif;padding:0 24px;";
+          help.innerHTML = '<div style="opacity:.85;margin-bottom:12px">La conexión está lenta. Seguimos intentando...</div><button type="button" style="min-height:44px;padding:0 22px;border:0;border-radius:999px;background:#FE9800;color:#1b1b1d;font:700 14px Inter,system-ui,sans-serif;cursor:pointer">Reintentar ahora</button>';
+          help.querySelector("button").addEventListener("click", reload);
+          host.appendChild(help);
+        }
+        window.addEventListener("app:ready", function () {
+          try { sessionStorage.removeItem(KEY); } catch (e) {}
+          if (help && help.parentNode) help.parentNode.removeChild(help);
+          try {
+            var u = new URL(location.href);
+            if (u.searchParams.has("_r")) { u.searchParams.delete("_r"); history.replaceState(null, "", u.pathname + u.search + u.hash); }
+          } catch (e) {}
+        });
+        // El script principal ni siquiera pudo descargarse.
+        window.__bootFailed = function () {
+          showHelp();
+          if (n < 3) setTimeout(reload, 1500 * (n + 1));
+        };
+        // Los errores de carga de un <script> no suben por el documento: se escuchan en la fase de captura.
+        window.addEventListener("error", function (e) {
+          var el = e.target;
+          if (el && el.tagName === "SCRIPT" && /\/assets\//.test(el.src || "") && !window.__appReady) window.__bootFailed();
+        }, true);
+        setTimeout(showHelp, 9000);
+        setTimeout(function () { if (!window.__appReady && n < 3) reload(); }, 20000);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

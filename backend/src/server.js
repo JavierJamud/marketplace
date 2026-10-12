@@ -17,9 +17,28 @@ import { startPartnerUsageFlusher } from "./lib/partnerUsage.js";
 
 // En producción la API solo escucha dentro del servidor (Nginx la publica en /api); en desarrollo, en toda la red local.
 const host = process.env.NODE_ENV === "production" ? "127.0.0.1" : undefined;
-app.listen(env.port, host, () => {
+const server = app.listen(env.port, host, () => {
   console.log(`API escuchando en el puerto ${env.port}`);
 });
+
+// Nginx reutiliza conexiones con la API durante un rato: si Node las cierra antes (su valor por defecto es 5 s), a veces
+// Nginx escribe en una conexión ya cerrada y la persona recibe un 502 suelto. Con un tiempo mayor eso no ocurre.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+
+// Apagado ordenado: al reiniciar (despliegue o reinicio del servidor) deja de aceptar conexiones nuevas, termina las
+// peticiones que ya estaban en curso y recién entonces sale. Sin esto, PM2 cortaba de golpe y esas peticiones fallaban.
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[servidor] ${signal}: cerrando de forma ordenada`);
+  server.close(() => process.exit(0));
+  server.closeIdleConnections?.();
+  setTimeout(() => process.exit(0), 8000).unref();
+}
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 // Venta rápida de clientes: borra los anuncios vencidos a los 30 días (y sus
 // archivos) — corre primero (7:00am) para no competir por conexión de DB con
