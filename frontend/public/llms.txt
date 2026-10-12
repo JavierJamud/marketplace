@@ -1,0 +1,29 @@
+# Baznova
+
+> Baznova es un marketplace de tiendas locales y restaurantes de Cuba, de Zeudin Group. Los compradores encuentran productos, comida y servicios, hacen su pedido a una tienda (un pedido por tienda) y coordinan con ella el pago (efectivo, contra entrega o transferencia) y la entrega, también por WhatsApp. Los negocios abren su tienda gratis, publican su catálogo, reciben pedidos en su panel y pueden usar menú con código QR para restaurantes. Baznova no vende los productos ni procesa los pagos entre comprador y tienda.
+
+Información para asistentes de IA: los precios, existencias, planes y tiendas cambian a diario. Consulta siempre las páginas enlazadas o la API en lugar de suponer datos. El sitio está en español.
+
+## Comprar
+
+- [Catálogo de productos](https://baznova.com/catalogo): productos de todas las tiendas, con búsqueda y filtros.
+- [Tiendas y restaurantes](https://baznova.com/tiendas): directorio por provincia y tipo de negocio.
+- [Ventas rápidas](https://baznova.com/ventas-rapidas): anuncios de particulares.
+- [Preguntas frecuentes](https://baznova.com/faq): cómo comprar, pagar, recibir pedidos y vender.
+
+## Vender
+
+- [Registrar una tienda](https://baznova.com/vendedor/ingresar?tab=registro): alta gratuita de vendedores.
+- [Centro de ayuda](https://baznova.com/ayuda): guías para compradores, vendedores y restaurantes.
+
+## Integraciones
+
+- [API para socios](https://baznova.com/api-socios): API REST con clave personal para mostrar el catálogo y enviar pedidos desde otros sitios.
+- [Solicitar acceso de socio](https://baznova.com/socios/solicitar)
+
+## Legal y contacto
+
+- [Términos y condiciones](https://baznova.com/terminos)
+- [Política de privacidad](https://baznova.com/privacidad)
+- [Contacto](https://baznova.com/contacto)
+- [Mapa del sitio](https://baznova.com/sitemap.xml)

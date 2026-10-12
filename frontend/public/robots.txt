@@ -13,3 +13,6 @@ Disallow: /mesa/
 Disallow: /vender
 
 Sitemap: https://baznova.com/sitemap.xml
+
+# Catálogo de recursos para agentes de IA
+Agentmap: https://baznova.com/.well-known/ard.json

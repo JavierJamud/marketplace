@@ -1,0 +1,46 @@
+{
+  "@context": "https://agenticresourcediscovery.org/context/v1",
+  "entries": [
+    {
+      "identifier": "urn:air:baznova.com:api:partner-catalog",
+      "displayName": "API para socios de Baznova",
+      "type": "text/html",
+      "url": "https://baznova.com/api-socios",
+      "description": "API REST de Baznova (marketplace de tiendas locales de Cuba) para mostrar el catálogo de productos y tiendas y enviar pedidos desde sitios de socios. Requiere una clave personal que se solicita en https://baznova.com/socios/solicitar.",
+      "capabilities": [
+        "CatalogSearch",
+        "StoreDirectory",
+        "OrderCreation"
+      ],
+      "tags": [
+        "marketplace",
+        "cuba",
+        "ecommerce",
+        "tiendas",
+        "productos"
+      ],
+      "representativeQueries": [
+        "buscar productos de tiendas en Cuba desde mi sitio web",
+        "API para mostrar el catálogo de tiendas cubanas",
+        "enviar pedidos a una tienda de Baznova por API"
+      ]
+    },
+    {
+      "identifier": "urn:air:baznova.com:docs:llms",
+      "displayName": "Guía de Baznova para asistentes de IA",
+      "type": "text/markdown",
+      "url": "https://baznova.com/llms.txt",
+      "description": "Resumen de Baznova y enlaces a sus páginas principales: catálogo, tiendas, cómo comprar y vender, ayuda, políticas y API.",
+      "tags": [
+        "documentación",
+        "marketplace",
+        "cuba"
+      ],
+      "representativeQueries": [
+        "cómo comprar en Baznova",
+        "cómo abrir una tienda en línea en Cuba",
+        "qué es Baznova"
+      ]
+    }
+  ]
+}

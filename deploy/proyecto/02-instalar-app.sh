@@ -161,6 +161,7 @@ server {
     index index.html;
     client_max_body_size 60m;
     server_tokens off;
+    charset utf-8;                 # llms.txt, robots.txt y demás texto con tildes
 
     gzip on;
     gzip_comp_level 5;
