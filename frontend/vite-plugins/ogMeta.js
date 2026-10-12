@@ -86,7 +86,7 @@ function absoluteImage(apiUrl, path) {
 export function ogMetaPlugin(env = {}) {
   const apiUrl = env.VITE_API_URL ?? "http://localhost:4000";
   const siteUrl = env.FRONTEND_URL ?? "http://localhost:5173";
-  const defaultImage = `${siteUrl}/og-baznova.png`;
+  const defaultImage = `${siteUrl}/og-baznova-2.png`;
 
   // Bloque 49: nombre de la plataforma editable desde el admin (SiteSettings)
   // — un crawler no ejecuta JS ni lee usePlatformSettings(), así que este

@@ -133,7 +133,7 @@ export async function renderStoreOgImagePng(req, res) {
         locations: { take: 1, select: { stateOther: true, province: { select: { name: true } }, municipality: { select: { name: true } }, country: { select: { name: true } } } },
       },
     });
-    if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || vendor.isPrivate) return res.redirect(302, `${CANONICAL_FRONTEND_URL}/og-baznova.png`);
+    if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || vendor.isPrivate) return res.redirect(302, `${CANONICAL_FRONTEND_URL}/og-baznova-2.png`);
 
     const loc = vendor.locations[0];
     const place = loc ? loc.province?.name ?? loc.stateOther ?? loc.country?.name ?? null : null;
