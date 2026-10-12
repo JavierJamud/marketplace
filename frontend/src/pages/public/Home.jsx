@@ -10,20 +10,8 @@ import { OffersSlider } from "../../components/OffersSlider.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
+import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 
-// Bloque 295/297 (pedido explícito — "ya no hacen falta las imágenes que se subían desde el panel de
-// administrador: el Hero solo lleva la animación"): el Hero muestra la animación del teléfono y la
-// laptop (public/baznova-showcase) en un iframe transparente de 16:9.
-function HeroVisual() {
-  return (
-    <iframe
-      src="/baznova-showcase/index.html"
-      title="Baznova en teléfono y laptop"
-      loading="lazy"
-      style={{ width: "100%", aspectRatio: "16 / 9", border: 0, background: "transparent", display: "block" }}
-    />
-  );
-}
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
 import vendorMockupImageMobile from "../../assets/images/hero-mobile-apps.webp";
@@ -205,6 +193,8 @@ export default function Home() {
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
+  // Imágenes del Hero que sube el admin (HeroImageSlider hace el fundido entre ellas).
+  const heroImages = (settings?.heroImages ?? []).map((u) => `${api.defaults.baseURL}${u}`);
 
   return (
     <>
@@ -229,9 +219,9 @@ export default function Home() {
               {/* Bloque 252 (pedido explícito): en celular las imágenes del slider
                   van justo debajo del texto del hero (en la auditoría 004 se
                   habían ocultado ahí por altura; el dueño las quiere visibles). */}
-              {!isLargeScreen && (
+              {!isLargeScreen && heroImages.length > 0 && (
                 <div className="mb-6">
-                  <HeroVisual />
+                  <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} heightClass="h-[220px] sm:h-[300px]" />
                 </div>
               )}
               {/* Bloque 255 (pedido explícito): el radio de los botones es el mismo de las
@@ -255,7 +245,7 @@ export default function Home() {
               </div>
             </div>
 
-            {isLargeScreen && <HeroVisual />}
+            {isLargeScreen && <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />}
           </div>
         </section>
 

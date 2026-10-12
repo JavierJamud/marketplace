@@ -1,6 +1,6 @@
 {
   "name": "zeudin-frontend",
-  "version": "26.0.17",
+  "version": "26.0.18",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,8 +9,7 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview",
-    "build:showcase": "node scripts/build-showcase.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@tanstack/query-sync-storage-persister": "^5.102.8",

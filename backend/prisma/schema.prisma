@@ -2345,6 +2345,9 @@ model Integration {
 
 model SiteSettings {
   id String @id @default(cuid())
+  // Imágenes del Hero de la Home, que sube el admin desde Configuración. Guardan la ruta relativa completa
+  // ("/uploads/site/<archivo>") y el orden del arreglo es el orden en que se muestran.
+  heroImages String[] @default([])
   // Bloque 49: nombre y logo de la plataforma, editables desde "Marca de la
   // plataforma" en el admin — consumidos en todo el sitio (header, footer,
   // <title>, emails, PDFs, WhatsApp) vía usePlatformSettings() en vez de un

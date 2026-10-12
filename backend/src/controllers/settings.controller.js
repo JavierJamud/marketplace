@@ -42,6 +42,7 @@ export async function getSettings(_req, res) {
   res.json({
     settings: {
       plans,
+      heroImages: settings.heroImages,
       allowProductImageLinks: settings.allowProductImageLinks,
       siteName: settings.siteName,
       whatsappUrl: settings.whatsappUrl,
@@ -485,6 +486,37 @@ export async function updateProductBadgeSettings(req, res) {
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
   res.json({ settings: { availableProductBadges: updated.availableProductBadges, newBadgeDurationDays: updated.newBadgeDurationDays } });
+}
+
+// Imágenes del Hero de la Home: se agregan al arreglo existente (una o varias juntas) sin reemplazarlo entero. Son públicas por
+// diseño (se sirven con express.static, ver app.js), a diferencia de las fotos de verificación.
+export async function addHeroImages(req, res) {
+  if (!req.files?.length) throw new AppError("Sube al menos una imagen para el hero.", 400);
+
+  const newUrls = req.files.map((f) => `/uploads/site/${f.filename}`);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({
+    where: { id: settings.id },
+    data: { heroImages: [...settings.heroImages, ...newUrls] },
+  });
+  res.status(201).json({ settings: { heroImages: updated.heroImages } });
+}
+
+const removeHeroImageSchema = z.object({ url: z.string().min(1) });
+
+export async function removeHeroImage(req, res) {
+  const { url } = removeHeroImageSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  if (!settings.heroImages.includes(url)) throw new AppError("Esa imagen no está en el hero.", 404);
+
+  const nextImages = settings.heroImages.filter((u) => u !== url);
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: { heroImages: nextImages } });
+
+  // Se borra también el archivo, sin bloquear la respuesta si falla.
+  const filename = url.split("/").pop();
+  unlink(join(SITE_UPLOAD_DIR, filename)).catch(() => {});
+
+  res.json({ settings: { heroImages: updated.heroImages } });
 }
 
 // Bloque 49: uso INTERNO (emails, PDFs, prompts de IA, mensajes de error) —
