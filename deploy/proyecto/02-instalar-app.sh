@@ -147,6 +147,7 @@ add_header X-Content-Type-Options nosniff always;
 add_header Referrer-Policy strict-origin-when-cross-origin always;
 add_header X-Frame-Options SAMEORIGIN always;
 add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=(self), payment=()" always;
+add_header Strict-Transport-Security "max-age=15552000" always;
 CABECERAS
 chown zeudin:zeudin $RAIZ/cabeceras-seguridad.conf
 
@@ -189,6 +190,16 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_buffering off;            # respuestas del asistente en tiempo real
         proxy_read_timeout 180s;
+        proxy_connect_timeout 3s;       # si la API está reiniciando, falla rápido (el navegador reintenta solo)
+    }
+
+    # Si la API no responde (reinicio o despliegue de unos segundos), el navegador recibe un aviso corto y reintenta solo.
+    error_page 502 503 504 = @api_reiniciando;
+    location @api_reiniciando {
+        default_type application/json;
+        add_header Retry-After 2 always;
+        add_header Cache-Control "no-store" always;
+        return 503 '{"error":"El servicio se esta reiniciando. Intenta de nuevo en unos segundos."}';
     }
 
     # Mapa del sitio para Google (lo arma la API con las tiendas y productos visibles)
@@ -263,6 +274,66 @@ if [ -d /etc/letsencrypt/live/$DOMINIO ]; then
   echo ">> Reaplicando el certificado SSL de $DOMINIO"
   certbot install --nginx --cert-name "$DOMINIO" -d "$DOMINIO" -d "www.$DOMINIO" --redirect -n
   nginx -t && systemctl reload nginx
+fi
+
+echo ">> Nginx: capacidad de conexiones (por si llega mucho tráfico a la vez)"
+if grep -q "worker_connections 768;" /etc/nginx/nginx.conf; then
+  sed -i 's/worker_connections 768;/worker_connections 4096;/' /etc/nginx/nginx.conf
+fi
+if ! grep -q "^worker_rlimit_nofile" /etc/nginx/nginx.conf; then
+  sed -i '0,/^pid /s//worker_rlimit_nofile 16384;\npid /' /etc/nginx/nginx.conf
+fi
+nginx -t && systemctl reload nginx
+
+echo ">> Vigilante: cada minuto comprueba la API y Nginx y los reinicia si no responden"
+cat > /usr/local/bin/baznova-vigilante.sh <<VIGILANTE
+#!/usr/bin/env bash
+# Comprueba que la API responda. Tres fallos seguidos (3 minutos) reinician la API; Nginx se levanta si estuviera caído.
+ESTADO=/run/baznova-vigilante.fallos
+if ! systemctl is-active --quiet nginx; then
+  logger -t baznova-vigilante "Nginx caído: reiniciando"
+  systemctl restart nginx
+fi
+if curl -fsS -m 8 http://127.0.0.1:$PUERTO_API/health >/dev/null 2>&1; then
+  rm -f "\$ESTADO"
+  exit 0
+fi
+N=\$(( \$(cat "\$ESTADO" 2>/dev/null || echo 0) + 1 ))
+echo "\$N" > "\$ESTADO"
+logger -t baznova-vigilante "La API no respondió (\$N/3)"
+if [ "\$N" -ge 3 ]; then
+  logger -t baznova-vigilante "Reiniciando la API"
+  sudo -u zeudin pm2 restart $PM2_NOMBRE >/dev/null 2>&1
+  rm -f "\$ESTADO"
+fi
+VIGILANTE
+chmod 755 /usr/local/bin/baznova-vigilante.sh
+cat > /etc/systemd/system/baznova-vigilante.service <<'UNIT'
+[Unit]
+Description=Vigilante de la API de Baznova
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/baznova-vigilante.sh
+UNIT
+cat > /etc/systemd/system/baznova-vigilante.timer <<'UNIT'
+[Unit]
+Description=Vigilante de la API de Baznova (cada minuto)
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now baznova-vigilante.timer >/dev/null 2>&1 || true
+
+echo ">> Respaldo: diario a las 3:00 a.m. (hora de La Habana), cifrado y fuera del servidor"
+if [ -f /etc/systemd/system/zeudin-respaldo.timer ] && grep -q "OnCalendar=Sun" /etc/systemd/system/zeudin-respaldo.timer; then
+  sed -i 's/^OnCalendar=.*/OnCalendar=*-*-* 03:00:00 America\/Havana/' /etc/systemd/system/zeudin-respaldo.timer
+  sed -i 's/^Description=Respaldo semanal.*/Description=Respaldo diario ZeuDin (3:00 a.m.)/' /etc/systemd/system/zeudin-respaldo.timer
+  systemctl daemon-reload
+  systemctl restart zeudin-respaldo.timer
 fi
 
 echo ">> Verificación"
