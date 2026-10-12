@@ -11,21 +11,23 @@ const MarketplaceChatWidget = lazy(() => import("./MarketplaceChatWidget.jsx").t
 // Inicio, Tiendas y Catálogo se comporten igual. La página de cada tienda y la de
 // cada producto siguen con el chat de su propia tienda.
 export function MarketplaceChatGate() {
-  // El chat se monta cuando la página ya terminó de cargar y el navegador está libre: así no compite con la imagen del
-  // encabezado ni con el resto de la portada.
+  // El chat se monta cuando la persona empieza a usar la página (toca, desplaza, mueve el ratón o escribe) o 6 s después de
+  // que terminó de cargar: así su código no compite con la primera pantalla ni bloquea el hilo mientras carga.
   const [idle, setIdle] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    const start = () => {
-      const run = () => !cancelled && setIdle(true);
-      if ("requestIdleCallback" in window) window.requestIdleCallback(run, { timeout: 4000 });
-      else setTimeout(run, 1500);
+    const EVENTS = ["pointerdown", "touchstart", "scroll", "keydown", "mousemove"];
+    let timer;
+    const go = () => setIdle(true);
+    const onLoad = () => {
+      timer = setTimeout(go, 6000);
     };
-    if (document.readyState === "complete") start();
-    else window.addEventListener("load", start, { once: true });
+    EVENTS.forEach((e) => window.addEventListener(e, go, { once: true, passive: true }));
+    if (document.readyState === "complete") onLoad();
+    else window.addEventListener("load", onLoad, { once: true });
     return () => {
-      cancelled = true;
-      window.removeEventListener("load", start);
+      clearTimeout(timer);
+      EVENTS.forEach((e) => window.removeEventListener(e, go));
+      window.removeEventListener("load", onLoad);
     };
   }, []);
   const { data: settings } = useQuery({
