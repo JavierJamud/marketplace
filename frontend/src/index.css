@@ -346,3 +346,10 @@
 /* Barra de progreso del punto activo del slider del Hero: se llena en el tiempo que dura la imagen y, al terminar, pasa a la siguiente */
 @keyframes hero-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .hero-progress { width: 100%; transform: scaleX(0); transform-origin: left center; animation-name: hero-progress; animation-timing-function: linear; animation-fill-mode: forwards; }
+
+/* Secciones de la portada que quedan debajo de la primera pantalla: el navegador no calcula su diseño ni las pinta hasta que
+   están cerca de verse. "auto 600px" reserva un alto aproximado que luego recuerda con el real, para que la página no salte. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}

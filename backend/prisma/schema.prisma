@@ -1276,6 +1276,7 @@ model Vendor {
   messages      VendorMessage[]
   notifications VendorNotification[]
   supportCases  SupportCase[]
+  customers     VendorCustomer[]
   deliveryCountries VendorDeliveryCountry[]
   favorites     Favorite[]
   chatMessages  ChatMessage[]
@@ -2781,9 +2782,15 @@ model VendorNotification {
   title     String
   body      String
   readAt    DateTime?
+  // Atendida: el vendedor la abrió o se resolvió lo que avisaba. Deja de mostrarse en la campanita.
+  resolvedAt DateTime?
+  // Código del pedido al que se refiere (avisos de pedido nuevo), para resolverla sola al confirmar o anular el pedido.
+  refCode   String?
   createdAt DateTime               @default(now())
 
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId, resolvedAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -3650,4 +3657,22 @@ model OrderEvent {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId, createdAt])
+}
+
+// Cliente de una tienda: se crea o se actualiza solo con cada pedido (por correo, o por teléfono si no dejó correo). Las cifras
+// (pedidos, gastado, última compra) se calculan de los pedidos reales; aquí solo viven los datos de contacto y las notas.
+model VendorCustomer {
+  id        String   @id @default(cuid())
+  vendorId  String
+  key       String
+  name      String?
+  phone     String?
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, key])
 }

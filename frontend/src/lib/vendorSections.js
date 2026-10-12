@@ -17,6 +17,7 @@ export const VENDOR_SECTIONS = [
   { key: "codigos-descuento", label: "Códigos de descuento" },
   { key: "ofertas-tienda", label: "Ofertas de tienda" },
   { key: "pedidos", label: "Pedidos" },
+  { key: "clientes", label: "Clientes" },
   { key: "mesas", label: "Mesas / QR" },
   { key: "mensajes", label: "Mensajes" },
   { key: "resenas", label: "Reseñas" },

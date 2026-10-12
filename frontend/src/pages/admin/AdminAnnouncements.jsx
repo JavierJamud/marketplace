@@ -35,8 +35,8 @@ function inAWeekLocal() {
 
 function computeState(a) {
   const now = new Date();
-  if (!a.isActive) return { label: "Inactivo", bg: "#f0edee", color: "#75777c" };
-  if (new Date(a.endAt) < now) return { label: "Vencido", bg: "#f0edee", color: "#75777c" };
+  if (!a.isActive) return { label: "Inactivo", bg: "#f0edee", color: "#65676c" };
+  if (new Date(a.endAt) < now) return { label: "Vencido", bg: "#f0edee", color: "#65676c" };
   if (new Date(a.startAt) > now) return { label: "Programado", bg: "rgba(254,152,0,0.15)", color: "#8A5100" };
   return { label: "En vivo", bg: "rgba(12,174,83,0.12)", color: "#0A8F42" };
 }

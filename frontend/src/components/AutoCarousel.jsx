@@ -29,7 +29,7 @@ export function AutoCarousel({ items, getKey, renderItem, itemClassName, align =
     <div className="overflow-hidden" ref={emblaRef} role="region" aria-label={label}>
       <div className="flex touch-pan-y">
         {slides.map(({ item, key, copy }) => (
-          <div key={key} className={`min-w-0 flex-none ${itemClassName}`} {...(copy > 0 ? { "aria-hidden": true } : {})}>
+          <div key={key} className={`min-w-0 flex-none ${itemClassName}`} {...(copy > 0 ? { "aria-hidden": true, inert: "" } : {})}>
             {renderItem(item)}
           </div>
         ))}

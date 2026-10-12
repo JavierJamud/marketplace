@@ -30,7 +30,8 @@ const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino"
 const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#0A8F42", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
 const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
-const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel" };
+// BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).
+const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel", BOTH: "Aviso por WhatsApp y Panel" };
 
 const TABS = [
   { id: "orders", label: "Mis pedidos" },
@@ -353,7 +354,7 @@ export default function CustomerPanel() {
                       </div>
                       <div className="mt-0.5 text-[12.5px] text-outline">
                         {new Date(o.createdAt).toLocaleString("es-CU")} · {CHANNEL_LABEL[o.channel] ?? o.channel}
-                        {o.notificationChannel && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
+                        {NOTIFICATION_LABEL[o.notificationChannel] && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
                       </div>
                     </div>
                     <div className="text-[14px] font-bold text-on-surface">{fmtCUP(o.total)}</div>

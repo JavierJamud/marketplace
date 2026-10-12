@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, Contact } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -52,6 +52,7 @@ const NAV = [
   // cuál(es) tenga de verdad (ver mySections en el Outlet context).
   { to: "/vendedor/ofertas-tienda", label: "Ofertas y códigos", icon: Gift, anySection: ["ofertas-tienda", "codigos-descuento"] },
   { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart, section: "pedidos" },
+  { to: "/vendedor/clientes", label: "Clientes", icon: Contact, section: "clientes" },
   { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas" },
   { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck, ownerOnly: true },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes" },

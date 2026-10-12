@@ -65,7 +65,7 @@ const STATUS_COLOR = {
   READY: "#0A8F42",
   DELIVERED: "#0CAE53",
   CANCELLED: "#ba1a1a",
-  RECEIVED: "#75777c",
+  RECEIVED: "#65676c",
 };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
 const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
@@ -258,14 +258,14 @@ function SalesChartCard() {
             <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e8e5e6" />
             <XAxis
               dataKey="label"
-              tick={{ fontSize: 10.5, fill: "#75777c" }}
+              tick={{ fontSize: 10.5, fill: "#65676c" }}
               axisLine={false}
               tickLine={false}
               interval={series.length > 20 ? Math.ceil(series.length / 12) : 0}
               angle={angleTicks ? -35 : 0}
               textAnchor={angleTicks ? "end" : "middle"}
             />
-            <YAxis tick={{ fontSize: 10, fill: "#75777c" }} axisLine={false} tickLine={false} width={44} />
+            <YAxis tick={{ fontSize: 10, fill: "#65676c" }} axisLine={false} tickLine={false} width={44} />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
             <Bar dataKey="total" radius={[7, 7, 7, 7]} maxBarSize={34} fill="#337475">
               <LabelList dataKey="total" content={(props) => <PeakLabel {...props} peakIndex={peakIndex} />} />
@@ -541,7 +541,7 @@ export default function VendorDashboard() {
               </div>
               <div className="flex flex-col">
                 {data.recentOrders.map((o) => {
-                  const color = STATUS_COLOR[o.status] ?? "#75777c";
+                  const color = STATUS_COLOR[o.status] ?? "#65676c";
                   return (
                     <div key={o.id} className="flex items-center gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-surface-container/60">
                       <div className="flex min-w-0 flex-1 items-center gap-3">

@@ -8,6 +8,7 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { slugify } from "../utils/slugify.js";
 import { env } from "../config/env.js";
+import { importRemoteImage } from "../lib/importRemoteImage.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
@@ -949,11 +950,23 @@ export async function addProductImageLink(req, res) {
   if (existing.images.includes(url)) throw new AppError("Ese link ya fue agregado a este producto.", 409);
 
   const wasEmpty = existing.images.length === 0;
-  const reachable = await isUrlReachable(url);
+  // La foto se descarga, se optimiza y se guarda en la propia tienda (rápida, liviana y sin depender del otro sitio). Si el otro
+  // sitio no deja descargarla, se usa el enlace tal cual, como antes, y se avisa.
+  let storedUrl = url;
+  let importedLocally = false;
+  try {
+    const filename = await importRemoteImage(url, join(PRODUCT_UPLOAD_DIR, vendor.slug));
+    storedUrl = `/uploads/products/${vendor.slug}/${filename}`;
+    importedLocally = true;
+  } catch (err) {
+    if (/no permitid|Solo se permiten|no válido/i.test(err.message)) throw new AppError(err.message, 400);
+    if (/no es una imagen/i.test(err.message)) throw new AppError("Ese enlace no lleva a una imagen. Pega el enlace directo de la foto.", 400);
+  }
+  const reachable = importedLocally ? true : await isUrlReachable(url);
   const product = await prisma.product.update({
     where: { id },
     data: {
-      images: [...existing.images, url],
+      images: [...existing.images, storedUrl],
       ...(wasEmpty ? { isActive: true, activatedAt: existing.activatedAt ?? new Date() } : {}),
     },
   });

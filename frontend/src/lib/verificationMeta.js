@@ -30,7 +30,7 @@ export function planFromSettings(plans, planType) {
 // IN_REVIEW -> PENDING_PAYMENT -> VERIFIED, o PAYMENT_FAILED/SUSPENDED/
 // REJECTED en el medio.
 export const STAGE_META = {
-  NOT_STARTED: { label: "Sin verificar todavía", color: "#75777c", bg: "rgba(117,119,124,0.1)", Icon: Clock },
+  NOT_STARTED: { label: "Sin verificar todavía", color: "#65676c", bg: "rgba(117,119,124,0.1)", Icon: Clock },
   PENDING_DOCS: { label: "Documentos enviados — esperando revisión", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
   IN_REVIEW: { label: "Un admin está revisando tus documentos", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
   PENDING_PAYMENT: { label: "Documentos aprobados — falta el pago", color: "#337475", bg: "rgba(51,116,117,0.1)", Icon: Clock },

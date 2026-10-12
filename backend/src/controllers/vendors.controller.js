@@ -1533,8 +1533,9 @@ export async function listMyNotifications(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
 
   const [notifications, unreadCount] = await Promise.all([
-    prisma.vendorNotification.findMany({ where: { vendorId: vendor.id }, orderBy: { createdAt: "desc" } }),
-    prisma.vendorNotification.count({ where: { vendorId: vendor.id, readAt: null } }),
+    // Solo las pendientes: las ya atendidas (abiertas o resueltas) no se muestran.
+    prisma.vendorNotification.findMany({ where: { vendorId: vendor.id, resolvedAt: null }, orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.vendorNotification.count({ where: { vendorId: vendor.id, readAt: null, resolvedAt: null } }),
   ]);
   res.json({ notifications, unreadCount });
 }
@@ -1545,6 +1546,19 @@ export async function markMyNotificationsRead(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
 
   await prisma.vendorNotification.updateMany({ where: { vendorId: vendor.id, readAt: null }, data: { readAt: new Date() } });
+  res.status(204).end();
+}
+
+// La notificación se da por atendida cuando el vendedor la abre; deja de mostrarse en la campanita.
+export async function resolveMyNotification(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  await prisma.vendorNotification.updateMany({ where: { id: req.params.id, vendorId: vendor.id, resolvedAt: null }, data: { resolvedAt: new Date(), readAt: new Date() } });
+  res.status(204).end();
+}
+
+export async function resolveAllMyNotifications(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  await prisma.vendorNotification.updateMany({ where: { vendorId: vendor.id, resolvedAt: null }, data: { resolvedAt: new Date(), readAt: new Date() } });
   res.status(204).end();
 }
 

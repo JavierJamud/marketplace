@@ -27,7 +27,7 @@ export default {
         "inverse-surface": "#303031",
         "inverse-on-surface": "#f3f0f1",
         outline: {
-          DEFAULT: "#75777c",
+          DEFAULT: "#65676c",
           variant: "#c5c6cc",
         },
         // Primary: navy — identidad de marca (footer, sidebar vendedor, hero)

@@ -9,6 +9,7 @@ import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
+import { upsertVendorCustomer } from "./vendorCustomers.controller.js";
 import { getPlanLimit } from "../lib/planConfig.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
@@ -280,6 +281,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
   });
 
   await recordOrderEvent(order.id, "CREATED");
+  await upsertVendorCustomer(order.vendorId, { name: order.customerName, phone: order.customerPhone, email: order.customerEmail });
 
   // Confirmación al cliente — best-effort, nunca bloquea ni revierte el pedido.
   await sendOrderConfirmationEmail(order);
@@ -298,6 +300,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
     data: {
       vendorId: order.vendorId,
       type: "NEW_ORDER",
+      refCode: order.code,
       title: "Pedido nuevo",
       body: `Pedido ${order.code} de ${order.customerName ?? "un cliente"} por ${totalLabel} — está en tu sección de Pedidos.`,
     },
@@ -388,6 +391,13 @@ const updateOrderStatusSchema = z.object({
   reason: z.string().trim().optional(),
 });
 
+// El aviso de "pedido nuevo" deja de mostrarse en la campanita cuando el pedido ya se atendió (confirmado, anulado o eliminado).
+async function resolveNewOrderNotices(vendorId, code) {
+  await prisma.vendorNotification
+    .updateMany({ where: { vendorId, type: "NEW_ORDER", refCode: code, resolvedAt: null }, data: { resolvedAt: new Date(), readAt: new Date() } })
+    .catch(() => {});
+}
+
 export async function updateOrderStatus(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
@@ -456,6 +466,7 @@ export async function updateOrderStatus(req, res) {
   });
 
   await recordOrderEvent(id, status, status === "CANCELLED" ? reason.trim() : null);
+  await resolveNewOrderNotices(vendor.id, order.code);
 
   if (status === "CANCELLED") {
     logActivity({
@@ -545,6 +556,7 @@ export async function confirmOrderSale(req, res) {
   // alcance. Es solo un aviso para que el vendedor decida (notificar al
   // cliente o dejarlo pendiente tal cual); nunca se toca ese otro pedido acá.
   await recordOrderEvent(id, "CONFIRMED");
+  await resolveNewOrderNotices(vendor.id, order.code);
 
   const productIds = [...new Set(order.items.map((i) => i.productId).filter(Boolean))];
   const atRiskOrders = await findAtRiskSiblingOrders({ vendorId: vendor.id, excludeOrderId: id, productIds });
@@ -601,6 +613,7 @@ export async function deleteOrder(req, res) {
   if (order.status !== "NEW") throw new AppError("Solo se pueden eliminar pedidos pendientes, todavía sin confirmar.", 400);
 
   await prisma.order.delete({ where: { id } }); // OrderItem tiene onDelete: Cascade
+  await resolveNewOrderNotices(vendor.id, order.code);
   res.status(204).send();
 }
 

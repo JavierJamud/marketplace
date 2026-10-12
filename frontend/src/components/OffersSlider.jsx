@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Clock } from "lucide-react";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { api } from "../lib/api.js";
-import { AutoCarousel } from "./AutoCarousel.jsx";
+import { AutoCarouselLazy as AutoCarousel } from "./AutoCarouselLazy.jsx";
 
 function imgUrl(path) {
   if (!path) return null;

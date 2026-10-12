@@ -40,6 +40,7 @@ const VendorDashboard = lazy(() => import("./pages/vendor/VendorDashboard.jsx"))
 const VendorProducts = lazy(() => import("./pages/vendor/VendorProducts.jsx"));
 const VendorStoreOffers = lazy(() => import("./pages/vendor/VendorStoreOffers.jsx"));
 const VendorOrders = lazy(() => import("./pages/vendor/VendorOrders.jsx"));
+const VendorCustomers = lazy(() => import("./pages/vendor/VendorCustomers.jsx"));
 const VendorTables = lazy(() => import("./pages/vendor/VendorTables.jsx"));
 const VendorVerification = lazy(() => import("./pages/vendor/VendorVerification.jsx"));
 const PagoManual = lazy(() => import("./pages/vendor/PagoManual.jsx"));
@@ -250,6 +251,7 @@ export default function App() {
             de sistema sin ninguna de las 2 secciones. */}
         <Route path="ofertas-tienda" element={<VendorStoreOffers />} />
         <Route path="pedidos" element={<VendorOrders />} />
+        <Route path="clientes" element={<VendorCustomers />} />
         <Route path="mesas" element={<VendorTables />} />
         <Route path="verificacion" element={<VendorVerification />} />
         <Route path="pago-manual" element={<PagoManual />} />

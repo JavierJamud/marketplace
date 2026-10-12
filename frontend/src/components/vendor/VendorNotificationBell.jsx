@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Bell, Check } from "lucide-react";
 import { api } from "../../lib/api.js";
 
 function timeAgo(iso) {
@@ -14,6 +15,16 @@ function timeAgo(iso) {
   return days === 1 ? "Ayer" : `Hace ${days} días`;
 }
 
+// A dónde lleva cada tipo de aviso. Los que no tienen un lugar propio solo se dan por atendidos.
+function destinationFor(n) {
+  if (n.type === "NEW_ORDER") return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
+  if (n.type === "SUPPORT_CASE") return "/vendedor/pedidos";
+  if (n.type === "VENDOR_STAFF_OUT_OF_STOCK") return "/vendedor/productos";
+  if (n.type.startsWith("FRAUD_REPORT")) return "/vendedor/reportes";
+  if (/^(VERIFICATION|TRIAL|SUBSCRIPTION|VENDOR_CHANGE|VENDOR_SUSPENDED)/.test(n.type)) return "/vendedor/verificacion";
+  return null;
+}
+
 // Se marca todo como leído cuando el vendedor efectivamente abre el
 // dropdown — no cuando la notificación se creó en el backend (mismo patrón
 // que VendorMessage/VendorChat.jsx, Bloque 15).
@@ -21,6 +32,7 @@ export function VendorNotificationBell() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     function onClickOutside(e) {
@@ -40,6 +52,27 @@ export function VendorNotificationBell() {
     mutationFn: async () => api.patch("/vendors/me/notifications/read"),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vendor-notifications"] }),
   });
+
+  // Atendida: al abrir un aviso se resuelve y desaparece de la lista (se quita al instante, sin esperar al servidor).
+  const resolveOne = useMutation({
+    mutationFn: async (id) => api.patch(`/vendors/me/notifications/${id}/resolve`),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["vendor-notifications"] });
+      queryClient.setQueryData(["vendor-notifications"], (old) => (old ? { ...old, notifications: old.notifications.filter((n) => n.id !== id) } : old));
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["vendor-notifications"] }),
+  });
+  const resolveAll = useMutation({
+    mutationFn: async () => api.patch("/vendors/me/notifications/resolve-all"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vendor-notifications"] }),
+  });
+
+  function openNotification(n) {
+    resolveOne.mutate(n.id);
+    setOpen(false);
+    const to = destinationFor(n);
+    if (to) navigate(to);
+  }
 
   const unreadCount = data?.unreadCount ?? 0;
 
@@ -73,20 +106,27 @@ export function VendorNotificationBell() {
           <div className="flex items-center justify-between border-b border-surface-container px-3.5 py-2.5">
             <span className="text-[13px] font-bold text-on-surface">Notificaciones</span>
             {data?.notifications?.length > 0 && (
-              <span className="text-[11px] text-outline">{data.notifications.length} total</span>
+              <button type="button" onClick={() => resolveAll.mutate()} className="inline-flex min-h-8 items-center gap-1 text-[11.5px] font-semibold text-tertiary-accent hover:underline">
+                <Check className="h-3.5 w-3.5" aria-hidden="true" /> Marcar todo como atendido
+              </button>
             )}
           </div>
           <div className="max-h-[420px] overflow-y-auto">
             {data?.notifications?.length ? (
               data.notifications.map((n) => (
-                <div key={n.id} className={`border-b border-surface-container px-3.5 py-3 last:border-b-0 ${!n.readAt ? "bg-secondary/5" : ""}`}>
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => openNotification(n)}
+                  className={`block w-full border-b border-surface-container px-3.5 py-3 text-left last:border-b-0 hover:bg-surface-container/60 ${!n.readAt ? "bg-secondary/5" : ""}`}
+                >
                   <div className="text-[12.5px] font-bold text-on-surface">{n.title}</div>
                   <p className="mt-0.5 text-[12px] leading-4 text-on-surface-variant">{n.body}</p>
                   <div className="mt-1 text-[10.5px] text-outline">{timeAgo(n.createdAt)}</div>
-                </div>
+                </button>
               ))
             ) : (
-              <p className="px-3.5 py-6 text-center text-[12.5px] text-on-surface-variant">No tienes notificaciones todavía.</p>
+              <p className="px-3.5 py-6 text-center text-[12.5px] text-on-surface-variant">No tienes avisos pendientes.</p>
             )}
           </div>
         </div>

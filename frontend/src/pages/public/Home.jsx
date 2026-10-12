@@ -274,14 +274,14 @@ export default function Home() {
             la sección ni se monta. Bloque 248: una sola vez (el Bloque 154 la
             había duplicado debajo de "Abre tu tienda", y se veía como un error). */}
         {offers?.length > 0 && (
-          <section className="container-app pt-8 md:pt-11">
+          <section className="container-app cv-auto pt-8 md:pt-11">
             <SectionHead title="Ofertas de la semana" subtitle="De tiendas verificadas y de la casa" />
             <OffersSlider offers={offers} />
           </section>
         )}
 
         {/* PRODUCTOS DESTACADOS */}
-        <section className="container-app pt-8 md:pt-11">
+        <section className="container-app cv-auto pt-8 md:pt-11">
           <SectionHead
             title={hasProvinceFilter ? `Destacados en ${provinceName}` : "Destacados en toda Cuba"}
             subtitle={hasProvinceFilter ? "De tiendas verificadas cerca de ti" : "De tiendas verificadas en todo el país"}
@@ -333,7 +333,7 @@ export default function Home() {
             En escritorio se mantiene la tarjeta de una fila con el teléfono
             asomando por arriba (Bloques 102 a 130: lg:pt-36 de la sección y
             lg:pr-[352px] de la tarjeta reservan ese lugar). */}
-        <section className="container-app py-8 md:py-11 lg:pt-36">
+        <section className="container-app cv-auto py-8 md:py-11 lg:pt-36">
           <div className="relative flex flex-wrap items-center justify-between gap-6 rounded-xl bg-gradient-to-br from-primary to-primary-container p-6 md:p-9 md:pr-72 lg:pr-[352px] xl:flex-nowrap">
             <img
               src={vendorMockupImage}
@@ -379,7 +379,7 @@ export default function Home() {
             tienda". Desplazamiento infinito en una sola dirección, sin botón de
             pausa. Máximo 12 (Bloque 17); mismo orden que GET
             /vendors?isVerified=true (más recientes primero). */}
-        <section className="container-app pb-10 md:pb-14">
+        <section className="container-app cv-auto pb-10 md:pb-14">
           <SectionHead title="Tiendas verificadas" to="/tiendas" />
           {verifiedVendors?.length ? (
             <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />

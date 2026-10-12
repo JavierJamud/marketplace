@@ -7,6 +7,7 @@ import * as businessAssistantController from "../controllers/businessAssistant.c
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
+import * as vendorCustomersController from "../controllers/vendorCustomers.controller.js";
 import { vendorAiDocUpload } from "../middleware/vendorAiDocUpload.js";
 import { vendorBrandingUpload } from "../middleware/vendorBrandingUpload.js";
 import { chatRateLimit, assistantRateLimit } from "../middleware/rateLimit.js";
@@ -83,6 +84,12 @@ router.patch("/me/messages/read", authenticate, requireVendorWrite("mensajes"), 
 // Bloque 183: sin sección — la campanita de notificaciones es global.
 router.get("/me/notifications", authenticate, requireVendorAccess(), vendorsController.listMyNotifications);
 router.patch("/me/notifications/read", authenticate, requireVendorAccess(), vendorsController.markMyNotificationsRead);
+router.patch("/me/notifications/resolve-all", authenticate, requireVendorAccess(), vendorsController.resolveAllMyNotifications);
+router.patch("/me/notifications/:id/resolve", authenticate, requireVendorAccess(), vendorsController.resolveMyNotification);
+// Clientes de la tienda (registro creado con cada pedido).
+router.get("/me/customers", authenticate, requireVendorAccess("clientes"), vendorCustomersController.listMyCustomers);
+router.get("/me/customers/:id", authenticate, requireVendorAccess("clientes"), vendorCustomersController.getMyCustomer);
+router.patch("/me/customers/:id", authenticate, requireVendorWrite("clientes"), vendorCustomersController.updateMyCustomer);
 router.post("/me/delivery-countries", authenticate, requireRole("VENDOR"), vendorsController.addMyDeliveryCountry);
 router.delete("/me/delivery-countries/:countryId", authenticate, requireRole("VENDOR"), vendorsController.removeMyDeliveryCountry);
 router.post("/me/locations", authenticate, requireRole("VENDOR"), vendorsController.addMyLocation);

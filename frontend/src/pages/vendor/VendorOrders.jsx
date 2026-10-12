@@ -12,6 +12,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
+import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { EditOrderModal } from "../../components/EditOrderModal.jsx";
 import { EditTableOrderModal } from "../../components/EditTableOrderModal.jsx";
@@ -35,7 +36,8 @@ const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "P
 const CHANNEL_COLOR = { CASH: "#128C7E", COD: "#337475", ONLINE: "#003435", TABLE: "#8A5100" };
 // Distinto del método de pago (CHANNEL_LABEL de arriba): esto es a dónde le
 // llegó el AVISO del pedido al vendedor, según su preferencia en Configuración.
-const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel" };
+// BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).
+const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel", BOTH: "Aviso por WhatsApp y Panel" };
 // Bloque 29: NEW ya no está acá — la única forma de pasar de Pendiente a
 // Vendido es la acción dedicada "Confirmar pedido" (Bloque 231, antes decía
 // "Confirmar venta" — descuenta stock real), nunca este loop genérico de
@@ -152,6 +154,12 @@ export default function VendorOrders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Búsqueda por nombre del cliente o número de pedido (también llega desde un aviso: /vendedor/pedidos?buscar=Z-1234).
+  const [search, setSearch] = useState(() => searchParams.get("buscar") ?? "");
+  useEffect(() => {
+    const wanted = searchParams.get("buscar");
+    if (wanted !== null) setSearch(wanted);
+  }, [searchParams]);
   const [emailTarget, setEmailTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [editTableTarget, setEditTableTarget] = useState(null);
@@ -387,7 +395,13 @@ export default function VendorOrders() {
 
   const filtered = merged
     .filter((o) => channelFilter === "all" || o.channel === channelFilter)
-    .filter((o) => statusFilter === "all" || statusBucket(o) === statusFilter);
+    .filter((o) => statusFilter === "all" || statusBucket(o) === statusFilter)
+    .filter((o) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      const haystack = [o.id, o.customer, o.customerEmail, o.customerPhone, o.tableLabel, o.orderNumber != null ? `#${o.orderNumber} ${o.orderNumber}` : ""].join(" ").toLowerCase();
+      return q.split(/\s+/).every((part) => haystack.includes(part));
+    });
   const atEmailLimit = emailUsage && !emailUsage.unlimited && emailUsage.used >= emailUsage.limit;
 
   return (
@@ -421,6 +435,14 @@ export default function VendorOrders() {
         )}
       </div>
 
+      <SearchBox
+        className="mb-3 max-w-[520px]"
+        value={search}
+        onChange={setSearch}
+        placeholder="Buscar por nombre del cliente o número de pedido"
+        resultText={search.trim() ? `${filtered.length} de ${merged.length} pedidos` : undefined}
+      />
+
       <div className="mb-2.5 flex flex-wrap gap-2">
         {CHANNEL_FILTERS.map((f) => (
           <button
@@ -449,7 +471,7 @@ export default function VendorOrders() {
       </div>
 
       <div className="flex flex-col gap-3">
-        {filtered.length === 0 && <p className="text-body-md text-on-surface-variant">No hay pedidos en este filtro.</p>}
+        {filtered.length === 0 && <p className="text-body-md text-on-surface-variant">{search.trim() ? `No hay pedidos que coincidan con “${search.trim()}”.` : "No hay pedidos en este filtro."}</p>}
         {filtered.map((o) => {
           const kIndex = o.isTable ? KITCHEN_STEPS.indexOf(o.status) : -1;
           const isSold = !o.isTable && o.status !== "NEW" && o.status !== "CANCELLED";
@@ -484,7 +506,7 @@ export default function VendorOrders() {
                 </div>
                 <div className="mt-0.5 text-[12.5px] text-outline">
                   {o.customer} · {new Date(o.date).toLocaleString("es-CU")}
-                  {!o.isTable && o.notificationChannel && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
+                  {!o.isTable && NOTIFICATION_LABEL[o.notificationChannel] && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
                   {/* Bloque 164 (pedido explícito): cuánto tiempo lleva el
                       cliente en la mesa desde que hizo el pedido — sigue
                       corriendo mientras la mesa no se libere; una vez

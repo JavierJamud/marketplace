@@ -24,7 +24,7 @@ function fmtDate(iso) {
 
 const STATUS_STYLE = {
   ACTIVE: { background: "rgba(12,174,83,0.12)", color: "#0A8F42" },
-  EXPIRED: { background: "rgba(117,119,124,0.12)", color: "#75777c" },
+  EXPIRED: { background: "rgba(117,119,124,0.12)", color: "#65676c" },
   REMOVED: { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
   SUSPENDED: { background: "rgba(254,152,0,0.15)", color: "#8A5100" },
 };
@@ -616,7 +616,7 @@ const DELIVERY_LABEL = { EMAIL: "Solo correo", POPUP: "Solo popup", BOTH: "Corre
 const TARGETED_STATUS_LABEL = { ACTIVE: "Activa", ARCHIVED: "Archivada" };
 const TARGETED_STATUS_STYLE = {
   ACTIVE: { background: "rgba(12,174,83,0.12)", color: "#0A8F42" },
-  ARCHIVED: { background: "rgba(117,119,124,0.12)", color: "#75777c" },
+  ARCHIVED: { background: "rgba(117,119,124,0.12)", color: "#65676c" },
 };
 
 // Bloque 194: mismo patrón que ProductPickerModal de arriba, pero busca

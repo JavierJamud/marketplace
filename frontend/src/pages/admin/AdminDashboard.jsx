@@ -398,15 +398,15 @@ export default function AdminDashboard() {
               <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e8e5e6" />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 10.5, fill: "#75777c" }}
+                tick={{ fontSize: 10.5, fill: "#65676c" }}
                 axisLine={false}
                 tickLine={false}
                 interval={series.length > 20 ? Math.ceil(series.length / 12) : 0}
                 angle={angleTicks ? -35 : 0}
                 textAnchor={angleTicks ? "end" : "middle"}
               />
-              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "#75777c" }} axisLine={false} tickLine={false} width={54} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "#75777c" }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+              <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "#65676c" }} axisLine={false} tickLine={false} width={54} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "#65676c" }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
               <Tooltip content={<SeriesTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
               <Bar yAxisId="left" dataKey="total" name="Valor de pedidos" radius={[7, 7, 0, 0]} maxBarSize={30} fill="#337475" />
               <Line yAxisId="right" type="monotone" dataKey="orders" name="Pedidos" stroke="#fe9800" strokeWidth={2.5} dot={{ r: 3 }} />

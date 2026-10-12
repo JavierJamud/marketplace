@@ -35,7 +35,7 @@ function Lane({ items, reverse, seconds, tone }) {
     <div className="trend-lane overflow-hidden py-1.5 [mask-image:linear-gradient(to_right,transparent,#000_6%,#000_94%,transparent)]">
       <div className="trend-track flex w-max gap-3" style={{ animation: `${reverse ? "trend-right" : "trend-left"} ${seconds}s linear infinite` }}>
         {doubled.map((item, i) => (
-          <span key={i} aria-hidden={i >= items.length ? "true" : undefined} className="flex">
+          <span key={i} {...(i >= items.length ? { "aria-hidden": "true", inert: "" } : {})} className="flex">
             <Chip item={item} tone={tone} />
           </span>
         ))}

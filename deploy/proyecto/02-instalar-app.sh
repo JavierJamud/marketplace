@@ -167,7 +167,7 @@ server {
 
     gzip on;
     gzip_comp_level 5;
-    gzip_types text/css application/javascript application/json image/svg+xml text/plain application/wasm;
+    gzip_types text/css application/javascript application/json image/svg+xml text/plain application/wasm font/ttf font/otf application/x-font-ttf;
 
     # Cabeceras de seguridad. Se incluyen también dentro de cada location que define su propio add_header, porque Nginx
     # no hereda los add_header del server cuando un location declara alguno.

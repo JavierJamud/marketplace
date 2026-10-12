@@ -1,5 +1,5 @@
 import { CompactStoreCard } from "./CompactStoreCard.jsx";
-import { AutoCarousel } from "./AutoCarousel.jsx";
+import { AutoCarouselLazy as AutoCarousel } from "./AutoCarouselLazy.jsx";
 
 // Bloque 48: tarjetas compactas, sin flechas ni puntos. Bloque 254 (pedido
 // explícito): pasa de UNA tienda a la vez cada cierto tiempo, la tienda actual
