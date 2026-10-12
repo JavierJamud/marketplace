@@ -1,11 +1,8 @@
 {
   "specVersion": "1.0",
-  "@context": "https://agenticresourcediscovery.org/context/v1",
   "host": {
     "displayName": "Baznova",
-    "identifier": "baznova.com",
-    "url": "https://baznova.com",
-    "description": "Marketplace de tiendas locales y restaurantes de Cuba, de Zeudin Group."
+    "identifier": "baznova.com"
   },
   "entries": [
     {
