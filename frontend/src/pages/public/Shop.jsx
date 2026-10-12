@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
@@ -6,6 +6,7 @@ import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
+import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -62,6 +63,11 @@ export default function Shop() {
     queryKey: ["categories"],
     queryFn: async () => (await api.get("/categories")).data.categories,
   });
+  // Cada categoría principal y sus subcategorías ("Tecnología › Celulares y smartphones"); elegir la principal incluye sus hijas.
+  const categoryOptions = useMemo(
+    () => (categories ?? []).flatMap((c) => [{ value: c.id, label: c.name }, ...(c.children ?? []).map((ch) => ({ value: ch.id, label: `${c.name} › ${ch.name}` }))]),
+    [categories]
+  );
 
   const paymentParam = Object.entries(pay)
     .filter(([, checked]) => checked)
@@ -79,7 +85,6 @@ export default function Shop() {
             provinceId: provinceId || undefined,
             municipalityId: municipalityId || undefined,
             maxPrice,
-            payment: paymentParam || undefined,
             onlyVerified: onlyVerified || undefined,
             sort,
           },
@@ -120,27 +125,18 @@ export default function Shop() {
           </div>
         </div>
 
-        {/* CATEGORY PILLS */}
-        <div className="container-app flex flex-wrap gap-2.5 pt-5">
-          <button
-            onClick={() => setSearchParams((p) => { p.delete("categoryId"); return p; })}
-            className={`rounded-full border px-[18px] py-2.5 text-label-md font-semibold ${
-              !categoryId ? "border-primary-container bg-primary-container text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-            }`}
-          >
-            Todos
-          </button>
-          {categories?.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setSearchParams((p) => { p.set("categoryId", c.id); return p; })}
-              className={`rounded-full border px-[18px] py-2.5 text-label-md font-semibold ${
-                categoryId === c.id ? "border-primary-container bg-primary-container text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-              }`}
-            >
-              {c.name}
-            </button>
-          ))}
+        {/* CATEGORÍAS: lista desplegable con búsqueda (hay cientos; en fila ocupaban media pantalla en el celular) */}
+        <div className="container-app pt-5">
+          <div className="max-w-[460px]">
+            <ComboSelect
+              label="Categoría"
+              value={categoryId}
+              onChange={(id) => setSearchParams((p) => { if (id) p.set("categoryId", id); else p.delete("categoryId"); return p; })}
+              options={categoryOptions}
+              allOption={{ label: "Todas las categorías" }}
+              placeholder="Busca una categoría: celulares, ropa, repuestos..."
+            />
+          </div>
         </div>
 
         {/* MAIN */}
@@ -158,21 +154,6 @@ export default function Shop() {
               className="mb-1.5 w-full accent-secondary-container"
             />
             <div className="mb-6 text-label-sm text-outline">Hasta {fmtCUP(maxPrice)}</div>
-
-            <div className="mb-3 text-label-md font-bold text-on-surface">Método de pago</div>
-            <div className="mb-6 flex flex-col gap-2.5">
-              {PAY_OPTIONS.map((pf) => (
-                <label key={pf.id} className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={pay[pf.id]}
-                    onChange={() => setPay((p) => ({ ...p, [pf.id]: !p[pf.id] }))}
-                    className="h-[15px] w-[15px] accent-tertiary-accent"
-                  />
-                  <span className="text-[13.5px] text-on-surface-variant">{pf.label}</span>
-                </label>
-              ))}
-            </div>
 
             <label className="mb-2 flex cursor-pointer items-center gap-2.5">
               <input

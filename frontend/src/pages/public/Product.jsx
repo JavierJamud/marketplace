@@ -43,6 +43,8 @@ export default function Product() {
   const { user } = useAuth();
   const { siteName, reviewDedupHours, maxReviewsPerProductPerPeriod } = usePlatformSettings();
   const [qty, setQty] = useState(1);
+  // Texto que se está escribiendo en el campo de cantidad (null = no se está escribiendo).
+  const [qtyDraft, setQtyDraft] = useState(null);
   const [added, setAdded] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
   const [prevImage, setPrevImage] = useState(null);
@@ -637,7 +639,29 @@ export default function Product() {
                   >
                     <Minus className="h-4 w-4" />
                   </button>
-                  <span aria-live="polite" className="min-w-[28px] text-center text-[15px] font-bold text-on-secondary-container">{qty}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    aria-label="Cantidad"
+                    value={qtyDraft ?? String(qty)}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setQtyDraft(digits);
+                      const n = Number(digits);
+                      if (n >= 1) setQty(Math.min(n, remainingStock || 1));
+                    }}
+                    onBlur={() => {
+                      // Al terminar de escribir se respeta el stock real disponible de esta selección (talla incluida).
+                      const n = Number(qtyDraft);
+                      if (qtyDraft !== null && n > remainingStock && Number.isFinite(remainingStock)) toast.error(`Solo hay ${remainingStock} ${remainingStock === 1 ? "unidad disponible" : "unidades disponibles"}.`);
+                      setQty(Math.max(1, Math.min(n || 1, remainingStock || 1)));
+                      setQtyDraft(null);
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+                    className="h-full w-12 bg-transparent text-center text-[15px] font-bold text-on-secondary-container outline-none"
+                  />
                   <button
                     type="button"
                     aria-label="Más unidades"

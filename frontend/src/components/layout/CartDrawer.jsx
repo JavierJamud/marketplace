@@ -1,3 +1,4 @@
+import { CartQtyInput } from "../CartQtyInput.jsx";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "react-router-dom";
@@ -273,7 +274,7 @@ export function CartDrawer() {
                                   CartContext.jsx) — con un ancho fijo, un
                                   número de varios dígitos volvía a romper
                                   el layout como en el bug original. */}
-                              <div className="min-w-[18px] flex-shrink-0 text-center text-[12px] font-semibold">{it.quantity}</div>
+                              <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-6 w-9 flex-shrink-0 text-[12px]" />
                               <button
                                 onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)}
                                 className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"

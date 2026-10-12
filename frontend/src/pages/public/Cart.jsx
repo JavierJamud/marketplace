@@ -1,3 +1,4 @@
+import { CartQtyInput } from "../../components/CartQtyInput.jsx";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -186,7 +187,7 @@ export default function Cart() {
                           un número de varios dígitos no debe romper el
                           layout (mismo criterio ya aplicado en
                           CartDrawer.jsx). */}
-                      <div className="min-w-[34px] px-1 text-center text-body-md font-semibold">{it.quantity}</div>
+                      <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-9 w-12 px-1 text-body-md" />
                       <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
                         <Plus className="h-3.5 w-3.5" />
                       </button>
