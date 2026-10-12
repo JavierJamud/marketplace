@@ -55,7 +55,7 @@ import { REPORT_UPLOAD_DIR } from "./controllers/reports.controller.js";
 import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
-import { renderStoreOgPage } from "./controllers/og.controller.js";
+import { renderStoreOgPage, renderStoreOgImagePng } from "./controllers/og.controller.js";
 
 export const app = express();
 
@@ -165,6 +165,7 @@ app.use("/uploads/reports", express.static(REPORT_UPLOAD_DIR));
 // compartido se previsualice con SUS datos — ver el comentario largo en
 // og.controller.js (incluye la pieza de hosting que falta para producción).
 app.get("/og/tienda/:slug", renderStoreOgPage);
+app.get("/og/tienda/:slug/imagen.png", renderStoreOgImagePng);
 
 app.use("/auth", authRoutes);
 app.use("/vendors", vendorsRoutes);

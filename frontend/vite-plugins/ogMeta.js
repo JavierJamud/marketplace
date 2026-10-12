@@ -20,7 +20,7 @@
 // nombre de la plataforma cambia algún día.
 const FALLBACK_SITE_NAME = "Baznova";
 const DEFAULT_DESCRIPTION =
-  "Comprá y vendé en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp.";
+  "Compra y vende en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp.";
 
 const STORE_RE = /^\/tienda\/([^/?#]+)\/?$/;
 const PRODUCT_RE = /^\/producto\/([^/?#]+)\/([^/?#]+)\/?$/;
@@ -63,6 +63,8 @@ function buildMetaHtml(meta) {
     `<meta property="og:title" content="${esc(meta.title)}" />`,
     `<meta property="og:description" content="${esc(meta.description)}" />`,
     `<meta property="og:image" content="${esc(meta.image)}" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
     `<meta property="og:url" content="${esc(meta.url)}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${esc(meta.title)}" />`,
@@ -84,7 +86,7 @@ function absoluteImage(apiUrl, path) {
 export function ogMetaPlugin(env = {}) {
   const apiUrl = env.VITE_API_URL ?? "http://localhost:4000";
   const siteUrl = env.FRONTEND_URL ?? "http://localhost:5173";
-  const defaultImage = `${siteUrl}/og-placeholder.png`;
+  const defaultImage = `${siteUrl}/og-baznova.png`;
 
   // Bloque 49: nombre de la plataforma editable desde el admin (SiteSettings)
   // — un crawler no ejecuta JS ni lee usePlatformSettings(), así que este
@@ -127,7 +129,7 @@ export function ogMetaPlugin(env = {}) {
             // Bloque 207: el banner de la tienda es color + patrón de
             // íconos, nunca una foto real — el logo es lo más cercano a una
             // imagen de marca real que tiene cada tienda.
-            image: absoluteImage(apiUrl, vendor.logoUrl) ?? defaultImage,
+            image: `${apiUrl}/og/tienda/${encodeURIComponent(storeMatch[1])}/imagen.png`,
             url: `${siteUrl}${path}`,
             type: "website",
             siteName,
