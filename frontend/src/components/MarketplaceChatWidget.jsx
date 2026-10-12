@@ -13,6 +13,7 @@ import { revealText, appendWord } from "../lib/revealText.js";
 import { postChatStreaming } from "../lib/streamChat.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
+import { ChatMarkdown } from "./ChatMarkdown.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -104,7 +105,7 @@ function startNewSession() {
 // del panel aunque el contenido fuera chico — se ve como una barra ancha
 // casi vacía. "flex" (sin el avatar) alcanza para volver al tamaño correcto.
 function BotRow({ children }) {
-  return <div className="mb-3 flex max-w-[88%]">{children}</div>;
+  return <div className="mb-3 flex max-w-[92%]">{children}</div>;
 }
 
 // Bloque 34: chips de preguntas sugeridas — las iniciales usan una
@@ -122,6 +123,56 @@ function followUpChips(lastMessage) {
     return ["Ver más opciones", "Filtrar por precio", "Buscar en otras tiendas"];
   }
   return ["¿Qué tiendas están verificadas?", "Buscar otra categoría", "¿Cómo funciona la entrega?"];
+}
+
+
+// Botones de enlace que el asistente ofrece (registro, inicio de sesión, planes...). Son rutas internas que valida el
+// servidor: la IA nunca inventa una dirección.
+function ActionLinks({ links, onNavigate }) {
+  if (!links?.length) return null;
+  return (
+    <div className="-mt-1 mb-3 flex w-full max-w-[95%] flex-wrap gap-2">
+      {links.map((l) => (
+        <Link
+          key={l.href}
+          to={l.href}
+          onClick={onNavigate}
+          className="flex min-h-11 items-center rounded-full bg-secondary-container px-4 text-[12.5px] font-bold text-on-secondary-container hover:brightness-95"
+        >
+          {l.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+// Consulta del estado de un pedido con el nombre y el número: se lee en la base de datos al instante, sin IA.
+function OrderStatusForm({ initialCode, onResult }) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState(initialCode ?? "");
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data } = await api.post("/assistant/order-status", { name: name.trim(), code: code.trim() });
+      onResult(data.text, data.links);
+    } catch (err) {
+      onResult(err.response?.data?.error ?? "No pude consultar el pedido ahora. Prueba de nuevo en un momento.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const input = "h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent";
+  return (
+    <form onSubmit={submit} className="-mt-1 mb-3 flex w-full max-w-[95%] flex-col gap-2 rounded-lg border border-surface-container-high bg-surface-container-lowest p-3">
+      <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" aria-label="Tu nombre" autoComplete="name" required minLength={2} />
+      <input className={input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Número de pedido (Z-1234)" aria-label="Número de pedido" required minLength={4} />
+      <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-primary-container text-[13px] font-bold text-white disabled:opacity-50">
+        {busy ? "Consultando..." : "Consultar pedido"}
+      </button>
+    </form>
+  );
 }
 
 // Mismo componente que StoreChatWidget.jsx (Bloque 34) — no se comparte a
@@ -294,6 +345,13 @@ export function MarketplaceChatWidget() {
     queryKey: ["business-categories"],
     queryFn: async () => (await api.get("/business-categories")).data.categories,
     staleTime: 5 * 60 * 1000,
+  });
+  // Preguntas sugeridas al abrir el chat: el servidor las arma con lo que preguntan y buscan los clientes (o las base).
+  const { data: suggestions } = useQuery({
+    queryKey: ["assistant-suggestions"],
+    queryFn: async () => (await api.get("/assistant/suggestions")).data.chips,
+    staleTime: 10 * 60 * 1000,
+    enabled: open,
   });
   const featuredCategory = useMemo(() => {
     if (!businessCategories?.length) return null;
@@ -632,7 +690,7 @@ export function MarketplaceChatWidget() {
           <div className="flex-1 overflow-y-auto p-4">
             <BotRow>
               <div className="rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
-                ¡Hola! Cuéntame qué producto buscas, por texto o grabando un audio — te ayudo a encontrarlo en cualquier tienda de {siteName}.
+                ¡Hola! Soy el asistente de {siteName}. Te ayudo a comprar, vender, conocer los planes, consultar tu pedido o encontrar un producto.
               </div>
             </BotRow>
 
@@ -640,7 +698,7 @@ export function MarketplaceChatWidget() {
                 certeza que no hay historial (evita el flash de mostrarlos y
                 sacarlos apenas carga una conversación previa real). */}
             {historyLoaded && messages.length === 0 && !sending && recordingState === "idle" && (
-              <SuggestedChips chips={initialChips(featuredCategory)} onPick={handleSend} disabled={sending} />
+              <SuggestedChips chips={suggestions?.length ? suggestions : initialChips(featuredCategory)} onPick={handleSend} disabled={sending} />
             )}
 
             {open && !historyLoaded && <p className="py-2 text-center text-[12px] text-outline">Cargando conversación...</p>}
@@ -657,10 +715,17 @@ export function MarketplaceChatWidget() {
               ) : (
                 <div key={m.id} className="flex flex-col items-start">
                   <BotRow>
-                    <div className="whitespace-pre-wrap rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
-                      {m.content}
+                    <div className="min-w-0 rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
+                      <ChatMarkdown text={m.content} />
                     </div>
                   </BotRow>
+                  <ActionLinks links={m.actions?.links} onNavigate={() => setOpen(false)} />
+                  {m.actions?.orderForm && i === messages.length - 1 && (
+                    <OrderStatusForm
+                      initialCode={m.actions.orderForm.code}
+                      onResult={(text, links) => setMessages((prev) => [...prev, { id: generateId(), role: "model", content: text, actions: links?.length ? { links } : null, products: [], vendors: [] }])}
+                    />
+                  )}
                   {/* Bloque 34: rediseñadas como lista vertical (no
                       carrusel horizontal) — scroll propio si no entran
                       todas. */}

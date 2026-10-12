@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { generateRawText } from "../lib/ai.js";
 
 // Bloque 37 (Parte E): panel de revisión de conversaciones reales — el
 // admin ve pares (mensaje real del cliente -> respuesta real del bot) y
@@ -70,9 +71,28 @@ const createExampleSchema = z.object({
 // corregir"): el frontend manda respuestaIdeal = la respuesta real del bot
 // tal cual (reforzar) o el texto que el admin reescribió (corregir) — acá
 // no hay diferencia de tratamiento, ambas quedan activas de inmediato.
+// De la corrección del admin se saca un criterio general (una frase): eso es lo que aprende el bot, no el texto de la respuesta.
+// Así la próxima vez responde mejor con datos reales y no repite lo que el admin escribió.
+async function distillLesson(entradaCliente, respuestaIdeal) {
+  try {
+    const raw = await generateRawText(
+      `Un administrador corrigió la respuesta de un asistente de compras.
+Pregunta del cliente: "${entradaCliente}"
+Respuesta ideal del admin: "${respuestaIdeal}"
+
+Escribe en UNA sola frase (máximo 200 caracteres, en infinitivo o imperativo) el criterio general que el asistente debe aplicar en preguntas parecidas: tono, longitud, formato y qué datos reales consultar. No copies la respuesta ni incluyas precios, nombres o cifras concretas. Responde solo con la frase.`
+    );
+    const lesson = String(raw ?? "").replace(/^["'\s]+|["'\s]+$/g, "").replace(/\s+/g, " ").slice(0, 220);
+    return lesson.length >= 12 ? lesson : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createTrainingExample(req, res) {
   const data = createExampleSchema.parse(req.body);
-  const example = await prisma.chatTrainingExample.create({ data: { ...data, creadoPorId: req.user.id } });
+  const leccion = await distillLesson(data.entradaCliente, data.respuestaIdeal);
+  const example = await prisma.chatTrainingExample.create({ data: { ...data, leccion, creadoPorId: req.user.id } });
   res.status(201).json({ example });
 }
 

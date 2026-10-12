@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power } from "lucide-react";
+import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power, Sparkles, RefreshCw } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ChatMarkdown } from "../../components/ChatMarkdown.jsx";
 
 // Bloque 30: entrenar al bot general del marketplace (Home) — a diferencia
 // del "Documento de IA" por tienda (VendorSettings.jsx, un solo archivo que
@@ -59,6 +60,8 @@ export default function AdminAssistant() {
         cómo comprar, cómo vender, verificación, planes, medios de pago, etc. — además del catálogo completo de productos. Sin documentos
         cargados, el asistente sigue funcionando solo con el catálogo.
       </p>
+
+      <AutoLearningSection />
 
       <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
         <div className="mb-1 text-[15px] font-bold text-on-surface">Subir documento</div>
@@ -125,6 +128,142 @@ export default function AdminAssistant() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+
+// Aprendizaje automático: una vez al día el sistema resume lo que preguntan y buscan los clientes y arma con eso las preguntas
+// sugeridas que aparecen al abrir el chat. No usa IA ni gasta tokens: son conteos de conversaciones y búsquedas reales.
+function AutoLearningSection() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ["assistant-learning"], queryFn: async () => (await api.get("/assistant/learning")).data });
+  const refresh = useMutation({
+    mutationFn: async () => (await api.post("/assistant/learning/refresh")).data,
+    onSuccess: (d) => {
+      queryClient.setQueryData(["assistant-learning"], d);
+      queryClient.invalidateQueries({ queryKey: ["assistant-suggestions"] });
+      toast.success("Aprendizaje actualizado con los datos de hoy.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar."),
+  });
+  const toggle = useMutation({
+    mutationFn: async (autoLearn) => (await api.patch("/assistant/learning", { autoLearn })).data,
+    onSuccess: (d) => {
+      queryClient.setQueryData(["assistant-learning"], d);
+      queryClient.invalidateQueries({ queryKey: ["assistant-suggestions"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+  });
+
+  const snap = data?.snapshot;
+  const maxTheme = Math.max(1, ...(snap?.themes ?? []).map((t) => t.count));
+
+  return (
+    <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <Sparkles className="h-5 w-5 text-tertiary-accent" aria-hidden="true" />
+          <div className="text-[15px] font-bold text-on-surface">Aprendizaje automático</div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!data?.autoLearn}
+          disabled={isLoading || toggle.isPending}
+          onClick={() => toggle.mutate(!data?.autoLearn)}
+          className="flex min-h-11 items-center gap-2.5 rounded-full px-1 text-[12.5px] font-semibold text-on-surface-variant disabled:opacity-50"
+        >
+          <span className={`relative h-6 w-11 rounded-full transition-colors ${data?.autoLearn ? "bg-tertiary-accent" : "bg-outline-variant"}`}>
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${data?.autoLearn ? "left-[22px]" : "left-0.5"}`} />
+          </span>
+          {data?.autoLearn ? "Activado" : "Desactivado"}
+        </button>
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">
+        El asistente aprende solo de lo que los clientes preguntan y buscan en el sitio. Cada día se recalculan las preguntas que aparecen al abrir el chat
+        (y los temas y rubros más pedidos). Con el aprendizaje desactivado se muestran siempre las preguntas base.
+      </p>
+
+      {isLoading ? (
+        <p className="text-[13px] text-outline">Cargando...</p>
+      ) : !snap ? (
+        <p className="text-[13px] text-outline">Todavía no hay un resumen calculado. Pulsa "Recalcular ahora".</p>
+      ) : (
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <div className="mb-2 text-[13px] font-bold text-on-surface">Preguntas sugeridas al abrir el chat</div>
+            <div className="flex flex-wrap gap-1.5">
+              {snap.suggestions.map((s) => (
+                <span key={s} className="rounded-full border border-outline-variant px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">{s}</span>
+              ))}
+            </div>
+            <div className="mb-2 mt-5 text-[13px] font-bold text-on-surface">Rubros más buscados</div>
+            {snap.topCategories?.length ? (
+              <ol className="flex list-decimal flex-col gap-1 pl-5 text-[12.5px] text-on-surface-variant">
+                {snap.topCategories.map((c) => <li key={c.name}>{c.name}</li>)}
+              </ol>
+            ) : (
+              <p className="text-[12.5px] text-outline">Aún no hay búsquedas suficientes.</p>
+            )}
+          </div>
+          <div>
+            <div className="mb-2 text-[13px] font-bold text-on-surface">Temas más consultados (últimos {snap.periodDays} días)</div>
+            <div className="flex flex-col gap-1.5">
+              {snap.themes.map((t) => (
+                <div key={t.key} className="flex items-center gap-2 text-[12.5px]">
+                  <span className="w-36 flex-shrink-0 text-on-surface-variant">{t.label}</span>
+                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-container">
+                    <span className="block h-full rounded-full bg-tertiary-accent" style={{ width: `${(t.count / maxTheme) * 100}%` }} />
+                  </span>
+                  <span className="w-8 text-right font-semibold text-on-surface">{t.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="md:col-span-2">
+            <div className="mb-2 text-[13px] font-bold text-on-surface">Preguntas más repetidas</div>
+            {snap.topQuestions?.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-outline-variant text-on-surface">
+                      <th className="px-2 py-1.5 font-bold">Pregunta</th>
+                      <th className="w-20 px-2 py-1.5 text-right font-bold">Veces</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {snap.topQuestions.map((q) => (
+                      <tr key={q.text} className="border-b border-surface-container-high text-on-surface-variant">
+                        <td className="px-2 py-1.5">{q.text}</td>
+                        <td className="px-2 py-1.5 text-right font-semibold text-on-surface">{q.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-[12.5px] text-outline">Todavía no hay conversaciones en este periodo.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-surface-container pt-3">
+        <p className="text-[12px] text-outline">
+          {snap ? `${snap.messagesAnalyzed} mensajes analizados · ` : ""}
+          {data?.computedAt ? `Actualizado ${new Date(data.computedAt).toLocaleString("es-CU")} · ` : ""}
+          {data ? `${data.lessons} criterios aprendidos de ${data.examples} correcciones` : ""}
+        </p>
+        <button
+          type="button"
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending}
+          className="flex min-h-11 items-center gap-1.5 rounded-xl bg-primary-container px-4 text-[12.5px] font-bold text-white disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} aria-hidden="true" /> {refresh.isPending ? "Actualizando..." : "Recalcular ahora"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -203,8 +342,8 @@ function ChatReviewSection() {
         <div className="text-[15px] font-bold text-on-surface">Aprendizaje por ejemplos</div>
       </div>
       <p className="mb-3.5 text-[12.5px] text-outline">
-        Revisa respuestas reales del bot. Marca una como buena para reforzarla tal cual, o como mala para escribir la respuesta ideal — en
-        ambos casos queda como ejemplo activo que el bot va a tener en cuenta en charlas futuras.
+        Revisa respuestas reales del bot. Marca una como buena para reforzar ese estilo, o como mala y explica cómo debió responder. El bot no copia tu
+        texto: de cada corrección saca un criterio (tono, formato, qué datos consultar) y lo aplica con datos reales y actuales en charlas futuras.
       </p>
 
       <div className="mb-4 flex gap-2">
@@ -239,7 +378,7 @@ function ChatReviewSection() {
                 </div>
                 <div className="mb-2.5 text-[12.5px] text-on-surface">
                   <span className="font-semibold">Bot: </span>
-                  {conv.botRespuesta}
+                  <ChatMarkdown text={conv.botRespuesta} className="mt-1 text-[12.5px]" />
                 </div>
 
                 {correctingId === conv.id ? (
@@ -248,7 +387,7 @@ function ChatReviewSection() {
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                       rows={3}
-                      placeholder="Escribe la respuesta ideal para este mensaje del cliente..."
+                      placeholder="Escribe cómo debió responder (sirve de guía; el bot no la copia)..."
                       className="w-full rounded-lg border border-outline-variant p-2.5 text-[12.5px] text-on-surface"
                     />
                     <div className="flex gap-2">
@@ -309,8 +448,11 @@ function ChatReviewSection() {
                 <div className="mb-1 text-[12px] text-on-surface-variant">
                   <span className="font-semibold text-on-surface">Cliente:</span> {ex.entradaCliente}
                 </div>
-                <div className="mb-2 text-[12px] text-on-surface">
+                <div className="mb-1 text-[12px] text-on-surface">
                   <span className="font-semibold">Respuesta ideal:</span> {ex.respuestaIdeal}
+                </div>
+                <div className="mb-2 text-[12px] text-on-surface">
+                  <span className="font-semibold text-tertiary-accent">Criterio aprendido:</span> {ex.leccion ?? <span className="italic text-outline">sin criterio todavía (se usa como pista de estilo)</span>}
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-outline">

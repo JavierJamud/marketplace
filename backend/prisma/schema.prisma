@@ -2348,6 +2348,11 @@ model SiteSettings {
   // Imágenes del Hero de la Home, que sube el admin desde Configuración. Guardan la ruta relativa completa
   // ("/uploads/site/<archivo>") y el orden del arreglo es el orden en que se muestran.
   heroImages String[] @default([])
+  // Aprendizaje automático del asistente de compras: con él activo, las preguntas sugeridas al abrir el chat se recalculan
+  // cada día con lo que preguntan y buscan los clientes (ver lib/assistantLearning.js).
+  botAutoLearn         Boolean   @default(true)
+  botLearningSnapshot  Json?
+  botLearningAt        DateTime?
   // Bloque 49: nombre y logo de la plataforma, editables desde "Marca de la
   // plataforma" en el admin — consumidos en todo el sitio (header, footer,
   // <title>, emails, PDFs, WhatsApp) vía usePlatformSettings() en vez de un
@@ -3068,6 +3073,9 @@ model ChatTrainingExample {
   botTipo        ChatBotType
   entradaCliente String
   respuestaIdeal String
+  // Criterio general que se saca de la corrección del admin (tono, formato, qué consultar). Es lo que se envía al bot:
+  // el texto de la respuesta ideal nunca se copia tal cual.
+  leccion        String?
   activo         Boolean     @default(true)
   creadoPorId    String?
   createdAt      DateTime    @default(now())

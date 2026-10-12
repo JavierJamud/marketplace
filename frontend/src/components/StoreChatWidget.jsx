@@ -14,6 +14,7 @@ import { RecordingIndicator, TranscribingIndicator } from "./RecordingIndicator.
 import { revealText, appendWord } from "../lib/revealText.js";
 import { postChatStreaming } from "../lib/streamChat.js";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
+import { ChatMarkdown } from "./ChatMarkdown.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -761,8 +762,8 @@ export function StoreChatWidget({ vendor }) {
               ) : (
                 <div key={m.id} className="flex flex-col items-start">
                   <BotRow>
-                    <div className="whitespace-pre-wrap rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
-                      {m.content}
+                    <div className="min-w-0 rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
+                      <ChatMarkdown text={m.content} />
                     </div>
                   </BotRow>
                   {/* Bloque 34: rediseñadas como lista vertical (no

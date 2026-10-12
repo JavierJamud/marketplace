@@ -10,6 +10,9 @@ import { chatWithStoreAssistant } from "../lib/ai.js";
 import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
 import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
+import { routeAssistantIntent, orderStatusAnswer, ORDER_FAIL } from "../lib/assistantIntents.js";
+import { planFactsForPrompt } from "../lib/platformFacts.js";
+import { getAssistantSuggestions, getLearningOverview, computeLearningSnapshot, setAutoLearn } from "../lib/assistantLearning.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 
@@ -862,13 +865,15 @@ async function lookupOrderContext(message, sessionEmail) {
 // planes/verificación ya visibles en el sitio (PlanComparisonModal.jsx,
 // Faq.jsx, VendorVerification.jsx) — así la respuesta es siempre concreta
 // exista o no un documento adicional del admin.
-const buildZeudinReference = (siteName) => `CÓMO FUNCIONA ${siteName.toUpperCase()} (referencia fija real — cita estos datos concretos cuando pregunten por planes/vender/verificación, nunca inventes otros ni respondas solo con frases genéricas de folleto):
-- Cómo comprar: eliges productos de cualquier tienda del marketplace y coordinas el pedido con esa tienda (WhatsApp o panel, según cómo la tienda reciba pedidos). El carrito de ${siteName} admite productos de UNA sola tienda por pedido.
-- Cómo vender / crear tienda: te registras como vendedor en ${siteName} (botón "Vender gratis"/"/vender"), cargas los datos de tu negocio y arrancas automáticamente en el Plan Regular, gratis. Puedes pasar a Business cuando quieras desde tu panel.
-- Plan Regular (gratis): hasta 20 productos publicados, pedidos solo por WhatsApp, hasta 10 emails manuales a clientes por mes. Sin badge de verificación ni destacado en home.
-- Plan Business (2500 CUP/mes): productos ilimitados, pedidos por WhatsApp o panel propio, emails ilimitados a clientes, badge de tienda verificada, tienda destacada en la home, recomendaciones con IA (este chat) y horarios de atención configurables.
-- Verificación (badge): desde el panel del vendedor, sección "Verificación", subes una foto tuya y de tu documento de identidad. Un admin de ${siteName} revisa la documentación manualmente; si la aprueba, eliges cómo pagar la suscripción Business (tarjeta o transferencia CUP) y al confirmarse el pago la tienda queda verificada. El badge de "verificada" significa eso — una revisión de identidad real y suscripción activa, no una calificación de calidad de sus productos.
-- Medios de pago entre comprador y vendedor: cada tienda define los suyos (efectivo, transferencia, Zelle, USDT, tarjeta, etc. — ver DATOS DEL NEGOCIO/TIENDAS de cada una); ${siteName} no procesa esos pagos, solo cobra la suscripción Business al vendedor.`;
+// Referencia de la plataforma para el modelo: los pasos son fijos, pero los planes, límites y precios salen de la base de datos
+// en el momento de la pregunta (lib/platformFacts.js), nunca de un texto escrito a mano.
+const buildPlatformReference = async (siteName) => `${siteName.toUpperCase()} (datos reales vigentes, cítalos tal cual, nunca inventes otros):
+- Comprar: eliges productos de una tienda y coordinas el pedido con ella. Cada pedido es de UNA sola tienda.
+- Vender: te registras como vendedor (/vendedor/ingresar?tab=registro) y empiezas en el plan gratis.
+- Planes y precios vigentes:
+${await planFactsForPrompt()}
+- Verificación: panel de vendedor > Verificación; el equipo revisa los documentos y, si se aprueba, se paga la suscripción.
+- ${siteName} no procesa los pagos entre comprador y vendedor; solo cobra la suscripción al vendedor.`;
 
 // Bloque 42: los documentos admin (igual que el .txt/PDF de cada tienda en
 // chat.controller.js) solo viajan en el prompt cuando el mensaje ACTUAL
@@ -937,15 +942,15 @@ ${vendorContext}
 
 ${zoneContext}
 
-${needsPlatformReference(message, history) ? `${buildZeudinReference(siteName)}\n\n` : ""}REGLAS:
+${needsPlatformReference(message, history) ? `${await buildPlatformReference(siteName)}\n\n` : ""}REGLAS:
 - Idioma: español latinoamericano neutro (como se habla en Cuba) — NUNCA modismos ni gramática de España (nunca "vosotros"/"vuestro", "vale", "tío/tía", "coger" en el sentido de agarrar/tomar, "ordenador", "móvil" en vez de "celular", "vais", etc.).
-- Alcance: SOLO productos/tiendas de ${siteName} (los de arriba) e información general de la plataforma (qué es, cómo comprar, cómo vender, verificación, planes, medios de pago) usando CÓMO FUNCIONA ${siteName.toUpperCase()} de arriba y los documentos adjuntos si hay — responde siempre con esos datos concretos (nombre del plan, precio, qué incluye, pasos reales), NUNCA una respuesta genérica de folleto que no diga nada concreto. Nunca temas ajenos: si preguntan otra cosa, dilo breve y amable, sin responder el tema en sí.
-- Breve: 1-2 líneas por defecto, directo, simple y profesional — sin relleno, sin exclamaciones de más.
+- Alcance: SOLO productos/tiendas de ${siteName} (los de arriba) e información general de la plataforma (qué es, cómo comprar, cómo vender, verificación, planes, medios de pago) usando los datos de ${siteName.toUpperCase()} de arriba y los documentos adjuntos si hay — responde siempre con esos datos concretos (nombre del plan, precio, qué incluye, pasos reales), NUNCA una respuesta genérica de folleto que no diga nada concreto. Nunca temas ajenos: si preguntan otra cosa, dilo breve y amable, sin responder el tema en sí.
+- Breve, formal y útil: 1-2 líneas, directo y sin relleno ni exclamaciones. Si enumeras (opciones, pasos, tiendas, datos), pon cada elemento en su propia línea dentro de "text" con "- " o "1. " (usa saltos de línea); para comparar varios datos usa una tabla en markdown. Nunca todo seguido en un párrafo. Lo que cambia (planes, precios, estado de pedidos) lo da el sistema con datos reales: no lo inventes.
 - NUNCA asumas la ubicación propia del cliente: "provincia"/"zona"/"municipio" de la TIENDA (en TIENDAS/candidatos) es un dato de esa tienda, no del cliente. Si el cliente dice "mi provincia"/"mi zona"/"donde vivo"/"cerca de mí" SIN nombrarla, jamás la copies de un ejemplo, de una tienda listada o de tu propia respuesta anterior — pregunta explícitamente cuál es (una sola vez; si ya la preguntaste y no la contestó, no la vuelvas a asumir, insiste la pregunta o muestra resultados sin filtro de zona). "Zona pedida por el cliente en esta charla" arriba es la ÚNICA fuente válida de qué ubicación dio el cliente — si dice "(el cliente no especificó ubicación todavía)", trátalo como TAL, ni una tienda/zona puntual.
 - NUNCA te contradigas dentro de la misma charla: si en un turno anterior confirmaste que existen tiendas/productos reales (los de TIENDAS/CANDIDATOS de arriba), nunca digas después "no tengo información" o "no encontramos nada" para ese mismo dato — si lo que falta es la ubicación del cliente, vuelve a pedirla o muestra los resultados reales ya disponibles (sin filtro de zona, ya que esa zona sigue sin saberse), pero nunca niegues datos reales que ya mostraste.
 - NUNCA repitas la misma pregunta, chip o frase (aunque cambies alguna palabra) que ya usaste en un turno anterior de ESTA charla — relee el historial antes de responder. Si el cliente ya dio un dato (ubicación, precio, color, producto), no lo vuelvas a pedir salvo que él mismo lo cambie explícitamente. Cada pregunta tuya es UNA sola cosa concreta, nunca dos juntas en el mismo mensaje.
 - Nunca inventes productos, tiendas, precios, stock, zonas ni políticas fuera de los candidatos/TIENDAS/ZONAS de arriba o los documentos adjuntos. Si no hay nada bueno para lo que piden, dilo y sugiere reformular la búsqueda o intentar con otra palabra — nunca digas "no hay resultados" de forma genérica sin haber mirado TIENDAS también si la pregunta pudiera ser sobre tiendas.
-- Si la pregunta del cliente no tiene respaldo en ningún dato real de arriba (ni candidatos, ni TIENDAS, ni ZONAS, ni CÓMO FUNCIONA ZEUDIN, ni documentos adjuntos) y no hay forma de responderla con algo real: NUNCA inventes una respuesta ni afirmes/niegues algo que no sabes. Di que no entendiste bien lo que pide y pídele que reformule o explique mejor qué está buscando — nunca un "no sé" seco ni una respuesta a medias sobre algo que no verificaste.
+- Si la pregunta del cliente no tiene respaldo en ningún dato real de arriba (ni candidatos, ni TIENDAS, ni ZONAS, ni los datos de la plataforma, ni documentos adjuntos) y no hay forma de responderla con algo real: NUNCA inventes una respuesta ni afirmes/niegues algo que no sabes. Di que no entendiste bien lo que pide y pídele que reformule o explique mejor qué está buscando — nunca un "no sé" seco ni una respuesta a medias sobre algo que no verificaste.
 - Preguntas sobre TIENDAS (verificadas, de qué rubro, en qué zona, si existe tal tienda): responde con "TIENDAS" de arriba, nunca con la búsqueda de productos. Si el bloque de TIENDAS está vacío, dilo claro — nunca inventes un nombre de tienda.
 - TARJETA DE TIENDA vs. BOTÓN "ver todas" (pedido explícito — nunca listes cada nombre de tienda dentro de "text" cuando el pedido es amplio): si el cliente pregunta por UNA tienda puntual (la nombra, o queda una sola clara tras filtrar por zona/rubro/verificada), cita SOLO ese número en "vendorIds" (muestras su tarjeta) y mantén "text" breve, sin repetir el nombre completo con todos los detalles (eso ya lo muestra la tarjeta). Si el pedido es amplio ("mostrame tiendas", "ver tiendas", "qué tiendas hay") y "TIENDAS" tiene VARIAS (más de 2-3): NUNCA enumeres cada nombre en "text" — responde corto y profesional (ej. "Tenemos varias tiendas disponibles — mira el catálogo completo.") y pon "showAllStoresButton": true (el botón real lleva a /tiendas). Si son pocas (2-3) y relevantes a lo pedido, puedes citarlas en "vendorIds" en vez del botón. Nunca los dos casos a la vez.
 - Prefiere responder directo antes que preguntar: si con los datos que ya tienes (candidatos, tiendas o zonas de arriba) hay una respuesta razonable y clara, responde ya — no acumules preguntas de aclaración innecesarias. Pregunta SOLO cuando de verdad haga falta para no dar una respuesta equivocada (ver FILTRADO PROGRESIVO abajo, que sigue aplicando para el caso específico de ubicación/atributo de producto).
@@ -971,17 +976,9 @@ SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [], "removeFrom
 - vendorIds: número(s) de TIENDAS (entre corchetes arriba, ej. "2") cuando el pedido es sobre una tienda puntual o unas pocas (hasta 3) relevantes — muestra su tarjeta real. Si piden un listado amplio de tiendas (ej. "cuáles están verificadas"), cita las 3 primeras y pon showAllStoresButton en true: el sistema muestra 3 tarjetas y un botón "Ver todas las tiendas" ya filtrado.
 - showAllStoresButton: true cuando el pedido de tiendas es amplio ("ver tiendas", "cuáles están verificadas") y hay más de 3 en TIENDAS — el sistema muestra un botón real a /tiendas con los mismos filtros que pidió el cliente. Nunca enumeres más de 3 tiendas en el texto. false en cualquier otro caso.
 - suggestedFollowUps: SIEMPRE 2-3 preguntas cortas (3-6 palabras cada una) que el cliente podría preguntar A CONTINUACIÓN de ESTA respuesta puntual — tienen que variar según lo que acabas de responder, nunca las mismas siempre. Básate en lo real (otros candidatos, zonas, categorías), nunca inventes algo sin sentido acá.
-- Ejemplo — resultado único y claro (número inventado): candidato [1] es justo lo que piden y no hay ambigüedad de zona/producto → {"text": "Tenemos justo eso — [nombre real del producto, sin el número] de [tienda]. ¿Quieres verlo?", "productIds": ["1"], "addToCart": [], "suggestedFollowUps": ["Ver más opciones similares", "¿Hace envíos esa tienda?", "Buscar otra cosa"]}
-- Ejemplo — YA dio precio/tamaño junto con el producto (número inventado): "Filtros detectados" muestra un rango de precio, y "ZONAS" tiene 2+ provincias con candidatos [1] y [2] que son productos/marcas distintos entre sí → muestra ambos YA, sin preguntar provincia: {"text": "Encontramos estas opciones en ese rango — [nombre real de 1] de [tienda 1] y [nombre real de 2] de [tienda 2]. ¿Alguna marca o color en particular?", "productIds": ["1", "2"], "addToCart": [], "suggestedFollowUps": ["Ver más opciones", "Filtrar por precio", "¿Cuál tiene mejor reseña?"]}
-- Ejemplo — pidió 2 variantes y solo hay una real (número inventado): preguntan "en negro o marrón" y el candidato [1] solo lista "variantes: Color(Negro)" → {"text": "Tenemos [nombre real de 1] en negro, pero no en marrón. ¿Te sirve en negro?", "productIds": ["1"], "addToCart": [], "suggestedFollowUps": ["Sí, en negro", "Buscar en marrón en otra tienda", "Ver otras opciones"]}
-- Ejemplo — falta ubicación, varias provincias con stock, SIN precio/tamaño dado: "ZONAS" muestra 2+ provincias y "Zona pedida"/"Filtros detectados" dicen que el cliente no especificó nada más → {"text": "Tenemos varias opciones — ¿en qué provincia estás para mostrarte la más cercana?", "productIds": [], "addToCart": [], "suggestedFollowUps": ["La Habana", "Santiago de Cuba", "Otra provincia"]}
-- Ejemplo — provincia dada, varios municipios con stock: "Zona pedida" ya tiene provincia y esa provincia lista 2+ municipios en "ZONAS" → {"text": "¿Eres de la capital o de alguno de los municipios? Tenemos en [nombres reales de los municipios listados].", "productIds": [], "addToCart": [], "suggestedFollowUps": ["La capital", "[nombre real de un municipio listado]", "Otro municipio"]}
-- Ejemplo — fallback geográfico: "ZONAS" marca la zona pedida con "SIN stock" pero otra provincia figura como "VECINA" con resultados → {"text": "En tu zona no encontramos stock ahora mismo, pero sí en [tienda real] de [provincia vecina real] — puedes contactarla para ver si coordina el envío.", "productIds": ["2"], "addToCart": [], "suggestedFollowUps": ["Ver esa tienda", "Buscar otra alternativa", "Buscar algo distinto"]}
-- Ejemplo — pregunta sobre tiendas verificadas, POCAS reales (hasta 3, NO es una búsqueda de producto, nunca digas "sin resultados" acá): preguntan "¿qué tiendas están verificadas?" y "TIENDAS" lista 3 reales → cítalas por número, texto corto (la tarjeta ya muestra el nombre/zona/rubro, no los repitas todos en el texto): {"text": "Tenemos estas tiendas verificadas — mira sus fichas.", "productIds": [], "vendorIds": ["1", "2", "3"], "showAllStoresButton": false, "suggestedFollowUps": ["Ver por rubro", "Buscar en una zona", "Buscar un producto"]}. Si "TIENDAS" viniera vacío, en cambio: {"text": "Por ahora no encontramos tiendas verificadas para esta zona/búsqueda.", "productIds": [], "vendorIds": [], "showAllStoresButton": false, "suggestedFollowUps": ["Buscar en otra zona", "Ver todas las tiendas", "Buscar un producto"]}
-- Ejemplo — pedido AMPLIO de tiendas, MUCHAS reales (bug real ya visto: nunca enumeres 5+ nombres en el texto): preguntan "mostrame las tiendas"/"ver tiendas" y "TIENDAS" lista 7 reales → nunca las nombres todas, usa el botón: {"text": "Tenemos varias tiendas disponibles en ${siteName} — mira el catálogo completo.", "productIds": [], "vendorIds": [], "showAllStoresButton": true, "suggestedFollowUps": ["Buscar por rubro", "Buscar por zona", "Buscar un producto"]}
-- Ejemplo — el cliente dice "en mi provincia"/"mi zona" SIN nombrarla (bug real ya visto: nunca asumas cuál es): responde "En mi provincia" a la pregunta de zona/rubro de arriba → NUNCA elijas una provincia de las que aparecen en TIENDAS/candidatos y se la atribuyas al cliente. Responde: {"text": "Cuéntame en qué provincia estás para mostrarte las tiendas de ahí.", "productIds": [], "vendorIds": [], "showAllStoresButton": false, "suggestedFollowUps": ["[nombre real de una provincia con tiendas listadas arriba]", "[otro nombre real de provincia listada]", "Ver todas las tiendas"]}
-- Ejemplo — el cliente corrige/objeta algo que ya dijiste (anti-contradicción, bug real ya visto): en un turno anterior ya mostraste tiendas/productos reales de TIENDAS/CANDIDATOS, y ahora el cliente dice algo como "yo no te dije esa provincia" o corrige un dato → NUNCA respondas "no tengo información" (eso niega datos reales que tú mismo ya mostraste). Reconoce el malentendido brevemente y, como la ubicación del cliente sigue sin saberse, o vuelve a preguntarla o muestra de nuevo los resultados reales YA disponibles arriba sin filtro de zona: {"text": "Tienes razón, disculpa — no me dijiste tu provincia. ¿Cuál es?", "productIds": [], "vendorIds": [], "showAllStoresButton": false, "suggestedFollowUps": ["[nombre real de una provincia con tiendas listadas arriba]", "[otro nombre real de provincia listada]", "Ver todas las tiendas"]}
-- Ejemplo — pregunta por UNA tienda puntual (la nombra o queda una sola clara): preguntan "¿tienen la tienda TecnoHabana?" y "TIENDAS" lista esa tienda como [1] → {"text": "Sí, tenemos TecnoHabana — mira su ficha.", "productIds": [], "vendorIds": ["1"], "showAllStoresButton": false, "suggestedFollowUps": ["Ver sus productos", "¿Está verificada?", "Buscar otra tienda"]}`,
+- Ejemplo (resultado claro): {"text": "Tenemos justo eso en [tienda]. ¿Quieres verlo?", "productIds": ["1"], "suggestedFollowUps": ["Ver más opciones", "¿Hace envíos?", "Buscar otra cosa"]}
+- Ejemplo (falta la provincia y hay stock en varias): {"text": "¿En qué provincia estás para mostrarte la más cercana?", "productIds": [], "suggestedFollowUps": ["La Habana", "Santiago de Cuba", "Otra provincia"]}
+- Ejemplo (tiendas, pedido amplio con más de 3): {"text": "Tenemos varias tiendas disponibles.", "vendorIds": [], "showAllStoresButton": true, "suggestedFollowUps": ["Buscar por rubro", "Buscar un producto"]}`,
     },
   ];
   parts.push(...(await loadAdminDocsParts(message)));
@@ -1020,6 +1017,15 @@ export async function postMarketplaceChatMessage(req, res) {
   // (nunca hay que pedírselo) — si además escribió un email/código propio
   // en el mensaje, ese tiene prioridad (ver lookupOrderContext).
   const sessionEmail = await resolveSessionEmail(userId);
+
+  // Preguntas de la plataforma (planes, registro, inicio de sesión, cómo comprar o vender, verificación, estado de un
+  // pedido): se responden desde la base de datos, con botones y sin llamar a la IA.
+  const quick = await routeAssistantIntent(message, { sessionEmail });
+  if (quick) {
+    const savedQuick = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: quick.text, actions: quick.actions, productIds: [] } });
+    return res.status(201).json({ message: { ...savedQuick, actions: quick.actions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: quick.followUps ?? [] } });
+  }
+
   const orderContext = await lookupOrderContext(message, sessionEmail);
 
   // Bloque 33: de acá para abajo es todo lo que puede fallar por un
@@ -1201,4 +1207,42 @@ export async function getMarketplaceChatHistory(req, res) {
   }));
 
   res.json({ messages: messagesWithProducts });
+}
+
+
+// Preguntas sugeridas al abrir el chat (aprendizaje automático o las base).
+export async function getChatSuggestions(_req, res) {
+  res.set("Cache-Control", "public, max-age=300");
+  res.json(await getAssistantSuggestions());
+}
+
+const orderStatusSchema = z.object({
+  code: z.string().trim().min(4).max(30),
+  name: z.string().trim().min(2).max(80),
+});
+
+// Estado de un pedido con el número y el nombre de quien compró. Sin IA: lee la base y responde al instante.
+export async function postOrderStatus(req, res) {
+  const { code, name } = orderStatusSchema.parse(req.body);
+  const sessionEmail = await resolveSessionEmail(resolveOptionalUserId(req));
+  const result = await orderStatusAnswer({ code, name, sessionEmail });
+  if (!result.ok) return res.json({ ok: false, text: ORDER_FAIL });
+  res.json({ ok: true, text: result.text, links: result.links });
+}
+
+// --- Admin: aprendizaje automático del asistente ----------------------------
+
+export async function getLearning(_req, res) {
+  res.json(await getLearningOverview());
+}
+
+export async function refreshLearning(_req, res) {
+  await computeLearningSnapshot();
+  res.json(await getLearningOverview());
+}
+
+export async function updateLearning(req, res) {
+  const { autoLearn } = z.object({ autoLearn: z.boolean() }).parse(req.body);
+  await setAutoLearn(autoLearn);
+  res.json(await getLearningOverview());
 }

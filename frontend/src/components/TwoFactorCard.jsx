@@ -144,7 +144,7 @@ export default function TwoFactorCard() {
           className="space-y-4 rounded-xl border border-surface-container-high bg-surface-container-low p-4"
         >
           <PasswordInput label="Tu contraseña" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
-          <OtpInput label="Código de la aplicación (o el que te enviemos al correo)" value={disableCode} onChange={setDisableCode} length={6} autoSubmit={!!password} />
+          <OtpInput label="Código de la aplicación (o el que te enviemos al correo)" value={disableCode} onChange={setDisableCode} length={6} />
           <button type="button" onClick={() => sendEmail.mutate()} disabled={sendEmail.isPending} className="min-h-11 text-[13px] font-semibold text-tertiary-accent disabled:opacity-50">
             {emailSent ? "Código enviado: revisa tu correo (reenviar)" : "No tengo mi teléfono: enviar el código a mi correo"}
           </button>

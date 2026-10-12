@@ -13,23 +13,18 @@ import clsx from "clsx";
 //    siempre de izquierda a derecha, igual que el campo único anterior.
 // Accesibilidad: el grupo se anuncia con su etiqueta y cada casilla dice "Dígito
 // N de M". La primera lleva autocomplete="one-time-code".
-export function OtpInput({ label, required, value = "", onChange, length = 6, charset = "numeric", autoFocus = false, disabled = false, error, autoSubmit = false, onComplete }) {
+export function OtpInput({ label, required, value = "", onChange, length = 6, charset = "numeric", autoFocus = false, disabled = false, error, onComplete }) {
   const refs = useRef([]);
   const previousLength = useRef(value.length);
   const numeric = charset === "numeric";
   const clean = (text) => (numeric ? text.replace(/\D/g, "") : text.replace(/[^a-zA-Z0-9]/g, "").toUpperCase());
   const chars = Array.from({ length }, (_, i) => value[i] ?? "");
 
-  // Bloque 276 (pedido explícito — "al insertar el código el sistema lo valida solo, sin
-  // hacer clic en el botón"): al completar el último dígito se avisa (`onComplete`) y, con
-  // `autoSubmit`, se envía el formulario que contiene las casillas. Va en un setTimeout 0 para
-  // que el valor ya esté guardado en el estado del formulario cuando se envía.
+  // Al completar el último dígito solo se avisa (`onComplete`). Nunca se envía el formulario solo: la persona
+  // revisa el código y pulsa el botón de verificar o aceptar (pedido explícito, reemplaza al Bloque 276).
   function notifyComplete(next) {
     if (next.length !== length) return;
-    setTimeout(() => {
-      onComplete?.(next);
-      if (autoSubmit) refs.current[length - 1]?.form?.requestSubmit();
-    }, 0);
+    setTimeout(() => onComplete?.(next), 0);
   }
 
   // Si el código se borró desde afuera (porque era incorrecto), el cursor vuelve a la primera casilla.

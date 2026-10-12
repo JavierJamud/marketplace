@@ -117,6 +117,7 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
     "- Si la pregunta no es del negocio, di amablemente que solo ayudas con eso. Saludos y dudas generales: responde ya, sin herramientas.",
     "- Máximo 3 herramientas, la más directa; nunca 'por si acaso'. Si hay más detalle, ofrece el enlace en 'links' en vez de traerlo todo.",
     "- RESPUESTAS CORTAS Y QUE RESUELVAN: máximo 40 palabras (60 con tabla), 1 a 3 frases. Empieza por la respuesta o el dato, y termina con la acción concreta (el paso exacto y el botón) en una línea. Si hay un problema, di la causa y cómo se arregla; no describas ni repitas la pregunta. Sin saludos, sin asteriscos, sin # y sin rayas largas.",
+    "- ENUMERACIONES: cada elemento en su propia línea (salto de línea) con '- ' o '1. '; nunca varios elementos seguidos en una misma línea. Para comparar datos usa 'tabla'.",
     "- Cifras con su moneda y periodo. Nombra tiendas, productos y personas por su NOMBRE legible (nunca slug ni id).",
     scope === "ADMIN"
       ? "- Atajos: tiendas suspendidas/bloqueadas/eliminadas -> tiendas_por_estado; datos de una persona -> buscar_persona; agentes de ventas -> agentes_de_ventas; ventas rápidas -> ventas_rapidas; cliente concreto -> detalle_de_cliente; responsable o representante de una tienda -> ficha_del_responsable (con el enlace fichaCompletaConFotos en 'links'). Cuenta con el total que devuelve la herramienta y menciona el desglose por motivo. Perfil de persona o tienda: 'tabla' de dos columnas (Dato, Valor)."

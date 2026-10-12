@@ -133,7 +133,7 @@ function RegisterAppStep({ onDone }) {
             </button>
             {showSecret && <p className="select-all break-all rounded-lg bg-surface-container px-3 py-2 font-mono text-[13px] tracking-wider text-on-surface">{setup.secret}</p>}
           </div>
-          <OtpInput label="Código de la aplicación" autoFocus autoSubmit value={code} onChange={(v) => { setCode(v); setCodeError(""); }} error={codeError || undefined} />
+          <OtpInput label="Código de la aplicación" autoFocus value={code} onChange={(v) => { setCode(v); setCodeError(""); }} error={codeError || undefined} />
           <Button type="submit" size="lg" className="w-full rounded-xl" disabled={code.length !== 6 || checking}>
             {checking ? "Verificando..." : "Verificar y activar"}
           </Button>
@@ -829,7 +829,7 @@ export default function Account({ mode = "customer" }) {
             </p>
           )}
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
-            <OtpInput label="Código de verificación" required autoFocus autoSubmit value={twoFactorCode} onChange={(v) => { setTwoFactorCode(v); setCodeError(""); }} error={codeError || undefined} />
+            <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={(v) => { setTwoFactorCode(v); setCodeError(""); }} error={codeError || undefined} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || twoFactorCode.length !== 6}>
               {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
             </Button>
@@ -882,7 +882,7 @@ export default function Account({ mode = "customer" }) {
             Te mandamos un código de 6 dígitos a <strong>{form.email}</strong>. Vence en 10 minutos.
           </p>
           <form onSubmit={handleVerifyRegistration} className="space-y-4">
-            <OtpInput label="Código de verificación" required autoFocus autoSubmit value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
+            <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || registerCode.length !== 6}>
               {loading ? (
                 <>
@@ -936,7 +936,7 @@ export default function Account({ mode = "customer" }) {
                 Te mandamos un código de 6 dígitos a <strong>{resetEmail}</strong>. Vence en 15 minutos.
               </p>
               <form onSubmit={handleVerifyCode} className="space-y-4">
-                <OtpInput label="Código de verificación" required autoFocus autoSubmit value={resetCode} onChange={(v) => { setResetCode(v); setCodeError(""); }} error={codeError || undefined} />
+                <OtpInput label="Código de verificación" required autoFocus value={resetCode} onChange={(v) => { setResetCode(v); setCodeError(""); }} error={codeError || undefined} />
                 <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || resetCode.length !== 6}>
                   {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar código"}
                 </Button>

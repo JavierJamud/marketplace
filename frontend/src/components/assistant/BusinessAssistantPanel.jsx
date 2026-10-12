@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatMarkdown } from "../ChatMarkdown.jsx";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, RotateCcw, Square, Trash2, X, ChevronLeft } from "lucide-react";
@@ -161,33 +162,7 @@ function requestErrorMessage(err) {
 // el contenido viene de un modelo y de datos de terceros, nunca se interpreta
 // como HTML.
 function AssistantText({ text }) {
-  const blocks = [];
-  let list = null;
-  for (const line of text.split("\n")) {
-    const item = line.match(/^\s*[-•]\s+(.*)$/);
-    if (item) {
-      if (!list) blocks.push((list = { type: "list", items: [] }));
-      list.items.push(item[1]);
-    } else if (line.trim()) {
-      list = null;
-      blocks.push({ type: "p", text: line.trim() });
-    }
-  }
-  return (
-    <div className="space-y-2">
-      {blocks.map((b, i) =>
-        b.type === "list" ? (
-          <ul key={i} className="list-disc space-y-1 pl-5">
-            {b.items.map((it, j) => (
-              <li key={j}>{it}</li>
-            ))}
-          </ul>
-        ) : (
-          <p key={i}>{b.text}</p>
-        )
-      )}
-    </div>
-  );
+  return <ChatMarkdown text={text} />;
 }
 
 // Tarjeta de producto de la respuesta: foto, nombre, precio y estado real, con
