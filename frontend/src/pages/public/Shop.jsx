@@ -4,53 +4,73 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
-import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
-import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
-
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
-// Bloque 199: derivado del mismo mapa compartido que VendorProducts.jsx/
-// Product.jsx — antes decía "Transferencia CUP" acá para "prepaid", distinto
-// de lo que mostraba el propio formulario del vendedor ("Transferencia").
-const PAY_OPTIONS = Object.entries(PRODUCT_PAYMENT_METHOD_LABEL).map(([id, label]) => ({ id, label }));
+import { ShopFilters, ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
+import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
+import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { SlidersHorizontal, X } from "lucide-react";
+import { useMediaQuery } from "../../lib/useMediaQuery.js";
 
 const SORT_OPTIONS = [
   { value: "relevance", label: "Más relevantes" },
   { value: "price-asc", label: "Precio: menor a mayor" },
   { value: "price-desc", label: "Precio: mayor a menor" },
   { value: "rating", label: "Mejor calificados" },
+  { value: "sales", label: "Más vendidos" },
+  { value: "newest", label: "Más nuevos" },
 ];
+
+const list = (v) => (v ? v.split(",").filter(Boolean) : []);
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { provinceId, municipalityId, provinceName, hasProvinceFilter, setProvince, setMunicipality } = useZone();
+  const { provinces, provinceId, municipalityId, provinceName, hasProvinceFilter, setProvince, setMunicipality } = useZone();
 
   const q = searchParams.get("q") ?? "";
   const categoryId = searchParams.get("categoryId") ?? "";
 
-  // Bloque 270: los filtros que el chat principal puso en el enlace (pago, precio máximo,
-  // solo verificadas, provincia) se aplican al abrir el catálogo y cada vez que cambian.
-  const urlPayment = searchParams.get("payment");
-  const urlMaxPrice = Number(searchParams.get("maxPrice"));
-  const [maxPrice, setMaxPrice] = useState(urlMaxPrice > 0 ? urlMaxPrice : 10000);
-  const [pay, setPay] = useState(() => {
-    const wanted = (urlPayment ?? "").split(",").filter((m) => ["whatsapp", "cod", "prepaid"].includes(m));
-    return wanted.length ? { whatsapp: wanted.includes("whatsapp"), cod: wanted.includes("cod"), prepaid: wanted.includes("prepaid") } : { whatsapp: true, cod: true, prepaid: true };
-  });
-  // Bloque 30: arranca desde la URL (mismo criterio que q/categoryId arriba)
-  // — así "Solo verificadas" activado en el dropdown de SearchBar sigue
-  // activo al llegar acá con "Ver todos los resultados".
-  const [onlyVerified, setOnlyVerified] = useState(searchParams.get("onlyVerified") === "true");
+  // Los filtros viven en la URL: se pueden compartir y los enlaces del chat principal ya llegan con ellos puestos.
+  const filters = {
+    categoryId,
+    minPrice: searchParams.get("minPrice") ?? "",
+    maxPrice: searchParams.get("maxPrice") ?? "",
+    currency: searchParams.get("currency") ?? "",
+    payment: list(searchParams.get("payment")).map((m) => (m === "prepaid" ? "online" : m)).filter((m) => ["cod", "online", "cash"].includes(m)),
+    accepts: list(searchParams.get("accepts")),
+    onlyVerified: searchParams.get("onlyVerified") === "true",
+    discount: searchParams.get("discount") === "true",
+    wholesale: searchParams.get("wholesale") === "true",
+    badge: searchParams.get("badge") ?? "",
+    minRating: searchParams.get("minRating") ?? "",
+  };
+  const setFilter = (key, value) =>
+    setSearchParams((p) => {
+      if (value) p.set(key, value);
+      else p.delete(key);
+      return p;
+    }, { replace: true });
+  const setMany = (obj) =>
+    setSearchParams((p) => {
+      for (const [k, v] of Object.entries(obj)) {
+        if (v) p.set(k, v);
+        else p.delete(k);
+      }
+      return p;
+    }, { replace: true });
+  const toggleInList = (key, id) =>
+    setSearchParams((p) => {
+      const cur = list(p.get(key));
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      if (next.length) p.set(key, next.join(","));
+      else p.delete(key);
+      return p;
+    }, { replace: true });
+
   const [sort, setSort] = useState("relevance");
-  const urlKey = `${urlPayment}|${urlMaxPrice}|${searchParams.get("onlyVerified")}|${searchParams.get("provinceId")}|${searchParams.get("municipalityId")}`;
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const urlKey = `${searchParams.get("provinceId")}|${searchParams.get("municipalityId")}`;
   useEffect(() => {
-    const wanted = (urlPayment ?? "").split(",").filter((m) => ["whatsapp", "cod", "prepaid"].includes(m));
-    setPay(wanted.length ? { whatsapp: wanted.includes("whatsapp"), cod: wanted.includes("cod"), prepaid: wanted.includes("prepaid") } : { whatsapp: true, cod: true, prepaid: true });
-    setMaxPrice(urlMaxPrice > 0 ? urlMaxPrice : 10000);
-    setOnlyVerified(searchParams.get("onlyVerified") === "true");
     const urlProvince = searchParams.get("provinceId");
     if (urlProvince) {
       setProvince(urlProvince);
@@ -59,23 +79,29 @@ export default function Shop() {
     }
   }, [urlKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // El fondo no se desplaza mientras está abierta la hoja de filtros del celular.
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [sheetOpen]);
+
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: async () => (await api.get("/categories")).data.categories,
   });
-  // Cada categoría principal y sus subcategorías ("Tecnología › Celulares y smartphones"); elegir la principal incluye sus hijas.
-  const categoryOptions = useMemo(
-    () => (categories ?? []).flatMap((c) => [{ value: c.id, label: c.name }, ...(c.children ?? []).map((ch) => ({ value: ch.id, label: `${c.name} › ${ch.name}` }))]),
-    [categories]
-  );
-
-  const paymentParam = Object.entries(pay)
-    .filter(([, checked]) => checked)
-    .map(([id]) => id)
-    .join(",");
+  const { data: siteSettings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+  });
+  const badges = siteSettings?.availableProductBadges ?? [];
 
   const { data, isLoading } = useQuery({
-    queryKey: ["shop-products", q, categoryId, provinceId, municipalityId, maxPrice, paymentParam, onlyVerified, sort],
+    queryKey: ["shop-products", q, searchParams.toString(), provinceId, municipalityId, sort],
+    placeholderData: (prev) => prev,
     queryFn: async () =>
       (
         await api.get("/search", {
@@ -84,8 +110,16 @@ export default function Shop() {
             categoryId: categoryId || undefined,
             provinceId: provinceId || undefined,
             municipalityId: municipalityId || undefined,
-            maxPrice,
-            onlyVerified: onlyVerified || undefined,
+            minPrice: filters.minPrice || undefined,
+            maxPrice: filters.maxPrice || undefined,
+            currency: filters.currency || undefined,
+            payment: filters.payment.join(",") || undefined,
+            accepts: filters.accepts.join(",") || undefined,
+            onlyVerified: filters.onlyVerified || undefined,
+            discount: filters.discount || undefined,
+            wholesale: filters.wholesale || undefined,
+            badge: filters.badge || undefined,
+            minRating: filters.minRating || undefined,
             sort,
           },
         })
@@ -96,16 +130,40 @@ export default function Shop() {
   const nearbyProvinces = data?.nearbyProvinces ?? [];
 
   function clearFilters() {
-    setMaxPrice(10000);
-    setPay({ whatsapp: true, cod: true, prepaid: true });
-    setOnlyVerified(false);
     setSort("relevance");
     setSearchParams((p) => {
-      p.delete("categoryId");
-      p.delete("q");
+      ["categoryId", "q", "minPrice", "maxPrice", "currency", "payment", "accepts", "onlyVerified", "discount", "wholesale", "badge", "minRating"].forEach((k) => p.delete(k));
       return p;
     });
   }
+
+  const categoryName = useMemo(() => {
+    for (const c of categories ?? []) {
+      if (c.id === categoryId) return c.name;
+      const ch = c.children?.find((x) => x.id === categoryId);
+      if (ch) return `${c.name} › ${ch.name}`;
+    }
+    return "Categoría";
+  }, [categories, categoryId]);
+
+  // Un chip por cada filtro puesto, con su "x".
+  const activeChips = [
+    categoryId && { key: "cat", label: categoryName, remove: () => setFilter("categoryId", "") },
+    (filters.minPrice || filters.maxPrice) && {
+      key: "price",
+      label: `${filters.minPrice ? `Desde ${filters.minPrice}` : ""}${filters.minPrice && filters.maxPrice ? " " : ""}${filters.maxPrice ? `Hasta ${filters.maxPrice}` : ""} ${filters.currency}`.trim(),
+      remove: () => setMany({ minPrice: "", maxPrice: "" }),
+    },
+    filters.currency && { key: "cur", label: `Moneda ${filters.currency}`, remove: () => setFilter("currency", "") },
+    filters.onlyVerified && { key: "ver", label: "Tiendas verificadas", remove: () => setFilter("onlyVerified", "") },
+    ...filters.payment.map((id) => ({ key: `pay-${id}`, label: CHECKOUT_PAY_CHOICES.find((o) => o.id === id)?.title ?? id, remove: () => toggleInList("payment", id) })),
+    ...filters.accepts.map((id) => ({ key: `acc-${id}`, label: `Acepta ${PAYMENT_METHODS.find((m) => m.id === id)?.label ?? id}`, remove: () => toggleInList("accepts", id) })),
+    filters.discount && { key: "disc", label: "Con descuento", remove: () => setFilter("discount", "") },
+    filters.wholesale && { key: "whole", label: "Precio por cantidad", remove: () => setFilter("wholesale", "") },
+    filters.badge && { key: "badge", label: filters.badge, remove: () => setFilter("badge", "") },
+    filters.minRating && { key: "rate", label: `${filters.minRating}★ o más`, remove: () => setFilter("minRating", "") },
+    hasProvinceFilter && { key: "prov", label: provinceName, remove: () => setProvince(null) },
+  ].filter(Boolean);
 
   return (
     <>
@@ -125,66 +183,50 @@ export default function Shop() {
           </div>
         </div>
 
-        {/* CATEGORÍAS: lista desplegable con búsqueda (hay cientos; en fila ocupaban media pantalla en el celular) */}
-        <div className="container-app pt-5">
-          <div className="max-w-[460px]">
-            <ComboSelect
-              label="Categoría"
-              value={categoryId}
-              onChange={(id) => setSearchParams((p) => { if (id) p.set("categoryId", id); else p.delete("categoryId"); return p; })}
-              options={categoryOptions}
-              allOption={{ label: "Todas las categorías" }}
-              placeholder="Busca una categoría: celulares, ropa, repuestos..."
-            />
-          </div>
-        </div>
-
         {/* MAIN */}
-        <div className="container-app grid grid-cols-1 gap-8 py-6 lg:grid-cols-[250px_1fr] lg:items-start">
-          {/* SIDEBAR */}
-          <aside className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-5 lg:sticky lg:top-[88px]">
-            <div className="mb-3 text-label-md font-bold text-on-surface">Precio máximo</div>
-            <input
-              type="range"
-              min={0}
-              max={10000}
-              step={100}
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(Number(e.target.value))}
-              className="mb-1.5 w-full accent-secondary-container"
-            />
-            <div className="mb-6 text-label-sm text-outline">Hasta {fmtCUP(maxPrice)}</div>
-
-            <label className="mb-2 flex cursor-pointer items-center gap-2.5">
-              <input
-                type="checkbox"
-                checked={onlyVerified}
-                onChange={() => setOnlyVerified((v) => !v)}
-                className="h-[15px] w-[15px] accent-tertiary-accent"
-              />
-              <span className="text-[13.5px] font-semibold text-on-surface-variant">Solo tiendas verificadas</span>
-            </label>
-            <button onClick={clearFilters} className="mt-3.5 w-full rounded border border-outline-variant py-2.5 text-label-md text-on-surface-variant">
-              Limpiar filtros
-            </button>
+        <div className="container-app grid grid-cols-1 gap-8 py-6 lg:grid-cols-[290px_1fr] lg:items-start">
+          {/* FILTROS (escritorio) */}
+          {isDesktop && (
+          <aside className="rounded-xl border border-surface-container-high bg-surface-container-lowest px-4 lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-110px)] lg:overflow-y-auto">
+            <div className="flex items-center justify-between pt-3.5">
+              <h2 className="text-[15px] font-extrabold text-on-surface">Filtros</h2>
+              {activeChips.length > 0 && (
+                <button type="button" onClick={clearFilters} className="min-h-9 text-[12.5px] font-semibold text-tertiary-accent hover:underline">Limpiar</button>
+              )}
+            </div>
+            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} provinces={provinces} provinceId={provinceId} onProvince={setProvince} />
           </aside>
+          )}
 
           {/* GRID */}
           <div>
-            <div className="mb-[18px] flex items-center justify-between">
-              <span className="text-[13.5px] text-outline">
-                {products.length} productos {hasProvinceFilter ? `en ${provinceName}` : "en todo el país"}
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <button type="button" onClick={() => setSheetOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[13.5px] font-bold text-on-surface lg:hidden">
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" /> Filtros
+                {activeChips.length > 0 && <span className="rounded-full bg-tertiary-accent px-1.5 py-0.5 text-[11px] leading-none text-white">{activeChips.length}</span>}
+              </button>
+              <span className="hidden text-[13.5px] text-outline sm:inline">
+                {products.length} {products.length === 1 ? "producto" : "productos"} {hasProvinceFilter ? `en ${provinceName}` : "en todo el país"}
               </span>
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
-                className="rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-label-sm text-on-surface outline-none"
+                aria-label="Ordenar por"
+                className="min-h-11 min-w-0 flex-1 rounded-full border border-outline-variant bg-surface-container-lowest px-3.5 text-label-sm text-on-surface outline-none sm:max-w-[220px] sm:flex-none"
               >
                 {SORT_OPTIONS.map((s) => (
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             </div>
+            <p className="mb-3 text-[13px] text-outline sm:hidden">
+              {products.length} {products.length === 1 ? "producto" : "productos"} {hasProvinceFilter ? `en ${provinceName}` : "en todo el país"}
+            </p>
+            {activeChips.length > 0 && (
+              <div className="mb-4">
+                <ActiveFilterChips items={activeChips} onClear={clearFilters} />
+              </div>
+            )}
 
             {isLoading && <p className="text-body-md text-on-surface-variant">Cargando productos...</p>}
 
@@ -214,6 +256,27 @@ export default function Shop() {
           </div>
         </div>
       </div>
+
+      {/* FILTROS (celular): hoja a pantalla completa con el mismo panel y un botón que muestra cuántos resultados hay */}
+      {sheetOpen && !isDesktop && (
+        <div className="fixed inset-0 z-[70] flex flex-col bg-surface lg:hidden" role="dialog" aria-modal="true" aria-label="Filtros">
+          <div className="flex items-center justify-between border-b border-surface-container-high bg-surface-container-lowest px-4 py-2.5">
+            <h2 className="text-[17px] font-extrabold text-on-surface">Filtros</h2>
+            <button type="button" onClick={() => setSheetOpen(false)} aria-label="Cerrar filtros" className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-surface-container">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto bg-surface-container-lowest px-4">
+            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} provinces={provinces} provinceId={provinceId} onProvince={setProvince} />
+          </div>
+          <div className="grid grid-cols-[auto_1fr] gap-2.5 border-t border-surface-container-high bg-surface-container-lowest p-3">
+            <button type="button" onClick={clearFilters} disabled={!activeChips.length} className="min-h-12 rounded-xl border border-outline-variant px-5 text-[14px] font-semibold text-on-surface-variant disabled:opacity-40">Limpiar</button>
+            <button type="button" onClick={() => setSheetOpen(false)} className="min-h-12 rounded-xl bg-secondary-container text-[14px] font-bold text-on-secondary-container">
+              Ver {products.length} {products.length === 1 ? "producto" : "productos"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <MarketplaceChatGate />
     </>

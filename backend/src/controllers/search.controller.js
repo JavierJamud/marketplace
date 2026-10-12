@@ -127,7 +127,7 @@ function reorderByIds(rows, ids) {
 // sidebar de filtros de Shop, buscador de texto): la que consume el catálogo
 // y la Home.
 export async function structuredSearch(req, res) {
-  const { q, categoryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment } = req.query;
+  const { q, categoryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment, accepts, currency, discount, wholesale, badge, minRating } = req.query;
   await expireNewBadges();
 
   // Filtrar por categoría incluye sus subcategorías (ej. "Restaurantes" trae
@@ -140,7 +140,15 @@ export async function structuredSearch(req, res) {
     categoryIds = [String(categoryId), ...children.map((c) => c.id)];
   }
 
-  const paymentMethods = payment ? String(payment).split(",").filter(Boolean) : undefined;
+  // Forma de coordinar el pago que ofrece la TIENDA (contra entrega, en línea, efectivo). Acepta también los nombres antiguos de
+  // los enlaces del chat: "prepaid" es pago en línea y "whatsapp" no restringe nada (toda tienda coordina por WhatsApp).
+  const checkoutOptions = payment
+    ? [...new Set(String(payment).split(",").map((m) => (m === "prepaid" ? "online" : m)).filter((m) => ["cod", "online", "cash"].includes(m)))]
+    : [];
+  // Métodos de pago que la tienda dice aceptar (Zelle, Tropipay, tarjeta...), tal como los carga en su configuración.
+  const acceptedMethods = accepts ? String(accepts).split(",").map((m) => m.trim()).filter(Boolean).slice(0, 12) : [];
+  const currencyFilter = ["CUP", "USD", "EUR", "MXN"].includes(String(currency)) ? String(currency) : undefined;
+  const ratingMin = Number(minRating) > 0 ? Math.min(5, Number(minRating)) : undefined;
 
   // Todo lo que NO es el texto libre de búsqueda — se reusa igual en los 3
   // intentos (literal → corregido por IA → aproximado por trigramas), el id
@@ -158,7 +166,11 @@ export async function structuredSearch(req, res) {
     overQuota: false,
     categoryId: categoryIds ? { in: categoryIds } : undefined,
     price: minPrice || maxPrice ? { gte: minPrice ? Number(minPrice) : undefined, lte: maxPrice ? Number(maxPrice) : undefined } : undefined,
-    paymentMethods: paymentMethods?.length ? { hasSome: paymentMethods } : undefined,
+    currency: currencyFilter,
+    oldPrice: discount === "true" ? { not: null } : undefined,
+    priceTiers: wholesale === "true" ? { some: {} } : undefined,
+    badge: badge ? String(badge) : undefined,
+    rating: ratingMin ? { gte: ratingMin } : undefined,
     // Bloque 82 (pedido explícito, bug real reportado en vivo): un producto
     // agotado (sin `unlimitedStock`, `stock` 0) no debe aparecer en Home ni
     // en el catálogo — solo se muestra en su propia tienda, en la sección
@@ -170,6 +182,8 @@ export async function structuredSearch(req, res) {
       status: "ACTIVE",
       isPrivate: false,
       verificationStatus: onlyVerified === "true" ? "VERIFIED" : undefined,
+      checkoutPaymentOptions: checkoutOptions.length ? { hasSome: checkoutOptions } : undefined,
+      acceptedPaymentMethods: acceptedMethods.length ? { hasSome: acceptedMethods } : undefined,
       locations: provinceId
         ? { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } }
         : undefined,
@@ -234,6 +248,8 @@ export async function structuredSearch(req, res) {
 
   if (sort === "price-asc") products = [...products].sort((a, b) => Number(a.price) - Number(b.price));
   if (sort === "price-desc") products = [...products].sort((a, b) => Number(b.price) - Number(a.price));
+  if (sort === "sales") products = [...products].sort((a, b) => (b.salesCount ?? 0) - (a.salesCount ?? 0));
+  if (sort === "newest") products = [...products].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   if (sort === "rating") {
     const agg = await prisma.review.groupBy({
       by: ["productId"],
