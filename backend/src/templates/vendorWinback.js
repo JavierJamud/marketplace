@@ -19,6 +19,7 @@ function offerCardMjml(offer) {
 export async function vendorWinbackEmail({ customer, vendor, offers }) {
   const subject = pickVariant(`${vendor.id}${customer.email}`, [`${vendor.companyName} tiene ofertas nuevas para ti`, `Novedades de ${vendor.companyName}`, `Lo nuevo en ${vendor.companyName}`]);
   const html = await emailShell({
+    showSocial: true,
     preview: `${vendor.companyName} publicó ofertas nuevas — mira lo que tienen ahora`,
     title: `${vendor.companyName} tiene algo nuevo para ti`,
     storeName: vendor.companyName,

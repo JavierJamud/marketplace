@@ -746,7 +746,7 @@
           }, SLIDE_TRIGGER_MS);
           setTimeout(function () {
             if (token !== cycleToken || hidden) return;
-            if (appReady && settingsLoaded) {
+            if (appReady && (settingsLoaded || Date.now() - startedAt >= MAX_WAIT_MS)) {
               hidePreloader();
             } else {
               startCycle(); // sigue cargando -> vuelve al punto inicial y repite
@@ -755,29 +755,17 @@
         }
         startCycle();
 
-        // Se retira en cuanto la página está lista para verse (React pintó la primera pantalla y llegó el nombre del
-        // sitio), sin esperar a que bajen todas las imágenes, y nunca antes de MIN_VISIBLE_MS para que el logo no parpadee.
-        // Si los ajustes no responden, se retira igual a los MAX_WAIT_MS: la página ya sabe mostrar su propio aviso.
-        var MIN_VISIBLE_MS = 1200;
+        // El logo siempre termina su animación completa (ícono y nombre). Al final de cada vuelta se retira solo si la
+        // página ya está lista para verse (React pintó la primera pantalla y llegó el nombre del sitio); si no, repite la
+        // animación. No espera a que bajen todas las imágenes. Si los ajustes no responden, deja de esperarlos a los
+        // MAX_WAIT_MS (la página ya sabe mostrar su propio aviso).
         var MAX_WAIT_MS = 4000;
         var startedAt = Date.now();
         var appReady = !!window.__appReady;
         var hidden = false;
-        function maybeHide() {
-          if (hidden || !appReady) return;
-          var elapsed = Date.now() - startedAt;
-          if (!settingsLoaded && elapsed < MAX_WAIT_MS) return;
-          if (elapsed < MIN_VISIBLE_MS) {
-            setTimeout(maybeHide, MIN_VISIBLE_MS - elapsed);
-            return;
-          }
-          hidePreloader();
-        }
         window.addEventListener("app:ready", function () {
           appReady = true;
-          maybeHide();
         });
-        setTimeout(maybeHide, MAX_WAIT_MS);
 
         function fetchSettings() {
           fetch(API_BASE + "/settings")
@@ -787,7 +775,6 @@
               resolvedName = name || "";
               settingsLoaded = true;
               renderIfReady();
-              maybeHide();
             })
             .catch(function () {
               setTimeout(fetchSettings, SETTINGS_RETRY_MS);

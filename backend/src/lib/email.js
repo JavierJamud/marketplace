@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma.js";
 import { env } from "../config/env.js";
 import { getIntegrationConfig } from "../controllers/integrations.controller.js";
@@ -41,7 +42,34 @@ const RESEND_SANDBOX_FROM = "onboarding@resend.dev";
 // Lee la integración fresca de la DB en cada llamada — sin caché en memoria,
 // así que guardar una key/fromEmail nuevo en AdminIntegrations se usa en el
 // próximo envío sin reiniciar el backend.
-async function sendViaResend({ to, subject, html, fromName, attachments }) {
+// Versión en texto plano del mismo correo. Gmail y otros clientes clasifican mejor (bandeja Principal y no Promociones ni
+// spam) un correo con su alternativa de texto, como haría una persona, que uno que es solo HTML.
+function htmlToText(html) {
+  return String(html ?? "")
+    .replace(/<head[\s\S]*?<\/head>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<div[^>]*display:\s*none[^>]*>[\s\S]*?<\/div>/gi, "")
+    .replace(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href, label) => {
+      const text = label.replace(/<[^>]+>/g, "").trim();
+      return text && !href.startsWith("mailto:") && text !== href ? `${text} (${href})` : text;
+    })
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6]|li|table)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_m, n) => (Number(n) === 8202 || Number(n) === 847 ? "" : String.fromCodePoint(Number(n))))
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function sendViaResend({ to, subject, html, fromName, attachments, replyTo, text }) {
   const config = await getIntegrationConfig("resend");
   if (!config) return { ok: false, error: "No hay una integración de Resend activa." };
 
@@ -56,6 +84,10 @@ async function sendViaResend({ to, subject, html, fromName, attachments }) {
       to,
       subject,
       html,
+      text: text ?? htmlToText(html),
+      ...(replyTo ? { replyTo } : {}),
+      // Cada correo es único (Gmail no lo agrupa con otros parecidos en el mismo hilo).
+      headers: { "X-Entity-Ref-ID": randomUUID() },
       // Bloque 29: factura/garantía en PDF — Resend acepta el contenido
       // como Buffer directo, sin re-codificar a base64 a mano.
       ...(attachments?.length ? { attachments } : {}),
@@ -292,7 +324,8 @@ export async function sendAdminDirectEmail({ to, subject, message, recipientName
 // equipo se entere.
 export async function sendContactMessageEmail({ to, name, email, message }) {
   const { subject, html } = await contactMessageEmail({ name, email, message });
-  const result = await sendViaResend({ to, subject, html });
+  // "Responder" en el correo le contesta directo a la persona que escribió.
+  const result = await sendViaResend({ to, subject, html, fromName: "Formulario de contacto", replyTo: email });
   await logEmail({ vendorId: null, orderId: null, type: "CONTACT_MESSAGE", to, subject, result });
   return result;
 }

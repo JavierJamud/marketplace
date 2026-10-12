@@ -348,7 +348,10 @@ function socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl }) {
 //   arriba), el header muestra el logo/nombre de la tienda + una pastilla
 //   "vía {siteName}" a la derecha. Sin logo propio, el header sigue siendo
 //   el de la plataforma de siempre (logo real o el cuadrado con la inicial).
-export async function emailShell({ preview, title, bodyMjml, storeName, storeLogoUrl, accentColor = "#0e1a28", footerNote, badge }) {
+// showSocial: los íconos de redes sociales solo van en correos de promoción (por ejemplo, la reactivación de clientes).
+// En los correos de servicio (pedidos, códigos, contacto, avisos) se omiten: Gmail los cuenta como señal de boletín
+// comercial y manda el correo a Promociones en lugar de la bandeja Principal.
+export async function emailShell({ preview, title, bodyMjml, storeName, storeLogoUrl, accentColor = "#0e1a28", footerNote, badge, showSocial = false }) {
   // Bloque 49: nombre de la plataforma, editable desde "Marca de la
   // plataforma" en el admin. El logo sale de resolvePlatformLogo() (arriba):
   // siempre una URL https pública a un PNG, o texto si no hay ninguna.
@@ -421,7 +424,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
         <mj-column width="55%" vertical-align="top">
           <mj-text font-size="14px" font-weight="800" color="#1b1b1d" line-height="18px" padding="0 0 4px"><a href="${siteUrl}" style="color:#1b1b1d;text-decoration:none;">${siteName}</a></mj-text>
           <mj-text font-size="12px" color="#75777c" line-height="18px" padding="0 0 12px">Marketplace multivendedor de Cuba</mj-text>
-          <mj-text padding="0 0 14px" align="left">${socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl })}</mj-text>
+          ${showSocial ? `<mj-text padding="0 0 14px" align="left">${socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl })}</mj-text>` : ""}
         </mj-column>
         <mj-column width="45%" vertical-align="top">
           <mj-text font-size="12.5px" color="#75777c" line-height="22px" padding="0 0 14px">
@@ -434,7 +437,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
       <mj-section background-color="#f7f5f6" padding="0 26px 24px">
         <mj-column>
           <mj-text font-size="11px" color="#8a8d92" line-height="16px" padding="0">
-            Enviado por <strong style="color:#5b6470;">${storeName}</strong> a través de ${siteName}.<br/>
+            ${storeName && storeName !== siteName ? `Enviado por <strong style="color:#5b6470;">${storeName}</strong> a través de ${siteName}.<br/>` : ""}
             ${footerNote ?? "Este es un correo automático: si tienes dudas, responde directo a la tienda por WhatsApp desde tu pedido."}<br/>
             © ${new Date().getFullYear()} ${siteName}. Todos los derechos reservados.
           </mj-text>

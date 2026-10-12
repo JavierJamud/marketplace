@@ -84,7 +84,7 @@ export default function Contacto() {
             e.preventDefault();
             send.mutate();
           }}
-          className="flex flex-col gap-3.5 rounded-lg border border-surface-container-high bg-surface-container-lowest p-6"
+          className="order-first flex flex-col gap-3.5 self-start rounded-lg border border-surface-container-high bg-surface-container-lowest p-5 sm:p-6 lg:order-none lg:sticky lg:top-24"
         >
           <Input label="Nombre" required value={name} onChange={(e) => setName(e.target.value)} />
           <Input label="Correo" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -15,12 +15,13 @@ function escapeHtml(str) {
 // admin, nunca al revés (esto no es una respuesta automática al visitante).
 export async function contactMessageEmail({ name, email, message }) {
   const { siteName } = await getBrandSettings();
-  const subject = `Nuevo mensaje de contacto — ${name}`;
+  const subject = `Mensaje de ${name} desde el formulario de contacto`;
   const safeMessage = escapeHtml(message).replace(/\n/g, "<br/>");
   const html = await emailShell({
     preview: message.slice(0, 120),
     title: "Mensaje de contacto",
     storeName: siteName,
+    footerNote: "Mensaje recibido desde el formulario de contacto. Pulsa Responder para contestarle directamente a esta persona.",
     bodyMjml: `
       ${paragraph(`De <strong style="color:#1b1b1d;">${escapeHtml(name)}</strong> (${escapeHtml(email)}), vía el formulario de /contacto.`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
       ${paragraph(safeMessage, { color: "#44474c", size: "14px", lineHeight: "22px" })}
