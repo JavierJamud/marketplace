@@ -106,6 +106,17 @@ api.interceptors.response.use(
         sessionExpiredHandler?.();
       }
     }
+    // Cortes breves del servidor (reinicio, despliegue, red inestable): las lecturas se reintentan solas hasta 3 veces, con
+    // espera creciente, para que la persona no vea un error por algo que se arregla en segundos. Solo GET/HEAD: nunca se
+    // repite algo que cambia datos.
+    const method = String(original?.method ?? "get").toLowerCase();
+    const status = error.response?.status;
+    const transient = !error.response || [502, 503, 504].includes(status);
+    if (original && transient && (method === "get" || method === "head") && !error.code?.includes("CANCEL") && (original._netRetry ?? 0) < 3) {
+      original._netRetry = (original._netRetry ?? 0) + 1;
+      await new Promise((r) => setTimeout(r, 700 * original._netRetry ** 2));
+      return api(original);
+    }
     // Fallo técnico (sin conexión o error del servidor): se recuerda para poder ofrecer el reporte del problema.
     if (isTechnicalFailure(error)) recordApiFailure(error);
     return Promise.reject(error);
