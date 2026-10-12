@@ -12,6 +12,7 @@ import { logError } from "../lib/errorLog.js";
 import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { routeAssistantIntent, orderStatusAnswer, ORDER_FAIL } from "../lib/assistantIntents.js";
 import { createSupportCase } from "../services/supportCase.service.js";
+import { tightenReply, getLiveSnapshot } from "../lib/assistantStyle.js";
 import { planFactsForPrompt } from "../lib/platformFacts.js";
 import { getAssistantSuggestions, getLearningOverview, computeLearningSnapshot, setAutoLearn } from "../lib/assistantLearning.js";
 import { getBrandSettings } from "./settings.controller.js";
@@ -941,6 +942,7 @@ function needsPlatformReference(message, history = []) {
 async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext, message, history = []) {
   const fewShot = await buildFewShotBlock("GENERAL");
   const { siteName } = await getBrandSettings();
+  const liveSnapshot = await getLiveSnapshot().catch(() => "");
   const parts = [
     {
       // Bloque 31: CONSULTA DE PEDIDO va PRIMERO que cualquier otra cosa —
@@ -958,9 +960,12 @@ ${vendorContext}
 
 ${zoneContext}
 
-${needsPlatformReference(message, history) ? `${await buildPlatformReference(siteName)}\n\n` : ""}REGLAS:
+${liveSnapshot ? `${liveSnapshot}
+
+` : ""}${needsPlatformReference(message, history) ? `${await buildPlatformReference(siteName)}\n\n` : ""}REGLAS:
 - Idioma: español latinoamericano neutro (como se habla en Cuba) — NUNCA modismos ni gramática de España (nunca "vosotros"/"vuestro", "vale", "tío/tía", "coger" en el sentido de agarrar/tomar, "ordenador", "móvil" en vez de "celular", "vais", etc.).
 - Alcance: SOLO productos/tiendas de ${siteName} (los de arriba) e información general de la plataforma (qué es, cómo comprar, cómo vender, verificación, planes, medios de pago) usando los datos de ${siteName.toUpperCase()} de arriba y los documentos adjuntos si hay — responde siempre con esos datos concretos (nombre del plan, precio, qué incluye, pasos reales), NUNCA una respuesta genérica de folleto que no diga nada concreto. Nunca temas ajenos: si preguntan otra cosa, dilo breve y amable, sin responder el tema en sí.
+- ESTILO PROFESIONAL Y CORTO (prioridad máxima): máximo 2 oraciones cortas (unas 30 palabras) por respuesta. Sin saludos, sin disculpas, sin "claro", "por supuesto" ni exclamaciones, sin repetir la pregunta. Da primero el dato concreto (precio con su moneda, stock, tienda, zona, plan) y, si hace falta, una sola pregunta o sugerencia. Todo dato sale de los bloques de arriba (candidatos, tiendas, zonas, datos reales de la plataforma, documentos): si no está ahí, dilo en una frase y no lo inventes.
 - Breve, formal y útil: 1-2 líneas, directo y sin relleno ni exclamaciones. Si enumeras (opciones, pasos, tiendas, datos), pon cada elemento en su propia línea dentro de "text" con "- " o "1. " (usa saltos de línea); para comparar varios datos usa una tabla en markdown. Nunca todo seguido en un párrafo. Lo que cambia (planes, precios, estado de pedidos) lo da el sistema con datos reales: no lo inventes.
 - NUNCA asumas la ubicación propia del cliente: "provincia"/"zona"/"municipio" de la TIENDA (en TIENDAS/candidatos) es un dato de esa tienda, no del cliente. Si el cliente dice "mi provincia"/"mi zona"/"donde vivo"/"cerca de mí" SIN nombrarla, jamás la copies de un ejemplo, de una tienda listada o de tu propia respuesta anterior — pregunta explícitamente cuál es (una sola vez; si ya la preguntaste y no la contestó, no la vuelvas a asumir, insiste la pregunta o muestra resultados sin filtro de zona). "Zona pedida por el cliente en esta charla" arriba es la ÚNICA fuente válida de qué ubicación dio el cliente — si dice "(el cliente no especificó ubicación todavía)", trátalo como TAL, ni una tienda/zona puntual.
 - NUNCA te contradigas dentro de la misma charla: si en un turno anterior confirmaste que existen tiendas/productos reales (los de TIENDAS/CANDIDATOS de arriba), nunca digas después "no tengo información" o "no encontramos nada" para ese mismo dato — si lo que falta es la ubicación del cliente, vuelve a pedirla o muestra los resultados reales ya disponibles (sin filtro de zona, ya que esa zona sigue sin saberse), pero nunca niegues datos reales que ya mostraste.
@@ -1127,12 +1132,12 @@ export async function postMarketplaceChatMessage(req, res) {
     return res.status(503).json({ error: "chat_unavailable" });
   }
 
-  const text = rawText
+  const text = tightenReply(rawText
     .replace(/\[ID:[a-z0-9]+\]/gi, "")
     .replace(/\[\d{1,3}\]/g, "")
     .replace(/ {2,}/g, " ")
     .replace(/ +([.,;:])/g, "$1")
-    .trim();
+    .trim());
 
   const candidateByIndex = new Map(candidates.map((p, i) => [String(i + 1), p]));
   const citedIds = [...new Set((productIds ?? []).map(String))]
