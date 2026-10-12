@@ -1,52 +1,59 @@
 import { useEffect, useState } from "react";
 import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 
-// Bloque 96 (pedido explícito): el hero de la Home pasa de 1 imagen fija a
-// varias — se muestran de a una con un fundido cruzado (crossfade, todas
-// apiladas con position:absolute y solo la activa en opacity-100) en vez de
-// deslizarse, que es lo que la mayoría de los sitios modernos usa para un
-// hero así (Apple, Airbnb, etc.) — no reordena el layout ni "empuja" nada al
-// cambiar. Avanza sola cada 5s; los punticos de abajo (solo si hay más de
-// 1 imagen) también saltan a una puntual con un clic.
-const AUTOPLAY_MS = 5000;
+// Imágenes del Hero que sube el admin. Se muestran de a una durante 8 segundos. El cambio es un deslizamiento corto con
+// fundido y un leve zoom (la que sale se aleja hacia la izquierda, la que entra llega desde la derecha), solo con
+// transform y opacity para que sea fluido incluso en teléfonos modestos. Cada punto de abajo muestra con una barra cuánto
+// falta para el cambio; el avance lo marca el fin de esa animación, así que pasar el dedo o el ratón por encima la pausa
+// sin que se desincronice. Las imágenes pueden tener fondo transparente: se ven sobre el color del encabezado.
+const AUTOPLAY_SECONDS = 8;
 
 export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[340px]" }) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [hovered, setHovered] = useState(false);
-  // Bloque 248 (auditoría 004, hallazgo 9): sin autoplay si el sistema pide
-  // reducir el movimiento (los puntos siguen permitiendo cambiar de imagen).
+  const [prevIndex, setPrevIndex] = useState(null);
+  const [paused, setPaused] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
 
-  // Si el admin sube/borra imágenes y la lista cambia de tamaño, nunca
-  // queremos quedar apuntando a un índice que ya no existe.
+  // Si el admin sube o borra imágenes y la lista cambia de tamaño, nunca se queda apuntando a un índice que ya no existe.
   useEffect(() => {
     setActiveIndex((i) => (i >= images.length ? 0 : i));
+    setPrevIndex(null);
   }, [images.length]);
 
-  useEffect(() => {
-    if (images.length < 2 || reducedMotion || hovered) return;
-    const id = setInterval(() => setActiveIndex((i) => (i + 1) % images.length), AUTOPLAY_MS);
-    return () => clearInterval(id);
-  }, [images.length, reducedMotion, hovered]);
+  function goTo(next) {
+    if (next === activeIndex) return;
+    setPrevIndex(activeIndex);
+    setActiveIndex(next);
+  }
 
-  // Sin ninguna imagen cargada: se reserva el mismo espacio del recuadro
-  // (transparente, Bloque 95) en vez de no renderizar nada — así el layout
-  // de 2 columnas del hero no se desarma si el admin todavía no subió nada.
-  if (images.length === 0) return <div className={`${heightClass} rounded-xl`} />;
+  if (images.length === 0) return null;
+
+  const autoplay = images.length > 1 && !reducedMotion;
 
   return (
-    <div className="flex flex-col" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div className="flex flex-col" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onTouchStart={() => setPaused(true)} onTouchEnd={() => setPaused(false)}>
       <div className={`relative ${heightClass} overflow-hidden rounded-xl`}>
-        {images.map((url, i) => (
-          <img
-            key={url}
-            src={url}
-            alt={i === 0 ? alt : ""}
-            className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-700 ease-in-out ${
-              i === activeIndex ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-          />
-        ))}
+        {images.map((url, i) => {
+          const state = i === activeIndex ? "active" : i === prevIndex ? "out" : "in";
+          const motion = reducedMotion
+            ? state === "active"
+              ? "opacity-100"
+              : "pointer-events-none opacity-0"
+            : state === "active"
+            ? "translate-x-0 scale-100 opacity-100"
+            : state === "out"
+            ? "pointer-events-none -translate-x-8 scale-[1.04] opacity-0"
+            : "pointer-events-none translate-x-8 scale-[0.96] opacity-0";
+          return (
+            <img
+              key={url}
+              src={url}
+              alt={i === 0 ? alt : ""}
+              loading={i === 0 ? "eager" : "lazy"}
+              className={`absolute inset-0 h-full w-full object-contain will-change-[transform,opacity] ${reducedMotion ? "" : "transition-[transform,opacity] duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)]"} ${motion}`}
+            />
+          );
+        })}
       </div>
       {images.length > 1 && (
         <div className="mt-1 flex items-center justify-center">
@@ -54,14 +61,22 @@ export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[34
             <button
               key={url}
               type="button"
-              onClick={() => setActiveIndex(i)}
+              onClick={() => goTo(i)}
               aria-label={`Ver imagen ${i + 1} de ${images.length}`}
               aria-current={i === activeIndex}
               className="flex h-6 items-center justify-center px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
             >
-              {/* Bloque 248 (auditoría 004, hallazgo 2): el punto se ve de 8px
-                  pero el área que se toca es de 24px de alto. */}
-              <span className={`block h-2 rounded-full transition-all ${i === activeIndex ? "w-6 bg-white" : "w-2 bg-white/40"}`} />
+              <span className={`relative block h-2 overflow-hidden rounded-full bg-white/40 transition-all duration-500 ${i === activeIndex ? "w-9" : "w-2"}`}>
+                {i === activeIndex && (
+                  <span
+                    // `key` reinicia la barra cada vez que cambia la imagen; al terminar, pasa a la siguiente.
+                    key={`${activeIndex}-${images.length}`}
+                    className={`absolute inset-y-0 left-0 block rounded-full bg-white ${autoplay ? "hero-progress" : "w-full"}`}
+                    style={autoplay ? { animationDuration: `${AUTOPLAY_SECONDS}s`, animationPlayState: paused ? "paused" : "running" } : undefined}
+                    onAnimationEnd={() => goTo((activeIndex + 1) % images.length)}
+                  />
+                )}
+              </span>
             </button>
           ))}
         </div>

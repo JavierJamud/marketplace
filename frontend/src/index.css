@@ -342,3 +342,7 @@
 .prose-static ul { list-style: disc; }
 .prose-static ol { list-style: decimal; }
 .prose-static > :first-child { margin-top: 0; }
+
+/* Barra de progreso del punto activo del slider del Hero: se llena en el tiempo que dura la imagen y, al terminar, pasa a la siguiente */
+@keyframes hero-progress { from { width: 0; } to { width: 100%; } }
+.hero-progress { animation-name: hero-progress; animation-timing-function: linear; animation-fill-mode: forwards; width: 0; }

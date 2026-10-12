@@ -55,7 +55,8 @@ import { REPORT_UPLOAD_DIR } from "./controllers/reports.controller.js";
 import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
-import { renderStoreOgPage, renderStoreOgImagePng } from "./controllers/og.controller.js";
+import { renderStoreOgImagePng } from "./controllers/og.controller.js";
+import { renderStorePage, renderProductPage, sitemapXml } from "./controllers/seoPages.controller.js";
 
 export const app = express();
 
@@ -164,7 +165,9 @@ app.use("/uploads/reports", express.static(REPORT_UPLOAD_DIR));
 // Bloque 137: HTML con meta tags reales de la tienda, para que un link
 // compartido se previsualice con SUS datos — ver el comentario largo en
 // og.controller.js (incluye la pieza de hosting que falta para producción).
-app.get("/og/tienda/:slug", renderStoreOgPage);
+app.get("/og/tienda/:slug", renderStorePage);
+app.get("/og/producto/:vendorSlug/:productSlug", renderProductPage);
+app.get("/sitemap.xml", sitemapXml);
 app.get("/og/tienda/:slug/imagen.png", renderStoreOgImagePng);
 
 app.use("/auth", authRoutes);

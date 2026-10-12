@@ -149,6 +149,8 @@ add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=(se
 CABECERAS
 chown zeudin:zeudin $RAIZ/cabeceras-seguridad.conf
 
+if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then REDIR_WWW=""; else REDIR_WWW="if (\$host = www.$DOMINIO) { return 301 $URL_PUBLICA\$request_uri; }"; fi
+
 cat > $RAIZ/nginx.conf <<EOF
 server {
     listen 80;
@@ -168,6 +170,9 @@ server {
     # no hereda los add_header del server cuando un location declara alguno.
     include $RAIZ/cabeceras-seguridad.conf;
 
+    # Una sola dirección para Google: www redirige al dominio sin www (evita contenido duplicado).
+    $REDIR_WWW
+
     # API Express (todas sus rutas viven bajo /api en producción)
     location /api/ {
         proxy_pass http://127.0.0.1:$PUERTO_API/;
@@ -180,9 +185,30 @@ server {
         proxy_read_timeout 180s;
     }
 
-    # Links de tienda compartidos: los bots reciben la página con la foto/datos de ESA tienda
+    # Mapa del sitio para Google (lo arma la API con las tiendas y productos visibles)
+    location = /sitemap.xml {
+        proxy_pass http://127.0.0.1:$PUERTO_API/sitemap.xml;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        include $RAIZ/cabeceras-seguridad.conf;
+    }
+
+    # Tiendas y productos: los bots (Google, Bing, WhatsApp, Facebook...) reciben una página con título, descripción, imagen,
+    # datos estructurados y los enlaces de ESA tienda o producto; las personas reciben la aplicación.
     location /tienda/ {
         if (\$zeudin_es_bot) { rewrite ^/tienda/(.*)\$ /api/og/tienda/\$1 last; }
+        try_files \$uri /index.html;
+    }
+    location /producto/ {
+        if (\$zeudin_es_bot) { rewrite ^/producto/([^/]+)/([^/]+)/?\$ /api/og/producto/\$1/\$2 last; }
+        try_files \$uri /index.html;
+    }
+
+    # Zonas privadas: se sirve la aplicación pero se pide a los buscadores que no las indexen
+    location ~ ^/(admin|vendedor|socio|cuenta|carrito|carrito-compartido|checkout|mesa|vender)(/|\$) {
+        add_header X-Robots-Tag "noindex, nofollow" always;
+        add_header Cache-Control "no-cache";
+        include $RAIZ/cabeceras-seguridad.conf;
         try_files \$uri /index.html;
     }
 

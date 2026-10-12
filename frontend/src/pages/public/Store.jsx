@@ -39,6 +39,8 @@ import { StoreHeaderBanner } from "../../components/StoreHeaderBanner.jsx";
 import { DigitalMenuProductCard, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
 // Bloque 240: la misma tarjeta vertical que el Home y el catálogo.
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
+import { useSeo } from "../../lib/seo.js";
+import { storeSeo } from "../../lib/seoBuilders.js";
 
 const MAX_REVIEW_IMAGES = 4;
 
@@ -419,6 +421,8 @@ export default function Store() {
       reviewsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [data]);
+
+  useSeo(storeSeo(data, siteName), [data?.id, siteName]);
 
   if (isLoading) return <PageLoader label="Cargando tienda..." />;
   if (!data) {

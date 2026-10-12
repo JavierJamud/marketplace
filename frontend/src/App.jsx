@@ -1,5 +1,7 @@
 import { useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { applySeo } from "./lib/seo.js";
+import { isNoindexPath, isDynamicSeoPath, staticSeoFor } from "./lib/seoRoutes.js";
 
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
@@ -116,11 +118,19 @@ function VendorProfileRoute() {
 // para que se actualice en cualquier pantalla del sitio, apenas llega el
 // nombre real desde /settings. El de index.html queda tal cual, como piso
 // estático para el primer instante antes de que React monte.
-function usePageTitle() {
+function useRouteSeo() {
   const { siteName } = usePlatformSettings();
+  const { pathname } = useLocation();
   useEffect(() => {
-    document.title = `${siteName} | Marketplace`;
-  }, [siteName]);
+    // Tienda, producto y preguntas frecuentes arman su propio SEO con sus datos (ver Store.jsx, Product.jsx y Faq.jsx).
+    if (isDynamicSeoPath(pathname) || pathname === "/faq") return;
+    if (isNoindexPath(pathname)) {
+      applySeo({ title: `${siteName} | Marketplace`, description: `${siteName}: marketplace de tiendas y restaurantes de Cuba.`, noindex: true });
+      return;
+    }
+    const seo = staticSeoFor(pathname, siteName);
+    applySeo(seo ?? { title: `${siteName} | Marketplace`, description: `${siteName}: marketplace de tiendas y restaurantes de Cuba.`, path: pathname });
+  }, [pathname, siteName]);
 }
 
 // /vender?socio=CODIGO: guarda el código del socio de la API y sigue al registro de tienda.
@@ -130,7 +140,7 @@ function VenderRedirect() {
 }
 
 export default function App() {
-  usePageTitle();
+  useRouteSeo();
   return (
     <>
       <RouteLoader />

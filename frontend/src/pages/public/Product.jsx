@@ -23,6 +23,8 @@ import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
+import { useSeo } from "../../lib/seo.js";
+import { productSeo } from "../../lib/seoBuilders.js";
 
 // Bloque 69 (pedido explícito): "los productos también pueden llevar
 // reseñas" — mismas fotos que Store.jsx (solo tiendas verificadas).
@@ -265,6 +267,8 @@ export default function Product() {
       reviewsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [data]);
+
+  useSeo(productSeo(product, siteName), [product?.id, siteName]);
 
   if (isLoading) return <PageLoader label="Cargando producto..." />;
 

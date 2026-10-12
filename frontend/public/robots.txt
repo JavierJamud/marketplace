@@ -1,0 +1,15 @@
+# Baznova: se permite indexar todo lo público (tiendas, productos, ayuda) y se excluyen las zonas privadas.
+User-agent: *
+Allow: /api/og/
+Allow: /api/sitemap.xml
+Disallow: /api/
+Disallow: /admin
+Disallow: /vendedor
+Disallow: /socio/
+Disallow: /cuenta
+Disallow: /carrito
+Disallow: /checkout
+Disallow: /mesa/
+Disallow: /vender
+
+Sitemap: https://baznova.com/sitemap.xml

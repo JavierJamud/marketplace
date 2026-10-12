@@ -20,7 +20,7 @@
 // nombre de la plataforma cambia algún día.
 const FALLBACK_SITE_NAME = "Baznova";
 const DEFAULT_DESCRIPTION =
-  "Compra y vende en toda Cuba: tiendas verificadas, productos y restaurantes con pedido directo por WhatsApp.";
+  "Compra cerca de ti en Baznova: tiendas locales y restaurantes de toda Cuba con productos, comida y servicios. Pide directo por WhatsApp, paga contra entrega o por transferencia.";
 
 const STORE_RE = /^\/tienda\/([^/?#]+)\/?$/;
 const PRODUCT_RE = /^\/producto\/([^/?#]+)\/([^/?#]+)\/?$/;
@@ -109,7 +109,7 @@ export function ogMetaPlugin(env = {}) {
       // Bloque 54 (pedido explícito): mismo formato que el <title> estático
       // de index.html y el que setea App.jsx del lado del cliente — antes
       // decía "— Marketplace multivendedor de Cuba".
-      title: `${siteName} | Marketplace`,
+      title: `${siteName} | Marketplace de tiendas y restaurantes en Cuba`,
       description: DEFAULT_DESCRIPTION,
       image: defaultImage,
       url: `${siteUrl}${path}`,

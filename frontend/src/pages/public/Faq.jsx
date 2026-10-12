@@ -3,6 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, HelpCircle } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { useSeo } from "../../lib/seo.js";
+import { staticSeoFor } from "../../lib/seoRoutes.js";
+import { faqJsonLd } from "../../lib/seoBuilders.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
 // Bloque 53: antes esto era copy hardcodeado (buildCustomerFaqs/
@@ -46,6 +50,10 @@ export default function Faq() {
     queryKey: ["public-faq", audience],
     queryFn: async () => (await api.get("/faq", { params: { audience } })).data.items,
   });
+
+  const { siteName } = usePlatformSettings();
+  // Las preguntas se publican también como datos estructurados (FAQPage) para que Google las muestre en los resultados.
+  useSeo({ ...staticSeoFor("/faq", siteName), jsonLd: faqJsonLd(faqs) }, [faqs, siteName]);
 
   // Cambiar de pestaña cierra cualquier pregunta abierta de la pestaña
   // anterior — no tendría sentido dejarla "abierta" para una lista distinta.
