@@ -92,6 +92,7 @@ export default function QuickSaleDetail() {
           </span>
           <h1 className="mb-2 text-headline-md text-on-surface">{listing.name}</h1>
           <div className="mb-5 text-title-lg font-bold text-secondary">{formatPrice(listing.price, listing.currency)}</div>
+          {listing.owner?.province?.name && <p className="mb-3 text-[13px] text-on-surface-variant">Ubicación: <strong className="text-on-surface">{listing.owner.province.name}</strong></p>}
           <p className="mb-7 whitespace-pre-line text-body-md text-on-surface-variant">{listing.description}</p>
 
           <a

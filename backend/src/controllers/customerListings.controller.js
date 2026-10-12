@@ -79,6 +79,10 @@ export async function createListing(req, res) {
   const data = customerListingSchema.parse(req.body);
   await assertCurrencyAllowed(data.currency);
 
+  // Los compradores contactan por WhatsApp con el teléfono de la cuenta: sin teléfono el anuncio no serviría de nada.
+  const owner = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true } });
+  if (!owner?.phone?.trim()) throw new AppError("Agrega tu teléfono en tu perfil para publicar: los compradores te contactan por WhatsApp.", 400);
+
   const policy = await getListingPolicy();
 
   const activeCount = await prisma.customerListing.count({ where: { ownerId: req.user.id } });
@@ -209,14 +213,20 @@ export async function removeListingImage(req, res) {
 
 // --- Público -------------------------------------------------------------
 
+// Datos del dueño que se muestran: nombre, teléfono (el contacto por WhatsApp es la razón de ser del anuncio) y su provincia.
+const PUBLIC_OWNER = { select: { fullName: true, phone: true, province: { select: { name: true } } } };
+
 export async function listPublicListings(req, res) {
+  // ?limit=N (máx. 24) para la portada; sin límite, la página completa de venta rápida.
+  const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 24) || undefined;
   const listings = await prisma.customerListing.findMany({
     // Bloque 237: ciclo de vida en 2 etapas — a los publicVisibilityDays
     // días el anuncio deja de mostrarse acá aunque siga existiendo y
     // siga siendo del dueño (ver listMyListings, que no filtra por esto).
     where: { isActive: true, isSold: false, publicVisibleUntil: { gte: new Date() } },
-    include: { owner: { select: { fullName: true, phone: true } } },
+    include: { owner: PUBLIC_OWNER },
     orderBy: { createdAt: "desc" },
+    take: limit,
   });
   res.json({ listings });
 }
@@ -225,7 +235,7 @@ export async function getPublicListing(req, res) {
   const { id } = req.params;
   const listing = await prisma.customerListing.findFirst({
     where: { id, isActive: true, publicVisibleUntil: { gte: new Date() } },
-    include: { owner: { select: { fullName: true, phone: true } } },
+    include: { owner: PUBLIC_OWNER },
   });
   if (!listing) throw new AppError("Anuncio no encontrado.", 404);
   res.json({ listing });

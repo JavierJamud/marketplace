@@ -70,7 +70,11 @@ export default function CustomerPanel() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("orders");
+  // Se puede abrir directo una pestaña con /cuenta/panel?tab=quick-sale (por ejemplo, desde la portada).
+  const [tab, setTab] = useState(() => {
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    return TABS.some((x) => x.id === wanted) ? wanted : "orders";
+  });
   const [orderToCancel, setOrderToCancel] = useState(null);
   const [orderToEdit, setOrderToEdit] = useState(null);
   const [orderBlocked, setOrderBlocked] = useState(null);

@@ -12,6 +12,7 @@ import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 import { TrendingSearches } from "../../components/TrendingSearches.jsx";
+import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
 
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
@@ -170,6 +171,13 @@ export default function Home() {
     });
   }, [businessCategories]);
 
+  // Ventas rápidas: anuncios de clientes sin tienda. Se muestran los más recientes y siempre hay un acceso para publicar el tuyo.
+  const { data: quickSales } = useQuery({
+    queryKey: ["home-quick-sales"],
+    queryFn: async () => (await api.get("/customer-listings", { params: { limit: 8 } })).data.listings,
+    staleTime: 60 * 1000,
+  });
+
   const { data: featured } = useQuery({
     queryKey: ["home-featured", provinceId],
     queryFn: async () => (await api.get("/search", { params: { provinceId: provinceId || undefined } })).data.products,
@@ -322,6 +330,37 @@ export default function Home() {
                 </Link>
               }
             />
+          )}
+        </section>
+
+        {/* VENTA RÁPIDA: anuncios de clientes (sin tienda). Los compradores los contactan directo por WhatsApp. */}
+        <section className="container-app cv-auto pt-8 md:pt-11" aria-labelledby="venta-rapida-home">
+          <div className="mb-4 flex items-center justify-between gap-3 md:mb-6">
+            <div className="min-w-0">
+              <h2 id="venta-rapida-home" className="font-display text-[20px] font-bold leading-7 text-on-surface md:text-headline-lg">Venta rápida entre clientes</h2>
+              <p className="mt-0.5 text-label-sm text-on-surface-variant">Anuncios de personas como tú. Contáctalas directo por WhatsApp.</p>
+            </div>
+            {quickSales?.length > 0 && (
+              <Link to="/ventas-rapidas" className="flex min-h-11 flex-shrink-0 items-center text-label-md font-semibold text-tertiary-accent hover:underline">Ver todo →</Link>
+            )}
+          </div>
+          {quickSales?.length > 0 ? (
+            <div className="-mx-4 flex snap-x scroll-pl-4 gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-4 sm:overflow-visible sm:px-0 lg:grid-cols-4">
+              {quickSales.map((l) => (
+                <div key={l.id} className="w-[62vw] max-w-[260px] flex-shrink-0 snap-start sm:w-auto sm:max-w-none">
+                  <QuickSaleCard listing={l} />
+                </div>
+              ))}
+              <Link to="/cuenta/panel?tab=quick-sale" className="flex w-[62vw] max-w-[260px] flex-shrink-0 snap-start flex-col items-center justify-center gap-1.5 rounded-[22px] border-2 border-dashed border-outline-variant p-5 text-center sm:w-auto sm:max-w-none">
+                <span className="text-[14px] font-bold text-on-surface">¿Vendes algo?</span>
+                <span className="text-[12.5px] text-on-surface-variant">Publica tu anuncio gratis</span>
+              </Link>
+            </div>
+          ) : (
+            <Link to="/cuenta/panel?tab=quick-sale" className="block rounded-2xl border-2 border-dashed border-outline-variant p-6 text-center">
+              <span className="block text-[15px] font-bold text-on-surface">Todavía no hay anuncios de venta rápida</span>
+              <span className="mt-1 block text-[13px] text-on-surface-variant">Publica el primero: es gratis y se contacta por WhatsApp.</span>
+            </Link>
           )}
         </section>
 
