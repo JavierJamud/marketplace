@@ -14,16 +14,16 @@ const CSS = `
 .trend-lane:hover .trend-track, .trend-lane:focus-within .trend-track { animation-play-state: paused }
 `;
 
-function Chip({ item, tone }) {
+function Chip({ item, tone, still }) {
   return (
     <Link
       to={`/catalogo?q=${encodeURIComponent(item.term)}`}
-      className={`group inline-flex min-h-11 flex-shrink-0 items-center gap-2 rounded-full border px-4 text-[14px] font-semibold transition-colors ${
+      className={`group inline-flex min-h-11 items-center gap-2 rounded-full border px-4 ${still ? "max-w-full" : "flex-shrink-0"} text-[14px] font-semibold transition-colors ${
         tone ? "border-secondary-container/60 bg-secondary-container/15 text-on-surface hover:bg-secondary-container/30" : "border-outline-variant bg-surface-container-lowest text-on-surface hover:border-tertiary-accent hover:text-tertiary-accent"
       }`}
     >
       <Search className="h-3.5 w-3.5 flex-shrink-0 text-outline group-hover:text-current" aria-hidden="true" />
-      <span className="whitespace-nowrap">{item.phrase}</span>
+      <span className={still ? "truncate" : "whitespace-nowrap"}>{item.phrase}</span>
     </Link>
   );
 }
@@ -83,8 +83,8 @@ export function TrendingSearches() {
       {still ? (
         <ul className="flex flex-wrap gap-2.5">
           {items.map((it) => (
-            <li key={it.term}>
-              <Chip item={it} />
+            <li key={it.term} className="max-w-full">
+              <Chip item={it} still />
             </li>
           ))}
         </ul>
