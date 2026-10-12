@@ -54,7 +54,7 @@ export function HeroImagesCard() {
       <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
         <ImagePlus className="h-4 w-4 text-tertiary-accent" aria-hidden="true" /> Imagen principal del sitio
       </div>
-      <p className="mb-1 text-[12.5px] text-outline">Se muestra en la primera sección (hero) de la Home para todos los visitantes. Una a la vez, con un fundido automático. Si subes más de una, abajo del hero aparecen puntos que marcan cuántas hay. Si no subes ninguna, se usa un placeholder.</p>
+      <p className="mb-1 text-[12.5px] text-outline">Se muestra en la primera sección (hero) de la Home para todos los visitantes. Una a la vez, con un fundido automático. Si subes más de una, abajo del hero aparecen puntos que marcan cuántas hay. Si no subes ninguna, esa zona del encabezado no se muestra. Puedes usar PNG o WebP con fondo transparente: se conserva la transparencia y la imagen se ve sobre el color del encabezado.</p>
       <p className="mb-4 text-[12.5px] text-outline">
         Tamaño recomendado: <strong>1200×800px</strong> o más grande, en relación <strong>3:2</strong>. Cada imagen se ajusta completa al recuadro sin deformarse ni recortarse; si tiene otra relación de aspecto, queda centrada con el sobrante relleno.
       </p>

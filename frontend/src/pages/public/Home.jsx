@@ -208,7 +208,7 @@ export default function Home() {
             principal y sin flecha). Le habla al comprador; lo de los
             vendedores vive en su propia tarjeta más abajo. */}
         <section className="-mt-[76px] rounded-b-[28px] bg-primary pt-[76px]">
-          <div className="container-app grid grid-cols-1 items-center gap-6 py-6 lg:grid-cols-[1.05fr_1fr] lg:gap-12 lg:py-8">
+          <div className={`container-app grid grid-cols-1 items-center gap-6 py-6 lg:gap-12 lg:py-8 ${heroImages.length > 0 ? "lg:grid-cols-[1.05fr_1fr]" : ""}`}>
             <div>
               <h1 className="mb-3 font-display text-headline-lg text-white md:mb-4 md:text-display-lg">
                 Compra cerca de ti, a <span className="text-secondary-container">vendedores</span> de tu provincia.
@@ -245,7 +245,7 @@ export default function Home() {
               </div>
             </div>
 
-            {isLargeScreen && <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />}
+            {isLargeScreen && heroImages.length > 0 && <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />}
           </div>
         </section>
 
