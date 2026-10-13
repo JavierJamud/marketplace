@@ -1,3 +1,4 @@
+import { routeZoneChange } from "../lib/assistantZone.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
@@ -1070,6 +1071,13 @@ export async function postMarketplaceChatMessage(req, res) {
   if (quick) {
     const savedQuick = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: quick.text, actions: quick.actions, productIds: [] } });
     return res.status(201).json({ message: { ...savedQuick, actions: quick.actions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: quick.followUps ?? [] } });
+  }
+
+  // ¿Habla de cambiar o ver otro lugar? Se explica el lugar elegido y cómo cambiarlo, y se ofrece cambiarlo desde el chat con confirmación.
+  const zoneChange = await routeZoneChange(message, chatZone ?? {}).catch(() => null);
+  if (zoneChange) {
+    const savedZone = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: zoneChange.text, actions: zoneChange.actions, productIds: [] } });
+    return res.status(201).json({ message: { ...savedZone, actions: zoneChange.actions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: [] } });
   }
 
   const orderContext = await lookupOrderContext(message, sessionEmail);

@@ -21,7 +21,9 @@ export async function listProvinces(_req, res) {
 
 // Dónde hay tiendas (y cuántas) para el selector "¿Dónde quieres comprar?" de los compradores: solo países, provincias o
 // estados y municipios que tienen al menos una tienda pública con productos a la vista. Una sola consulta: la lista es corta.
-export async function listServedLocations(_req, res) {
+// Lugares con tiendas (país, provincia o estado, municipio y cuántas tiendas hay en cada uno). Lo usan el selector del sitio y el
+// asistente de chat.
+export async function getServedLocations() {
   const rows = await prisma.vendorLocation.findMany({
     where: {
       vendor: {
@@ -57,8 +59,12 @@ export async function listServedLocations(_req, res) {
     [...map.values()]
       .map(({ vendors, ...rest }) => ({ ...rest, count: vendors.size }))
       .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return { countries: out(countries), provinces: out(provinces), municipalities: out(municipalities) };
+}
+
+export async function listServedLocations(_req, res) {
   res.set("Cache-Control", "public, max-age=60");
-  res.json({ countries: out(countries), provinces: out(provinces), municipalities: out(municipalities) });
+  res.json(await getServedLocations());
 }
 
 // Provincias de un país específico — usado por el selector encadenado del
