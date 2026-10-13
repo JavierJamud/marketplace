@@ -15,7 +15,7 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { PageLoader } from "../../components/ui/PageLoader.jsx";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { PackageSearch } from "lucide-react";
-import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
+import { GatedStoreChat } from "../../components/GatedStoreChat.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
@@ -815,7 +815,7 @@ export default function Product() {
 
       {/* Bloque 25: mismo gate que Store.jsx — sin Gemini/Groq activo el
           widget ni se monta. */}
-      {v.isVerified && v.aiAvailable && <StoreChatWidget vendor={v} />}
+      {v.isVerified && v.aiAvailable && <GatedStoreChat vendor={v} />}
 
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 

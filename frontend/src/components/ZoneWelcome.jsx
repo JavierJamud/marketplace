@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { MapPin, X } from "lucide-react";
 import { useZone, DECIDED_KEY as SEEN_KEY } from "../context/LocationContext.jsx";
+import { useFlow } from "../context/FlowContext.jsx";
 import { ZoneDialog } from "./ZonePicker.jsx";
 
-// Al cargar el sitio se pregunta el lugar de entrega o recogida mientras el visitante no haya decidido: elegir un lugar o pedir
-// "ver todo" se guarda en el navegador y deja de preguntarse; cerrar sin decidir no vale, se pregunta de nuevo. Si tiene un lugar elegido, cada cierto tiempo se le avisa que lo que ve
-// depende de ese lugar y cómo cambiarlo o quitarlo. Solo en las pantallas donde se listan productos y tiendas, nunca encima de
-// una tienda, un producto, el pago o el menú de una mesa.
+// Al cargar la portada, el catálogo, las tiendas o las ventas rápidas se pregunta el lugar de entrega o recogida mientras el
+// visitante no haya decidido (elegir un lugar o "ver todo" se guarda y deja de preguntarse). La página ya está a la vista, con
+// todo, detrás de la ventana. Si tiene un lugar elegido, cada cierto tiempo se le avisa que lo que ve depende de ese lugar y cómo
+// cambiarlo o quitarlo, pero solo después de que terminó la secuencia de bienvenida (cookies aceptadas).
 const NOTICE_KEY = "zeudin_loc_notice";
 const REMIND_MS = 24 * 60 * 60 * 1000;
 const PAGES = new Set(["/", "/catalogo", "/tiendas", "/ventas-rapidas"]);
@@ -23,42 +24,29 @@ const write = (k) => {
   try {
     localStorage.setItem(k, String(Date.now()));
   } catch {
-    /* sin almacenamiento: se vuelve a preguntar la próxima visita */
+    /* sin almacenamiento */
   }
 };
 
 export function ZoneWelcome() {
   const { pathname } = useLocation();
   const { loading, countries, hasZoneFilter, zoneLabel, clearFilter, decided, decide } = useZone();
+  const { zoneStagePending, canShowPopups } = useFlow();
   const [askOpen, setAskOpen] = useState(false);
   const [changeOpen, setChangeOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const onListingPage = PAGES.has(pathname);
-  // En la primera visita aparece también el aviso de cookies: la pregunta del lugar espera a que se acepte.
-  const [cacheOk, setCacheOk] = useState(() => {
-    try {
-      return localStorage.getItem("zeudin_cache_notice_seen") === "1";
-    } catch {
-      return true;
-    }
-  });
-  useEffect(() => {
-    const onAck = () => setCacheOk(true);
-    window.addEventListener("zeudin:cache-ack", onAck);
-    return () => window.removeEventListener("zeudin:cache-ack", onAck);
-  }, []);
 
-  // Primera visita: se pregunta un instante después de cargar, cuando ya terminó la pantalla de entrada.
+  // Se pregunta apenas se conoce la lista de lugares con tiendas, con un instante para que la página ya se vea detrás.
   useEffect(() => {
-    if (loading || !cacheOk || !onListingPage || countries.length === 0 || decided) return undefined;
-    // Se pregunta en cada carga mientras no haya una decisión guardada (un lugar o "ver todo").
-    const id = setTimeout(() => setAskOpen(true), 400);
+    if (loading || !onListingPage || countries.length === 0 || decided) return undefined;
+    const id = setTimeout(() => setAskOpen(true), 500);
     return () => clearTimeout(id);
-  }, [loading, cacheOk, onListingPage, countries.length, decided]);
+  }, [loading, onListingPage, countries.length, decided]);
 
-  // Recordatorio: con un lugar elegido, una vez al día como máximo.
+  // Recordatorio: con un lugar elegido, una vez al día como máximo y solo cuando ya no hay nada más pendiente.
   useEffect(() => {
-    if (loading || !onListingPage || !hasZoneFilter || askOpen) return undefined;
+    if (loading || !onListingPage || !hasZoneFilter || askOpen || zoneStagePending || !canShowPopups) return undefined;
     const last = Math.max(read(SEEN_KEY), read(NOTICE_KEY));
     if (!last || Date.now() - last < REMIND_MS) return undefined;
     const id = setTimeout(() => {
@@ -66,7 +54,7 @@ export function ZoneWelcome() {
       setNoticeOpen(true);
     }, 2500);
     return () => clearTimeout(id);
-  }, [loading, onListingPage, hasZoneFilter, askOpen]);
+  }, [loading, onListingPage, hasZoneFilter, askOpen, zoneStagePending, canShowPopups]);
 
   const closeAsk = () => {
     decide();

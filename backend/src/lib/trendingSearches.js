@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { vendorZoneWhere } from "./vendorZone.js";
 
 // "Lo más buscado" de la portada: palabras cortas de referencia que salen de los productos de las tiendas (etiquetas, nombres y
 // categorías de lo que se vende) y de las búsquedas reales de los clientes, ordenadas por ventas, visitas y búsquedas. Se
@@ -62,14 +64,27 @@ function display(text) {
 
 // Mismo criterio que la búsqueda del catálogo (nombre, descripción o etiqueta, sin tildes ni mayúsculas): una palabra solo se
 // muestra si de verdad lleva a productos que se pueden comprar hoy.
-async function hasVisibleMatch(rawTerm) {
+// Con un lugar elegido (zone), además la tienda tiene que cubrir ese lugar (misma regla que el catálogo y las tiendas).
+function zoneSql({ countryId, provinceId, municipalityId } = {}) {
+  if (provinceId) {
+    return Prisma.sql`AND EXISTS (SELECT 1 FROM "VendorLocation" vl WHERE vl."vendorId" = v.id AND vl."provinceId" = ${String(provinceId)}${municipalityId ? Prisma.sql` AND vl."municipalityId" = ${String(municipalityId)}` : Prisma.empty})`;
+  }
+  if (countryId) {
+    return Prisma.sql`AND EXISTS (SELECT 1 FROM "VendorLocation" vl LEFT JOIN "Province" pr ON pr.id = vl."provinceId" WHERE vl."vendorId" = v.id AND (vl."countryId" = ${String(countryId)} OR pr."countryId" = ${String(countryId)}))`;
+  }
+  return Prisma.empty;
+}
+
+async function hasVisibleMatch(rawTerm, zone) {
   const term = rawTerm.replace(/ñ/g, "n");
+  const zoneFilter = zoneSql(zone);
   const rows = await prisma.$queryRaw`
     SELECT 1 FROM "Product" p
     JOIN "Vendor" v ON v.id = p."vendorId"
     WHERE p."isActive" = true AND p."hiddenFromStore" = false AND p."overQuota" = false
       AND (p."unlimitedStock" = true OR p.stock > 0)
       AND v."isBlocked" = false AND v.status = 'ACTIVE' AND v."isPrivate" = false
+      ${zoneFilter}
       AND (
         regexp_replace(unaccent(lower(p.name)), '[^a-z0-9]+', ' ', 'g') ILIKE '%' || ${term} || '%'
         OR EXISTS (SELECT 1 FROM unnest(p.tags) AS t WHERE regexp_replace(unaccent(lower(t)), '[^a-z0-9]+', ' ', 'g') ILIKE '%' || ${term} || '%')
@@ -82,7 +97,7 @@ async function hasVisibleMatch(rawTerm) {
 // Las palabras salen de lo que hay en la tienda: etiquetas, nombres cortos de productos y categorías de productos a la venta,
 // y de lo que los clientes buscaron de verdad. Nada se inventa ni se redacta: se muestran tal cual, cortas, ordenadas por
 // ventas, visitas y búsquedas reales.
-async function collectTerms() {
+async function collectTerms(zone) {
   const scores = new Map();
   const shown = new Map();
   const add = (raw, weight) => {
@@ -98,7 +113,7 @@ async function collectTerms() {
       hiddenFromStore: false,
       overQuota: false,
       OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
-      vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false },
+      vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false, locations: vendorZoneWhere(zone) },
     },
     orderBy: [{ salesCount: "desc" }, { viewCount: "desc" }],
     take: 400,
@@ -123,17 +138,35 @@ async function collectTerms() {
   return [...scores.entries()].sort((x, y) => y[1] - x[1]).map(([term]) => ({ term, phrase: shown.get(term) }));
 }
 
-export async function refreshTrendingSearches() {
+async function buildTrending(zone) {
   const items = [];
   const taken = [];
-  for (const c of await collectTerms()) {
+  for (const c of await collectTerms(zone)) {
     if (items.length >= MAX_TERMS) break;
     // Si una palabra ya está contenida en otra elegida (o al revés) se queda la primera: no se repite el mismo tema.
     if (taken.some((t) => t.includes(c.term) || c.term.includes(t))) continue;
-    if (!(await hasVisibleMatch(c.term))) continue;
+    if (!(await hasVisibleMatch(c.term, zone))) continue;
     taken.push(c.term);
     items.push(c);
   }
+  return items;
+}
+
+// Con un lugar elegido, "Lo más buscado" sale solo de lo que se vende en ese lugar. Se calcula aparte y se guarda unos minutos.
+const zoneCache = new Map();
+const ZONE_TTL_MS = 5 * 60 * 1000;
+export async function getTrendingSearchesForZone(zone) {
+  const key = `${zone.countryId ?? ""}|${zone.provinceId ?? ""}|${zone.municipalityId ?? ""}`;
+  const hit = zoneCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.items;
+  const items = await buildTrending(zone);
+  if (zoneCache.size >= 100) zoneCache.delete(zoneCache.keys().next().value);
+  zoneCache.set(key, { items, expires: Date.now() + ZONE_TTL_MS });
+  return items;
+}
+
+export async function refreshTrendingSearches() {
+  const items = await buildTrending();
   const snapshot = { items, updatedAt: new Date().toISOString(), version: SNAPSHOT_VERSION };
   const settings = await prisma.siteSettings.findFirst({ select: { id: true } });
   if (settings) await prisma.siteSettings.update({ where: { id: settings.id }, data: { trendingSearches: snapshot } });

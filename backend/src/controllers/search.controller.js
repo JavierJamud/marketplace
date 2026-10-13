@@ -4,7 +4,7 @@ import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from 
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
 import { rankFeaturedProducts } from "../lib/productRanking.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
-import { recordSearchTerm, getTrendingSearches } from "../lib/trendingSearches.js";
+import { recordSearchTerm, getTrendingSearches, getTrendingSearchesForZone } from "../lib/trendingSearches.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
@@ -299,9 +299,11 @@ export async function structuredSearch(req, res) {
 }
 
 // Lo más buscado por los clientes (ya filtrado y redactado por IA). Lo lee la portada.
-export async function trendingSearches(_req, res) {
+export async function trendingSearches(req, res) {
+  const { countryId, provinceId, municipalityId } = req.query;
+  const zone = provinceId || countryId ? { countryId, provinceId, municipalityId } : null;
   res.set("Cache-Control", "public, max-age=300");
-  res.json({ items: await getTrendingSearches() });
+  res.json({ items: zone ? await getTrendingSearchesForZone(zone) : await getTrendingSearches() });
 }
 
 // --- Bloque 22: autocompletado en vivo -------------------------------------

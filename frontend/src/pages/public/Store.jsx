@@ -15,7 +15,7 @@ import { PageLoader } from "../../components/ui/PageLoader.jsx";
 import { Store as StoreIcon } from "lucide-react";
 import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
 import { resolveCurrency } from "../../lib/currencies.js";
-import { StoreChatWidget } from "../../components/StoreChatWidget.jsx";
+import { GatedStoreChat } from "../../components/GatedStoreChat.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
@@ -785,7 +785,7 @@ export default function Store() {
       {/* Bloque 25: aiAvailable = Gemini o Groq activo/configurado en
           AdminIntegrations — sin ninguno de los dos, el widget ni se monta
           (en vez de mostrar un botón que solo lleva a un error). */}
-      {v.isVerified && v.aiAvailable && <StoreChatWidget vendor={v} />}
+      {v.isVerified && v.aiAvailable && <GatedStoreChat vendor={v} />}
 
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 

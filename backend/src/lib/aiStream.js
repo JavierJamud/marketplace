@@ -193,7 +193,22 @@ export function parseChatJson(raw) {
       suggestedFollowUps: strings(p.suggestedFollowUps),
     };
   } catch {
-    return { text: raw, productIds: [], addToCart: [], removeFromCart: [], reduceCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
+    return { text: salvageText(raw), productIds: [], addToCart: [], removeFromCart: [], reduceCart: [], clearCart: false, vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] };
+  }
+}
+
+// Si la respuesta llegó como un JSON cortado a la mitad (el modelo se quedó sin espacio), el cliente no debe ver llaves ni comillas:
+// se rescata el texto que alcanzó a escribir en el campo "text".
+function salvageText(raw) {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("```")) return raw;
+  const m = /"text"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(trimmed);
+  if (!m) return "";
+  try {
+    // Una barra suelta al final (corte justo en un escape) rompería el JSON: se quita antes de decodificar.
+    return JSON.parse(`"${m[1].replace(/\\$/, "")}"`).trim();
+  } catch {
+    return m[1].replace(/\\n/g, " ").replace(/\\"/g, '"').trim();
   }
 }
 

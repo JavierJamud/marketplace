@@ -11,6 +11,7 @@ import { CacheNotice } from "./components/CacheNotice.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { CartProvider } from "./context/CartContext.jsx";
 import { LocationProvider } from "./context/LocationContext.jsx";
+import { FlowProvider } from "./context/FlowContext.jsx";
 // Fuentes servidas desde el propio sitio (antes Google Fonts): sin bloqueo por un tercero y con caché de un año.
 import "@fontsource/montserrat/latin-600.css";
 import "@fontsource/montserrat/latin-700.css";
@@ -60,6 +61,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       >
         <AuthProvider>
           <LocationProvider>
+            <FlowProvider>
             <CartProvider>
               <App />
               <CacheNotice />
@@ -77,6 +79,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
                 }}
               />
             </CartProvider>
+            </FlowProvider>
           </LocationProvider>
         </AuthProvider>
       </PersistQueryClientProvider>

@@ -1,3 +1,4 @@
+import { useFlow } from "../context/FlowContext.jsx";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api.js";
@@ -11,6 +12,8 @@ const MarketplaceChatWidget = lazy(() => import("./MarketplaceChatWidget.jsx").t
 // Inicio, Tiendas y Catálogo se comporten igual. La página de cada tienda y la de
 // cada producto siguen con el chat de su propia tienda.
 export function MarketplaceChatGate() {
+  // El asistente aparece al final de la secuencia de bienvenida: lugar resuelto y cookies aceptadas.
+  const { canShowChat } = useFlow();
   // El chat se monta cuando la persona empieza a usar la página (toca, desplaza, mueve el ratón o escribe) o 6 s después de
   // que terminó de cargar: así su código no compite con la primera pantalla ni bloquea el hilo mientras carga.
   const [idle, setIdle] = useState(false);
@@ -34,7 +37,7 @@ export function MarketplaceChatGate() {
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
-  if (!idle || !(settings?.showChatWidget ?? true) || !(settings?.chatbotAvailable ?? true)) return null;
+  if (!canShowChat || !idle || !(settings?.showChatWidget ?? true) || !(settings?.chatbotAvailable ?? true)) return null;
   return (
     <Suspense fallback={null}>
       <MarketplaceChatWidget />

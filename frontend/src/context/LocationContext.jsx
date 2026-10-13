@@ -22,10 +22,16 @@ function readSaved() {
 export function LocationProvider({ children }) {
   // served: { countries, provinces, municipalities } con "count" de tiendas. null mientras carga.
   const [served, setServed] = useState(null);
-  const [zone, setZone] = useState({ countryId: null, provinceId: null, municipalityId: null });
+  // El lugar guardado se lee al instante (sin esperar a la red): la portada pide sus datos ya con el filtro correcto y nunca queda
+  // vacía esperando. Cuando llega la lista de lugares con tiendas se comprueba que siga siendo válido.
+  const [zone, setZone] = useState(() => {
+    const saved = readSaved();
+    return { countryId: saved?.countryId ?? null, provinceId: saved?.provinceId ?? null, municipalityId: saved?.municipalityId ?? null };
+  });
   const [decided, setDecided] = useState(() => {
     try {
-      return Number(localStorage.getItem(DECIDED_KEY)) > 0;
+      // Quien ya tenía un lugar guardado también cuenta como decidido.
+      return Number(localStorage.getItem(DECIDED_KEY)) > 0 || !!(readSaved()?.countryId || readSaved()?.provinceId);
     } catch {
       return false;
     }
@@ -47,15 +53,14 @@ export function LocationProvider({ children }) {
       .then(({ data }) => {
         if (!alive) return;
         setServed(data);
-        // Lo guardado solo vale si ese lugar sigue teniendo tiendas.
-        const saved = readSaved();
-        const province = data.provinces.find((p) => p.id === saved?.provinceId) ?? null;
-        const municipality = province ? data.municipalities.find((m) => m.id === saved?.municipalityId && m.provinceId === province.id) ?? null : null;
-        const country = province ? data.countries.find((c) => c.id === province.countryId) ?? null : data.countries.find((c) => c.id === saved?.countryId) ?? null;
-        // Un enlace que ya trae la provincia (por ejemplo desde el chat) tiene prioridad sobre lo guardado.
-        // Quien ya tenía un lugar guardado de visitas anteriores no necesita decidir otra vez.
-        if (province || country) setDecided(true);
-        setZone((z) => (z.provinceId || z.countryId ? z : { countryId: country?.id ?? null, provinceId: province?.id ?? null, municipalityId: municipality?.id ?? null }));
+        // Lo elegido (guardado o venido de un enlace) solo vale si ese lugar sigue teniendo tiendas.
+        setZone((z) => {
+          const province = z.provinceId ? data.provinces.find((p) => p.id === z.provinceId) ?? null : null;
+          const municipality = province && z.municipalityId ? data.municipalities.find((m) => m.id === z.municipalityId && m.provinceId === province.id) ?? null : null;
+          const country = province ? data.countries.find((c) => c.id === province.countryId) ?? null : z.countryId ? data.countries.find((c) => c.id === z.countryId) ?? null : null;
+          const next = { countryId: country?.id ?? null, provinceId: province?.id ?? null, municipalityId: municipality?.id ?? null };
+          return next.countryId === z.countryId && next.provinceId === z.provinceId && next.municipalityId === z.municipalityId ? z : next;
+        });
       })
       .catch(() => alive && setServed({ countries: [], provinces: [], municipalities: [] }));
     return () => {
@@ -143,9 +148,8 @@ export function LocationProvider({ children }) {
       loading: served === null,
       decided,
       decide,
-      // Los listados de productos, tiendas y anuncios esperan a esto: primero se comprueba que el lugar está decidido (o que no
-      // hay dónde elegir), y solo entonces se piden los datos con el filtro correcto.
-      waiting: served === null || (!decided && countries.length > 0),
+      // Ya no se espera a nada: la portada muestra todo desde el primer momento y se filtra apenas hay lugar elegido.
+      waiting: false,
     };
   }, [served, zone, decided, decide, setCountry, setProvince, setMunicipality, clearFilter]);
 

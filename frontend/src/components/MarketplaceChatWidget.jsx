@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { X, Send, RotateCcw, Mic, Square, Store as StoreIcon, Volume2, VolumeX, LayoutGrid } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
+import { useZone } from "../context/LocationContext.jsx";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { isChatMuted, setChatMuted, playChatNotificationSound } from "../lib/chatSound.js";
 import { TypingDots } from "./TypingDots.jsx";
@@ -386,6 +387,10 @@ export function MarketplaceChatWidget() {
   const bottomRef = useRef(null);
   const resetPopoverRef = useRef(null);
   const sessionIdRef = useRef(null);
+  // El asistente solo conoce lo que hay en el lugar de entrega que eligió el cliente (siempre el vigente al enviar).
+  const { zoneParams } = useZone();
+  const zoneParamsRef = useRef(zoneParams);
+  zoneParamsRef.current = zoneParams;
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const streamRef = useRef(null);
@@ -499,7 +504,7 @@ export function MarketplaceChatWidget() {
     setSending(true);
     try {
       setStreamingText("");
-      const { data } = await postChatStreaming("/assistant/chat", { sessionId: sessionIdRef.current, message }, { onDelta: (t) => setStreamingText((s) => s + t), onReset: () => setStreamingText("") });
+      const { data } = await postChatStreaming("/assistant/chat", { sessionId: sessionIdRef.current, message, ...zoneParamsRef.current }, { onDelta: (t) => setStreamingText((s) => s + t), onReset: () => setStreamingText("") });
       setStreamingText("");
       setMessages((m) => [...m, data.message]);
       touchActivity();

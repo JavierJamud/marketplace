@@ -1,3 +1,4 @@
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
 import { readFile, unlink } from "node:fs/promises";
@@ -266,11 +267,14 @@ function extractPriceRange(text) {
 // tienda, "Próximamente disponibles").
 const IN_STOCK_WHERE = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
 
-async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification } = {}) {
+async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification, zone } = {}) {
+  const zoneWhere = zone ? vendorZoneWhere(zone) : undefined;
   const vendorWhere = {
     isBlocked: false,
     status: "ACTIVE",
     isPrivate: false,
+    // Con un lugar elegido por el cliente, solo tiendas que cubren ese lugar.
+    ...(zoneWhere ? { locations: zoneWhere } : {}),
     ...(verification === "VERIFIED" ? { verificationStatus: "VERIFIED" } : verification === "UNVERIFIED" ? { verificationStatus: { not: "VERIFIED" } } : {}),
   };
   const paymentWhere = payment ? { paymentMethods: { has: payment } } : {};
@@ -433,8 +437,12 @@ async function searchVendorIdsByTerms(terms) {
 }
 
 const VENDOR_SEARCH_LIMIT = 20;
-async function searchVendors({ terms, provinceId, municipalityId, verification }) {
-  const locationFilter = municipalityId ? { some: { municipalityId } } : provinceId ? { some: { provinceId } } : undefined;
+async function searchVendors({ terms, provinceId, municipalityId, verification, zone }) {
+  const askedLocation = municipalityId ? { some: { municipalityId } } : provinceId ? { some: { provinceId } } : undefined;
+  // El lugar elegido por el cliente manda; lo que pida en el mensaje se suma como filtro adicional.
+  const chosenZone = zone ? vendorZoneWhere(zone) : undefined;
+  const locationFilter = chosenZone && askedLocation ? undefined : chosenZone ?? askedLocation;
+  const locationAnd = chosenZone && askedLocation ? [{ locations: chosenZone }, { locations: askedLocation }] : undefined;
   const nameOrCategoryTerms = (terms ?? []).filter((t) => !VENDOR_META_WORDS.has(t));
   // Sin términos reales de nombre/rubro (ej. la pregunta era puramente
   // sobre zona/verificación): no forzar ningún filtro de id — mostrar lo
@@ -450,6 +458,7 @@ async function searchVendors({ terms, provinceId, municipalityId, verification }
     products: { some: { isActive: true, overQuota: false } },
     verificationStatus: verification === "VERIFIED" ? "VERIFIED" : verification === "UNVERIFIED" ? { not: "VERIFIED" } : undefined,
     locations: locationFilter,
+    ...(locationAnd ? { AND: locationAnd } : {}),
     id: idFilter,
   };
   const vendors = await prisma.vendor.findMany({
@@ -940,10 +949,10 @@ function needsPlatformReference(message, history = []) {
   return recent.some((t) => PLATFORM_TOPIC_RE.test(norm(t)));
 }
 
-async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext, message, history = []) {
+async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorContext, message, history = [], chosenPlace = "", chosenZone = null) {
   const fewShot = await buildFewShotBlock("GENERAL");
   const { siteName } = await getBrandSettings();
-  const liveSnapshot = await getLiveSnapshot().catch(() => "");
+  const liveSnapshot = await getLiveSnapshot(chosenZone, chosenPlace).catch(() => "");
   const parts = [
     {
       // Bloque 31: CONSULTA DE PEDIDO va PRIMERO que cualquier otra cosa —
@@ -1024,10 +1033,25 @@ function resolveOptionalUserId(req) {
 const postMessageSchema = z.object({
   sessionId: z.string().trim().min(1).max(100),
   message: z.string().trim().min(1, "Escribe una pregunta.").max(1000),
+  // Lugar de entrega o recogida que eligió el cliente en el sitio: el asistente solo conoce lo que hay en ese lugar.
+  countryId: z.string().trim().max(60).optional(),
+  provinceId: z.string().trim().max(60).optional(),
+  municipalityId: z.string().trim().max(60).optional(),
 });
 
+// Nombre legible del lugar elegido (para decírselo al asistente y a las cifras).
+async function describeChatZone({ countryId, provinceId, municipalityId }) {
+  const [municipality, province, country] = await Promise.all([
+    municipalityId ? prisma.municipality.findUnique({ where: { id: municipalityId }, select: { name: true } }) : null,
+    provinceId ? prisma.province.findUnique({ where: { id: provinceId }, select: { name: true, countryId: true } }) : null,
+    countryId ? prisma.country.findUnique({ where: { id: countryId }, select: { name: true } }) : null,
+  ]);
+  return [municipality?.name, province?.name, country?.name].filter(Boolean).join(", ");
+}
+
 export async function postMarketplaceChatMessage(req, res) {
-  const { sessionId, message } = postMessageSchema.parse(req.body);
+  const { sessionId, message, countryId, provinceId, municipalityId } = postMessageSchema.parse(req.body);
+  const chatZone = provinceId || countryId ? { countryId, provinceId, municipalityId } : null;
   const userId = resolveOptionalUserId(req);
 
   const recent = await prisma.marketplaceChatMessage.findMany({ where: { sessionId }, orderBy: { createdAt: "desc" }, take: MEMORY_FETCH_LIMIT });
@@ -1078,16 +1102,21 @@ export async function postMarketplaceChatMessage(req, res) {
     const payment = paymentFilter(message);
     const searchTerms = (terms ?? []).filter((t) => !FILTER_WORDS.test(t));
     const filterListing = !searchTerms.length && (!!payment || (!!verification && /producto|art[ií]culo/i.test(message)));
-    let pool = await searchCandidateProducts(searchTerms, { priceMin, priceMax, broadListing: broadListing || filterListing, payment, verification });
+    let pool = await searchCandidateProducts(searchTerms, { priceMin, priceMax, broadListing: broadListing || filterListing, payment, verification, zone: chatZone });
     // Respaldo: las demás palabras ("muéstrame", "pagan") no eran un producto: si no hubo
     // resultados pero sí hay un filtro claro (pago o verificación) y piden productos, se
     // lista el catálogo según ese filtro.
     if (!pool.length && (payment || (verification && /producto|art[ií]culo/i.test(message)))) {
-      pool = await searchCandidateProducts([], { priceMin, priceMax, broadListing: true, payment, verification });
+      pool = await searchCandidateProducts([], { priceMin, priceMax, broadListing: true, payment, verification, zone: chatZone });
     }
     searchMeta = { terms: searchTerms, priceMax, requestedProvince, requestedMunicipality, verification, payment, poolSize: pool.length, poolStores: [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean), poolStoreName: pool[0]?.vendor?.companyName, poolStoreSlug: pool[0]?.vendor?.slug };
     const adjacentIds = requestedProvince ? await getAdjacentProvinceIds(requestedProvince.id) : [];
-    let zoneContext = buildZoneContext({ terms, priceMin, priceMax, products: pool, requestedProvince, requestedMunicipality, adjacentIds });
+    // Con un lugar elegido en el sitio no se le pregunta dónde está: todo lo que se lista cubre ese lugar (los productos se
+    // agrupan por la sede de la tienda, que puede ser otra aunque la tienda entregue allí).
+    const chosenPlace = chatZone ? await describeChatZone(chatZone) : "";
+    const chosenZoneNote = `LUGAR ELEGIDO POR EL CLIENTE: ${chosenPlace || "su zona"}. El cliente YA indicó dónde recibe o recoge sus pedidos: NUNCA le preguntes provincia, municipio ni zona. Todos los candidatos y tiendas de arriba cubren ese lugar (la sede de una tienda puede estar en otra provincia y aun así entregar allí): muéstralos directamente, citando sus números.`;
+    const buildZone = (products) => (chatZone ? chosenZoneNote : buildZoneContext({ terms, priceMin, priceMax, products, requestedProvince, requestedMunicipality, adjacentIds }));
+    let zoneContext = buildZone(pool);
     candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
 
     // Bloque 34: búsqueda de TIENDAS siempre en paralelo a la de productos
@@ -1100,6 +1129,7 @@ export async function postMarketplaceChatMessage(req, res) {
       provinceId: requestedProvince?.id,
       municipalityId: requestedMunicipality?.id,
       verification: verificationFilter(message),
+      zone: chatZone,
     });
 
     // Bloque 270: "los productos de TecnoHabana": si la búsqueda encontró UNA tienda y piden
@@ -1112,17 +1142,22 @@ export async function postMarketplaceChatMessage(req, res) {
         orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
       });
       candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
-      zoneContext = buildZoneContext({ terms, priceMin, priceMax, products: pool, requestedProvince, requestedMunicipality, adjacentIds });
+      zoneContext = buildZone(pool);
     }
     searchMeta.poolSize = pool.length;
     searchMeta.poolStores = [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean);
     searchMeta.poolStoreName = pool[0]?.vendor?.companyName;
     searchMeta.poolStoreSlug = pool[0]?.vendor?.slug;
 
-    const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message, history);
+    const systemParts = await buildMarketplaceSystemParts(candidates, orderContext, zoneContext, vendorsText(vendorMatches), message, history, chosenPlace, chatZone);
     // Bloque 281: últimos mensajes tal cual + memoria corta del resto (lib/chatMemory.js).
     const { history: aiHistory, memory } = compactHistory(history);
     if (memory) systemParts.push({ text: memory });
+    // El lugar de entrega que eligió el cliente: solo se ofrece lo que hay allí y no se prometen entregas en otros sitios.
+    if (chatZone) {
+      const place = await describeChatZone(chatZone);
+      systemParts.splice(1, 0, { text: `LUGAR DE ENTREGA O RECOGIDA QUE ELIGIÓ EL CLIENTE: ${place || "su zona"}. Todos los productos y tiendas que conoces son de ese lugar. Si pide algo que no aparece en tu lista, di que no hay disponible en su lugar y sugiérele cambiar el lugar o quitar el filtro desde el botón de ubicación del sitio. Nunca ofrezcas productos o tiendas de otros lugares.` });
+    }
     ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
   } catch (err) {
     await logError({

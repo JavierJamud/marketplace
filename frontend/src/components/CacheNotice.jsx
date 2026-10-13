@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useFlow } from "../context/FlowContext.jsx";
 import { Link } from "react-router-dom";
 import { Cookie } from "lucide-react";
 
-const SEEN_KEY = "zeudin_cache_notice_seen";
 
 // Bloque 138/139 (pedido explícito, con captura de referencia + texto
 // dictado a mano por el dueño): mismo formato que un aviso de cookies
@@ -10,17 +9,12 @@ const SEEN_KEY = "zeudin_cache_notice_seen";
 // botón de confirmación ("Estoy de acuerdo"), sin la opción de rechazar
 // del Bloque 138 — aparece UNA sola vez por navegador (localStorage).
 export function CacheNotice() {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    if (localStorage.getItem(SEEN_KEY) !== "1") setShow(true);
-  }, []);
+  // Aparece cuando el visitante ya resolvió el lugar y empieza a navegar (ver FlowContext), nunca de golpe al cargar.
+  const { showCookies, acceptCookies } = useFlow();
+  const show = showCookies;
 
   function acknowledge() {
-    localStorage.setItem(SEEN_KEY, "1");
-    setShow(false);
-    // La pregunta del lugar de entrega espera a que este aviso se acepte para no taparse entre sí.
-    window.dispatchEvent(new Event("zeudin:cache-ack"));
+    acceptCookies();
   }
 
   if (!show) return null;

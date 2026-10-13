@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { api } from "../lib/api.js";
+import { useZone } from "../context/LocationContext.jsx";
 import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 
 // "Lo más buscado": búsquedas reales de los clientes (ya filtradas y redactadas por la IA en el servidor). Cada frase lleva al
@@ -46,9 +47,10 @@ function Lane({ items, reverse, seconds, tone }) {
 
 export function TrendingSearches() {
   const reduced = usePrefersReducedMotion();
+  const { zoneParams, zoneKey } = useZone();
   const { data } = useQuery({
-    queryKey: ["trending-searches"],
-    queryFn: async () => (await api.get("/search/trending")).data.items,
+    queryKey: ["trending-searches", zoneKey],
+    queryFn: async () => (await api.get("/search/trending", { params: zoneParams })).data.items,
     staleTime: 10 * 60 * 1000,
   });
   const items = useMemo(() => data ?? [], [data]);
