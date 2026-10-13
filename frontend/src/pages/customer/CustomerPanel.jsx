@@ -8,6 +8,8 @@ import { api, getErrorMessage } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { Input } from "../../components/ui/Input.jsx";
+import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
+import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
@@ -83,7 +85,10 @@ export default function CustomerPanel() {
   const [orderToEdit, setOrderToEdit] = useState(null);
   const [orderBlocked, setOrderBlocked] = useState(null);
 
-  const [profileForm, setProfileForm] = useState({ fullName: "", phone: "" });
+  const [profileForm, setProfileForm] = useState({ fullName: "", phone: "", country: "" });
+  // Ubicación del perfil (país, provincia o estado, municipio, dirección): sin ella no se puede publicar una venta rápida.
+  const [locForm, setLocForm] = useState({ registrationCountryId: "", registrationCountryOther: "", provinceId: "", municipalityId: "", municipalityOther: "", stateOther: "", address: "" });
+  const [locStatus, setLocStatus] = useState({ error: null, needsAddress: false });
   const [addressForm, setAddressForm] = useState({ provinceId: "", address: "" });
   const [changingEmail, setChangingEmail] = useState(false);
   const [listingModalOpen, setListingModalOpen] = useState(false);
@@ -154,7 +159,21 @@ export default function CustomerPanel() {
   const canCreateToday = listingsData ? listingsData.createdToday < listingsData.dailyLimit : true;
   const totalLimitReached = (listings?.length ?? 0) >= listingLimit;
 
+  // Para publicar hacen falta teléfono, país y provincia o estado en el perfil (ver profileLocationMissing en el servidor).
+  const profileMissing = customer
+    ? [
+        !customer.phone?.trim() && "teléfono",
+        !customer.registrationCountryId && !customer.province?.countryId && "país",
+        (customer.registrationCountryId || customer.province?.countryId) && !customer.provinceId && !customer.stateOther?.trim() && "provincia o estado",
+      ].filter(Boolean)
+    : [];
+
   function handleCreateListingClick() {
+    if (profileMissing.length) {
+      toast.error(`Completa tu ${profileMissing.join(", ")} en el perfil para publicar.`);
+      setTab("profile");
+      return;
+    }
     if (totalLimitReached) return;
     if (!canCreateToday) {
       toast.error(dailyLimitMessage(dailyLimit, listingsData.nextDailyResetAt));
@@ -297,12 +316,36 @@ export default function CustomerPanel() {
 
   useEffect(() => {
     if (!customer) return;
-    setProfileForm({ fullName: customer.fullName ?? "", phone: customer.phone ?? "" });
+    setProfileForm({ fullName: customer.fullName ?? "", phone: customer.phone ?? "", country: customer.country ?? "" });
+    setLocForm({
+      registrationCountryId: customer.registrationCountryId ?? "",
+      registrationCountryOther: customer.registrationCountryOther ?? "",
+      provinceId: customer.provinceId ?? "",
+      municipalityId: customer.municipalityId ?? "",
+      municipalityOther: customer.municipalityOther ?? "",
+      stateOther: customer.stateOther ?? "",
+      address: customer.address ?? "",
+    });
     setAddressForm({ provinceId: customer.provinceId ?? "", address: customer.address ?? "" });
   }, [customer]);
 
   const saveProfile = useMutation({
-    mutationFn: async () => (await api.patch("/customers/me", profileForm)).data.customer,
+    mutationFn: async () => {
+      const f = locForm;
+      const body = {
+        fullName: profileForm.fullName,
+        phone: profileForm.phone,
+        country: profileForm.country || undefined,
+        registrationCountryId: f.registrationCountryId || undefined,
+        registrationCountryOther: f.registrationCountryOther.trim() || undefined,
+        provinceId: f.provinceId || undefined,
+        municipalityId: f.municipalityId || undefined,
+        municipalityOther: f.municipalityOther.trim() || undefined,
+        stateOther: f.stateOther.trim() || undefined,
+        address: f.address.trim() || undefined,
+      };
+      return (await api.patch("/customers/me", body)).data.customer;
+    },
     onSuccess: () => {
       toast.success("Perfil actualizado.");
       queryClient.invalidateQueries({ queryKey: ["my-customer-profile"] });
@@ -318,6 +361,22 @@ export default function CustomerPanel() {
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
+
+  function handleSaveProfile() {
+    if (!profileForm.phone) {
+      toast.error("Escribe tu teléfono.");
+      return;
+    }
+    if (locStatus.error) {
+      toast.error(locStatus.error);
+      return;
+    }
+    if (locStatus.needsAddress && !locForm.address.trim()) {
+      toast.error("Indica tu dirección.");
+      return;
+    }
+    saveProfile.mutate();
+  }
 
   async function handleLogout() {
     await logout();
@@ -470,6 +529,16 @@ export default function CustomerPanel() {
                 Publicar anuncio ({listings?.length ?? 0}/{listingLimit})
               </Button>
             </div>
+
+            {profileMissing.length > 0 && (
+              <div className="mb-5 rounded-2xl border border-secondary-container bg-secondary-container/15 p-4">
+                <p className="text-[13.5px] font-bold text-on-surface">Completa tu perfil para publicar</p>
+                <p className="mt-0.5 text-[13px] text-on-surface-variant">
+                  Te falta: <strong>{profileMissing.join(", ")}</strong>. Los compradores te contactan por WhatsApp y ven tus anuncios según su lugar de entrega.
+                </p>
+                <Button className="mt-2.5" size="sm" onClick={() => setTab("profile")}>Completar mi perfil</Button>
+              </div>
+            )}
 
             {pendingListingReports.map((r) => {
               const draft = evidenceDrafts[r.id] ?? { message: "", files: [] };
@@ -861,8 +930,47 @@ export default function CustomerPanel() {
               ) : (
                 <div className="flex flex-col gap-3.5">
                   <Input label="Nombre completo" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} />
-                  <Input label="Teléfono" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} />
-                  <Button className="w-full" onClick={() => saveProfile.mutate()} disabled={saveProfile.isPending}>
+                  <PhoneInput
+                    label="Teléfono (WhatsApp)"
+                    required
+                    value={profileForm.phone}
+                    onChange={(phone) => setProfileForm((f) => ({ ...f, phone }))}
+                    onCountryChange={(country) => setProfileForm((f) => (f.country === country ? f : { ...f, country }))}
+                  />
+                  <div className="mt-1 border-t border-surface-container-high pt-4">
+                    <h2 className="text-title-md font-bold text-on-surface">Tu ubicación</h2>
+                    <p className="mb-3 mt-0.5 text-[12.5px] text-on-surface-variant">
+                      El país y la provincia o estado son obligatorios para publicar una venta rápida: los compradores ven los anuncios según su lugar de entrega.
+                    </p>
+                    <LocationPicker
+                      value={{
+                        countryId: locForm.registrationCountryId,
+                        countryOther: locForm.registrationCountryOther,
+                        provinceId: locForm.provinceId,
+                        municipalityId: locForm.municipalityId,
+                        municipalityOther: locForm.municipalityOther,
+                        stateOther: locForm.stateOther,
+                      }}
+                      onChange={(patch) =>
+                        setLocForm((prev) => {
+                          const next = { ...prev };
+                          if ("countryId" in patch) next.registrationCountryId = patch.countryId;
+                          if ("countryOther" in patch) next.registrationCountryOther = patch.countryOther;
+                          if ("provinceId" in patch) next.provinceId = patch.provinceId;
+                          if ("municipalityId" in patch) next.municipalityId = patch.municipalityId;
+                          if ("municipalityOther" in patch) next.municipalityOther = patch.municipalityOther;
+                          if ("stateOther" in patch) next.stateOther = patch.stateOther;
+                          return next;
+                        })
+                      }
+                      address={locForm.address}
+                      onAddressChange={(address) => setLocForm((prev) => ({ ...prev, address }))}
+                      onStatus={setLocStatus}
+                      labels={{ country: "País", province: "Provincia o estado" }}
+                      addressLabel="Dirección"
+                    />
+                  </div>
+                  <Button className="w-full" onClick={handleSaveProfile} disabled={saveProfile.isPending}>
                     {saveProfile.isPending ? "Guardando..." : "Guardar cambios"}
                   </Button>
                 </div>

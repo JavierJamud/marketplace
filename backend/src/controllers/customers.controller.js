@@ -3,6 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { cancelOrderForCustomer, editOrderItemsForCustomer, storeContactFor, CUSTOMER_CAN_CANCEL, CUSTOMER_CAN_EDIT } from "./orders.controller.js";
 import { sendOrderCancelHelpEmail } from "../lib/email.js";
+import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
+import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
 function publicCustomer(user) {
   const { passwordHash, ...rest } = user;
@@ -23,15 +25,69 @@ export async function getMe(req, res) {
 // contraseña ni verificación de ningún tipo — hueco real de seguridad.
 const updateSchema = z.object({
   fullName: z.string().min(2).optional(),
-  phone: z.string().min(8).optional(),
+  phone: z.string().regex(/^\+\d{7,15}$/, "El teléfono debe incluir el código del país.").optional(),
+  // ISO del país del teléfono (el registro lo guarda junto al teléfono).
+  country: z.string().length(2).optional(),
   address: z.string().optional(),
   provinceId: z.string().optional(),
+  // Ubicación completa del perfil (la misma que se pide al registrarse). Si llega registrationCountryId o registrationCountryOther
+  // se valida y se guarda entera; sin ellas, solo cambian los campos sueltos de arriba (la pestaña de direcciones).
+  registrationCountryId: z.string().min(1).optional(),
+  registrationCountryOther: z.string().trim().min(2).max(80).optional(),
+  municipalityId: z.string().min(1).optional(),
+  municipalityOther: z.string().trim().min(2).max(80).optional(),
+  stateOther: z.string().trim().min(1).max(80).optional(),
 });
 
+// País y provincia (o estado) del perfil: sin ellos no se publica una venta rápida, porque los compradores la ven según su lugar.
+// Un país escrito a mano (que aún no está en la lista) no basta: no hay con qué ubicar el anuncio.
+export function profileLocationMissing(user) {
+  const missing = [];
+  if (!user.phone?.trim()) missing.push("teléfono");
+  // Quien se registró antes solo tiene la provincia: su país sale de ella.
+  if (!user.registrationCountryId && !user.province?.countryId) missing.push("país");
+  else if (!user.provinceId && !user.stateOther?.trim()) missing.push("provincia o estado");
+  return missing;
+}
+
 export async function updateMe(req, res) {
-  const data = updateSchema.parse(req.body);
+  const { registrationCountryId, registrationCountryOther, municipalityId, municipalityOther, stateOther, country, ...basic } = updateSchema.parse(req.body);
+  const data = { ...basic };
+  if (country) {
+    const phoneCountry = await prisma.country.findFirst({ where: { code: country.toUpperCase(), isActive: true }, select: { id: true } });
+    if (!phoneCountry) throw new AppError("Ese país todavía no está habilitado. Contacta a soporte para pedir que lo activen.", 400);
+    data.country = country.toUpperCase();
+  }
+
+  let suggestions = [];
+  if (registrationCountryId || registrationCountryOther) {
+    const location = await resolvePersonRegistrationLocation({
+      countryId: registrationCountryId,
+      countryOther: registrationCountryOther,
+      provinceId: basic.provinceId,
+      municipalityId,
+      municipalityOther,
+      stateOther,
+      address: basic.address,
+    });
+    const { suggestions: found, ...columns } = location;
+    Object.assign(data, columns);
+    suggestions = found;
+  } else if (basic.provinceId) {
+    // Solo la provincia (pestaña de direcciones): el país sale de la provincia y el municipio anterior ya no vale.
+    const province = await prisma.province.findUnique({ where: { id: basic.provinceId }, select: { countryId: true } });
+    if (!province) throw new AppError("Provincia no válida.", 400);
+    if (province.countryId) data.registrationCountryId = province.countryId;
+    data.registrationCountryOther = null;
+    data.municipalityId = null;
+    data.municipalityOther = null;
+    data.stateOther = null;
+  }
+
+  if (data.provinceId === "") data.provinceId = null;
   const updated = await prisma.user.update({ where: { id: req.user.id }, data, include: { province: true } });
-  res.json({ customer: publicCustomer(updated) });
+  void recordLocationSuggestions(suggestions);
+  res.json({ customer: publicCustomer(updated), profileComplete: profileLocationMissing(updated).length === 0 });
 }
 
 // Pedidos del cliente autenticado — nunca confía en un id que venga del

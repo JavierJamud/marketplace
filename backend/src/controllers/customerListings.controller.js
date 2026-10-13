@@ -7,6 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
 import { ownerZoneWhere } from "../lib/vendorZone.js";
+import { profileLocationMissing } from "./customers.controller.js";
 
 // Feature "venta rápida": un cliente SIN tienda publica un número limitado de
 // anuncios simples desde su panel. Mirror deliberadamente reducido de
@@ -126,8 +127,12 @@ export async function createListing(req, res) {
   await assertCurrencyAllowed(data.currency);
 
   // Los compradores contactan por WhatsApp con el teléfono de la cuenta: sin teléfono el anuncio no serviría de nada.
-  const owner = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true } });
-  if (!owner?.phone?.trim()) throw new AppError("Agrega tu teléfono en tu perfil para publicar: los compradores te contactan por WhatsApp.", 400);
+  // Y sin país y provincia (o estado) tampoco: los compradores ven los anuncios según su lugar de entrega.
+  const owner = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true, registrationCountryId: true, provinceId: true, stateOther: true, province: { select: { countryId: true } } } });
+  const missing = profileLocationMissing(owner ?? {});
+  if (missing.length) {
+    throw new AppError(`Completa tu ${missing.join(", ")} en tu perfil para publicar: los compradores te contactan por WhatsApp y ven los anuncios según su lugar.`, 400, { needsProfile: true, missing });
+  }
 
   const policy = await getListingPolicy();
 
