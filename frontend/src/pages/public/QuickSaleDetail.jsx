@@ -83,11 +83,11 @@ export default function QuickSaleDetail() {
               ))}
             </ul>
           )}
-          {(listing.owner?.province?.name || listing.locationNote) && (
+          {(listing.location?.province || listing.locationNote) && (
             <p className="mb-3 mt-3 flex items-start gap-1.5 text-[13px] text-on-surface-variant">
               <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
               <span>
-                <strong className="text-on-surface">{[listing.locationNote, listing.owner?.province?.name].filter(Boolean).join(", ")}</strong>
+                <strong className="text-on-surface">{[listing.locationNote, listing.location?.municipality, listing.location?.province, listing.location?.country].filter(Boolean).join(", ")}</strong>
               </span>
             </p>
           )}

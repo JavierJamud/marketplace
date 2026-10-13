@@ -49,7 +49,7 @@ const TABS = [
 
 const LISTING_NAME_MAX = 80;
 const LISTING_DESC_MAX = 1000;
-const LISTING_EMPTY_FORM = { name: "", description: "", price: "", currency: "USD", condition: "", quantity: "", priceTiers: [], tags: [], showOwnerName: false, locationNote: "" };
+const LISTING_EMPTY_FORM = { name: "", description: "", price: "", currency: "USD", condition: "", quantity: "", priceTiers: [], tags: [], showOwnerName: false, locationNote: "", countryId: "", countryOther: "", provinceId: "", municipalityId: "", municipalityOther: "", stateOther: "" };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function daysRemaining(dateStr) {
@@ -95,6 +95,7 @@ export default function CustomerPanel() {
   const [editingListing, setEditingListing] = useState(null);
   const [listingForm, setListingForm] = useState(LISTING_EMPTY_FORM);
   const [savedListing, setSavedListing] = useState(null);
+  const [listingLocStatus, setListingLocStatus] = useState({ error: null, needsAddress: false });
   const [deleteListingTarget, setDeleteListingTarget] = useState(null);
 
   const { data: customer, isLoading: customerLoading } = useQuery({
@@ -163,10 +164,20 @@ export default function CustomerPanel() {
   const profileMissing = customer
     ? [
         !customer.phone?.trim() && "teléfono",
-        !customer.registrationCountryId && !customer.province?.countryId && "país",
-        (customer.registrationCountryId || customer.province?.countryId) && !customer.provinceId && !customer.stateOther?.trim() && "provincia o estado",
       ].filter(Boolean)
     : [];
+
+  function handleSaveListing() {
+    if (listingForm.countryOther?.trim() || (!listingForm.countryId && !listingForm.provinceId)) {
+      toast.error("Elige el país del artículo de la lista.");
+      return;
+    }
+    if (listingLocStatus.error) {
+      toast.error(listingLocStatus.error);
+      return;
+    }
+    saveListing.mutate();
+  }
 
   function handleCreateListingClick() {
     if (profileMissing.length) {
@@ -212,7 +223,14 @@ export default function CustomerPanel() {
 
   function openCreateListing() {
     setEditingListing(null);
-    setListingForm(LISTING_EMPTY_FORM);
+    // El lugar del anuncio arranca con el del perfil; se puede cambiar si el artículo está en otra provincia, estado o país.
+    setListingForm({
+      ...LISTING_EMPTY_FORM,
+      countryId: customer?.registrationCountryId ?? customer?.province?.countryId ?? "",
+      provinceId: customer?.provinceId ?? "",
+      municipalityId: customer?.municipalityId ?? "",
+      stateOther: customer?.stateOther ?? "",
+    });
     setSavedListing(null);
     setListingModalOpen(true);
   }
@@ -230,6 +248,12 @@ export default function CustomerPanel() {
       tags: listing.tags ?? [],
       showOwnerName: !!listing.showOwnerName,
       locationNote: listing.locationNote ?? "",
+      countryId: listing.countryId ?? "",
+      countryOther: "",
+      provinceId: listing.provinceId ?? "",
+      municipalityId: listing.municipalityId ?? "",
+      municipalityOther: "",
+      stateOther: listing.stateOther ?? "",
     });
     setSavedListing(listing);
     setListingModalOpen(true);
@@ -248,6 +272,11 @@ export default function CustomerPanel() {
         tags: listingForm.tags,
         showOwnerName: listingForm.showOwnerName,
         locationNote: listingForm.locationNote.trim() || null,
+        countryId: listingForm.countryId || undefined,
+        provinceId: listingForm.provinceId || undefined,
+        municipalityId: listingForm.municipalityId || undefined,
+        municipalityOther: listingForm.municipalityOther.trim() || undefined,
+        stateOther: listingForm.stateOther.trim() || undefined,
       };
       if (editingListing) return (await api.patch(`/customer-listings/${editingListing.id}`, payload)).data.listing;
       return (await api.post("/customer-listings", payload)).data.listing;
@@ -698,6 +727,31 @@ export default function CustomerPanel() {
                     <Input label="Unidades disponibles (opcional)" type="number" min={1} value={listingForm.quantity} onChange={(e) => setListingForm({ ...listingForm, quantity: e.target.value })} />
                     <PriceTiersEditor value={listingForm.priceTiers} onChange={(priceTiers) => setListingForm((f) => ({ ...f, priceTiers }))} unitPrice={Number(listingForm.price)} currency={listingForm.currency} />
                     <TagsInput value={listingForm.tags} onChange={(tags) => setListingForm((f) => ({ ...f, tags }))} />
+                    <div className="rounded-xl border border-surface-container-high p-3.5">
+                      <h3 className="text-title-md font-bold text-on-surface">Dónde ofreces este artículo</h3>
+                      <p className="mb-3 mt-0.5 text-[12px] text-on-surface-variant">
+                        Empieza con tu lugar del perfil. Cámbialo si el artículo está en otra provincia, estado o país: los compradores ven el anuncio según su lugar de entrega.
+                      </p>
+                      <LocationPicker
+                        value={{
+                          countryId: listingForm.countryId,
+                          countryOther: listingForm.countryOther,
+                          provinceId: listingForm.provinceId,
+                          municipalityId: listingForm.municipalityId,
+                          municipalityOther: listingForm.municipalityOther,
+                          stateOther: listingForm.stateOther,
+                        }}
+                        onChange={(patch) =>
+                          setListingForm((f) => {
+                            const next = { ...f };
+                            for (const k of ["countryId", "countryOther", "provinceId", "municipalityId", "municipalityOther", "stateOther"]) if (k in patch) next[k] = patch[k];
+                            return next;
+                          })
+                        }
+                        onStatus={setListingLocStatus}
+                        labels={{ country: "País", province: "Provincia o estado" }}
+                      />
+                    </div>
                     <Input label="Zona o municipio (opcional)" maxLength={80} value={listingForm.locationNote} onChange={(e) => setListingForm({ ...listingForm, locationNote: e.target.value })} placeholder="Ej.: Vista Alegre, Santiago de Cuba" />
                     <div className="rounded-xl bg-surface-container/60 p-3.5">
                       <label className="flex cursor-pointer items-start gap-3">
@@ -714,7 +768,7 @@ export default function CustomerPanel() {
                         <strong className="text-on-surface">{customer?.phone || "agrégalo en la pestaña Perfil"}</strong>.
                       </p>
                     </div>
-                    <Button className="w-full" onClick={() => saveListing.mutate()} disabled={saveListing.isPending}>
+                    <Button className="w-full" onClick={handleSaveListing} disabled={saveListing.isPending}>
                       {saveListing.isPending ? "Guardando..." : editingListing ? "Guardar cambios" : "Crear anuncio"}
                     </Button>
 

@@ -6,8 +6,9 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
-import { ownerZoneWhere } from "../lib/vendorZone.js";
-import { profileLocationMissing } from "./customers.controller.js";
+import { listingZoneWhere } from "../lib/vendorZone.js";
+import { resolveRealCountryLocation } from "../services/registrationLocation.service.js";
+import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
 // Feature "venta rápida": un cliente SIN tienda publica un número limitado de
 // anuncios simples desde su panel. Mirror deliberadamente reducido de
@@ -51,7 +52,38 @@ export const customerListingSchema = z.object({
   priceTiers: z.array(tierSchema).max(3, "Máximo 3 precios por cantidad.").nullish(),
   showOwnerName: z.boolean().optional(),
   locationNote: z.string().trim().max(80, "La zona admite hasta 80 caracteres.").nullish(),
+  // Dónde se ofrece el artículo. Sin estos datos se toma el lugar del perfil del dueño.
+  countryId: z.string().trim().min(1).optional(),
+  provinceId: z.string().trim().min(1).nullish(),
+  municipalityId: z.string().trim().min(1).nullish(),
+  municipalityOther: z.string().trim().min(2).max(80).nullish(),
+  stateOther: z.string().trim().min(1).max(80).nullish(),
 });
+
+// Lugar del anuncio: el que eligió el dueño al publicar o, si no eligió ninguno, el de su perfil. Siempre país y provincia o estado.
+async function resolveListingLocation(input, ownerId) {
+  if (input.countryId) {
+    const loc = await resolveRealCountryLocation({
+      countryId: input.countryId,
+      provinceId: input.provinceId || undefined,
+      municipalityId: input.municipalityId || undefined,
+      municipalityOther: input.municipalityOther || undefined,
+      stateOther: input.stateOther || undefined,
+    });
+    return {
+      columns: { countryId: loc.country.id, provinceId: loc.province?.id ?? null, municipalityId: loc.municipality?.id ?? null, stateOther: loc.stateOther ?? null },
+      suggestions: loc.suggestions,
+    };
+  }
+  const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { registrationCountryId: true, provinceId: true, municipalityId: true, stateOther: true, province: { select: { countryId: true } } } });
+  const countryId = owner?.registrationCountryId ?? owner?.province?.countryId ?? null;
+  if (!countryId || (!owner?.provinceId && !owner?.stateOther?.trim())) {
+    throw new AppError("Indica el país y la provincia o estado donde ofreces el artículo.", 400, { needsLocation: true });
+  }
+  return { columns: { countryId, provinceId: owner.provinceId ?? null, municipalityId: owner.municipalityId ?? null, stateOther: owner.stateOther ?? null }, suggestions: [] };
+}
+
+const LOCATION_KEYS = ["countryId", "provinceId", "municipalityId", "municipalityOther", "stateOther"];
 
 // Los precios por cantidad tienen que bajar a medida que sube la cantidad y ser menores al precio por unidad.
 export function validateTiers(price, tiers) {
@@ -71,10 +103,12 @@ export function validateTiers(price, tiers) {
 // Lo que ve el público: el nombre del dueño solo sale si él lo permitió; el teléfono sí (el contacto es el objetivo del anuncio).
 export function toPublicListing(l) {
   // ownerId tampoco sale: con el nombre oculto serviría para enlazar varios anuncios a la misma persona.
-  const { owner, ownerId, ...rest } = l;
+  const { owner, ownerId, countryId, provinceId, municipalityId, ...rest } = l;
   return {
     ...rest,
-    owner: { phone: owner?.phone ?? null, province: owner?.province ?? null, name: l.showOwnerName ? owner?.fullName ?? null : null },
+    // El lugar del anuncio (no el del perfil del dueño): país, provincia o estado y municipio donde se ofrece.
+    location: { country: l.country?.name ?? null, province: l.province?.name ?? l.stateOther ?? null, municipality: l.municipality?.name ?? null },
+    owner: { phone: owner?.phone ?? null, province: l.province ?? (l.stateOther ? { name: l.stateOther } : owner?.province ?? null), name: l.showOwnerName ? owner?.fullName ?? null : null },
   };
 }
 
@@ -123,16 +157,16 @@ export async function listMyListings(req, res) {
 }
 
 export async function createListing(req, res) {
-  const data = customerListingSchema.parse(req.body);
+  const { countryId: _c, provinceId: _p, municipalityId: _m, municipalityOther: _mo, stateOther: _s, ...data } = customerListingSchema.parse(req.body);
   await assertCurrencyAllowed(data.currency);
 
   // Los compradores contactan por WhatsApp con el teléfono de la cuenta: sin teléfono el anuncio no serviría de nada.
-  // Y sin país y provincia (o estado) tampoco: los compradores ven los anuncios según su lugar de entrega.
-  const owner = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true, registrationCountryId: true, provinceId: true, stateOther: true, province: { select: { countryId: true } } } });
-  const missing = profileLocationMissing(owner ?? {});
-  if (missing.length) {
-    throw new AppError(`Completa tu ${missing.join(", ")} en tu perfil para publicar: los compradores te contactan por WhatsApp y ven los anuncios según su lugar.`, 400, { needsProfile: true, missing });
+  const owner = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true } });
+  if (!owner?.phone?.trim()) {
+    throw new AppError("Agrega tu teléfono en tu perfil para publicar: los compradores te contactan por WhatsApp.", 400, { needsProfile: true, missing: ["teléfono"] });
   }
+  // Y el lugar donde ofreces el artículo (el del perfil por defecto): los compradores ven los anuncios según su lugar de entrega.
+  const location = await resolveListingLocation(req.body, req.user.id);
 
   const policy = await getListingPolicy();
 
@@ -155,6 +189,7 @@ export async function createListing(req, res) {
   const listing = await prisma.customerListing.create({
     data: {
       ...data,
+      ...location.columns,
       priceTiers: tiers ?? undefined,
       ownerId: req.user.id,
       // Igual que Product: se crea siempre en pausa, sin fotos — la primera
@@ -166,6 +201,7 @@ export async function createListing(req, res) {
       publicVisibleUntil: new Date(now.getTime() + policy.publicVisibilityDays * 24 * 60 * 60 * 1000),
     },
   });
+  void recordLocationSuggestions(location.suggestions);
   res.status(201).json({ listing });
 }
 
@@ -174,8 +210,14 @@ export async function updateListing(req, res) {
   const existing = await prisma.customerListing.findUnique({ where: { id } });
   if (!existing || existing.ownerId !== req.user.id) throw new AppError("Anuncio no encontrado.", 404);
 
-  const data = customerListingSchema.partial().parse(req.body);
+  const { countryId: _c, provinceId: _p, municipalityId: _m, municipalityOther: _mo, stateOther: _s, ...data } = customerListingSchema.partial().parse(req.body);
   if (data.currency) await assertCurrencyAllowed(data.currency);
+  // Si cambia el lugar, se valida completo (país, provincia o estado, municipio) y se guardan los cuatro campos juntos.
+  let location = null;
+  if (LOCATION_KEYS.some((k) => req.body?.[k] !== undefined)) {
+    location = await resolveListingLocation(req.body, req.user.id);
+    Object.assign(data, location.columns);
+  }
   // Los precios por cantidad se validan contra el precio vigente (el nuevo, si también cambia).
   if (data.priceTiers !== undefined || data.price !== undefined) {
     const tiers = data.priceTiers !== undefined ? data.priceTiers : existing.priceTiers;
@@ -185,6 +227,7 @@ export async function updateListing(req, res) {
   // expiresAt/publicVisibleUntil nunca se tocan acá a propósito — los dos se
   // fijan una sola vez al crear, con la política vigente en ese momento.
   const listing = await prisma.customerListing.update({ where: { id }, data });
+  if (location) void recordLocationSuggestions(location.suggestions);
   res.json({ listing });
 }
 
@@ -274,6 +317,8 @@ export async function removeListingImage(req, res) {
 
 // Datos del dueño que se muestran: nombre, teléfono (el contacto por WhatsApp es la razón de ser del anuncio) y su provincia.
 const PUBLIC_OWNER = { select: { fullName: true, phone: true, province: { select: { name: true } } } };
+// El lugar del anuncio con sus nombres (país, provincia o estado y municipio).
+const PUBLIC_LOCATION = { country: { select: { name: true } }, province: { select: { name: true } }, municipality: { select: { name: true } } };
 
 export async function listPublicListings(req, res) {
   // ?limit=N (máx. 24) para la portada; sin límite, la página completa de venta rápida.
@@ -286,10 +331,10 @@ export async function listPublicListings(req, res) {
       isActive: true,
       isSold: false,
       publicVisibleUntil: { gte: new Date() },
-      // Misma zona que eligió el comprador para las tiendas, según el lugar del vendedor del anuncio.
-      owner: ownerZoneWhere(req.query),
+      // Mismo lugar que eligió el comprador para todo el sitio, según el lugar propio de cada anuncio.
+      ...listingZoneWhere(req.query),
     },
-    include: { owner: PUBLIC_OWNER },
+    include: { owner: PUBLIC_OWNER, ...PUBLIC_LOCATION },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -300,7 +345,7 @@ export async function getPublicListing(req, res) {
   const { id } = req.params;
   const listing = await prisma.customerListing.findFirst({
     where: { id, isActive: true, publicVisibleUntil: { gte: new Date() } },
-    include: { owner: PUBLIC_OWNER },
+    include: { owner: PUBLIC_OWNER, ...PUBLIC_LOCATION },
   });
   if (!listing) throw new AppError("Anuncio no encontrado.", 404);
   res.json({ listing: toPublicListing(listing) });

@@ -67,7 +67,7 @@ function display(text) {
 // Con un lugar elegido (zone), además la tienda tiene que cubrir ese lugar (misma regla que el catálogo y las tiendas).
 function zoneSql({ countryId, provinceId, municipalityId } = {}) {
   if (provinceId) {
-    return Prisma.sql`AND EXISTS (SELECT 1 FROM "VendorLocation" vl WHERE vl."vendorId" = v.id AND vl."provinceId" = ${String(provinceId)}${municipalityId ? Prisma.sql` AND vl."municipalityId" = ${String(municipalityId)}` : Prisma.empty})`;
+    return Prisma.sql`AND EXISTS (SELECT 1 FROM "VendorLocation" vl WHERE vl."vendorId" = v.id AND vl."provinceId" = ${String(provinceId)}${municipalityId ? Prisma.sql` AND (vl."municipalityId" = ${String(municipalityId)} OR vl."municipalityId" IS NULL)` : Prisma.empty})`;
   }
   if (countryId) {
     return Prisma.sql`AND EXISTS (SELECT 1 FROM "VendorLocation" vl LEFT JOIN "Province" pr ON pr.id = vl."provinceId" WHERE vl."vendorId" = v.id AND (vl."countryId" = ${String(countryId)} OR pr."countryId" = ${String(countryId)}))`;

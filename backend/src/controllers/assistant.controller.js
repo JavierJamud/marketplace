@@ -1,4 +1,4 @@
-import { routeZoneChange } from "../lib/assistantZone.js";
+import { routeZoneChange, routeZoneFlow } from "../lib/assistantZone.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
@@ -1038,6 +1038,15 @@ const postMessageSchema = z.object({
   countryId: z.string().trim().max(60).optional(),
   provinceId: z.string().trim().max(60).optional(),
   municipalityId: z.string().trim().max(60).optional(),
+  // Cambio de lugar en curso desde el chat (qué pregunta sigue y lo ya elegido); lo manda el sitio de vuelta en cada respuesta.
+  zoneFlow: z
+    .object({
+      step: z.enum(["country", "province", "municipality", "confirm", "clear"]),
+      countryId: z.string().trim().max(60).nullish(),
+      provinceId: z.string().trim().max(60).nullish(),
+      target: z.object({ countryId: z.string().trim().max(60).nullish(), provinceId: z.string().trim().max(60).nullish() }).nullish(),
+    })
+    .nullish(),
 });
 
 // Nombre legible del lugar elegido (para decírselo al asistente y a las cifras).
@@ -1051,7 +1060,7 @@ async function describeChatZone({ countryId, provinceId, municipalityId }) {
 }
 
 export async function postMarketplaceChatMessage(req, res) {
-  const { sessionId, message, countryId, provinceId, municipalityId } = postMessageSchema.parse(req.body);
+  const { sessionId, message, countryId, provinceId, municipalityId, zoneFlow } = postMessageSchema.parse(req.body);
   const chatZone = provinceId || countryId ? { countryId, provinceId, municipalityId } : null;
   const userId = resolveOptionalUserId(req);
 
@@ -1073,8 +1082,9 @@ export async function postMarketplaceChatMessage(req, res) {
     return res.status(201).json({ message: { ...savedQuick, actions: quick.actions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: quick.followUps ?? [] } });
   }
 
-  // ¿Habla de cambiar o ver otro lugar? Se explica el lugar elegido y cómo cambiarlo, y se ofrece cambiarlo desde el chat con confirmación.
-  const zoneChange = await routeZoneChange(message, chatZone ?? {}).catch(() => null);
+  // Cambio del lugar de entrega desde el chat: o una respuesta dentro de uno en curso, o el cliente pide cambiar o ver otro lugar. Se explica el
+  // lugar elegido y cómo cambiarlo, y se ofrece hacerlo desde aquí con las preguntas del formulario (el sitio aplica cada elección).
+  const zoneChange = (zoneFlow ? await routeZoneFlow(message, chatZone ?? {}, zoneFlow).catch(() => null) : null) ?? (await routeZoneChange(message, chatZone ?? {}).catch(() => null));
   if (zoneChange) {
     const savedZone = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: zoneChange.text, actions: zoneChange.actions, productIds: [] } });
     return res.status(201).json({ message: { ...savedZone, actions: zoneChange.actions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: [] } });

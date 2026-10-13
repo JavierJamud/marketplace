@@ -105,6 +105,14 @@ export function LocationProvider({ children }) {
     [decide]
   );
   // "Ver todo": también es una decisión y se recuerda.
+  // Fija el lugar completo de una vez (lo usa el asistente de chat al cambiar el lugar). `clear` quita el filtro.
+  const applyZone = useCallback(
+    (z) => {
+      decide();
+      setZone(z?.clear ? { countryId: null, provinceId: null, municipalityId: null } : { countryId: z?.countryId ?? null, provinceId: z?.provinceId ?? null, municipalityId: z?.municipalityId ?? null });
+    },
+    [decide]
+  );
   const clearFilter = useCallback(() => {
     decide();
     setZone({ countryId: null, provinceId: null, municipalityId: null });
@@ -142,6 +150,7 @@ export function LocationProvider({ children }) {
       zoneParams: params,
       zoneKey: `${zone.countryId ?? ""}|${zone.provinceId ?? ""}|${zone.municipalityId ?? ""}`,
       setCountry,
+      applyZone,
       setProvince,
       setMunicipality,
       clearFilter,
@@ -151,7 +160,7 @@ export function LocationProvider({ children }) {
       // Ya no se espera a nada: la portada muestra todo desde el primer momento y se filtra apenas hay lugar elegido.
       waiting: false,
     };
-  }, [served, zone, decided, decide, setCountry, setProvince, setMunicipality, clearFilter]);
+  }, [served, zone, decided, decide, setCountry, applyZone, setProvince, setMunicipality, clearFilter]);
 
   return <LocationContext.Provider value={value}>{children}</LocationContext.Provider>;
 }

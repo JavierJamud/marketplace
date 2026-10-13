@@ -347,16 +347,26 @@ function ShowAllStoresButton({ action }) {
 
 // Bloque 270 (pedido explícito): cuando hay más de 3 resultados el chat muestra 3 y un
 // botón que abre la página (Tiendas o Catálogo) ya con los filtros que pidió el cliente.
-// Confirmación para cambiar (o quitar) el lugar de entrega desde el chat. El cambio lo hace el sitio al tocar el botón.
-function ZoneChangeButtons({ action, onConfirm, onKeep }) {
+// Opciones de la pregunta en curso del cambio de lugar (país, provincia o estado, municipio, confirmación). Tocar una equivale a escribirla.
+function ZonePickOptions({ options, onPick, disabled }) {
   return (
-    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2 sm:flex-row">
-      <button type="button" onClick={onConfirm} className="min-h-11 flex-1 rounded-lg bg-secondary px-3.5 py-2.5 text-[12.5px] font-bold text-white hover:brightness-95">
-        {action.confirmLabel}
-      </button>
-      <button type="button" onClick={onKeep} className="min-h-11 flex-1 rounded-lg border border-outline-variant bg-surface-container-lowest px-3.5 py-2.5 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container">
-        {action.keepLabel ?? "No, dejarlo"}
-      </button>
+    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-wrap gap-2">
+      {options.map((o) => {
+        const cancel = /^(Cancelar|No, dejarlo)$/.test(o.label);
+        return (
+          <button
+            key={o.label}
+            type="button"
+            disabled={disabled}
+            onClick={() => onPick(o.label)}
+            className={`min-h-11 rounded-full border px-3.5 py-2 text-[12.5px] font-semibold disabled:opacity-50 ${
+              cancel ? "border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container" : "border-tertiary-accent/50 bg-tertiary-accent/10 text-tertiary-accent hover:bg-tertiary-accent/15"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -402,8 +412,9 @@ export function MarketplaceChatWidget() {
   const resetPopoverRef = useRef(null);
   const sessionIdRef = useRef(null);
   // El asistente solo conoce lo que hay en el lugar de entrega que eligió el cliente (siempre el vigente al enviar).
-  const { zoneParams, setProvince, setCountry, clearFilter } = useZone();
-  const [answeredZone, setAnsweredZone] = useState({});
+  const { zoneParams, applyZone } = useZone();
+  // Cambio de lugar en curso desde el chat: qué pregunta sigue. Se manda de vuelta en cada mensaje hasta que termina.
+  const zoneFlowRef = useRef(null);
   const zoneParamsRef = useRef(zoneParams);
   zoneParamsRef.current = zoneParams;
   const mediaRecorderRef = useRef(null);
@@ -519,9 +530,13 @@ export function MarketplaceChatWidget() {
     setSending(true);
     try {
       setStreamingText("");
-      const { data } = await postChatStreaming("/assistant/chat", { sessionId: sessionIdRef.current, message, ...zoneParamsRef.current }, { onDelta: (t) => setStreamingText((s) => s + t), onReset: () => setStreamingText("") });
+      const { data } = await postChatStreaming("/assistant/chat", { sessionId: sessionIdRef.current, message, ...zoneParamsRef.current, zoneFlow: zoneFlowRef.current ?? undefined }, { onDelta: (t) => setStreamingText((s) => s + t), onReset: () => setStreamingText("") });
       setStreamingText("");
       setMessages((m) => [...m, data.message]);
+      // Cambio de lugar desde el chat: cada elección se aplica al sitio al instante y se guarda la siguiente pregunta.
+      const zonePick = data.message?.actions?.zonePick;
+      zoneFlowRef.current = zonePick?.flow ?? null;
+      if (zonePick?.apply) applyZone(zonePick.apply);
       touchActivity();
       scheduleIdleReset();
       // Bloque 38: sonido corto al recibir la respuesta — solo puede pasar
@@ -654,6 +669,7 @@ export function MarketplaceChatWidget() {
   function reallyResetChat() {
     sessionIdRef.current = startNewSession();
     setMessages([]);
+    zoneFlowRef.current = null;
     setErrorMsg(null);
     setHistoryLoaded(true);
     setConfirmingReset(false);
@@ -821,22 +837,8 @@ export function MarketplaceChatWidget() {
                     </div>
                   </BotRow>
                   <ActionLinks links={m.actions?.links} onNavigate={() => setOpen(false)} />
-                  {m.actions?.zoneChange && i === messages.length - 1 && !answeredZone[m.id] && (
-                    <ZoneChangeButtons
-                      action={m.actions.zoneChange}
-                      onConfirm={() => {
-                        const z = m.actions.zoneChange;
-                        if (z.clear) clearFilter();
-                        else if (z.provinceId) setProvince(z.provinceId);
-                        else setCountry(z.countryId);
-                        setAnsweredZone((a) => ({ ...a, [m.id]: true }));
-                        setMessages((prev) => [...prev, { id: generateId(), role: "model", content: z.clear ? "Listo, quité el filtro: ahora ves productos y tiendas de todos los lugares. ¿Qué te gustaría buscar?" : `Listo, ahora ves solo productos y tiendas de ${z.label}. ¿Qué te gustaría buscar?`, actions: null, products: [], vendors: [] }]);
-                      }}
-                      onKeep={() => {
-                        setAnsweredZone((a) => ({ ...a, [m.id]: true }));
-                        setMessages((prev) => [...prev, { id: generateId(), role: "model", content: "De acuerdo, lo dejo como está. ¿En qué más te ayudo?", actions: null, products: [], vendors: [] }]);
-                      }}
-                    />
+                  {m.actions?.zonePick?.options?.length > 0 && i === messages.length - 1 && !sending && (
+                    <ZonePickOptions options={m.actions.zonePick.options} onPick={handleSend} disabled={sending} />
                   )}
                   {m.actions?.orderForm && i === messages.length - 1 && (
                     <OrderStatusForm

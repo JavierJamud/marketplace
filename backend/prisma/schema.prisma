@@ -274,6 +274,7 @@ model Country {
   createdAt DateTime @default(now())
 
   provinces Province[]
+  customerListings CustomerListing[]
   vendorDeliveries VendorDeliveryCountry[]
   // Bloque 66: tiendas cuyo país de registro LEGAL es este (Vendor.registrationCountryId).
   vendorsRegisteredHere Vendor[]
@@ -369,6 +370,7 @@ model Province {
   country   Country? @relation(fields: [countryId], references: [id], onDelete: SetNull)
 
   municipalities Municipality[]
+  customerListings CustomerListing[]
   vendorLocations VendorLocation[]
   addresses      Address[]
   users          User[]
@@ -394,6 +396,7 @@ model Municipality {
   // Bloque 113: clientes/vendedores cuyo municipio de REGISTRO (persona, no
   // tienda) es este (User.municipalityId).
   users           User[]
+  customerListings CustomerListing[]
 
   @@unique([provinceId, name])
 }
@@ -2942,6 +2945,12 @@ model CustomerListing {
   showOwnerName Boolean       @default(false)
   // Zona o municipio donde se entrega o se encuentra (texto libre, opcional).
   locationNote String?
+  // Lugar donde se ofrece el artículo (por defecto el del perfil del dueño, editable al publicar): los compradores ven el anuncio
+  // según su lugar de entrega. País real del catálogo; provincia o estado real (o escrito a mano en stateOther) y municipio.
+  countryId      String?
+  provinceId     String?
+  municipalityId String?
+  stateOther     String?
   createdAt   DateTime        @default(now())
   // Fijado UNA sola vez al crear (createdAt + listingExpiryDays vigente en
   // ese momento, ver SiteSettings/getListingPolicy) — nunca se recalcula en
@@ -2962,12 +2971,18 @@ model CustomerListing {
   // anuncio era público hasta el mismo día que se borraba del todo.
   publicVisibleUntil DateTime
 
-  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  reports Report[]
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  country      Country?      @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  province     Province?     @relation(fields: [provinceId], references: [id], onDelete: SetNull)
+  municipality Municipality? @relation(fields: [municipalityId], references: [id], onDelete: SetNull)
+  reports      Report[]
 
   @@index([ownerId])
   @@index([expiresAt])
   @@index([publicVisibleUntil])
+  @@index([countryId])
+  @@index([provinceId])
+  @@index([municipalityId])
 }
 
 // ---------------------------------------------------------------------------

@@ -38,10 +38,10 @@ export function QuickSaleCard({ listing: l }) {
       <div className="flex flex-1 flex-col p-3">
         <div className="mb-0.5 truncate text-[13.5px] font-bold text-on-surface">{l.name}</div>
         <div className="text-[14px] font-bold text-secondary">{formatPrice(l.price, l.currency)}{(l.quantity > 1 || l.priceTiers?.length > 0) && <span className="ml-1 text-[11px] font-semibold text-outline">c/u</span>}</div>
-        {(l.owner?.province?.name || conditionLabel(l.condition)) && (
+        {(l.location?.province || conditionLabel(l.condition)) && (
           <div className="mt-1 flex items-center gap-1 text-[11.5px] text-outline">
             <MapPin className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
-            <span className="truncate">{[conditionLabel(l.condition), l.owner?.province?.name].filter(Boolean).join(" · ")}</span>
+            <span className="truncate">{[conditionLabel(l.condition), [l.location?.municipality, l.location?.province].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</span>
           </div>
         )}
       </div>

@@ -4,7 +4,11 @@
 // se reconoce a través de ella.
 export function vendorZoneWhere({ countryId, provinceId, municipalityId } = {}) {
   if (provinceId) {
-    return { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } };
+    // Con municipio elegido salen las tiendas de ese municipio y también las que cubren "todos los municipios" de la provincia (zona sin
+    // municipio concreto): una tienda que atiende toda la provincia atiende también ese municipio.
+    return municipalityId
+      ? { some: { provinceId: String(provinceId), OR: [{ municipalityId: String(municipalityId) }, { municipalityId: null }] } }
+      : { some: { provinceId: String(provinceId) } };
   }
   if (countryId) {
     return { some: { OR: [{ countryId: String(countryId) }, { province: { countryId: String(countryId) } }] } };
@@ -12,11 +16,11 @@ export function vendorZoneWhere({ countryId, provinceId, municipalityId } = {}) 
   return undefined;
 }
 
-// Dueño de un anuncio de venta rápida en esa zona (el cliente no tiene tienda: se usa su ubicación de perfil).
-export function ownerZoneWhere({ countryId, provinceId, municipalityId } = {}) {
-  // Los anuncios son de personas, no de tiendas con sede fija: aunque el comprador haya afinado hasta un municipio, se le muestran los de
-  // toda la provincia (un anuncio de Segundo Frente le sirve a quien compra en Santiago de Cuba). El municipio solo afina las tiendas.
-  if (provinceId) return { provinceId: String(provinceId) };
-  if (countryId) return { OR: [{ registrationCountryId: String(countryId) }, { province: { countryId: String(countryId) } }] };
-  return undefined;
+// Lugar propio de un anuncio de venta rápida (país, provincia o estado y municipio que eligió el dueño al publicarlo). Con municipio
+// elegido por el comprador salen solo los anuncios de ese municipio; con "todos" (solo provincia), los de toda la provincia; con
+// solo país, los de todo el país.
+export function listingZoneWhere({ countryId, provinceId, municipalityId } = {}) {
+  if (provinceId) return municipalityId ? { provinceId: String(provinceId), municipalityId: String(municipalityId) } : { provinceId: String(provinceId) };
+  if (countryId) return { countryId: String(countryId) };
+  return {};
 }
