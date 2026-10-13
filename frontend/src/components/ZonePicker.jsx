@@ -25,15 +25,21 @@ function Field({ label, hint, children, id }) {
 
 const plural = (n) => `${n} ${n === 1 ? "tienda" : "tiendas"}`;
 
-function ZoneDialog({ onClose }) {
+export function ZoneDialog({ onClose, welcome = false }) {
   const { countries, provinces, municipalities, countryId, provinceId, municipalityId, setCountry, setProvince, setMunicipality, clearFilter, hasZoneFilter } = useZone();
   const uid = useId();
   const first = useRef(null);
   const allStates = provinces.length > 0 && provinces.every((p) => p.type === "STATE");
+  const allProvinces = provinces.length > 0 && provinces.every((p) => p.type !== "STATE");
+  const level1 = allStates ? "Estado" : allProvinces ? "Provincia" : "Provincia o estado";
+  // Cada paso solo aparece cuando hay tiendas registradas en él: sin provincias o estados con tiendas no hay segundo
+  // campo, y sin municipios con tiendas no hay tercero. Antes de elegir país se ve el campo genérico, apagado.
+  const showLevel1 = !countryId || provinces.length > 0;
+  const showLevel2 = !!provinceId && municipalities.length > 0;
 
   useEffect(() => {
     first.current?.focus();
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const onKey = (e) => e.key === "Escape" && !welcome && onClose();
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -41,10 +47,10 @@ function ZoneDialog({ onClose }) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, welcome]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={welcome ? undefined : onClose}>
       <div
         role="dialog"
         aria-modal="true"
@@ -53,12 +59,18 @@ function ZoneDialog({ onClose }) {
         className="max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-2xl bg-surface-container-lowest p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl"
       >
         <div className="mb-1 flex items-start justify-between gap-3">
-          <h2 id={`${uid}-t`} className="font-display text-[20px] font-extrabold text-on-surface">¿Dónde quieres comprar?</h2>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="-mr-2 -mt-1 flex h-11 w-11 items-center justify-center text-outline hover:text-on-surface">
-            <X className="h-5 w-5" />
-          </button>
+          <h2 id={`${uid}-t`} className="font-display text-[20px] font-extrabold text-on-surface">{welcome ? "¿Dónde quieres recibir o recoger tus pedidos?" : "¿Dónde quieres comprar?"}</h2>
+          {!welcome && (
+            <button type="button" onClick={onClose} aria-label="Cerrar" className="-mr-2 -mt-1 flex h-11 w-11 items-center justify-center text-outline hover:text-on-surface">
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
-        <p className="mb-4 text-[13px] text-on-surface-variant">Solo verás productos, tiendas y anuncios de ese lugar. Puedes cambiarlo cuando quieras.</p>
+        <p className="mb-4 text-[13px] text-on-surface-variant">
+          {welcome
+            ? "Elige el lugar de entrega o recogida y te mostramos solo los productos, tiendas y anuncios de ahí. Lo recordaremos para tu próxima visita y puedes cambiarlo cuando quieras."
+            : "Solo verás productos, tiendas y anuncios de ese lugar. Puedes cambiarlo cuando quieras."}
+        </p>
 
         {countries.length === 0 ? (
           <p className="rounded-xl bg-surface-container p-4 text-[13px] text-on-surface-variant">Todavía no hay tiendas registradas en ningún lugar.</p>
@@ -73,32 +85,44 @@ function ZoneDialog({ onClose }) {
               </select>
             </Field>
 
-            <Field label={allStates ? "Estado" : "Provincia"} id={`${uid}-p`} hint={!countryId ? "Elige un país primero." : provinces.length === 0 ? "Hay tiendas en este país, pero sin provincia o estado del catálogo: verás todas." : undefined}>
-              <select id={`${uid}-p`} value={provinceId ?? ""} disabled={!countryId || provinces.length === 0} onChange={(e) => setProvince(e.target.value)} className={selectClass}>
-                <option value="">{allStates ? "Todos los estados" : "Todas las provincias"}</option>
-                {provinces.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} · {plural(p.count)}</option>
-                ))}
-              </select>
-            </Field>
+            {showLevel1 && (
+              <Field label={countryId ? level1 : "Provincia o estado"} id={`${uid}-p`} hint={!countryId ? "Elige un país primero." : undefined}>
+                <select id={`${uid}-p`} value={provinceId ?? ""} disabled={!countryId} onChange={(e) => setProvince(e.target.value)} className={selectClass}>
+                  <option value="">{allStates ? "Todos los estados" : allProvinces ? "Todas las provincias" : "Todas"}</option>
+                  {provinces.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} · {plural(p.count)}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
-            <Field label="Municipio" id={`${uid}-m`} hint={!provinceId ? "Elige una provincia primero." : municipalities.length === 0 ? "Sin municipios con tiendas: se muestra toda la provincia." : "Déjalo en “Todos” para ver toda la provincia."}>
-              <select id={`${uid}-m`} value={municipalityId ?? ""} disabled={!provinceId || municipalities.length === 0} onChange={(e) => setMunicipality(e.target.value)} className={selectClass}>
-                <option value="">Todos los municipios</option>
-                {municipalities.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name} · {plural(m.count)}</option>
-                ))}
-              </select>
-            </Field>
+            {showLevel2 && (
+              <Field label="Municipio" id={`${uid}-m`} hint="Déjalo en “Todos” para ver toda la provincia o el estado.">
+                <select id={`${uid}-m`} value={municipalityId ?? ""} onChange={(e) => setMunicipality(e.target.value)} className={selectClass}>
+                  <option value="">Todos los municipios</option>
+                  {municipalities.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name} · {plural(m.count)}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </div>
         )}
 
         <div className="mt-5 grid grid-cols-2 gap-2.5">
-          <button type="button" onClick={clearFilter} disabled={!hasZoneFilter} className="min-h-12 rounded-xl border border-outline-variant text-[14px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-45">
-            Ver todo
+          <button
+            type="button"
+            onClick={() => {
+              clearFilter();
+              if (welcome) onClose();
+            }}
+            disabled={!welcome && !hasZoneFilter}
+            className="min-h-12 rounded-xl border border-outline-variant text-[14px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-45"
+          >
+            {welcome ? "Ver todo por ahora" : "Ver todo"}
           </button>
-          <button type="button" onClick={onClose} className="min-h-12 rounded-xl bg-secondary text-[14px] font-bold text-white hover:brightness-95">
-            Listo
+          <button type="button" onClick={onClose} disabled={welcome && !countryId} className="min-h-12 rounded-xl bg-secondary text-[14px] font-bold text-white hover:brightness-95 disabled:opacity-45">
+            {welcome ? "Mostrar mi zona" : "Listo"}
           </button>
         </div>
       </div>

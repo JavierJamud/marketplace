@@ -9,6 +9,7 @@ import { getOfferPolicy } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows } from "../lib/planConfig.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Igual criterio que PRODUCT_UPLOAD_DIR (products.controller.js): imágenes
@@ -79,10 +80,12 @@ async function expireStaleOffers() {
 // Bloque 297 (pedido explícito — "en la página principal solo se publican ofertas creadas por el
 // administrador; las ofertas de las tiendas solo se ven dentro de las tiendas"): solo salen las
 // ofertas del admin (createdByAdmin). Las de las tiendas viven en StoreOffer, dentro de cada tienda.
-export async function listActiveOffers(_req, res) {
+export async function listActiveOffers(req, res) {
   await expireStaleOffers();
+  // Con un lugar elegido, solo salen las ofertas de la casa (sin tienda) y las de tiendas de ese lugar.
+  const zone = vendorZoneWhere(req.query);
   const offers = await prisma.offer.findMany({
-    where: { status: "ACTIVE", createdByAdmin: true },
+    where: { status: "ACTIVE", createdByAdmin: true, ...(zone ? { OR: [{ vendorId: null }, { vendor: { locations: zone } }] } : {}) },
     orderBy: { createdAt: "desc" },
     select: {
       ...offerSummarySelect,

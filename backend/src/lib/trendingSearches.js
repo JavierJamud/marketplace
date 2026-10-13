@@ -1,10 +1,10 @@
 import { prisma } from "./prisma.js";
-import { generateRawText } from "./ai.js";
 
-// "Lo más buscado" de la portada: se anotan las búsquedas reales que dieron resultados, se descartan las que no sirven para
-// mostrarse en público (groserías, datos personales, textos raros) y una IA elige y redacta frases cortas y naturales para
-// cada término, pensadas para posicionar en buscadores. El resultado se guarda en SiteSettings.trendingSearches y se renueva
-// cada pocas horas; la portada solo lee ese resumen guardado.
+// "Lo más buscado" de la portada: palabras cortas de referencia que salen de los productos de las tiendas (etiquetas, nombres y
+// categorías de lo que se vende) y de las búsquedas reales de los clientes, ordenadas por ventas, visitas y búsquedas. Se
+// descartan las groserías y datos personales, y solo se muestran las que llevan a productos disponibles. No intervienen IA ni
+// frases redactadas. El resultado se guarda en SiteSettings.trendingSearches y se renueva cada pocas horas; la portada solo lee
+// ese resumen guardado.
 
 const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -12,6 +12,8 @@ const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toL
 const BLOCKED = /\b(put[oa]s?|puter|mierd|co[nñ]o|pendej|cabron|verga|pija|polla|follar|culo|marica|maricon|negr[oa] de|nigg|fag|porn|sexo|sexual|xxx|escort|prostitu|droga|cocaina|marihuana|crack|armas? de fuego|pistola|fusil|explosivo|suicid|matar|violacion|pedofil|terroris|nazi|hitler|estafa|hack(?:ear|eo)?)/;
 const MAX_TERMS = 12;
 const REFRESH_MS = 6 * 60 * 60 * 1000;
+// Sube cuando cambia la forma de armar la lista, para que el resumen guardado con el método anterior se rehaga enseguida.
+const SNAPSHOT_VERSION = 2;
 
 export function normalizeSearchTerm(raw) {
   const term = fold(raw);
@@ -42,62 +44,97 @@ export function recordSearchTerm(raw, resultCount) {
     .catch(() => {});
 }
 
-async function topCandidates() {
+const MAX_WORDS = 3;
+const MAX_CHARS = 22;
+
+// Una palabra de referencia sirve para la portada si es corta (nada de frases) y segura para mostrar en público.
+function usableTerm(raw) {
+  const term = fold(raw);
+  if (term.length < 3 || term.length > MAX_CHARS || term.split(" ").length > MAX_WORDS) return null;
+  if (!/[a-zñ]{3}/.test(term) || /\d{4,}/.test(term.replace(/ /g, "")) || BLOCKED.test(term)) return null;
+  return term;
+}
+
+function display(text) {
+  const clean = String(text ?? "").replace(/\s+/g, " ").trim();
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+// Mismo criterio que la búsqueda del catálogo (nombre, descripción o etiqueta, sin tildes ni mayúsculas): una palabra solo se
+// muestra si de verdad lleva a productos que se pueden comprar hoy.
+async function hasVisibleMatch(rawTerm) {
+  const term = rawTerm.replace(/ñ/g, "n");
+  const rows = await prisma.$queryRaw`
+    SELECT 1 FROM "Product" p
+    JOIN "Vendor" v ON v.id = p."vendorId"
+    WHERE p."isActive" = true AND p."hiddenFromStore" = false AND p."overQuota" = false
+      AND (p."unlimitedStock" = true OR p.stock > 0)
+      AND v."isBlocked" = false AND v.status = 'ACTIVE' AND v."isPrivate" = false
+      AND (
+        regexp_replace(unaccent(lower(p.name)), '[^a-z0-9]+', ' ', 'g') ILIKE '%' || ${term} || '%'
+        OR EXISTS (SELECT 1 FROM unnest(p.tags) AS t WHERE regexp_replace(unaccent(lower(t)), '[^a-z0-9]+', ' ', 'g') ILIKE '%' || ${term} || '%')
+      )
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+// Las palabras salen de lo que hay en la tienda: etiquetas, nombres cortos de productos y categorías de productos a la venta,
+// y de lo que los clientes buscaron de verdad. Nada se inventa ni se redacta: se muestran tal cual, cortas, ordenadas por
+// ventas, visitas y búsquedas reales.
+async function collectTerms() {
+  const scores = new Map();
+  const shown = new Map();
+  const add = (raw, weight) => {
+    const term = usableTerm(raw);
+    if (!term) return;
+    scores.set(term, (scores.get(term) ?? 0) + weight);
+    if (!shown.has(term)) shown.set(term, display(raw));
+  };
+
+  const products = await prisma.product.findMany({
+    where: {
+      isActive: true,
+      hiddenFromStore: false,
+      overQuota: false,
+      OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
+      vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false },
+    },
+    orderBy: [{ salesCount: "desc" }, { viewCount: "desc" }],
+    take: 400,
+    select: { name: true, tags: true, salesCount: true, viewCount: true, category: { select: { name: true } } },
+  });
+  for (const p of products) {
+    const w = 1 + p.salesCount * 3 + p.viewCount / 20;
+    for (const tag of p.tags ?? []) add(tag, w);
+    add(p.name, w);
+    if (p.category?.name) add(p.category.name, 1 + w / 4);
+  }
+
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const rows = await prisma.searchTerm.findMany({
+  const searches = await prisma.searchTerm.findMany({
     where: { lastSearchedAt: { gte: since }, blocked: false },
     orderBy: [{ count: "desc" }, { lastSearchedAt: "desc" }],
     take: 40,
     select: { term: true, count: true },
   });
-  return rows.filter((r) => normalizeSearchTerm(r.term));
-}
+  for (const r of searches) add(r.term, 8 + r.count * 6);
 
-function titleCase(term) {
-  return term.charAt(0).toUpperCase() + term.slice(1);
-}
-
-function parseAiList(text, allowed) {
-  const match = String(text ?? "").match(/\[[\s\S]*\]/);
-  if (!match) return null;
-  let list;
-  try {
-    list = JSON.parse(match[0]);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(list)) return null;
-  const out = [];
-  const seen = new Set();
-  for (const item of list) {
-    const term = fold(item?.term);
-    // Solo vale un término que de verdad se buscó: la IA no puede inventar ni sumar palabras nuevas.
-    if (!allowed.has(term) || seen.has(term)) continue;
-    let phrase = String(item?.phrase ?? "").replace(/[—–]/g, ",").replace(/\s+/g, " ").trim();
-    if (phrase.length < 4 || phrase.length > 70 || !isPublicSafeText(phrase)) phrase = titleCase(term);
-    seen.add(term);
-    out.push({ term, phrase });
-  }
-  return out;
+  return [...scores.entries()].sort((x, y) => y[1] - x[1]).map(([term]) => ({ term, phrase: shown.get(term) }));
 }
 
 export async function refreshTrendingSearches() {
-  const candidates = await topCandidates();
-  let items = [];
-  if (candidates.length) {
-    const allowed = new Set(candidates.map((c) => c.term));
-    try {
-      const prompt = `Eres editor de SEO de un marketplace cubano. Estas son las búsquedas reales de los clientes, de la más a la menos frecuente:\n${candidates
-        .map((c) => `- ${c.term}`)
-        .join("\n")}\n\nElige hasta ${MAX_TERMS} que sirvan para mostrarse en la portada. Descarta groserías, contenido sexual, violento o ilegal, datos personales, nombres de personas y textos sin sentido. Para cada una escribe una frase corta y natural en español (máximo 60 caracteres) que un cliente querría tocar y que ayude a posicionar en buscadores, sin inventar productos, precios ni promesas. Sin rayas largas. Responde SOLO con un arreglo JSON: [{"term":"<búsqueda exacta de la lista>","phrase":"<frase>"}]`;
-      items = parseAiList(await generateRawText(prompt), allowed) ?? [];
-    } catch {
-      items = [];
-    }
-    // Sin IA (o respuesta inválida) se muestran las búsquedas más frecuentes tal cual, ya filtradas.
-    if (!items.length) items = candidates.slice(0, MAX_TERMS).map((c) => ({ term: c.term, phrase: titleCase(c.term) }));
+  const items = [];
+  const taken = [];
+  for (const c of await collectTerms()) {
+    if (items.length >= MAX_TERMS) break;
+    // Si una palabra ya está contenida en otra elegida (o al revés) se queda la primera: no se repite el mismo tema.
+    if (taken.some((t) => t.includes(c.term) || c.term.includes(t))) continue;
+    if (!(await hasVisibleMatch(c.term))) continue;
+    taken.push(c.term);
+    items.push(c);
   }
-  const snapshot = { items: items.slice(0, MAX_TERMS), updatedAt: new Date().toISOString() };
+  const snapshot = { items, updatedAt: new Date().toISOString(), version: SNAPSHOT_VERSION };
   const settings = await prisma.siteSettings.findFirst({ select: { id: true } });
   if (settings) await prisma.siteSettings.update({ where: { id: settings.id }, data: { trendingSearches: snapshot } });
   return snapshot;
@@ -118,6 +155,10 @@ export async function getTrendingSearches() {
     return fresh?.items ?? [];
   }
   // Sin frases todavía (nadie ha buscado nada) se vuelve a intentar pronto; con frases, cada pocas horas.
+  if (snap.version !== SNAPSHOT_VERSION) {
+    const fresh = await refreshOnce().catch(() => null);
+    return fresh?.items ?? [];
+  }
   if (age > ((snap.items?.length ?? 0) ? REFRESH_MS : 10 * 60 * 1000)) refreshOnce().catch(() => {});
   return snap.items ?? [];
 }

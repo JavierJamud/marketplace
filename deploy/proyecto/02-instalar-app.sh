@@ -89,6 +89,8 @@ cd $APP.new/backend
 sudo -u zeudin npm ci --no-audit --no-fund
 sudo -u zeudin npx prisma generate
 sudo -u zeudin npx prisma migrate deploy
+# Catálogo mundial de países (apagados): el admin enciende los que quiere recibir. Solo agrega los que faltan.
+sudo -u zeudin node prisma/seed-countries.mjs
 
 echo ">> Frontend: compilación (la API se llama por /api en el mismo dominio)"
 cd $APP.new/frontend

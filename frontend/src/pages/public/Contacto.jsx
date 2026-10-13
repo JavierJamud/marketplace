@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -14,7 +15,9 @@ import { useStaticPage } from "../../lib/useStaticPage.js";
 export default function Contacto() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
+  // Un enlace desde el registro puede traer el mensaje ya escrito (por ejemplo, pedir que activen un país).
+  const [params] = useSearchParams();
+  const [message, setMessage] = useState(() => params.get("mensaje")?.slice(0, 2000) ?? "");
 
   const send = useMutation({
     mutationFn: async () => (await api.post("/contact", { name, email, message })).data,

@@ -2,13 +2,14 @@ import bcrypt from "bcryptjs";
 import { prisma } from "./prisma.js";
 import { sendAdminDirectEmail } from "./email.js";
 import { AppError } from "../utils/AppError.js";
+import { CODE_TTL_MINUTES, CODE_TTL_MS } from "./codeTtl.js";
 import { consumeTotpCode } from "../controllers/twoFactorApp.controller.js";
 
 // Bloque 272 (pedido explícito): las acciones sensibles del admin (eliminar una tienda
 // o un cliente de forma definitiva, cambiar claves de integraciones o ajustes de
 // seguridad) piden un código de un solo uso enviado al correo del propio admin.
 // El código es de UNA acción concreta: uno pedido para borrar una tienda no sirve para
-// cambiar una clave. Dura 10 minutos, se guarda solo su hash y se bloquea tras 5 intentos.
+// cambiar una clave. Dura lo mismo que los demás códigos (ver codeTtl.js), se guarda solo su hash y se bloquea tras 5 intentos.
 
 export const ACTION_LABELS = {
   // Empresas (tiendas)
@@ -45,7 +46,7 @@ export const ACTION_LABELS = {
 };
 
 const CODE_LENGTH = 6;
-const TTL_MS = 10 * 60 * 1000;
+const TTL_MS = CODE_TTL_MS;
 const RESEND_COOLDOWN_MS = 30 * 1000;
 const MAX_ATTEMPTS = 5;
 
@@ -94,7 +95,7 @@ export async function sendActionCode(user, action, target = null) {
     subject: `Código de confirmación: ${ACTION_LABELS[action]}${target ? ` (${target})` : ""}`,
     message:
       `Tu código para confirmar la acción "${ACTION_LABELS[action]}"${target ? ` sobre ${target}` : ""} es:\n\n${code}\n\n` +
-      "Vence en 10 minutos y sirve una sola vez. Si no fuiste tú, ignora este mensaje y cambia tu contraseña.",
+      `Vence en ${CODE_TTL_MINUTES} minutos y sirve una sola vez. Si no fuiste tú, ignora este mensaje y cambia tu contraseña.`,
   });
   if (!result?.ok) {
     // Mismo criterio que el código de login: si el correo no pudo salir, el código queda

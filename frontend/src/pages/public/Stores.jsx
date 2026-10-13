@@ -29,7 +29,7 @@ const FILTER_KEYS = ["isRestaurant", "isVerified", "businessCategoryId", "minPri
 const list = (v) => (v ? v.split(",").filter(Boolean) : []);
 
 export default function Stores() {
-  const { zoneParams, zoneKey, zoneName, hasZoneFilter, clearFilter: clearZone } = useZone();
+  const { zoneParams, zoneKey, zoneName, hasZoneFilter, waiting: zoneLoading, clearFilter: clearZone } = useZone();
   const [searchParams, setSearchParams] = useSearchParams();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -98,13 +98,15 @@ export default function Stores() {
   }, [sheetOpen]);
 
   const { data: businessCategories } = useQuery({
-    queryKey: ["business-categories"],
-    queryFn: async () => (await api.get("/business-categories")).data.categories,
+    queryKey: ["business-categories", zoneKey],
+    queryFn: async () => (await api.get("/business-categories", { params: zoneParams })).data.categories,
+    enabled: !zoneLoading,
   });
 
   const { data: vendors, isLoading, isError, refetch } = useQuery({
     queryKey: ["vendors", zoneKey, searchParams.toString()],
     placeholderData: keepPreviousData,
+    enabled: !zoneLoading,
     queryFn: async () =>
       (
         await api.get("/vendors", {
@@ -205,7 +207,7 @@ export default function Stores() {
               />
             )}
 
-            {isLoading && <p className="text-body-md text-on-surface-variant">Cargando tiendas...</p>}
+            {(isLoading || zoneLoading) && <p className="text-body-md text-on-surface-variant">Cargando tiendas...</p>}
 
             {!isLoading && !isError && total === 0 && (
               <EmptyState

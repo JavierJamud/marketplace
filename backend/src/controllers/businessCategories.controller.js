@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as Icons from "lucide-react";
 import { prisma } from "../lib/prisma.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { AppError } from "../utils/AppError.js";
 import { slugify } from "../utils/slugify.js";
 
@@ -50,7 +51,9 @@ function resolveLucideIconName(name) {
 // Bloque 39 (Parte 3): se suma vendorCount (tiendas activas reales de cada
 // rubro) — el bot general lo usa para elegir la categoría MÁS relevante de
 // verdad en sus chips iniciales, en vez de una al azar entre las activas.
-export async function listBusinessCategories(_req, res) {
+export async function listBusinessCategories(req, res) {
+  // Con un lugar elegido, el conteo es de las tiendas de ese lugar y solo salen los tipos que tienen alguna.
+  const zone = vendorZoneWhere(req.query);
   const categories = await prisma.businessCategory.findMany({
     where: { active: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -63,10 +66,11 @@ export async function listBusinessCategories(_req, res) {
       name: true,
       slug: true,
       icon: true,
-      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", isPrivate: false, products: { some: { isActive: true } } } } } },
+      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", isPrivate: false, products: { some: { isActive: true } }, ...(zone ? { locations: zone } : {}) } } } },
     },
   });
-  res.json({ categories: categories.map(({ _count, ...c }) => ({ ...c, vendorCount: _count.vendors })) });
+  const rows = categories.map(({ _count, ...c }) => ({ ...c, vendorCount: _count.vendors }));
+  res.json({ categories: zone ? rows.filter((c) => c.vendorCount > 0) : rows });
 }
 
 // --- Admin -------------------------------------------------------------

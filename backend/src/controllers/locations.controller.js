@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { callingCodeFor, seedWorldCountries } from "../lib/countryCatalog.js";
 import {
   listSuggestions,
   countPendingSuggestions,
@@ -108,7 +109,8 @@ export async function listActiveCountries(req, res) {
     orderBy: { name: "asc" },
     select: { id: true, name: true, code: true },
   });
-  res.json({ countries });
+  // callingCode: código de marcado (sin "+") para armar el teléfono; los que no tienen uno conocido no sirven para teléfonos.
+  res.json({ countries: countries.map((c) => ({ ...c, callingCode: callingCodeFor(c.code) })).filter((c) => requireSubdivisions || c.callingCode) });
 }
 
 export async function listMunicipalities(req, res) {
@@ -142,7 +144,12 @@ export async function listCountries(_req, res) {
     orderBy: { name: "asc" },
     include: { _count: { select: { provinces: true } } },
   });
-  res.json({ countries });
+  res.json({ countries: countries.map((c) => ({ ...c, callingCode: callingCodeFor(c.code) })) });
+}
+
+// Agrega al listado todos los países del mundo que falten (apagados). El admin enciende luego los que quiere recibir.
+export async function seedWorldCountriesAction(_req, res) {
+  res.json(await seedWorldCountries());
 }
 
 const createCountrySchema = z.object({

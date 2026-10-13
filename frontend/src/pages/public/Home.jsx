@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { PlusCircle, ShieldCheck, Store } from "lucide-react";
+import { MapPinned, PlusCircle, ShieldCheck, Store } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
@@ -13,7 +13,7 @@ import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 import { TrendingSearches } from "../../components/TrendingSearches.jsx";
 import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
-import { ZoneChip } from "../../components/ZonePicker.jsx";
+import { ZoneDialog } from "../../components/ZonePicker.jsx";
 import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselLazy.jsx";
 
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
@@ -148,15 +148,17 @@ function featuredVisibility(index) {
 }
 
 export default function Home() {
-  const { zoneParams, zoneKey, zoneName, hasZoneFilter, loading: zoneLoading } = useZone();
+  const { zoneParams, zoneKey, zoneName, provinceName, hasZoneFilter, waiting: zoneLoading } = useZone();
+  const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
   // Bloque 252: el slider de imágenes del hero va a la derecha en escritorio y,
   // en celular, debajo del párrafo. Se monta uno solo según el ancho (no dos
   // con uno oculto: duplicarían el autoplay y la carga de imágenes).
   const isLargeScreen = useMediaQuery("(min-width: 1024px)");
 
   const { data: businessCategories, status: categoriesStatus } = useQuery({
-    queryKey: ["business-categories"],
-    queryFn: async () => (await api.get("/business-categories")).data.categories,
+    queryKey: ["business-categories", zoneKey],
+    queryFn: async () => (await api.get("/business-categories", { params: zoneParams })).data.categories,
+    enabled: !zoneLoading,
   });
 
   // Solo se muestran los tipos de negocio que ya tienen al menos una tienda visible, y nunca dos con el mismo nombre.
@@ -180,7 +182,6 @@ export default function Home() {
     enabled: !zoneLoading,
     staleTime: 60 * 1000,
   });
-  const quickSaleSlides = useMemo(() => [...(quickSales ?? []), { id: "cta", cta: true }], [quickSales]);
 
   const { data: featured } = useQuery({
     queryKey: ["home-featured", zoneKey],
@@ -198,8 +199,9 @@ export default function Home() {
   // entera no se monta, a diferencia de Destacados/Tiendas verificadas que
   // sí muestran un EmptyState.
   const { data: offers, status: offersStatus } = useQuery({
-    queryKey: ["home-active-offers"],
-    queryFn: async () => (await api.get("/offers/active")).data.offers,
+    queryKey: ["home-active-offers", zoneKey],
+    queryFn: async () => (await api.get("/offers/active", { params: zoneParams })).data.offers,
+    enabled: !zoneLoading,
   });
 
   const { data: settings, status: settingsStatus } = useQuery({
@@ -251,16 +253,29 @@ export default function Home() {
                   Bloque 253: en celular los dos botones van uno
                   al lado del otro. El principal ocupa el espacio que sobra y el
                   secundario mide lo que su texto. */}
-              <div className="flex gap-2.5 sm:gap-3.5">
+              <div className="flex flex-wrap gap-2.5 sm:gap-3.5">
+                {/* El botón principal abre el selector de lugar de entrega o recogida; con un lugar elegido muestra su provincia o estado. */}
+                <button
+                  type="button"
+                  onClick={() => setZoneDialogOpen(true)}
+                  aria-label={hasZoneFilter ? `Lugar de entrega: ${provinceName || zoneName}. Cambiar` : "Elegir lugar de entrega o recogida"}
+                  className="flex min-h-12 min-w-0 basis-full items-center justify-center gap-2.5 rounded-[28px] bg-secondary-container px-4 py-2 text-left text-on-secondary-container hover:brightness-95 sm:basis-auto sm:px-6"
+                >
+                  <MapPinned className="h-6 w-6 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                  <span className="flex min-w-0 flex-col leading-tight">
+                    <span className="text-[11px] font-medium opacity-80">{hasZoneFilter ? "Entrega en" : "Lugar de entrega"}</span>
+                    <span className="truncate text-[13.5px] font-bold">{hasZoneFilter ? provinceName || zoneName : "Elegir lugar"}</span>
+                  </span>
+                </button>
                 <Link
                   to="/catalogo"
-                  className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-[28px] bg-secondary-container px-2 py-3 text-center text-[13px] font-semibold text-on-secondary-container hover:brightness-95 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
+                  className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-[28px] border-[1.5px] border-white/30 px-3.5 py-3 text-[13px] font-semibold text-white hover:bg-white/10 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
                 >
-                  {hasZoneFilter ? `Explorar en ${zoneName}` : "Explorar todo el catálogo"}
+                  Productos
                 </Link>
                 <Link
                   to="/tiendas"
-                  className="flex min-h-11 flex-shrink-0 items-center justify-center whitespace-nowrap rounded-[28px] border-[1.5px] border-white/30 px-3.5 py-3 text-[13px] font-semibold text-white hover:bg-white/10 sm:px-6 sm:text-label-md sm:font-normal"
+                  className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-[28px] border-[1.5px] border-white/30 px-3.5 py-3 text-[13px] font-semibold text-white hover:bg-white/10 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
                 >
                   Ver tiendas
                 </Link>
@@ -268,16 +283,6 @@ export default function Home() {
             </div>
 
             {isLargeScreen && showHeroSlot && (settingsLoading ? <div className="h-[368px] lg:h-[388px]" aria-hidden="true" /> : <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />)}
-          </div>
-        </section>
-
-        {/* Dónde compra el visitante: todo lo de esta página (y del catálogo y las tiendas) se limita a ese lugar. */}
-        <section className="container-app pt-5" aria-label="Lugar de compra">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <ZoneChip />
-            <span className="text-[12.5px] text-on-surface-variant">
-              {hasZoneFilter ? "Ves solo lo que hay en ese lugar." : "Elige tu país, provincia o municipio para ver solo lo de tu zona."}
-            </span>
           </div>
         </section>
 
@@ -359,21 +364,13 @@ export default function Home() {
             )}
           </div>
           {quickSales?.length > 0 ? (
-            // Pasa de un anuncio a la vez, sin fin, y también se desliza con el dedo. La última tarjeta invita a publicar.
-            <div className="-mx-1.5">
+            <>
+              {/* Pasa de un anuncio a la vez, sin fin, y también se desliza con el dedo. Solo lleva anuncios; el botón de publicar va fijo debajo. */}
+              <div className="-mx-1.5">
               <AutoCarousel
-                items={quickSaleSlides}
+                items={quickSales}
                 getKey={(l) => l.id}
-                renderItem={(l) =>
-                  l.cta ? (
-                    <Link to="/cuenta/panel?tab=quick-sale" className="flex h-full min-h-[200px] flex-col items-center justify-center gap-1.5 rounded-[22px] border-2 border-dashed border-outline-variant p-5 text-center">
-                      <span className="text-[14px] font-bold text-on-surface">¿Vendes algo?</span>
-                      <span className="text-[12.5px] text-on-surface-variant">Publica tu anuncio gratis</span>
-                    </Link>
-                  ) : (
-                    <QuickSaleCard listing={l} />
-                  )
-                }
+                renderItem={(l) => <QuickSaleCard listing={l} />}
                 itemClassName="basis-[72%] px-1.5 sm:basis-1/3 lg:basis-1/4"
                 align="start"
                 delay={3500}
@@ -381,6 +378,15 @@ export default function Home() {
                 label="Venta rápida entre clientes"
               />
             </div>
+            <div className="mt-5 flex justify-center">
+              <Link
+                to="/cuenta/panel?tab=quick-sale"
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-tertiary-accent px-5 py-3 text-label-md font-semibold text-tertiary-accent hover:bg-tertiary-accent/10"
+              >
+                <PlusCircle className="h-4 w-4" aria-hidden="true" /> ¿Vendes algo? Publica tu anuncio gratis
+              </Link>
+            </div>
+            </>
           ) : (
             <Link to="/cuenta/panel?tab=quick-sale" className="block rounded-2xl border-2 border-dashed border-outline-variant p-6 text-center">
               <span className="block text-[15px] font-bold text-on-surface">Todavía no hay anuncios de venta rápida</span>
@@ -471,6 +477,7 @@ export default function Home() {
           true si el settings todavía no cargó, para no hacerlo parpadear.
           Bloque 238: además, oculto automáticamente si las IA están caídas
           (chatbotAvailable, estado cacheado cada 2 min en segundo plano). */}
+      {zoneDialogOpen && <ZoneDialog onClose={() => setZoneDialogOpen(false)} />}
       <MarketplaceChatGate />
     </>
   );

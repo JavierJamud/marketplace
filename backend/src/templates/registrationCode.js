@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { CODE_TTL_MINUTES } from "../lib/codeTtl.js";
 import { emailShell, ctaButton, codeBlock, paragraph, smallNote, pickVariant, esc } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 
@@ -18,7 +19,7 @@ export async function registrationCodeEmail({ fullName, code }) {
     badge: { label: "Nueva cuenta", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${esc(fullName)}, usa este código para confirmar tu correo y terminar de crear tu cuenta — vence en <strong>10 minutos</strong>.`)}
+      ${paragraph(`Hola ${esc(fullName)}, usa este código para confirmar tu correo y terminar de crear tu cuenta — vence en <strong>${CODE_TTL_MINUTES} minutos</strong>.`)}
       ${codeBlock(code)}
       ${smallNote("Si no intentaste crear una cuenta, ignora este correo — no se creó nada todavía.")}
       ${ctaButton(`Ir a ${siteName}`, `${env.frontendUrl}/cuenta`)}

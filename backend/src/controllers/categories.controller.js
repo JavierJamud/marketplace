@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { AppError } from "../utils/AppError.js";
 
 // Categorías de producto: dos niveles (categoría y subcategorías). El catálogo inicial viene de
@@ -22,7 +23,8 @@ async function uniqueSlug(name, parentSlug) {
 
 // Bloque 52: ahora incluye `children` de cada categoría top-level (antes solo devolvía el nivel raíz) — Shop.jsx (pills de
 // filtro) sigue leyendo solo `name`/`id` de cada una, y VendorProducts.jsx arma el selector con las subcategorías.
-export async function listCategories(_req, res) {
+export async function listCategories(req, res) {
+  const zone = vendorZoneWhere(req.query);
   const categories = await prisma.category.findMany({
     where: { parentId: null },
     orderBy: { name: "asc" },
@@ -34,7 +36,24 @@ export async function listCategories(_req, res) {
       children: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true, isUserCreated: true } },
     },
   });
-  res.json({ categories });
+  if (!zone) return res.json({ categories });
+
+  // Con un lugar elegido, solo las categorías que tienen productos a la venta de tiendas de ese lugar (con sus subcategorías).
+  const used = await prisma.product.groupBy({
+    by: ["categoryId"],
+    where: {
+      isActive: true,
+      hiddenFromStore: false,
+      overQuota: false,
+      OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
+      vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false, locations: zone },
+    },
+  });
+  const ids = new Set(used.map((u) => u.categoryId).filter(Boolean));
+  const kept = categories
+    .map((c) => ({ ...c, children: c.children.filter((ch) => ids.has(ch.id)) }))
+    .filter((c) => ids.has(c.id) || c.children.length > 0);
+  res.json({ categories: kept });
 }
 
 const createSchema = z.object({

@@ -1,3 +1,4 @@
+import { CODE_TTL_MINUTES } from "../lib/codeTtl.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -138,7 +139,7 @@ const registerSchema = z.object({
 // verifyRegistration) — mientras tanto los datos del formulario viven en
 // PendingRegistration (ver schema.prisma), nunca en un User a medio crear.
 const REGISTER_CODE_LENGTH = 6;
-const REGISTER_CODE_TTL_MINUTES = 10;
+const REGISTER_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 
 export async function register(req, res) {
   const data = registerSchema.parse(req.body);
@@ -149,6 +150,12 @@ export async function register(req, res) {
   // directo al flujo de "olvidé mi contraseña" (ver Account.jsx).
   if (existing) {
     throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
+  }
+
+  // El país del teléfono tiene que estar habilitado en el panel del admin (la pantalla solo ofrece esos; esto cubre llamadas directas).
+  const phoneCountry = await prisma.country.findFirst({ where: { code: data.country.toUpperCase(), isActive: true }, select: { id: true } });
+  if (!phoneCountry) {
+    throw new AppError("Ese país todavía no está habilitado. Contacta a soporte para pedir que lo activen.", 400, { countryNotEnabled: true });
   }
 
   // Bloque 113: valida el país/provincia/municipio ANTES de mandar ningún
@@ -189,7 +196,7 @@ export async function register(req, res) {
   });
 
   await sendRegistrationCodeEmail({ fullName: data.fullName, email: data.email }, code);
-  res.json({ requiresVerification: true, email: data.email });
+  res.json({ requiresVerification: true, email: data.email, codeExpiresAt });
 }
 
 const verifyRegistrationSchema = z.object({
@@ -310,11 +317,18 @@ const loginSchema = z.object({
 // Bloque 183: un usuario de sistema (VENDOR_STAFF) entra por la MISMA
 // puerta que el dueño — /vendedor/ingresar, context "vendor" — nunca un
 // login separado. Ambos roles son "de vendedor" a los ojos de este check.
-function assertRoleMatchesContext(user, context) {
+async function assertRoleMatchesContext(user, context) {
   if (context === "admin" && user.role !== "ADMIN") throw new AppError("Esta cuenta no tiene permisos de administrador.", 401);
   if (context === "partner" && user.role !== "PARTNER") throw new AppError("Esta cuenta no es de un socio de la API.", 401);
   if (context === "vendor" && user.role !== "VENDOR" && user.role !== "VENDOR_STAFF") {
-    throw new AppError("Esta cuenta no es de vendedor.", 401);
+    // Quien se registró para abrir una tienda pero no llegó a terminarla (por ejemplo, se cortó la conexión al crearla) tiene una
+    // cuenta de cliente sin tienda. Se le deja entrar por la puerta del vendedor para que termine de crearla; si la cuenta es de
+    // cliente y ya tiene una tienda, o es de otro tipo, se rechaza como siempre.
+    if (user.role === "CUSTOMER") {
+      const store = await prisma.vendor.findUnique({ where: { userId: user.id }, select: { id: true } });
+      if (!store) return;
+    }
+    throw new AppError("Esta cuenta no es de vendedor. Si eres cliente, ingresa desde “Mi cuenta”.", 401);
   }
 }
 
@@ -327,14 +341,14 @@ const TWO_FACTOR_CODE_LENGTH = 6;
 // en el frontend (Account.jsx) — al llegar a cero, se habilita un botón de
 // reenviar (vuelve a pegarle a este mismo endpoint de login, que siempre
 // genera un código nuevo).
-const TWO_FACTOR_CODE_TTL_MINUTES = 5;
+const TWO_FACTOR_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 
 // Bloque 60/183: mismo código de 6 dígitos que usa el reset de contraseña
 // (forgotPassword más abajo) — login() lo reusa tal cual para el primer
 // ingreso de un usuario de sistema (mustSetPassword), en vez de armar un
 // segundo generador redundante.
 const RESET_CODE_LENGTH = 6;
-const RESET_CODE_TTL_MINUTES = 15;
+const RESET_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 
 function generateResetCode() {
   return String(Math.floor(Math.random() * 10 ** RESET_CODE_LENGTH)).padStart(RESET_CODE_LENGTH, "0");
@@ -346,7 +360,7 @@ export async function login(req, res) {
   const user = await prisma.user.findUnique({ where: { email: data.email } });
   if (!user) throw new AppError("No existe ninguna cuenta con ese correo.", 401);
 
-  assertRoleMatchesContext(user, data.context);
+  await assertRoleMatchesContext(user, data.context);
 
   // Bloque 183 (pedido explícito — "el sistema automáticamente detecte que
   // ese usuario no tiene una contraseña válida aún, y se le enviará un
@@ -522,7 +536,7 @@ export async function verifyTwoFactorLogin(req, res) {
   // Misma regla que login(): una cuenta suspendida o eliminada no abre sesión aunque el código sea válido.
   if (user.isSuspended || user.deletedAt) throw new AppError("Esta cuenta no está disponible.", 403);
 
-  assertRoleMatchesContext(user, context);
+  await assertRoleMatchesContext(user, context);
 
   // El código se invalida al usarlo — no se puede reutilizar para un segundo
   // login. Bloque 62: mismo update ya de paso registra el login exitoso.
@@ -705,7 +719,7 @@ export async function forgotPassword(req, res) {
   await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt } });
   await sendPasswordResetEmail(user, code);
 
-  res.json({ ok: true, message: "Te enviamos un código de verificación a tu correo." });
+  res.json({ ok: true, message: "Te enviamos un código de verificación a tu correo.", codeExpiresAt: resetCodeExpiresAt });
 }
 
 const verifyResetCodeSchema = z.object({ email: z.string().email(), code: z.string().length(RESET_CODE_LENGTH) });
@@ -765,7 +779,7 @@ export async function resetPassword(req, res) {
 // alfabeto que el reset/2FA (6 dígitos) porque acá el propio código ES la
 // autorización final del cambio, no un segundo factor sobre un login ya en curso.
 const EMAIL_CHANGE_CODE_LENGTH = 8;
-const EMAIL_CHANGE_CODE_TTL_MINUTES = 15;
+const EMAIL_CHANGE_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 const EMAIL_CHANGE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin 0/O/1/I — ambiguos al transcribir a mano
 
 function generateEmailChangeCode() {

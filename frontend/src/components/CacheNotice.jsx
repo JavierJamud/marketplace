@@ -19,6 +19,8 @@ export function CacheNotice() {
   function acknowledge() {
     localStorage.setItem(SEEN_KEY, "1");
     setShow(false);
+    // La pregunta del lugar de entrega espera a que este aviso se acepte para no taparse entre sí.
+    window.dispatchEvent(new Event("zeudin:cache-ack"));
   }
 
   if (!show) return null;

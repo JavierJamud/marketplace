@@ -24,7 +24,7 @@ export default function QuickSaleListings() {
   const [params] = useSearchParams();
   const [search, setSearch] = useState(() => params.get("q") ?? "");
   const [condition, setCondition] = useState("");
-  const { zoneParams, zoneKey, loading: zoneLoading } = useZone();
+  const { zoneParams, zoneKey, waiting: zoneLoading } = useZone();
   const { data: listings, isLoading } = useQuery({
     queryKey: ["public-customer-listings", zoneKey],
     queryFn: async () => (await api.get("/customer-listings", { params: zoneParams })).data.listings,

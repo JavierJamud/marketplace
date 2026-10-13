@@ -249,7 +249,7 @@ export function AuthProvider({ children }) {
   // `requiresTwoFactor` en login()) y muestra el paso de "ingresa el código".
   const register = async (payload) => {
     const { data } = await api.post("/auth/register", payload);
-    return { requiresVerification: true, email: data.email };
+    return { requiresVerification: true, email: data.email, codeExpiresAt: data.codeExpiresAt };
   };
 
   // Segundo paso del registro — recién acá se crea la cuenta de verdad y se

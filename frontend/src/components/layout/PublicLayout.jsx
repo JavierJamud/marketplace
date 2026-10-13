@@ -7,6 +7,7 @@ import { CartDrawer } from "./CartDrawer.jsx";
 import { CartConflictModal } from "../CartConflictModal.jsx";
 import { AnnouncementPopup } from "../AnnouncementPopup.jsx";
 import { TargetedOfferPopup } from "../TargetedOfferPopup.jsx";
+import { ZoneWelcome } from "../ZoneWelcome.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 
 export function PublicLayout() {
@@ -41,6 +42,7 @@ export function PublicLayout() {
           que AnnouncementPopup de arriba. Nunca en el flujo cerrado de
           "/mesa/..." (mismo motivo que el Header, arriba). */}
       {!isTableOrder && <TargetedOfferPopup enabled={!!user} />}
+      {!isTableOrder && <ZoneWelcome />}
     </div>
   );
 }

@@ -25,7 +25,7 @@ const list = (v) => (v ? v.split(",").filter(Boolean) : []);
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { zoneParams, zoneKey, zoneName, hasZoneFilter, setProvince, setMunicipality, clearFilter: clearZone } = useZone();
+  const { zoneParams, zoneKey, zoneName, hasZoneFilter, waiting: zoneLoading, setProvince, setMunicipality, clearFilter: clearZone } = useZone();
 
   const q = searchParams.get("q") ?? "";
   const categoryId = searchParams.get("categoryId") ?? "";
@@ -91,8 +91,9 @@ export default function Shop() {
   }, [sheetOpen]);
 
   const { data: categories } = useQuery({
-    queryKey: ["categories"],
-    queryFn: async () => (await api.get("/categories")).data.categories,
+    queryKey: ["categories", zoneKey],
+    queryFn: async () => (await api.get("/categories", { params: zoneParams })).data.categories,
+    enabled: !zoneLoading,
   });
   const { data: siteSettings } = useQuery({
     queryKey: ["site-settings"],
@@ -103,6 +104,7 @@ export default function Shop() {
   const { data, isLoading } = useQuery({
     queryKey: ["shop-products", q, searchParams.toString(), zoneKey, sort],
     placeholderData: (prev) => prev,
+    enabled: !zoneLoading,
     queryFn: async () =>
       (
         await api.get("/search", {

@@ -1,3 +1,4 @@
+import { Flag } from "../../components/ui/Flag.jsx";
 import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -83,14 +84,15 @@ function CountryModal({ country, onClose }) {
   const queryClient = useQueryClient();
   const [code, setCode] = useState(country?.code ?? "");
   const [name, setName] = useState(country?.name ?? "");
+  const [isActive, setIsActive] = useState(country?.isActive ?? true);
 
-  const initialSnapshot = useRef(JSON.stringify({ code, name }));
-  const isDirty = JSON.stringify({ code, name }) !== initialSnapshot.current;
+  const initialSnapshot = useRef(JSON.stringify({ code, name, isActive }));
+  const isDirty = JSON.stringify({ code, name, isActive }) !== initialSnapshot.current;
 
   const save = useMutation({
     mutationFn: async () =>
       country
-        ? (await api.patch(`/admin/locations/countries/${country.id}`, { code, name })).data
+        ? (await api.patch(`/admin/locations/countries/${country.id}`, { code, name, isActive })).data
         : (await api.post("/admin/locations/countries", { code, name })).data,
     onSuccess: () => {
       toast.success(country ? "País actualizado." : "País agregado.");
@@ -108,6 +110,23 @@ function CountryModal({ country, onClose }) {
       <div className="mb-4 flex flex-col gap-4">
         <Input label="Nombre del País" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Estados Unidos, Cuba, España" />
         <Input label="Código ISO corto" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Ej: US, CU, ES" maxLength={5} />
+        {/* La bandera y el código de marcado salen del código ISO: no se escriben a mano. */}
+        <div className="flex items-center gap-3 rounded-xl bg-surface-container/60 px-3.5 py-3">
+          <Flag code={code} className="!h-6 !w-9" />
+          <div className="text-[12.5px] text-on-surface-variant">
+            {country?.callingCode ? <>Código de marcado: <strong className="text-on-surface">+{country.callingCode}</strong>. </> : null}
+            La bandera y el código se toman del código ISO.
+          </div>
+        </div>
+        {country && (
+          <label className="flex min-h-11 cursor-pointer items-start gap-3">
+            <input type="checkbox" className="mt-1 h-5 w-5 accent-tertiary-accent" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            <span>
+              <span className="block text-[13.5px] font-semibold text-on-surface">Habilitado</span>
+              <span className="block text-[12px] text-on-surface-variant">Solo los países habilitados aparecen para registrarse y en los teléfonos.</span>
+            </span>
+          </label>
+        )}
       </div>
       <div className="flex gap-3">
         <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose}>Cancelar</Button>
@@ -294,12 +313,22 @@ export default function AdminLocations() {
 
   const selectedCountry = useMemo(() => countries.find((c) => c.id === selectedCountryId), [countries, selectedCountryId]);
 
+  const [countryFilter, setCountryFilter] = useState("all");
+  const activeCountries = countries.filter((c) => c.isActive).length;
   const filteredCountries = useMemo(() => {
-    if (!countrySearch.trim()) return countries;
-    return countries.filter(
-      (c) => c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
-    );
-  }, [countries, countrySearch]);
+    const byStatus = countries.filter((c) => countryFilter === "all" || (countryFilter === "active" ? c.isActive : !c.isActive));
+    if (!countrySearch.trim()) return byStatus;
+    return byStatus.filter((c) => matchesQuery(c.name, countrySearch) || c.code.toLowerCase().includes(countrySearch.toLowerCase().trim()));
+  }, [countries, countrySearch, countryFilter]);
+
+  const seedWorld = useMutation({
+    mutationFn: async () => (await api.post("/admin/locations/countries/seed-world")).data,
+    onSuccess: (r) => {
+      toast.success(r.created ? `Se agregaron ${r.created} países (apagados). Enciende los que quieras recibir.` : "Ya están todos los países del mundo.");
+      queryClient.invalidateQueries({ queryKey: ["admin-countries"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cargar la lista de países."),
+  });
 
   const countryProvinces = useMemo(() => {
     if (!selectedCountryId) return [];
@@ -367,9 +396,14 @@ export default function AdminLocations() {
             </p>
           </div>
         </div>
-        <Button className="rounded-xl font-bold shadow-sm" onClick={() => setCountryModal({})}>
-          <Plus className="h-4 w-4 mr-1" /> Nuevo País
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="rounded-xl font-bold" disabled={seedWorld.isPending} onClick={() => seedWorld.mutate()}>
+            <Globe2 className="mr-1 h-4 w-4" /> {seedWorld.isPending ? "Cargando..." : "Cargar países del mundo"}
+          </Button>
+          <Button className="rounded-xl font-bold shadow-sm" onClick={() => setCountryModal({})}>
+            <Plus className="h-4 w-4 mr-1" /> Nuevo País
+          </Button>
+        </div>
       </div>
 
       {/* Bloque 244: "Territorios" es lo de siempre (países, provincias,
@@ -397,8 +431,17 @@ export default function AdminLocations() {
           <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 text-[14px] font-bold text-on-surface">
-                <Globe2 className="h-4.5 w-4.5 text-tertiary-accent" /> Países Disponibles ({countries.length})
+                <Globe2 className="h-4.5 w-4.5 text-tertiary-accent" /> Países ({countries.length})
               </div>
+              <span className="text-[11.5px] font-semibold text-verified-dark">{activeCountries} habilitados</span>
+            </div>
+            <p className="mb-3 text-[11.5px] leading-[16px] text-outline">Solo los países habilitados aparecen para que los clientes se registren y en los teléfonos.</p>
+            <div className="mb-3 flex gap-1.5" role="group" aria-label="Filtrar países">
+              {[["all", "Todos"], ["active", "Habilitados"], ["inactive", "Apagados"]].map(([id, text]) => (
+                <button key={id} type="button" onClick={() => setCountryFilter(id)} aria-pressed={countryFilter === id} className={`min-h-9 rounded-full border px-3 text-[12px] font-semibold ${countryFilter === id ? "border-primary-container bg-primary-container text-white" : "border-outline-variant text-on-surface-variant"}`}>
+                  {text}
+                </button>
+              ))}
             </div>
 
             {/* Country Search */}
@@ -428,15 +471,13 @@ export default function AdminLocations() {
                         : "border-surface-container-high bg-surface-container-lowest hover:border-outline-variant hover:bg-surface-container/20"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className={`font-mono text-[12px] font-bold px-2 py-0.5 rounded-md ${
-                        isSelected ? "bg-tertiary-accent text-on-tertiary" : "bg-surface-container-high text-on-surface-variant"
-                      }`}>
-                        {c.code}
-                      </span>
-                      <div>
-                        <div className="text-[13.5px] font-bold text-on-surface">{c.name}</div>
-                        <div className="text-[11.5px] text-outline">{provCount} subdivisión(es)</div>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Flag code={c.code} className="!h-5 !w-7" />
+                      <div className="min-w-0">
+                        <div className="truncate text-[13.5px] font-bold text-on-surface">{c.name}</div>
+                        <div className="text-[11.5px] text-outline">
+                          {c.code}{c.callingCode ? ` · +${c.callingCode}` : ""} · {provCount} subdivisión(es)
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -450,7 +491,7 @@ export default function AdminLocations() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setCountryModal(c); }}
-                        className="text-outline opacity-0 group-hover:opacity-100 hover:text-tertiary-accent transition"
+                        aria-label={`Editar ${c.name}`} className="flex h-9 w-9 items-center justify-center text-outline hover:text-tertiary-accent transition lg:opacity-0 lg:group-hover:opacity-100"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>

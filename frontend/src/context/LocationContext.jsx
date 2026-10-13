@@ -8,6 +8,8 @@ import { api } from "../lib/api.js";
 // NOTA: el hook se llama `useZone` (no `useLocation`) para no chocar con el hook de react-router-dom del mismo nombre.
 const LocationContext = createContext(null);
 const STORAGE_KEY = "zeudin_loc";
+// Marca de que el visitante ya decidió (eligió un lugar o pidió ver todo). Sin ella se le pregunta en cada carga.
+export const DECIDED_KEY = "zeudin_loc_seen";
 
 function readSaved() {
   try {
@@ -21,6 +23,22 @@ export function LocationProvider({ children }) {
   // served: { countries, provinces, municipalities } con "count" de tiendas. null mientras carga.
   const [served, setServed] = useState(null);
   const [zone, setZone] = useState({ countryId: null, provinceId: null, municipalityId: null });
+  const [decided, setDecided] = useState(() => {
+    try {
+      return Number(localStorage.getItem(DECIDED_KEY)) > 0;
+    } catch {
+      return false;
+    }
+  });
+  // Guarda la decisión (en este navegador y en memoria, por si no hay almacenamiento).
+  const decide = useCallback(() => {
+    setDecided(true);
+    try {
+      localStorage.setItem(DECIDED_KEY, String(Date.now()));
+    } catch {
+      /* sin almacenamiento: vale solo en esta visita */
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -35,6 +53,8 @@ export function LocationProvider({ children }) {
         const municipality = province ? data.municipalities.find((m) => m.id === saved?.municipalityId && m.provinceId === province.id) ?? null : null;
         const country = province ? data.countries.find((c) => c.id === province.countryId) ?? null : data.countries.find((c) => c.id === saved?.countryId) ?? null;
         // Un enlace que ya trae la provincia (por ejemplo desde el chat) tiene prioridad sobre lo guardado.
+        // Quien ya tenía un lugar guardado de visitas anteriores no necesita decidir otra vez.
+        if (province || country) setDecided(true);
         setZone((z) => (z.provinceId || z.countryId ? z : { countryId: country?.id ?? null, provinceId: province?.id ?? null, municipalityId: municipality?.id ?? null }));
       })
       .catch(() => alive && setServed({ countries: [], provinces: [], municipalities: [] }));
@@ -53,19 +73,37 @@ export function LocationProvider({ children }) {
     }
   }, [zone, served]);
 
-  const setCountry = useCallback((id) => setZone({ countryId: id || null, provinceId: null, municipalityId: null }), []);
+  const setCountry = useCallback(
+    (id) => {
+      decide();
+      setZone({ countryId: id || null, provinceId: null, municipalityId: null });
+    },
+    [decide]
+  );
   // Elegir una provincia fija también su país; sin id, vuelve a "todo el país" (o a todo si no había país).
   const setProvince = useCallback(
-    (id) =>
+    (id) => {
+      decide();
       setZone((z) => {
         if (!id) return { countryId: z.countryId, provinceId: null, municipalityId: null };
         const p = served?.provinces.find((x) => x.id === id);
         return { countryId: p?.countryId ?? z.countryId, provinceId: id, municipalityId: null };
-      }),
-    [served]
+      });
+    },
+    [served, decide]
   );
-  const setMunicipality = useCallback((id) => setZone((z) => ({ ...z, municipalityId: id || null })), []);
-  const clearFilter = useCallback(() => setZone({ countryId: null, provinceId: null, municipalityId: null }), []);
+  const setMunicipality = useCallback(
+    (id) => {
+      decide();
+      setZone((z) => ({ ...z, municipalityId: id || null }));
+    },
+    [decide]
+  );
+  // "Ver todo": también es una decisión y se recuerda.
+  const clearFilter = useCallback(() => {
+    decide();
+    setZone({ countryId: null, provinceId: null, municipalityId: null });
+  }, [decide]);
 
   const value = useMemo(() => {
     const countries = served?.countries ?? [];
@@ -103,8 +141,13 @@ export function LocationProvider({ children }) {
       setMunicipality,
       clearFilter,
       loading: served === null,
+      decided,
+      decide,
+      // Los listados de productos, tiendas y anuncios esperan a esto: primero se comprueba que el lugar está decidido (o que no
+      // hay dónde elegir), y solo entonces se piden los datos con el filtro correcto.
+      waiting: served === null || (!decided && countries.length > 0),
     };
-  }, [served, zone, setCountry, setProvince, setMunicipality, clearFilter]);
+  }, [served, zone, decided, decide, setCountry, setProvince, setMunicipality, clearFilter]);
 
   return <LocationContext.Provider value={value}>{children}</LocationContext.Provider>;
 }

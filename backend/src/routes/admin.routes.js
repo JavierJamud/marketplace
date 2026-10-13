@@ -236,6 +236,7 @@ router.get("/locations/countries", locationsController.listCountries);
 router.post("/locations/countries", locationsController.createCountry);
 // Rutas literales ANTES de la de :id — si no, Express matchea "activate-all"
 // como si fuera un id y nunca llega a esta acción.
+router.post("/locations/countries/seed-world", locationsController.seedWorldCountriesAction);
 router.patch("/locations/countries/activate-all", locationsController.activateAllCountries);
 router.patch("/locations/countries/deactivate-all", requireActionCode("CATALOG_DELETE"), locationsController.deactivateAllCountries);
 router.delete("/locations/countries/bulk", requireActionCode("CATALOG_DELETE"), locationsController.bulkDeleteCountries);

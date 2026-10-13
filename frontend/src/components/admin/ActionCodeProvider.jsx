@@ -1,3 +1,4 @@
+import { CODE_TTL_MINUTES } from "../../lib/codeTtl.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { api, setActionCodeHandler } from "../../lib/api.js";
@@ -92,7 +93,7 @@ export function ActionCodeProvider() {
         <p className="mb-4 text-[13.5px] text-on-surface-variant">
           {appMode
             ? `Para ${request.label}${request.target ? ` (${request.target})` : ""}, escribe el código de 6 dígitos que muestra tu aplicación de autenticación.`
-            : `Para ${request.label}${request.target ? ` (${request.target})` : ""} te enviamos un código de 6 dígitos${info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en 10 minutos y sirve una sola vez.`}
+            : `Para ${request.label}${request.target ? ` (${request.target})` : ""} te enviamos un código de 6 dígitos${info.sentTo ? ` a ${info.sentTo}` : " a tu correo"}. Vence en ${CODE_TTL_MINUTES} minutos y sirve una sola vez.`}
         </p>
         <OtpInput label={appMode ? "Código de la aplicación" : "Código de confirmación"} value={code} onChange={setCode} length={6} autoFocus error={request.wrong ? "El código es incorrecto o venció." : info.error || undefined} />
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">

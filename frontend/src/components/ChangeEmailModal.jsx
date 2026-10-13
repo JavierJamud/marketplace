@@ -1,3 +1,4 @@
+import { CODE_TTL_MINUTES } from "../lib/codeTtl.js";
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
@@ -77,7 +78,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
           <>
             <h2 className="mb-1 text-title-lg font-bold text-on-surface">Confirma el código</h2>
             <p className="mb-4 text-[12.5px] text-outline">
-              Revisa {currentEmail} y escribe el código que te mandamos (vence en 15 minutos).
+              Revisa {currentEmail} y escribe el código que te mandamos (vence en {CODE_TTL_MINUTES} minutos).
             </p>
             <OtpInput label="Código" length={8} charset="alphanumeric" autoFocus value={code} onChange={(v) => { setCode(v); setCodeError(""); }} onComplete={(v) => confirmCode.mutate(v)} error={codeError || undefined} />
             <div className="mt-5 flex gap-2.5">

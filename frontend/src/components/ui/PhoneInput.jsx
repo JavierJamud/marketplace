@@ -1,100 +1,161 @@
-import { useEffect, useRef, useState } from "react";
-import { getCountryOptions, toE164, splitE164 } from "../../lib/phone.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { isValidPhoneNumber, parsePhoneNumberFromString, getCountryCallingCode } from "libphonenumber-js";
+import { ComboSelect } from "./ComboSelect.jsx";
+import { Flag } from "./Flag.jsx";
+import { usePhoneCountries } from "../../lib/usePhoneCountries.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { splitE164, toE164 } from "../../lib/phone.js";
 
-// Selector de país (Cuba/EE.UU./México primero) + input de teléfono local.
-// El valor expuesto vía onChange siempre es E.164 completo (+5355512345),
-// listo para guardar y para armar links wa.me/... sin transformación aparte.
-// onCountryChange (opcional) recibe el ISO del país elegido — es el mismo
-// selector que pide el registro como "país" (Bloque 9), no uno duplicado.
-export function PhoneInput({ label, value, onChange, onCountryChange, required, placeholder, error }) {
-  const options = getCountryOptions();
+// Teléfono en dos campos: arriba el país (con su bandera) y debajo el número. El código de marcado del país se pone solo, se ve
+// delante del número y no se puede editar. Solo se ofrecen los países que el administrador habilitó en su panel; si el del
+// cliente no está, se le explica cómo pedir que lo activen. El valor que sale por onChange siempre es E.164 completo
+// (+5355512345), listo para guardar y para armar enlaces wa.me sin transformar.
+// onCountryChange (opcional) recibe el código ISO del país elegido (el registro lo guarda junto al teléfono).
+export function PhoneInput({ label, value, onChange, onCountryChange, required, placeholder, error, hideMissingCountryHelp = false }) {
+  const { countries, isLoading, isError } = usePhoneCountries();
+  const { siteName, supportWhatsapp } = usePlatformSettings();
   const initial = splitE164(value);
   const [country, setCountry] = useState(initial.country);
   const [national, setNational] = useState(initial.national);
-  // Recuerda el último E.164 que ESTE componente emitió, para distinguir
-  // "value cambió porque el padre recién cargó datos reales de forma async"
-  // (hay que re-sincronizar) de "value cambió porque yo mismo lo acabo de
-  // emitir" (no re-sincronizar, o se pisa lo que el usuario está tipeando).
+  // Último E.164 que ESTE componente emitió: distingue "el padre cargó datos reales de forma asíncrona" (hay que resincronizar)
+  // de "yo mismo lo acabo de emitir" (no resincronizar, o se pisa lo que la persona está escribiendo).
   const lastEmitted = useRef(value);
+  const announced = useRef(false);
 
-  // Avisa el país inicial una sola vez al montar, así el form del padre
-  // arranca en sync con el default ("CU") sin que el usuario tenga que
-  // tocar el selector.
-  useEffect(() => {
-    onCountryChange?.(initial.country);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Cubre el caso de VendorSettings.jsx/Checkout.jsx: el form arranca en ""
-  // y recién después de un fetch asíncrono (/vendors/me, /customers/me) el
-  // padre pasa el valor real — useState(initial) ya pasó, así que sin este
-  // effect el campo se queda vacío para siempre aunque sí haya un teléfono guardado.
+  // Si el valor llega después (perfil que se carga por red), se refleja en los campos.
   useEffect(() => {
     if (value === lastEmitted.current) return;
     const parsed = splitE164(value);
     setCountry(parsed.country);
-    setNational(parsed.national);
+    setNational(parsed.nationalNumber ?? parsed.national);
     lastEmitted.current = value;
   }, [value]);
 
-  function handleCountryChange(nextCountry) {
-    setCountry(nextCountry);
-    const next = toE164(nextCountry, national);
+  // Opciones: los países habilitados y, si el número guardado es de otro país, ese también, para no mostrar un campo vacío.
+  const options = useMemo(() => {
+    const list = countries.map((c) => ({ value: c.code, label: c.name, icon: <Flag code={c.code} />, callingCode: c.callingCode }));
+    if (country && !list.some((o) => o.value === country)) {
+      try {
+        list.unshift({ value: country, label: country, icon: <Flag code={country} />, callingCode: getCountryCallingCode(country) });
+      } catch {
+        /* código desconocido: no se agrega */
+      }
+    }
+    return list;
+  }, [countries, country]);
+
+  // Sin un número guardado, el país inicial es el primero habilitado (Cuba si lo está). Se avisa al padre una sola vez.
+  useEffect(() => {
+    if (!options.length) return;
+    if (!value && !options.some((o) => o.value === country)) {
+      setCountry(options[0].value);
+      onCountryChange?.(options[0].value);
+      announced.current = true;
+      return;
+    }
+    if (!announced.current) {
+      announced.current = true;
+      onCountryChange?.(country);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.length]);
+
+  const callingCode = options.find((o) => o.value === country)?.callingCode ?? "";
+  const maxDigits = Math.max(4, 15 - callingCode.length);
+
+  function emit(nextCountry, nextNational) {
+    const next = toE164(nextCountry, nextNational);
     lastEmitted.current = next;
     onChange(next);
-    onCountryChange?.(nextCountry);
   }
 
-  function handleNationalChange(nextNational) {
-    setNational(nextNational);
-    const next = toE164(country, nextNational);
-    lastEmitted.current = next;
-    onChange(next);
+  function handleCountry(next) {
+    if (!next) return;
+    setCountry(next);
+    emit(next, national);
+    onCountryChange?.(next);
   }
 
-  const callingCode = options.find((c) => c.code === country)?.callingCode ?? "";
+  function handleNational(raw) {
+    // Un número pegado completo (con +): se reconoce el país y se separa el código, siempre que ese país esté habilitado.
+    if (raw.trim().startsWith("+")) {
+      const parsed = parsePhoneNumberFromString(raw.trim());
+      if (parsed?.country && options.some((o) => o.value === parsed.country)) {
+        setCountry(parsed.country);
+        setNational(parsed.nationalNumber);
+        emit(parsed.country, parsed.nationalNumber);
+        onCountryChange?.(parsed.country);
+        return;
+      }
+    }
+    const digits = raw.replace(/\D/g, "").slice(0, maxDigits);
+    setNational(digits);
+    emit(country, digits);
+  }
 
-  // Bloque 114 (pedido explícito): país + código + número, en UN solo
-  // contenedor con un único borde (antes eran 3 cajas separadas) — se ve y
-  // se comporta como un solo campo, no tres.
-  // Bloque 115 (pedido explícito): ver Input.jsx — mismo asterisco de
-  // obligatorio, mismo criterio.
+  const looksInvalid = national.length >= 6 && callingCode && !isValidPhoneNumber(`+${callingCode}${national}`);
+  const shownError = error || (looksInvalid ? "Revisa el número: no parece válido para este país." : undefined);
+  const contactHref = `/contacto?mensaje=${encodeURIComponent(`Hola, quiero registrarme en ${siteName} y mi país no aparece en la lista. Les pido que lo activen. País: `)}`;
+  const waHref = supportWhatsapp ? `https://wa.me/${supportWhatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(`Hola, mi país no aparece en la lista de ${siteName}. Quiero que lo activen. País: `)}` : null;
+
   return (
-    <div className="block">
-      {label && (
-        <span className="mb-1 block text-label-md text-on-surface-variant">
-          {label}
-          {required && <span className="text-error"> *</span>}
-        </span>
-      )}
-      <div
-        className={`flex items-stretch overflow-hidden rounded border bg-surface-container-lowest focus-within:border-primary-container ${error ? "border-error" : "border-outline-variant"}`}
-      >
-        <select
-          required={required}
-          value={country}
-          onChange={(e) => handleCountryChange(e.target.value)}
-          aria-label="País"
-          className="max-w-[6.5rem] shrink-0 border-r border-outline-variant bg-transparent px-2 py-2.5 text-body-md text-on-surface outline-none sm:max-w-[9rem]"
+    <div className="space-y-2.5">
+      <ComboSelect
+        label="País"
+        required={required}
+        value={country}
+        onChange={handleCountry}
+        options={options}
+        placeholder={isLoading ? "Cargando países..." : "Busca tu país"}
+        emptyText="Ese país no está habilitado"
+      />
+
+      <div className="block">
+        {label && (
+          <span className="mb-1 block text-label-md text-on-surface-variant">
+            {label}
+            {required && <span className="text-error"> *</span>}
+          </span>
+        )}
+        <div
+          className={`flex items-stretch overflow-hidden rounded-xl border bg-surface-container-lowest focus-within:border-primary-container ${shownError ? "border-error" : "border-outline-variant"}`}
         >
-          {options.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <span className="flex shrink-0 select-none items-center border-r border-outline-variant px-2 text-body-md text-on-surface-variant">
-          +{callingCode}
-        </span>
-        <input
-          required={required}
-          value={national}
-          onChange={(e) => handleNationalChange(e.target.value)}
-          placeholder={placeholder ?? "5XXXXXXX"}
-          aria-label="Número"
-          className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-body-md text-on-surface outline-none"
-        />
+          <span className="flex shrink-0 select-none items-center gap-2 border-r border-outline-variant bg-surface-container px-3 text-body-md font-semibold text-on-surface" aria-label={callingCode ? `Código del país: más ${callingCode}` : undefined}>
+            {callingCode ? `+${callingCode}` : "+"}
+          </span>
+          <input
+            required={required}
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            value={national}
+            onChange={(e) => handleNational(e.target.value)}
+            placeholder={placeholder ?? "Número sin el código"}
+            aria-label="Número de teléfono"
+            className="min-h-11 min-w-0 flex-1 bg-transparent px-3 py-2.5 text-body-md text-on-surface outline-none"
+          />
+        </div>
+        {shownError && <span className="mt-1 block text-label-sm text-error">{shownError}</span>}
       </div>
+
+      {isError && <p className="text-label-sm text-error">No pudimos cargar la lista de países. Recarga la página.</p>}
+      {!hideMissingCountryHelp && !isError && (
+        <p className="text-[12px] leading-[17px] text-on-surface-variant">
+          ¿Tu país no está en la lista? Todavía no lo hemos habilitado: contacta a soporte para pedir que lo activen,{" "}
+          <a href={contactHref} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">
+            escríbenos desde Contacto
+          </a>
+          {waHref && (
+            <>
+              {" "}o por{" "}
+              <a href={waHref} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">
+                WhatsApp
+              </a>
+            </>
+          )}
+          .
+        </p>
+      )}
     </div>
   );
 }

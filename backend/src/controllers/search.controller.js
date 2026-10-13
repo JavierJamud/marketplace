@@ -352,6 +352,8 @@ export async function autocompleteSearch(req, res) {
     isPrivate: false,
     products: { some: { isActive: true, hiddenFromStore: false, overQuota: false } },
     ...(onlyVerified ? { verificationStatus: "VERIFIED" } : {}),
+    // El desplegable de búsqueda también respeta el lugar de compra elegido.
+    locations: vendorZoneWhere(req.query),
   };
 
   // Bloque 52: unaccent() de los dos lados (antes Prisma "contains" +

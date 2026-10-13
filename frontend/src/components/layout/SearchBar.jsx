@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, Store, BadgeCheck } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { useZone } from "../../context/LocationContext.jsx";
 import { VerifiedBadge } from "../ui/VerifiedBadge.jsx";
 import { CategoryIcon } from "../ui/CategoryIcon.jsx";
 
@@ -24,6 +25,7 @@ function imgUrl(path) {
 // dropdown (fondo/borde/sombra) para no inventar uno nuevo.
 export function SearchBar() {
   const navigate = useNavigate();
+  const { zoneParams, zoneKey } = useZone();
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [vendorResults, setVendorResults] = useState([]);
@@ -69,7 +71,7 @@ export function SearchBar() {
     debounceRef.current = setTimeout(async () => {
       const requestId = ++requestIdRef.current;
       try {
-        const { data } = await api.get("/search/autocomplete", { params: { q: trimmed, onlyVerified: onlyVerified || undefined } });
+        const { data } = await api.get("/search/autocomplete", { params: { q: trimmed, onlyVerified: onlyVerified || undefined, ...zoneParams } });
         // Si el cliente siguió escribiendo, esta respuesta ya es vieja —
         // ignorarla evita que una tecla más lenta pise el resultado de una
         // búsqueda más nueva que llegó primero.
@@ -90,7 +92,7 @@ export function SearchBar() {
       }
     }, DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
-  }, [q, onlyVerified]);
+  }, [q, onlyVerified, zoneKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function goToFullSearch() {
     setOpen(false);

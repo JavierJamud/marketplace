@@ -317,7 +317,7 @@ const emptyStoreForm = {
 export default function Account({ mode = "customer" }) {
   // Enlace de socio que llegó directo a esta pantalla (…/vendedor/ingresar?socio=CODIGO).
   useEffect(() => capturePartnerRef(), []);
-  const { login, verifyTwoFactor, register, verifyRegistration, refreshRole, logout } = useAuth();
+  const { user: sessionUser, login, verifyTwoFactor, register, verifyRegistration, refreshRole, logout } = useAuth();
   const { siteName } = usePlatformSettings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -349,6 +349,16 @@ export default function Account({ mode = "customer" }) {
   // — el email pendiente de verificar es siempre form.email, no hace falta
   // duplicarlo en un estado propio.
   const [registerCode, setRegisterCode] = useState("");
+  // Cuándo vence el código enviado (lo manda el servidor) y cuenta regresiva para poder pedir otro.
+  const [registerExpiresAt, setRegisterExpiresAt] = useState(null);
+  const [resetExpiresAt, setResetExpiresAt] = useState(null);
+  // El correo ya quedó verificado y la cuenta creada, pero la tienda aún no: se puede reintentar sin pedir otro código.
+  const [accountCreated, setAccountCreated] = useState(false);
+  const [vendorError, setVendorError] = useState("");
+  // Una cuenta de cliente que aún no tiene tienda y la está terminando de crear (salta los pasos de datos personales y contraseña).
+  const [completingStore, setCompletingStore] = useState(false);
+  const registerSecondsLeft = useCountdownSeconds(registerExpiresAt);
+  const resetSecondsLeft = useCountdownSeconds(resetExpiresAt);
   const [resendingCode, setResendingCode] = useState(false);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -401,6 +411,16 @@ export default function Account({ mode = "customer" }) {
   function switchView(next) {
     setView(next);
     setStep(1);
+    setCompletingStore(false);
+  }
+
+  // Cuenta de cliente sin tienda: se precargan sus datos y se pasa directo a "Tu tienda".
+  function startStoreCompletion(u) {
+    const parts = String(u?.fullName ?? "").trim().split(/\s+/).filter(Boolean);
+    setForm((f) => ({ ...f, firstName: parts[0] ?? "", lastName: parts.slice(1).join(" "), email: u?.email ?? f.email, phone: u?.phone ?? f.phone, country: u?.country ?? f.country }));
+    setCompletingStore(true);
+    setStep(3);
+    setView("register");
   }
 
   // Bloque 52: "?next=/tienda/:slug" — usado por el flujo de "inicia sesión
@@ -425,7 +445,8 @@ export default function Account({ mode = "customer" }) {
   function roleAllowedForMode(role) {
     if (mode === "admin") return role === "ADMIN";
     if (mode === "partner") return role === "PARTNER";
-    if (mode === "vendor") return role === "VENDOR" || role === "VENDOR_STAFF";
+    // Una cuenta de cliente sin tienda también entra por aquí: se le lleva a terminar de crearla (ver startStoreCompletion).
+    if (mode === "vendor") return role === "VENDOR" || role === "VENDOR_STAFF" || role === "CUSTOMER";
     return true;
   }
 
@@ -470,6 +491,11 @@ export default function Account({ mode = "customer" }) {
           toast.error("Credenciales inválidas.");
           return;
         }
+        if (mode === "vendor" && result.role === "CUSTOMER") {
+          toast.success("Tu cuenta todavía no tiene tienda. Termina de crearla aquí.");
+          startStoreCompletion(result);
+          return;
+        }
         toast.success("¡Bienvenido de vuelta!");
         navigate(destinationAfterLogin(result.role));
       });
@@ -490,6 +516,11 @@ export default function Account({ mode = "customer" }) {
           logout();
           toast.error("Credenciales inválidas.");
           setView("login");
+          return;
+        }
+        if (mode === "vendor" && user.role === "CUSTOMER") {
+          toast.success("Tu cuenta todavía no tiene tienda. Termina de crearla aquí.");
+          startStoreCompletion(user);
           return;
         }
         toast.success("¡Bienvenido de vuelta!");
@@ -584,10 +615,25 @@ export default function Account({ mode = "customer" }) {
         return;
       }
     }
+    if (completingStore) {
+      // La cuenta ya existe y tiene sesión: solo falta crear la tienda.
+      setLoading(true);
+      try {
+        await withMinDelay(createVendorFromForm);
+      } catch (err) {
+        toast.error(err.response?.data?.error ?? "No se pudo crear tu tienda. Revisa tu conexión e inténtalo de nuevo.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        await register(buildRegisterPayload());
+        const sent = await register(buildRegisterPayload());
+        setRegisterExpiresAt(sent.codeExpiresAt);
+        setAccountCreated(false);
+        setVendorError("");
         setRegisterCode("");
         setView("register-verify");
         toast.success("Te mandamos un código de verificación a tu correo.");
@@ -599,7 +645,8 @@ export default function Account({ mode = "customer" }) {
       // restablecer contraseña").
       if (err.response?.data?.details?.duplicate) {
         try {
-          await api.post("/auth/forgot-password", { email: form.email });
+          const { data } = await api.post("/auth/forgot-password", { email: form.email });
+          setResetExpiresAt(data.codeExpiresAt);
         } catch {
           // best-effort — si este intento puntual falla, el cliente igual
           // puede pedir el código a mano desde la pantalla a la que lo mandamos.
@@ -619,49 +666,68 @@ export default function Account({ mode = "customer" }) {
   // Segundo paso del registro — recién acá se crea la cuenta de verdad. Si
   // es vendedor, retoma exactamente donde handleFinalSubmit la dejaba antes
   // de este bloque (crear la tienda, refrescar el rol, mostrar el modal de planes).
+  // Crea la tienda con los datos del formulario. Se separa de la verificación del correo para poder reintentarla sola si falla.
+  async function createVendorFromForm() {
+    await api.post("/vendors", {
+      partnerCode: getPartnerCode(),
+      companyName: storeForm.companyName,
+      // Bloque 113/114 (pedido explícito): ya no se piden de nuevo en
+      // el paso de la tienda — son los mismos que la persona cargó en
+      // el paso 1 (Nombre+Apellidos/email/phone), con el aviso de que
+      // el nombre debe coincidir con su identificación.
+      ownerName: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
+      description: storeForm.description || undefined,
+      whatsapp: form.phone,
+      email: form.email,
+      companyAddress: storeForm.companyAddress.trim() || undefined,
+      isRestaurant: storeForm.isRestaurant,
+      tableCount: storeForm.isRestaurant ? Number(storeForm.tableCount) : undefined,
+      businessCategoryId: storeForm.businessCategoryId,
+      // Bloque 114: countryId siempre real (nunca "otro país");
+      // provinceId/municipalityId solo con Cuba, stateOther solo con
+      // cualquier otro país real.
+      locations: [
+        {
+          countryId: storeForm.countryId || undefined,
+          countryOther: storeForm.countryOther.trim() || undefined,
+          provinceId: storeForm.provinceId || undefined,
+          municipalityId: storeForm.municipalityId || undefined,
+          municipalityOther: storeForm.municipalityOther.trim() || undefined,
+          stateOther: storeForm.stateOther.trim() || undefined,
+        },
+      ],
+    });
+    // El accessToken recién emitido por verifyRegistration() todavía
+    // dice role CUSTOMER — sin refrescarlo, /vendedor/* devolvería 403
+    // apenas se cierre el modal y se navegue al panel.
+    await refreshRole();
+    clearPartnerRef();
+    setShowPlanModal(true);
+  }
+
+  // Segundo paso del registro — recién acá se crea la cuenta de verdad. Si es vendedor, después crea la tienda. Si la tienda
+  // falla, la cuenta ya existe y el correo ya está verificado: se avisa con el motivo real (no como "código incorrecto") y se
+  // puede reintentar sin pedir otro código. Antes un fallo aquí dejaba una cuenta de cliente sin tienda, y al entrar como
+  // vendedor decía "Esta cuenta no es de vendedor".
   async function handleVerifyRegistration(e) {
     e.preventDefault();
     setLoading(true);
+    setVendorError("");
     try {
       await withMinDelay(async () => {
-        const { linkedOrdersCount } = await verifyRegistration(form.email, registerCode);
+        let linkedOrdersCount = 0;
+        if (!accountCreated) {
+          ({ linkedOrdersCount } = await verifyRegistration(form.email, registerCode));
+          setAccountCreated(true);
+        }
 
         if (accountType === "vendor") {
-          await api.post("/vendors", {
-            partnerCode: getPartnerCode(),
-            companyName: storeForm.companyName,
-            // Bloque 113/114 (pedido explícito): ya no se piden de nuevo en
-            // el paso de la tienda — son los mismos que la persona cargó en
-            // el paso 1 (Nombre+Apellidos/email/phone), con el aviso de que
-            // el nombre debe coincidir con su identificación.
-            ownerName: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
-            description: storeForm.description || undefined,
-            whatsapp: form.phone,
-            email: form.email,
-            companyAddress: storeForm.companyAddress.trim() || undefined,
-            isRestaurant: storeForm.isRestaurant,
-            tableCount: storeForm.isRestaurant ? Number(storeForm.tableCount) : undefined,
-            businessCategoryId: storeForm.businessCategoryId,
-            // Bloque 114: countryId siempre real (nunca "otro país");
-            // provinceId/municipalityId solo con Cuba, stateOther solo con
-            // cualquier otro país real.
-            locations: [
-              {
-                countryId: storeForm.countryId || undefined,
-                countryOther: storeForm.countryOther.trim() || undefined,
-                provinceId: storeForm.provinceId || undefined,
-                municipalityId: storeForm.municipalityId || undefined,
-                municipalityOther: storeForm.municipalityOther.trim() || undefined,
-                stateOther: storeForm.stateOther.trim() || undefined,
-              },
-            ],
-          });
-          // El accessToken recién emitido por verifyRegistration() todavía
-          // dice role CUSTOMER — sin refrescarlo, /vendedor/* devolvería 403
-          // apenas se cierre el modal y se navegue al panel.
-          await refreshRole();
-          clearPartnerRef();
-          setShowPlanModal(true);
+          try {
+            await createVendorFromForm();
+          } catch (err) {
+            err.vendorStep = true;
+            throw err;
+          }
         } else {
           // Bloque 59 (pedido explícito): si ya había comprado como
           // invitado con este correo, esos pedidos quedaron vinculados a la
@@ -676,8 +742,14 @@ export default function Account({ mode = "customer" }) {
         }
       });
     } catch (err) {
-      setRegisterCode("");
-      setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
+      if (err.vendorStep) {
+        const message = err.response?.data?.error ?? "No se pudo crear tu tienda. Revisa tu conexión e inténtalo de nuevo.";
+        setVendorError(message);
+        toast.error(message);
+      } else {
+        setRegisterCode("");
+        setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
+      }
     } finally {
       setLoading(false);
     }
@@ -686,7 +758,10 @@ export default function Account({ mode = "customer" }) {
   async function handleResendRegistrationCode() {
     setResendingCode(true);
     try {
-      await register(buildRegisterPayload());
+      const sent = await register(buildRegisterPayload());
+      setRegisterExpiresAt(sent.codeExpiresAt);
+      setRegisterCode("");
+      setCodeError("");
       toast.success("Te mandamos un nuevo código.");
     } catch (err) {
       toast.error(err.response?.data?.error ?? "No se pudo reenviar el código.");
@@ -740,6 +815,7 @@ export default function Account({ mode = "customer" }) {
     try {
       await withMinDelay(async () => {
         const { data } = await api.post("/auth/forgot-password", { email: resetEmail });
+        setResetExpiresAt(data.codeExpiresAt);
         toast.success(data.message ?? "Revisa tu correo.");
         setView("forgot-code");
       });
@@ -747,6 +823,21 @@ export default function Account({ mode = "customer" }) {
       toast.error(err.response?.data?.error ?? "No se pudo procesar la solicitud.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResendResetCode() {
+    setResendingCode(true);
+    try {
+      const { data } = await api.post("/auth/forgot-password", { email: resetEmail });
+      setResetExpiresAt(data.codeExpiresAt);
+      setResetCode("");
+      setCodeError("");
+      toast.success("Te mandamos un nuevo código.");
+    } catch (err) {
+      toast.error(err.response?.data?.error ?? "No se pudo reenviar el código.");
+    } finally {
+      setResendingCode(false);
     }
   }
 
@@ -877,33 +968,59 @@ export default function Account({ mode = "customer" }) {
     return (
       <AccountShell provinceCount={provinces?.length} mode={mode}>
         <div key={view} className="animate-step-in">
-          <h1 className="mb-2 text-headline-md text-on-surface">Confirma tu correo</h1>
-          <p className="mb-6 text-body-md text-on-surface-variant">
-            Te mandamos un código de 6 dígitos a <strong>{form.email}</strong>. Vence en 10 minutos.
-          </p>
+          <h1 className="mb-2 text-headline-md text-on-surface">{accountCreated ? "Falta crear tu tienda" : "Confirma tu correo"}</h1>
+          {accountCreated ? (
+            <p className="mb-4 text-body-md text-on-surface-variant">
+              Tu correo <strong>{form.email}</strong> ya está verificado y tu cuenta creada, pero la tienda no se pudo terminar de crear.
+              {vendorError ? ` Motivo: ${vendorError}` : ""} Puedes reintentarlo ahora sin pedir otro código.
+            </p>
+          ) : (
+            <p className="mb-6 text-body-md text-on-surface-variant">
+              Te mandamos un código de 6 dígitos a <strong>{form.email}</strong>.{" "}
+              {registerSecondsLeft > 0 ? (
+                <>
+                  Vence en{" "}
+                  <strong className="tabular-nums">
+                    {String(Math.floor(registerSecondsLeft / 60)).padStart(2, "0")}:{String(registerSecondsLeft % 60).padStart(2, "0")}
+                  </strong>
+                  .
+                </>
+              ) : (
+                "El código venció: pide uno nuevo."
+              )}
+            </p>
+          )}
           <form onSubmit={handleVerifyRegistration} className="space-y-4">
-            <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
-            <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || registerCode.length !== 6}>
+            {!accountCreated && (
+              <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
+            )}
+            <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || (!accountCreated && registerCode.length !== 6)}>
               {loading ? (
                 <>
                   <Spinner className="text-white" /> {accountType === "vendor" ? "Creando tu tienda..." : "Creando tu cuenta..."}
                 </>
+              ) : accountCreated ? (
+                "Reintentar crear mi tienda"
               ) : (
                 "Verificar y crear cuenta"
               )}
             </Button>
           </form>
-          <button
-            type="button"
-            onClick={handleResendRegistrationCode}
-            disabled={resendingCode}
-            className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
-          >
-            {resendingCode ? "Reenviando..." : "Reenviar código"}
-          </button>
-          <button onClick={() => switchView("register")} className="mt-2 block text-label-md font-semibold text-outline">
-            ← Volver a editar mis datos
-          </button>
+          {!accountCreated && (
+            <>
+              <button
+                type="button"
+                onClick={handleResendRegistrationCode}
+                disabled={resendingCode || registerSecondsLeft > 0}
+                className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
+              >
+                {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
+              </button>
+              <button onClick={() => switchView("register")} className="mt-2 block text-label-md font-semibold text-outline">
+                ← Volver a editar mis datos
+              </button>
+            </>
+          )}
         </div>
       </AccountShell>
     );
@@ -933,7 +1050,18 @@ export default function Account({ mode = "customer" }) {
             <>
               <h1 className="mb-2 text-headline-md text-on-surface">Ingresa el código</h1>
               <p className="mb-6 text-body-md text-on-surface-variant">
-                Te mandamos un código de 6 dígitos a <strong>{resetEmail}</strong>. Vence en 15 minutos.
+                Te mandamos un código de 6 dígitos a <strong>{resetEmail}</strong>.{" "}
+                {resetSecondsLeft > 0 ? (
+                  <>
+                    Vence en{" "}
+                    <strong className="tabular-nums">
+                      {String(Math.floor(resetSecondsLeft / 60)).padStart(2, "0")}:{String(resetSecondsLeft % 60).padStart(2, "0")}
+                    </strong>
+                    .
+                  </>
+                ) : (
+                  "El código venció: pide uno nuevo."
+                )}
               </p>
               <form onSubmit={handleVerifyCode} className="space-y-4">
                 <OtpInput label="Código de verificación" required autoFocus value={resetCode} onChange={(v) => { setResetCode(v); setCodeError(""); }} error={codeError || undefined} />
@@ -941,8 +1069,11 @@ export default function Account({ mode = "customer" }) {
                   {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar código"}
                 </Button>
               </form>
-              <button onClick={() => setView("forgot-email")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
-                ← Volver a pedir el código
+              <button type="button" onClick={handleResendResetCode} disabled={resetSecondsLeft > 0 || resendingCode} className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50">
+                {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
+              </button>
+              <button onClick={() => setView("forgot-email")} className="mt-2 block text-label-md font-semibold text-outline">
+                ← Cambiar el correo
               </button>
             </>
           )}
@@ -1037,17 +1168,28 @@ export default function Account({ mode = "customer" }) {
         ) : (
           <>
             <h1 className="mb-1 text-headline-md text-on-surface">
-              {mode === "vendor" ? `Crea tu tienda en ${siteName}` : `Crea tu cuenta ${siteName}`}
+              {completingStore ? "Termina de crear tu tienda" : mode === "vendor" ? `Crea tu tienda en ${siteName}` : `Crea tu cuenta ${siteName}`}
             </h1>
             <p className="mb-4 text-label-sm text-outline">
-              Paso {step} de {totalSteps}
+              {completingStore ? `Paso ${step - 2} de 2 · cuenta ${form.email}` : `Paso ${step} de ${totalSteps}`}
             </p>
             <div className="mb-6 h-1.5 w-full overflow-hidden rounded-full bg-surface-container">
               <div
                 className="h-full rounded-full bg-secondary-container transition-all duration-300"
-                style={{ width: `${(step / totalSteps) * 100}%` }}
+                style={{ width: `${completingStore ? ((step - 2) / 2) * 100 : (step / totalSteps) * 100}%` }}
               />
             </div>
+            {/* Quien ya tiene sesión de cliente puede abrir su tienda con esa misma cuenta, sin registrarse otra vez. */}
+            {mode === "vendor" && !completingStore && step === 1 && sessionUser?.role === "CUSTOMER" && (
+              <div className="mb-5 rounded-xl border border-tertiary-accent/40 bg-tertiary-accent/5 p-3.5">
+                <p className="text-label-md text-on-surface">
+                  Ya iniciaste sesión como <strong>{sessionUser.fullName}</strong>. Puedes crear tu tienda con esta misma cuenta.
+                </p>
+                <Button type="button" size="md" className="mt-2.5 w-full rounded-xl" onClick={() => startStoreCompletion(sessionUser)}>
+                  Crear mi tienda con esta cuenta
+                </Button>
+              </div>
+            )}
 
             <form onSubmit={goNext} className="space-y-4">
               {step === 1 && (
@@ -1234,7 +1376,7 @@ export default function Account({ mode = "customer" }) {
               )}
 
               <div className="flex gap-2.5">
-                {step > 1 && (
+                {step > (completingStore ? 3 : 1) && (
                   <Button type="button" variant="outline" size="lg" onClick={() => setStep((s) => s - 1)} disabled={loading} className="rounded-xl">
                     Atrás
                   </Button>
@@ -1243,10 +1385,12 @@ export default function Account({ mode = "customer" }) {
                   {loading ? (
                     <>
                       <Spinner className="text-white" />
-                      {step === totalSteps ? "Enviando código..." : "Cargando..."}
+                      {step === totalSteps ? (completingStore ? "Creando tu tienda..." : "Enviando código...") : "Cargando..."}
                     </>
                   ) : step < totalSteps ? (
                     "Continuar"
+                  ) : completingStore ? (
+                    "Crear mi tienda"
                   ) : (
                     "Enviar código de verificación"
                   )}
