@@ -12,7 +12,7 @@ import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 const CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
 const RATINGS = [4, 3];
 
-function Section({ title, count, defaultOpen = true, children }) {
+export function Section({ title, count, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="border-b border-surface-container-high py-3.5 last:border-b-0">
@@ -28,7 +28,7 @@ function Section({ title, count, defaultOpen = true, children }) {
   );
 }
 
-function Chip({ active, onClick, children }) {
+export function Chip({ active, onClick, children }) {
   return (
     <button
       type="button"
@@ -44,7 +44,7 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-function Switch({ checked, onChange, label, hint }) {
+export function Switch({ checked, onChange, label, hint }) {
   return (
     <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left">
       <span>
@@ -135,7 +135,7 @@ function CategoryTree({ categories, value, onChange }) {
   );
 }
 
-function PriceRange({ minPrice, maxPrice, currency, onApply }) {
+export function PriceRange({ minPrice, maxPrice, currency, onApply }) {
   const [min, setMin] = useState(minPrice);
   const [max, setMax] = useState(maxPrice);
   useEffect(() => setMin(minPrice), [minPrice]);
@@ -152,7 +152,7 @@ function PriceRange({ minPrice, maxPrice, currency, onApply }) {
   );
 }
 
-export function ShopFilters({ filters, setFilter, setMany, toggleInList, categories, badges, provinces, provinceId, onProvince }) {
+export function ShopFilters({ filters, setFilter, setMany, toggleInList, categories, badges }) {
   const payment = filters.payment;
   const accepts = filters.accepts;
   return (
@@ -212,15 +212,6 @@ export function ShopFilters({ filters, setFilter, setMany, toggleInList, categor
             </Chip>
           ))}
         </div>
-      </Section>
-
-      <Section title="Provincia" count={provinceId ? 1 : 0} defaultOpen={false}>
-        <select value={provinceId ?? ""} onChange={(e) => onProvince(e.target.value || null)} aria-label="Provincia" className="h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none focus:border-primary-container">
-          <option value="">Todas las provincias</option>
-          {provinces.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
       </Section>
     </div>
   );

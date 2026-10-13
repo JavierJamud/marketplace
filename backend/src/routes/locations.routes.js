@@ -3,6 +3,7 @@ import * as locationsController from "../controllers/locations.controller.js";
 
 const router = Router();
 
+router.get("/served", locationsController.listServedLocations);
 router.get("/provinces", locationsController.listProvinces);
 router.get("/countries", locationsController.listActiveCountries);
 router.get("/countries/:countryId/provinces", locationsController.listProvincesByCountry);

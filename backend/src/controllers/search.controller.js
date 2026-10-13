@@ -5,6 +5,7 @@ import { withComputedVendorFields, withComputedVendorFieldsList } from "../servi
 import { rankFeaturedProducts } from "../lib/productRanking.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
 import { recordSearchTerm, getTrendingSearches } from "../lib/trendingSearches.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
 // "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
@@ -127,7 +128,7 @@ function reorderByIds(rows, ids) {
 // sidebar de filtros de Shop, buscador de texto): la que consume el catálogo
 // y la Home.
 export async function structuredSearch(req, res) {
-  const { q, categoryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment, accepts, currency, discount, wholesale, badge, minRating } = req.query;
+  const { q, categoryId, countryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment, accepts, currency, discount, wholesale, badge, minRating } = req.query;
   await expireNewBadges();
 
   // Filtrar por categoría incluye sus subcategorías (ej. "Restaurantes" trae
@@ -184,9 +185,7 @@ export async function structuredSearch(req, res) {
       verificationStatus: onlyVerified === "true" ? "VERIFIED" : undefined,
       checkoutPaymentOptions: checkoutOptions.length ? { hasSome: checkoutOptions } : undefined,
       acceptedPaymentMethods: acceptedMethods.length ? { hasSome: acceptedMethods } : undefined,
-      locations: provinceId
-        ? { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } }
-        : undefined,
+      locations: vendorZoneWhere({ countryId, provinceId, municipalityId }),
     },
   };
   const includeOpts = {

@@ -18,6 +18,48 @@ export async function listProvinces(_req, res) {
   res.json({ provinces });
 }
 
+// Dónde hay tiendas (y cuántas) para el selector "¿Dónde quieres comprar?" de los compradores: solo países, provincias o
+// estados y municipios que tienen al menos una tienda pública con productos a la vista. Una sola consulta: la lista es corta.
+export async function listServedLocations(_req, res) {
+  const rows = await prisma.vendorLocation.findMany({
+    where: {
+      vendor: {
+        isBlocked: false,
+        status: "ACTIVE",
+        isPrivate: false,
+        products: { some: { isActive: true, hiddenFromStore: false, overQuota: false } },
+      },
+    },
+    select: {
+      vendorId: true,
+      country: { select: { id: true, name: true, isActive: true } },
+      province: { select: { id: true, name: true, type: true, isActive: true, countryId: true, country: { select: { id: true, name: true, isActive: true } } } },
+      municipality: { select: { id: true, name: true, isActive: true, provinceId: true } },
+    },
+  });
+
+  const countries = new Map();
+  const provinces = new Map();
+  const municipalities = new Map();
+  const bump = (map, key, base, vendorId) => {
+    if (!map.has(key)) map.set(key, { ...base, vendors: new Set() });
+    map.get(key).vendors.add(vendorId);
+  };
+  for (const r of rows) {
+    // Ubicaciones antiguas guardaban solo la provincia: el país sale de ella.
+    const country = r.country ?? r.province?.country;
+    if (country?.isActive) bump(countries, country.id, { id: country.id, name: country.name }, r.vendorId);
+    if (r.province?.isActive) bump(provinces, r.province.id, { id: r.province.id, name: r.province.name, type: r.province.type, countryId: r.province.countryId ?? country?.id ?? null }, r.vendorId);
+    if (r.municipality?.isActive) bump(municipalities, r.municipality.id, { id: r.municipality.id, name: r.municipality.name, provinceId: r.municipality.provinceId }, r.vendorId);
+  }
+  const out = (map) =>
+    [...map.values()]
+      .map(({ vendors, ...rest }) => ({ ...rest, count: vendors.size }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  res.set("Cache-Control", "public, max-age=60");
+  res.json({ countries: out(countries), provinces: out(provinces), municipalities: out(municipalities) });
+}
+
 // Provincias de un país específico — usado por el selector encadenado del
 // vendedor (elige país → ve las provincias de ese país).
 export async function listProvincesByCountry(req, res) {

@@ -13,6 +13,7 @@ import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 import { TrendingSearches } from "../../components/TrendingSearches.jsx";
 import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
+import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselLazy.jsx";
 
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
@@ -147,7 +148,7 @@ function featuredVisibility(index) {
 }
 
 export default function Home() {
-  const { provinceId, provinceName, hasProvinceFilter, loading: zoneLoading } = useZone();
+  const { zoneParams, zoneKey, zoneName, hasZoneFilter, loading: zoneLoading } = useZone();
   // Bloque 252: el slider de imágenes del hero va a la derecha en escritorio y,
   // en celular, debajo del párrafo. Se monta uno solo según el ancho (no dos
   // con uno oculto: duplicarían el autoplay y la carga de imágenes).
@@ -174,21 +175,22 @@ export default function Home() {
 
   // Ventas rápidas: anuncios de clientes sin tienda. Se muestran los más recientes y siempre hay un acceso para publicar el tuyo.
   const { data: quickSales } = useQuery({
-    queryKey: ["home-quick-sales"],
-    queryFn: async () => (await api.get("/customer-listings", { params: { limit: 8 } })).data.listings,
+    queryKey: ["home-quick-sales", zoneKey],
+    queryFn: async () => (await api.get("/customer-listings", { params: { limit: 8, ...zoneParams } })).data.listings,
+    enabled: !zoneLoading,
     staleTime: 60 * 1000,
   });
   const quickSaleSlides = useMemo(() => [...(quickSales ?? []), { id: "cta", cta: true }], [quickSales]);
 
   const { data: featured } = useQuery({
-    queryKey: ["home-featured", provinceId],
-    queryFn: async () => (await api.get("/search", { params: { provinceId: provinceId || undefined } })).data.products,
+    queryKey: ["home-featured", zoneKey],
+    queryFn: async () => (await api.get("/search", { params: zoneParams })).data.products,
     enabled: !zoneLoading,
   });
 
   const { data: verifiedVendors } = useQuery({
-    queryKey: ["home-verified-vendors", provinceId],
-    queryFn: async () => (await api.get("/vendors", { params: { isVerified: true, provinceId: provinceId || undefined } })).data.vendors,
+    queryKey: ["home-verified-vendors", zoneKey],
+    queryFn: async () => (await api.get("/vendors", { params: { isVerified: true, ...zoneParams } })).data.vendors,
     enabled: !zoneLoading,
   });
 
@@ -254,7 +256,7 @@ export default function Home() {
                   to="/catalogo"
                   className="flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-[28px] bg-secondary-container px-2 py-3 text-center text-[13px] font-semibold text-on-secondary-container hover:brightness-95 sm:flex-none sm:px-6 sm:text-label-md sm:font-normal"
                 >
-                  {hasProvinceFilter ? `Explorar en ${provinceName}` : "Explorar todo el catálogo"}
+                  {hasZoneFilter ? `Explorar en ${zoneName}` : "Explorar todo el catálogo"}
                 </Link>
                 <Link
                   to="/tiendas"
@@ -266,6 +268,16 @@ export default function Home() {
             </div>
 
             {isLargeScreen && showHeroSlot && (settingsLoading ? <div className="h-[368px] lg:h-[388px]" aria-hidden="true" /> : <HeroImageSlider images={heroImages} alt={settings?.siteName || "Baznova"} />)}
+          </div>
+        </section>
+
+        {/* Dónde compra el visitante: todo lo de esta página (y del catálogo y las tiendas) se limita a ese lugar. */}
+        <section className="container-app pt-5" aria-label="Lugar de compra">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <ZoneChip />
+            <span className="text-[12.5px] text-on-surface-variant">
+              {hasZoneFilter ? "Ves solo lo que hay en ese lugar." : "Elige tu país, provincia o municipio para ver solo lo de tu zona."}
+            </span>
           </div>
         </section>
 
@@ -293,8 +305,8 @@ export default function Home() {
         {/* PRODUCTOS DESTACADOS */}
         <section className="container-app cv-auto pt-8 md:pt-11">
           <SectionHead
-            title={hasProvinceFilter ? `Destacados en ${provinceName}` : "Destacados en toda Cuba"}
-            subtitle={hasProvinceFilter ? "De tiendas verificadas cerca de ti" : "De tiendas verificadas en todo el país"}
+            title={hasZoneFilter ? `Destacados en ${zoneName}` : "Destacados en toda Cuba"}
+            subtitle={hasZoneFilter ? "De tiendas verificadas cerca de ti" : "De tiendas verificadas en todo el país"}
           />
           {featured?.length ? (
             <>
@@ -315,7 +327,7 @@ export default function Home() {
                   cualquier ancho. */}
               <div className="mt-6 flex flex-col items-center gap-0.5 px-2 text-center">
                 <p className="max-w-[460px] text-body-md text-on-surface-variant">
-                  Esto es una selección. En el catálogo hay más productos de tiendas {hasProvinceFilter ? `en ${provinceName}` : "de toda Cuba"}.
+                  Esto es una selección. En el catálogo hay más productos de tiendas {hasZoneFilter ? `en ${zoneName}` : "de toda Cuba"}.
                 </p>
                 <Link to="/catalogo" className="flex min-h-11 items-center text-label-md font-semibold text-tertiary-accent hover:underline">
                   Ver todo el catálogo →

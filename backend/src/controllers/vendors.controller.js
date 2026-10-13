@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { KYC_UPLOAD_DIR } from "./verification.controller.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { slugify } from "../utils/slugify.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
@@ -401,8 +402,23 @@ export async function getVendorBySlug(req, res) {
   });
 }
 
+// Lista pública de tiendas. Filtros (todos opcionales y combinables): zona (país, provincia o estado, municipio), tipo de
+// establecimiento (restaurante o tienda), tipos de negocio, verificadas, formas de coordinar el pago, métodos que acepta,
+// rango de precios de sus productos (en una moneda), valoración mínima y orden. Los precios miran los productos que el cliente
+// realmente puede ver en la tienda.
+const STORE_SORTS = new Set(["recent", "rating", "products"]);
 export async function listVendors(req, res) {
-  const { provinceId, municipalityId, isRestaurant, isVerified, q, businessCategoryId } = req.query;
+  const { countryId, provinceId, municipalityId, isRestaurant, isVerified, q, businessCategoryId, payment, accepts, minPrice, maxPrice, currency, minRating, sort } = req.query;
+
+  const list = (v, max = 12) => (v ? [...new Set(String(v).split(",").map((s) => s.trim()).filter(Boolean))].slice(0, max) : []);
+  const businessCategoryIds = list(businessCategoryId);
+  const checkoutOptions = list(payment).filter((m) => ["cod", "online", "cash"].includes(m));
+  const acceptedMethods = list(accepts);
+  const currencyFilter = ["CUP", "USD", "EUR", "MXN"].includes(String(currency)) ? String(currency) : undefined;
+  const min = Number(minPrice) > 0 ? Number(minPrice) : undefined;
+  const max = Number(maxPrice) > 0 ? Number(maxPrice) : undefined;
+  const ratingMin = Number(minRating) > 0 ? Math.min(5, Number(minRating)) : undefined;
+  const sortBy = STORE_SORTS.has(String(sort)) ? String(sort) : "recent";
 
   const vendors = await prisma.vendor.findMany({
     where: {
@@ -414,15 +430,25 @@ export async function listVendors(req, res) {
       isPrivate: false,
       // Bloque 64 (regla de visibilidad, INDEPENDIENTE de verificationStatus
       // de arriba): una tienda sin ningún producto publicado no aparece acá,
-      // verificada o no, Plan Business o Regular.
-      products: { some: { isActive: true, hiddenFromStore: false, overQuota: false } },
+      // verificada o no, Plan Business o Regular. Si además se pide un rango de precios, basta con que UN producto visible
+      // esté dentro del rango.
+      products: {
+        some: {
+          isActive: true,
+          hiddenFromStore: false,
+          overQuota: false,
+          currency: currencyFilter,
+          price: min || max ? { gte: min, lte: max } : undefined,
+        },
+      },
       isRestaurant: isRestaurant !== undefined ? isRestaurant === "true" : undefined,
       verificationStatus: isVerified !== undefined ? (isVerified === "true" ? "VERIFIED" : { not: "VERIFIED" }) : undefined,
       companyName: q ? { contains: String(q), mode: "insensitive" } : undefined,
-      businessCategoryId: businessCategoryId ? String(businessCategoryId) : undefined,
-      locations: provinceId
-        ? { some: { provinceId: String(provinceId), municipalityId: municipalityId ? String(municipalityId) : undefined } }
-        : undefined,
+      businessCategoryId: businessCategoryIds.length ? { in: businessCategoryIds } : undefined,
+      checkoutPaymentOptions: checkoutOptions.length ? { hasSome: checkoutOptions } : undefined,
+      acceptedPaymentMethods: acceptedMethods.length ? { hasSome: acceptedMethods } : undefined,
+      rating: ratingMin ? { gte: ratingMin } : undefined,
+      locations: vendorZoneWhere({ countryId, provinceId, municipalityId }),
     },
     orderBy: { createdAt: "desc" },
     include: {
@@ -434,13 +460,15 @@ export async function listVendors(req, res) {
       // que el cliente no puede ver de todas formas).
       _count: { select: { products: { where: { isActive: true, hiddenFromStore: false, overQuota: false } } } },
     },
-    take: 50,
+    take: 100,
   });
 
   // Bloque 64: verificadas primero — ya no se puede ordenar por isVerified
   // en la propia query (es un enum de 8 valores, no un booleano), se
-  // reordena acá con el mismo criterio de siempre.
-  vendors.sort((a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0));
+  // reordena acá con el mismo criterio de siempre. Dentro de cada grupo manda el orden elegido (el de base es "recientes").
+  const verifiedFirst = (a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0);
+  const secondary = sortBy === "rating" ? (a, b) => Number(b.rating) - Number(a.rating) : sortBy === "products" ? (a, b) => b._count.products - a._count.products : () => 0;
+  vendors.sort((a, b) => verifiedFirst(a, b) || secondary(a, b));
 
   // ownerName es privado — ver nota en getVendorBySlug.
   res.json({ vendors: withComputedVendorFieldsList(vendors.map(toPublicVendor)) });

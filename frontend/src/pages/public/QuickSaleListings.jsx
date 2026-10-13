@@ -5,6 +5,8 @@ import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { Package } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
+import { useZone } from "../../context/LocationContext.jsx";
+import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
 // Listado público de anuncios de venta rápida de clientes SIN tienda.
@@ -22,9 +24,11 @@ export default function QuickSaleListings() {
   const [params] = useSearchParams();
   const [search, setSearch] = useState(() => params.get("q") ?? "");
   const [condition, setCondition] = useState("");
+  const { zoneParams, zoneKey, loading: zoneLoading } = useZone();
   const { data: listings, isLoading } = useQuery({
-    queryKey: ["public-customer-listings"],
-    queryFn: async () => (await api.get("/customer-listings")).data.listings,
+    queryKey: ["public-customer-listings", zoneKey],
+    queryFn: async () => (await api.get("/customer-listings", { params: zoneParams })).data.listings,
+    enabled: !zoneLoading,
   });
 
   // Se busca en el título, la descripción, las palabras clave, la zona y la provincia.
@@ -42,6 +46,7 @@ export default function QuickSaleListings() {
         Productos publicados directamente por clientes — sin tienda, se coordina todo por WhatsApp.
       </p>
 
+      <ZoneChip className="mb-5" />
       {(listings?.length ?? 0) > 0 && (
         <div className="mb-6 flex flex-col gap-3">
           <SearchBox className="max-w-[520px]" value={search} onChange={setSearch} placeholder="Buscar por nombre, palabra clave o zona" resultText={search.trim() || condition ? `${shown.length} de ${listings.length} anuncios` : undefined} />

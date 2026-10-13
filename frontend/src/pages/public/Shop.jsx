@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
+import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { ProductCard } from "../../components/ProductCard.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { ShopFilters, ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
@@ -24,7 +25,7 @@ const list = (v) => (v ? v.split(",").filter(Boolean) : []);
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { provinces, provinceId, municipalityId, provinceName, hasProvinceFilter, setProvince, setMunicipality } = useZone();
+  const { zoneParams, zoneKey, zoneName, hasZoneFilter, setProvince, setMunicipality, clearFilter: clearZone } = useZone();
 
   const q = searchParams.get("q") ?? "";
   const categoryId = searchParams.get("categoryId") ?? "";
@@ -100,7 +101,7 @@ export default function Shop() {
   const badges = siteSettings?.availableProductBadges ?? [];
 
   const { data, isLoading } = useQuery({
-    queryKey: ["shop-products", q, searchParams.toString(), provinceId, municipalityId, sort],
+    queryKey: ["shop-products", q, searchParams.toString(), zoneKey, sort],
     placeholderData: (prev) => prev,
     queryFn: async () =>
       (
@@ -108,8 +109,7 @@ export default function Shop() {
           params: {
             q: q || undefined,
             categoryId: categoryId || undefined,
-            provinceId: provinceId || undefined,
-            municipalityId: municipalityId || undefined,
+            ...zoneParams,
             minPrice: filters.minPrice || undefined,
             maxPrice: filters.maxPrice || undefined,
             currency: filters.currency || undefined,
@@ -162,7 +162,7 @@ export default function Shop() {
     filters.wholesale && { key: "whole", label: "Precio por cantidad", remove: () => setFilter("wholesale", "") },
     filters.badge && { key: "badge", label: filters.badge, remove: () => setFilter("badge", "") },
     filters.minRating && { key: "rate", label: `${filters.minRating}★ o más`, remove: () => setFilter("minRating", "") },
-    hasProvinceFilter && { key: "prov", label: provinceName, remove: () => setProvince(null) },
+    hasZoneFilter && { key: "zone", label: zoneName, remove: clearZone },
   ].filter(Boolean);
 
   return (
@@ -175,11 +175,12 @@ export default function Shop() {
               <Link to="/" className="text-outline hover:text-primary-container">Inicio</Link> / <span className="text-on-surface">Catálogo</span>
             </div>
             <h1 className="font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">
-              {hasProvinceFilter ? `Catálogo en ${provinceName}` : "Catálogo completo"}
+              {hasZoneFilter ? `Catálogo en ${zoneName}` : "Catálogo completo"}
             </h1>
             <p className="mt-1.5 text-label-sm text-outline">
-              {hasProvinceFilter ? "Resultados filtrados por tu provincia" : "Todas las provincias"} · las tiendas verificadas se muestran primero
+              {hasZoneFilter ? "Solo productos de tiendas de ese lugar" : "De todas las tiendas"} · las tiendas verificadas se muestran primero
             </p>
+            <ZoneChip className="mt-3" />
           </div>
         </div>
 
@@ -194,7 +195,7 @@ export default function Shop() {
                 <button type="button" onClick={clearFilters} className="min-h-9 text-[12.5px] font-semibold text-tertiary-accent hover:underline">Limpiar</button>
               )}
             </div>
-            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} provinces={provinces} provinceId={provinceId} onProvince={setProvince} />
+            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} />
           </aside>
           )}
 
@@ -206,7 +207,7 @@ export default function Shop() {
                 {activeChips.length > 0 && <span className="rounded-full bg-tertiary-accent px-1.5 py-0.5 text-[11px] leading-none text-white">{activeChips.length}</span>}
               </button>
               <span className="hidden text-[13.5px] text-outline sm:inline">
-                {products.length} {products.length === 1 ? "producto" : "productos"} {hasProvinceFilter ? `en ${provinceName}` : "en todo el país"}
+                {products.length} {products.length === 1 ? "producto" : "productos"} {hasZoneFilter ? `en ${zoneName}` : "en todo el país"}
               </span>
               <select
                 value={sort}
@@ -220,7 +221,7 @@ export default function Shop() {
               </select>
             </div>
             <p className="mb-3 text-[13px] text-outline sm:hidden">
-              {products.length} {products.length === 1 ? "producto" : "productos"} {hasProvinceFilter ? `en ${provinceName}` : "en todo el país"}
+              {products.length} {products.length === 1 ? "producto" : "productos"} {hasZoneFilter ? `en ${zoneName}` : "en todo el país"}
             </p>
             {activeChips.length > 0 && (
               <div className="mb-4">
@@ -241,14 +242,17 @@ export default function Shop() {
             {!isLoading && products.length === 0 && (
               <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest py-16 text-center">
                 <div className="mb-1.5 text-title-lg font-semibold text-on-surface">
-                  {hasProvinceFilter ? `Sin stock en ${provinceName}` : q.trim() ? `No encontramos productos con el nombre “${q.trim()}”` : "No hay productos que coincidan con estos filtros"}
+                  {hasZoneFilter ? `Sin stock en ${zoneName}` : q.trim() ? `No encontramos productos con el nombre “${q.trim()}”` : "No hay productos que coincidan con estos filtros"}
                 </div>
-                {hasProvinceFilter && (
+                {hasZoneFilter && (
                   <>
-                    <p className="mb-1 text-[13.5px] text-outline">Prueba en provincias cercanas:</p>
-                    <div className="text-[13.5px] font-semibold text-tertiary-accent">
-                      {nearbyProvinces.length ? nearbyProvinces.map((p) => p.name).join(" · ") : "otras provincias"}
-                    </div>
+                    {nearbyProvinces.length > 0 && (
+                      <>
+                        <p className="mb-1 text-[13.5px] text-outline">Prueba en provincias cercanas:</p>
+                        <div className="mb-2 text-[13.5px] font-semibold text-tertiary-accent">{nearbyProvinces.map((p) => p.name).join(" · ")}</div>
+                      </>
+                    )}
+                    <button type="button" onClick={clearZone} className="min-h-11 text-[13.5px] font-semibold text-tertiary-accent underline">Ver productos de todos los lugares</button>
                   </>
                 )}
               </div>
@@ -267,7 +271,7 @@ export default function Shop() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto bg-surface-container-lowest px-4">
-            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} provinces={provinces} provinceId={provinceId} onProvince={setProvince} />
+            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} />
           </div>
           <div className="grid grid-cols-[auto_1fr] gap-2.5 border-t border-surface-container-high bg-surface-container-lowest p-3">
             <button type="button" onClick={clearFilters} disabled={!activeChips.length} className="min-h-12 rounded-xl border border-outline-variant px-5 text-[14px] font-semibold text-on-surface-variant disabled:opacity-40">Limpiar</button>

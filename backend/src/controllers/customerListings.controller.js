@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
+import { ownerZoneWhere } from "../lib/vendorZone.js";
 
 // Feature "venta rápida": un cliente SIN tienda publica un número limitado de
 // anuncios simples desde su panel. Mirror deliberadamente reducido de
@@ -276,7 +277,13 @@ export async function listPublicListings(req, res) {
     // Bloque 237: ciclo de vida en 2 etapas — a los publicVisibilityDays
     // días el anuncio deja de mostrarse acá aunque siga existiendo y
     // siga siendo del dueño (ver listMyListings, que no filtra por esto).
-    where: { isActive: true, isSold: false, publicVisibleUntil: { gte: new Date() } },
+    where: {
+      isActive: true,
+      isSold: false,
+      publicVisibleUntil: { gte: new Date() },
+      // Misma zona que eligió el comprador para las tiendas, según el lugar del vendedor del anuncio.
+      owner: ownerZoneWhere(req.query),
+    },
     include: { owner: PUBLIC_OWNER },
     orderBy: { createdAt: "desc" },
     take: limit,
