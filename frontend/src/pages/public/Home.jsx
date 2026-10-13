@@ -258,12 +258,11 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setZoneDialogOpen(true)}
-                  aria-label={hasZoneFilter ? `Lugar de entrega: ${provinceName || zoneName}. Cambiar` : "Elegir lugar de entrega o recogida"}
                   className="flex min-h-12 min-w-0 basis-full items-center justify-center gap-2.5 rounded-[28px] bg-secondary-container px-4 py-2 text-left text-on-secondary-container hover:brightness-95 sm:basis-auto sm:px-6"
                 >
                   <MapPinned className="h-6 w-6 flex-shrink-0" strokeWidth={1.75} aria-hidden="true" />
                   <span className="flex min-w-0 flex-col leading-tight">
-                    <span className="text-[11px] font-medium opacity-80">{hasZoneFilter ? "Entrega en" : "Lugar de entrega"}</span>
+                    <span className="text-[11px] font-semibold">{hasZoneFilter ? "Entrega en" : "Lugar de entrega"}</span>
                     <span className="truncate text-[13.5px] font-bold">{hasZoneFilter ? provinceName || zoneName : "Elegir lugar"}</span>
                   </span>
                 </button>

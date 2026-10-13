@@ -35,6 +35,11 @@ import { recordAiResponse } from "./aiQuota.js";
 // eso ahora es SOLO un fallo más de Groq (ai.js salta a Gemini/NVIDIA NIM,
 // nunca rompe la petición entera).
 export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+
+// Los modelos gpt-oss "razonan" antes de responder y ese pensamiento sale del mismo tope de tokens: con razonamiento alto se
+// gastaba todo el presupuesto y la respuesta llegaba vacía ("La IA no devolvió texto", visto muchas veces en los registros del
+// servidor, con el consiguiente salto al siguiente modelo). Con esfuerzo bajo piensan poco y alcanza para responder.
+const reasoningParams = (model) => (/gpt-oss/i.test(String(model ?? "")) ? { reasoning_effort: "low" } : {});
 const API_BASE = "https://api.groq.com/openai/v1/chat/completions";
 const MODELS_API_BASE = "https://api.groq.com/openai/v1/models";
 
@@ -115,6 +120,7 @@ export async function generateWithGroq({ apiKey, prompt, model }) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: model || DEFAULT_MODEL,
+        ...reasoningParams(model || DEFAULT_MODEL),
         messages: [{ role: "user", content: prompt }],
         temperature: 0.8,
         // Bloque 49 (bug real en vivo): 400 alcanzaba para 2-4 oraciones
@@ -197,6 +203,7 @@ export async function chatWithGroq({ apiKey, systemParts, history, message, mode
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: model || DEFAULT_MODEL,
+        ...reasoningParams(model || DEFAULT_MODEL),
         messages,
         // Bloque 28: bajado de 0.4 a 0.2 — probado en vivo, este modelo
         // (8B) a veces devolvía "productIds"/"addToCart" vacíos pese a que

@@ -56,6 +56,7 @@ import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
 import { renderStoreOgImagePng } from "./controllers/og.controller.js";
+import { clearPublicCache } from "./middleware/publicCache.js";
 import { renderStorePage, renderProductPage, sitemapXml, heroPreload } from "./controllers/seoPages.controller.js";
 
 export const app = express();
@@ -128,6 +129,15 @@ app.use(morgan(env.nodeEnv === "development" ? "dev" : "combined"));
 app.post("/stripe/webhook", express.raw({ type: "application/json" }), receiveStripeWebhook);
 
 app.use(express.json({ limit: "5mb" }));
+// Cualquier cambio exitoso (crear, editar, borrar) vacía la caché de consultas públicas: lo nuevo se ve de inmediato.
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
+    res.on("finish", () => {
+      if (res.statusCode < 400) clearPublicCache();
+    });
+  }
+  next();
+});
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "zeudin-marketplace-api" }));

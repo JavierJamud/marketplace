@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
+import { applySeo } from "../../lib/seo.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Bloque de auditoría (2026-08-06, Eje 2): esta ruta vive fuera de
@@ -10,6 +12,13 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 // naranja) en vez de los hex sueltos del mock estático.
 export default function NotFound() {
   const { siteName, logoUrl } = usePlatformSettings();
+
+  // El servidor responde 200 a cualquier ruta (la pantalla se arma en el navegador): se avisa a los buscadores que esta no se indexe
+  // y no tiene página canónica. Va con un pequeño retraso para quedar después del SEO genérico que pone App.jsx en cada ruta.
+  useEffect(() => {
+    const id = setTimeout(() => applySeo({ title: `Página no encontrada | ${siteName}`, description: "Esta página no existe.", noindex: true }), 0);
+    return () => clearTimeout(id);
+  }, [siteName]);
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-gradient-to-b from-primary-container to-primary px-6 py-16 text-center">

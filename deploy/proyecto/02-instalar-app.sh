@@ -241,7 +241,7 @@ server {
 
     # Archivos fijos de public/ (fuente y script del preloader, íconos, sonidos, imagen para compartir): casi nunca cambian,
     # así que se guardan 30 días en el navegador. Si alguno cambia, se renombra (como og-baznova-3.png).
-    location ~* ^/(opentype\.min\.js|logo-loader\.js|fonts/|sounds/|mediapipe/|blaze_face|favicon|apple-touch-icon|og-baznova|email-logo) {
+    location ~* ^/(opentype\.min\.js|logo-loader\.js|fonts/|flags/|sounds/|mediapipe/|blaze_face|favicon|apple-touch-icon|og-baznova|email-logo) {
         expires 30d;
         add_header Cache-Control "public";
         include $RAIZ/cabeceras-seguridad.conf;

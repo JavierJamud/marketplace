@@ -1,3 +1,4 @@
+import { publicCache } from "../middleware/publicCache.js";
 import { Router } from "express";
 import { streamable } from "../lib/ndjsonStream.js";
 import * as vendorsController from "../controllers/vendors.controller.js";
@@ -15,7 +16,7 @@ import { kycUpload } from "../middleware/kycUpload.js";
 
 const router = Router();
 
-router.get("/", vendorsController.listVendors);
+router.get("/", publicCache(20_000, { skip: (req) => !!req.query.q }), vendorsController.listVendors);
 // Auditoría de seguridad: estas 4 eran las únicas rutas "/me/*" de este
 // archivo sin requireRole("VENDOR") explícito — hoy no eran explotables
 // porque resolveMyVendor() ya devuelve 404 a quien no tenga fila en Vendor,

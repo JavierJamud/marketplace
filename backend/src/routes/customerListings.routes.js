@@ -1,3 +1,4 @@
+import { publicCache } from "../middleware/publicCache.js";
 import { Router } from "express";
 import * as customerListingsController from "../controllers/customerListings.controller.js";
 import { authenticate } from "../middleware/auth.js";
@@ -23,7 +24,7 @@ router.post(
 router.delete("/:id/images", authenticate, requireRole("CUSTOMER", "ADMIN"), customerListingsController.removeListingImage);
 
 // Públicas
-router.get("/", customerListingsController.listPublicListings);
+router.get("/", publicCache(20_000), customerListingsController.listPublicListings);
 router.get("/:id", customerListingsController.getPublicListing);
 
 export default router;
