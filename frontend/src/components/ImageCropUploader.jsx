@@ -18,6 +18,8 @@ export function ImageCropUploader({
   accept = "image/png,image/jpeg,image/webp",
   boxClassName = "aspect-[7/4] w-full max-w-[280px]",
   compact = false,
+  // Para botones de "agregar otra foto": después de subir, el cuadro vuelve a ser el botón y no muestra la última foto.
+  clearOnConfirm = false,
 }) {
   const [rawSrc, setRawSrc] = useState(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -26,7 +28,8 @@ export function ImageCropUploader({
   const [media, setMedia] = useState(null);
   // Marco fijo con la proporción real de la tarjeta: lo que se ve dentro es lo que se guarda. coverZoom llena el marco;
   // fitZoom deja ver la foto entera (con margen blanco si no tiene la misma proporción).
-  const FRAME_W = 340;
+  // El marco no puede ser más ancho que la pantalla (menos los márgenes del diálogo), si no se corta en celulares chicos.
+  const FRAME_W = Math.min(340, (typeof window !== "undefined" ? window.innerWidth : 400) - 72);
   const cropSize = { width: FRAME_W, height: Math.round(FRAME_W / aspect) };
   const coverZoom = media ? Math.max(cropSize.width / media.width, cropSize.height / media.height) : 1;
   const fitZoom = media ? Math.min(cropSize.width / media.width, cropSize.height / media.height) : 1;
@@ -65,7 +68,7 @@ export function ImageCropUploader({
     setConfirming(true);
     try {
       const blob = await getCroppedImageBlob(rawSrc, croppedAreaPixels);
-      setPreview(URL.createObjectURL(blob));
+      if (!clearOnConfirm) setPreview(URL.createObjectURL(blob));
       onFileReady(blob);
       setRawSrc(null);
     } catch {

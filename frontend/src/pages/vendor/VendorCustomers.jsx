@@ -88,8 +88,8 @@ function CustomerDetail({ customerId, canWrite, onClose }) {
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl">
+    <div className="fixed inset-0 z-[65] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-surface-container-high px-5 py-4">
           <div className="min-w-0">
             <h2 className="truncate font-display text-[20px] font-extrabold text-on-surface">{customer?.name ?? "Cliente"}</h2>
@@ -105,7 +105,7 @@ function CustomerDetail({ customerId, canWrite, onClose }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
           {isError && <p className="text-body-md text-error">No se pudo cargar el cliente.</p>}
           {customer && (

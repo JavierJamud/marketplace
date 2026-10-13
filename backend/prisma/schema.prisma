@@ -2444,6 +2444,8 @@ model SiteSettings {
   maxNewListingsPerDay         Int @default(2)
   listingPublicVisibilityDays  Int @default(15)
   listingExpiryDays            Int @default(30)
+  // Cuántas fotos puede tener un anuncio de venta rápida (configurable en el admin).
+  maxListingImages             Int @default(5)
   // Bloque 52: mostrar/ocultar el botón flotante del chatbot general
   // (MarketplaceChatWidget) en el Home público — antes montado sin
   // condición ninguna. Default true = mismo comportamiento visible de

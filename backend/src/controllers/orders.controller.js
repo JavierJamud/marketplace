@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
-import { sendOrderConfirmationEmail, sendNewOrderVendorEmail, sendOrderStatusEmail, sendManualOrderEmail } from "../lib/email.js";
+import { sendOrderConfirmationEmail, sendNewOrderVendorEmail, sendOrderStatusEmail, sendManualOrderEmail, sendOrderCancelledVendorEmail } from "../lib/email.js";
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
@@ -481,6 +481,7 @@ export async function updateOrderStatus(req, res) {
 
   // "Tiempo real" = disparado en el momento del cambio, no un cron/batch.
   await sendOrderStatusEmail(updated);
+  if (status === "CANCELLED") await sendOrderCancelledVendorEmail(updated, { by: "STORE", reason: reason.trim() }).catch(() => {});
 
   res.json({ order: updated });
 }
@@ -788,6 +789,7 @@ export async function cancelOrderForCustomer(order, reason, via = "su cuenta") {
     body: `${order.customerName ?? "El cliente"} canceló el pedido ${order.code}. Motivo: ${cleanReason}`,
   });
   await sendOrderStatusEmail(updated).catch(() => {});
+  await sendOrderCancelledVendorEmail(updated, { by: "CUSTOMER", reason: cleanReason }).catch(() => {});
   return updated;
 }
 

@@ -106,6 +106,7 @@ export async function getSettings(_req, res) {
       maxNewListingsPerDay: settings.maxNewListingsPerDay,
       listingPublicVisibilityDays: settings.listingPublicVisibilityDays,
       listingExpiryDays: settings.listingExpiryDays,
+      maxListingImages: settings.maxListingImages,
     },
   });
 }
@@ -301,6 +302,7 @@ const listingPolicySchema = z
     maxNewListingsPerDay: z.number().int().min(1).max(50),
     listingPublicVisibilityDays: z.number().int().min(1).max(365),
     listingExpiryDays: z.number().int().min(1).max(365),
+    maxListingImages: z.number().int().min(1).max(10),
   })
   .refine((data) => data.listingPublicVisibilityDays <= data.listingExpiryDays, {
     message: "La visibilidad pública no puede durar más que la vida total del anuncio.",
@@ -321,6 +323,7 @@ export async function updateListingPolicy(req, res) {
       maxNewListingsPerDay: updated.maxNewListingsPerDay,
       listingPublicVisibilityDays: updated.listingPublicVisibilityDays,
       listingExpiryDays: updated.listingExpiryDays,
+      maxListingImages: updated.maxListingImages,
     },
   });
 }
@@ -334,6 +337,7 @@ export async function getListingPolicy() {
     maxNewPerDay: settings.maxNewListingsPerDay,
     publicVisibilityDays: settings.listingPublicVisibilityDays,
     expiryDays: settings.listingExpiryDays,
+    maxImages: settings.maxListingImages,
   };
 }
 

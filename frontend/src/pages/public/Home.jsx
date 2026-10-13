@@ -13,6 +13,7 @@ import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
 import { TrendingSearches } from "../../components/TrendingSearches.jsx";
 import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
+import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselLazy.jsx";
 
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
@@ -177,6 +178,7 @@ export default function Home() {
     queryFn: async () => (await api.get("/customer-listings", { params: { limit: 8 } })).data.listings,
     staleTime: 60 * 1000,
   });
+  const quickSaleSlides = useMemo(() => [...(quickSales ?? []), { id: "cta", cta: true }], [quickSales]);
 
   const { data: featured } = useQuery({
     queryKey: ["home-featured", provinceId],
@@ -345,16 +347,27 @@ export default function Home() {
             )}
           </div>
           {quickSales?.length > 0 ? (
-            <div className="-mx-4 flex snap-x scroll-pl-4 gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-4 sm:overflow-visible sm:px-0 lg:grid-cols-4">
-              {quickSales.map((l) => (
-                <div key={l.id} className="w-[62vw] max-w-[260px] flex-shrink-0 snap-start sm:w-auto sm:max-w-none">
-                  <QuickSaleCard listing={l} />
-                </div>
-              ))}
-              <Link to="/cuenta/panel?tab=quick-sale" className="flex w-[62vw] max-w-[260px] flex-shrink-0 snap-start flex-col items-center justify-center gap-1.5 rounded-[22px] border-2 border-dashed border-outline-variant p-5 text-center sm:w-auto sm:max-w-none">
-                <span className="text-[14px] font-bold text-on-surface">¿Vendes algo?</span>
-                <span className="text-[12.5px] text-on-surface-variant">Publica tu anuncio gratis</span>
-              </Link>
+            // Pasa de un anuncio a la vez, sin fin, y también se desliza con el dedo. La última tarjeta invita a publicar.
+            <div className="-mx-1.5">
+              <AutoCarousel
+                items={quickSaleSlides}
+                getKey={(l) => l.id}
+                renderItem={(l) =>
+                  l.cta ? (
+                    <Link to="/cuenta/panel?tab=quick-sale" className="flex h-full min-h-[200px] flex-col items-center justify-center gap-1.5 rounded-[22px] border-2 border-dashed border-outline-variant p-5 text-center">
+                      <span className="text-[14px] font-bold text-on-surface">¿Vendes algo?</span>
+                      <span className="text-[12.5px] text-on-surface-variant">Publica tu anuncio gratis</span>
+                    </Link>
+                  ) : (
+                    <QuickSaleCard listing={l} />
+                  )
+                }
+                itemClassName="basis-[72%] px-1.5 sm:basis-1/3 lg:basis-1/4"
+                align="start"
+                delay={3500}
+                minSlides={8}
+                label="Venta rápida entre clientes"
+              />
             </div>
           ) : (
             <Link to="/cuenta/panel?tab=quick-sale" className="block rounded-2xl border-2 border-dashed border-outline-variant p-6 text-center">

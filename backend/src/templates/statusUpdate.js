@@ -27,6 +27,7 @@ export async function statusUpdateEmail(order) {
     badge: { label, color },
     bodyMjml: `
       ${paragraph(`Tu pedido <strong>${esc(order.code)}</strong> en <strong>${esc(order.vendor.companyName)}</strong> cambió de estado:`)}
+      ${order.status === "CANCELLED" && order.cancelReason ? paragraph(`<strong>Motivo de la cancelación:</strong> ${esc(order.cancelReason.replace(/^Cancelado por el cliente: /, ""))}`) : ""}
       ${itemsWithImages.length > 0 ? itemsTable(itemsWithImages) : ""}
       ${order.total != null ? totalRow("Total", fmtCUP(order.total)) : ""}
       ${ctaButton("Ver detalles", `${env.frontendUrl}/cuenta/panel`)}

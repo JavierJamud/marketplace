@@ -36,7 +36,7 @@ export default function QuickSaleListings() {
   }, [listings, search, condition]);
 
   return (
-    <div className="container-app py-11">
+    <div className="container-app py-5 md:py-11">
       <h1 className="mb-1 text-headline-lg text-on-surface">Venta rápida</h1>
       <p className="mb-7 text-body-md text-on-surface-variant">
         Productos publicados directamente por clientes — sin tienda, se coordina todo por WhatsApp.

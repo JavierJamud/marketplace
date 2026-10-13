@@ -90,7 +90,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
     return (
       <Link
         to="/admin/configuracion?tab=integraciones"
-        className="fixed bottom-4 right-4 z-[60] flex min-h-11 items-center gap-2 rounded-full border border-error/40 bg-surface-container-lowest px-4 py-2 text-[13px] font-bold text-error shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6"
+        className="fixed bottom-4 right-4 z-40 flex min-h-11 items-center gap-2 rounded-full border border-error/40 bg-surface-container-lowest px-4 py-2 text-[13px] font-bold text-error shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6"
       >
         <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
         La IA no tiene ningún modelo disponible. Revisar integraciones
@@ -132,7 +132,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Cerrar el asistente de negocio" : "Abrir el asistente de negocio"}
         aria-expanded={open}
-        className={`group fixed bottom-4 right-4 z-[60] flex h-14 items-center gap-2.5 rounded-full border border-surface-container-high bg-surface-container-lowest py-1.5 pl-1.5 pr-5 text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-8px_rgba(14,26,40,0.45)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6 ${
+        className={`group fixed bottom-4 right-4 z-40 flex h-14 items-center gap-2.5 rounded-full border border-surface-container-high bg-surface-container-lowest py-1.5 pl-1.5 pr-5 text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-8px_rgba(14,26,40,0.45)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6 ${
           open ? "max-sm:hidden" : ""
         }`}
       >

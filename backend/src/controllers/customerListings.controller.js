@@ -218,17 +218,18 @@ export async function resolveListingForUpload(req, res, next) {
   const listing = await prisma.customerListing.findUnique({ where: { id } });
   if (!listing || listing.ownerId !== req.user.id) throw new AppError("Anuncio no encontrado.", 404);
   req.uploadListing = listing;
+  req.maxListingImages = (await getListingPolicy()).maxImages;
   next();
 }
-
-const MAX_LISTING_IMAGES = 4;
 
 export async function addListingImages(req, res) {
   if (!req.files?.length) throw new AppError("Sube al menos una imagen.", 400);
 
   const existingCount = req.uploadListing.images.length;
-  if (existingCount + req.files.length > MAX_LISTING_IMAGES) {
-    throw new AppError(`Máximo ${MAX_LISTING_IMAGES} fotos por anuncio.`, 400);
+  if (existingCount + req.files.length > req.maxListingImages) {
+    // El archivo ya se guardó al pasar por multer: se descarta para no dejar fotos huérfanas.
+    await Promise.all(req.files.flatMap((f) => [unlink(f.path), unlink(f.path.replace(/\.webp$/, "-thumb.webp"))].map((p) => p.catch(() => {}))));
+    throw new AppError(`Máximo ${req.maxListingImages} fotos por anuncio.`, 400);
   }
 
   const newUrls = req.files.map((f) => `/uploads/customer-listings/${req.user.id}/${f.filename}`);

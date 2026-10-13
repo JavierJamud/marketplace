@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { MessageCircle, Package, ChevronLeft, ShieldAlert, MapPin, Phone } from "lucide-react";
+import { ListingGallery } from "../../components/ListingGallery.jsx";
 import { conditionLabel } from "../../components/customer/ListingFormFields.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
@@ -21,7 +22,6 @@ export default function QuickSaleDetail() {
   const { user } = useAuth();
   const { siteName } = usePlatformSettings();
   const [reportFraudOpen, setReportFraudOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(0);
 
   const { data: listing, isLoading } = useQuery({
     queryKey: ["public-customer-listing", id],
@@ -49,44 +49,16 @@ export default function QuickSaleDetail() {
 
   const images = listing.images ?? [];
   const tiers = [...(listing.priceTiers ?? [])].sort((a, b) => a.minQty - b.minQty);
-  const image = images[selectedImage] ? `${api.defaults.baseURL}${images[selectedImage]}` : null;
   const message = `Hola, vi tu anuncio "${listing.name}" (${formatPrice(listing.price, listing.currency)}) en ${siteName} y me interesa.`;
 
   return (
-    <div className="container-app py-9">
-      <Link to="/ventas-rapidas" className="mb-5 inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface-variant hover:text-on-surface">
+    <div className="container-app py-4 md:py-9">
+      <Link to="/ventas-rapidas" className="mb-3 inline-flex min-h-11 items-center gap-1 text-[13px] font-semibold text-on-surface-variant hover:text-on-surface">
         <ChevronLeft className="h-4 w-4" /> Volver a venta rápida
       </Link>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <div>
-          <div className="aspect-[7/4] w-full overflow-hidden rounded-2xl bg-surface-container">
-            {image ? (
-              <img src={image} alt={listing.name} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-outline">
-                <Package className="h-12 w-12" />
-              </div>
-            )}
-          </div>
-          {/* Pedido explícito: "casi igual a un producto de tienda" — mismo
-              criterio de miniaturas que Product.jsx cuando hay más de 1 foto. */}
-          {images.length > 1 && (
-            <div className="mt-2.5 grid grid-cols-4 gap-2">
-              {images.map((url, i) => (
-                <button
-                  key={url}
-                  onClick={() => setSelectedImage(i)}
-                  className={`aspect-[7/4] w-full overflow-hidden rounded-md border-2 transition-all ${
-                    i === selectedImage ? "border-tertiary-accent opacity-100" : "border-transparent opacity-55 hover:opacity-85"
-                  }`}
-                >
-                  <img src={`${api.defaults.baseURL}${url}`} alt="" className="h-full w-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ListingGallery images={images.map((u) => `${api.defaults.baseURL}${u}`)} alt={listing.name} />
 
         <div>
           <div className="mb-3 flex flex-wrap items-center gap-2">

@@ -496,6 +496,7 @@ export function ListingPolicyCard() {
   const [maxPerDay, setMaxPerDay] = useState("");
   const [visibilityDays, setVisibilityDays] = useState("");
   const [expiryDays, setExpiryDays] = useState("");
+  const [maxImages, setMaxImages] = useState("");
 
   useEffect(() => {
     if (settings) {
@@ -503,6 +504,7 @@ export function ListingPolicyCard() {
       setMaxPerDay(String(settings.maxNewListingsPerDay));
       setVisibilityDays(String(settings.listingPublicVisibilityDays));
       setExpiryDays(String(settings.listingExpiryDays));
+      setMaxImages(String(settings.maxListingImages ?? 5));
     }
   }, [settings]);
 
@@ -514,6 +516,7 @@ export function ListingPolicyCard() {
           maxNewListingsPerDay: Number(maxPerDay),
           listingPublicVisibilityDays: Number(visibilityDays),
           listingExpiryDays: Number(expiryDays),
+          maxListingImages: Number(maxImages),
         })
       ).data,
     onSuccess: () => {
@@ -525,11 +528,12 @@ export function ListingPolicyCard() {
 
   const dirty =
     settings &&
-    [maxActive, maxPerDay, visibilityDays, expiryDays].every((v) => v !== "") &&
+    [maxActive, maxPerDay, visibilityDays, expiryDays, maxImages].every((v) => v !== "") &&
     (Number(maxActive) !== settings.maxActiveListingsPerCustomer ||
       Number(maxPerDay) !== settings.maxNewListingsPerDay ||
       Number(visibilityDays) !== settings.listingPublicVisibilityDays ||
-      Number(expiryDays) !== settings.listingExpiryDays);
+      Number(expiryDays) !== settings.listingExpiryDays ||
+      Number(maxImages) !== settings.maxListingImages);
 
   return (
     <div className="mb-[18px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
@@ -581,10 +585,21 @@ export function ListingPolicyCard() {
             className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
           />
         </div>
+        <div>
+          <span className="mb-1 block text-label-md text-on-surface-variant">Máximo de fotos por anuncio</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={maxImages}
+            onChange={(e) => setMaxImages(e.target.value)}
+            className="h-10 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none"
+          />
+        </div>
       </div>
       <p className="mt-2 text-[11.5px] text-outline">
-        Se refleja de inmediato en el panel de cada cliente: la pestaña "Venta rápida" (tope diario, cuenta regresiva
-        y el ciclo de vida de 2 etapas).
+        Se refleja de inmediato en el panel de cada cliente. Si bajas un tope, los anuncios que ya existen siguen
+        visibles hasta que venzan; el cambio solo limita las publicaciones nuevas.
       </p>
       {dirty && (
         <Button className="mt-3" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>

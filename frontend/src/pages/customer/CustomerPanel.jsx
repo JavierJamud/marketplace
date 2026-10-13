@@ -150,6 +150,7 @@ export default function CustomerPanel() {
   const dailyLimit = listingsData?.dailyLimit ?? siteSettings?.maxNewListingsPerDay ?? 2;
   const visibilityDays = siteSettings?.listingPublicVisibilityDays ?? 15;
   const expiryDaysSetting = siteSettings?.listingExpiryDays ?? 30;
+  const maxImages = siteSettings?.maxListingImages ?? 5;
   const canCreateToday = listingsData ? listingsData.createdToday < listingsData.dailyLimit : true;
   const totalLimitReached = (listings?.length ?? 0) >= listingLimit;
 
@@ -588,8 +589,8 @@ export default function CustomerPanel() {
             </div>
 
             {listingModalOpen && (
-              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/40 p-4">
-                <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+              <div className="fixed inset-0 z-[60] flex items-end justify-center bg-inverse-surface/40 sm:items-center sm:p-4">
+                <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-2xl bg-surface-container-lowest p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-title-lg font-bold text-on-surface">{editingListing ? "Editar anuncio" : "Nuevo anuncio"}</h3>
                     <button onClick={() => setListingModalOpen(false)} aria-label="Cerrar" className="text-outline hover:text-on-surface">
@@ -677,12 +678,13 @@ export default function CustomerPanel() {
                                 </button>
                               </div>
                             ))}
-                            {(savedListing.images?.length ?? 0) < 4 && (
+                            {(savedListing.images?.length ?? 0) < maxImages && (
                               <ImageCropUploader
                                 aspect={7 / 4}
                                 accept="image/jpeg,image/webp"
                                 boxClassName="h-16 w-16 flex-shrink-0"
                                 compact
+                                clearOnConfirm
                                 onFileReady={handleListingImage}
                               />
                             )}
@@ -690,7 +692,7 @@ export default function CustomerPanel() {
                           <p className="text-label-sm text-outline">
                             {uploadListingImage.isPending
                               ? "Subiendo foto..."
-                              : "Tamaño recomendado: 1400×800px (relación 7:4) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP. Hasta 4 fotos."}
+                              : `Tamaño recomendado: 1400×800px (relación 7:4) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP. Hasta ${maxImages} fotos.`}
                           </p>
                         </>
                       ) : (

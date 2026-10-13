@@ -17,7 +17,7 @@ router.post(
   authenticate,
   requireRole("CUSTOMER", "ADMIN"),
   customerListingsController.resolveListingForUpload,
-  customerListingUpload.array("images", 4),
+  customerListingUpload.array("images", 10),
   customerListingsController.addListingImages
 );
 router.delete("/:id/images", authenticate, requireRole("CUSTOMER", "ADMIN"), customerListingsController.removeListingImage);
