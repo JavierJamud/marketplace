@@ -112,7 +112,10 @@ api.interceptors.response.use(
     const method = String(original?.method ?? "get").toLowerCase();
     const status = error.response?.status;
     const transient = !error.response || [502, 503, 504].includes(status);
-    if (original && transient && (method === "get" || method === "head") && !error.code?.includes("CANCEL") && (original._netRetry ?? 0) < 3) {
+    // El aviso de "se está reiniciando" lo da Nginx cuando la API no estaba disponible: esa petición nunca llegó a la API, así que repetirla
+    // es seguro aunque cambie datos (un registro, un pedido); con cualquier otro fallo solo se repiten las lecturas.
+    const neverReachedApi = status === 503 && /reinici/i.test(String(error.response?.data?.error ?? ""));
+    if (original && transient && (method === "get" || method === "head" || neverReachedApi) && !error.code?.includes("CANCEL") && (original._netRetry ?? 0) < 3) {
       original._netRetry = (original._netRetry ?? 0) + 1;
       await new Promise((r) => setTimeout(r, 700 * original._netRetry ** 2));
       return api(original);

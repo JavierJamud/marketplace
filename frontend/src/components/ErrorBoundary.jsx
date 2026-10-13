@@ -1,6 +1,7 @@
 import { Component } from "react";
 import { AlertTriangle } from "lucide-react";
 import { openErrorReport } from "../lib/errorReport.js";
+import { reportClientError } from "../lib/clientErrorReport.js";
 
 // Bloque 197 (pedido explícito — "no debe ponerse la página en blanco nunca
 // más bajo ninguna circunstancia"): la app entera no tenía NINGÚN error
@@ -28,20 +29,56 @@ export function reloadOnceForNewVersion() {
   return true;
 }
 
+// Borra lo que el navegador guardó de consultas anteriores (puede traer datos con forma vieja) y recarga.
+export function clearSavedDataAndReload() {
+  try {
+    localStorage.removeItem("zeudin_query_cache");
+  } catch {
+    /* sin almacenamiento */
+  }
+  window.location.reload();
+}
+
+// Un fallo de pantalla que no es de archivos viejos casi siempre se arregla borrando la caché guardada y recargando: se intenta una
+// sola vez por minuto (con marca para no entrar en bucle) antes de mostrar la pantalla de aviso.
+function recoverOnce() {
+  try {
+    const last = Number(sessionStorage.getItem("render_recover_at") || 0);
+    if (Date.now() - last < 60000) return false;
+    sessionStorage.setItem("render_recover_at", String(Date.now()));
+  } catch {
+    return false;
+  }
+  clearSavedDataAndReload();
+  return true;
+}
+
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, resetKey: props.resetKey };
   }
 
   static getDerivedStateFromError() {
     return { hasError: true };
   }
 
+  // Al cambiar de pantalla (otra ruta) el aviso desaparece solo: un fallo en una página no deja atascado el resto del sitio.
+  static getDerivedStateFromProps(props, state) {
+    if (props.resetKey !== state.resetKey) return { hasError: false, resetKey: props.resetKey };
+    return null;
+  }
+
   componentDidCatch(error, info) {
-    if (isStaleChunkError(error) && reloadOnceForNewVersion()) return;
+    const stale = isStaleChunkError(error);
+    if (stale && reloadOnceForNewVersion()) {
+      reportClientError({ kind: "chunk", error, recovered: true });
+      return;
+    }
     console.error("ErrorBoundary atrapó un error de render:", error, info);
     this.failure = { method: "RENDER", path: window.location.pathname, status: null, message: String(error?.message ?? error).slice(0, 300), at: new Date().toISOString() };
+    const recovered = !stale && recoverOnce();
+    reportClientError({ kind: stale ? "chunk" : "render", error, recovered });
   }
 
   render() {
@@ -58,10 +95,13 @@ export class ErrorBoundary extends Component {
           </p>
         </div>
         <div className="flex w-full max-w-xs flex-col gap-2">
-          <button onClick={() => window.location.reload()} className="min-h-11 rounded-md bg-primary px-6 py-2.5 text-label-md font-bold text-white">
+          <button onClick={clearSavedDataAndReload} className="min-h-11 rounded-md bg-primary px-6 py-2.5 text-label-md font-bold text-white">
             Recargar página
           </button>
-          <button onClick={() => openErrorReport({ failure: this.failure })} className="min-h-11 rounded-md border border-outline-variant px-6 py-2.5 text-label-md font-bold text-on-surface">
+          <a href="/" className="flex min-h-11 items-center justify-center rounded-md border border-outline-variant px-6 py-2.5 text-label-md font-bold text-on-surface">
+            Ir al inicio
+          </a>
+          <button onClick={() => openErrorReport({ failure: this.failure })} className="min-h-11 px-6 py-2.5 text-label-md font-semibold text-on-surface-variant underline">
             Reportar el problema
           </button>
         </div>

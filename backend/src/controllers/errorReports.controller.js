@@ -82,3 +82,45 @@ export async function createErrorReport(req, res) {
 
   res.status(201).json({ ok: true });
 }
+
+// --- Avisos automáticos de la pantalla ---------------------------------------------------------------------------------------
+// Cuando a un visitante se le rompe la pantalla (o la página tuvo que recargarse sola) el sitio avisa aquí, sin que la persona
+// haga nada. Así los fallos intermitentes dejan rastro en Admin > Errores (antes solo se veían en el navegador de quien los sufría).
+// Es público, así que todo se valida, se acorta y se agrupa: el mismo fallo se anota una vez cada 10 minutos con cuántas veces pasó.
+const clientBody = z
+  .object({
+    kind: z.enum(["render", "chunk", "script", "promise", "boot"]),
+    message: short(300),
+    stack: short(1500).optional(),
+    page: short(300).optional(),
+    version: short(40).optional(),
+    recovered: z.boolean().optional(),
+    online: z.boolean().optional(),
+    viewport: short(20).optional(),
+    language: short(20).optional(),
+    storage: z.boolean().optional(),
+  })
+  .strict();
+
+const recentClientErrors = new Map(); // huella -> { at, count }
+const CLIENT_ERROR_WINDOW_MS = 10 * 60 * 1000;
+
+export async function reportClientCrash(req, res) {
+  const data = clientBody.parse(req.body);
+  const path = String(data.page ?? "").split("?")[0];
+  const key = `${data.kind}|${path}|${data.message.slice(0, 120)}`;
+  const now = Date.now();
+  const seen = recentClientErrors.get(key);
+  if (seen && now - seen.at < CLIENT_ERROR_WINDOW_MS) {
+    seen.count += 1;
+    return res.status(204).end();
+  }
+  if (recentClientErrors.size > 500) recentClientErrors.clear();
+  recentClientErrors.set(key, { at: now, count: 1 });
+  await logError({
+    origin: "PAGINA",
+    message: `Pantalla con error (${data.kind}${data.recovered ? ", se recargó sola" : ""}) en ${path || "?"}: ${data.message}`,
+    context: { ...data, userAgent: String(req.get("user-agent") ?? "").slice(0, 300), reportedAt: new Date().toISOString() },
+  });
+  res.status(204).end();
+}

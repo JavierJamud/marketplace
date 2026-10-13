@@ -145,6 +145,7 @@ function VenderRedirect() {
 
 export default function App() {
   useRouteSeo();
+  const { pathname: currentPath } = useLocation();
   // Avisa al logo de carga (index.html) que la primera pantalla ya se pintó y puede retirarse.
   useEffect(() => {
     window.__appReady = true;
@@ -153,7 +154,7 @@ export default function App() {
   return (
     <>
       <RouteLoader />
-      <ErrorBoundary>
+      <ErrorBoundary resetKey={currentPath}>
       {/* Las pantallas que no son de la portada (paneles, cuenta, pago, ayuda) se descargan solo cuando se abren:
           el primer ingreso al sitio baja mucho menos JavaScript. */}
       <Suspense fallback={<PageLoader />}>

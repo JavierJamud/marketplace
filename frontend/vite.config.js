@@ -14,7 +14,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
     plugins: [react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets()],
-    define: { __APP_VERSION__: JSON.stringify(version) },
+    // __APP_BUILD__ cambia en cada compilación: invalida la caché guardada en el navegador (ver main.jsx) para que una respuesta con forma vieja nunca rompa una pantalla nueva.
+    define: { __APP_VERSION__: JSON.stringify(version), __APP_BUILD__: JSON.stringify(`${version}-${Date.now().toString(36)}`) },
     // Sin mapas de código ni comentarios en lo que se publica.
     // Sin mapas de código (traerían los comentarios internos del código fuente) y apuntando a navegadores actuales: así no se
     // incluyen transformaciones ni ayudas para navegadores viejos que casi nadie usa.

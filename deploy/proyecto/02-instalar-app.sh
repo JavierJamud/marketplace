@@ -60,7 +60,7 @@ NODE_ENV=production
 PORT=$PUERTO_API
 FRONTEND_URL=$URLS_FRONT
 BACKEND_URL=$URL_PUBLICA/api
-DATABASE_URL="postgresql://$DB_USUARIO:$DB_PASS@localhost:5432/$DB_NOMBRE?schema=public"
+DATABASE_URL="postgresql://$DB_USUARIO:$DB_PASS@localhost:5432/$DB_NOMBRE?schema=public&connection_limit=20&pool_timeout=20"
 JWT_SECRET=$(openssl rand -hex 48)
 JWT_REFRESH_SECRET=$(openssl rand -hex 48)
 INTEGRATIONS_ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -102,7 +102,12 @@ echo ">> Activando la versión nueva"
 rm -rf $RAIZ/app.prev
 if [ -d $APP/backend ]; then mv $APP $RAIZ/app.prev; else rm -rf $APP; fi
 mv $APP.new $APP
-rsync -a --delete $APP/frontend/dist/ $WEB/
+# Los archivos con hash de la versión anterior se conservan 14 días: una pestaña abierta (o un visitante con la página ya cargada) sigue
+# pidiendo sus archivos viejos y, si se borraran al instante, vería la pantalla de error hasta recargar. Lo demás se reemplaza entero.
+mkdir -p $WEB/assets
+rsync -a --delete --exclude='/assets/' $APP/frontend/dist/ $WEB/
+rsync -a $APP/frontend/dist/assets/ $WEB/assets/
+find $WEB/assets -type f -mtime +14 -delete 2>/dev/null || true
 install -m 644 $APP/deploy/servidor/estructura/proyecto/README.web.md $WEB/README.md
 chown -R www-data:www-data $WEB
 # Scripts propios del proyecto (los trae el mismo paquete de código)
@@ -153,6 +158,11 @@ add_header Strict-Transport-Security "max-age=15552000" always;
 CABECERAS
 chown zeudin:zeudin $RAIZ/cabeceras-seguridad.conf
 
+# Registro de accesos con tiempos (rt = lo que tardó en total, urt = lo que tardó la API): permite ver qué pantallas o consultas se ponen lentas.
+cat > /etc/nginx/conf.d/10-baznova-tiempos.conf <<'TIEMPOS'
+log_format baznova_tiempos '$remote_addr - [$time_local] "$request" $status $body_bytes_sent rt=$request_time urt=$upstream_response_time cf=$http_cf_ray "$http_user_agent"';
+TIEMPOS
+
 if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then REDIR_WWW=""; else REDIR_WWW="if (\$host = www.$DOMINIO) { return 301 $URL_PUBLICA\$request_uri; }"; fi
 
 cat > $RAIZ/nginx.conf <<EOF
@@ -161,6 +171,7 @@ server {
     listen [::]:80;
     server_name $NOMBRES;
 
+    access_log /var/log/nginx/baznova-access.log baznova_tiempos;
     root $WEB;
     index index.html;
     client_max_body_size 60m;

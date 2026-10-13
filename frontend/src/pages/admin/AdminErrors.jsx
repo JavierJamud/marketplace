@@ -12,6 +12,7 @@ const ORIGIN_FILTERS = [
   { id: "all", label: "Todos", origins: null },
   { id: "bots", label: "Solo bots", origins: ["BOT_TIENDA", "BOT_GENERAL"] },
   { id: "reportes", label: "Reportes de usuarios", origins: ["REPORTE_USUARIO"] },
+  { id: "pantalla", label: "Errores de pantalla", origins: ["PAGINA"] },
   { id: "emails", label: "Solo emails", origins: ["EMAIL_RESEND"] },
   { id: "pagos", label: "Solo pagos", origins: ["STRIPE"] },
   { id: "audio", label: "Transcripción de audio", origins: ["TRANSCRIPCION_AUDIO"] },
@@ -31,6 +32,7 @@ const ORIGIN_LABELS = {
   STRIPE: "Stripe",
   TRANSCRIPCION_AUDIO: "Transcripción de audio",
   REPORTE_USUARIO: "Reporte de usuario",
+  PAGINA: "Error de pantalla (automático)",
   OTRO: "Otro",
 };
 

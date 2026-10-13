@@ -1,5 +1,6 @@
 import { app } from "./app.js";
 import { env } from "./config/env.js";
+import { logError } from "./lib/errorLog.js";
 import { startVendorLifecycleJob } from "./jobs/vendorLifecycle.job.js";
 import { startVerificationPaymentJob, startVerificationApprovalExpiryJob } from "./jobs/verificationPayment.job.js";
 import { startCustomerListingExpiryJob } from "./jobs/customerListingExpiry.job.js";
@@ -39,6 +40,19 @@ function shutdown(signal) {
 }
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+// Red de seguridad: una promesa que falla sin que nadie la atienda (un envío de correo, un aviso que se lanza sin esperar) hacía caer
+// el proceso entero de Node y la API quedaba unos segundos sin responder. Ahora se anota y el servicio sigue. Una excepción sin
+// atrapar sí deja el proceso en un estado dudoso: se anota y se reinicia de forma ordenada.
+process.on("unhandledRejection", (reason) => {
+  console.error("[servidor] promesa rechazada sin atender:", reason instanceof Error ? reason.stack ?? reason.message : reason);
+  logError({ origin: "OTRO", message: `Promesa rechazada sin atender: ${String(reason?.message ?? reason).slice(0, 300)}`, context: { stack: String(reason?.stack ?? "").slice(0, 1500) } }).catch(() => {});
+});
+process.on("uncaughtException", (err) => {
+  console.error("[servidor] excepción sin atrapar:", err?.stack ?? err);
+  logError({ origin: "OTRO", message: `Excepción sin atrapar: ${String(err?.message ?? err).slice(0, 300)}`, context: { stack: String(err?.stack ?? "").slice(0, 1500) } }).catch(() => {});
+  shutdown("uncaughtException");
+});
 
 // Venta rápida de clientes: borra los anuncios vencidos a los 30 días (y sus
 // archivos) — corre primero (7:00am) para no competir por conexión de DB con

@@ -1,3 +1,4 @@
+import "./lib/safeStorage.js";
 import ReportErrorModal from "./components/ReportErrorModal.jsx";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -21,17 +22,27 @@ import "@fontsource/inter/latin-500.css";
 import "@fontsource/inter/latin-600.css";
 import "@fontsource/inter/latin-700.css";
 import "./index.css";
-import { reloadOnceForNewVersion } from "./components/ErrorBoundary.jsx";
+import { reloadOnceForNewVersion, ErrorBoundary } from "./components/ErrorBoundary.jsx";
+import { reportClientError } from "./lib/clientErrorReport.js";
 import { UnsavedGuardProvider } from "./lib/unsavedGuard.jsx";
 
 // Vite avisa cuando falla la descarga de un archivo de la página (versión nueva publicada): se recarga una vez.
 window.addEventListener("vite:preloadError", (e) => {
   e.preventDefault();
+  reportClientError({ kind: "chunk", error: e.payload ?? "vite:preloadError", recovered: true });
   reloadOnceForNewVersion();
 });
 
+// Fallos que no pasan por ninguna pantalla (un script o una promesa sin atender): solo se avisan al servidor para dejar rastro.
+window.addEventListener("error", (e) => {
+  if (e.target && e.target !== window) return; // errores de carga de imágenes u otros archivos: no son de código
+  reportClientError({ kind: "script", error: e.error ?? e.message });
+});
+window.addEventListener("unhandledrejection", (e) => reportClientError({ kind: "promise", error: e.reason }));
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
+    <ErrorBoundary>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <UnsavedGuardProvider>
       {/* Bloque 136 (pedido explícito): PersistQueryClientProvider en vez
@@ -48,7 +59,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         persistOptions={{
           persister: queryPersister,
           maxAge: 24 * 60 * 60 * 1000,
-          buster: "v1",
+          buster: __APP_BUILD__,
           // Bloque 241: las listas paginadas del admin (clave "admin-list-*")
           // no se guardan en localStorage — una consulta por cada combinación
           // de página/filtro/orden, con miles de filas posibles, inflaría el
@@ -85,5 +96,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       </PersistQueryClientProvider>
       </UnsavedGuardProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>
 );
