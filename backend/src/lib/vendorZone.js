@@ -14,13 +14,9 @@ export function vendorZoneWhere({ countryId, provinceId, municipalityId } = {}) 
 
 // Dueño de un anuncio de venta rápida en esa zona (el cliente no tiene tienda: se usa su ubicación de perfil).
 export function ownerZoneWhere({ countryId, provinceId, municipalityId } = {}) {
-  // Con municipio elegido también salen los anuncios de quien tiene su provincia pero nunca indicó el municipio (cuentas antiguas):
-  // exigirlo dejaría fuera casi todos los anuncios.
-  if (provinceId) {
-    return municipalityId
-      ? { provinceId: String(provinceId), OR: [{ municipalityId: String(municipalityId) }, { municipalityId: null }] }
-      : { provinceId: String(provinceId) };
-  }
+  // Los anuncios son de personas, no de tiendas con sede fija: aunque el comprador haya afinado hasta un municipio, se le muestran los de
+  // toda la provincia (un anuncio de Segundo Frente le sirve a quien compra en Santiago de Cuba). El municipio solo afina las tiendas.
+  if (provinceId) return { provinceId: String(provinceId) };
   if (countryId) return { OR: [{ registrationCountryId: String(countryId) }, { province: { countryId: String(countryId) } }] };
   return undefined;
 }
