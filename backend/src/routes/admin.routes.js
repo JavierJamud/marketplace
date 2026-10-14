@@ -331,6 +331,7 @@ router.patch("/store-offers/:id/active", requireActionCode("VENDOR_CHANGE"), sto
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar
 // los suyos y responder).
 router.get("/reviews", reviewsController.listAllReviews);
+router.patch("/reviews/:id/reply", reviewsController.adminReplyToReview);
 router.patch("/reviews/:id/hidden", requireActionCode("CONTENT_MODERATION"), reviewsController.setReviewHidden);
 router.patch("/reviews/:id/resolve-report", requireActionCode("CONTENT_MODERATION"), reviewsController.resolveReviewReport);
 router.delete("/reviews/:id", requireActionCode("CONTENT_MODERATION"), reviewsController.deleteReview);

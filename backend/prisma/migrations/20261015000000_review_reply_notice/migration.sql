@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "EmailType" ADD VALUE IF NOT EXISTS 'REVIEW_REPLY';
+
+-- AlterTable
+ALTER TABLE "Review" ADD COLUMN "repliedByAdmin" BOOLEAN NOT NULL DEFAULT false;

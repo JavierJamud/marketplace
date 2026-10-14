@@ -11,6 +11,8 @@ import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows } from "../lib/planConfig.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
+import { sendReviewReplyEmail } from "../lib/email.js";
+import { env } from "../config/env.js";
 
 // Bloque 117/118 (pedido explícito): un mismo usuario logueado puede dejar
 // hasta `maxPerProduct` comentarios por ventana de tiempo POR PRODUCTO
@@ -208,7 +210,7 @@ export async function replyToReview(req, res) {
 
   const updated = await prisma.review.update({
     where: { id },
-    data: { vendorReply: reply, vendorRepliedAt: new Date() },
+    data: { vendorReply: reply, vendorRepliedAt: new Date(), repliedByAdmin: false },
   });
   logActivity({
     actorId: req.user.id,
@@ -218,7 +220,54 @@ export async function replyToReview(req, res) {
     description: `Respondió una reseña en "${vendor.companyName}"`,
     meta: { reviewId: id },
   });
+  // Al cliente se le avisa por correo, salvo que la respuesta sea la misma que ya tenía.
+  if (review.vendorReply !== reply) void notifyReviewReply(review, { responder: vendor.companyName, reply });
   res.json({ review: updated });
+}
+
+// El equipo de la plataforma también puede responder cualquier comentario. La respuesta se publica con el nombre de la plataforma.
+export async function adminReplyToReview(req, res) {
+  const { id } = req.params;
+  const { reply } = replySchema.parse(req.body);
+  const review = await prisma.review.findUnique({ where: { id } });
+  if (!review) throw new AppError("Comentario no encontrado.", 404);
+
+  const updated = await prisma.review.update({
+    where: { id },
+    data: { vendorReply: reply, vendorRepliedAt: new Date(), repliedByAdmin: true },
+  });
+  if (review.vendorReply !== reply || !review.repliedByAdmin) {
+    const { siteName } = await getBrandSettings();
+    void notifyReviewReply(review, { responder: siteName, reply });
+  }
+  res.json({ review: updated });
+}
+
+// Correo al autor del comentario con la respuesta que recibió. Nunca bloquea ni hace fallar la respuesta: si el autor ya no existe,
+// no tiene correo o el envío falla, simplemente no se avisa.
+async function notifyReviewReply(review, { responder, reply }) {
+  try {
+    if (!review.userId || !review.vendorId) return;
+    const [customer, vendor, product] = await Promise.all([
+      prisma.user.findUnique({ where: { id: review.userId }, select: { email: true, fullName: true, deletedAt: true } }),
+      prisma.vendor.findUnique({ where: { id: review.vendorId }, select: { id: true, slug: true, companyName: true } }),
+      review.productId ? prisma.product.findUnique({ where: { id: review.productId }, select: { name: true, slug: true } }) : null,
+    ]);
+    if (!customer?.email || customer.deletedAt || !vendor) return;
+    const path = product ? `/producto/${vendor.slug}/${product.slug}` : `/tienda/${vendor.slug}`;
+    await sendReviewReplyEmail({
+      to: customer.email,
+      vendorId: vendor.id,
+      customerName: review.authorName || customer.fullName,
+      responder,
+      targetLabel: product?.name ?? vendor.companyName,
+      comment: review.comment ?? "",
+      reply,
+      ctaUrl: `${env.frontendUrl}${path}#resenas`,
+    });
+  } catch (err) {
+    console.error("[reviews] no se pudo avisar de la respuesta:", err.message);
+  }
 }
 
 // --- Reportar (Bloque 69, pedido explícito) ---------------------------------

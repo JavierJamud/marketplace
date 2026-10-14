@@ -8,12 +8,12 @@ import { useZone } from "../context/LocationContext.jsx";
 import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 import { StarRating } from "./ui/StarRating.jsx";
 import { Lightbox } from "./ui/Lightbox.jsx";
-import { ReviewCard } from "./ReviewsList.jsx";
+import { ReviewCell, packReviews } from "./ReviewsList.jsx";
 
 // Portada: "Lo que opinan nuestros clientes". Muestra, de una en una, las reseñas más recientes de todas las tiendas (de la zona
 // elegida) con la misma tarjeta que usan las páginas de producto y de tienda. Todo sale de reseñas reales: el promedio y el total
 // son los de esas mismas reseñas. Sin reseñas no se muestra nada.
-const MIN_SLIDES = 8; // el carrusel sin fin necesita varias tarjetas para llenar el ancho; con pocas se repiten (las copias no se leen ni se tabulan)
+const MIN_SLIDES = 6; // el carrusel sin fin necesita varias tarjetas para llenar el ancho; con pocas se repiten (las copias no se leen ni se tabulan)
 
 export function ReviewsShowcase() {
   const { zoneParams, zoneKey, waiting } = useZone();
@@ -27,13 +27,15 @@ export function ReviewsShowcase() {
     staleTime: 60 * 1000,
   });
   const reviews = useMemo(() => data?.reviews ?? [], [data]);
-  const looped = reviews.length >= 2;
+  // Cada diapositiva es una celda: una reseña con foto (tarjeta alta) o dos sin foto apiladas (ver packReviews).
+  const cells = useMemo(() => packReviews(reviews), [reviews]);
+  const looped = cells.length >= 2;
 
   const slides = useMemo(() => {
-    if (!looped) return reviews.map((r) => ({ r, key: r.id, copy: 0 }));
-    const repeat = Math.max(1, Math.ceil(MIN_SLIDES / reviews.length));
-    return Array.from({ length: repeat }, (_, round) => reviews.map((r) => ({ r, key: `${r.id}-${round}`, copy: round }))).flat();
-  }, [reviews, looped]);
+    if (!looped) return cells.map((cell) => ({ cell, key: cell.key, copy: 0 }));
+    const repeat = Math.max(1, Math.ceil(MIN_SLIDES / cells.length));
+    return Array.from({ length: repeat }, (_, round) => cells.map((cell) => ({ cell, key: `${cell.key}-${round}`, copy: round }))).flat();
+  }, [cells, looped]);
 
   const plugins = useMemo(() => (looped && !reducedMotion ? [Autoplay({ delay: 5000, stopOnMouseEnter: true, stopOnInteraction: false })] : []), [looped, reducedMotion]);
   const [emblaRef, embla] = useEmblaCarousel({ loop: looped, align: "center", duration: 30 }, plugins);
@@ -87,9 +89,9 @@ export function ReviewsShowcase() {
             <div className="-mx-4 overflow-hidden sm:-mx-8 md:-mx-10 lg:mx-0" ref={emblaRef} role="region" aria-label="Reseñas de clientes">
               {/* Con 1 o 2 reseñas (sin vuelta) la fila se centra en el panel en vez de quedar pegada a la izquierda. */}
               <div className={`flex touch-pan-y ${looped ? "" : "justify-center"}`}>
-                {slides.map(({ r, key, copy }) => (
+                {slides.map(({ cell, key, copy }) => (
                   <div key={key} className="min-w-0 flex-none basis-[74%] px-1.5 sm:basis-[56%] md:basis-[46%] lg:basis-1/2 xl:basis-1/3" {...(copy > 0 ? { "aria-hidden": true, ref: skipCopyFocus } : {})}>
-                    <ReviewCard r={r} showContext showStore onImageClick={(src) => setLightboxSrc(src)} />
+                    <ReviewCell cell={cell} showContext onImageClick={(src) => setLightboxSrc(src)} />
                   </div>
                 ))}
               </div>

@@ -8,6 +8,46 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 
+// El equipo de la plataforma también puede responder cualquier comentario: la respuesta se publica con el nombre de la plataforma y
+// el cliente recibe un correo con ella. Si la tienda ya había respondido, esta la reemplaza.
+function AdminReplyForm({ review, onReply, pending }) {
+  const [editing, setEditing] = useState(!review.vendorReply);
+  const [text, setText] = useState(review.vendorReply ?? "");
+
+  if (!editing) {
+    return (
+      <div className="mb-3 rounded-md bg-surface-container p-3">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-[12px] font-bold text-tertiary-accent">{review.repliedByAdmin ? "Respuesta de la plataforma" : `Respuesta de ${review.vendor?.companyName ?? "la tienda"}`}</span>
+          <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
+            Responder de nuevo
+          </button>
+        </div>
+        <p className="text-[13px] leading-5 text-on-surface-variant">{review.vendorReply}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3 flex gap-2.5">
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        maxLength={1000}
+        placeholder="Responder como plataforma (el cliente recibe un correo)..."
+        className="h-10 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
+      />
+      <button
+        onClick={() => text.trim() && onReply(text.trim(), () => setEditing(false))}
+        disabled={!text.trim() || pending}
+        className="flex-shrink-0 rounded bg-primary-container px-4 text-[12.5px] font-bold text-white disabled:opacity-50"
+      >
+        {pending ? "Enviando..." : "Responder"}
+      </button>
+    </div>
+  );
+}
+
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
@@ -179,6 +219,16 @@ export default function AdminReviews() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo resolver el reporte."),
   });
 
+  const reply = useMutation({
+    mutationFn: async ({ id, reply }) => (await api.patch(`/admin/reviews/${id}/reply`, { reply })).data,
+    onSuccess: (_data, variables) => {
+      toast.success("Respuesta publicada. El cliente recibe un correo.");
+      queryClient.invalidateQueries({ queryKey: ["admin-reviews"] });
+      variables.onDone?.();
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo publicar la respuesta."),
+  });
+
   const deleteReview = useMutation({
     mutationFn: async (id) => (await api.delete(`/admin/reviews/${id}`)).data,
     onSuccess: () => {
@@ -262,12 +312,12 @@ export default function AdminReviews() {
               </div>
             )}
 
-            {r.vendorReply && (
-              <div className="mb-3 rounded-md bg-surface-container p-3">
-                <div className="mb-1 text-[12px] font-bold text-tertiary-accent">Respuesta de {r.vendor?.companyName}</div>
-                <p className="text-[13px] leading-5 text-on-surface-variant">{r.vendorReply}</p>
-              </div>
-            )}
+            <AdminReplyForm
+              key={`${r.id}-${r.vendorRepliedAt ?? ""}`}
+              review={r}
+              pending={reply.isPending}
+              onReply={(text, onDone) => reply.mutate({ id: r.id, reply: text, onDone })}
+            />
 
             {r.reportStatus === "REPORTED" && (
               <div className="mb-3 rounded-md border border-tertiary-accent/25 bg-tertiary-accent/[0.06] p-3">

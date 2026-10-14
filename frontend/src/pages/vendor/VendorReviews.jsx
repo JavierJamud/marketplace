@@ -34,7 +34,7 @@ function ReviewReplyForm({ review, onReply, pending }) {
     return (
       <div className="mt-3 rounded-md bg-surface-container p-3">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[12px] font-bold text-tertiary-accent">Tu respuesta</span>
+          <span className="text-[12px] font-bold text-tertiary-accent">{review.repliedByAdmin ? "Respuesta de la plataforma" : "Tu respuesta"}</span>
           <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
             Editar
           </button>

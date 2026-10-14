@@ -208,6 +208,8 @@ enum EmailType {
   // Bloque 183: aviso al usuario de sistema recién creado (ver
   // vendorStaff.controller.js) de que ya tiene una cuenta esperándolo.
   VENDOR_STAFF_INVITE
+  // Aviso al cliente de que la tienda o la plataforma respondió a su comentario.
+  REVIEW_REPLY
   // Bloque 194 (pedido explícito — "notificación por correo... para
   // notificar sobre bajo stock en productos antes que se agoten"): aviso
   // operativo automático (lowStock.job.js), no cuenta contra el límite
@@ -2853,6 +2855,8 @@ model Review {
   isHidden  Boolean  @default(false)
   vendorReply     String?
   vendorRepliedAt DateTime?
+  // true si quien respondió fue el equipo de la plataforma (admin) y no la tienda: define el nombre que se muestra en la respuesta.
+  repliedByAdmin  Boolean  @default(false)
 
   // Bloque 69 (pedido explícito): reporte de un comentario — por el
   // vendedor de la tienda (desde su panel) o por cualquier cliente logueado

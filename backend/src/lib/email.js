@@ -31,6 +31,7 @@ import { vendorStaffInviteEmail } from "../templates/vendorStaffInvite.js";
 import { lowStockAlertEmail } from "../templates/lowStockAlert.js";
 import { cashCloseReminderEmail } from "../templates/cashCloseReminder.js";
 import { accountDeletionEmail } from "../templates/accountDeletion.js";
+import { reviewReplyEmail } from "../templates/reviewReply.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -205,6 +206,15 @@ export async function sendVendorStaffInviteEmail(user, vendorName) {
   const { subject, html } = await vendorStaffInviteEmail(user, vendorName);
   const result = await sendViaResend({ to: user.email, subject, html });
   await logEmail({ vendorId: null, orderId: null, type: "VENDOR_STAFF_INVITE", to: user.email, subject, result });
+  return result;
+}
+
+// Aviso al cliente de que su comentario tiene respuesta (de la tienda o del equipo de la plataforma). Best-effort: un fallo de envío
+// nunca debe impedir que la respuesta quede publicada.
+export async function sendReviewReplyEmail({ to, vendorId, ...data }) {
+  const { subject, html } = await reviewReplyEmail(data);
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "REVIEW_REPLY", to, subject, result });
   return result;
 }
 
