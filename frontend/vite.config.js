@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
     // Sin mapas de código ni comentarios en lo que se publica.
     // Sin mapas de código (traerían los comentarios internos del código fuente) y apuntando a navegadores actuales: así no se
     // incluyen transformaciones ni ayudas para navegadores viejos que casi nadie usa.
-    build: { sourcemap: false, target: "es2022" },
+    build: { sourcemap: false, target: ["es2019", "chrome70", "safari12", "firefox68", "edge79"] },
     esbuild: { legalComments: "none" },
     server: { port: 5173, allowedHosts: true },
     // Vista previa local de la build (npm run preview): /api va al backend local, como hace Nginx en producción.

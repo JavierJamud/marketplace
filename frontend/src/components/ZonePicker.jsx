@@ -2,11 +2,12 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MapPin, ChevronDown, X } from "lucide-react";
 import { useZone } from "../context/LocationContext.jsx";
+import { lockPageScroll } from "../lib/scrollLock.js";
 
 // Selector del lugar de entrega o recogida: una ventana pequeña, centrada, que al abrirse muestra solo el país. Al elegirlo
 // aparece debajo la provincia (Cuba) o el estado (otros países), y si ese lugar tiene municipios con tiendas, también el
-// municipio. Solo se ofrecen lugares donde hay tiendas registradas. Todo se aplica a medida que se elige y el botón "Ver
-// resultados" solo cierra la ventana. Lo elegido vale para todo el sitio y se recuerda (ver LocationContext).
+// municipio. Solo se ofrecen lugares donde hay tiendas registradas. Nada se aplica mientras se elige: el botón "Aplicar" fija
+// el lugar de una vez. Lo elegido vale para todo el sitio y se recuerda (ver LocationContext).
 
 const selectClass =
   "h-12 w-full appearance-none rounded-xl border border-outline-variant bg-surface-container-lowest pl-3.5 pr-10 text-[14px] font-semibold text-on-surface outline-none focus:border-tertiary-accent focus:ring-2 focus:ring-tertiary-accent/25";
@@ -27,7 +28,23 @@ function Field({ label, hint, children, id }) {
 const plural = (n) => `${n} ${n === 1 ? "tienda" : "tiendas"}`;
 
 export function ZoneDialog({ onClose, welcome = false }) {
-  const { countries, provinces, municipalities, countryId, provinceId, municipalityId, setCountry, setProvince, setMunicipality, clearFilter, hasZoneFilter } = useZone();
+  const zone = useZone();
+  const { countries, allProvinces: servedProvinces, allMunicipalities: servedMunicipalities, applyZone, clearFilter, hasZoneFilter } = zone;
+  // Lo que se va eligiendo queda en borrador y no toca la página: los productos, tiendas y anuncios se filtran solo al pulsar
+  // "Aplicar". Así el sitio no recarga cada sección con cada selector, y cerrar la ventana sin aplicar deja todo como estaba.
+  const [draft, setDraft] = useState({ countryId: zone.countryId, provinceId: zone.provinceId, municipalityId: zone.municipalityId });
+  const { countryId, provinceId, municipalityId } = draft;
+  const provinces = servedProvinces.filter((p) => !countryId || p.countryId === countryId);
+  const municipalities = servedMunicipalities.filter((m) => m.provinceId === provinceId);
+  const setCountry = (id) => setDraft({ countryId: id || null, provinceId: null, municipalityId: null });
+  const setProvince = (id) =>
+    setDraft((d) => (id ? { countryId: servedProvinces.find((p) => p.id === id)?.countryId ?? d.countryId, provinceId: id, municipalityId: null } : { ...d, provinceId: null, municipalityId: null }));
+  const setMunicipality = (id) => setDraft((d) => ({ ...d, municipalityId: id || null }));
+  const apply = () => {
+    if (countryId || provinceId) applyZone(draft);
+    else clearFilter();
+    onClose();
+  };
   const uid = useId();
   const first = useRef(null);
   const allStates = provinces.length > 0 && provinces.every((p) => p.type === "STATE");
@@ -41,11 +58,10 @@ export function ZoneDialog({ onClose, welcome = false }) {
     first.current?.focus();
     const onKey = (e) => e.key === "Escape" && !welcome && onClose();
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      unlock();
     };
   }, [onClose, welcome]);
 
@@ -115,11 +131,11 @@ export function ZoneDialog({ onClose, welcome = false }) {
         <div className="mt-5 flex flex-col gap-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={apply}
             disabled={welcome && countries.length > 0 && !countryId}
             className="min-h-12 rounded-xl bg-secondary text-[14.5px] font-bold text-white hover:brightness-95 disabled:opacity-45"
           >
-            Ver resultados
+            Aplicar
           </button>
           <button
             type="button"

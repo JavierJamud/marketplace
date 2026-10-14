@@ -1,8 +1,6 @@
 import cron from "node-cron";
-import { join } from "node:path";
-import { unlink } from "node:fs/promises";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { prisma } from "../lib/prisma.js";
-import { CUSTOMER_LISTING_UPLOAD_DIR } from "../controllers/customerListings.controller.js";
 
 // Primer cron de este proyecto que BORRA filas de verdad (los otros dos,
 // vendorLifecycle.job.js/verificationPayment.job.js, solo cambian estados).
@@ -32,11 +30,7 @@ async function deleteExpiredListings() {
 
   let deleted = 0;
   for (const listing of expired) {
-    await Promise.all(
-      listing.images.map((url) =>
-        unlink(join(CUSTOMER_LISTING_UPLOAD_DIR, listing.ownerId, url.split("/").pop())).catch(() => {})
-      )
-    );
+    await deleteUploadedImages(listing.images);
     await prisma.customerListing.delete({ where: { id: listing.id } });
     deleted++;
   }

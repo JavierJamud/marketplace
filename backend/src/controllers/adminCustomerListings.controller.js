@@ -1,8 +1,6 @@
-import { join } from "node:path";
-import { unlink } from "node:fs/promises";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { CUSTOMER_LISTING_UPLOAD_DIR } from "./customerListings.controller.js";
 
 // Supervisión de admin sobre la venta rápida — mismo criterio de moderación
 // que adminProducts.controller.js: el admin puede editar/eliminar el
@@ -45,9 +43,7 @@ export async function deleteAdminCustomerListing(req, res) {
   const existing = await prisma.customerListing.findUnique({ where: { id } });
   if (!existing) throw new AppError("Anuncio no encontrado.", 404);
 
-  await Promise.all(
-    existing.images.map((url) => unlink(join(CUSTOMER_LISTING_UPLOAD_DIR, existing.ownerId, url.split("/").pop())).catch(() => {}))
-  );
+  await deleteUploadedImages(existing.images);
   await prisma.customerListing.delete({ where: { id } });
   res.json({ ok: true });
 }

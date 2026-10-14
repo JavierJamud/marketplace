@@ -2,6 +2,7 @@ import { z } from "zod";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
@@ -248,13 +249,8 @@ export async function deleteListing(req, res) {
   const existing = await prisma.customerListing.findUnique({ where: { id } });
   if (!existing || existing.ownerId !== req.user.id) throw new AppError("Anuncio no encontrado.", 404);
 
-  // Best-effort: borra los archivos físicos también (a diferencia de
-  // deleteProduct, que hoy no lo hace — acá sí importa porque el cupo de 5
-  // y el churn constante de este flujo hacen que dejar huérfanos en disco
-  // sea un problema real, no solo teórico).
-  await Promise.all(
-    existing.images.map((url) => unlink(join(CUSTOMER_LISTING_UPLOAD_DIR, req.user.id, url.split("/").pop())).catch(() => {}))
-  );
+  // Se borran también las fotos del disco, con sus miniaturas.
+  await deleteUploadedImages(existing.images);
 
   await prisma.customerListing.delete({ where: { id } });
   res.json({ ok: true });
@@ -309,7 +305,7 @@ export async function removeListingImage(req, res) {
     data: { images: nextImages, ...(nextImages.length === 0 ? { isActive: false } : {}) },
   });
 
-  unlink(join(CUSTOMER_LISTING_UPLOAD_DIR, req.user.id, url.split("/").pop())).catch(() => {});
+  void deleteUploadedImages([url]);
   res.json({ listing });
 }
 

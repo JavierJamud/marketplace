@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { ShieldAlert, Star, Tag, Clock, Camera, Zap, X as XIcon } from "lucide-react";
+import { ShieldAlert, Star, Tag, Clock, Camera, Zap, X as XIcon, Globe } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -17,7 +17,8 @@ import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
 import { resolveCurrency } from "../../lib/currencies.js";
 import { GatedStoreChat } from "../../components/GatedStoreChat.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
-import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
+import { ReviewsList } from "../../components/ReviewsList.jsx";
+import { Flag } from "../../components/ui/Flag.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
@@ -330,7 +331,7 @@ export default function Store() {
   const [reviewImages, setReviewImages] = useState([]); // File[]
   const [lightboxSrc, setLightboxSrc] = useState(null);
   // Bloque 69 (pedido explícito): reportar un comentario — desde la cuenta
-  // de cualquier cliente logueado (nunca el propio, ver ReviewsMarquee.jsx).
+  // de cualquier cliente logueado (nunca el propio, ver ReviewsList.jsx).
   const [reportTarget, setReportTarget] = useState(null);
   const [reportReason, setReportReason] = useState("");
   const trackedVisitRef = useRef(null);
@@ -683,9 +684,10 @@ export default function Store() {
             {v.deliveryCountries.map((dc) => (
               <span
                 key={dc.id}
-                className="flex items-center gap-1.5 rounded-full border border-surface-container-high bg-surface-container-lowest px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant"
+                className="flex items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-3.5 py-2 text-[13px] font-semibold text-on-surface-variant"
               >
-                🌎 {dc.country?.name}
+                {dc.country?.code ? <Flag code={dc.country.code} /> : <Globe className="h-4 w-4 flex-shrink-0 text-outline" aria-hidden="true" />}
+                {dc.country?.name}
               </span>
             ))}
           </div>
@@ -772,9 +774,11 @@ export default function Store() {
           )}
         </div>
 
-        <ReviewsMarquee
+        <ReviewsList
           reviews={v.reviews}
           vendorName={v.companyName}
+          vendorSlug={v.slug}
+          showContext
           onImageClick={(src) => setLightboxSrc(src)}
           currentUserId={user?.id}
           onReportClick={(review) => setReportTarget(review)}

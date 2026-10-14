@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import {
   productSchema,
   reconcileStock,
@@ -213,5 +214,6 @@ export async function deleteAdminProduct(req, res) {
   if (!existing) throw new AppError("Producto no encontrado.", 404);
 
   await prisma.product.delete({ where: { id } });
+  void deleteUploadedImages(existing.images);
   res.json({ ok: true });
 }

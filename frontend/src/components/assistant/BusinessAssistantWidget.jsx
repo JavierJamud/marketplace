@@ -4,6 +4,7 @@ import { AlertTriangle, MessageSquareText, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
+import { lockPageScroll } from "../../lib/scrollLock.js";
 
 // Bloque 259 (pedido explícito — "en vez de una sección, un botón de chat
 // flotante del asistente de negocio, en todas las pantallas de los paneles"):
@@ -74,12 +75,11 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
     }
     window.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointerDown);
-    const previous = document.body.style.overflow;
-    if (window.matchMedia("(max-width: 639px)").matches) document.body.style.overflow = "hidden";
+    const unlock = window.matchMedia("(max-width: 639px)").matches ? lockPageScroll() : null;
     return () => {
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointerDown);
-      document.body.style.overflow = previous;
+      unlock?.();
     };
   }, [open]);
 

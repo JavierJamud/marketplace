@@ -206,6 +206,23 @@ server {
         proxy_connect_timeout 3s;       # si la API está reiniciando, falla rápido (el navegador reintenta solo)
     }
 
+    # Precarga de la imagen del encabezado: nginx la pide a la API para armar el HTML de la portada (SSI). Esa llamada NUNCA debe
+    # retrasar la página: con 1 segundo de tope, y si la API tarda o está reiniciando, la portada sale sin precarga (vacío) en vez
+    # de quedarse en blanco esperando.
+    location = /api/hero-preload {
+        proxy_pass http://127.0.0.1:$PUERTO_API/hero-preload;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_connect_timeout 1s;
+        proxy_read_timeout 1s;
+        proxy_intercept_errors on;      # un error de la API (500...) tampoco debe colarse dentro del HTML
+        error_page 500 502 503 504 = @sin_precarga;
+    }
+    location @sin_precarga {
+        default_type text/html;
+        return 200 '';
+    }
+
     # Si la API no responde (reinicio o despliegue de unos segundos), el navegador recibe un aviso corto y reintenta solo.
     error_page 502 503 504 = @api_reiniciando;
     location @api_reiniciando {
@@ -271,6 +288,7 @@ server {
     location / {
         # SSI: la portada recibe la precarga de su primera imagen (ver /api/hero-preload e index.html).
         ssi on;
+        ssi_silent_errors on;           # si falla una inclusión, no se escribe ningún aviso dentro de la página
         add_header Cache-Control "no-cache";
         include $RAIZ/cabeceras-seguridad.conf;
         try_files \$uri \$uri/ /index.html;

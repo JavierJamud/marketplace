@@ -2,6 +2,7 @@ import { z } from "zod";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
@@ -9,6 +10,7 @@ import { getBrandSettings, getReviewPolicy } from "./settings.controller.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows } from "../lib/planConfig.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 
 // Bloque 117/118 (pedido explícito): un mismo usuario logueado puede dejar
 // hasta `maxPerProduct` comentarios por ventana de tiempo POR PRODUCTO
@@ -147,6 +149,28 @@ export async function createReview(req, res) {
     }
     throw err;
   }
+}
+
+// Reseñas de la portada: las más recientes de todas las tiendas activas (de la zona que elija el visitante, como el resto de la
+// portada), con la tienda y el producto al que se refieren. Las ocultas por el admin o por un reporte nunca salen. `stats` cuenta
+// y promedia las mismas reseñas con estrellas, para mostrar solo datos reales.
+export async function listFeaturedReviews(req, res) {
+  const zone = vendorZoneWhere(req.query);
+  const vendorWhere = { status: "ACTIVE", isBlocked: false, ...(zone ? { locations: zone } : {}) };
+  const where = { isHidden: false, vendor: vendorWhere };
+  const [reviews, agg] = await Promise.all([
+    prisma.review.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      include: {
+        vendor: { select: { companyName: true, slug: true } },
+        product: { select: { id: true, name: true, slug: true, images: true } },
+      },
+    }),
+    prisma.review.aggregate({ where: { ...where, rating: { not: null } }, _avg: { rating: true }, _count: { rating: true } }),
+  ]);
+  res.json({ reviews, stats: { total: agg._count.rating, average: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0 } });
 }
 
 // --- Vendedor (Bloque 22) ---------------------------------------------------
@@ -371,6 +395,7 @@ export async function deleteReview(req, res) {
   if (!existing) throw new AppError("Comentario no encontrado.", 404);
 
   await prisma.review.delete({ where: { id } });
+  void deleteUploadedImages(existing.images);
   if (existing.vendorId && existing.rating) await recalculateVendorRating(existing.vendorId);
   if (existing.productId && existing.rating) await recalculateProductRating(existing.productId);
 

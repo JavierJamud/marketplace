@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useIsFetching } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { releaseStaleScrollLock } from "../../lib/scrollLock.js";
 
 // Bloque 135 (pedido explícito — "quiero un loader normal para cuando se
 // cambia entre páginas, en caso de que alguna se quede atascada"): la barra
@@ -43,20 +44,30 @@ function StuckPageHelper() {
   );
 }
 
-// Barra de progreso superior (Bloque 17) — no espera ninguna señal real de
-// "ruta cargada" (no hay code-splitting/Suspense en App.jsx, el cambio de
-// componente es sincrónico): es una animación de progreso percibido estilo
-// NProgress, se reinicia en cada cambio de ruta para dar sensación de
-// transición sin bloquear la interacción.
+// Barra de progreso superior (Bloque 17), ahora atada a la carga real: arranca en cada cambio de página y, si los datos de la
+// página nueva aún no llegaron, se queda esperando (al 92 %) hasta que terminen, con un tope de 6 segundos para que una consulta
+// que se repite sola en segundo plano nunca la deje fija. Si la espera pasa de ~1 segundo se suma un indicador sencillo (un
+// círculo girando, no es el loader principal de la marca) para que el visitante nunca vea una pantalla a medias sin ninguna
+// señal de que la página está cargando. No bloquea nada: no tapa el contenido ni recibe toques.
+const SPINNER_AFTER_MS = 1000;
+const MAX_WAIT_MS = 6000;
+
 export function RouteLoader() {
   const location = useLocation();
   const [progress, setProgress] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [spinner, setSpinner] = useState(false);
   const timeoutsRef = useRef([]);
+  const busy = useIsFetching() > 0;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
   useEffect(() => {
     timeoutsRef.current.forEach(clearTimeout);
     timeoutsRef.current = [];
+    setWaiting(false);
+    setSpinner(false);
 
     // Bloque 52 (pedido explícito): React Router no resetea el scroll al
     // navegar (a diferencia de una navegación de página completa normal) —
@@ -74,21 +85,56 @@ export function RouteLoader() {
     // el scroll-smooth global sigue intacto para todo lo demás (ej. anclas
     // `#resenas` dentro de la misma página).
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    releaseStaleScrollLock();
 
     setVisible(true);
     setProgress(20);
 
+    const finish = () => {
+      setWaiting(false);
+      setSpinner(false);
+      setProgress(100);
+      timeoutsRef.current.push(setTimeout(() => setVisible(false), 250));
+    };
     timeoutsRef.current.push(setTimeout(() => setProgress(70), 120));
-    timeoutsRef.current.push(setTimeout(() => setProgress(92), 320));
     timeoutsRef.current.push(
       setTimeout(() => {
-        setProgress(100);
-        timeoutsRef.current.push(setTimeout(() => setVisible(false), 250));
+        setProgress(92);
+        // Si ya no hay nada cargando, termina como siempre; si no, espera (ver el efecto de `busy`) hasta MAX_WAIT_MS.
+        if (!busyRef.current) return;
+        setWaiting(true);
+        timeoutsRef.current.push(setTimeout(finish, MAX_WAIT_MS));
+      }, 320)
+    );
+    timeoutsRef.current.push(
+      setTimeout(() => {
+        if (!busyRef.current) return;
+        setSpinner(true);
+      }, SPINNER_AFTER_MS)
+    );
+    timeoutsRef.current.push(
+      setTimeout(() => {
+        if (busyRef.current) return; // sigue cargando: el efecto de `busy` la cierra cuando termine
+        finish();
       }, 460)
     );
 
     return () => timeoutsRef.current.forEach(clearTimeout);
   }, [location.pathname]);
+
+  // La carga real terminó mientras la barra esperaba: se completa y se quita el indicador.
+  useEffect(() => {
+    if (busy || !waiting) return;
+    setWaiting(false);
+    setSpinner(false);
+    setProgress(100);
+    timeoutsRef.current.push(setTimeout(() => setVisible(false), 250));
+  }, [busy, waiting]);
+
+  // Si lo que cargaba terminó antes de que el indicador llegara a verse, no se muestra.
+  useEffect(() => {
+    if (!busy) setSpinner(false);
+  }, [busy]);
 
   return (
     <>
@@ -102,6 +148,14 @@ export function RouteLoader() {
               transition: progress === 100 ? "opacity 250ms ease-out, width 300ms ease-out" : "width 300ms ease-out",
             }}
           />
+        </div>
+      )}
+      {spinner && visible && (
+        <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-24 z-[190] -translate-x-1/2">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-lowest shadow-lg ring-1 ring-black/5">
+            <Loader2 className="h-5 w-5 animate-spin text-secondary" aria-hidden="true" />
+            <span className="sr-only">Cargando la página</span>
+          </span>
         </div>
       )}
       {/* Bloque 135: independiente de `visible` de arriba a propósito — la

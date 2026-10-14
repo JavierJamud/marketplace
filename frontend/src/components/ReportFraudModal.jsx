@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X, ShieldAlert, Camera } from "lucide-react";
 import { api, getErrorMessage } from "../lib/api.js";
 import toast from "../lib/toast.jsx";
+import { lockPageScroll } from "../lib/scrollLock.js";
 
 const MAX_SCREENSHOT_MB = 6;
 
@@ -40,10 +41,10 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
       if (e.key === "Escape") onClose?.();
     }
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      unlock();
     };
   }, [open, onClose]);
 

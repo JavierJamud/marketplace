@@ -10,6 +10,7 @@ import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../ui/VerifiedBadge.jsx";
 import { ShareCartButton } from "../ShareCartButton.jsx";
 import { ConfirmDeleteModal } from "../ConfirmDeleteModal.jsx";
+import { lockPageScroll } from "../../lib/scrollLock.js";
 
 // Bloque 147: mismo patrón usado en el resto del sitio (ProductCard.jsx,
 // SharedCart.jsx, etc.) — `images`/`image` guarda paths relativos servidos
@@ -53,10 +54,10 @@ export function CartDrawer() {
       if (e.key === "Escape") closeCart();
     }
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      unlock();
     };
   }, [isDrawerOpen, closeCart]);
 

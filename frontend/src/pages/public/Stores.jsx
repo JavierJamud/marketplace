@@ -14,6 +14,7 @@ import { ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { lockPageScroll } from "../../lib/scrollLock.js";
 
 // Página de tiendas. El lugar donde se compra (país, provincia o estado, municipio) es un filtro general del sitio que se elige
 // en la portada o con el botón de arriba (ver ZonePicker); aquí solo se filtra por lo propio de cada tienda: tipo de
@@ -90,11 +91,7 @@ export default function Stores() {
   // El fondo no se desplaza mientras está abierta la hoja de filtros del celular.
   useEffect(() => {
     if (!sheetOpen) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return lockPageScroll();
   }, [sheetOpen]);
 
   const { data: businessCategories } = useQuery({

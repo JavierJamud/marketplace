@@ -235,9 +235,13 @@ export default function AdminReviews() {
                       <Store className="h-3 w-3" /> {r.vendor.companyName}
                     </span>
                   )}
-                  {r.product && (
-                    <span className="flex items-center gap-1">
-                      <Package className="h-3 w-3" /> {r.product.name}
+                  {r.product ? (
+                    <span className="flex items-center gap-1 rounded-full bg-secondary-container/25 px-2 py-0.5 font-semibold text-on-secondary-container">
+                      <Package className="h-3 w-3" /> Reseña del producto · {r.product.name}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 rounded-full bg-tertiary-accent/10 px-2 py-0.5 font-semibold text-tertiary-accent">
+                      <Store className="h-3 w-3" /> Reseña de la tienda
                     </span>
                   )}
                   <span>{fmtDate(r.createdAt)}</span>

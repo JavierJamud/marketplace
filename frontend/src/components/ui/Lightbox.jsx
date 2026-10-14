@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
+import { lockPageScroll } from "../../lib/scrollLock.js";
 
 // Bloque 52: lightbox simple para abrir en tamaño completo una foto de
 // reseña — sin flechas de navegación ni zoom, solo mostrar/cerrar (alcanza
@@ -11,10 +12,10 @@ export function Lightbox({ src, onClose }) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+    const unlock = lockPageScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      unlock();
     };
   }, [src, onClose]);
 

@@ -20,6 +20,7 @@ import { StoreCard } from "../../components/StoreCard.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
+import { compressImage } from "../../utils/compressImage.js";
 import { formatPrice } from "../../lib/format.js";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
@@ -167,18 +168,6 @@ export default function CustomerPanel() {
       ].filter(Boolean)
     : [];
 
-  function handleSaveListing() {
-    if (listingForm.countryOther?.trim() || (!listingForm.countryId && !listingForm.provinceId)) {
-      toast.error("Elige el país del artículo de la lista.");
-      return;
-    }
-    if (listingLocStatus.error) {
-      toast.error(listingLocStatus.error);
-      return;
-    }
-    saveListing.mutate();
-  }
-
   function handleCreateListingClick() {
     if (profileMissing.length) {
       toast.error(`Completa tu ${profileMissing.join(", ")} en el perfil para publicar.`);
@@ -290,6 +279,18 @@ export default function CustomerPanel() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el anuncio."),
   });
 
+  function handleSaveListing() {
+    if (listingForm.countryOther?.trim() || (!listingForm.countryId && !listingForm.provinceId)) {
+      toast.error("Elige el país del artículo de la lista.");
+      return;
+    }
+    if (listingLocStatus.error) {
+      toast.error(listingLocStatus.error);
+      return;
+    }
+    saveListing.mutate();
+  }
+
   const uploadListingImage = useMutation({
     mutationFn: async (file) => {
       const body = new FormData();
@@ -304,9 +305,10 @@ export default function CustomerPanel() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo subir la foto."),
   });
 
-  function handleListingImage(blob) {
+  // La foto recortada se comprime en el navegador antes de subirla (ver utils/compressImage.js): llega ya liviana al servidor.
+  async function handleListingImage(blob) {
     const file = new File([blob], `listing-${Date.now()}.jpg`, { type: blob.type });
-    uploadListingImage.mutate(file);
+    uploadListingImage.mutate(await compressImage(file, { maxWidth: 1400, quality: 0.82 }));
   }
 
   // Pedido explícito: la galería de fotos debe verse "casi igual a un

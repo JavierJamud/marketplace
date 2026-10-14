@@ -137,6 +137,9 @@ export function LocationProvider({ children }) {
       countries,
       provinces,
       municipalities,
+      // Todas las provincias y municipios con tiendas, sin filtrar por lo aplicado: el selector arma con ellas su borrador.
+      allProvinces: served?.provinces ?? [],
+      allMunicipalities: served?.municipalities ?? [],
       countryId: zone.countryId,
       provinceId: zone.provinceId,
       municipalityId: zone.municipalityId,

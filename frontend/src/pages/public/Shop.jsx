@@ -11,6 +11,7 @@ import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { SlidersHorizontal, X } from "lucide-react";
 import { useMediaQuery } from "../../lib/useMediaQuery.js";
+import { lockPageScroll } from "../../lib/scrollLock.js";
 
 const SORT_OPTIONS = [
   { value: "relevance", label: "Más relevantes" },
@@ -83,11 +84,7 @@ export default function Shop() {
   // El fondo no se desplaza mientras está abierta la hoja de filtros del celular.
   useEffect(() => {
     if (!sheetOpen) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return lockPageScroll();
   }, [sheetOpen]);
 
   const { data: categories } = useQuery({

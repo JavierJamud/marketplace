@@ -1,6 +1,7 @@
 import { toPublicVendor } from "../lib/publicVendor.js";
 import { z } from "zod";
 import { unlink, readFile } from "node:fs/promises";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KYC_UPLOAD_DIR } from "./verification.controller.js";
@@ -308,9 +309,15 @@ export async function getVendorBySlug(req, res) {
       // Bloque 157: hiddenFromStore:true = "solo por pedido de mesa" — no
       // aparece en esta lista pública de la tienda.
       products: { where: { isActive: true, hiddenFromStore: false, overQuota: false }, take: 48, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
-      // Comentarios públicos de la tienda (sin producto asociado) — un
-      // comentario oculto por el admin (isHidden) nunca llega acá.
-      reviews: { where: { productId: null, isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
+      // Comentarios públicos de la tienda: los que se le hicieron a la tienda (sin producto) y también las reseñas de sus
+      // productos, que traen `product` para que la página las identifique como reseña de ese producto. Un comentario oculto por
+      // el admin (isHidden) nunca llega acá.
+      reviews: {
+        where: { isHidden: false },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        include: { product: { select: { id: true, name: true, slug: true, images: true } } },
+      },
       // Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes se
       // incluía `tables` (con su `qrToken` real) acá, y Store.jsx armaba un
       // link directo a `/mesa/:qrToken` — cualquier visitante llegaba al
@@ -963,6 +970,8 @@ export async function uploadVendorLogo(req, res) {
     where: { id: vendor.id },
     data: { logoUrl: `/uploads/vendor-branding/${req.file.filename}` },
   });
+  // El logo anterior ya no se usa: se borra del disco.
+  void deleteUploadedImages([vendor.logoUrl]);
   // Bloque 235: el logo es un requisito del checklist del trial (ver
   // trialEligibility.service.js) — podría ser justo lo último que faltaba.
   await maybeAutoActivateTrial(vendor.id).catch(() => {});

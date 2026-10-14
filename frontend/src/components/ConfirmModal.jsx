@@ -1,5 +1,6 @@
 ﻿import { useEffect } from "react";
 import { X, AlertTriangle, Trash2 } from "lucide-react";
+import { lockPageScroll } from "../lib/scrollLock.js";
 
 /**
  * ConfirmModal — reemplaza window.confirm()/window.prompt() con un modal moderno y responsivo.
@@ -40,14 +41,8 @@ export function ConfirmModal({
   }, [open, onCancel]);
 
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
+    if (!open) return undefined;
+    return lockPageScroll();
   }, [open]);
 
   if (!open) return null;

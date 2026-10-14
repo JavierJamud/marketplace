@@ -4,6 +4,7 @@ import { logError } from "./lib/errorLog.js";
 import { startVendorLifecycleJob } from "./jobs/vendorLifecycle.job.js";
 import { startVerificationPaymentJob, startVerificationApprovalExpiryJob } from "./jobs/verificationPayment.job.js";
 import { startCustomerListingExpiryJob } from "./jobs/customerListingExpiry.job.js";
+import { startContentCleanupJob } from "./jobs/contentCleanup.job.js";
 import { startFraudReportsJob } from "./jobs/fraudReports.job.js";
 import { startAiHealthCheckJob } from "./jobs/aiHealthCheck.job.js";
 import { startAiChatbotAvailabilityJob } from "./jobs/aiChatbotAvailability.job.js";
@@ -58,6 +59,7 @@ process.on("uncaughtException", (err) => {
 // archivos) — corre primero (7:00am) para no competir por conexión de DB con
 // los otros dos crons diarios.
 startCustomerListingExpiryJob();
+startContentCleanupJob();
 // Bloque 62: primer cron real del proyecto — recordatorio de inactividad,
 // suspensión automática a los 90 días y re-enganche de clientes.
 startVendorLifecycleJob();

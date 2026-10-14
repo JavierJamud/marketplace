@@ -140,7 +140,11 @@ export default function VendorReviews() {
                         <ShieldCheck className="h-3 w-3" /> Compra verificada
                       </span>
                     )}
-                    {r.product && <span className="text-[11.5px] text-outline">· sobre {r.product.name}</span>}
+                    {r.product ? (
+                      <span className="rounded-full bg-secondary-container/25 px-2 py-0.5 text-[10.5px] font-bold text-on-secondary-container">Reseña del producto · {r.product.name}</span>
+                    ) : (
+                      <span className="rounded-full bg-tertiary-accent/10 px-2 py-0.5 text-[10.5px] font-bold text-tertiary-accent">Reseña de la tienda</span>
+                    )}
                     {reportMeta && (
                       <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${reportMeta.className}`}>{reportMeta.label}</span>
                     )}

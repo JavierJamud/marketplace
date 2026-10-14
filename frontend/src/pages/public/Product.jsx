@@ -19,7 +19,7 @@ import { GatedStoreChat } from "../../components/GatedStoreChat.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { RequestProductButton } from "../../components/RequestProductButton.jsx";
-import { ReviewsMarquee } from "../../components/ReviewsMarquee.jsx";
+import { ReviewsList } from "../../components/ReviewsList.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
@@ -792,7 +792,7 @@ export default function Product() {
           )}
         </div>
 
-        <ReviewsMarquee
+        <ReviewsList
           reviews={product.reviews}
           vendorName={v?.companyName}
           onImageClick={(src) => setLightboxSrc(src)}

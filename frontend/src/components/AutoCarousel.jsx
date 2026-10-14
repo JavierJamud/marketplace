@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import Autoplay from "embla-carousel-autoplay";
 import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
@@ -25,11 +25,18 @@ export function AutoCarousel({ items, getKey, renderItem, itemClassName, align =
   );
   const [emblaRef] = useEmblaCarousel({ loop: true, align, duration: 30 }, plugins);
 
+  // Las copias (para que el loop tenga con qué llenar el ancho) se ven y se tocan igual que el original: con pocos anuncios casi
+  // todo lo visible son copias, y antes llevaban `inert`, que las dejaba sin responder al clic. Solo se ocultan a los lectores de
+  // pantalla y al tabulador, para no leer ni recorrer dos veces lo mismo.
+  const skipCopyFocus = useCallback((el) => {
+    el?.querySelectorAll("a, button, input, select, textarea, [tabindex]").forEach((n) => n.setAttribute("tabindex", "-1"));
+  }, []);
+
   return (
     <div className="overflow-hidden" ref={emblaRef} role="region" aria-label={label}>
       <div className="flex touch-pan-y">
         {slides.map(({ item, key, copy }) => (
-          <div key={key} className={`min-w-0 flex-none ${itemClassName}`} {...(copy > 0 ? { "aria-hidden": true, inert: "" } : {})}>
+          <div key={key} className={`min-w-0 flex-none ${itemClassName}`} {...(copy > 0 ? { "aria-hidden": true, ref: skipCopyFocus } : {})}>
             {renderItem(item)}
           </div>
         ))}

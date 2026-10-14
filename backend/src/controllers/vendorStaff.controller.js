@@ -10,6 +10,7 @@ import { logActivity } from "../lib/activityLog.js";
 import { sendVendorStaffInviteEmail } from "../lib/email.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 import { assertPlanAllows, getPlanLimit } from "../lib/planConfig.js";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const STAFF_PHOTO_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "vendor-staff");
@@ -298,6 +299,7 @@ export async function uploadMyStaffPhoto(req, res) {
     data: { photoUrl: `/uploads/vendor-staff/${req.file.filename}` },
     include: { user: { select: { email: true, fullName: true, isSuspended: true, lastLoginAt: true } } },
   });
+  void deleteUploadedImages([staff.photoUrl]);
   res.json({ staff: publicStaff(updated) });
 }
 

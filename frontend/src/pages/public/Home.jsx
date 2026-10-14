@@ -11,7 +11,7 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
-import { TrendingSearches } from "../../components/TrendingSearches.jsx";
+import { ReviewsShowcase } from "../../components/ReviewsShowcase.jsx";
 import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
 import { ZoneDialog } from "../../components/ZonePicker.jsx";
 import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselLazy.jsx";
@@ -369,7 +369,7 @@ export default function Home() {
               <AutoCarousel
                 items={quickSales}
                 getKey={(l) => l.id}
-                renderItem={(l) => <QuickSaleCard listing={l} />}
+                renderItem={(l) => <QuickSaleCard listing={l} eager />}
                 itemClassName="basis-[72%] px-1.5 sm:basis-1/3 lg:basis-1/4"
                 align="start"
                 delay={3500}
@@ -466,7 +466,7 @@ export default function Home() {
           )}
         </section>
 
-        <TrendingSearches />
+        <ReviewsShowcase />
           </>
         ) : (
           <div className="min-h-[100vh]" aria-hidden="true" />

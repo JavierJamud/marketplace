@@ -2,7 +2,7 @@ import { z } from "zod";
 import jwt from "jsonwebtoken";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { unlink } from "node:fs/promises";
+import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
@@ -413,7 +413,7 @@ export async function getProductBySlug(req, res) {
       // reporte (ver reviews.controller.js), seguía apareciendo en la ficha
       // del producto. `getVendorBySlug` (vendors.controller.js) sí lo filtraba
       // desde el Bloque 22; a este endpoint se le pasó por alto.
-      reviews: { where: { rating: { not: null }, isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
+      reviews: { where: { isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
     },
   });
   if (!product) throw new AppError("Producto no encontrado.", 404);
@@ -844,6 +844,8 @@ export async function deleteProduct(req, res) {
   if (!existing || existing.vendorId !== vendor.id) throw new AppError("Producto no encontrado.", 404);
 
   await prisma.product.delete({ where: { id } });
+  // Las fotos de un producto eliminado no se vuelven a usar: se borran del disco (con sus miniaturas).
+  void deleteUploadedImages(existing.images);
   res.json({ ok: true });
 }
 
@@ -906,9 +908,8 @@ export async function removeProductImage(req, res) {
     data: { images: nextImages, ...(nextImages.length === 0 ? { isActive: false } : {}) },
   });
 
-  // Best-effort: borra el archivo físico también, no bloquea la respuesta si falla.
-  const filename = url.split("/").pop();
-  unlink(join(PRODUCT_UPLOAD_DIR, vendor.slug, filename)).catch(() => {});
+  // Se borra también el archivo del disco, con su miniatura; no bloquea la respuesta si falla.
+  void deleteUploadedImages([url]);
 
   res.json({ product });
 }
