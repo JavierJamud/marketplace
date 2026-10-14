@@ -9,6 +9,7 @@ import { PlanConfigTab, CupPaymentSettingsCard } from "./AdminSubscriptions.jsx"
 import { ListingPolicyCard } from "./AdminOffers.jsx";
 import { ReviewPolicyCard } from "./AdminReviews.jsx";
 import { ProductImageLinksPanel } from "./AdminLocations.jsx";
+import { MaintenanceCard } from "../../components/admin/MaintenanceCard.jsx";
 
 // Pedido explícito: una sola sección "Configuración" con TODOS los ajustes del
 // panel, en vez de tenerlos repartidos por Marca, Seguridad, Suscripciones,
@@ -38,7 +39,8 @@ export default function AdminSettings() {
       <Tabs tabs={TABS} value={tab} onChange={(id) => setParams({ tab: id }, { replace: true })} className="mb-6" />
 
       {tab === "general" && (
-        <div className="max-w-[820px]">
+        <div className="flex max-w-[820px] flex-col gap-5">
+          <MaintenanceCard />
           <AdminBranding mode="general" />
         </div>
       )}

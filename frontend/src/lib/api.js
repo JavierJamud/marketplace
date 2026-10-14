@@ -20,6 +20,9 @@ const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostna
 
 export const api = axios.create({ baseURL: API_URL });
 
+// Evento que se avisa a la aplicación cuando el servidor responde que todo el sitio está en mantenimiento (ver lib/useMaintenance.js).
+export const MAINTENANCE_EVENT = "zeudin:maintenance";
+
 // Bloque 60: este módulo no es un componente — no puede leer el `user`
 // actual ni navegar. AuthContext.jsx se registra acá una sola vez al
 // montar, así que cuando el refresh falla de verdad (sesión revocada o
@@ -105,6 +108,11 @@ api.interceptors.response.use(
         localStorage.removeItem("accessToken");
         sessionExpiredHandler?.();
       }
+    }
+    // Mantenimiento de todo el sitio: no es un corte pasajero ni se repite; se avisa a la aplicación para que muestre el aviso.
+    if (error.response?.status === 503 && error.response.data?.code === "MAINTENANCE") {
+      window.dispatchEvent(new CustomEvent(MAINTENANCE_EVENT, { detail: { message: error.response.data.error } }));
+      return Promise.reject(error);
     }
     // Cortes breves del servidor (reinicio, despliegue, red inestable): las lecturas se reintentan solas hasta 3 veces, con
     // espera creciente, para que la persona no vea un error por algo que se arregla en segundos. Solo GET/HEAD: nunca se

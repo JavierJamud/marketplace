@@ -276,6 +276,7 @@ router.patch("/settings/listing-policy", requireActionCode("PLATFORM_SETTINGS"),
 router.patch("/settings/review-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
 router.patch("/settings/product-payment-methods", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductPaymentMethods);
+router.patch("/settings/maintenance", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateMaintenance);
 router.patch("/settings/branding", requireActionCode("PLATFORM_BRANDING"), settingsController.updateBranding);
 router.patch("/settings/cup-payment", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateCupPaymentSettings);
 router.patch("/settings/available-currencies", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateAvailableCurrencies);

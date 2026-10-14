@@ -26,6 +26,44 @@ async function getOrCreateSettings() {
   return prisma.siteSettings.create({ data: {} });
 }
 
+// --- Modo mantenimiento -----------------------------------------------------------------------------------------------------------
+const DEFAULT_MAINTENANCE_MESSAGE = "Estamos mejorando el sitio. Volvemos muy pronto.";
+
+// Estado actual, guardado unos segundos en memoria: el bloqueo del servidor lo consulta en cada petición.
+let maintenanceCache = null;
+export async function getMaintenanceState() {
+  if (maintenanceCache && maintenanceCache.expires > Date.now()) return maintenanceCache.value;
+  const s = await getOrCreateSettings();
+  const value = { mode: s.maintenanceMode, message: s.maintenanceMessage?.trim() || DEFAULT_MAINTENANCE_MESSAGE, customMessage: s.maintenanceMessage ?? "" };
+  maintenanceCache = { value, expires: Date.now() + 3000 };
+  return value;
+}
+
+// Público: lo lee el sitio para saber si debe mostrar el aviso.
+export async function getMaintenance(_req, res) {
+  const { mode, message, customMessage } = await getMaintenanceState();
+  res.set("Cache-Control", "no-store");
+  res.json({ mode, message, customMessage });
+}
+
+const maintenanceSchema = z.object({
+  mode: z.enum(["OFF", "HOME", "FULL"]),
+  message: z.string().trim().max(300, "El mensaje admite hasta 300 caracteres.").optional().nullable(),
+});
+
+// Admin: activa, cambia o desactiva el modo mantenimiento.
+export async function updateMaintenance(req, res) {
+  const data = maintenanceSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  await prisma.siteSettings.update({
+    where: { id: settings.id },
+    data: { maintenanceMode: data.mode, ...(data.message !== undefined ? { maintenanceMessage: data.message || null } : {}) },
+  });
+  maintenanceCache = null; // el cambio se aplica de inmediato
+  const state = await getMaintenanceState();
+  res.json({ mode: state.mode, message: state.message, customMessage: state.customMessage });
+}
+
 // Público — Home.jsx lo consulta sin autenticación para pintar el hero.
 // También expone los límites por plan (Bloque 19): el panel de vendedor los
 // necesita para deshabilitar "+ Agregar" al llegar al tope y mostrar "X/Y".

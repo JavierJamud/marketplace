@@ -1,6 +1,6 @@
 import { useEffect, lazy, Suspense } from "react";
 import { PageLoader } from "./components/ui/PageLoader.jsx";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { applySeo } from "./lib/seo.js";
 import { isNoindexPath, isDynamicSeoPath, staticSeoFor } from "./lib/seoRoutes.js";
 
@@ -10,6 +10,8 @@ import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 import { usePlatformSettings } from "./lib/usePlatformSettings.js";
+import { useMaintenance } from "./lib/useMaintenance.js";
+import { MaintenanceScreen } from "./components/MaintenanceScreen.jsx";
 
 // Público
 import Home from "./pages/public/Home.jsx";
@@ -143,14 +145,44 @@ function VenderRedirect() {
   return <Navigate to="/vendedor/ingresar?tab=registro" replace />;
 }
 
+// Portada: con el modo mantenimiento de "solo la página principal" activo, los visitantes ven el aviso en su lugar (el admin ve el sitio
+// de siempre). Las tiendas, los productos y sus enlaces no se tocan.
+function HomeGate() {
+  const { mode, message } = useMaintenance();
+  const { user } = useAuth();
+  if (mode === "HOME" && user?.role !== "ADMIN") return <MaintenanceScreen variant="home" message={message} />;
+  return <Home />;
+}
+
+// Barra que ve solo el administrador mientras hay mantenimiento activo, para que no se le olvide que los visitantes no ven el sitio.
+function AdminMaintenanceBar({ mode }) {
+  return (
+    <div role="status" className="fixed bottom-3 left-3 z-[60] flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-full bg-secondary-container py-2 pl-4 pr-2 text-[12.5px] font-bold text-on-secondary-container shadow-lg">
+      <span className="min-w-0 truncate">{mode === "FULL" ? "Mantenimiento activo: los visitantes no ven el sitio" : "Mantenimiento activo en la página principal"}</span>
+      <Link to="/admin/configuracion" className="flex min-h-8 flex-shrink-0 items-center rounded-full bg-primary px-3 text-white hover:brightness-110">
+        Ajustes
+      </Link>
+    </div>
+  );
+}
+
 export default function App() {
   useRouteSeo();
   const { pathname: currentPath } = useLocation();
-  // Avisa al logo de carga (index.html) que la primera pantalla ya se pintó y puede retirarse.
+  const maintenance = useMaintenance();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
+  const inAdminArea = currentPath.startsWith("/admin");
+  // Todo el sitio en mantenimiento: los visitantes ven solo el aviso. El panel del admin (y el admin con sesión) sigue funcionando.
+  const fullyBlocked = maintenance.mode === "FULL" && !isAdmin && !inAdminArea;
+  // Avisa al logo de carga (index.html) que la primera pantalla ya se pintó y puede retirarse; espera a saber si hay mantenimiento
+  // para no dejar ver el sitio un instante antes del aviso.
   useEffect(() => {
+    if (!maintenance.ready) return;
     window.__appReady = true;
     window.dispatchEvent(new Event("app:ready"));
-  }, []);
+  }, [maintenance.ready]);
+  if (fullyBlocked) return <MaintenanceScreen message={maintenance.message} />;
   return (
     <>
       <RouteLoader />
@@ -161,7 +193,7 @@ export default function App() {
       <Routes>
       {/* Sitio público (comprador + vendedor sin cuenta) */}
       <Route element={<PublicLayout />}>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<HomeGate />} />
         <Route path="/catalogo" element={<Shop />} />
         <Route path="/producto/:vendorSlug/:productSlug" element={<Product />} />
         <Route path="/tienda/:slug" element={<Store />} />
@@ -327,6 +359,7 @@ export default function App() {
       </Routes>
       </Suspense>
       </ErrorBoundary>
+      {isAdmin && maintenance.mode !== "OFF" && !inAdminArea && <AdminMaintenanceBar mode={maintenance.mode} />}
     </>
   );
 }

@@ -2359,8 +2359,19 @@ model Integration {
 // (Bloque 297: las imágenes del hero se eliminaron; el hero muestra la animación baznova-showcase.)
 // ---------------------------------------------------------------------------
 
+// Modo mantenimiento del sitio: OFF = normal; HOME = solo la página principal muestra el aviso (tiendas, productos y sus enlaces
+// siguen disponibles); FULL = todo el sitio público en mantenimiento (el admin sigue entrando).
+enum MaintenanceMode {
+  OFF
+  HOME
+  FULL
+}
+
 model SiteSettings {
   id String @id @default(cuid())
+  maintenanceMode    MaintenanceMode @default(OFF)
+  // Texto opcional que ven los visitantes; sin él se muestra uno por defecto.
+  maintenanceMessage String?
   // Imágenes del Hero de la Home, que sube el admin desde Configuración. Guardan la ruta relativa completa
   // ("/uploads/site/<archivo>") y el orden del arreglo es el orden en que se muestran.
   heroImages String[] @default([])

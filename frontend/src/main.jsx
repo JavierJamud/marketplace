@@ -66,7 +66,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           // almacenamiento del navegador (límite ~5MB) y desplazaría el caché
           // útil del resto del sitio.
           dehydrateOptions: {
-            shouldDehydrateQuery: (query) => defaultShouldDehydrateQuery(query) && !String(query.queryKey[0]).startsWith("admin-list-"),
+            shouldDehydrateQuery: (query) => defaultShouldDehydrateQuery(query) && !String(query.queryKey[0]).startsWith("admin-list-") && query.queryKey[0] !== "maintenance",
           },
         }}
       >
