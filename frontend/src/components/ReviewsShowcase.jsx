@@ -27,7 +27,7 @@ export function ReviewsShowcase() {
     staleTime: 60 * 1000,
   });
   const reviews = useMemo(() => data?.reviews ?? [], [data]);
-  const looped = reviews.length >= 3;
+  const looped = reviews.length >= 2;
 
   const slides = useMemo(() => {
     if (!looped) return reviews.map((r) => ({ r, key: r.id, copy: 0 }));
@@ -85,7 +85,8 @@ export function ReviewsShowcase() {
             {/* En celular y tableta el carrusel llega de borde a borde del panel y la reseña activa queda al centro, con un pedazo de la que
                 sale a un lado y de la que entra al otro. */}
             <div className="-mx-4 overflow-hidden sm:-mx-8 md:-mx-10 lg:mx-0" ref={emblaRef} role="region" aria-label="Reseñas de clientes">
-              <div className="flex touch-pan-y">
+              {/* Con 1 o 2 reseñas (sin vuelta) la fila se centra en el panel en vez de quedar pegada a la izquierda. */}
+              <div className={`flex touch-pan-y ${looped ? "" : "justify-center"}`}>
                 {slides.map(({ r, key, copy }) => (
                   <div key={key} className="min-w-0 flex-none basis-[74%] px-1.5 sm:basis-[56%] md:basis-[46%] lg:basis-1/2 xl:basis-1/3" {...(copy > 0 ? { "aria-hidden": true, ref: skipCopyFocus } : {})}>
                     <ReviewCard r={r} showContext showStore onImageClick={(src) => setLightboxSrc(src)} />
