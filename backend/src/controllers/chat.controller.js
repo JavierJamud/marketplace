@@ -201,7 +201,8 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
   const vendor = await prisma.vendor.findUnique({
     where: { id: vendorId },
     include: {
-      locations: { include: { province: true, municipality: true } },
+      locations: { include: { country: true, province: { include: { country: true } }, municipality: true } },
+      deliveryCountries: { include: { country: { select: { name: true } } } },
       schedules: true,
       _count: { select: { products: { where: { isActive: true } } } },
     },
@@ -284,10 +285,37 @@ function scheduleText(schedules) {
   return `Horario semanal:\n${lines.join("\n")}`;
 }
 
-function locationText(locations) {
-  if (!locations?.length) return "Ubicación: no cargada en el sistema.";
-  const list = locations.map((l) => `${l.municipality?.name ? `${l.municipality.name}, ` : ""}${l.province?.name ?? ""}`).join(" · ");
-  return `Zonas donde vende/entrega en Cuba: ${list}`;
+// Cobertura de entrega ordenada por país, con cada nivel nombrado (país > provincia/estado > municipio). Antes solo viajaba la lista
+// de provincias y municipios sin su país, y el modelo ubicaba una provincia de otro país (Alberta, Canadá) dentro de Cuba y
+// respondía provincias cuando le preguntaban por países.
+function deliveryCoverageText(vendor) {
+  const byCountry = new Map();
+  const countryEntry = (name) => {
+    if (!byCountry.has(name)) byCountry.set(name, { regions: new Map(), wholeCountry: false });
+    return byCountry.get(name);
+  };
+  const titleCase = (s) => (s && s === s.toUpperCase() ? s.charAt(0) + s.slice(1).toLowerCase() : s);
+  for (const l of vendor.locations ?? []) {
+    const country = titleCase(l.province?.country?.name ?? l.country?.name ?? l.countryOther) || "País sin indicar";
+    const entry = countryEntry(country);
+    const region = l.province?.name ?? l.stateOther;
+    if (!region) continue;
+    const label = `${l.province?.type === "STATE" ? "estado" : "provincia"} ${region}`;
+    if (!entry.regions.has(label)) entry.regions.set(label, new Set());
+    const municipality = l.municipality?.name ?? l.municipalityOther;
+    if (municipality) entry.regions.get(label).add(municipality);
+  }
+  for (const d of vendor.deliveryCountries ?? []) countryEntry(titleCase(d.country.name)).wholeCountry = true;
+  if (!byCountry.size) return "Cobertura de entrega: no cargada en el sistema — si preguntan, sugiere confirmar por WhatsApp.";
+
+  const lines = [...byCountry].map(([country, { regions, wholeCountry }]) => {
+    const parts = [...regions].map(([region, munis]) => (munis.size ? `${region} (municipios: ${[...munis].join(", ")})` : region));
+    if (wholeCountry) parts.push("además hace envíos a este país");
+    return `- País ${country}: ${parts.join("; ") || "hace envíos a este país"}`;
+  });
+  return `COBERTURA DE ENTREGA (por país; cada país contiene provincias o estados, y cada provincia contiene municipios):
+${lines.join("\n")}
+Países donde entrega: ${[...byCountry.keys()].join(", ")}.${vendor.companyAddress ? `\nDirección del local: ${vendor.companyAddress}` : ""}`;
 }
 
 function paymentMethodsText(ids) {
@@ -528,7 +556,7 @@ async function buildSystemParts(vendor, cartQuantities, orderContext, purchaseHi
 
 DATOS DEL NEGOCIO (única fuente — nunca inventes ni cambies nada):
 ${scheduleText(vendor.schedules)}
-${locationText(vendor.locations)}
+${deliveryCoverageText(vendor)}
 ${paymentMethodsText(vendor.acceptedPaymentMethods)}
 WhatsApp: ${vendor.whatsapp}
 
@@ -543,6 +571,7 @@ REGLAS:
 - NUNCA te contradigas dentro de la misma charla: si ya confirmaste algo real (stock, precio, un pedido) en un turno anterior, nunca lo niegues después salvo que el dato de ESTE mensaje (catálogo/CONSULTA DE PEDIDO de arriba) realmente haya cambiado — y si cambió, dilo explícito ("ahora mismo cambió a..."), nunca lo contradigas en silencio como si el turno anterior no hubiera pasado.
 - Preciso: si el pedido es ambiguo (variantes de un producto, cuál de varios similares, cantidad) pregunta para aclarar en vez de asumir. Antes de citar un número de catálogo, relee cuál producto es EXACTAMENTE — nunca cites el número de un producto distinto al que mencionas en el texto.
 - FILTRADO PROGRESIVO: si falta un dato para acotar bien (talla, color, marca, u otra variante real de "variantes:" del catálogo), pregunta de a UN dato por vez, breve — nunca varias preguntas juntas en el mismo mensaje (ej. nunca "¿qué talla, color y cantidad?" todo junto). Usa SIEMPRE las variantes reales del catálogo para preguntar (ej. "¿en qué talla, S, M o L?"), nunca inventes una variante que el producto no tenga. Si con lo que ya dijo el cliente hay un solo producto/variante clara, responde directo sin seguir preguntando.
+- COBERTURA DE ENTREGA: responde SOLO con "COBERTURA DE ENTREGA" de arriba y en el mismo nivel que preguntan: si preguntan por países, nombra países (todos los de "Países donde entrega"); si preguntan por provincias o estados, nombra provincias o estados e indica de qué país son; si preguntan por municipios, nombra municipios. Si preguntan por un lugar puntual, di si está o no en la cobertura y a qué país pertenece según esos datos — nunca lo ubiques en otro país ni inventes geografía (barrios, "zona norte", distancias) que no esté arriba. Si el lugar no aparece, di que no está en las zonas cargadas y sugiere WhatsApp para confirmar.
 - Nunca inventes productos, precios, stock, variantes, horarios, ubicación, pagos ni políticas (envíos, devoluciones, garantías) fuera de lo de arriba — ni arreglos/excepciones de tu cosecha para sonar más servicial. Si no lo sabes, dilo y sugiere WhatsApp (${vendor.whatsapp}).
 - Si la pregunta del cliente no tiene respaldo en ningún dato real de arriba (ni catálogo ni datos del negocio) y no hay forma de responderla con algo real: NUNCA inventes una respuesta ni afirmes/niegues algo que no sabes. Di que no entendiste bien lo que pide y pídele que reformule o explique mejor qué está buscando — nunca un "no sé" seco ni una respuesta a medias sobre algo que no verificaste.
 - DISPONIBILIDAD REAL: antes de responder CUALQUIER pregunta sobre si hay/tienen/les queda un producto, cuánto sale, o "quiero comprar X" (en cualquiera de esas formas — "¿tienen...?", "¿hay...?", "¿les queda...?", "quiero comprar...", "cuánto sale...", con nombre parcial o con errores de tipeo), búscalo en el catálogo de arriba por nombre o tags ANTES de asumir que no existe, y fíjate su estado EXACTO:
