@@ -13,6 +13,7 @@ import { resolveUnitPrice } from "../lib/pricing.js";
 import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planConfig.js";
+import { CONVERSATIONAL_FILLERS, toSearchStem } from "../lib/searchStem.js";
 
 // Bloque 42 (optimización de tokens — bajado de 20 a 6): el modelo no
 // tiene memoria propia entre requests, así que ESTE historial es lo único
@@ -68,8 +69,10 @@ const STOPWORDS = new Set([
   "carrito", "carro", "cesta", "cesto",
 ]);
 
+// Singular de cada palabra (ver lib/searchStem.js): "paneles" tiene que encontrar "Panel solar".
 function extractSearchTerms(rawText) {
-  return rawText.toLowerCase().replace(/[¿?¡!.,;:]/g, "").split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+  const words = rawText.toLowerCase().replace(/[¿?¡!.,;:]/g, "").split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !CONVERSATIONAL_FILLERS.has(w));
+  return [...new Set(words.map(toSearchStem))];
 }
 
 // Si el mensaje actual no trae ningún término propio (ej. "sí", "esa

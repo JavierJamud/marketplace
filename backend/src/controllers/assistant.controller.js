@@ -20,6 +20,8 @@ import { planFactsForPrompt } from "../lib/platformFacts.js";
 import { getAssistantSuggestions, getLearningOverview, computeLearningSnapshot, setAutoLearn } from "../lib/assistantLearning.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
+import { CONVERSATIONAL_FILLERS, WANTS_CHEAP_RE, toSearchStem } from "../lib/searchStem.js";
+import { findFaqAnswer, searchSiteKnowledge, siteKnowledgeText } from "../lib/siteKnowledge.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assistant-docs");
@@ -174,12 +176,14 @@ const STOPWORDS = new Set([
   "estan", "están", "esta", "está", "eres", "sos", "puedo", "puede", "pueden", "podria", "podría", "hace", "hacen",
 ]);
 
+// Singular de cada palabra (ver lib/searchStem.js): "paneles solares" tiene que encontrar "Panel solar".
 function extractSearchTerms(rawText) {
-  return rawText
+  const words = rawText
     .toLowerCase()
     .replace(/[¿?¡!.,;:]/g, "")
     .split(/\s+/)
-    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !CONVERSATIONAL_FILLERS.has(w));
+  return [...new Set(words.map(toSearchStem))];
 }
 
 // Bloque 40 (bug real reportado en vivo): "unaccent()" en vez de un ILIKE
@@ -572,7 +576,8 @@ async function detectMunicipalityInText(text, provinceId, provinceName) {
 // cae al fallback de historial en vez de buscarse a sí misma como si fuera
 // el nombre de un producto.
 function stripZoneWords(terms, ...zoneNames) {
-  const zoneWords = new Set(zoneNames.filter(Boolean).flatMap((name) => normalizeForMatch(name).split(/\s+/)));
+  // Con la forma singular también (los términos ya vienen en singular: "Las Tunas" -> "tuna", "Matanzas" -> "matanza").
+  const zoneWords = new Set(zoneNames.filter(Boolean).flatMap((name) => normalizeForMatch(name).split(/\s+/)).flatMap((w) => [w, normalizeForMatch(toSearchStem(w))]));
   return terms.filter((t) => !zoneWords.has(normalizeForMatch(t)));
 }
 
@@ -954,6 +959,10 @@ async function buildMarketplaceSystemParts(candidates, orderContext, zoneContext
   const fewShot = await buildFewShotBlock("GENERAL");
   const { siteName } = await getBrandSettings();
   const liveSnapshot = await getLiveSnapshot(chosenZone, chosenPlace).catch(() => "");
+  // Páginas del sitio relacionadas con la pregunta. Si es una búsqueda con productos encontrados, solo las que tratan
+  // claramente del tema (por su título), para no mezclar texto legal con una compra.
+  const knowledge = (await searchSiteKnowledge(message).catch(() => [])).filter((c) => !candidates.length || c.titleHit);
+  const knowledgeBlock = siteKnowledgeText(knowledge);
   const parts = [
     {
       // Bloque 31: CONSULTA DE PEDIDO va PRIMERO que cualquier otra cosa —
@@ -973,7 +982,7 @@ ${zoneContext}
 
 ${liveSnapshot ? `${liveSnapshot}
 
-` : ""}${needsPlatformReference(message, history) ? `${await buildPlatformReference(siteName)}\n\n` : ""}REGLAS:
+` : ""}${knowledgeBlock ? `${knowledgeBlock}\n\n` : ""}${needsPlatformReference(message, history) ? `${await buildPlatformReference(siteName)}\n\n` : ""}REGLAS:
 - Idioma: español latinoamericano neutro (como se habla en Cuba) — NUNCA modismos ni gramática de España (nunca "vosotros"/"vuestro", "vale", "tío/tía", "coger" en el sentido de agarrar/tomar, "ordenador", "móvil" en vez de "celular", "vais", etc.).
 - Alcance: SOLO productos/tiendas de ${siteName} (los de arriba) e información general de la plataforma (qué es, cómo comprar, cómo vender, verificación, planes, medios de pago) usando los datos de ${siteName.toUpperCase()} de arriba y los documentos adjuntos si hay — responde siempre con esos datos concretos (nombre del plan, precio, qué incluye, pasos reales), NUNCA una respuesta genérica de folleto que no diga nada concreto. Nunca temas ajenos: si preguntan otra cosa, dilo breve y amable, sin responder el tema en sí.
 - ESTILO PROFESIONAL Y CORTO (prioridad máxima): máximo 2 oraciones cortas (unas 30 palabras) por respuesta. Sin saludos, sin disculpas, sin "claro", "por supuesto" ni exclamaciones, sin repetir la pregunta. Da primero el dato concreto (precio con su moneda, stock, tienda, zona, plan) y, si hace falta, una sola pregunta o sugerencia. Todo dato sale de los bloques de arriba (candidatos, tiendas, zonas, datos reales de la plataforma, documentos): si no está ahí, dilo en una frase y no lo inventes.
@@ -983,6 +992,7 @@ ${liveSnapshot ? `${liveSnapshot}
 - NUNCA repitas la misma pregunta, chip o frase (aunque cambies alguna palabra) que ya usaste en un turno anterior de ESTA charla — relee el historial antes de responder. Si el cliente ya dio un dato (ubicación, precio, color, producto), no lo vuelvas a pedir salvo que él mismo lo cambie explícitamente. Cada pregunta tuya es UNA sola cosa concreta, nunca dos juntas en el mismo mensaje.
 - Nunca inventes productos, tiendas, precios, stock, zonas ni políticas fuera de los candidatos/TIENDAS/ZONAS de arriba o los documentos adjuntos. Si no hay nada bueno para lo que piden, dilo y sugiere reformular la búsqueda o intentar con otra palabra — nunca digas "no hay resultados" de forma genérica sin haber mirado TIENDAS también si la pregunta pudiera ser sobre tiendas.
 - Si la pregunta del cliente no tiene respaldo en ningún dato real de arriba (ni candidatos, ni TIENDAS, ni ZONAS, ni los datos de la plataforma, ni documentos adjuntos) y no hay forma de responderla con algo real: NUNCA inventes una respuesta ni afirmes/niegues algo que no sabes. Di que no entendiste bien lo que pide y pídele que reformule o explique mejor qué está buscando — nunca un "no sé" seco ni una respuesta a medias sobre algo que no verificaste.
+- Preguntas sobre cómo funciona el sitio (cuentas, pedidos, pagos, entregas, cancelaciones, reseñas, privacidad, términos, verificación, la API para socios): responde con "INFORMACIÓN OFICIAL DEL SITIO" de arriba, en tus palabras y corto, y nombra la página donde está (ej. "Más detalles en Preguntas frecuentes"). Si ese bloque no está o no cubre la pregunta, dilo y sugiere /faq o /contacto — nunca inventes una regla o política.
 - Preguntas sobre TIENDAS (verificadas, de qué rubro, en qué zona, si existe tal tienda): responde con "TIENDAS" de arriba, nunca con la búsqueda de productos. Si el bloque de TIENDAS está vacío, dilo claro — nunca inventes un nombre de tienda.
 - TARJETA DE TIENDA vs. BOTÓN "ver todas" (pedido explícito — nunca listes cada nombre de tienda dentro de "text" cuando el pedido es amplio): si el cliente pregunta por UNA tienda puntual (la nombra, o queda una sola clara tras filtrar por zona/rubro/verificada), cita SOLO ese número en "vendorIds" (muestras su tarjeta) y mantén "text" breve, sin repetir el nombre completo con todos los detalles (eso ya lo muestra la tarjeta). Si el pedido es amplio ("mostrame tiendas", "ver tiendas", "qué tiendas hay") y "TIENDAS" tiene VARIAS (más de 2-3): NUNCA enumeres cada nombre en "text" — responde corto y profesional (ej. "Tenemos varias tiendas disponibles — mira el catálogo completo.") y pon "showAllStoresButton": true (el botón real lleva a /tiendas). Si son pocas (2-3) y relevantes a lo pedido, puedes citarlas en "vendorIds" en vez del botón. Nunca los dos casos a la vez.
 - Prefiere responder directo antes que preguntar: si con los datos que ya tienes (candidatos, tiendas o zonas de arriba) hay una respuesta razonable y clara, responde ya — no acumules preguntas de aclaración innecesarias. Pregunta SOLO cuando de verdad haga falta para no dar una respuesta equivocada (ver FILTRADO PROGRESIVO abajo, que sigue aplicando para el caso específico de ubicación/atributo de producto).
@@ -1009,7 +1019,7 @@ SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [], "removeFrom
 - showAllStoresButton: true cuando el pedido de tiendas es amplio ("ver tiendas", "cuáles están verificadas") y hay más de 3 en TIENDAS — el sistema muestra un botón real a /tiendas con los mismos filtros que pidió el cliente. Nunca enumeres más de 3 tiendas en el texto. false en cualquier otro caso.
 - suggestedFollowUps: SIEMPRE 2-3 preguntas cortas (3-6 palabras cada una) que el cliente podría preguntar A CONTINUACIÓN de ESTA respuesta puntual — tienen que variar según lo que acabas de responder, nunca las mismas siempre. Básate en lo real (otros candidatos, zonas, categorías), nunca inventes algo sin sentido acá.
 - Ejemplo (resultado claro): {"text": "Tenemos justo eso en [tienda]. ¿Quieres verlo?", "productIds": ["1"], "suggestedFollowUps": ["Ver más opciones", "¿Hace envíos?", "Buscar otra cosa"]}
-- Ejemplo (falta la provincia y hay stock en varias): {"text": "¿En qué provincia estás para mostrarte la más cercana?", "productIds": [], "suggestedFollowUps": ["La Habana", "Santiago de Cuba", "Otra provincia"]}
+- Ejemplo (falta la provincia y hay stock en varias): {"text": "¿En qué provincia estás para mostrarte la más cercana?", "productIds": [], "suggestedFollowUps": ["<provincia real de ZONAS>", "<otra provincia real de ZONAS>"]} — nunca sugieras una provincia que no aparezca en ZONAS o TIENDAS.
 - Ejemplo (tiendas, pedido amplio con más de 3): {"text": "Tenemos varias tiendas disponibles.", "vendorIds": [], "showAllStoresButton": true, "suggestedFollowUps": ["Buscar por rubro", "Buscar un producto"]}`,
     },
   ];
@@ -1074,6 +1084,16 @@ export async function postMarketplaceChatMessage(req, res) {
   // en el mensaje, ese tiene prioridad (ver lookupOrderContext).
   const sessionEmail = await resolveSessionEmail(userId);
 
+  // Una de las preguntas frecuentes del sitio (escrita igual o casi, por ejemplo al tocar una sugerencia): la respuesta
+  // oficial sale al instante, sin IA. Va antes que los atajos de abajo porque "¿Cómo pago mi pedido?" no es una consulta de
+  // estado de pedido.
+  const faq = await findFaqAnswer(message).catch(() => null);
+  if (faq) {
+    const faqActions = { links: [{ label: "Ver todas las preguntas frecuentes", href: faq.href }] };
+    const savedFaq = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: faq.text, actions: faqActions, productIds: [] } });
+    return res.status(201).json({ message: { ...savedFaq, actions: faqActions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: [] } });
+  }
+
   // Preguntas de la plataforma (planes, registro, inicio de sesión, cómo comprar o vender, verificación, estado de un
   // pedido): se responden desde la base de datos, con botones y sin llamar a la IA.
   const quick = await routeAssistantIntent(message, { sessionEmail });
@@ -1101,6 +1121,7 @@ export async function postMarketplaceChatMessage(req, res) {
   // quedó guardado arriba, así que "Reintentar" en el frontend es
   // simplemente volver a mandar el mismo texto.
   let rawText, productIds, candidates, vendorMatches, vendorIds, showAllStoresButton, suggestedFollowUps, searchMeta;
+  let realZoneNames = [];
   try {
     // Bloque 32: filtrado geográfico progresivo — la zona pedida se
     // reconstruye del mensaje actual O, si este mensaje es solo una
@@ -1135,6 +1156,9 @@ export async function postMarketplaceChatMessage(req, res) {
     const chosenZoneNote = `LUGAR ELEGIDO POR EL CLIENTE: ${chosenPlace || "su zona"}. El cliente YA indicó dónde recibe o recoge sus pedidos: NUNCA le preguntes provincia, municipio ni zona. Todos los candidatos y tiendas de arriba cubren ese lugar (la sede de una tienda puede estar en otra provincia y aun así entregar allí): muéstralos directamente, citando sus números.`;
     const buildZone = (products) => (chatZone ? chosenZoneNote : buildZoneContext({ terms, priceMin, priceMax, products, requestedProvince, requestedMunicipality, adjacentIds }));
     let zoneContext = buildZone(pool);
+    // Si pidió algo barato, los de menor precio primero (el orden por zona se mantiene encima).
+    const wantsCheap = WANTS_CHEAP_RE.test(message) || history.some((h) => h.role === "user" && WANTS_CHEAP_RE.test(h.content));
+    if (wantsCheap) pool = [...pool].sort((a, b) => Number(a.price) - Number(b.price));
     candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
 
     // Bloque 34: búsqueda de TIENDAS siempre en paralelo a la de productos
@@ -1162,6 +1186,17 @@ export async function postMarketplaceChatMessage(req, res) {
       candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
       zoneContext = buildZone(pool);
     }
+    // Provincias con resultados reales en esta búsqueda: las únicas que pueden salir en las preguntas sugeridas.
+    realZoneNames = [
+      ...new Set(
+        [
+          ...summarizeZones(pool).map((z) => z.name),
+          requestedProvince?.name,
+          ...(chosenPlace ? chosenPlace.split(", ") : []),
+          ...vendorMatches.flatMap((v) => (v.locations ?? []).map((l) => l.province?.name)),
+        ].filter(Boolean)
+      ),
+    ];
     searchMeta.poolSize = pool.length;
     searchMeta.poolStores = [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean);
     searchMeta.poolStoreName = pool[0]?.vendor?.companyName;
@@ -1248,11 +1283,17 @@ export async function postMarketplaceChatMessage(req, res) {
   // uso para este mensaje puntual). Nunca confiar en que el modelo cumplió
   // el límite/formato pedido: se sanitiza acá antes de que el cliente las
   // vea (máx 3, string no vacío).
-  const followUps = (Array.isArray(suggestedFollowUps) ? suggestedFollowUps : [])
+  // Nunca una provincia donde no hay tiendas para esto (el modelo llegó a sugerir "La Habana" sin ninguna tienda allí). Si la
+  // respuesta pregunta la provincia, las sugerencias son las provincias reales con resultados.
+  const allProvinces = await getAllProvinces();
+  const realZones = new Set(realZoneNames.map(normalizeForMatch));
+  const namesFakeZone = (s) => allProvinces.some((p) => !realZones.has(normalizeForMatch(p.name)) && normalizeForMatch(s).includes(normalizeForMatch(p.name)));
+  let followUps = (Array.isArray(suggestedFollowUps) ? suggestedFollowUps : [])
     .filter((s) => typeof s === "string" && s.trim())
     .map((s) => cleanFollowUp(s))
-    .filter(Boolean)
+    .filter((s) => s && !namesFakeZone(s))
     .slice(0, 3);
+  if (/provincia/i.test(text) && /\?/.test(text) && realZoneNames.length) followUps = realZoneNames.slice(0, 3);
 
   res.status(201).json({
     message: { ...saved, actions: savedActions, products, vendors: validVendors, showAllStoresButton: !!actions.stores, suggestedFollowUps: followUps },

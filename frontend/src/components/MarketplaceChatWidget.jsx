@@ -16,6 +16,7 @@ import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { ChatFaceButton } from "./ChatFaceButton.jsx";
 import { useCloseOnOutsideClick } from "../lib/useCloseOnOutsideClick.js";
 import { ChatMarkdown } from "./ChatMarkdown.jsx";
+import { ChatTextarea } from "./ChatTextarea.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -947,20 +948,13 @@ export function MarketplaceChatWidget() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="flex flex-shrink-0 gap-2 border-t border-surface-container-high p-3">
+          <div className="flex flex-shrink-0 items-end gap-2 border-t border-surface-container-high p-3">
             {recording ? (
               <RecordingIndicator stream={streamRef.current} onCancel={cancelRecording} />
             ) : transcribing ? (
               <TranscribingIndicator />
             ) : (
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder="Pregunta algo o graba un audio"
-                disabled={sending}
-                className="h-10 flex-1 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[13px] outline-none disabled:opacity-60"
-              />
+              <ChatTextarea value={text} onChange={setText} onSend={() => handleSend()} placeholder="Pregunta algo o graba un audio" disabled={sending} />
             )}
 
             <button

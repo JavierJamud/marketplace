@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
+import { pickFaqQuestions } from "./siteKnowledge.js";
 
 // Aprendizaje automático del asistente de compras. Una vez al día (o al pedirlo el admin) se resume lo que preguntan y buscan
 // los clientes y se arman las preguntas sugeridas que aparecen al abrir el chat. No usa IA ni gasta tokens: son conteos de
@@ -109,16 +110,22 @@ async function freshSnapshot() {
   return inflight;
 }
 
-// Preguntas sugeridas al abrir el chat.
+// Preguntas sugeridas al abrir el chat: tres preguntas frecuentes reales del sitio (cómo pedir, cómo pagar y la API para
+// socios), que se responden al instante con el texto oficial, y una búsqueda del rubro más buscado (o de las tiendas
+// verificadas). Si las preguntas frecuentes todavía no están cargadas, quedan las sugerencias base.
+async function siteSuggestions(snap) {
+  const [order, pay, api] = await pickFaqQuestions([/hago un pedido/, /pago mi pedido|como pago/, /\bapi\b/]);
+  const browse = snap?.suggestions?.find((s) => s.startsWith("Buscar ")) ?? "¿Qué tiendas están verificadas?";
+  const chips = [order, pay, browse, api].filter(Boolean);
+  return chips.length >= 3 ? chips : null;
+}
+
 export async function getAssistantSuggestions() {
   const settings = await prisma.siteSettings.findFirst({ select: { botAutoLearn: true } });
-  if (settings && settings.botAutoLearn === false) return { chips: await defaultSuggestions(), auto: false };
-  try {
-    const snap = await freshSnapshot();
-    return { chips: snap.suggestions?.length ? snap.suggestions : await defaultSuggestions(), auto: true };
-  } catch {
-    return { chips: await defaultSuggestions(), auto: false };
-  }
+  const auto = !(settings && settings.botAutoLearn === false);
+  const snap = auto ? await freshSnapshot().catch(() => null) : null;
+  const chips = (await siteSuggestions(snap).catch(() => null)) ?? (snap?.suggestions?.length ? snap.suggestions : await defaultSuggestions());
+  return { chips, auto: !!snap };
 }
 
 // Vista del admin: ajuste, resumen y cuántas correcciones han enseñado criterios.
