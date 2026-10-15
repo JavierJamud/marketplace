@@ -740,7 +740,9 @@ function buildZoneContext({ terms, priceMin, priceMax, products, requestedProvin
     return `- ${z.name}${tag}: ${z.count} resultado(s) con stock${munis}${withinFlag}`;
   });
 
-  return `${filtersLine}\n${zoneAskedLine}\nZONAS con stock real para esta búsqueda (única fuente de verdad — nunca inventes otra tienda, zona o stock):\n${zoneLines.join("\n")}`;
+  // Con una sola provincia no hay nada que elegir: preguntarla solo agrega un paso.
+  const singleZone = zones.length === 1 && !requestedProvince ? `\nSolo hay resultados en ${zones[0].name}: NO preguntes la provincia; muestra ya los candidatos (cita sus números) y di dónde están.` : "";
+  return `${filtersLine}\n${zoneAskedLine}\nZONAS con stock real para esta búsqueda (única fuente de verdad — nunca inventes otra tienda, zona o stock):\n${zoneLines.join("\n")}${singleZone}`;
 }
 
 // Bloque 32: suma zona real (provincia/municipio de la tienda) y variantes
