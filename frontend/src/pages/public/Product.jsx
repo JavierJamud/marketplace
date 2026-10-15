@@ -28,7 +28,7 @@ import { productSeo } from "../../lib/seoBuilders.js";
 
 // Bloque 69 (pedido explícito): "los productos también pueden llevar
 // reseñas" — mismas fotos que Store.jsx (solo tiendas verificadas).
-const MAX_REVIEW_IMAGES = 4;
+const MAX_REVIEW_IMAGES = 2;
 
 function imgUrl(path) {
   if (!path) return null;
@@ -54,6 +54,7 @@ export default function Product() {
   // que Store.jsx (comentario general de la tienda), acá con `productId`
   // sumado al payload para que quede ligada a esta ficha puntual.
   const [commentText, setCommentText] = useState("");
+  const [commentTitle, setCommentTitle] = useState("");
   const [commentRating, setCommentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [reviewImages, setReviewImages] = useState([]);
@@ -170,6 +171,7 @@ export default function Product() {
       const form = new FormData();
       form.append("vendorId", data.product.vendorId);
       form.append("productId", data.product.id);
+      if (commentTitle.trim()) form.append("title", commentTitle.trim());
       form.append("comment", commentText.trim());
       if (commentRating) form.append("rating", String(commentRating));
       reviewImages.forEach((file) => form.append("images", file));
@@ -177,6 +179,7 @@ export default function Product() {
     },
     onSuccess: () => {
       setCommentText("");
+      setCommentTitle("");
       setCommentRating(0);
       setReviewImages([]);
       toast.success("¡Reseña publicada!");
@@ -741,6 +744,16 @@ export default function Product() {
               </div>
             </div>
           )}
+          {user && (
+            <input
+              value={commentTitle}
+              onChange={(e) => setCommentTitle(e.target.value.slice(0, 40))}
+              maxLength={40}
+              placeholder="Título corto (opcional)"
+              aria-label="Título de tu comentario (opcional)"
+              className="mb-2.5 h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+            />
+          )}
           <div className="flex gap-2.5">
             <input
               value={commentText}
@@ -797,7 +810,7 @@ export default function Product() {
           vendorName={v?.companyName}
           onImageClick={(src) => setLightboxSrc(src)}
           currentUserId={user?.id}
-          onReportClick={(review) => setReportTarget(review)}
+          onReportClick={(review) => (user ? setReportTarget(review) : goToReviewLogin())}
         />
       </section>
 

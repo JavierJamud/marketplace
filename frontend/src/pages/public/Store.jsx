@@ -43,7 +43,7 @@ import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.js
 import { useSeo } from "../../lib/seo.js";
 import { storeSeo } from "../../lib/seoBuilders.js";
 
-const MAX_REVIEW_IMAGES = 4;
+const MAX_REVIEW_IMAGES = 2;
 
 function discountBadgeLabel(discountCode) {
   if (!discountCode) return "";
@@ -324,6 +324,7 @@ export default function Store() {
   // "catalogo", no en "menu".
   const [catalogTab, setCatalogTab] = useState("catalogo");
   const [commentText, setCommentText] = useState("");
+  const [commentTitle, setCommentTitle] = useState("");
   const [commentRating, setCommentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   // Bloque 52: fotos adjuntas al comentario — solo tiendas verificadas
@@ -355,6 +356,7 @@ export default function Store() {
     mutationFn: async () => {
       const form = new FormData();
       form.append("vendorId", data.id);
+      if (commentTitle.trim()) form.append("title", commentTitle.trim());
       form.append("comment", commentText.trim());
       if (commentRating) form.append("rating", String(commentRating));
       reviewImages.forEach((file) => form.append("images", file));
@@ -362,6 +364,7 @@ export default function Store() {
     },
     onSuccess: () => {
       setCommentText("");
+      setCommentTitle("");
       setCommentRating(0);
       setReviewImages([]);
       toast.success("¡Comentario publicado!");
@@ -721,6 +724,16 @@ export default function Store() {
               </div>
             </div>
           )}
+          {user && (
+            <input
+              value={commentTitle}
+              onChange={(e) => setCommentTitle(e.target.value.slice(0, 40))}
+              maxLength={40}
+              placeholder="Título corto (opcional)"
+              aria-label="Título de tu comentario (opcional)"
+              className="mb-2.5 h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none"
+            />
+          )}
           <div className="flex gap-2.5">
             <input
               value={commentText}
@@ -781,7 +794,7 @@ export default function Store() {
           showContext
           onImageClick={(src) => setLightboxSrc(src)}
           currentUserId={user?.id}
-          onReportClick={(review) => setReportTarget(review)}
+          onReportClick={(review) => (user ? setReportTarget(review) : goToReviewLogin())}
         />
       </div>
       </div>

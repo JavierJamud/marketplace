@@ -272,7 +272,9 @@
              opentype.js no llega a cargar, cae a texto plano sin animar
              (envuelto en un <span>, ver renderPreloaderName, para poder
              escalarlo igual que al SVG si no entra en pantallas angostas). -->
-        <div id="app-preloader-name" style="width:0;margin-left:0;overflow:hidden;white-space:nowrap;opacity:0;font-family:'Fredoka','Montserrat',sans-serif;font-weight:700;font-size:36px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;transition-property:width,margin-left,opacity;transition-timing-function:cubic-bezier(.22,.9,.3,1),cubic-bezier(.22,.9,.3,1),ease;transition-duration:.5s;"></div>
+        <div id="app-preloader-name" style="width:0;margin-left:0;overflow:hidden;white-space:nowrap;opacity:0;font-family:'Fredoka','Montserrat',sans-serif;position:relative;top:-4px;font-weight:700;font-size:31px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;transition-property:width,margin-left,opacity;transition-timing-function:cubic-bezier(.22,.9,.3,1),cubic-bezier(.22,.9,.3,1),ease;transition-duration:.5s;"></div>
+        <!-- Subtítulo bajo el nombre: se alinea y aparece junto con el nombre (ver revealName). -->
+        <div id="app-preloader-tag" aria-hidden="true" style="position:absolute;top:calc(50% + 17px);left:0;transform:translateX(-50%);text-align:center;white-space:nowrap;opacity:0;font-family:'Montserrat',sans-serif;font-weight:600;font-size:10px;letter-spacing:0;text-transform:uppercase;color:rgba(255,255,255,.62);transition:opacity .6s ease .3s;">supermarket</div>
       </div>
       <!-- Bloque 49 (pedido explícito — "si pasa más de 3-5 segundos, un
            mensaje debajo del logo que vaya cambiando"): arranca invisible
@@ -300,6 +302,8 @@
         <span id="app-preloader-status-a" style="position:absolute;top:0;left:50%;display:block;max-width:min(280px,82vw);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transform:translateX(-50%);transition:opacity 420ms ease;"></span>
         <span id="app-preloader-status-b" style="position:absolute;top:0;left:50%;display:block;max-width:min(280px,82vw);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transform:translateX(-50%);transition:opacity 420ms ease;"></span>
       </div>
+      <!-- Versión del sitio: centrada, separada del borde inferior (respeta la zona segura de iPhone). -->
+      <div id="app-preloader-version" style="position:absolute;left:0;right:0;bottom:calc(28px + env(safe-area-inset-bottom,0px));text-align:center;font-family:'Montserrat',sans-serif;font-size:11px;font-weight:500;letter-spacing:.08em;color:rgba(255,255,255,.4);">v%APP_VERSION%</div>
     </div>
     <script>
       // Bloque 120 (pedido explícito): el splash de arriba se apaga acá
@@ -391,7 +395,7 @@
         // sube en la misma proporción (26->36 es *1.38, 3*1.38≈4) para
         // que el trazo de la letra no se vea desproporcionadamente fino
         // al lado del nuevo tamaño.
-        var FONT_SIZE = 36;
+        var FONT_SIZE = 31;
         var STROKE_WIDTH = 4;
 
         var loadedFont = null;
@@ -705,6 +709,11 @@
             nameEl.style.opacity = "0";
             nameEl.innerHTML = "";
           }
+          var tag = document.getElementById("app-preloader-tag");
+          if (tag) {
+            tag.style.transition = "none";
+            tag.style.opacity = "0";
+          }
           var icon = document.getElementById("app-preloader-logo");
           if (icon && typeof icon.restart === "function") icon.restart();
         }
@@ -726,6 +735,22 @@
           nameEl.style.width = targetWidth + "px";
           nameEl.style.marginLeft = NAME_MARGIN_PX + "px";
           nameEl.style.opacity = "1";
+          // El subtítulo queda centrado bajo el nombre: empieza donde empieza el nombre y mide lo mismo.
+          var tag = document.getElementById("app-preloader-tag");
+          if (tag) {
+            // Se reparte el espacio entre letras para que "supermarket" ocupe justo el ancho del nombre, de borde a borde.
+            tag.style.left = currentIconSize() + NAME_MARGIN_PX + "px";
+            tag.style.transform = "none";
+            tag.style.letterSpacing = "0px";
+            tag.style.textIndent = "0";
+            var textWidth = tag.scrollWidth;
+            var gaps = Math.max(1, tag.textContent.length - 1);
+            tag.style.letterSpacing = Math.max(0, (targetWidth - textWidth) / gaps).toFixed(2) + "px";
+            tag.style.marginRight = "0";
+            tag.style.width = "max-content";
+            tag.style.transition = "opacity .6s ease " + Math.max(0.3, revealSeconds * 0.6).toFixed(2) + "s";
+            tag.style.opacity = "1";
+          }
         }
 
         // Llamado tanto desde el timer de SLIDE_TRIGGER_MS de este ciclo

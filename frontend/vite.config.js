@@ -8,12 +8,15 @@ import { stripDevNotes } from "./vite-plugins/stripDevNotes.js";
 // Versión del sitio (v26.0.10): sale de package.json y se muestra en el pie de página.
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
+// Pone la versión en el splash de carga (index.html usa %APP_VERSION%).
+const appVersionHtml = () => ({ name: "app-version-html", transformIndexHtml: (html) => html.replaceAll("%APP_VERSION%", version) });
+
 export default defineConfig(({ mode }) => {
   // Prefijo "" (no solo "VITE_") — ogMeta.js también quiere leer
   // FRONTEND_URL si algún día se define, que no lleva ese prefijo.
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets()],
+    plugins: [react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets(), appVersionHtml()],
     // __APP_BUILD__ cambia en cada compilación: invalida la caché guardada en el navegador (ver main.jsx) para que una respuesta con forma vieja nunca rompa una pantalla nueva.
     define: { __APP_VERSION__: JSON.stringify(version), __APP_BUILD__: JSON.stringify(`${version}-${Date.now().toString(36)}`) },
     // Sin mapas de código ni comentarios en lo que se publica.

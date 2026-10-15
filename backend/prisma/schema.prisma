@@ -2845,6 +2845,8 @@ model Review {
   userId    String?
   authorName String
   rating    Int?
+  // Título corto que el cliente puede poner a su comentario (opcional, hasta 40 caracteres).
+  title     String?
   comment   String?
   createdAt DateTime @default(now())
 
@@ -2866,8 +2868,9 @@ model Review {
   isHidden  Boolean  @default(false)
   vendorReply     String?
   vendorRepliedAt DateTime?
-  // true si quien respondió fue el equipo de la plataforma (admin) y no la tienda: define el nombre que se muestra en la respuesta.
-  repliedByAdmin  Boolean  @default(false)
+  // Respuesta del equipo de la plataforma (admin), aparte de la de la tienda: un comentario puede tener las dos.
+  adminReply      String?  @db.Text
+  adminRepliedAt  DateTime?
 
   // Bloque 69 (pedido explícito): reporte de un comentario — por el
   // vendedor de la tienda (desde su panel) o por cualquier cliente logueado

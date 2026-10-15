@@ -8,42 +8,48 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 
-// El equipo de la plataforma también puede responder cualquier comentario: la respuesta se publica con el nombre de la plataforma y
-// el cliente recibe un correo con ella. Si la tienda ya había respondido, esta la reemplaza.
+// El equipo de la plataforma también puede responder cualquier comentario. Su respuesta es aparte de la de la tienda (un comentario
+// puede tener las dos): se publica con el nombre de la plataforma y el cliente recibe un correo con ella.
 function AdminReplyForm({ review, onReply, pending }) {
-  const [editing, setEditing] = useState(!review.vendorReply);
-  const [text, setText] = useState(review.vendorReply ?? "");
-
-  if (!editing) {
-    return (
-      <div className="mb-3 rounded-md bg-surface-container p-3">
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <span className="text-[12px] font-bold text-tertiary-accent">{review.repliedByAdmin ? "Respuesta de la plataforma" : `Respuesta de ${review.vendor?.companyName ?? "la tienda"}`}</span>
-          <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
-            Responder de nuevo
-          </button>
-        </div>
-        <p className="text-[13px] leading-5 text-on-surface-variant">{review.vendorReply}</p>
-      </div>
-    );
-  }
+  const [editing, setEditing] = useState(!review.adminReply);
+  const [text, setText] = useState(review.adminReply ?? "");
 
   return (
-    <div className="mb-3 flex gap-2.5">
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        maxLength={1000}
-        placeholder="Responder como plataforma (el cliente recibe un correo)..."
-        className="h-10 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
-      />
-      <button
-        onClick={() => text.trim() && onReply(text.trim(), () => setEditing(false))}
-        disabled={!text.trim() || pending}
-        className="flex-shrink-0 rounded bg-primary-container px-4 text-[12.5px] font-bold text-white disabled:opacity-50"
-      >
-        {pending ? "Enviando..." : "Responder"}
-      </button>
+    <div className="mb-3 flex flex-col gap-2.5">
+      {review.vendorReply && (
+        <div className="rounded-md bg-surface-container p-3">
+          <div className="mb-1 text-[12px] font-bold text-tertiary-accent">Respuesta de {review.vendor?.companyName ?? "la tienda"}</div>
+          <p className="text-[13px] leading-5 text-on-surface-variant">{review.vendorReply}</p>
+        </div>
+      )}
+      {!editing ? (
+        <div className="rounded-md bg-surface-container p-3">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[12px] font-bold text-tertiary-accent">Respuesta de la plataforma</span>
+            <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
+              Responder de nuevo
+            </button>
+          </div>
+          <p className="text-[13px] leading-5 text-on-surface-variant">{review.adminReply}</p>
+        </div>
+      ) : (
+        <div className="flex gap-2.5">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={1000}
+            placeholder="Responder como plataforma (el cliente recibe un correo)..."
+            className="h-10 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
+          />
+          <button
+            onClick={() => text.trim() && onReply(text.trim(), () => setEditing(false))}
+            disabled={!text.trim() || pending}
+            className="flex-shrink-0 rounded bg-primary-container px-4 text-[12.5px] font-bold text-white disabled:opacity-50"
+          >
+            {pending ? "Enviando..." : "Responder"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -265,11 +271,9 @@ export default function AdminReviews() {
               <div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-label-md font-bold text-on-surface">{r.authorName}</span>
-                  {r.isVerifiedPurchase && (
-                    <span className="flex items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[10.5px] font-bold text-verified-dark">
-                      <ShieldCheck className="h-3 w-3" /> Compra verificada
-                    </span>
-                  )}
+                  <span className="flex items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[10.5px] font-bold text-verified-dark">
+                    <ShieldCheck className="h-3 w-3" /> Cliente verificado
+                  </span>
                   {r.isHidden && (
                     <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10.5px] font-bold text-outline">Oculto</span>
                   )}
@@ -313,7 +317,7 @@ export default function AdminReviews() {
             )}
 
             <AdminReplyForm
-              key={`${r.id}-${r.vendorRepliedAt ?? ""}`}
+              key={`${r.id}-${r.adminRepliedAt ?? ""}`}
               review={r}
               pending={reply.isPending}
               onReply={(text, onDone) => reply.mutate({ id: r.id, reply: text, onDone })}

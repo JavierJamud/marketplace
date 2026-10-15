@@ -34,7 +34,7 @@ function ReviewReplyForm({ review, onReply, pending }) {
     return (
       <div className="mt-3 rounded-md bg-surface-container p-3">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[12px] font-bold text-tertiary-accent">{review.repliedByAdmin ? "Respuesta de la plataforma" : "Tu respuesta"}</span>
+          <span className="text-[12px] font-bold text-tertiary-accent">Tu respuesta</span>
           <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
             Editar
           </button>
@@ -135,11 +135,9 @@ export default function VendorReviews() {
                 <div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-label-md font-bold text-on-surface">{r.authorName}</span>
-                    {r.isVerifiedPurchase && (
-                      <span className="flex items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[10.5px] font-bold text-verified-dark">
-                        <ShieldCheck className="h-3 w-3" /> Compra verificada
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[10.5px] font-bold text-verified-dark">
+                      <ShieldCheck className="h-3 w-3" /> Cliente verificado
+                    </span>
                     {r.product ? (
                       <span className="rounded-full bg-secondary-container/25 px-2 py-0.5 text-[10.5px] font-bold text-on-secondary-container">Reseña del producto · {r.product.name}</span>
                     ) : (
@@ -171,6 +169,12 @@ export default function VendorReviews() {
                 </div>
               )}
 
+              {r.adminReply && (
+                <div className="mt-3 rounded-md bg-surface-container p-3">
+                  <div className="mb-1 text-[12px] font-bold text-tertiary-accent">Respuesta de la plataforma</div>
+                  <p className="text-[13px] leading-5 text-on-surface-variant">{r.adminReply}</p>
+                </div>
+              )}
               <ReviewReplyForm
                 review={r}
                 pending={reply.isPending}

@@ -11,7 +11,6 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
-import { ReviewsShowcase } from "../../components/ReviewsShowcase.jsx";
 import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
 import { ZoneDialog } from "../../components/ZonePicker.jsx";
 import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselLazy.jsx";
@@ -466,7 +465,6 @@ export default function Home() {
           )}
         </section>
 
-        <ReviewsShowcase />
           </>
         ) : (
           <div className="min-h-[100vh]" aria-hidden="true" />

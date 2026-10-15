@@ -315,7 +315,7 @@ export async function getVendorBySlug(req, res) {
       reviews: {
         where: { isHidden: false },
         orderBy: { createdAt: "desc" },
-        take: 30,
+        take: 100,
         include: { product: { select: { id: true, name: true, slug: true, images: true } } },
       },
       // Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes se

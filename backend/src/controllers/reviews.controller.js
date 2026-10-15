@@ -10,7 +10,6 @@ import { getBrandSettings, getReviewPolicy } from "./settings.controller.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows } from "../lib/planConfig.js";
-import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { sendReviewReplyEmail } from "../lib/email.js";
 import { env } from "../config/env.js";
 
@@ -39,6 +38,8 @@ const createReviewSchema = z.object({
   vendorId: z.string(),
   productId: z.string().optional(),
   rating: z.coerce.number().int().min(1).max(5).optional(),
+  // Título corto y opcional: se muestra en negrita sobre el comentario.
+  title: z.string().trim().max(40, "El título admite hasta 40 caracteres.").optional(),
   comment: z.string().trim().min(1).max(1000),
 });
 
@@ -111,6 +112,7 @@ export async function createReview(req, res) {
         userId: req.user.id,
         authorName: author?.fullName ?? `Cliente ${siteName}`,
         rating: data.rating,
+        title: data.title || null,
         comment: data.comment,
         images,
         isVerifiedPurchase: !!hasOrder,
@@ -153,28 +155,6 @@ export async function createReview(req, res) {
   }
 }
 
-// Reseñas de la portada: las más recientes de todas las tiendas activas (de la zona que elija el visitante, como el resto de la
-// portada), con la tienda y el producto al que se refieren. Las ocultas por el admin o por un reporte nunca salen. `stats` cuenta
-// y promedia las mismas reseñas con estrellas, para mostrar solo datos reales.
-export async function listFeaturedReviews(req, res) {
-  const zone = vendorZoneWhere(req.query);
-  const vendorWhere = { status: "ACTIVE", isBlocked: false, ...(zone ? { locations: zone } : {}) };
-  const where = { isHidden: false, vendor: vendorWhere };
-  const [reviews, agg] = await Promise.all([
-    prisma.review.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      include: {
-        vendor: { select: { companyName: true, slug: true } },
-        product: { select: { id: true, name: true, slug: true, images: true } },
-      },
-    }),
-    prisma.review.aggregate({ where: { ...where, rating: { not: null } }, _avg: { rating: true }, _count: { rating: true } }),
-  ]);
-  res.json({ reviews, stats: { total: agg._count.rating, average: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0 } });
-}
-
 // --- Vendedor (Bloque 22) ---------------------------------------------------
 // El vendedor nunca puede ocultar/borrar un comentario (eso es solo admin),
 // pero sí responder públicamente — la respuesta se muestra en Store.jsx
@@ -210,7 +190,7 @@ export async function replyToReview(req, res) {
 
   const updated = await prisma.review.update({
     where: { id },
-    data: { vendorReply: reply, vendorRepliedAt: new Date(), repliedByAdmin: false },
+    data: { vendorReply: reply, vendorRepliedAt: new Date() },
   });
   logActivity({
     actorId: req.user.id,
@@ -225,7 +205,7 @@ export async function replyToReview(req, res) {
   res.json({ review: updated });
 }
 
-// El equipo de la plataforma también puede responder cualquier comentario. La respuesta se publica con el nombre de la plataforma.
+// El equipo de la plataforma también puede responder cualquier comentario. Su respuesta es aparte de la de la tienda (un comentario puede tener las dos) y se publica con el nombre de la plataforma.
 export async function adminReplyToReview(req, res) {
   const { id } = req.params;
   const { reply } = replySchema.parse(req.body);
@@ -234,9 +214,9 @@ export async function adminReplyToReview(req, res) {
 
   const updated = await prisma.review.update({
     where: { id },
-    data: { vendorReply: reply, vendorRepliedAt: new Date(), repliedByAdmin: true },
+    data: { adminReply: reply, adminRepliedAt: new Date() },
   });
-  if (review.vendorReply !== reply || !review.repliedByAdmin) {
+  if (review.adminReply !== reply) {
     const { siteName } = await getBrandSettings();
     void notifyReviewReply(review, { responder: siteName, reply });
   }
