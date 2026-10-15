@@ -127,8 +127,18 @@ function tokenize(text) {
 
 // Los trozos más relacionados con el mensaje (por palabras en común; el título pesa más). Sin coincidencias claras no
 // devuelve nada, para no meterle al modelo texto que no viene al caso.
+// Palabras que el cliente usa y las que usan las páginas del sitio para lo mismo ("envíos" vs. "entrega").
+const SAME_AS = {
+  envio: ["entrega"], domicilio: ["entrega"], delivery: ["entrega"], mensajeria: ["entrega"],
+  devolver: ["devolucion", "reembolso"], devolucion: ["reembolso", "cancelar"], reembolso: ["devolucion"],
+  pagar: ["pago"], cobran: ["pago", "precio"], plata: ["pago"], dinero: ["pago"],
+  borrar: ["eliminar"], cerrar: ["eliminar"], clave: ["contrasena"], password: ["contrasena"],
+  queja: ["reclamo", "problema"], reclamo: ["problema"], estafa: ["fraude", "reportar"],
+};
+
 export async function searchSiteKnowledge(message, { limit = 4, maxChars = 3600 } = {}) {
-  const terms = tokenize(message);
+  const base = tokenize(message);
+  const terms = [...new Set([...base, ...base.flatMap((t) => SAME_AS[t] ?? [])])];
   if (!terms.length) return [];
   const chunks = await getChunks();
   const scored = chunks
@@ -150,7 +160,7 @@ export async function searchSiteKnowledge(message, { limit = 4, maxChars = 3600 
       }
       return { c, score, hits, titleHit };
     })
-    .filter((x) => (terms.length === 1 ? x.score >= 2 : (x.hits >= 2 && x.score >= 3) || x.score >= 4))
+    .filter((x) => (base.length === 1 ? x.score >= 2 : (x.hits >= 2 && x.score >= 3) || x.score >= 4))
     .sort((a, b) => b.score - a.score);
   const out = [];
   let total = 0;
