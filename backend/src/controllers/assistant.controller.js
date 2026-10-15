@@ -1138,6 +1138,7 @@ export async function postMarketplaceChatMessage(req, res) {
   let singleZoneName = null;
   let searchNote = "";
   let unclearQuery = false;
+  let productMissing = false;
   try {
     // Bloque 32: filtrado geográfico progresivo — la zona pedida se
     // reconstruye del mensaje actual O, si este mensaje es solo una
@@ -1207,7 +1208,10 @@ export async function postMarketplaceChatMessage(req, res) {
     if (!pool.length && searchTerms.length && !vendorMatches.length) {
       const rescue = await rescueChatSearch({ terms: searchTerms, text: source ?? message }).catch(() => null);
       if (rescue?.unclear) unclearQuery = true;
-      else if (rescue?.missing) searchNote = rescue.note;
+      else if (rescue?.missing) {
+        searchNote = rescue.note;
+        productMissing = true;
+      }
       else if (rescue) {
         pool = await searchCandidateProducts(rescue.terms ?? searchTerms, { priceMin, priceMax, payment, verification, zone: chatZone, onlyIds: rescue.ids });
         if (pool.length) {
@@ -1276,8 +1280,8 @@ export async function postMarketplaceChatMessage(req, res) {
     citedIds = candidates.slice(0, 3).map((p) => p.id);
     text = `Esto es lo que encontré, en ${singleZoneName}:`;
   }
-  // Sin productos ni tiendas para lo que pidió, preguntar la provincia no lleva a nada.
-  if (!chatZone && !candidates.length && !vendorMatches.length && searchMeta?.terms?.length && /provincia|municipio/i.test(text) && text.includes("?")) {
+  // Buscaba un producto que no hay (lo confirmó la interpretación): preguntar la provincia no lleva a nada.
+  if (productMissing && !candidates.length && /provincia|municipio/i.test(text) && text.includes("?")) {
     text = "No encontré eso en las tiendas del sitio ahora mismo. ¿Quieres buscar otra cosa?";
   }
 
