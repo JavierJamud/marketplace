@@ -22,7 +22,7 @@ import { getBrandSettings } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { CONVERSATIONAL_FILLERS, WANTS_CHEAP_RE, toSearchStem } from "../lib/searchStem.js";
 import { findFaqAnswer, searchSiteKnowledge, siteKnowledgeText } from "../lib/siteKnowledge.js";
-import { rescueChatSearch } from "../lib/chatSearchRescue.js";
+import { UNCLEAR_REPLY, rescueChatSearch } from "../lib/chatSearchRescue.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assistant-docs");
@@ -1137,6 +1137,7 @@ export async function postMarketplaceChatMessage(req, res) {
   let realZoneNames = [];
   let singleZoneName = null;
   let searchNote = "";
+  let unclearQuery = false;
   try {
     // Bloque 32: filtrado geográfico progresivo — la zona pedida se
     // reconstruye del mensaje actual O, si este mensaje es solo una
@@ -1205,7 +1206,9 @@ export async function postMarketplaceChatMessage(req, res) {
     // decir el cliente según el catálogo real (lib/chatSearchRescue.js).
     if (!pool.length && searchTerms.length && !vendorMatches.length) {
       const rescue = await rescueChatSearch({ terms: searchTerms, text: source ?? message }).catch(() => null);
-      if (rescue) {
+      if (rescue?.unclear) unclearQuery = true;
+      else if (rescue?.missing) searchNote = rescue.note;
+      else if (rescue) {
         pool = await searchCandidateProducts(rescue.terms ?? searchTerms, { priceMin, priceMax, payment, verification, zone: chatZone, onlyIds: rescue.ids });
         if (pool.length) {
           searchNote = rescue.note;
@@ -1243,7 +1246,9 @@ export async function postMarketplaceChatMessage(req, res) {
       const place = await describeChatZone(chatZone);
       systemParts.splice(1, 0, { text: `LUGAR DE ENTREGA O RECOGIDA QUE ELIGIÓ EL CLIENTE: ${place || "su zona"}. Todos los productos y tiendas que conoces son de ese lugar. Si pide algo que no aparece en tu lista, di que no hay disponible en su lugar y sugiérele cambiar el lugar o quitar el filtro desde el botón de ubicación del sitio. Nunca ofrezcas productos o tiendas de otros lugares.` });
     }
-    ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
+    // No se entendió qué busca: se le pide que lo repita, sin consultar al modelo ni mostrar productos.
+    if (unclearQuery) ({ rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = { rawText: UNCLEAR_REPLY, productIds: [], vendorIds: [], showAllStoresButton: false, suggestedFollowUps: [] });
+    else ({ text: rawText, productIds, vendorIds, showAllStoresButton, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
   } catch (err) {
     await logError({
       origin: "BOT_GENERAL",
@@ -1270,6 +1275,10 @@ export async function postMarketplaceChatMessage(req, res) {
   if (singleZoneName && !citedIds.length && candidates.length && /provincia/i.test(text) && text.includes("?")) {
     citedIds = candidates.slice(0, 3).map((p) => p.id);
     text = `Esto es lo que encontré, en ${singleZoneName}:`;
+  }
+  // Sin productos ni tiendas para lo que pidió, preguntar la provincia no lleva a nada.
+  if (!chatZone && !candidates.length && !vendorMatches.length && searchMeta?.terms?.length && /provincia|municipio/i.test(text) && text.includes("?")) {
+    text = "No encontré eso en las tiendas del sitio ahora mismo. ¿Quieres buscar otra cosa?";
   }
 
   // Bloque 270 (pedido explícito — "si son más de tres, solo mostrar tres y un botón

@@ -14,7 +14,7 @@ import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planConfig.js";
 import { CONVERSATIONAL_FILLERS, toSearchStem } from "../lib/searchStem.js";
-import { rescueChatSearch } from "../lib/chatSearchRescue.js";
+import { UNCLEAR_REPLY, rescueChatSearch } from "../lib/chatSearchRescue.js";
 
 // Bloque 42 (optimización de tokens — bajado de 20 a 6): el modelo no
 // tiene memoria propia entre requests, así que ESTE historial es lo único
@@ -223,6 +223,7 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
   const totalActive = vendor._count.products;
   let products;
   let searchNote = "";
+  let unclearQuery = false;
   if (totalActive <= CATALOG_FULL_DUMP_THRESHOLD) {
     // Bloque 28: tags + options se agregan para que el bot pueda
     // recomendar por palabra clave y preguntar por variantes reales en
@@ -244,6 +245,8 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
       if (!products.length) {
         const source = extractSearchTerms(message).length ? message : [...history].reverse().find((h) => h.role === "user" && extractSearchTerms(h.content).length)?.content;
         const rescue = await rescueChatSearch({ terms, text: source ?? message, vendorId }).catch(() => null);
+        if (rescue?.unclear) unclearQuery = true;
+        if (rescue?.missing) searchNote = rescue.note;
         const rescuedIds = rescue?.ids ?? (rescue?.terms ? await searchVendorProductIdsByTerms(vendorId, rescue.terms) : []);
         if (rescuedIds.length) {
           products = await prisma.product.findMany({ where: { id: { in: rescuedIds.slice(0, CATALOG_SEARCH_POOL) }, vendorId, isActive: true }, select: PRODUCT_SELECT_FIELDS });
@@ -287,7 +290,7 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
     products = [...missingProducts, ...products];
   }
 
-  return { ...vendor, products, searchNote };
+  return { ...vendor, products, searchNote, unclearQuery };
 }
 
 function scheduleText(schedules) {
@@ -732,7 +735,9 @@ export async function postChatMessage(req, res) {
     const { history: aiHistory, memory } = compactHistory(history);
     if (memory) systemParts.push({ text: memory });
     if (vendor.searchNote) systemParts.splice(1, 0, { text: vendor.searchNote });
-    ({ text: rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
+    // No se entendió qué busca: se le pide que lo repita, sin consultar al modelo ni mostrar productos.
+    if (vendor.unclearQuery) ({ rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = { rawText: UNCLEAR_REPLY, productIds: [], addToCart: [], removeFromCart: [], reduceCart: [], clearCart: false, suggestedFollowUps: [] });
+    else ({ text: rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
   } catch (err) {
     await logError({
       origin: "BOT_TIENDA",
