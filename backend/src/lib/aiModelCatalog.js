@@ -173,9 +173,9 @@ export function startAvailabilityProbe({ provider, models, probe, classify }) {
 // duplicados aquí a propósito: este archivo no puede importar aquel (ciclo).
 export function failureKindOf(text) {
   const s = String(text || "").toLowerCase();
-  if (/401|403|api key|apikey|unauthor|forbidden|permission|invalid.*key|key.*invalid/.test(s)) return "auth";
-  if (/404|410|not found|not_found|decommission|deprecat|no longer|does not exist|gone|model_not_found/.test(s)) return "gone";
-  if (/429|quota|rate.?limit|exhaust|too many/.test(s)) return "quota";
+  if (/\b401\b|\b403\b|api key|apikey|unauthor|forbidden|permission|invalid.*key|key.*invalid/.test(s)) return "auth";
+  if (/\b404\b|\b410\b|not found|not_found|decommission|deprecat|no longer|does not exist|\bgone\b|model_not_found/.test(s)) return "gone";
+  if (/\b429\b|quota|rate.?limit|exhaust|too many/.test(s)) return "quota";
   return "transient";
 }
 

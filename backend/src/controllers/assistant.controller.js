@@ -519,10 +519,24 @@ function normalizeForMatch(s) {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 
+// Nombre de lugar como palabras completas y, si coinciden varios, el más largo. Antes bastaba con que el nombre apareciera
+// dentro del texto: el "para" de "para mi casa" se leía como el estado de Pará (Brasil) y "Santiago de Cuba" como la región de
+// Santiago (Chile), y lo que sobraba ("cuba") se buscaba como si fuera un producto. Un nombre que también es una palabra
+// común del español ("para") nunca cuenta como lugar.
+const placeWords = (s) => normalizeForMatch(s).replace(/[^a-z0-9ñ]+/g, " ").trim();
+function findPlaceInText(places, text) {
+  const haystack = ` ${placeWords(text)} `;
+  let best = null;
+  for (const place of places) {
+    const name = placeWords(place.name);
+    if (name.length < 4 || STOPWORDS.has(name) || CONVERSATIONAL_FILLERS.has(name)) continue;
+    if (haystack.includes(` ${name} `) && (!best || name.length > placeWords(best.name).length)) best = place;
+  }
+  return best;
+}
+
 async function detectProvinceInText(text) {
-  const provinces = await getAllProvinces();
-  const norm = normalizeForMatch(text);
-  return provinces.find((p) => norm.includes(normalizeForMatch(p.name))) ?? null;
+  return findPlaceInText(await getAllProvinces(), text);
 }
 
 // Bloque 32: en Cuba, la CAPITAL de varias provincias se llama exactamente
@@ -535,13 +549,8 @@ async function detectProvinceInText(text) {
 // dice "capital".
 function detectMunicipalityMatch(municipalities, norm, provinceName) {
   const isCapitalKeyword = /\bcapital\b/.test(norm);
-  return (
-    municipalities.find((m) => {
-      const isCapitalMuni = normalizeForMatch(m.name) === normalizeForMatch(provinceName);
-      if (isCapitalMuni && !isCapitalKeyword) return false;
-      return norm.includes(normalizeForMatch(m.name));
-    }) ?? null
-  );
+  const candidates = municipalities.filter((m) => isCapitalKeyword || normalizeForMatch(m.name) !== normalizeForMatch(provinceName));
+  return findPlaceInText(candidates, norm);
 }
 
 async function detectMunicipalityInText(text, provinceId, provinceName) {
