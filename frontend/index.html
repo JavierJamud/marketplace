@@ -274,7 +274,7 @@
              escalarlo igual que al SVG si no entra en pantallas angostas). -->
         <div id="app-preloader-name" style="width:0;margin-left:0;overflow:hidden;white-space:nowrap;opacity:0;font-family:'Fredoka','Montserrat',sans-serif;position:relative;top:-4px;font-weight:700;font-size:31px;letter-spacing:.02em;line-height:1.2;color:#FFFFFF;transition-property:width,margin-left,opacity;transition-timing-function:cubic-bezier(.22,.9,.3,1),cubic-bezier(.22,.9,.3,1),ease;transition-duration:.5s;"></div>
         <!-- Subtítulo bajo el nombre: se alinea y aparece junto con el nombre (ver revealName). -->
-        <div id="app-preloader-tag" aria-hidden="true" style="position:absolute;top:calc(50% + 17px);left:0;transform:translateX(-50%);text-align:center;white-space:nowrap;opacity:0;font-family:'Montserrat',sans-serif;font-weight:600;font-size:10px;letter-spacing:0;text-transform:uppercase;color:rgba(255,255,255,.62);transition:opacity .6s ease .3s;">supermarket</div>
+        <div id="app-preloader-tag" aria-hidden="true" style="position:absolute;top:calc(50% + 17px);left:0;transform:translateX(-50%);text-align:center;white-space:nowrap;opacity:0;font-family:'Montserrat',sans-serif;font-weight:600;font-size:10px;letter-spacing:0;text-transform:uppercase;color:rgba(255,255,255,.62);transition:opacity .6s ease .3s;">marketplace</div>
       </div>
       <!-- Bloque 49 (pedido explícito — "si pasa más de 3-5 segundos, un
            mensaje debajo del logo que vaya cambiando"): arranca invisible
@@ -738,7 +738,7 @@
           // El subtítulo queda centrado bajo el nombre: empieza donde empieza el nombre y mide lo mismo.
           var tag = document.getElementById("app-preloader-tag");
           if (tag) {
-            // Se reparte el espacio entre letras para que "supermarket" ocupe justo el ancho del nombre, de borde a borde.
+            // Se reparte el espacio entre letras para que "marketplace" ocupe justo el ancho del nombre, de borde a borde.
             tag.style.left = currentIconSize() + NAME_MARGIN_PX + "px";
             tag.style.transform = "none";
             tag.style.letterSpacing = "0px";
