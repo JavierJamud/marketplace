@@ -11,6 +11,12 @@ export function ChatTextarea({ value, onChange, onSend, placeholder, disabled })
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
+    // Vacío: el alto de una línea (el texto de ayuda no cuenta, en pantallas angostas ocuparía dos).
+    if (!value) {
+      el.style.height = "";
+      el.style.overflowY = "hidden";
+      return;
+    }
     const next = Math.min(el.scrollHeight, MAX_HEIGHT_PX);
     el.style.height = `${next}px`;
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT_PX ? "auto" : "hidden";
@@ -32,7 +38,7 @@ export function ChatTextarea({ value, onChange, onSend, placeholder, disabled })
       disabled={disabled}
       aria-label={placeholder}
       enterKeyHint="send"
-      className="block min-h-10 flex-1 resize-none overflow-hidden rounded-[20px] border border-outline-variant bg-surface-container-lowest px-4 py-[9px] text-[13px] leading-5 outline-none focus-visible:border-tertiary-accent disabled:opacity-60"
+      className="block h-10 min-h-10 min-w-0 flex-1 resize-none overflow-hidden rounded-[20px] border border-outline-variant bg-surface-container-lowest px-3.5 py-[9px] text-[13px] leading-5 outline-none [scrollbar-width:thin] placeholder:truncate focus-visible:border-tertiary-accent disabled:opacity-60"
     />
   );
 }
