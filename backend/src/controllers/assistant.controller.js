@@ -1332,7 +1332,7 @@ export async function getMarketplaceChatHistory(req, res) {
   const products = allProductIds.length
     ? await prisma.product.findMany({
         where: { id: { in: allProductIds } },
-        select: { id: true, name: true, slug: true, price: true, images: true, stock: true, unlimitedStock: true, vendor: { select: CANDIDATE_VENDOR_SELECT } },
+        select: { id: true, name: true, slug: true, price: true, oldPrice: true, currency: true, description: true, images: true, stock: true, unlimitedStock: true, vendor: { select: CANDIDATE_VENDOR_SELECT } },
       })
     : [];
   const productById = new Map(products.map((p) => [p.id, p]));
