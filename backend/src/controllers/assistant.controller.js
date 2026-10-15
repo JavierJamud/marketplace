@@ -22,6 +22,7 @@ import { getBrandSettings } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { CONVERSATIONAL_FILLERS, WANTS_CHEAP_RE, toSearchStem } from "../lib/searchStem.js";
 import { findFaqAnswer, searchSiteKnowledge, siteKnowledgeText } from "../lib/siteKnowledge.js";
+import { rescueChatSearch } from "../lib/chatSearchRescue.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ASSISTANT_DOC_DIR = join(__dirname, "..", "..", "uploads", "assistant-docs");
@@ -272,7 +273,8 @@ function extractPriceRange(text) {
 // tienda, "Próximamente disponibles").
 const IN_STOCK_WHERE = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
 
-async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification, zone } = {}) {
+// `onlyIds`: candidatos ya elegidos por el rescate de búsqueda (parecido de escritura, ver lib/chatSearchRescue.js).
+async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification, zone, onlyIds } = {}) {
   const zoneWhere = zone ? vendorZoneWhere(zone) : undefined;
   const vendorWhere = {
     isBlocked: false,
@@ -295,7 +297,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
     });
   }
 
-  const matchedIds = await searchProductIdsByTerms(terms);
+  const matchedIds = onlyIds ?? (await searchProductIdsByTerms(terms));
   const nameOrDescMatches = matchedIds.length
     ? await prisma.product.findMany({
         where: { id: { in: matchedIds }, vendor: vendorWhere, price: priceFilter, ...paymentWhere, ...IN_STOCK_WHERE },
@@ -315,7 +317,7 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
   }
   let ranked = [...nameOrDescMatches].sort((a, b) => termHits(b) - termHits(a));
 
-  if (ranked.length < ZONE_POOL_LIMIT) {
+  if (!onlyIds && ranked.length < ZONE_POOL_LIMIT) {
     const haveIds = new Set(ranked.map((p) => p.id));
     const tagIds = (await searchTagMatches(terms)).filter((id) => !haveIds.has(id));
     const extra = tagIds.length
@@ -603,14 +605,14 @@ function resolveSearchContext(message, history, requestedProvince, requestedMuni
   const zoneNames = [requestedProvince?.name, requestedMunicipality?.name];
   const ownTerms = stripZoneWords(extractSearchTerms(message), ...zoneNames);
   const ownPrice = extractPriceRange(message);
-  if (ownTerms.length > 0) return { terms: ownTerms, priceMin: ownPrice.priceMin, priceMax: ownPrice.priceMax, broadListing: false };
+  if (ownTerms.length > 0) return { terms: ownTerms, priceMin: ownPrice.priceMin, priceMax: ownPrice.priceMax, broadListing: false, source: message };
 
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i].role !== "user") continue;
     const priorTerms = stripZoneWords(extractSearchTerms(history[i].content), ...zoneNames);
     if (priorTerms.length > 0) {
       const priorPrice = extractPriceRange(history[i].content);
-      return { terms: priorTerms, priceMin: priorPrice.priceMin, priceMax: priorPrice.priceMax, broadListing: false };
+      return { terms: priorTerms, priceMin: priorPrice.priceMin, priceMax: priorPrice.priceMax, broadListing: false, source: history[i].content };
     }
   }
   return { terms: [], priceMin: ownPrice.priceMin, priceMax: ownPrice.priceMax, broadListing: BROAD_LISTING_REGEX.test(message) };
@@ -1134,6 +1136,7 @@ export async function postMarketplaceChatMessage(req, res) {
   let rawText, productIds, candidates, vendorMatches, vendorIds, showAllStoresButton, suggestedFollowUps, searchMeta;
   let realZoneNames = [];
   let singleZoneName = null;
+  let searchNote = "";
   try {
     // Bloque 32: filtrado geográfico progresivo — la zona pedida se
     // reconstruye del mensaje actual O, si este mensaje es solo una
@@ -1144,7 +1147,7 @@ export async function postMarketplaceChatMessage(req, res) {
     // tenía uno — pero si trae uno nuevo ("mejor un freezer"), ese manda y
     // no arrastra el filtro anterior.
     const { province: requestedProvince, municipality: requestedMunicipality } = await resolveZoneFromContext(message, history);
-    const { terms, priceMin, priceMax, broadListing } = resolveSearchContext(message, history, requestedProvince, requestedMunicipality);
+    const { terms, priceMin, priceMax, broadListing, source } = resolveSearchContext(message, history, requestedProvince, requestedMunicipality);
 
     // Bloque 270: forma de pago y verificación que pidió el cliente. Las palabras de
     // esos filtros no son nombres de producto, así que se sacan de los términos; y
@@ -1198,6 +1201,20 @@ export async function postMarketplaceChatMessage(req, res) {
       candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
       zoneContext = buildZone(pool);
     }
+    // Nada con las palabras tal cual (y no era el nombre de una tienda): parecido de escritura y, si no alcanza, lo que quiso
+    // decir el cliente según el catálogo real (lib/chatSearchRescue.js).
+    if (!pool.length && searchTerms.length && !vendorMatches.length) {
+      const rescue = await rescueChatSearch({ terms: searchTerms, text: source ?? message }).catch(() => null);
+      if (rescue) {
+        pool = await searchCandidateProducts(rescue.terms ?? searchTerms, { priceMin, priceMax, payment, verification, zone: chatZone, onlyIds: rescue.ids });
+        if (pool.length) {
+          searchNote = rescue.note;
+          if (rescue.terms) searchMeta.terms = rescue.terms;
+          candidates = prioritizeByZone(pool, requestedProvince, requestedMunicipality, adjacentIds).slice(0, CANDIDATE_LIMIT);
+          zoneContext = buildZone(pool);
+        }
+      }
+    }
     // Provincias con resultados reales en esta búsqueda: las únicas que pueden salir en las preguntas sugeridas.
     const poolZones = summarizeZones(pool);
     singleZoneName = !chatZone && !requestedProvince && poolZones.length === 1 ? poolZones[0].name : null;
@@ -1220,6 +1237,7 @@ export async function postMarketplaceChatMessage(req, res) {
     // Bloque 281: últimos mensajes tal cual + memoria corta del resto (lib/chatMemory.js).
     const { history: aiHistory, memory } = compactHistory(history);
     if (memory) systemParts.push({ text: memory });
+    if (searchNote) systemParts.splice(1, 0, { text: searchNote });
     // El lugar de entrega que eligió el cliente: solo se ofrece lo que hay allí y no se prometen entregas en otros sitios.
     if (chatZone) {
       const place = await describeChatZone(chatZone);

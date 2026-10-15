@@ -363,6 +363,18 @@ export async function correctSearchQuery(rawQuery) {
   return value;
 }
 
+// Consulta corta para entender una búsqueda de los chats que no encontró nada (ver lib/chatSearchRescue.js). Igual que
+// correctSearchQuery, nunca lanza: sin IA disponible o si falla, devuelve null y el chat sigue sin esa ayuda.
+export async function generateSearchHint(prompt) {
+  const providers = await getActiveProviders();
+  if (!providers.length) return null;
+  try {
+    return (await callWithFallbackChain(providers, (provider) => callGenerate(provider, prompt), "", { reportFailures: false }))?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // Bloque 26/27: fallback real en vivo — si el proveedor principal falla
 // respondiendo esta consulta puntual (red, error del proveedor, timeout,
 // modelo deprecado/inexistente, cuota agotada) se reintenta automático con

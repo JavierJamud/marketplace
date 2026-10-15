@@ -14,6 +14,7 @@ import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planConfig.js";
 import { CONVERSATIONAL_FILLERS, toSearchStem } from "../lib/searchStem.js";
+import { rescueChatSearch } from "../lib/chatSearchRescue.js";
 
 // Bloque 42 (optimización de tokens — bajado de 20 a 6): el modelo no
 // tiene memoria propia entre requests, así que ESTE historial es lo único
@@ -221,6 +222,7 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
 
   const totalActive = vendor._count.products;
   let products;
+  let searchNote = "";
   if (totalActive <= CATALOG_FULL_DUMP_THRESHOLD) {
     // Bloque 28: tags + options se agregan para que el bot pueda
     // recomendar por palabra clave y preguntar por variantes reales en
@@ -237,6 +239,17 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
     if (terms.length) {
       const ids = await searchVendorProductIdsByTerms(vendorId, terms);
       products = ids.length ? await prisma.product.findMany({ where: { id: { in: ids }, vendorId, isActive: true }, select: PRODUCT_SELECT_FIELDS }) : [];
+      // Nada con las palabras tal cual: parecido de escritura y, si no alcanza, lo que quiso decir según el catálogo de esta
+      // tienda (lib/chatSearchRescue.js). Con 60 productos o menos no hace falta: el modelo ve el catálogo completo.
+      if (!products.length) {
+        const source = extractSearchTerms(message).length ? message : [...history].reverse().find((h) => h.role === "user" && extractSearchTerms(h.content).length)?.content;
+        const rescue = await rescueChatSearch({ terms, text: source ?? message, vendorId }).catch(() => null);
+        const rescuedIds = rescue?.ids ?? (rescue?.terms ? await searchVendorProductIdsByTerms(vendorId, rescue.terms) : []);
+        if (rescuedIds.length) {
+          products = await prisma.product.findMany({ where: { id: { in: rescuedIds.slice(0, CATALOG_SEARCH_POOL) }, vendorId, isActive: true }, select: PRODUCT_SELECT_FIELDS });
+          if (products.length) searchNote = rescue.note;
+        }
+      }
     } else {
       // Sin término de búsqueda propio (saludo, pregunta genérica): mismo
       // criterio de siempre para este caso — destacados/recientes, nunca
@@ -274,7 +287,7 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
     products = [...missingProducts, ...products];
   }
 
-  return { ...vendor, products };
+  return { ...vendor, products, searchNote };
 }
 
 function scheduleText(schedules) {
@@ -718,6 +731,7 @@ export async function postChatMessage(req, res) {
     const systemParts = await buildSystemParts(vendor, cartQuantities, orderContext, purchaseHistoryContext, message);
     const { history: aiHistory, memory } = compactHistory(history);
     if (memory) systemParts.push({ text: memory });
+    if (vendor.searchNote) systemParts.splice(1, 0, { text: vendor.searchNote });
     ({ text: rawText, productIds, addToCart, removeFromCart, reduceCart, clearCart, suggestedFollowUps } = await chatWithStoreAssistant({ systemParts, history: aiHistory, message, onTextDelta: req.streamText, onReset: req.streamReset }));
   } catch (err) {
     await logError({
