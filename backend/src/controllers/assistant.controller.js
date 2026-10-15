@@ -1133,6 +1133,7 @@ export async function postMarketplaceChatMessage(req, res) {
   // simplemente volver a mandar el mismo texto.
   let rawText, productIds, candidates, vendorMatches, vendorIds, showAllStoresButton, suggestedFollowUps, searchMeta;
   let realZoneNames = [];
+  let singleZoneName = null;
   try {
     // Bloque 32: filtrado geográfico progresivo — la zona pedida se
     // reconstruye del mensaje actual O, si este mensaje es solo una
@@ -1198,6 +1199,8 @@ export async function postMarketplaceChatMessage(req, res) {
       zoneContext = buildZone(pool);
     }
     // Provincias con resultados reales en esta búsqueda: las únicas que pueden salir en las preguntas sugeridas.
+    const poolZones = summarizeZones(pool);
+    singleZoneName = !chatZone && !requestedProvince && poolZones.length === 1 ? poolZones[0].name : null;
     realZoneNames = [
       ...new Set(
         [
@@ -1232,7 +1235,7 @@ export async function postMarketplaceChatMessage(req, res) {
     return res.status(503).json({ error: "chat_unavailable" });
   }
 
-  const text = tightenReply(rawText
+  let text = tightenReply(rawText
     .replace(/\[ID:[a-z0-9]+\]/gi, "")
     .replace(/\[\d{1,3}\]/g, "")
     .replace(/ {2,}/g, " ")
@@ -1240,10 +1243,16 @@ export async function postMarketplaceChatMessage(req, res) {
     .trim());
 
   const candidateByIndex = new Map(candidates.map((p, i) => [String(i + 1), p]));
-  const citedIds = [...new Set((productIds ?? []).map(String))]
+  let citedIds = [...new Set((productIds ?? []).map(String))]
     .map((idx) => candidateByIndex.get(idx))
     .filter(Boolean)
     .map((p) => p.id);
+  // Todo lo encontrado está en una sola provincia: preguntarla no aporta nada (el modelo a veces lo hace igual). Se muestran
+  // los resultados y dónde están.
+  if (singleZoneName && !citedIds.length && candidates.length && /provincia/i.test(text) && text.includes("?")) {
+    citedIds = candidates.slice(0, 3).map((p) => p.id);
+    text = `Esto es lo que encontré, en ${singleZoneName}:`;
+  }
 
   // Bloque 270 (pedido explícito — "si son más de tres, solo mostrar tres y un botón
   // de ver todos que abra la página con los filtros que pidió el cliente"): el
