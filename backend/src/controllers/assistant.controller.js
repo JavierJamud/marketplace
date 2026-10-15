@@ -1036,6 +1036,15 @@ SALIDA (JSON): {"text": "...", "productIds": ["N"], "addToCart": [], "removeFrom
 - Ejemplo (tiendas, pedido amplio con más de 3): {"text": "Tenemos varias tiendas disponibles.", "vendorIds": [], "showAllStoresButton": true, "suggestedFollowUps": ["Buscar por rubro", "Buscar un producto"]}`,
     },
   ];
+  // Sin productos candidatos no hay nada que filtrar por zona: el modelo no ve las reglas ni el ejemplo de preguntar la
+  // provincia (los copiaba hasta para "¿hacen envíos a domicilio?") y responde con la información del sitio.
+  if (!candidates.length) {
+    parts[0].text = parts[0].text
+      .split("\n")
+      .filter((line) => !/^ {2}[23]\) Si /.test(line) && !line.startsWith("- Ejemplo (falta la provincia"))
+      .join("\n")
+      .replace("REGLAS:\n", "REGLAS:\n- Esta vez NO hay productos candidatos: nunca preguntes provincia, municipio ni zona. Si la pregunta es sobre cómo funciona el sitio, responde con INFORMACIÓN OFICIAL DEL SITIO; si buscaba un producto, di claramente que ahora no lo hay.\n");
+  }
   parts.push(...(await loadAdminDocsParts(message)));
   return parts;
 }
