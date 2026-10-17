@@ -7,12 +7,14 @@
 // animate-fade-up (pedido explícito): misma animación de entrada que ya usa
 // la burbuja de notificación de al lado (ver MarketplaceChatWidget.jsx/
 // StoreChatWidget.jsx), para que los dos elementos combinen al aparecer.
-export function ChatFaceButton({ isOpen, onClick, ariaLabel, className = "" }) {
+// `unread`: mensajes del bot que llegaron con el chat cerrado (ver lib/useChatUnread.js); se muestran en un círculo rojo.
+export function ChatFaceButton({ isOpen, onClick, ariaLabel, className = "", unread = 0 }) {
+  const label = unread > 0 ? `${ariaLabel} (${unread} ${unread === 1 ? "mensaje sin leer" : "mensajes sin leer"})` : ariaLabel;
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={ariaLabel}
+      aria-label={label}
       className={`chat-face-btn animate-fade-up ${isOpen ? "active" : ""} ${className}`}
     >
       <div>
@@ -20,6 +22,11 @@ export function ChatFaceButton({ isOpen, onClick, ariaLabel, className = "" }) {
         <div className="chat-face-mouth" />
         <div className="chat-face-right-eye" />
       </div>
+      {unread > 0 && (
+        <span aria-hidden="true" className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1 text-[11px] font-bold leading-none text-white ring-2 ring-white animate-fade-up">
+          {unread > 9 ? "9+" : unread}
+        </span>
+      )}
     </button>
   );
 }

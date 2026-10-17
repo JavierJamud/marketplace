@@ -881,6 +881,7 @@ model User {
   sentVendorMessages VendorMessage[]
   productRequests ProductRequest[]
   chatTrainingExamples ChatTrainingExample[]
+  chatQuestionLogs ChatQuestionLog[]
   cartSnapshot CartSnapshot?
   sessions Session[]
   trustedDevices TrustedDevice[]
@@ -1287,6 +1288,7 @@ model Vendor {
   deliveryCountries VendorDeliveryCountry[]
   favorites     Favorite[]
   chatMessages  ChatMessage[]
+  chatQuestionLogs ChatQuestionLog[]
   productRequests ProductRequest[]
   offers        Offer[]
   discountCodes DiscountCode[]
@@ -3727,4 +3729,28 @@ model VendorCustomer {
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@unique([vendorId, key])
+}
+
+// Registro de preguntas a los chatbots para el admin (revisar y entrenar). Las conversaciones (ChatMessage y
+// MarketplaceChatMessage) se borran a las 24 h sin actividad para que la IA no las vuelva a leer; de cada intercambio queda
+// aquí la pregunta y la respuesta durante 90 días, y después se borra sola (jobs/chatRetention.job.js).
+// `clientKey` identifica al cliente: su cuenta si estaba logueado o la sesión del navegador si no.
+model ChatQuestionLog {
+  id        String      @id @default(cuid())
+  bot       ChatBotType
+  vendorId  String?
+  userId    String?
+  sessionId String
+  question  String      @db.Text
+  answer    String      @db.Text
+  createdAt DateTime    @default(now())
+
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([bot, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([userId, createdAt])
+  @@index([sessionId])
 }

@@ -106,10 +106,23 @@ async function getActiveProviders() {
   // agotada" descansa (aiProviderCooldown.js) y queda fuera hasta que pase el plazo.
   // Bloque 286: además del proveedor, cada modelo con su propio descanso.
   const usable = pairs.filter((p) => !isProviderCoolingDown(p.name) && !isModelCoolingDown(p.name, p.model));
-  const healthy = usable.filter((p) => !isDown(p.name, p.model));
-  const down = usable.filter((p) => isDown(p.name, p.model));
+  // Un modelo marcado caído vuelve a probarse con un pedido real cada 15 minutos (va en su lugar normal, una sola vez): antes
+  // un único fallo pasajero lo dejaba al final de la cadena hasta la revisión diaria aunque ya respondiera bien. Si vuelve a
+  // fallar, el siguiente modelo de la cadena responde igual.
+  const retryNow = (p) => {
+    const key = `${p.name}::${p.model}`;
+    const row = healthRows.find((h) => h.provider === p.name && h.model === p.model);
+    const since = Math.max(downRetryAt.get(key) ?? 0, row?.downSince ? new Date(row.downSince).getTime() : 0);
+    if (Date.now() - since < DOWN_RETRY_MS) return false;
+    downRetryAt.set(key, Date.now());
+    return true;
+  };
+  const healthy = usable.filter((p) => !isDown(p.name, p.model) || retryNow(p));
+  const down = usable.filter((p) => !healthy.includes(p));
   return [...healthy, ...down];
 }
+const DOWN_RETRY_MS = 15 * 60 * 1000;
+const downRetryAt = new Map();
 
 function callGenerate(provider, prompt) {
   if (provider.name === "gemini") return generateWithGemini({ apiKey: provider.apiKey, prompt, model: provider.model });

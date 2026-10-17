@@ -365,6 +365,7 @@ router.delete("/targeted-offers/:id", targetedOffersController.deleteTargetedOff
 // Bloque 37: revisión de conversaciones reales + ejemplos curados de
 // entrenamiento (ver chatTraining.controller.js).
 router.get("/chat-review/conversations", chatTrainingController.listRecentConversations);
+router.get("/chat-review/log", chatTrainingController.listChatLog);
 router.get("/chat-review/examples", chatTrainingController.listTrainingExamples);
 router.post("/chat-review/examples", chatTrainingController.createTrainingExample);
 router.patch("/chat-review/examples/:id", chatTrainingController.toggleTrainingExample);

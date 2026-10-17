@@ -123,3 +123,100 @@ export async function deleteTrainingExample(req, res) {
   await prisma.chatTrainingExample.delete({ where: { id } });
   res.status(204).send();
 }
+
+// --- Registro de preguntas (ChatQuestionLog, 90 días) ------------------------------------------------------------------
+// Lo que preguntan los clientes a los dos chatbots, con filtros: qué bot, clientes con o sin cuenta, tiendas verificadas o no,
+// una tienda o un cliente puntual y texto. `clientKey` identifica al cliente: "u:<id de cuenta>" o "s:<sesión del navegador>".
+const logQuerySchema = z.object({
+  bot: z.enum(["all", "GENERAL", "TIENDA"]).catch("all"),
+  client: z.enum(["all", "logged", "guest"]).catch("all"),
+  vendorStatus: z.enum(["all", "verified", "unverified"]).catch("all"),
+  vendorId: z.string().trim().max(60).optional().catch(undefined),
+  clientKey: z.string().trim().max(120).optional().catch(undefined),
+  q: z.string().trim().max(120).optional().catch(undefined),
+  page: z.coerce.number().int().min(1).catch(1),
+  pageSize: z.coerce.number().int().min(10).max(100).catch(25),
+});
+
+// Etiqueta corta y estable para un visitante sin cuenta (siempre la misma para la misma sesión).
+function guestLabel(sessionId) {
+  let h = 0;
+  for (const ch of String(sessionId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `Visitante ${h.toString(36).toUpperCase().slice(-5).padStart(5, "0")}`;
+}
+
+function logWhere(f) {
+  const where = {};
+  if (f.bot !== "all") where.bot = f.bot;
+  if (f.client === "logged") where.userId = { not: null };
+  if (f.client === "guest") where.userId = null;
+  if (f.vendorStatus !== "all") {
+    where.bot = "TIENDA";
+    where.vendor = f.vendorStatus === "verified" ? { verificationStatus: "VERIFIED" } : { verificationStatus: { not: "VERIFIED" } };
+  }
+  if (f.vendorId) where.vendorId = f.vendorId;
+  if (f.clientKey?.startsWith("u:")) where.userId = f.clientKey.slice(2);
+  else if (f.clientKey?.startsWith("s:")) where.sessionId = f.clientKey.slice(2);
+  if (f.q) where.OR = [{ question: { contains: f.q, mode: "insensitive" } }, { answer: { contains: f.q, mode: "insensitive" } }];
+  return where;
+}
+
+export async function listChatLog(req, res) {
+  const f = logQuerySchema.parse(req.query);
+  const where = logWhere(f);
+  const [rows, total, logged, sessions, vendorsInLog] = await Promise.all([
+    prisma.chatQuestionLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (f.page - 1) * f.pageSize,
+      take: f.pageSize,
+      include: {
+        vendor: { select: { id: true, companyName: true, verificationStatus: true } },
+        user: { select: { id: true, fullName: true, email: true } },
+      },
+    }),
+    prisma.chatQuestionLog.count({ where }),
+    where.userId === null ? 0 : prisma.chatQuestionLog.count({ where: { ...where, userId: where.userId ?? { not: null } } }),
+    prisma.chatQuestionLog.groupBy({ by: ["sessionId"], where, _count: { _all: true } }).then((g) => g.length),
+    prisma.chatQuestionLog.groupBy({ by: ["vendorId"], where: { vendorId: { not: null } }, _count: { _all: true } }),
+  ]);
+
+  // Preguntas que más se repiten (las "preguntas base") con los mismos filtros, comparando sin mayúsculas ni espacios de más.
+  const top = await prisma.chatQuestionLog.findMany({ where, select: { question: true }, orderBy: { createdAt: "desc" }, take: 3000 });
+  const counts = new Map();
+  for (const { question } of top) {
+    const key = question.toLowerCase().replace(/[¿?¡!.,;:]/g, "").replace(/\s+/g, " ").trim();
+    if (key.length < 3) continue;
+    const entry = counts.get(key) ?? { question: question.trim(), count: 0 };
+    entry.count++;
+    counts.set(key, entry);
+  }
+  const topQuestions = [...counts.values()].filter((e) => e.count > 1).sort((a, b) => b.count - a.count).slice(0, 10);
+
+  const vendorNames = await prisma.vendor.findMany({
+    where: { id: { in: vendorsInLog.map((v) => v.vendorId) } },
+    select: { id: true, companyName: true, verificationStatus: true },
+    orderBy: { companyName: "asc" },
+  });
+
+  res.json({
+    items: rows.map((r) => ({
+      id: r.id,
+      bot: r.bot,
+      question: r.question,
+      answer: r.answer,
+      createdAt: r.createdAt,
+      vendor: r.vendor ? { id: r.vendor.id, name: r.vendor.companyName, verified: r.vendor.verificationStatus === "VERIFIED" } : null,
+      client: r.user
+        ? { key: `u:${r.user.id}`, kind: "user", label: r.user.fullName || r.user.email, email: r.user.email }
+        : { key: `s:${r.sessionId}`, kind: "guest", label: guestLabel(r.sessionId) },
+    })),
+    total,
+    page: f.page,
+    pageSize: f.pageSize,
+    stats: { total, logged, guests: total - logged, conversations: sessions },
+    topQuestions,
+    vendors: vendorNames.map((v) => ({ id: v.id, name: v.companyName, verified: v.verificationStatus === "VERIFIED" })),
+    retentionDays: 90,
+  });
+}

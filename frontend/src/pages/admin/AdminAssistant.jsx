@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power, Sparkles, RefreshCw } from "lucide-react";
+import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power, Sparkles, RefreshCw, Search, X, ShieldCheck, ChevronLeft, ChevronRight, MessageSquareText } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
@@ -50,7 +50,7 @@ export default function AdminAssistant() {
   });
 
   return (
-    <div className="max-w-[760px]">
+    <div className="max-w-[900px]">
       <div className="mb-1 flex items-center gap-2.5">
         <Bot className="h-6 w-6 text-tertiary-accent" />
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Asistente del marketplace</h1>
@@ -268,36 +268,69 @@ function AutoLearningSection() {
   );
 }
 
-// Bloque 37 (Parte E): Groq no permite fine-tuning propio — la mejora
-// continua se hace revisando conversaciones REALES y curando ejemplos. Cada
-// "buena"/"mala" marcada acá crea una fila ChatTrainingExample que se
-// inyecta como few-shot real en el prompt del bot correspondiente (ver
-// lib/chatTrainingExamples.js) — afecta respuestas futuras, no esta misma.
+// Registro de lo que preguntan los clientes a los dos chatbots (asistente del sitio y chat de cada tienda), con filtros y un
+// identificador por cliente: su cuenta si estaba logueado, o "Visitante XXXXX" (la misma etiqueta para la misma sesión). Las
+// conversaciones se borran a las 24 h para que la IA no las vuelva a leer; este registro dura 90 días.
+// Entrenar: "Buena" refuerza el estilo de esa respuesta y "Corregir" guarda cómo debió responder. El bot no copia el texto: de
+// cada corrección se saca un criterio (tono, formato, qué datos consultar) que aplica con datos reales en charlas futuras.
+const FILTER = "rounded-full px-3 py-1.5 text-[12px] font-semibold min-h-9";
+const CARD = "rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6";
+
+function Segmented({ value, onChange, options, label }) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap gap-1.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          aria-pressed={value === o.id}
+          onClick={() => onChange(o.id)}
+          className={`${FILTER} ${value === o.id ? "bg-primary-container text-white" : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ChatReviewSection() {
   const queryClient = useQueryClient();
-  const [bot, setBot] = useState("general"); // "general" | "tienda"
+  const [filters, setFilters] = useState({ bot: "all", client: "all", vendorStatus: "all", vendorId: "", clientKey: "", clientLabel: "", q: "" });
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [correctingId, setCorrectingId] = useState(null);
   const [draft, setDraft] = useState("");
+  const [examplesBot, setExamplesBot] = useState("GENERAL");
   const [deleteExampleTarget, setDeleteExampleTarget] = useState(null);
 
-  const botTipo = bot === "general" ? "GENERAL" : "TIENDA";
+  const set = (patch) => {
+    setFilters((f) => ({ ...f, ...patch }));
+    setPage(1);
+  };
 
-  const { data: conversations, isLoading: loadingConversations } = useQuery({
-    queryKey: ["chat-review-conversations", bot],
-    queryFn: async () => (await api.get(`/admin/chat-review/conversations?bot=${bot}`)).data.conversations,
+  const params = new URLSearchParams({ bot: filters.bot, client: filters.client, vendorStatus: filters.vendorStatus, page: String(page), pageSize: "25" });
+  if (filters.vendorId) params.set("vendorId", filters.vendorId);
+  if (filters.clientKey) params.set("clientKey", filters.clientKey);
+  if (filters.q) params.set("q", filters.q);
+
+  const { data: log, isLoading: loadingLog, isError: logError } = useQuery({
+    queryKey: ["chat-log", params.toString()],
+    queryFn: async () => (await api.get(`/admin/chat-review/log?${params}`)).data,
+    placeholderData: (prev) => prev,
   });
 
   const { data: examples, isLoading: loadingExamples } = useQuery({
-    queryKey: ["chat-training-examples", botTipo],
-    queryFn: async () => (await api.get(`/admin/chat-review/examples?bot=${botTipo}`)).data.examples,
+    queryKey: ["chat-training-examples", examplesBot],
+    queryFn: async () => (await api.get(`/admin/chat-review/examples?bot=${examplesBot}`)).data.examples,
   });
 
-  const invalidateExamples = () => queryClient.invalidateQueries({ queryKey: ["chat-training-examples", botTipo] });
+  const invalidateExamples = () => queryClient.invalidateQueries({ queryKey: ["chat-training-examples"] });
 
   const createExample = useMutation({
     mutationFn: async (payload) => (await api.post("/admin/chat-review/examples", payload)).data,
     onSuccess: () => {
-      toast.success("Guardado — el bot va a aprender de este ejemplo desde la próxima respuesta.");
+      toast.success("Guardado. El bot aplica ese criterio desde la próxima respuesta.");
       setCorrectingId(null);
       setDraft("");
       invalidateExamples();
@@ -324,87 +357,177 @@ function ChatReviewSection() {
     },
   });
 
-  function markGood(conv) {
-    if (!conv.clienteMensaje) return toast.error("Esta respuesta no tiene un mensaje de cliente asociado.");
-    createExample.mutate({ botTipo, entradaCliente: conv.clienteMensaje, respuestaIdeal: conv.botRespuesta });
-  }
-
-  function submitCorrection(conv) {
-    if (!conv.clienteMensaje) return toast.error("Esta respuesta no tiene un mensaje de cliente asociado.");
-    if (!draft.trim()) return toast.error("Escribe la respuesta ideal.");
-    createExample.mutate({ botTipo, entradaCliente: conv.clienteMensaje, respuestaIdeal: draft.trim() });
-  }
+  const items = log?.items ?? [];
+  const totalPages = Math.max(1, Math.ceil((log?.total ?? 0) / (log?.pageSize ?? 25)));
 
   return (
-    <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
-      <div className="mb-1 flex items-center gap-2.5">
-        <GraduationCap className="h-5 w-5 text-tertiary-accent" />
-        <div className="text-[15px] font-bold text-on-surface">Aprendizaje por ejemplos</div>
-      </div>
-      <p className="mb-3.5 text-[12.5px] text-outline">
-        Revisa respuestas reales del bot. Marca una como buena para reforzar ese estilo, o como mala y explica cómo debió responder. El bot no copia tu
-        texto: de cada corrección saca un criterio (tono, formato, qué datos consultar) y lo aplica con datos reales y actuales en charlas futuras.
-      </p>
+    <>
+      <div className={`${CARD} mb-5`}>
+        <div className="mb-1 flex items-center gap-2.5">
+          <MessageSquareText className="h-5 w-5 text-tertiary-accent" />
+          <h2 className="text-[15px] font-bold text-on-surface">Preguntas de los clientes</h2>
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Todo lo que preguntan al asistente del sitio y a los chats de las tiendas, con la respuesta que dio el bot. Se guarda {log?.retentionDays ?? 90} días;
+          las conversaciones en sí se borran a las 24 horas sin actividad.
+        </p>
 
-      <div className="mb-4 flex gap-2">
-        {[
-          { id: "general", label: "Bot general" },
-          { id: "tienda", label: "Bots de tienda" },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setBot(t.id)}
-            className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold ${
-              bot === t.id ? "bg-primary-container text-white" : "bg-surface-container text-on-surface-variant"
-            }`}
+        <div className="mb-4 flex flex-col gap-3">
+          <Segmented label="Chatbot" value={filters.bot} onChange={(bot) => set({ bot, ...(bot === "GENERAL" ? { vendorStatus: "all", vendorId: "" } : {}) })} options={[{ id: "all", label: "Todos los chats" }, { id: "GENERAL", label: "Asistente del sitio" }, { id: "TIENDA", label: "Chats de tiendas" }]} />
+          <Segmented label="Clientes" value={filters.client} onChange={(client) => set({ client })} options={[{ id: "all", label: "Todos los clientes" }, { id: "logged", label: "Con cuenta" }, { id: "guest", label: "Sin cuenta" }]} />
+          {filters.bot !== "GENERAL" && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Segmented label="Tiendas" value={filters.vendorStatus} onChange={(vendorStatus) => set({ vendorStatus })} options={[{ id: "all", label: "Todas las tiendas" }, { id: "verified", label: "Verificadas" }, { id: "unverified", label: "No verificadas" }]} />
+              <select
+                aria-label="Tienda"
+                value={filters.vendorId}
+                onChange={(e) => set({ vendorId: e.target.value })}
+                className="min-h-9 max-w-full rounded-full border border-outline-variant bg-surface-container-lowest px-3 text-[12px] text-on-surface"
+              >
+                <option value="">Cualquier tienda</option>
+                {(log?.vendors ?? []).map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                    {v.verified ? " (verificada)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              set({ q: search.trim() });
+            }}
+            className="flex gap-2"
           >
-            {t.label}
-          </button>
-        ))}
-      </div>
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-outline" aria-hidden="true" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar en preguntas y respuestas"
+                aria-label="Buscar en preguntas y respuestas"
+                className="min-h-10 w-full rounded-full border border-outline-variant bg-surface-container-lowest pl-9 pr-3 text-[13px] outline-none focus:border-tertiary-accent"
+              />
+            </div>
+            <button type="submit" className="min-h-10 rounded-full bg-primary-container px-4 text-[12.5px] font-bold text-white">
+              Buscar
+            </button>
+          </form>
+          {(filters.clientKey || filters.q) && (
+            <div className="flex flex-wrap gap-1.5">
+              {filters.clientKey && (
+                <button type="button" onClick={() => set({ clientKey: "", clientLabel: "" })} className="inline-flex min-h-8 items-center gap-1 rounded-full bg-tertiary-accent/10 px-3 text-[12px] font-semibold text-tertiary-accent">
+                  Cliente: {filters.clientLabel} <X className="h-3.5 w-3.5" aria-label="Quitar filtro de cliente" />
+                </button>
+              )}
+              {filters.q && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    set({ q: "" });
+                  }}
+                  className="inline-flex min-h-8 items-center gap-1 rounded-full bg-tertiary-accent/10 px-3 text-[12px] font-semibold text-tertiary-accent"
+                >
+                  Texto: “{filters.q}” <X className="h-3.5 w-3.5" aria-label="Quitar búsqueda" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
-      <div className="mb-5">
-        <div className="mb-2 text-[13px] font-bold text-on-surface">Conversaciones recientes</div>
-        {loadingConversations ? (
+        {log?.stats && (
+          <dl className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ["Preguntas", log.stats.total],
+              ["Conversaciones", log.stats.conversations],
+              ["De clientes con cuenta", log.stats.logged],
+              ["De visitantes sin cuenta", log.stats.guests],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl bg-surface-container px-3 py-2.5">
+                <dt className="text-[11px] font-semibold text-on-surface-variant">{label}</dt>
+                <dd className="text-[18px] font-extrabold text-on-surface">{Number(value).toLocaleString("es-CU")}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        {log?.topQuestions?.length > 0 && (
+          <div className="mb-4 rounded-xl border border-outline-variant p-3.5">
+            <div className="mb-2 text-[12.5px] font-bold text-on-surface">Lo que más se repite</div>
+            <ol className="flex flex-col gap-1">
+              {log.topQuestions.map((t) => (
+                <li key={t.question} className="flex items-start justify-between gap-3 text-[12.5px] text-on-surface-variant">
+                  <button type="button" onClick={() => { setSearch(t.question); set({ q: t.question }); }} className="text-left hover:text-on-surface hover:underline">
+                    {t.question}
+                  </button>
+                  <span className="flex-shrink-0 rounded-full bg-surface-container px-2 text-[11px] font-bold text-on-surface">{t.count}×</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {loadingLog && !log ? (
           <p className="text-[13px] text-outline">Cargando...</p>
-        ) : conversations?.length > 0 ? (
+        ) : logError ? (
+          <p className="text-[13px] text-error">No se pudo cargar el registro. Prueba de nuevo en un momento.</p>
+        ) : items.length === 0 ? (
+          <p className="text-[13px] text-outline">No hay preguntas con estos filtros.</p>
+        ) : (
           <div className="flex flex-col gap-3">
-            {conversations.map((conv) => (
-              <div key={conv.id} className="rounded-xl border border-outline-variant p-3.5">
-                {conv.vendorName && <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-tertiary-accent">{conv.vendorName}</div>}
-                <div className="mb-1.5 text-[12.5px] text-on-surface-variant">
-                  <span className="font-semibold text-on-surface">Cliente: </span>
-                  {conv.clienteMensaje ?? <span className="italic text-outline">(sin mensaje previo del cliente en esta sesión)</span>}
+            {items.map((it) => (
+              <article key={it.id} className="rounded-xl border border-outline-variant p-3.5">
+                <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-outline">
+                  <button
+                    type="button"
+                    onClick={() => set({ clientKey: it.client.key, clientLabel: it.client.label })}
+                    title="Ver todas las preguntas de este cliente"
+                    className={`inline-flex min-h-7 items-center rounded-full px-2.5 font-bold ${it.client.kind === "user" ? "bg-primary-container/10 text-primary-container" : "bg-surface-container text-on-surface-variant"}`}
+                  >
+                    {it.client.label}
+                    {it.client.kind === "user" ? " · con cuenta" : ""}
+                  </button>
+                  <span>{it.bot === "GENERAL" ? "Asistente del sitio" : "Chat de tienda"}</span>
+                  {it.vendor && (
+                    <button type="button" onClick={() => set({ bot: "TIENDA", vendorId: it.vendor.id })} className="inline-flex items-center gap-1 font-semibold text-tertiary-accent hover:underline">
+                      {it.vendor.name}
+                      {it.vendor.verified && <ShieldCheck className="h-3.5 w-3.5 text-verified" aria-label="Tienda verificada" />}
+                    </button>
+                  )}
+                  <span className="ml-auto">{new Date(it.createdAt).toLocaleString("es-CU", { dateStyle: "short", timeStyle: "short" })}</span>
                 </div>
-                <div className="mb-2.5 text-[12.5px] text-on-surface">
-                  <span className="font-semibold">Bot: </span>
-                  <ChatMarkdown text={conv.botRespuesta} className="mt-1 text-[12.5px]" />
+                <p className="mb-1.5 text-[13px] text-on-surface">
+                  <span className="font-semibold">Cliente: </span>
+                  {it.question}
+                </p>
+                <div className="mb-2.5 text-[12.5px] text-on-surface-variant">
+                  <span className="font-semibold text-on-surface">Bot: </span>
+                  <ChatMarkdown text={it.answer} className="mt-1 text-[12.5px]" />
                 </div>
 
-                {correctingId === conv.id ? (
+                {correctingId === it.id ? (
                   <div className="flex flex-col gap-2">
                     <textarea
                       value={draft}
                       onChange={(e) => setDraft(e.target.value)}
                       rows={3}
-                      placeholder="Escribe cómo debió responder (sirve de guía; el bot no la copia)..."
+                      aria-label="Cómo debió responder"
+                      placeholder="Explica cómo debió responder. El bot no copia este texto: aprende el criterio."
                       className="w-full rounded-lg border border-outline-variant p-2.5 text-[12.5px] text-on-surface"
                     />
                     <div className="flex gap-2">
                       <button
-                        onClick={() => submitCorrection(conv)}
+                        type="button"
+                        onClick={() => draft.trim() ? createExample.mutate({ botTipo: it.bot, entradaCliente: it.question.slice(0, 500), respuestaIdeal: draft.trim() }) : toast.error("Escribe cómo debió responder.")}
                         disabled={createExample.isPending}
-                        className="rounded bg-primary-container px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-50"
+                        className="min-h-9 rounded bg-primary-container px-3 text-[12px] font-bold text-white disabled:opacity-50"
                       >
-                        Guardar respuesta ideal
+                        Guardar corrección
                       </button>
-                      <button
-                        onClick={() => {
-                          setCorrectingId(null);
-                          setDraft("");
-                        }}
-                        className="rounded bg-surface-container px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant"
-                      >
+                      <button type="button" onClick={() => { setCorrectingId(null); setDraft(""); }} className="min-h-9 rounded bg-surface-container px-3 text-[12px] font-semibold text-on-surface-variant">
                         Cancelar
                       </button>
                     </div>
@@ -412,33 +535,50 @@ function ChatReviewSection() {
                 ) : (
                   <div className="flex gap-2">
                     <button
-                      onClick={() => markGood(conv)}
+                      type="button"
+                      onClick={() => createExample.mutate({ botTipo: it.bot, entradaCliente: it.question.slice(0, 500), respuestaIdeal: it.answer.slice(0, 800) })}
                       disabled={createExample.isPending}
-                      className="flex items-center gap-1.5 rounded bg-verified/15 px-3 py-1.5 text-[12px] font-bold text-verified disabled:opacity-50"
+                      className="flex min-h-9 items-center gap-1.5 rounded bg-verified/15 px-3 text-[12px] font-bold text-verified disabled:opacity-50"
                     >
                       <ThumbsUp className="h-3.5 w-3.5" /> Buena
                     </button>
-                    <button
-                      onClick={() => {
-                        setCorrectingId(conv.id);
-                        setDraft("");
-                      }}
-                      className="flex items-center gap-1.5 rounded bg-error/10 px-3 py-1.5 text-[12px] font-bold text-error"
-                    >
-                      <ThumbsDown className="h-3.5 w-3.5" /> Mala — corregir
+                    <button type="button" onClick={() => { setCorrectingId(it.id); setDraft(""); }} className="flex min-h-9 items-center gap-1.5 rounded bg-error/10 px-3 text-[12px] font-bold text-error">
+                      <ThumbsDown className="h-3.5 w-3.5" /> Corregir
                     </button>
                   </div>
                 )}
-              </div>
+              </article>
             ))}
           </div>
-        ) : (
-          <p className="text-[13px] text-outline">Todavía no hay conversaciones registradas para este bot.</p>
+        )}
+
+        {totalPages > 1 && (
+          <nav aria-label="Páginas del registro" className="mt-4 flex items-center justify-between gap-2">
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="inline-flex min-h-10 items-center gap-1 rounded-full bg-surface-container px-3 text-[12.5px] font-semibold text-on-surface disabled:opacity-40">
+              <ChevronLeft className="h-4 w-4" /> Anterior
+            </button>
+            <span className="text-[12.5px] text-on-surface-variant">
+              Página {page} de {totalPages}
+            </span>
+            <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="inline-flex min-h-10 items-center gap-1 rounded-full bg-surface-container px-3 text-[12.5px] font-semibold text-on-surface disabled:opacity-40">
+              Siguiente <ChevronRight className="h-4 w-4" />
+            </button>
+          </nav>
         )}
       </div>
 
-      <div>
-        <div className="mb-2 text-[13px] font-bold text-on-surface">Ejemplos guardados ({examples?.length ?? 0})</div>
+      <div className={CARD}>
+        <div className="mb-1 flex items-center gap-2.5">
+          <GraduationCap className="h-5 w-5 text-tertiary-accent" />
+          <h2 className="text-[15px] font-bold text-on-surface">Lo que aprendió el bot</h2>
+        </div>
+        <p className="mb-3.5 text-[12.5px] text-outline">
+          Cada respuesta marcada como buena o corregida queda aquí con el criterio que se sacó de ella. El bot aplica esos criterios con datos reales y sus
+          propias palabras; nunca repite el texto de la corrección. Desactiva un criterio si ya no aplica.
+        </p>
+        <div className="mb-3">
+          <Segmented label="Chatbot de los criterios" value={examplesBot} onChange={setExamplesBot} options={[{ id: "GENERAL", label: "Asistente del sitio" }, { id: "TIENDA", label: "Chats de tiendas" }]} />
+        </div>
         {loadingExamples ? (
           <p className="text-[13px] text-outline">Cargando...</p>
         ) : examples?.length > 0 ? (
@@ -449,7 +589,7 @@ function ChatReviewSection() {
                   <span className="font-semibold text-on-surface">Cliente:</span> {ex.entradaCliente}
                 </div>
                 <div className="mb-1 text-[12px] text-on-surface">
-                  <span className="font-semibold">Respuesta ideal:</span> {ex.respuestaIdeal}
+                  <span className="font-semibold">Respuesta de referencia:</span> {ex.respuestaIdeal}
                 </div>
                 <div className="mb-2 text-[12px] text-on-surface">
                   <span className="font-semibold text-tertiary-accent">Criterio aprendido:</span> {ex.leccion ?? <span className="italic text-outline">sin criterio todavía (se usa como pista de estilo)</span>}
@@ -461,13 +601,13 @@ function ChatReviewSection() {
                   </span>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       onClick={() => toggleExample.mutate({ id: ex.id, activo: !ex.activo })}
-                      title={ex.activo ? "Desactivar" : "Activar"}
-                      className={`flex items-center gap-1 text-[11.5px] font-semibold ${ex.activo ? "text-on-surface-variant" : "text-verified"}`}
+                      className={`flex min-h-9 items-center gap-1 text-[11.5px] font-semibold ${ex.activo ? "text-on-surface-variant" : "text-verified"}`}
                     >
                       <Power className="h-3.5 w-3.5" /> {ex.activo ? "Desactivar" : "Activar"}
                     </button>
-                    <button onClick={() => setDeleteExampleTarget(ex)} title="Eliminar" className="text-error">
+                    <button type="button" onClick={() => setDeleteExampleTarget(ex)} aria-label="Eliminar criterio" className="flex min-h-9 min-w-9 items-center justify-center text-error">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -476,19 +616,19 @@ function ChatReviewSection() {
             ))}
           </div>
         ) : (
-          <p className="text-[13px] text-outline">Todavía no marcaste ninguna respuesta como buena o mala.</p>
+          <p className="text-[13px] text-outline">Todavía no marcaste ninguna respuesta como buena ni corregiste ninguna.</p>
+        )}
+
+        {deleteExampleTarget && (
+          <ConfirmDeleteModal
+            title="¿Eliminar este criterio?"
+            description="El bot deja de tenerlo en cuenta en charlas futuras."
+            pending={deleteExample.isPending}
+            onConfirm={() => deleteExample.mutate(deleteExampleTarget.id)}
+            onCancel={() => setDeleteExampleTarget(null)}
+          />
         )}
       </div>
-
-      {deleteExampleTarget && (
-        <ConfirmDeleteModal
-          title="¿Eliminar este ejemplo?"
-          description="El bot deja de tener en cuenta esta respuesta ideal en charlas futuras."
-          pending={deleteExample.isPending}
-          onConfirm={() => deleteExample.mutate(deleteExampleTarget.id)}
-          onCancel={() => setDeleteExampleTarget(null)}
-        />
-      )}
-    </div>
+    </>
   );
 }

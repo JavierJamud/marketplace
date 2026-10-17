@@ -17,6 +17,7 @@ import { ChatFaceButton } from "./ChatFaceButton.jsx";
 import { useCloseOnOutsideClick } from "../lib/useCloseOnOutsideClick.js";
 import { ChatMarkdown } from "./ChatMarkdown.jsx";
 import { ChatTextarea } from "./ChatTextarea.jsx";
+import { useChatUnread } from "../lib/useChatUnread.js";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -253,6 +254,7 @@ export function StoreChatWidget({ vendor }) {
   const [streamingText, setStreamingText] = useState("");
   const [errorMsg, setErrorMsg] = useState(false);
   const [showBubble, setShowBubble] = useState(false);
+  const reply = useChatUnread(open);
   const [confirmingReset, setConfirmingReset] = useState(false);
   // Bloque 32: idle | recording | transcribing — grabación de audio (mismo
   // mecanismo que MarketplaceChatWidget.jsx, ver sus comentarios).
@@ -342,9 +344,12 @@ export function StoreChatWidget({ vendor }) {
 
   useEffect(() => {
     if (!showBubble) return;
-    const hideTimer = setTimeout(() => setShowBubble(false), BUBBLE_AUTOHIDE_MS);
+    const hideTimer = setTimeout(() => {
+      setShowBubble(false);
+      reply.markWelcomeUnread();
+    }, BUBBLE_AUTOHIDE_MS);
     return () => clearTimeout(hideTimer);
-  }, [showBubble]);
+  }, [showBubble, reply.markWelcomeUnread]);
 
   useEffect(() => {
     if (open) setShowBubble(false);
@@ -377,6 +382,7 @@ export function StoreChatWidget({ vendor }) {
       const { data } = await postChatStreaming(`/vendors/${vendor.id}/chat`, { sessionId: sessionIdRef.current, message, cartQuantities }, { onDelta: (t) => setStreamingText((s) => s + t), onReset: () => setStreamingText("") });
       setStreamingText("");
       setMessages((m) => [...m, data.message]);
+      reply.notifyReply(data.message?.content);
       touchActivity(vendor.id);
       scheduleIdleReset();
       // Bloque 38: sonido corto al recibir la respuesta — solo puede pasar
@@ -447,6 +453,7 @@ export function StoreChatWidget({ vendor }) {
       // Errores; acá solo se sabe QUE falló, se renderiza como tarjeta
       // (ver JSX) en vez de burbuja de texto.
       setErrorMsg(true);
+      reply.notifyReply("No pude terminar de responder. Abre el chat para intentarlo de nuevo.");
     } finally {
       setStreamingText("");
       setSending(false);
@@ -588,14 +595,37 @@ export function StoreChatWidget({ vendor }) {
           de compra. `hidden sm:flex` deja el comportamiento de desktop
           intacto (donde sí hay margen real) y en mobile solo queda visible
           el botón redondo de abrir el chat, sin la tarjeta de saludo. */}
-      {!open && showBubble && (
+      {!open && reply.preview && (
+        <div role="status" className="fixed bottom-[84px] right-5 z-[60] flex max-w-[280px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:bottom-[100px] sm:right-6">
+          <VendorAvatar vendor={vendor} className="h-8 w-8 text-[13px]" />
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(true);
+              scheduleIdleReset();
+            }}
+            className="flex-1 text-left text-[12.5px] leading-[17px] text-on-surface-variant"
+          >
+            <span className="mb-0.5 block text-[11px] font-bold uppercase tracking-wide text-tertiary-accent">Nueva respuesta</span>
+            {reply.preview}
+          </button>
+          <button onClick={reply.dismissPreview} aria-label="Cerrar aviso" className="-mr-3 -mt-3 flex h-11 w-11 flex-shrink-0 items-center justify-center text-on-surface-variant hover:text-on-surface">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {!open && showBubble && !reply.preview && (
         <div className="fixed bottom-[84px] right-5 z-[60] hidden max-w-[260px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:flex sm:bottom-[100px] sm:right-6">
           <VendorAvatar vendor={vendor} className="h-8 w-8 text-[13px]" />
           <p className="flex-1 text-[12.5px] leading-[17px] text-on-surface-variant">
             ¡Hola! Soy el asistente de <span className="font-bold text-on-surface">{vendor.companyName}</span>, te ayudo a encontrar el producto ideal.
           </p>
           <button
-            onClick={() => setShowBubble(false)}
+            onClick={() => {
+              setShowBubble(false);
+              reply.markWelcomeUnread();
+            }}
             aria-label="Cerrar aviso"
             className="-mr-3 -mt-3 flex h-11 w-11 flex-shrink-0 items-center justify-center text-on-surface-variant hover:text-on-surface"
           >
@@ -620,6 +650,7 @@ export function StoreChatWidget({ vendor }) {
           scheduleIdleReset();
         }}
         ariaLabel={open ? "Cerrar chat con IA de la tienda" : "Abrir chat con IA de la tienda"}
+        unread={reply.unread}
         className="fixed bottom-5 right-5 z-[60] sm:bottom-6 sm:right-6"
       />
 

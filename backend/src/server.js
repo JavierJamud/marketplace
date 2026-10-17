@@ -15,6 +15,7 @@ import { startVendorDeletionJob } from "./jobs/vendorDeletion.job.js";
 import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
+import { startChatRetentionJob } from "./jobs/chatRetention.job.js";
 import { startPartnerUsageFlusher } from "./lib/partnerUsage.js";
 
 // En producción la API solo escucha dentro del servidor (Nginx la publica en /api); en desarrollo, en toda la red local.
@@ -111,5 +112,7 @@ startClickAnomalyJob();
 // siguiente cron diario fijo libre después de reviewAnomaly (10:00) —
 // clickAnomaly no cuenta, corre cada 3h, no una vez al día.
 startTrialExpiryJob();
+// Conversaciones de los chatbots: se borran a las 24 h sin actividad; el registro del admin dura 90 días.
+startChatRetentionJob();
 // API de socios: vuelca cada pocos segundos los movimientos y totales de uso a la base.
 startPartnerUsageFlusher();
