@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { prisma } from "./prisma.js";
 import { encryptSecret, decryptSecret } from "./crypto.js";
+import { env } from "../config/env.js";
 
 // Avisos push (Web Push, estándar VAPID). Las claves se generan solas la primera vez y se guardan en la base de datos, con la
 // clave privada cifrada. Si la PWA está apagada desde el admin (SiteSettings.pwaEnabled) no se envía nada.
@@ -40,21 +41,43 @@ export function forgetPwaEnabled() {
   enabledCache.at = 0;
 }
 
-// Envía el aviso a todos los dispositivos de esas personas (menos a quien silenció esa categoría). Nunca lanza.
+// La foto del aviso tiene que ser una dirección completa (el teléfono la descarga por su cuenta).
+const PUBLIC_URL = String(env.frontendUrl ?? "").replace(/\/$/, "");
+const absoluteImage = (src) => (!src ? undefined : /^https?:\/\//.test(src) ? src : PUBLIC_URL ? `${PUBLIC_URL}/api${src.startsWith("/") ? "" : "/"}${src}` : undefined);
+
+// Si la persona tiene varias apps instaladas en el mismo teléfono (por ejemplo Admin y Tienda), cada aviso va solo a la app que
+// le corresponde: así iOS lo muestra con el nombre correcto ("de Baznova Tienda" y no "de Baznova Admin"). Si no tiene esa
+// app, se manda a las que tenga.
+function pickSubscriptions(subs, app) {
+  if (!app) return subs;
+  const byUser = new Map();
+  for (const s of subs) {
+    if (!byUser.has(s.userId)) byUser.set(s.userId, []);
+    byUser.get(s.userId).push(s);
+  }
+  return [...byUser.values()].flatMap((list) => {
+    const matching = list.filter((s) => s.app === app);
+    return matching.length ? matching : list;
+  });
+}
+
+// Envía el aviso a los dispositivos de esas personas (menos a quien silenció esa categoría). Nunca lanza.
 export async function pushToUsers(userIds, payload) {
   try {
     if (!userIds.length || !(await pwaEnabled())) return { sent: 0 };
     const { publicKey, privateKey } = await getKeys();
-    const subs = await prisma.pushSubscription.findMany({
+    const all = await prisma.pushSubscription.findMany({
       where: { userId: { in: userIds }, user: payload.category ? { NOT: { pushMuted: { has: payload.category } } } : undefined },
     });
+    const subs = pickSubscriptions(all, payload.app);
     if (!subs.length) return { sent: 0 };
     const body = JSON.stringify({
       title: String(payload.title ?? "").slice(0, 120),
-      body: String(payload.body ?? "").slice(0, 240),
+      body: String(payload.body ?? "").slice(0, 300),
       url: payload.url ?? "/",
       tag: payload.tag ?? undefined,
       category: payload.category ?? undefined,
+      image: absoluteImage(payload.image),
     });
     const options = { TTL: payload.ttl ?? 6 * 3600, urgency: payload.urgency ?? "high", vapidDetails: { subject: SUBJECT, publicKey, privateKey } };
     let sent = 0;

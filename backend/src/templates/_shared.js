@@ -222,7 +222,7 @@ export function itemsTable(items) {
         <td style="padding:8px 0 8px 10px;border-bottom:1px solid #f0edee;color:#1b1b1d;font-size:13.5px;">
           ${i.quantity}× ${esc(i.name)}${i.size ? `<span style="color:#75777c;"> (talla ${esc(i.size)})</span>` : ""}
         </td>
-        <td style="padding:8px 0;border-bottom:1px solid #f0edee;text-align:right;color:#1b1b1d;font-size:13.5px;white-space:nowrap;">${fmtCUP(Number(i.price) * i.quantity)}</td>
+        <td style="padding:8px 0;border-bottom:1px solid #f0edee;text-align:right;color:#1b1b1d;font-size:13.5px;white-space:nowrap;">${i.currency ? `${(Number(i.price) * i.quantity).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${esc(i.currency)}` : fmtCUP(Number(i.price) * i.quantity)}</td>
       </tr>`
     )
     .join("");

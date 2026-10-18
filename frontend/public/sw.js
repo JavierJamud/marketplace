@@ -128,6 +128,8 @@ self.addEventListener("push", (event) => {
         body: data.body || "",
         icon: NOTIFICATION_ICON,
         badge: "/pwa/badge-96.png",
+        // Foto del producto (Android la muestra grande al desplegar el aviso; iOS no muestra imágenes en avisos web).
+        image: data.image || undefined,
         tag: data.tag || undefined,
         renotify: !!data.tag,
         data: { url: data.url || "/" },

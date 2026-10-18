@@ -62,6 +62,12 @@ export function OrderDetailModal({ order, onClose }) {
               <div className="mt-1.5 border-t border-outline-variant/40 pt-1.5">
                 <span className="font-semibold text-on-surface">Recibe:</span> {o.recipientName}
                 {o.recipientPhone && <> · <a href={`https://wa.me/${o.recipientPhone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">{o.recipientPhone}</a></>}
+                {o.recipientIdNumber && (
+                  <div>
+                    <span className="font-semibold text-on-surface">{o.recipientIdType === "CU_ID" ? "Carné de identidad" : "Documento"}:</span> {o.recipientIdNumber}{" "}
+                    <span className="text-outline">(compruébalo al entregar)</span>
+                  </div>
+                )}
               </div>
             )}
             {o.shippingAddress && <div><span className="font-semibold text-on-surface">Dirección:</span> {o.shippingAddress}</div>}

@@ -4,6 +4,8 @@ import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { orderNoticeDetail, itemsLine, isValidIdNumber } from "../lib/orderSummary.js";
+import { notifyUsers } from "../lib/notify.js";
 import { sendOrderConfirmationEmail, sendNewOrderVendorEmail, sendOrderStatusEmail, sendManualOrderEmail, sendOrderCancelledVendorEmail } from "../lib/email.js";
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
 import { redeemForOrder, recordRedemption, awardOrderPoints, reverseOrderLoyalty } from "../services/loyalty.service.js";
@@ -46,6 +48,8 @@ export const createOrderSchema = z.object({
   // Quien recibe, si no es quien compra. Si viene uno, tienen que venir los dos.
   recipientName: z.string().trim().min(2, "Falta el nombre de quien recibe.").max(80).regex(PERSON_NAME_REGEX, "El nombre de quien recibe solo puede llevar letras.").optional(),
   recipientPhone: z.string().regex(E164_REGEX, "Falta un teléfono válido de quien recibe.").optional(),
+  recipientIdType: z.enum(["CU_ID", "OTHER"]).optional(),
+  recipientIdNumber: z.string().trim().max(30).optional(),
   customerEmail: z.string().email("Falta un correo válido."),
   shippingAddress: z.string().min(1, "Falta la dirección."),
   shippingProvinceId: z.string().min(1, "Falta la provincia."),
@@ -79,6 +83,18 @@ export const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: 
 // efectivo). Esta ruta solo registra el pedido, nunca cobra nada.
 export async function createOrder(req, res) {
   const data = createOrderSchema.parse(req.body);
+  // Si recibe otra persona: nombre, teléfono y un documento de identidad válido a su nombre, los tres juntos.
+  if (data.recipientName || data.recipientPhone || data.recipientIdNumber) {
+    if (!data.recipientName || !data.recipientPhone) throw new AppError("Completa el nombre y el teléfono de quien recibe.", 400);
+    if (!data.recipientIdType || !isValidIdNumber(data.recipientIdType, data.recipientIdNumber)) {
+      throw new AppError(
+        data.recipientIdType === "CU_ID"
+          ? "El carné de identidad de quien recibe no es válido: son 11 números y los 6 primeros, su fecha de nacimiento."
+          : "Escribe un documento de identidad válido de quien recibe (6 a 20 letras o números).",
+        400
+      );
+    }
+  }
 
   // Autenticación opcional: si viene un token válido, asocia el pedido al cliente.
   let customerId;
@@ -283,8 +299,10 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,
-        recipientName: data.recipientName && data.recipientPhone ? data.recipientName : null,
-        recipientPhone: data.recipientName && data.recipientPhone ? data.recipientPhone : null,
+        recipientName: data.recipientName ?? null,
+        recipientPhone: data.recipientName ? data.recipientPhone : null,
+        recipientIdType: data.recipientName ? data.recipientIdType : null,
+        recipientIdNumber: data.recipientName ? data.recipientIdNumber.replace(/\s+/g, "").toUpperCase() : null,
         shippingAddress: data.shippingAddress,
         shippingProvinceId: data.shippingProvinceId,
         shippingMunicipalityId: data.shippingMunicipalityId,
@@ -328,16 +346,35 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
   // ya poll-ea /vendors/me/notifications cada 20s, así que basta con crear
   // la fila acá para que aparezca sola; el popup+sonido en vivo los detecta
   // por separado desde NewRegularOrderPopup.jsx (poll de /orders/me).
-  const totalLabel = `${Number(order.total).toLocaleString("es-CU")} CUP`;
+  // Aviso a la tienda y al cliente con el mismo resumen (total en la moneda del pedido, productos, quién recibe y dónde).
+  // Las líneas se separan con saltos: el aviso del teléfono las muestra una debajo de otra.
+  const notice = await orderNoticeDetail(order);
   await prisma.vendorNotification.create({
     data: {
       vendorId: order.vendorId,
       type: "NEW_ORDER",
       refCode: order.code,
-      title: "Pedido nuevo",
-      body: `Pedido ${order.code} de ${order.customerName ?? "un cliente"} por ${totalLabel} — está en tu sección de Pedidos.`,
+      title: `Pedido nuevo · ${notice.total}`,
+      body: [
+        `${order.code} · ${order.customerName ?? "Un cliente"}`,
+        itemsLine(order.items),
+        [notice.place && `Entrega: ${notice.place}`, notice.recipient && `Recibe: ${notice.recipient.name}`].filter(Boolean).join(" · "),
+      ]
+        .filter(Boolean)
+        .join("\n"),
     },
   });
+  if (customerId) {
+    void notifyUsers([customerId], {
+      category: "order_status",
+      app: "CLIENT",
+      title: `Pedido recibido · ${order.vendor?.companyName ?? "la tienda"}`,
+      body: [`${order.code} · ${notice.total}`, itemsLine(order.items), "Te avisamos cuando la tienda lo confirme."].filter(Boolean).join("\n"),
+      url: "/cuenta/panel?tab=orders",
+      tag: `order-${order.code}`,
+      detail: { ...notice, audience: "customer" },
+    }).catch(() => {});
+  }
   // Aviso por correo a la TIENDA (no al administrador): llega al correo de la tienda si ella lo tiene activado
   // en su configuración. Best-effort, nunca bloquea ni revierte el pedido.
   const partner = partnerId ? await prisma.partner.findUnique({ where: { id: partnerId }, select: { name: true } }) : null;

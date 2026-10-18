@@ -65,13 +65,14 @@ const ICON_KEYWORDS = [
 // En error y advertencia el ícono es siempre el de Sileo: "algo salió mal" se reconoce de un vistazo, sin glifos distintos.
 function inferIcon(type, title, description) {
   if (type !== "success" && type !== "info") return null;
-  const text = `${title ?? ""} ${description ?? ""}`;
+  const text = `${title ?? ""} ${typeof description === "string" ? description : ""}`;
   for (const [re, icon] of ICON_KEYWORDS) if (re.test(text)) return icon;
   return null;
 }
 
+// La descripción puede ser texto o un componente (p. ej. la tarjeta de un pedido en los avisos en vivo).
 function parseArgs(second, third) {
-  if (second == null || typeof second === "string") return { description: second ?? undefined, options: third ?? {} };
+  if (second == null || typeof second === "string" || React.isValidElement(second)) return { description: second ?? undefined, options: third ?? {} };
   return { description: undefined, options: second ?? {} };
 }
 
@@ -82,7 +83,7 @@ function showToast(type, rawTitle, rawDescription, opts = {}) {
   let title = String(rawTitle ?? "");
   let description = rawDescription;
   if (title.length > TITLE_MAX) {
-    description = description ? `${title} ${description}` : title;
+    description = !description ? title : typeof description === "string" ? `${title} ${description}` : description;
     title = SHORT_TITLE[type] ?? "Aviso";
   }
   const iconName = icon ?? inferIcon(type, rawTitle, rawDescription);
@@ -135,8 +136,8 @@ const toast = {
   dismiss: (id) => (id ? sileo.dismiss(id) : sileo.clear()),
   remove: (id) => (id ? sileo.dismiss(id) : sileo.clear()),
   // Aviso con botón propio (lo usan los avisos en vivo: "Ver" lleva a la pantalla del pedido, mensaje, etc.).
-  action: (title, description, { label, onClick, duration } = {}) =>
-    showToast("info", title, description, { duration, action: { label, onClick } }),
+  action: (title, description, { label, onClick, duration, ...rest } = {}) =>
+    showToast("info", title, description, { ...rest, duration, action: { label, onClick } }),
 
   promise: (promise, msgs = {}) => {
     const id = toast.loading(msgs.loading ?? "Procesando...");

@@ -2,6 +2,7 @@ import { prisma, setMutationHook } from "./prisma.js";
 import { requestContext } from "./requestContext.js";
 import { refreshUsers, sendToUser, connectedCount } from "./realtime.js";
 import { pushToUsers } from "./push.js";
+import { orderNoticeDetail } from "./orderSummary.js";
 
 // Un solo lugar para avisar a las personas. Cada aviso llega por tres vías según lo que tengan abierto:
 //  1. En vivo (canal SSE): las pantallas abiertas se actualizan y, si hay una abierta, muestra el aviso.
@@ -45,16 +46,21 @@ export async function vendorUserIds(vendorId) {
 }
 
 // Avisa a personas concretas: en vivo (si tienen la página abierta) y por push.
-export async function notifyUsers(userIds, { category, title, body, url = "/", tag, ttl, urgency } = {}) {
+// `detail` (opcional): datos para la tarjeta del aviso en pantalla (p. ej. un pedido). `app` (CLIENT, VENDOR, ADMIN): a qué app
+// instalada va el push si la persona tiene varias en el mismo dispositivo (si no, se elige por la categoría).
+// `image`: foto para el aviso del teléfono (Android la muestra grande; iOS no muestra imágenes en avisos web).
+export async function notifyUsers(userIds, { category, title, body, url = "/", tag, ttl, urgency, detail, app, image } = {}) {
   const ids = [...new Set(userIds.filter(Boolean))];
   if (!ids.length) return;
-  for (const id of ids) sendToUser(id, "notify", { category, title, body, url, tag, at: Date.now() });
+  for (const id of ids) sendToUser(id, "notify", { category, title, body, url, tag, detail, at: Date.now() });
   refreshUsers(ids);
-  await pushToUsers(ids, { category, title, body, url, tag, ttl, urgency });
+  await pushToUsers(ids, { category, title, body, url, tag, ttl, urgency, app: app ?? APP_FOR_AUDIENCE[PUSH_CATEGORIES[category]?.audience], image });
 }
 
+const APP_FOR_AUDIENCE = { CLIENT: "CLIENT", VENDOR: "VENDOR", ADMIN: "ADMIN" };
+
 export async function notifyAdmins(payload) {
-  await notifyUsers(await adminUserIds(), payload);
+  await notifyUsers(await adminUserIds(), { app: "ADMIN", ...payload });
 }
 
 export async function notifyVendor(vendorId, payload) {
@@ -131,7 +137,20 @@ async function onCreated({ model, args, result }) {
       const cat = VENDOR_NOTIF_CATEGORY[result.type] ?? "account";
       const url = VENDOR_NOTIF_URL[result.type] ?? (String(result.type).startsWith("VERIFICATION") || String(result.type).startsWith("TRIAL") ? "/vendedor/verificacion" : "/vendedor");
       // Los avisos de pedido nuevo ya tienen su propia ventana y sonido en el panel: aquí solo viaja el push y el refresco.
-      return notifyVendor(result.vendorId, { category: cat, title: result.title, body: result.body, url, tag: `vn-${result.refCode ?? result.id}`, urgency: cat === "orders" ? "high" : "normal" });
+      // Al pedido nuevo se le suma el detalle (productos, quién recibe, dónde) para la tarjeta del aviso y la foto para Android.
+      let detail;
+      let image;
+      if (result.type === "NEW_ORDER" && result.refCode) {
+        const order = await prisma.order.findFirst({
+          where: { vendorId: result.vendorId, code: result.refCode },
+          include: { items: { include: { product: { select: { images: true } } } }, vendor: { select: { companyName: true } } },
+        });
+        if (order) {
+          detail = { ...(await orderNoticeDetail(order)), audience: "vendor" };
+          image = detail.image ?? undefined;
+        }
+      }
+      return notifyVendor(result.vendorId, { category: cat, app: "VENDOR", title: result.title, body: result.body, url, tag: `vn-${result.refCode ?? result.id}`, urgency: cat === "orders" ? "high" : "normal", detail, image });
     }
     case "Vendor": {
       return notifyAdmins({ category: "vendors", title: "Nueva tienda registrada", body: result.companyName ?? "Una tienda nueva se registró.", url: "/admin/tiendas", tag: `vendor-${result.id}` });

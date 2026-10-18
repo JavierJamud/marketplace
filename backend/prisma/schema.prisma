@@ -1758,6 +1758,9 @@ model Order {
   // Quien recibe la entrega, si no es quien compra (compras para otra persona, también desde otro país).
   recipientName          String?
   recipientPhone         String?
+  // Documento de quien recibe: CU_ID (carné cubano) u OTHER (pasaporte u otro). Ver lib/orderSummary.js.
+  recipientIdType        String?
+  recipientIdNumber      String?
   shippingAddress        String?
   shippingProvinceId     String?
   shippingMunicipalityId String?

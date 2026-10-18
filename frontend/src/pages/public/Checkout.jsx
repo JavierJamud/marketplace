@@ -12,6 +12,7 @@ import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
+import { ID_TYPES, ID_TYPE_LABEL, idError, isValidId } from "../../lib/idDocument.js";
 import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
 import { LoyaltyBox, useCheckoutLoyalty } from "../../components/checkout/LoyaltyBox.jsx";
 
@@ -59,7 +60,7 @@ function buildOrderWhatsAppText(info) {
     lines.push(`⭐ Puntos usados (${info.loyaltyPoints}): -${formatPrice(info.loyaltyDiscount, info.loyaltyCurrency)}`);
   }
   lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`);
-  if (info.recipient) lines.push(`Recibe: ${info.recipient.name} (${info.recipient.phone})`);
+  if (info.recipient) lines.push(`Recibe: ${info.recipient.name} (${info.recipient.phone})`, `${info.recipient.idLabel}: ${info.recipient.idNumber}`);
   lines.push(`Entrega: ${info.address}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
   return lines.join("\n");
 }
@@ -108,6 +109,8 @@ export default function Checkout() {
     forSomeoneElse: false,
     recipientName: "",
     recipientPhone: "",
+    recipientIdType: "CU_ID",
+    recipientIdNumber: "",
   });
 
   const { data: provinces } = useQuery({
@@ -255,7 +258,9 @@ export default function Checkout() {
     form.provinceId &&
     (form.municipalityId || (writingCity && form.cityOther.trim())) &&
     form.address.trim() &&
-    (!form.forSomeoneElse || (form.recipientName.trim().length >= 2 && /^\+\d{7,15}$/.test(form.recipientPhone)));
+    (!form.forSomeoneElse ||
+      (form.recipientName.trim().length >= 2 && /^\+\d{7,15}$/.test(form.recipientPhone) && isValidId(form.recipientIdType, form.recipientIdNumber)));
+  const recipientIdError = form.forSomeoneElse ? idError(form.recipientIdType, form.recipientIdNumber) : null;
 
   const placeOrder = useMutation({
     mutationFn: async () =>
@@ -269,6 +274,8 @@ export default function Checkout() {
           customerEmail: form.customerEmail,
           recipientName: form.forSomeoneElse ? form.recipientName.trim() : undefined,
           recipientPhone: form.forSomeoneElse ? form.recipientPhone : undefined,
+          recipientIdType: form.forSomeoneElse ? form.recipientIdType : undefined,
+          recipientIdNumber: form.forSomeoneElse ? form.recipientIdNumber.replace(/\s+/g, "").toUpperCase() : undefined,
           shippingProvinceId: form.provinceId || undefined,
           shippingMunicipalityId: form.municipalityId || undefined,
           shippingAddress: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — ") || undefined,
@@ -317,7 +324,9 @@ export default function Checkout() {
         loyaltyCurrency: loyalty.program?.currency,
         customerName: form.customerName,
         customerPhone: form.customerPhone,
-        recipient: form.forSomeoneElse ? { name: form.recipientName.trim(), phone: form.recipientPhone } : null,
+        recipient: form.forSomeoneElse
+          ? { name: form.recipientName.trim(), phone: form.recipientPhone, idLabel: ID_TYPE_LABEL[form.recipientIdType], idNumber: form.recipientIdNumber.replace(/\s+/g, "").toUpperCase() }
+          : null,
         address: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — "),
         payTitle: PAY_OPTIONS.find((p) => p.id === pay)?.title ?? pay,
       });
@@ -587,6 +596,34 @@ export default function Checkout() {
                     className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
                   />
                   <PhoneInput anyCountry label="Teléfono de quien recibe" value={form.recipientPhone} onChange={(val) => setForm((f) => ({ ...f, recipientPhone: val }))} />
+                  {/* Documento de quien recibe: la tienda lo comprueba al entregar, así el pedido llega a la persona correcta. */}
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                    <select
+                      aria-label="Tipo de documento de quien recibe"
+                      value={form.recipientIdType}
+                      onChange={(e) => setForm((f) => ({ ...f, recipientIdType: e.target.value }))}
+                      className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
+                    >
+                      {ID_TYPES.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      aria-label="Número de documento de quien recibe"
+                      aria-invalid={!!recipientIdError}
+                      inputMode={form.recipientIdType === "CU_ID" ? "numeric" : "text"}
+                      maxLength={form.recipientIdType === "CU_ID" ? 11 : 20}
+                      placeholder={form.recipientIdType === "CU_ID" ? "Número de carné (11 dígitos) *" : "Número del documento *"}
+                      value={form.recipientIdNumber}
+                      onChange={(e) => setForm((f) => ({ ...f, recipientIdNumber: e.target.value.replace(/[^A-Za-z0-9]/g, "") }))}
+                      className={`h-11 w-full rounded border bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent ${recipientIdError ? "border-error" : "border-outline-variant"}`}
+                    />
+                  </div>
+                  <p className={`-mt-1 text-[12px] leading-[17px] ${recipientIdError ? "font-semibold text-error" : "text-outline"}`} role={recipientIdError ? "alert" : undefined}>
+                    {recipientIdError ?? "Debe estar a nombre de quien recibe: la tienda lo comprueba al entregar."}
+                  </p>
                 </div>
               )}
             </fieldset>
