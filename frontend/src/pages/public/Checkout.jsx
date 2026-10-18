@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CheckCircle2, MessageCircle, Globe2, MapPin, Store, Tag, X } from "lucide-react";
 import { api } from "../../lib/api.js";
@@ -12,6 +12,8 @@ import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
+import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
+import { LoyaltyBox, useCheckoutLoyalty } from "../../components/checkout/LoyaltyBox.jsx";
 
 // Bloque 231: "Fecha y hora" del ticket de confirmación — mismo formato
 // corto que ya usa fmtDate en VendorOffers.jsx, con hora agregada.
@@ -53,7 +55,12 @@ function buildOrderWhatsAppText(info) {
   if (info.discount) {
     lines.push(`🏷️ Descuento (${info.discount.code}): -${formatPrice(info.discount.amount)}`);
   }
-  lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`, `Entrega: ${info.address}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
+  if (info.loyaltyPoints) {
+    lines.push(`⭐ Puntos usados (${info.loyaltyPoints}): -${formatPrice(info.loyaltyDiscount, info.loyaltyCurrency)}`);
+  }
+  lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`);
+  if (info.recipient) lines.push(`Recibe: ${info.recipient.name} (${info.recipient.phone})`);
+  lines.push(`Entrega: ${info.address}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
   return lines.join("\n");
 }
 
@@ -74,6 +81,8 @@ export default function Checkout() {
   // pedido" del carrito lateral) no tenía forma de aplicar uno. Mismo
   // patrón exacto que ya usa Cart.jsx (POST /discount-codes/validate).
   const [codeInput, setCodeInput] = useState("");
+  const queryClient = useQueryClient();
+  const loyalty = useCheckoutLoyalty({ vendorId, items, discountAmount: discount?.amount ?? 0, user });
   const [form, setForm] = useState({
     customerName: user?.fullName ?? "",
     customerPhone: user?.phone ?? "",
@@ -95,6 +104,10 @@ export default function Checkout() {
     municipalityId: "",
     cityOther: "",
     address: "",
+    // Quien recibe, si no es quien compra (por ejemplo, alguien fuera de Cuba que compra para su familia).
+    forSomeoneElse: false,
+    recipientName: "",
+    recipientPhone: "",
   });
 
   const { data: provinces } = useQuery({
@@ -219,6 +232,16 @@ export default function Checkout() {
   }, [form.provinceId, provinces, vendorProvincesForCountry]);
 
   const isStateSelected = selectedProvince?.type === "STATE";
+  // La tienda limitó esa provincia o estado a algunos municipios o ciudades: solo se puede elegir de esa lista.
+  const citiesRestricted = useMemo(
+    () => (vendor?.locations ?? []).some((l) => l.provinceId === form.provinceId && l.municipalityId),
+    [vendor, form.provinceId]
+  );
+  // En un estado se puede escribir la ciudad si no está en la lista (o si el estado no tiene ninguna cargada); en una provincia
+  // de Cuba el municipio siempre sale de la lista.
+  const [cityIsOther, setCityIsOther] = useState(false);
+  const canWriteCity = isStateSelected && !citiesRestricted;
+  const writingCity = canWriteCity && (cityIsOther || deliverableMunicipalities.length === 0);
 
   const selectedMunicipalityName = useMemo(() => {
     if (!form.municipalityId) return null;
@@ -230,8 +253,9 @@ export default function Checkout() {
     form.customerPhone.trim() &&
     form.customerEmail.trim() &&
     form.provinceId &&
-    (isStateSelected ? form.cityOther.trim() : form.municipalityId) &&
-    form.address.trim();
+    (form.municipalityId || (writingCity && form.cityOther.trim())) &&
+    form.address.trim() &&
+    (!form.forSomeoneElse || (form.recipientName.trim().length >= 2 && /^\+\d{7,15}$/.test(form.recipientPhone)));
 
   const placeOrder = useMutation({
     mutationFn: async () =>
@@ -243,18 +267,23 @@ export default function Checkout() {
           // El teléfono de una cuenta puede estar guardado sin el "+" del código de país: el servidor lo exige.
           customerPhone: /^\+/.test(form.customerPhone.trim()) ? form.customerPhone.trim() : `+${form.customerPhone.replace(/\D/g, "")}`,
           customerEmail: form.customerEmail,
+          recipientName: form.forSomeoneElse ? form.recipientName.trim() : undefined,
+          recipientPhone: form.forSomeoneElse ? form.recipientPhone : undefined,
           shippingProvinceId: form.provinceId || undefined,
-          shippingMunicipalityId: !isStateSelected ? form.municipalityId || undefined : undefined,
-          shippingAddress: [isStateSelected ? form.cityOther : selectedMunicipalityName, form.address].filter(Boolean).join(" — ") || undefined,
+          shippingMunicipalityId: form.municipalityId || undefined,
+          shippingAddress: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — ") || undefined,
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions, size: i.size ?? undefined })),
           discountCode: discount?.code ?? undefined,
+          loyaltyPoints: loyalty.used || undefined,
         })
       ).data,
     onSuccess: ({ order }) => {
       // Bloque 68: se captura todo lo necesario para armar el mensaje de
       // WhatsApp bien formateado (con los datos reales que el cliente
       // ACABA de completar en el formulario) sin tener que reconsultar nada.
-      const totalLabel = discount
+      const totalLabel = loyalty.used
+        ? formatPrice(Number(order.total), loyalty.program.currency)
+        : discount
         ? formatPrice(
             Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount)
           )
@@ -283,9 +312,13 @@ export default function Checkout() {
         })),
         totalLabel,
         discount,
+        loyaltyPoints: loyalty.used,
+        loyaltyDiscount: loyalty.discount,
+        loyaltyCurrency: loyalty.program?.currency,
         customerName: form.customerName,
         customerPhone: form.customerPhone,
-        address: [isStateSelected ? form.cityOther : selectedMunicipalityName, form.address].filter(Boolean).join(" — "),
+        recipient: form.forSomeoneElse ? { name: form.recipientName.trim(), phone: form.recipientPhone } : null,
+        address: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — "),
         payTitle: PAY_OPTIONS.find((p) => p.id === pay)?.title ?? pay,
       });
       clearCart();
@@ -305,6 +338,8 @@ export default function Checkout() {
             : "Algunos productos ya no tienen suficiente stock. Ajustamos tu carrito a lo disponible."
         );
       } else {
+        // Si el saldo de puntos o las reglas de la tienda cambiaron, se vuelven a pedir para mostrar lo correcto.
+        if (/puntos/i.test(err.response?.data?.error ?? "")) queryClient.invalidateQueries({ queryKey: ["loyalty-checkout"] });
         toast.error(err.response?.data?.error ?? "No se pudo realizar el pedido.");
       }
     },
@@ -369,6 +404,12 @@ export default function Checkout() {
                 <div className="mt-1.5 flex justify-between text-[12px] text-verified-dark">
                   <span>Descuento ({confirmedInfo.discount.code})</span>
                   <span>-{formatPrice(confirmedInfo.discount.amount)}</span>
+                </div>
+              )}
+              {confirmedInfo.loyaltyPoints > 0 && (
+                <div className="mt-1.5 flex justify-between text-[12px] text-verified-dark">
+                  <span>Puntos usados ({confirmedInfo.loyaltyPoints})</span>
+                  <span>-{formatPrice(confirmedInfo.loyaltyDiscount, confirmedInfo.loyaltyCurrency)}</span>
                 </div>
               )}
             </div>
@@ -490,18 +531,22 @@ export default function Checkout() {
           <div className="rounded-xl border border-surface-container-high bg-surface-container-lowest p-6">
             <h2 className="mb-1 text-title-lg font-bold text-on-surface">Datos de contacto y entrega</h2>
             <p className="mb-4 text-[12.5px] text-outline">
-              Completa tu información para que la tienda organice el envío.
+              Puedes comprar desde cualquier país. La entrega se hace donde la tienda reparte.
             </p>
             <div className="mb-3 flex flex-col gap-3">
               <input
+                data-guard="name"
+                autoComplete="name"
                 placeholder="Nombre y apellido completo *"
                 value={form.customerName}
                 onChange={(e) => setForm({ ...form, customerName: e.target.value })}
                 className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
               />
               <PhoneInput
+                anyCountry
+                label="Tu teléfono (de cualquier país)"
                 value={form.customerPhone}
-                onChange={(val) => setForm({ ...form, customerPhone: val })}
+                onChange={(val) => setForm((f) => ({ ...f, customerPhone: val }))}
               />
               <input
                 type="email"
@@ -512,7 +557,43 @@ export default function Checkout() {
               />
             </div>
 
-            {/* Dynamic Location Filtering */}
+            {/* Quién recibe: por defecto la misma persona; si es otra, su nombre y teléfono para que la tienda coordine la entrega. */}
+            <fieldset className="mb-4 rounded-xl border border-surface-container-high p-3">
+              <legend className="px-1 text-[13px] font-bold text-on-surface">¿Quién recibe el pedido?</legend>
+              <div role="radiogroup" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {[
+                  [false, "Lo recibo yo"],
+                  [true, "Otra persona"],
+                ].map(([value, text]) => (
+                  <button
+                    key={text}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.forSomeoneElse === value}
+                    onClick={() => setForm((f) => ({ ...f, forSomeoneElse: value }))}
+                    className={`min-h-11 rounded-lg border-2 px-3 text-left text-[13.5px] font-semibold ${form.forSomeoneElse === value ? "border-primary bg-primary/[0.04] text-on-surface" : "border-outline-variant text-on-surface-variant"}`}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+              {form.forSomeoneElse && (
+                <div className="mt-3 flex flex-col gap-3">
+                  <input
+                    data-guard="name"
+                    placeholder="Nombre y apellido de quien recibe *"
+                    value={form.recipientName}
+                    onChange={(e) => setForm((f) => ({ ...f, recipientName: e.target.value }))}
+                    className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
+                  />
+                  <PhoneInput anyCountry label="Teléfono de quien recibe" value={form.recipientPhone} onChange={(val) => setForm((f) => ({ ...f, recipientPhone: val }))} />
+                </div>
+              )}
+            </fieldset>
+
+            {/* Dónde se entrega: solo los lugares donde reparte la tienda (tu contacto puede ser de cualquier país). */}
+            <p className="mb-2 text-[13px] font-bold text-on-surface">Dónde se entrega</p>
+            <p className="mb-2 text-[12px] text-outline">Solo aparecen los lugares donde {vendorName || "la tienda"} hace entregas.</p>
             <div className="mb-3 flex flex-col gap-3">
               {/* Country Selector */}
               {vendorCountries.length > 1 ? (
@@ -546,7 +627,10 @@ export default function Checkout() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <select
                   value={form.provinceId}
-                  onChange={(e) => setForm({ ...form, provinceId: e.target.value, municipalityId: "", cityOther: "" })}
+                  onChange={(e) => {
+                    setCityIsOther(false);
+                    setForm({ ...form, provinceId: e.target.value, municipalityId: "", cityOther: "" });
+                  }}
                   className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
                 >
                   <option value="">Provincia / Estado *</option>
@@ -557,33 +641,51 @@ export default function Checkout() {
                   ))}
                 </select>
 
-                {/* Bloque 231 (pedido explícito — "si selecciona una
-                    provincia de Cuba son municipios y si selecciona un
-                    estado de otro país ya no son municipios, serían
-                    ciudad"): provincia cubana real → desplegable de
-                    municipios FILTRADO por esa provincia (mismo catálogo/
-                    endpoint que ya usa Account.jsx, nunca texto libre);
-                    estado de otro país → "Ciudad" en texto libre, porque no
-                    hay ningún catálogo de ciudades extranjeras cargado. */}
-                {form.provinceId && !isStateSelected && (
+                {/* Provincia de Cuba: municipio de la lista. Estado de otro país: ciudad de la lista o, si no aparece (y la tienda no
+                    limitó sus ciudades), escrita. Las listas largas se buscan escribiendo. */}
+                {form.provinceId && !writingCity && deliverableMunicipalities.length >= 15 && (
+                  <ComboSelect
+                    value={form.municipalityId}
+                    onChange={(v) => setForm({ ...form, municipalityId: v, cityOther: "" })}
+                    options={deliverableMunicipalities.map((m) => ({ value: m.id, label: m.name }))}
+                    maxShown={80}
+                    placeholder={isStateSelected ? "Ciudad * (escribe para buscar)" : "Municipio * (escribe para buscar)"}
+                    emptyText={isStateSelected ? "Ninguna ciudad coincide." : "Ningún municipio coincide."}
+                  />
+                )}
+                {form.provinceId && !writingCity && deliverableMunicipalities.length > 0 && deliverableMunicipalities.length < 15 && (
                   <select
                     value={form.municipalityId}
-                    onChange={(e) => setForm({ ...form, municipalityId: e.target.value })}
+                    onChange={(e) => setForm({ ...form, municipalityId: e.target.value, cityOther: "" })}
+                    aria-label={isStateSelected ? "Ciudad" : "Municipio"}
                     className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-body-md outline-none focus:border-tertiary-accent"
                   >
-                    <option value="">Municipio *</option>
+                    <option value="">{isStateSelected ? "Ciudad *" : "Municipio *"}</option>
                     {deliverableMunicipalities.map((m) => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
                 )}
-                {form.provinceId && isStateSelected && (
+                {form.provinceId && writingCity && (
                   <input
                     placeholder="Ciudad *"
+                    aria-label="Ciudad"
                     value={form.cityOther}
-                    onChange={(e) => setForm({ ...form, cityOther: e.target.value })}
+                    onChange={(e) => setForm({ ...form, cityOther: e.target.value, municipalityId: "" })}
                     className="h-11 rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
                   />
+                )}
+                {form.provinceId && canWriteCity && deliverableMunicipalities.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCityIsOther((v) => !v);
+                      setForm({ ...form, municipalityId: "", cityOther: "" });
+                    }}
+                    className="min-h-9 justify-self-start text-label-sm font-semibold text-tertiary-accent hover:underline sm:col-span-2"
+                  >
+                    {cityIsOther ? "Elegir la ciudad de la lista" : "Mi ciudad no aparece"}
+                  </button>
                 )}
               </div>
 
@@ -684,10 +786,19 @@ export default function Checkout() {
                 </div>
               ))}
 
+            <LoyaltyBox loyalty={loyalty} vendorName={vendorName} />
+            {loyalty.used > 0 && (
+              <div className="mb-2 flex justify-between text-[12.5px] font-semibold text-verified-dark">
+                <span>Puntos ({loyalty.used})</span>
+                <span>-{formatPrice(loyalty.discount, loyalty.program.currency)}</span>
+              </div>
+            )}
             <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
               <span>Total estimado</span>
               <span className="text-title-lg font-extrabold text-tertiary-accent">
-                {discount
+                {loyalty.used
+                  ? formatPrice(loyalty.total, loyalty.program.currency)
+                  : discount
                   ? formatPrice(Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount))
                   : formatMixedTotal(items)}
               </span>

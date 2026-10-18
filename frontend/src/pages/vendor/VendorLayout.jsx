@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, Contact } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, Contact, Award, ScanBarcode, ListChecks } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -9,6 +9,7 @@ import { Spinner } from "../../components/ui/Spinner.jsx";
 import { VendorNotificationBell } from "../../components/vendor/VendorNotificationBell.jsx";
 import { TrialOfferPopup } from "../../components/vendor/TrialOfferPopup.jsx";
 import { TrialChecklistBanner } from "../../components/vendor/TrialChecklistBanner.jsx";
+import { TrialStatusBanner } from "../../components/vendor/TrialStatusBanner.jsx";
 import { TrialWelcomePopup } from "../../components/vendor/TrialWelcomePopup.jsx";
 import { NewOrderPopup } from "../../components/vendor/NewOrderPopup.jsx";
 import { NewRegularOrderPopup } from "../../components/vendor/NewRegularOrderPopup.jsx";
@@ -19,7 +20,9 @@ import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx
 import { unlockAudioOnFirstInteraction } from "../../lib/orderNotificationSound.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
+import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
+import { OfflineBar } from "../../components/vendor/OfflineBar.jsx";
 
 // Bloque 183 (pedido explícito — "saldrán siempre todas las secciones que
 // están en el panel de vendedor, para que el vendedor pueda asignar... el
@@ -39,7 +42,9 @@ const NAV = [
   // sistema de permisos por sección de usuarios de sistema sin ninguna
   // necesidad real (el usuario solo pidió el nombre visible).
   { to: "/vendedor", label: "Dashboard", icon: LayoutDashboard, end: true, section: "resumen" },
-  { to: "/vendedor/productos", label: "Productos", icon: Package, section: "productos" },
+  // Asistente con los pasos obligatorios para la insignia de verificada. Solo mientras la tienda no está verificada.
+  { to: "/vendedor/completar", label: "Completa tu tienda", icon: ListChecks, ownerOnly: true, unverifiedOnly: true },
+  { to: "/vendedor/productos", label: "Productos", icon: Package, section: "productos", group: "catalogo" },
   // Bloque 232 (pedido explícito — "la sección en el panel del vendedor de
   // crear código de oferta y crear oferta dentro de la tienda pueden estar
   // fusionadas y en una misma sección"): antes 2 links/secciones aparte
@@ -50,32 +55,42 @@ const NAV = [
   // cambió, sigue guardando las 2 claves por separado) puede seguir
   // entrando acá — la página adentro decide qué pestaña(s) mostrarle según
   // cuál(es) tenga de verdad (ver mySections en el Outlet context).
-  { to: "/vendedor/ofertas-tienda", label: "Ofertas y códigos", icon: Gift, anySection: ["ofertas-tienda", "codigos-descuento"] },
-  { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart, section: "pedidos" },
-  { to: "/vendedor/clientes", label: "Clientes", icon: Contact, section: "clientes" },
-  { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas" },
-  { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck, ownerOnly: true },
-  { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes" },
-  { to: "/vendedor/resenas", label: "Reseñas", icon: Star, section: "resenas" },
+  { to: "/vendedor/ofertas-tienda", label: "Ofertas y códigos", icon: Gift, anySection: ["ofertas-tienda", "codigos-descuento"], group: "catalogo" },
+  { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart, section: "pedidos", group: "ventas" },
+  { to: "/vendedor/caja", label: "Caja", icon: ScanBarcode, section: "caja", group: "ventas" },
+  { to: "/vendedor/clientes", label: "Clientes", icon: Contact, section: "clientes", group: "clientes" },
+  { to: "/vendedor/puntos", label: "Programa de fidelidad", icon: Award, section: "puntos", group: "clientes" },
+  { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas", group: "ventas" },
+  { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck, ownerOnly: true, group: "negocio" },
+  { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes", group: "clientes" },
+  { to: "/vendedor/resenas", label: "Reseñas", icon: Star, section: "resenas", group: "clientes" },
   // Feature B (pedido explícito): badge propio (fraudReportsPendingCount)
   // — cuenta lo que necesita SU respuesta (EVIDENCE_REQUESTED y sin
   // evidenceSentAt todavía), no todo lo que le pasó alguna vez.
-  { to: "/vendedor/reportes", label: "Reportes de fraude", icon: ShieldAlert, badge: true, section: "reportes" },
+  { to: "/vendedor/reportes", label: "Reportes de fraude", icon: ShieldAlert, badge: true, section: "reportes", group: "clientes" },
   // Bloque 202 (pedido explícito — "no será una sección visible en el
   // panel del... dueño, será una sección que se habilita sola cuando un
   // usuario de venta tiene productos asignados"): `staffOnly` es nuevo —
   // NINGÚN otro ítem de este array lo usa. El dueño/admin nunca ve este
   // link (ver el filtro más abajo); un usuario de sistema lo ve solo si
   // además `staffProfile.hasAssignedProducts` es true.
-  { to: "/vendedor/ventas-manuales", label: "Productos Asignados", icon: Wallet, section: "ventas-manuales", staffOnly: true },
-  { to: "/vendedor/configuracion", label: "Configuración", icon: Settings, ownerOnly: true },
+  { to: "/vendedor/ventas-manuales", label: "Productos Asignados", icon: Wallet, section: "ventas-manuales", staffOnly: true, group: "ventas" },
+  { to: "/vendedor/configuracion", label: "Configuración", icon: Settings, ownerOnly: true, group: "negocio" },
   // Bloque 183: gestión de usuarios de sistema — nunca delegable, ni
   // siquiera a otro usuario de sistema.
-  { to: "/vendedor/usuarios", label: "Usuarios", icon: Users, ownerOnly: true },
+  { to: "/vendedor/usuarios", label: "Usuarios", icon: Users, ownerOnly: true, group: "negocio" },
   // Sin `section` ni `ownerOnly` a propósito: "Mi perfil" siempre se ve
   // para los 2 roles — el contenido cambia solo (ver VendorProfileRoute,
   // App.jsx), nunca el acceso al link.
-  { to: "/vendedor/perfil", label: "Mi perfil", icon: UserCog },
+  { to: "/vendedor/perfil", label: "Mi perfil", icon: UserCog, group: "negocio" },
+];
+
+// Secciones del menú (GroupedNav). Un usuario de sistema solo ve las secciones donde le queda algún enlace.
+const NAV_GROUPS = [
+  { id: "ventas", label: "Ventas" },
+  { id: "catalogo", label: "Catálogo" },
+  { id: "clientes", label: "Clientes" },
+  { id: "negocio", label: "Mi negocio" },
 ];
 
 // Bloque 183: rutas que existen pero NO están en el NAV de arriba (se
@@ -318,6 +333,7 @@ export default function VendorLayout() {
 
   const mySections = staffProfile?.allowedSections ?? null;
   const nav = NAV.filter((n) => !n.restaurantOnly || vendor?.isRestaurant)
+    .filter((n) => !n.unverifiedOnly || vendor?.verificationStatus !== "VERIFIED")
     // Bloque 202: "Productos Asignados" nunca para el dueño/admin, y para
     // un usuario de sistema solo si ya tiene algo asignado — se filtra
     // ANTES del resto (aplica igual a ambos roles, a diferencia de todo lo
@@ -482,7 +498,13 @@ export default function VendorLayout() {
             siempre completos y visibles, sin importar qué tan poco espacio
             quede para el nav. */}
         <nav className="flex min-h-0 flex-col gap-[3px] overflow-y-auto">
-          {nav.map(({ to, label, icon: Icon, end, badge }) => (
+          <GroupedNav
+            items={nav}
+            groups={NAV_GROUPS}
+            storageKey="vendor-nav-groups"
+            defaultOpen
+            badgeFor={(n) => (n.badge ? fraudReportsPendingCount : 0)}
+            renderLink={({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -501,7 +523,8 @@ export default function VendorLayout() {
                 </span>
               )}
             </NavLink>
-          ))}
+            )}
+          />
         </nav>
 
         {/* Bloque 183: el upsell de "Mejora tu plan" es una decisión de
@@ -544,7 +567,7 @@ export default function VendorLayout() {
           cualquier sobrante horizontal sin crear un contenedor de scroll (el
           buscador fijo de arriba sigue pegado). Las tablas anchas ya traen su
           propio scroll interno. */}
-      <main className="min-w-0 overflow-x-clip px-4 py-6 lg:px-[38px] lg:py-4">
+      <main className="min-w-0 overflow-x-clip px-4 pb-24 pt-6 lg:px-[38px] lg:pt-4">
         {/* Bloque 233 (pedido explícito, con captura — "esta barra siempre
             debe aparecer fija en el panel de vendedores para fácil acceso a
             su uso"): antes se iba con el resto del contenido al hacer
@@ -598,6 +621,8 @@ export default function VendorLayout() {
             usuario de sistema (mismo criterio que OffersAnnouncementPopup
             de abajo). */}
         {!isStaff && <TrialChecklistBanner vendor={vendor} />}
+        {!isStaff && <TrialStatusBanner vendor={vendor} />}
+        <OfflineBar />
         {/* Bloque 185: `sectionPermissions` (null para dueño/admin — sin
             restricción de nivel) viaja a cada página hija para que pueda
             ocultar/deshabilitar sus propios botones de escritura cuando el

@@ -35,7 +35,8 @@ const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rod
 // `authenticate` pueda validarlo contra la DB en cada request (ver
 // middleware/auth.js) — eso es lo que hace que una revocación tenga efecto
 // inmediato en vez de esperar a que el access token expire solo.
-async function createSession(user, browserId) {
+// userAgent: navegador y dispositivo de este inicio de sesión, para que el admin vea desde dónde entra cada tienda.
+async function createSession(user, browserId, userAgent = null) {
   const resolvedBrowserId = browserId || randomUUID();
   await prisma.session.updateMany({
     // Un solo inicio de sesión por navegador: al entrar una cuenta (aunque sea otra distinta) se cierra la que hubiera abierta
@@ -50,6 +51,7 @@ async function createSession(user, browserId) {
       userId: user.id,
       browserId: resolvedBrowserId,
       refreshTokenHash: hashToken(refreshToken),
+      userAgent: userAgent ? String(userAgent).slice(0, 300) : null,
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     },
   });
@@ -272,7 +274,7 @@ export async function verifyRegistration(req, res) {
   // este navegador queda de confianza de una, sin pedirle un segundo código
   // de login inmediatamente después de haber completado el primero.
   const deviceToken = await issueTrustedDevice(user.id);
-  const tokens = await createSession(user, browserId);
+  const tokens = await createSession(user, browserId, req.get("user-agent"));
   res.status(201).json({ user: publicUser(user), ...tokens, deviceToken, linkedOrdersCount });
 }
 
@@ -452,7 +454,7 @@ export async function login(req, res) {
   // suspensión automática a los 90.
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-  const tokens = await createSession(user, data.browserId);
+  const tokens = await createSession(user, data.browserId, req.get("user-agent"));
   res.json({ user: publicUser(user), ...tokens });
 }
 
@@ -550,7 +552,7 @@ export async function verifyTwoFactorLogin(req, res) {
   // volver a pedir el código hasta que expire o inicie sesión desde otro
   // navegador/dispositivo).
   const deviceToken = await issueTrustedDevice(user.id);
-  const tokens = await createSession(user, browserId);
+  const tokens = await createSession(user, browserId, req.get("user-agent"));
   res.json({ user: publicUser(user), ...tokens, deviceToken });
 }
 

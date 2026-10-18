@@ -175,7 +175,7 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
         </div>
 
         <div className="flex flex-col gap-3.5">
-          <Input label="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Ej.: Ana Pérez" />
+          <Input data-guard="name" label="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Ej.: Ana Pérez" />
           <Input
             label="Correo electrónico"
             type="email"
@@ -339,7 +339,7 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
           </button>
         </div>
         <div className="flex flex-col gap-3.5">
-          <Input label="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <Input data-guard="name" label="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
           <Input label="Correo electrónico" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <Input label="Teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+53 5555 5555" />
           <Select label="Tipo de usuario" value={staffType} onChange={(e) => handleStaffTypeChange(e.target.value)}>

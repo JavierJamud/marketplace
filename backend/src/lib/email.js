@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { getIntegrationConfig } from "../controllers/integrations.controller.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { logError } from "./errorLog.js";
+import { planAllows } from "./planConfig.js";
 import { orderConfirmationEmail } from "../templates/orderConfirmation.js";
 import { newOrderVendorEmail } from "../templates/newOrderVendor.js";
 import { partnerApplicationReceivedEmail, partnerApprovedEmail, partnerKeyChangedEmail, partnerRejectedEmail } from "../templates/partnerNotices.js";
@@ -32,6 +33,7 @@ import { lowStockAlertEmail } from "../templates/lowStockAlert.js";
 import { cashCloseReminderEmail } from "../templates/cashCloseReminder.js";
 import { accountDeletionEmail } from "../templates/accountDeletion.js";
 import { reviewReplyEmail } from "../templates/reviewReply.js";
+import { cartReminderEmail, storeReminderEmail } from "../templates/customerReminders.js";
 
 // Dirección de fallback de Resend que funciona sin dominio propio verificado
 // — así el sistema manda correos de verdad desde el día 1, y pasa a usar el
@@ -124,10 +126,20 @@ async function logEmail({ vendorId, orderId, type, to, subject, result }) {
   }
 }
 
+// Correos con el nombre de la tienda (a sus clientes) y correos automáticos de gestión: son del plan de pago
+// (PlanConfig.allowCustomerEmails). Sin el plan no se envían; los de seguridad, cuenta y verificación no pasan por aquí.
+const PLAN_SKIPPED = { ok: false, skipped: true, reason: "plan" };
+export async function storeEmailsAllowed(vendorId) {
+  if (!vendorId) return false;
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { planType: true } });
+  return !!vendor && (await planAllows(vendor.planType, "allowCustomerEmails"));
+}
+
 // Best-effort: se llama después de crear el pedido, nunca bloquea la
 // respuesta al cliente ni revierte el pedido si el email falla.
 export async function sendOrderConfirmationEmail(order) {
   if (!order.customerEmail) return;
+  if (!(await storeEmailsAllowed(order.vendorId))) return PLAN_SKIPPED;
   const { subject, html } = await orderConfirmationEmail(order);
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_CONFIRMATION", to: order.customerEmail, subject, result });
@@ -173,6 +185,7 @@ export async function sendPartnerNoticeEmail(kind, to, data) {
 // Best-effort: disparado inmediatamente al cambiar el estado (no batch/cron).
 export async function sendOrderStatusEmail(order) {
   if (!order.customerEmail) return;
+  if (!(await storeEmailsAllowed(order.vendorId))) return PLAN_SKIPPED;
   const { subject, html } = await statusUpdateEmail(order);
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
@@ -183,6 +196,7 @@ export async function sendOrderStatusEmail(order) {
 // tienda. Devuelve true si salió. Tipo STATUS_UPDATE (informativo, no cuenta contra el límite de correos manuales de la tienda).
 export async function sendOrderCancelHelpEmail(order) {
   if (!order.customerEmail) return false;
+  if (!(await storeEmailsAllowed(order.vendorId))) return false;
   const { subject, html } = await orderCancelHelpEmail(order);
   const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
@@ -192,6 +206,7 @@ export async function sendOrderCancelHelpEmail(order) {
 // Envío manual: acá SÍ importa el resultado — el caller (controller) decide
 // si contarlo contra el límite mensual y qué responder al vendedor.
 export async function sendManualOrderEmail({ order, vendorName, subject, message }) {
+  if (!(await storeEmailsAllowed(order.vendorId))) return PLAN_SKIPPED;
   const { subject: finalSubject, html } = await vendorMessageEmail({ order, subject, message });
   const result = await sendViaResend({ to: order.customerEmail, subject: finalSubject, html, fromName: vendorName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "MANUAL", to: order.customerEmail, subject: finalSubject, result });
@@ -211,7 +226,9 @@ export async function sendVendorStaffInviteEmail(user, vendorName) {
 
 // Aviso al cliente de que su comentario tiene respuesta (de la tienda o del equipo de la plataforma). Best-effort: un fallo de envío
 // nunca debe impedir que la respuesta quede publicada.
-export async function sendReviewReplyEmail({ to, vendorId, ...data }) {
+// `fromStore`: la respuesta la escribió la tienda (correo del plan de pago); la del equipo de la plataforma sale siempre.
+export async function sendReviewReplyEmail({ to, vendorId, fromStore = false, ...data }) {
+  if (fromStore && !(await storeEmailsAllowed(vendorId))) return PLAN_SKIPPED;
   const { subject, html } = await reviewReplyEmail(data);
   const result = await sendViaResend({ to, subject, html });
   await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "REVIEW_REPLY", to, subject, result });
@@ -293,6 +310,7 @@ export async function sendTrialExpiringSoonEmail(vendor, daysLeft) {
 // mensual de emails manuales del Plan Regular, es una necesidad operativa
 // básica (mandar el comprobante de una venta ya confirmada), no un extra.
 export async function sendDocumentEmail({ to, vendorId, orderId, vendorName, subject, html, filename, pdfBuffer }) {
+  if (!(await storeEmailsAllowed(vendorId))) return PLAN_SKIPPED;
   const result = await sendViaResend({ to, subject, html, fromName: vendorName, attachments: [{ filename, content: pdfBuffer }] });
   await logEmail({ vendorId, orderId, type: "DOCUMENT", to, subject, result });
   return result;
@@ -303,6 +321,7 @@ export async function sendDocumentEmail({ to, vendorId, orderId, vendorName, sub
 // respuesta al mesero/cocina si el email falla.
 export async function sendTableOrderStatusEmail({ to, vendorId, vendorName, tableNumber, kitchenStatus }) {
   if (!to) return;
+  if (!(await storeEmailsAllowed(vendorId))) return PLAN_SKIPPED;
   const { subject, html } = await tableOrderStatusEmail({ vendorName, tableNumber, kitchenStatus });
   const result = await sendViaResend({ to, subject, html, fromName: vendorName });
   await logEmail({ vendorId, orderId: null, type: "TABLE_ORDER_STATUS", to, subject, result });
@@ -386,6 +405,7 @@ export async function sendVendorInactivityReminderEmail(vendor, daysInactive) {
 // bloquea ni revierte nada si el envío falla.
 export async function sendLowStockAlertEmail(vendor, products) {
   if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  if (!(await storeEmailsAllowed(vendor.id))) return PLAN_SKIPPED;
   const { subject, html } = await lowStockAlertEmail({ vendor, products });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "LOW_STOCK_ALERT", to: vendor.user.email, subject, result });
@@ -399,6 +419,7 @@ export async function sendLowStockAlertEmail(vendor, products) {
 // cashCloseReminder.job.js.
 export async function sendCashCloseReminderEmail({ vendor, staffUser, totalSales, currency, frequencyLabel }) {
   if (!staffUser?.email) return { ok: false, error: "Sin correo de cuenta" };
+  if (!(await storeEmailsAllowed(vendor.id))) return PLAN_SKIPPED;
   const { subject, html } = await cashCloseReminderEmail({ vendor, staffFullName: staffUser.fullName, totalSales, currency, frequencyLabel });
   const result = await sendViaResend({ to: staffUser.email, subject, html });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "CASH_CLOSE_REMINDER", to: staffUser.email, subject, result });
@@ -452,6 +473,7 @@ export async function sendVendorReactivatedEmail(vendor, reason) {
 // sendOrderConfirmationEmail/sendManualOrderEmail.
 export async function sendVendorWinbackEmail({ customer, vendor, offers }) {
   if (!customer.email) return { ok: false, error: "Cliente sin correo" };
+  if (!(await storeEmailsAllowed(vendor.id))) return PLAN_SKIPPED;
   const { subject, html } = await vendorWinbackEmail({ customer, vendor, offers });
   const result = await sendViaResend({ to: customer.email, subject, html, fromName: vendor.companyName });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_WINBACK", to: customer.email, subject, result });
@@ -512,5 +534,24 @@ export async function sendAccountDeletionCompletedEmail(user) {
   const { subject, html } = await accountDeletionEmail({ type: "COMPLETED", fullName: user.fullName });
   const result = await sendViaResend({ to: user.email, subject, html });
   await logEmail({ vendorId: null, orderId: null, type: "ACCOUNT_DELETION_COMPLETED", to: user.email, subject, result });
+  return result;
+}
+
+// Recordatorios automáticos al cliente (jobs/customerReminders.job.js). Salen con el nombre de la tienda.
+export async function sendCartReminderEmail({ customer, vendor, items, points, unsubscribeUrl }) {
+  if (!customer.email) return { ok: false, error: "Cliente sin correo" };
+  if (!(await storeEmailsAllowed(vendor.id))) return PLAN_SKIPPED;
+  const { subject, html } = await cartReminderEmail({ customer, vendor, items, points, unsubscribeUrl });
+  const result = await sendViaResend({ to: customer.email, subject, html, fromName: vendor.companyName });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "CART_REMINDER", to: customer.email, subject, result });
+  return result;
+}
+
+export async function sendStoreReminderEmail({ customer, vendor, points, offer, unsubscribeUrl }) {
+  if (!customer.email) return { ok: false, error: "Cliente sin correo" };
+  if (!(await storeEmailsAllowed(vendor.id))) return PLAN_SKIPPED;
+  const { subject, html } = await storeReminderEmail({ customer, vendor, points, offer, unsubscribeUrl });
+  const result = await sendViaResend({ to: customer.email, subject, html, fromName: vendor.companyName });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "STORE_REMINDER", to: customer.email, subject, result });
   return result;
 }

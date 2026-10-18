@@ -11,5 +11,7 @@ Disallow: /carrito
 Disallow: /checkout
 Disallow: /mesa/
 Disallow: /vender
+Disallow: /caja/
+Disallow: /correos/
 
 Sitemap: https://baznova.com/sitemap.xml

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api.js";
 import { Select } from "./ui/Select.jsx";
 import { Input } from "./ui/Input.jsx";
+import { ComboSelect } from "./ui/ComboSelect.jsx";
 
 // Bloque 244 (pedido explícito — "más libre para recibir negocios de muchos
 // lugares, pero solo en los países y provincias que defina el admin; si no
@@ -23,6 +24,19 @@ import { Input } from "./ui/Input.jsx";
 // ese momento aparece en las listas de quienes se registren después.
 export const OTHER = "__other__";
 const CUBA_CODE = "CU";
+// Con más opciones que esto, el municipio o la ciudad se elige escribiendo (un estado puede tener más de mil ciudades).
+const SEARCHABLE_FROM = 15;
+const MAX_SHOWN = 80;
+
+// Cuba se divide en municipios; los estados de los demás países, en ciudades. Las etiquetas que llegan de cada pantalla
+// dicen "municipio" y aquí se adaptan solas.
+function toCityWording(text) {
+  return String(text)
+    .replace(/\bel municipio\b/g, "la ciudad")
+    .replace(/\bEl municipio\b/g, "La ciudad")
+    .replace(/\bmunicipio\b/g, "ciudad")
+    .replace(/\bMunicipio\b/g, "Ciudad");
+}
 
 export function computeLocationStatus(value, { isCuba, provincesLoaded, provinceCount, provinceIsOther }) {
   if (value.countryOther?.trim()) return { error: null, needsAddress: false };
@@ -37,6 +51,7 @@ export function computeLocationStatus(value, { isCuba, provincesLoaded, province
   if (!value.provinceId) return { error: "Selecciona tu provincia.", needsAddress: false };
   const hasMunicipality = !!value.municipalityId || !!value.municipalityOther?.trim();
   if (isCuba && !hasMunicipality) return { error: "Selecciona tu municipio o escríbelo si no aparece.", needsAddress: false };
+  // Fuera de Cuba la ciudad es opcional; sin una del catálogo, la dirección ubica el lugar.
   // Sin un municipio real del catálogo no hay con qué ubicar la dirección.
   return { error: null, needsAddress: !value.municipalityId };
 }
@@ -69,6 +84,11 @@ export function LocationPicker({
   });
   const country = countries.find((c) => c.id === value.countryId);
   const isCuba = country?.code === CUBA_CODE;
+  if (country && !isCuba) {
+    L.municipality = toCityWording(L.municipality);
+    L.municipalityOther = toCityWording(L.municipalityOther);
+  }
+  const unit = isCuba || !country ? { one: "municipio", none: "Mi municipio no aparece" } : { one: "ciudad", none: "Mi ciudad no aparece" };
 
   const [countryIsOther, setCountryIsOther] = useState(!!value.countryOther);
   const [provinceIsOther, setProvinceIsOther] = useState(!!value.stateOther && !value.provinceId);
@@ -201,7 +221,34 @@ export function LocationPicker({
         </div>
       )}
 
-      {realProvince && municipalitiesLoaded && municipalityCount > 0 && (
+      {realProvince && municipalitiesLoaded && municipalityCount >= SEARCHABLE_FROM && !municipalityIsOther && (
+        <div>
+          <ComboSelect
+            label={L.municipality}
+            required={isCuba}
+            disabled={disabled}
+            value={value.municipalityId ?? ""}
+            onChange={(next) => onChange({ municipalityId: next, municipalityOther: "" })}
+            options={municipalities.map((m) => ({ value: m.id, label: m.name }))}
+            maxShown={MAX_SHOWN}
+            placeholder={`Escribe para buscar tu ${unit.one}`}
+            emptyText={`Ninguna coincide. Si no aparece, puedes escribirla abajo.`}
+          />
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              setMunicipalityIsOther(true);
+              onChange({ municipalityId: "" });
+            }}
+            className="mt-1 min-h-9 text-label-sm font-semibold text-tertiary-accent hover:underline"
+          >
+            {unit.none}
+          </button>
+        </div>
+      )}
+
+      {realProvince && municipalitiesLoaded && municipalityCount > 0 && municipalityCount < SEARCHABLE_FROM && (
         <Select
           label={L.municipality}
           required={isCuba}
@@ -224,7 +271,7 @@ export function LocationPicker({
               {m.name}
             </option>
           ))}
-          <option value={OTHER}>Mi municipio no aparece</option>
+          <option value={OTHER}>{unit.none}</option>
         </Select>
       )}
 
@@ -239,6 +286,19 @@ export function LocationPicker({
             onChange={(e) => onChange({ municipalityOther: e.target.value, municipalityId: "" })}
           />
           <p className="mt-1 text-label-sm text-outline">{MANUAL_NOTE}</p>
+          {municipalityCount >= SEARCHABLE_FROM && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                setMunicipalityIsOther(false);
+                onChange({ municipalityOther: "" });
+              }}
+              className="mt-1 min-h-9 text-label-sm font-semibold text-tertiary-accent hover:underline"
+            >
+              Elegir de la lista
+            </button>
+          )}
         </div>
       )}
 

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, X, Wallet } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import toast from "../../lib/toast.jsx";
+import { offlineRequest, QUEUED_TEXT, QUEUED_TITLE } from "../../lib/offlineQueue.js";
 import { api } from "../../lib/api.js";
 import { canWriteSection } from "../../lib/vendorSections.js";
 import { Button } from "../../components/ui/Button.jsx";
@@ -62,10 +63,13 @@ function AllocationRow({ allocation, canWrite }) {
   };
 
   const sell = useMutation({
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
     mutationFn: async () =>
-      (await api.post("/vendor-staff-sales/sales", { productId: allocation.productId, quantity: Number(qty), note: note.trim() || undefined })).data,
-    onSuccess: () => {
-      toast.success("Venta registrada.");
+      offlineRequest({ method: "post", url: "/vendor-staff-sales/sales", data: { productId: allocation.productId, quantity: Number(qty), note: note.trim() || undefined }, label: `Venta: ${Number(qty)} × ${allocation.product?.name ?? "producto"}` }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Venta registrada.");
       setMode(null);
       setQty(1);
       setNote("");
@@ -201,10 +205,13 @@ function MySaleRow({ sale }) {
   };
 
   const returnSale = useMutation({
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
     mutationFn: async () =>
-      (await api.post(`/vendor-staff-sales/sales/${sale.id}/return`, { quantity: Number(qty), reason: reason.trim() || undefined })).data,
-    onSuccess: () => {
-      toast.success("Devolución registrada.");
+      offlineRequest({ method: "post", url: `/vendor-staff-sales/sales/${sale.id}/return`, data: { quantity: Number(qty), reason: reason.trim() || undefined }, label: `Devolución: ${Number(qty)} × ${sale.product?.name ?? sale.productName ?? "producto"}` }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Devolución registrada.");
       setReturning(false);
       setReason("");
       invalidate();
@@ -306,14 +313,18 @@ function BatchSaleBuilder({ allocations, canWrite }) {
   };
 
   const submitBatch = useMutation({
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
     mutationFn: async () =>
-      (
-        await api.post("/vendor-staff-sales/sales/batch", {
-          items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, note: i.note })),
-        })
-      ).data,
-    onSuccess: (data) => {
-      toast.success(`${data.sales?.length ?? cart.length} ventas registradas.`);
+      offlineRequest({
+        method: "post",
+        url: "/vendor-staff-sales/sales/batch",
+        data: { items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, note: i.note })) },
+        label: `Lote de ${cart.length} ${cart.length === 1 ? "venta" : "ventas"}`,
+      }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success(`${r.data?.sales?.length ?? cart.length} ventas registradas.`);
       setCart([]);
       setBatchError(null);
       invalidate();
@@ -441,9 +452,12 @@ function StaffSelfView({ canWrite }) {
   });
 
   const reportCash = useMutation({
-    mutationFn: async () => (await api.post("/vendor-staff-sales/me/cash-close", {})).data,
-    onSuccess: () => {
-      toast.success("Caja marcada como cuadrada.");
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
+    mutationFn: async () => offlineRequest({ method: "post", url: "/vendor-staff-sales/me/cash-close", data: {}, label: "Cuadre de caja" }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Caja marcada como cuadrada.");
       queryClient.invalidateQueries({ queryKey: ["staff-sales-my-cash-close"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo reportar el cuadre."),

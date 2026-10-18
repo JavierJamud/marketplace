@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { rankFeaturedProducts } from "../lib/productRanking.js";
 import { findProductIdsByName, findProductIdsByTrigram } from "./search.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
@@ -71,7 +72,9 @@ async function buildProductWhere(partnerId, f, opts = {}) {
   }
   if (f.provinceId) {
     and.push({
-      vendor: { locations: { some: { provinceId: f.provinceId, municipalityId: f.municipalityId ?? undefined } } },
+      // Mismo criterio que el sitio: con un municipio o ciudad elegido también salen las tiendas que cubren toda la provincia o el
+      // estado (antes quedaban fuera).
+      vendor: { locations: vendorZoneWhere({ provinceId: f.provinceId, municipalityId: f.municipalityId }) },
     });
   }
   const where = {
@@ -204,7 +207,7 @@ function storeWhere(partnerId, f = {}) {
     businessCategoryId: f.businessCategoryId,
     verificationStatus: f.onlyVerified ? "VERIFIED" : undefined,
     isRestaurant: f.isRestaurant,
-    locations: f.provinceId ? { some: { provinceId: f.provinceId, municipalityId: f.municipalityId ?? undefined } } : undefined,
+    locations: f.provinceId ? vendorZoneWhere({ provinceId: f.provinceId, municipalityId: f.municipalityId }) : undefined,
   };
 }
 

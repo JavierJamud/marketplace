@@ -7,6 +7,8 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
+import { useNotifyChoices } from "../../lib/notifyVendor.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 
@@ -324,6 +326,7 @@ function VerificationArchiveModal({ vendor, onClose }) {
 // pero para una tienda que YA está VERIFIED y pagó meses extra.
 function RenewalsList() {
   const queryClient = useQueryClient();
+  const notify = useNotifyChoices();
   const { data, isLoading } = useQuery({
     queryKey: ["admin-pending-renewals"],
     queryFn: async () => (await api.get("/admin/subscription-payments/pending")).data.payments,
@@ -331,7 +334,7 @@ function RenewalsList() {
   });
 
   const confirm = useMutation({
-    mutationFn: async (id) => (await api.patch(`/admin/subscription-payments/${id}/confirm`)).data,
+    mutationFn: async (id) => (await api.patch(`/admin/subscription-payments/${id}/confirm`, {}, notify.config(id))).data,
     onSuccess: () => {
       toast.success("Renovación confirmada.");
       queryClient.invalidateQueries({ queryKey: ["admin-pending-renewals"] });
@@ -388,13 +391,16 @@ function RenewalsList() {
               />
             </div>
           )}
-          <button
-            onClick={() => confirm.mutate(p.id)}
-            disabled={confirm.isPending}
-            className="flex items-center gap-1.5 rounded-md bg-verified px-4 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
-          >
-            <Check className="h-4 w-4" strokeWidth={3} /> Confirmar renovación
-          </button>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <button
+              onClick={() => confirm.mutate(p.id)}
+              disabled={confirm.isPending}
+              className="flex items-center gap-1.5 rounded-md bg-verified px-4 py-2.5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              <Check className="h-4 w-4" strokeWidth={3} /> Confirmar renovación
+            </button>
+            <NotifyVendorCheckbox checked={notify.isOn(p.id)} onChange={(on) => notify.set(p.id, on)} />
+          </div>
         </div>
       ))}
     </div>
@@ -406,6 +412,7 @@ function RenewalsList() {
 // fraudes"): solicitudes de cambio de identidad de tiendas ya verificadas.
 function ChangeRequestsList() {
   const queryClient = useQueryClient();
+  const notify = useNotifyChoices();
   const [rejectTarget, setRejectTarget] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const { data, isLoading } = useQuery({
@@ -415,7 +422,7 @@ function ChangeRequestsList() {
   });
 
   const decide = useMutation({
-    mutationFn: async ({ id, decision, notes }) => (await api.patch(`/admin/change-requests/${id}`, { decision, notes })).data,
+    mutationFn: async ({ id, decision, notes }) => (await api.patch(`/admin/change-requests/${id}`, { decision, notes }, notify.config(id))).data,
     onSuccess: () => {
       toast.success("Solicitud resuelta.");
       queryClient.invalidateQueries({ queryKey: ["admin-change-requests"] });
@@ -481,7 +488,7 @@ function ChangeRequestsList() {
               )}
             </div>
           )}
-          <div className="flex gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={() => decide.mutate({ id: r.id, decision: "approve" })}
               disabled={decide.isPending}
@@ -499,6 +506,7 @@ function ChangeRequestsList() {
             >
               Rechazar
             </button>
+            <NotifyVendorCheckbox checked={notify.isOn(r.id)} onChange={(on) => notify.set(r.id, on)} />
           </div>
         </div>
       ))}
@@ -569,9 +577,10 @@ export default function AdminVerifications() {
   const cardPricePerMonthUsd = settings?.cardSubscriptionPriceUsd ?? 25;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-verifications"] });
+  const notify = useNotifyChoices();
 
   const decide = useMutation({
-    mutationFn: async ({ id, decision, notes }) => (await api.patch(`/admin/verifications/${id}`, { decision, notes })).data,
+    mutationFn: async ({ id, decision, notes }) => (await api.patch(`/admin/verifications/${id}`, { decision, notes }, notify.config(id))).data,
     onSuccess: () => {
       toast.success("Solicitud actualizada.");
       invalidate();
@@ -589,7 +598,7 @@ export default function AdminVerifications() {
   // confirma cualquiera de los 2 métodos (mismo endpoint, el backend ya
   // acepta ambos — ver confirmSubscriptionPayment en admin.controller.js).
   const confirmPayment = useMutation({
-    mutationFn: async (id) => (await api.patch(`/admin/verifications/${id}/confirm-payment`)).data,
+    mutationFn: async (id) => (await api.patch(`/admin/verifications/${id}/confirm-payment`, {}, notify.config(id))).data,
     onSuccess: () => {
       toast.success("Pago confirmado — tienda verificada.");
       invalidate();
@@ -602,9 +611,9 @@ export default function AdminVerifications() {
   // que él pueda seleccionar otro diferente"): limpia el método elegido —
   // el vendedor vuelve a ver el selector de método+meses en su panel.
   const resetPaymentMethod = useMutation({
-    mutationFn: async (id) => (await api.patch(`/admin/verifications/${id}/reset-payment-method`)).data,
+    mutationFn: async (id) => (await api.patch(`/admin/verifications/${id}/reset-payment-method`, {}, notify.config(id))).data,
     onSuccess: () => {
-      toast.success("Método de pago restablecido — se le avisó a la tienda.");
+      toast.success("Método de pago restablecido.");
       invalidate();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo restablecer el método de pago."),
@@ -760,7 +769,8 @@ export default function AdminVerifications() {
               {(showDocsReview || v.verificationStatus === "REJECTED") && (
                 <div className="mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
                   <PrivateDocument vendorId={v.vendorId} type="selfie" label="Foto del responsable" Icon={User} available={!!v.selfieUrl} />
-                  <PrivateDocument vendorId={v.vendorId} type="id" label="Documento de identidad" Icon={FileText} available={!!v.idPhotoFrontUrl} />
+                  <PrivateDocument vendorId={v.vendorId} type="id" label={v.idPhotoBackUrl ? "Documento (frente)" : "Documento de identidad"} Icon={FileText} available={!!v.idPhotoFrontUrl} />
+                  {v.idPhotoBackUrl && <PrivateDocument vendorId={v.vendorId} type="idBack" label="Documento (reverso)" Icon={FileText} available />}
                   {/* Bloque 146: solo aparece si el vendedor lo capturó
                       (navegador con soporte) — nunca obligatorio. */}
                   {v.selfieVideoUrl && (
@@ -957,6 +967,10 @@ export default function AdminVerifications() {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {(showDocsReview || showAwaitingClaim || showPaymentConfirm) && (
+                <NotifyVendorCheckbox className="mt-1" checked={notify.isOn(v.id)} onChange={(on) => notify.set(v.id, on)} />
               )}
 
               {v.verificationStatus === "VERIFIED" && (

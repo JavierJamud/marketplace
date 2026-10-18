@@ -186,8 +186,8 @@ function ProvinceModal({ province, countries, preselectedCountryId, onClose }) {
           ))}
         </Select>
         <Select label="Tipo de Subdivisión" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="PROVINCE">Provincia (Requiere o admite Municipios)</option>
-          <option value="STATE">Estado (Sin división en municipios)</option>
+          <option value="PROVINCE">Provincia (se divide en municipios)</option>
+          <option value="STATE">Estado (se divide en ciudades)</option>
         </Select>
         <Input label="Nombre de la Subdivisión" value={name} onChange={(e) => setName(e.target.value)} placeholder={type === "STATE" ? "Ej: Florida, Texas" : "Ej: La Habana, Santiago"} />
         <Input label="Código corto / Abreviatura" value={code} onChange={(e) => setCode(e.target.value.toLowerCase())} placeholder={type === "STATE" ? "fl" : "hab"} maxLength={10} />
@@ -216,7 +216,118 @@ function ProvinceModal({ province, countries, preselectedCountryId, onClose }) {
   );
 }
 
+// Las provincias (Cuba) se dividen en municipios y los estados de los demás países, en ciudades.
+function unitOf(province) {
+  return province?.type === "STATE"
+    ? { one: "ciudad", many: "ciudades", One: "Ciudad", Many: "Ciudades", example: "Ej: Miami, Houston" }
+    : { one: "municipio", many: "municipios", One: "Municipio", Many: "Municipios", example: "Ej: Plaza de la Revolución, Centro Habana" };
+}
+
+const CITIES_PAGE_SIZE = 60;
+
+// Municipios o ciudades de una provincia o estado: se piden al abrirla, con buscador y por páginas (un estado puede tener más
+// de mil ciudades; traerlas todas con la lista de provincias dejaba la pantalla lenta).
+function CitiesDrawer({ province, onAdd, onEdit, onDelete }) {
+  const queryClient = useQueryClient();
+  const unit = unitOf(province);
+  const [q, setQ] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(q.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["admin-cities", province.id, query, page],
+    queryFn: async () => (await api.get(`/admin/locations/provinces/${province.id}/municipalities`, { params: { q: query || undefined, page, pageSize: CITIES_PAGE_SIZE } })).data,
+    placeholderData: (prev) => prev,
+  });
+  const toggle = useMutation({
+    mutationFn: async (m) => (await api.patch(`/admin/locations/municipalities/${m.id}`, { isActive: !m.isActive })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-cities", province.id] }),
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar."),
+  });
+  const items = data?.municipalities ?? [];
+  const total = data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / CITIES_PAGE_SIZE));
+
+  return (
+    <div className="border-t border-surface-container-high bg-surface-container/10 p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[12px] font-bold uppercase tracking-wider text-outline">
+          {unit.Many} en {province.name}
+        </span>
+        <button type="button" onClick={onAdd} className="min-h-9 text-[12px] font-semibold text-tertiary-accent hover:underline">
+          + Agregar {unit.one}
+        </button>
+      </div>
+      <div className="relative mb-3">
+        <Search className="absolute left-3 top-2.5 h-4 w-4 text-outline" aria-hidden="true" />
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={`Buscar ${unit.one}...`}
+          aria-label={`Buscar ${unit.one} en ${province.name}`}
+          className="h-9 w-full rounded-xl border border-outline-variant bg-surface-container-lowest pl-9 pr-3 text-[12.5px] outline-none focus:border-tertiary-accent"
+        />
+      </div>
+      {isLoading && !data ? (
+        <p className="py-2 text-[12px] text-outline">Cargando...</p>
+      ) : isError ? (
+        <p className="py-2 text-[12px] text-error">No se pudieron cargar. Prueba de nuevo.</p>
+      ) : items.length === 0 ? (
+        <p className="py-2 text-[12px] italic text-outline">{query ? `Ningún resultado para “${query}”.` : `No hay ${unit.many} cargados aún.`}</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {items.map((m) => (
+            <div key={m.id} className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-surface-container-high bg-surface-container-lowest px-3 py-1.5">
+              <span className="min-w-0 break-words text-[12.5px] font-semibold text-on-surface">
+                {m.name}
+                {m._count?.vendorLocations > 0 && <span className="ml-1.5 text-[11px] font-normal text-outline">· {m._count.vendorLocations} tienda(s)</span>}
+              </span>
+              <div className="flex flex-shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => toggle.mutate(m)}
+                  className={`min-h-8 rounded-full px-2 text-[10px] font-bold ${m.isActive ? "bg-verified/15 text-verified-dark" : "bg-surface-container-high text-outline"}`}
+                >
+                  {m.isActive ? "Activo" : "Inactivo"}
+                </button>
+                <button type="button" onClick={() => onEdit(m)} aria-label={`Editar ${m.name}`} className="flex h-8 w-8 items-center justify-center text-outline hover:text-tertiary-accent">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={() => onDelete(m)} aria-label={`Eliminar ${m.name}`} className="flex h-8 w-8 items-center justify-center text-outline hover:text-error">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {pages > 1 && (
+        <div className="mt-3 flex items-center justify-between gap-2 text-[12px] text-on-surface-variant">
+          <button type="button" disabled={page <= 1} onClick={() => setPage((n) => n - 1)} className="min-h-9 rounded-lg border border-outline-variant px-3 font-semibold disabled:opacity-40">
+            Anterior
+          </button>
+          <span className="text-center">
+            Página {page} de {pages} · {total.toLocaleString("es-CU")} {unit.many}
+          </span>
+          <button type="button" disabled={page >= pages} onClick={() => setPage((n) => n + 1)} className="min-h-9 rounded-lg border border-outline-variant px-3 font-semibold disabled:opacity-40">
+            Siguiente
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MunicipalityModal({ province, municipality, onClose }) {
+  const unit = unitOf(province);
   const queryClient = useQueryClient();
   const [name, setName] = useState(municipality?.name ?? "");
   const [isActive, setIsActive] = useState(municipality?.isActive ?? true);
@@ -230,11 +341,12 @@ function MunicipalityModal({ province, municipality, onClose }) {
         ? (await api.patch(`/admin/locations/municipalities/${municipality.id}`, { name, isActive })).data
         : (await api.post(`/admin/locations/provinces/${province.id}/municipalities`, { name })).data,
     onSuccess: () => {
-      toast.success(municipality?.id ? "Municipio actualizado." : "Municipio agregado.");
+      toast.success(municipality?.id ? `${unit.One} actualizado.` : `${unit.One} agregado.`);
       queryClient.invalidateQueries({ queryKey: ["admin-provinces"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-cities", province.id] });
       onClose();
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el municipio."),
+    onError: (err) => toast.error(err.response?.data?.error ?? `No se pudo guardar el ${unit.one}.`),
   });
 
   const canSaveNow = !!name.trim();
@@ -242,23 +354,23 @@ function MunicipalityModal({ province, municipality, onClose }) {
 
   return (
     <Modal
-      title={municipality?.id ? "Editar Municipio" : `Agregar Municipio a ${province.name}`}
+      title={municipality?.id ? `Editar ${unit.one}` : `Agregar ${unit.one} a ${province.name}`}
       onClose={onClose}
       onBackdropClick={dirtyModal.handleBackdropClick}
     >
       <div className="mb-4 flex flex-col gap-4">
-        <Input label="Nombre del Municipio" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Plaza de la Revolución, Centro Habana" />
+        <Input label={unit.one === "ciudad" ? "Nombre de la ciudad" : "Nombre del municipio"} value={name} onChange={(e) => setName(e.target.value)} placeholder={unit.example} />
         {municipality?.id && (
           <label className="flex items-center gap-2.5 rounded-xl border border-surface-container-high bg-surface-container/30 p-3 text-[13.5px] font-semibold text-on-surface cursor-pointer">
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 rounded accent-tertiary-accent" />
-            Municipio activo
+            {unit.One} activo
           </label>
         )}
       </div>
       <div className="flex gap-3">
         <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose}>Cancelar</Button>
         <Button className="flex-1 rounded-xl" disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? "Guardando..." : "Guardar Municipio"}
+          {save.isPending ? "Guardando..." : `Guardar ${unit.one}`}
         </Button>
       </div>
 
@@ -371,6 +483,7 @@ export default function AdminLocations() {
       toast.success("Eliminado correctamente.");
       setItemToDelete(null);
       queryClient.invalidateQueries({ queryKey: ["admin-provinces"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-cities"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar porque tiene dependencias activas."),
   });
@@ -392,7 +505,7 @@ export default function AdminLocations() {
           <div>
             <h1 className="text-display-sm font-extrabold text-on-surface">Ubicaciones y Territorios</h1>
             <p className="text-body-md text-outline">
-              Configuración global de países, estados, provincias y municipios disponibles para venta y entregas.
+              Países, sus provincias o estados, y sus municipios o ciudades, disponibles para vender y entregar.
             </p>
           </div>
         </div>
@@ -524,10 +637,10 @@ export default function AdminLocations() {
                     </span>
                   </div>
                   <p className="text-[12.5px] text-outline mt-0.5">
-                    Estados, Provincias y Municipios vinculados a {selectedCountry.name}.
+                    Provincias o estados de {selectedCountry.name} y sus municipios o ciudades.
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
                     className="rounded-xl text-[12.5px] border-error text-error hover:bg-error/10 hover:text-error"
@@ -572,7 +685,7 @@ export default function AdminLocations() {
                       className="rounded-xl border border-surface-container-high bg-surface-container-lowest overflow-hidden transition-all hover:border-outline-variant"
                     >
                       {/* Main Subdivision Row */}
-                      <div className="flex items-center justify-between p-4 bg-surface-container/20">
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-surface-container/20">
                         <div className="flex items-center gap-3">
                           <span className="font-mono text-[12px] font-bold text-outline bg-surface-container-high px-2 py-0.5 rounded">
                             {p.code}
@@ -581,25 +694,25 @@ export default function AdminLocations() {
                             <div className="flex items-center gap-2">
                               <span className="text-[14px] font-bold text-on-surface">{p.name}</span>
                               <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                                p.type === "STATE" ? "bg-purple-100 text-purple-700 border border-purple-200" : "bg-blue-100 text-blue-700 border border-blue-200"
+                                p.type === "STATE" ? "bg-tertiary-accent/10 text-tertiary-accent" : "bg-surface-container-high text-on-surface-variant"
                               }`}>
                                 {p.type === "STATE" ? "Estado" : "Provincia"}
                               </span>
                             </div>
-                            {p.type !== "STATE" && (
-                              <button
-                                onClick={() => toggleExpandProvince(p.id)}
-                                className="text-[11.5px] font-semibold text-tertiary-accent hover:underline flex items-center gap-1 mt-0.5"
-                              >
-                                {p.municipalities?.length ?? 0} municipio(s) vinculados
-                                <span className={`inline-block transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandProvince(p.id)}
+                              aria-expanded={isExpanded}
+                              className="mt-0.5 flex min-h-8 items-center gap-1 text-[11.5px] font-semibold text-tertiary-accent hover:underline"
+                            >
+                              {(p._count?.municipalities ?? 0).toLocaleString("es-CU")} {unitOf(p).many}
+                              <span className={`inline-block transition-transform ${isExpanded ? "rotate-90" : ""}`}>▶</span>
+                            </button>
                           </div>
                         </div>
 
                         {/* Controls */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <button
                             onClick={() => toggleSubdivision.mutate({ id: p.id, type: "PROVINCE", isActive: !p.isActive })}
                             className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${
@@ -609,14 +722,12 @@ export default function AdminLocations() {
                             {p.isActive ? "Activa" : "Inactiva"}
                           </button>
 
-                          {p.type !== "STATE" && (
-                            <button
-                              onClick={() => setMunicipalityFor(p)}
-                              className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-1 text-[11.5px] font-semibold text-on-surface hover:bg-surface-container"
-                            >
-                              + Municipio
-                            </button>
-                          )}
+                          <button
+                            onClick={() => { setMunicipalityModal(null); setMunicipalityFor(p); }}
+                            className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-1 text-[11.5px] font-semibold text-on-surface hover:bg-surface-container"
+                          >
+                            + {unitOf(p).One}
+                          </button>
 
                           <button
                             onClick={() => setProvinceModal(p)}
@@ -635,55 +746,13 @@ export default function AdminLocations() {
                         </div>
                       </div>
 
-                      {/* Municipalities Drawer (Only if PROVINCE and expanded) */}
-                      {p.type !== "STATE" && isExpanded && (
-                        <div className="border-t border-surface-container-high bg-surface-container/10 p-4">
-                          <div className="mb-2 flex items-center justify-between text-[12px] font-bold text-outline uppercase tracking-wider">
-                            <span>Municipios en {p.name}</span>
-                            <button
-                              onClick={() => setMunicipalityFor(p)}
-                              className="text-tertiary-accent hover:underline font-semibold text-[11.5px]"
-                            >
-                              + Agregar Municipio
-                            </button>
-                          </div>
-                          {p.municipalities && p.municipalities.length > 0 ? (
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {p.municipalities.map((m) => (
-                                <div
-                                  key={m.id}
-                                  className="flex items-center justify-between rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] px-3 py-2"
-                                >
-                                  <span className="text-[12.5px] font-semibold text-on-surface">{m.name}</span>
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      onClick={() => toggleSubdivision.mutate({ id: m.id, type: "MUNICIPALITY", isActive: !m.isActive })}
-                                      className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold ${
-                                        m.isActive ? "bg-verified/15 text-verified-dark" : "bg-surface-container-high text-outline"
-                                      }`}
-                                    >
-                                      {m.isActive ? "Activo" : "Inactivo"}
-                                    </button>
-                                    <button
-                                      onClick={() => { setMunicipalityFor(p); setMunicipalityModal(m); }}
-                                      className="text-outline hover:text-tertiary-accent p-1"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => setItemToDelete({ id: m.id, type: "MUNICIPALITY", name: m.name })}
-                                      className="text-outline hover:text-error p-1"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="py-2 text-[12px] text-outline italic">No hay municipios cargados aún.</p>
-                          )}
-                        </div>
+                      {isExpanded && (
+                        <CitiesDrawer
+                          province={p}
+                          onAdd={() => { setMunicipalityModal(null); setMunicipalityFor(p); }}
+                          onEdit={(m) => { setMunicipalityFor(p); setMunicipalityModal(m); }}
+                          onDelete={(m) => setItemToDelete({ id: m.id, type: "MUNICIPALITY", name: m.name })}
+                        />
                       )}
                     </div>
                   );
@@ -708,7 +777,7 @@ export default function AdminLocations() {
             <div className="rounded-2xl border border-dashed border-outline-variant p-12 text-center bg-surface-container-lowest">
               <Globe2 className="mx-auto h-10 w-10 text-outline/40 mb-3" />
               <p className="text-[14px] font-bold text-on-surface">Selecciona un país de la lista</p>
-              <p className="text-[12.5px] text-outline">Verás y podrás gestionar sus estados, provincias y municipios.</p>
+              <p className="text-[12.5px] text-outline">Verás y podrás gestionar sus provincias o estados, y sus municipios o ciudades.</p>
             </div>
           )}
         </div>

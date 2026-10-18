@@ -201,7 +201,7 @@ export async function replyToReview(req, res) {
     meta: { reviewId: id },
   });
   // Al cliente se le avisa por correo, salvo que la respuesta sea la misma que ya tenía.
-  if (review.vendorReply !== reply) void notifyReviewReply(review, { responder: vendor.companyName, reply });
+  if (review.vendorReply !== reply) void notifyReviewReply(review, { responder: vendor.companyName, reply, fromStore: true });
   res.json({ review: updated });
 }
 
@@ -225,7 +225,7 @@ export async function adminReplyToReview(req, res) {
 
 // Correo al autor del comentario con la respuesta que recibió. Nunca bloquea ni hace fallar la respuesta: si el autor ya no existe,
 // no tiene correo o el envío falla, simplemente no se avisa.
-async function notifyReviewReply(review, { responder, reply }) {
+async function notifyReviewReply(review, { responder, reply, fromStore = false }) {
   try {
     if (!review.userId || !review.vendorId) return;
     const [customer, vendor, product] = await Promise.all([
@@ -238,6 +238,7 @@ async function notifyReviewReply(review, { responder, reply }) {
     await sendReviewReplyEmail({
       to: customer.email,
       vendorId: vendor.id,
+      fromStore,
       customerName: review.authorName || customer.fullName,
       responder,
       targetLabel: product?.name ?? vendor.companyName,

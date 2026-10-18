@@ -9,6 +9,8 @@ import { startFraudReportsJob } from "./jobs/fraudReports.job.js";
 import { startAiHealthCheckJob } from "./jobs/aiHealthCheck.job.js";
 import { startAiChatbotAvailabilityJob } from "./jobs/aiChatbotAvailability.job.js";
 import { startLowStockJob } from "./jobs/lowStock.job.js";
+import { startOrderOverdueJob } from "./jobs/orderOverdue.job.js";
+import { startCustomerRemindersJob } from "./jobs/customerReminders.job.js";
 import { startCashCloseReminderJob } from "./jobs/cashCloseReminder.job.js";
 import { startAccountDeletionJob } from "./jobs/accountDeletion.job.js";
 import { startVendorDeletionJob } from "./jobs/vendorDeletion.job.js";
@@ -16,6 +18,7 @@ import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { startChatRetentionJob } from "./jobs/chatRetention.job.js";
+import { installNotifyHooks } from "./lib/notify.js";
 import { startPartnerUsageFlusher } from "./lib/partnerUsage.js";
 
 // En producción la API solo escucha dentro del servidor (Nginx la publica en /api); en desarrollo, en toda la red local.
@@ -89,6 +92,9 @@ startAiChatbotAvailabilityJob();
 // stock en productos antes que se agoten"): 7:30am, entre el recordatorio
 // de inactividad (7:00) y el de pago (8:00).
 startLowStockJob();
+startOrderOverdueJob();
+// Recordatorios a clientes: carrito sin terminar y tiendas que miraron (puntos u ofertas). 10:00 y 17:00 en Cuba.
+startCustomerRemindersJob();
 // Bloque 198 (pedido explícito — "se enviará un correo a los usuarios que
 // ese día tienen que ir y reportar todas las ventas"): 8:30am, entre el
 // recordatorio de pago (8:00) y el de reportes de fraude (9:00).
@@ -114,5 +120,7 @@ startClickAnomalyJob();
 startTrialExpiryJob();
 // Conversaciones de los chatbots: se borran a las 24 h sin actividad; el registro del admin dura 90 días.
 startChatRetentionJob();
+// Avisos en vivo y push ante los cambios de la base de datos.
+installNotifyHooks();
 // API de socios: vuelca cada pocos segundos los movimientos y totales de uso a la base.
 startPartnerUsageFlusher();

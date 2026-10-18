@@ -6,11 +6,12 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { sendOrderConfirmationEmail, sendNewOrderVendorEmail, sendOrderStatusEmail, sendManualOrderEmail, sendOrderCancelledVendorEmail } from "../lib/email.js";
 import { resolveDiscountForOrder } from "./discountCodes.controller.js";
+import { redeemForOrder, recordRedemption, awardOrderPoints, reverseOrderLoyalty } from "../services/loyalty.service.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
 import { upsertVendorCustomer } from "./vendorCustomers.controller.js";
-import { getPlanLimit } from "../lib/planConfig.js";
+import { getPlanLimit, assertPlanAllows } from "../lib/planConfig.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -30,6 +31,7 @@ const VALID_TRANSITIONS = {
 // E.164 laxo (+5355512345) — el frontend arma el string completo con
 // PhoneInput/toE164(), esto solo valida la forma del lado servidor.
 const E164_REGEX = /^\+\d{7,15}$/;
+const PERSON_NAME_REGEX = /^[\p{L}\p{M} '’.-]+$/u;
 
 // La tienda necesita poder contactar al cliente sí o sí — todos los campos
 // de contacto/entrega son obligatorios, sin excepción (Bloque 6).
@@ -38,8 +40,12 @@ const E164_REGEX = /^\+\d{7,15}$/;
 export const createOrderSchema = z.object({
   vendorId: z.string(),
   channel: z.enum(["cod", "online", "cash", "table"]),
-  customerName: z.string().min(2, "Falta el nombre del cliente."),
+  // Nombre de persona: letras, espacios, apóstrofo, guion y punto (mismo filtro que el formulario).
+  customerName: z.string().trim().min(2, "Falta el nombre del cliente.").max(80).regex(PERSON_NAME_REGEX, "El nombre solo puede llevar letras."),
   customerPhone: z.string().regex(E164_REGEX, "Falta un teléfono válido con código de país."),
+  // Quien recibe, si no es quien compra. Si viene uno, tienen que venir los dos.
+  recipientName: z.string().trim().min(2, "Falta el nombre de quien recibe.").max(80).regex(PERSON_NAME_REGEX, "El nombre de quien recibe solo puede llevar letras.").optional(),
+  recipientPhone: z.string().regex(E164_REGEX, "Falta un teléfono válido de quien recibe.").optional(),
   customerEmail: z.string().email("Falta un correo válido."),
   shippingAddress: z.string().min(1, "Falta la dirección."),
   shippingProvinceId: z.string().min(1, "Falta la provincia."),
@@ -62,6 +68,8 @@ export const createOrderSchema = z.object({
   // opcional, se revalida por completo acá (nunca se confía en el monto que
   // pudo haber mostrado el preview de /discount-codes/validate).
   discountCode: z.string().trim().optional(),
+  // Puntos del programa de la tienda que el cliente quiere usar. Solo la cantidad: el valor y los topes los calcula el servidor.
+  loyaltyPoints: z.number().int().min(1).max(10_000_000).optional(),
 });
 
 export const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: "TABLE" };
@@ -121,16 +129,31 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
       ...vendorLocations.map((l) => l.countryId).filter(Boolean),
     ]);
 
-    if (province.type !== "STATE" && configuredProvinceIds.size > 0 && !configuredProvinceIds.has(province.id)) {
-      throw new AppError("Esta tienda no entrega en la provincia seleccionada.", 400);
+    // Mismo criterio que el checkout: si la tienda eligió provincias o estados en ese país, solo esos; si no eligió ninguno,
+    // todo el país. Antes los estados no se comprobaban: una tienda que solo entrega en Texas aceptaba un pedido a California.
+    const provincesInCountry = await prisma.province.findMany({
+      where: { id: { in: [...configuredProvinceIds] }, countryId: province.countryId ?? undefined },
+      select: { id: true },
+    });
+    if (provincesInCountry.length > 0 && !configuredProvinceIds.has(province.id)) {
+      throw new AppError(province.type === "STATE" ? "Esta tienda no entrega en el estado seleccionado." : "Esta tienda no entrega en la provincia seleccionada.", 400);
     }
     if (configuredCountryIds.size > 0 && province.countryId && !configuredCountryIds.has(province.countryId)) {
       throw new AppError("Esta tienda no entrega en el país seleccionado.", 400);
     }
     // Si la tienda limitó esa provincia a ciertos municipios, el pedido solo puede ir a uno de ellos.
     const municipalityIds = vendorLocations.filter((l) => l.provinceId === province.id && l.municipalityId).map((l) => l.municipalityId);
-    if (municipalityIds.length > 0 && data.shippingMunicipalityId && !municipalityIds.includes(data.shippingMunicipalityId)) {
-      throw new AppError("Esta tienda no entrega en el municipio seleccionado.", 400);
+    const unit = province.type === "STATE" ? "la ciudad" : "el municipio";
+    if (municipalityIds.length > 0 && !data.shippingMunicipalityId) {
+      throw new AppError(`Elige ${unit} de entrega: esta tienda solo entrega en algunos.`, 400);
+    }
+    if (municipalityIds.length > 0 && !municipalityIds.includes(data.shippingMunicipalityId)) {
+      throw new AppError(province.type === "STATE" ? "Esta tienda no entrega en la ciudad seleccionada." : "Esta tienda no entrega en el municipio seleccionado.", 400);
+    }
+    // El municipio o la ciudad tiene que ser de esa provincia o estado.
+    if (data.shippingMunicipalityId) {
+      const m = await prisma.municipality.findUnique({ where: { id: data.shippingMunicipalityId }, select: { provinceId: true } });
+      if (!m || m.provinceId !== province.id) throw new AppError(`${unit === "la ciudad" ? "La ciudad" : "El municipio"} no pertenece a ${province.name}.`, 400);
     }
   }
 
@@ -248,7 +271,11 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
       total = subtotal - discountAmount;
     }
 
-    return tx.order.create({
+    // Puntos: se descuentan del saldo aquí mismo; si algo falla después, la transacción entera se deshace y el saldo vuelve.
+    const redemption = await redeemForOrder(tx, { vendor, customerId, requestedPoints: data.loyaltyPoints, payable: total, items: orderItems });
+    if (redemption) total = Math.max(0, total - redemption.discount);
+
+    const created = await tx.order.create({
       data: {
         code: `Z-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 4).toUpperCase()}`,
         vendorId: data.vendorId,
@@ -256,6 +283,8 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,
+        recipientName: data.recipientName && data.recipientPhone ? data.recipientName : null,
+        recipientPhone: data.recipientName && data.recipientPhone ? data.recipientPhone : null,
         shippingAddress: data.shippingAddress,
         shippingProvinceId: data.shippingProvinceId,
         shippingMunicipalityId: data.shippingMunicipalityId,
@@ -269,6 +298,8 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         total,
         discountCodeId,
         discountAmount,
+        loyaltyPointsRedeemed: redemption?.points ?? null,
+        loyaltyDiscount: redemption?.discount ?? null,
         items: { create: orderItems },
       },
       include: {
@@ -278,6 +309,8 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         vendor: { select: { companyName: true, whatsapp: true, orderDestination: true, logoUrl: true } },
       },
     });
+    await recordRedemption(tx, redemption, created);
+    return created;
   });
 
   await recordOrderEvent(order.id, "CREATED");
@@ -351,7 +384,33 @@ export async function listMyOrders(req, res) {
     });
   }
 
-  res.json({ orders, tableOrders });
+  // Ventas de caja: cada una ya es un pedido; se le agregan los datos del mostrador (número, cómo se pagó, vuelto, quién cobró,
+  // a qué hora estuvo lista y se recogió) para verlos en el mismo detalle.
+  const posSales = await prisma.posSale.findMany({
+    where: { vendorId: vendor.id, orderId: { in: orders.map((o) => o.id) } },
+    select: { orderId: true, code: true, paymentMethod: true, cashReceived: true, changeGiven: true, fulfillment: true, paidAt: true, readyAt: true, pickedUpAt: true, createdById: true },
+  });
+  const cashierIds = [...new Set(posSales.map((s) => s.createdById))];
+  const cashiers = cashierIds.length ? await prisma.user.findMany({ where: { id: { in: cashierIds } }, select: { id: true, fullName: true } }) : [];
+  const cashierName = new Map(cashiers.map((u) => [u.id, u.fullName]));
+  const posByOrder = new Map(
+    posSales.map((s) => [
+      s.orderId,
+      {
+        code: s.code,
+        paymentMethod: s.paymentMethod,
+        cashReceived: s.cashReceived != null ? Number(s.cashReceived) : null,
+        change: s.changeGiven != null ? Number(s.changeGiven) : null,
+        fulfillment: s.fulfillment,
+        paidAt: s.paidAt,
+        readyAt: s.readyAt,
+        pickedUpAt: s.pickedUpAt,
+        cashier: cashierName.get(s.createdById) ?? null,
+      },
+    ])
+  );
+
+  res.json({ orders: orders.map((o) => (posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o)), tableOrders });
 }
 
 // Bloque 52: decremento/incremento atómico de stock POR TALLA. `sizeStock`
@@ -396,6 +455,27 @@ async function resolveNewOrderNotices(vendorId, code) {
   await prisma.vendorNotification
     .updateMany({ where: { vendorId, type: "NEW_ORDER", refCode: code, resolvedAt: null }, data: { resolvedAt: new Date(), readAt: new Date() } })
     .catch(() => {});
+}
+
+// Un pedido que vino de la caja avanza también en la caja (y en la pantalla de pedidos del local). Si se anula, la venta de caja
+// queda anulada y, si se cobró en efectivo, se registra la devolución como salida de caja.
+async function syncPosSaleFromOrder(order, status, userId) {
+  const sale = await prisma.posSale.findFirst({ where: { orderId: order.id, vendorId: order.vendorId } });
+  if (!sale) return;
+  const now = new Date();
+  if (status === "CANCELLED") {
+    await prisma.posSale.update({ where: { id: sale.id }, data: { status: "CANCELLED", fulfillment: null } });
+    if (sale.paymentMethod === "CASH") {
+      await prisma.cashEntry.create({ data: { vendorId: sale.vendorId, type: "WITHDRAWAL", amount: -Number(sale.total), currency: sale.currency, posSaleId: sale.id, createdById: userId, note: `Devolución venta ${sale.code} (pedido anulado)` } });
+    }
+    return;
+  }
+  const fulfillment = { PREPARING: "PREPARING", READY: "READY", DELIVERED: "PICKED_UP" }[status];
+  if (!fulfillment || sale.fulfillment === fulfillment) return;
+  await prisma.posSale.update({
+    where: { id: sale.id },
+    data: { fulfillment, ...(fulfillment === "READY" ? { readyAt: now } : {}), ...(fulfillment === "PICKED_UP" ? { pickedUpAt: now } : {}) },
+  });
 }
 
 export async function updateOrderStatus(req, res) {
@@ -452,6 +532,7 @@ export async function updateOrderStatus(req, res) {
         else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
     }
+    if (status === "CANCELLED") await reverseOrderLoyalty(id, tx);
     return tx.order.update({
       where: { id },
       data: { status, ...(status === "CANCELLED" ? { cancelReason: reason.trim() } : {}) },
@@ -467,6 +548,15 @@ export async function updateOrderStatus(req, res) {
 
   await recordOrderEvent(id, status, status === "CANCELLED" ? reason.trim() : null);
   await resolveNewOrderNotices(vendor.id, order.code);
+  await syncPosSaleFromOrder(order, status, req.user.id).catch((err) => console.error("[pos] no se pudo sincronizar la venta de caja", order.code, err));
+  // Los puntos del programa se ganan al entregar. Si falla, el pedido igual queda entregado; se registra el error.
+  if (status === "DELIVERED") {
+    const earned = await awardOrderPoints(id).catch((err) => {
+      console.error("[loyalty] no se pudieron sumar los puntos del pedido", order.code, err);
+      return 0;
+    });
+    if (earned) updated.loyaltyPointsEarned = earned;
+  }
 
   if (status === "CANCELLED") {
     logActivity({
@@ -613,6 +703,7 @@ export async function deleteOrder(req, res) {
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   if (order.status !== "NEW") throw new AppError("Solo se pueden eliminar pedidos pendientes, todavía sin confirmar.", 400);
 
+  await reverseOrderLoyalty(id); // si el cliente pagó parte con puntos, se le devuelven
   await prisma.order.delete({ where: { id } }); // OrderItem tiene onDelete: Cascade
   await resolveNewOrderNotices(vendor.id, order.code);
   res.status(204).send();
@@ -656,7 +747,10 @@ export async function updateOrderItems(req, res) {
       size: i.size ?? null,
     };
   });
-  const total = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+  // El descuento del código y el de los puntos ya se aplicaron al crear el pedido: se mantienen al cambiar los productos.
+  // Antes el total se recalculaba sin ellos y el cliente perdía el descuento si la tienda tocaba el pedido.
+  const subtotal = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+  const total = Math.max(0, subtotal - Number(order.discountAmount ?? 0) - Number(order.loyaltyDiscount ?? 0));
 
   const updated = await prisma.$transaction(async (tx) => {
     await tx.orderItem.deleteMany({ where: { orderId: id } });
@@ -705,6 +799,7 @@ export async function sendManualEmail(req, res) {
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   if (!order.customerEmail) throw new AppError("Este pedido no tiene un correo de cliente registrado.", 400);
 
+  await assertPlanAllows(vendor, "allowCustomerEmails", "Enviar correos a tus clientes es del Plan Premium. Escríbele por WhatsApp o cambia de plan.");
   const monthlyEmailLimit = await getPlanLimit(vendor, "maxMonthlyOrderEmails");
   if (monthlyEmailLimit !== null) {
     const used = await countManualEmailsThisMonth(vendor.id);
@@ -771,6 +866,7 @@ export async function cancelOrderForCustomer(order, reason, via = "su cuenta") {
     // Mismo estado de origen exigido en el UPDATE: si la tienda lo cambió justo ahora, no se pisa.
     const claimed = await tx.order.updateMany({ where: { id: order.id, status: order.status }, data: { status: "CANCELLED", cancelReason: storedReason } });
     if (claimed.count === 0) throw new AppError("El pedido cambió de estado hace un momento. Revísalo e inténtalo de nuevo.", 409);
+    await reverseOrderLoyalty(order.id, tx);
     if (shouldRestock) {
       for (const item of items) {
         if (!item.productId || isUnlimited.get(item.productId)) continue;
@@ -803,8 +899,8 @@ export async function editOrderItemsForCustomer(order, rawItems, via = "su cuent
   if (!CUSTOMER_CAN_EDIT.includes(order.status)) {
     throw new AppError("Este pedido ya fue confirmado por la tienda, así que no se puede modificar. Puedes cancelarlo o escribirle a la tienda.", 400);
   }
-  if (order.discountCodeId) {
-    throw new AppError("Este pedido usó un código de descuento y no se puede modificar. Cancélalo y haz uno nuevo.", 400);
+  if (order.discountCodeId || order.loyaltyPointsRedeemed) {
+    throw new AppError(`Este pedido usó ${order.discountCodeId ? "un código de descuento" : "puntos de la tienda"} y no se puede modificar. Cancélalo y haz uno nuevo.`, 400);
   }
   const items = customerItemsSchema.parse(rawItems);
 

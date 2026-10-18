@@ -84,6 +84,13 @@ export default function Product() {
     setSelectedSize(null);
   }, [data?.product?.id]);
 
+  // Mirar un producto cuenta como visita a la tienda (recordatorio de puntos u ofertas a los 3 días, si no compra).
+  const productVendorId = data?.product?.vendorId;
+  useEffect(() => {
+    if (!productVendorId || user?.role !== "CUSTOMER") return;
+    api.post("/loyalty/visits", { vendorId: productVendorId }).catch(() => {});
+  }, [productVendorId, user?.role]);
+
   // Bloque 98 (pedido explícito): señales reales para el algoritmo de
   // "Destacados" (ver backend/src/lib/productRanking.js) — vista real
   // (dedupeada por sessionStorage: recargar la misma ficha en la misma

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { completenessScore } from "./productRanking.js";
 
 // Bloque 52 (pedido explícito — "que todo esté bien agrupado en la sección
 // de suscripciones... una concordancia con todo y una configuración
@@ -67,6 +68,12 @@ export async function getPlanLimit(vendor, key) {
 // "allowAiChatbot") PARA SU PLAN ACTUAL. Esto es el gate de "¿el plan lo
 // permite en absoluto?" — para "¿está Premium de verdad activo?" (plan +
 // verificación) usar isPremiumActive() además, donde corresponda.
+// Lo mismo que assertPlanAllows pero sin lanzar: para tareas automáticas (correos, pantallas públicas) que se saltan en silencio.
+export async function planAllows(planType, flag) {
+  const config = await getPlanConfig(planType);
+  return !!config?.[flag];
+}
+
 export async function assertPlanAllows(vendor, flag, message) {
   const config = await getPlanConfig(vendor.planType);
   if (!config?.[flag]) {
@@ -99,10 +106,9 @@ export async function recalcVendorProductQuota(vendorId) {
 
   const active = await prisma.product.findMany({
     where: { vendorId, isActive: true },
-    select: { id: true },
-    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true, quotaPinnedAt: true, salesCount: true, rating: true, reviewCount: true, images: true, description: true, tags: true, categoryId: true, badge: true },
   });
-  const withinQuota = new Set(active.slice(0, maxProducts).map((p) => p.id));
+  const withinQuota = new Set(rankForQuota(active).slice(0, maxProducts).map((p) => p.id));
 
   await prisma.$transaction([
     prisma.product.updateMany({
@@ -116,11 +122,35 @@ export async function recalcVendorProductQuota(vendorId) {
   ]);
 }
 
+// Qué productos quedan visibles cuando la tienda tiene más que su cupo (por ejemplo, al terminar la prueba gratis). Antes
+// ganaban los más recientes, y eso premiaba cargar muchos productos al final de la prueba. Ahora el orden es por mérito:
+//  1. los que la tienda eligió a mano para el cupo (el más reciente primero);
+//  2. los que vendieron de verdad;
+//  3. los mejor valorados por clientes, y después los de ficha más completa (fotos, descripción, categoría);
+//  4. a igualdad, el más antiguo: un producto con historia pesa más que uno recién creado.
+export function rankForQuota(products) {
+  return [...products].sort((a, b) => {
+    const pa = a.quotaPinnedAt ? new Date(a.quotaPinnedAt).getTime() : 0;
+    const pb = b.quotaPinnedAt ? new Date(b.quotaPinnedAt).getTime() : 0;
+    if (pa !== pb) return pb - pa;
+    if (b.salesCount !== a.salesCount) return b.salesCount - a.salesCount;
+    const ra = Number(a.rating) * Math.min(a.reviewCount, 5);
+    const rb = Number(b.rating) * Math.min(b.reviewCount, 5);
+    if (rb !== ra) return rb - ra;
+    const ca = completenessScore(a);
+    const cb = completenessScore(b);
+    if (cb !== ca) return cb - ca;
+    return new Date(a.createdAt) - new Date(b.createdAt);
+  });
+}
+
 // Intercambio explícito pedido por el dueño ("agregar un botón que luego de
 // eliminar algunos solo deberá activar otros para que sean visibles"): el
 // vendedor elige qué producto EXCEDENTE pasa a ocupar el cupo — nunca
 // automático. Si no hay cupo libre, baja de categoría al producto activo
 // menos prioritario (el más viejo) para hacerle lugar, en vez de fallar.
+const QUOTA_SWAPS_PER_DAY = 5;
+
 export async function swapProductQuota(vendorId, productIdToActivate) {
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { planType: true } });
   if (!vendor) throw new AppError("Tienda no encontrada.", 404);
@@ -129,25 +159,34 @@ export async function swapProductQuota(vendorId, productIdToActivate) {
   if (!target) throw new AppError("Producto no encontrado.", 404);
   if (!target.overQuota) return; // ya estaba dentro del cupo, nada que hacer
 
+  // Tope de cambios por día: sin él, una tienda podría ir rotando qué productos se ven y mostrar todo su catálogo con el
+  // cupo de un plan menor.
+  const swapsToday = await prisma.product.count({ where: { vendorId, quotaPinnedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
+  if (swapsToday >= QUOTA_SWAPS_PER_DAY) {
+    throw new AppError(`Puedes cambiar hasta ${QUOTA_SWAPS_PER_DAY} productos visibles por día. Prueba de nuevo mañana o pasa a Premium para publicarlos todos.`, 429);
+  }
+
   const maxProducts = await getPlanLimit(vendor, "maxProducts");
   if (maxProducts === null) {
-    await prisma.product.update({ where: { id: target.id }, data: { overQuota: false } });
+    await prisma.product.update({ where: { id: target.id }, data: { overQuota: false, quotaPinnedAt: new Date() } });
     return;
   }
 
   const withinQuotaCount = await prisma.product.count({ where: { vendorId, isActive: true, overQuota: false } });
   if (withinQuotaCount < maxProducts) {
-    await prisma.product.update({ where: { id: target.id }, data: { overQuota: false } });
+    await prisma.product.update({ where: { id: target.id }, data: { overQuota: false, quotaPinnedAt: new Date() } });
     return;
   }
 
-  // Sin lugar libre: el más viejo dentro del cupo le cede el puesto.
-  const oldestWithinQuota = await prisma.product.findFirst({
+  // Sin lugar libre: cede el puesto el que menos merece estar según rankForQuota (el último de la lista), y pierde su marca de
+  // "elegido a mano" para que no vuelva a entrar solo en el próximo recálculo.
+  const within = await prisma.product.findMany({
     where: { vendorId, isActive: true, overQuota: false },
-    orderBy: { createdAt: "asc" },
+    select: { id: true, createdAt: true, quotaPinnedAt: true, salesCount: true, rating: true, reviewCount: true, images: true, description: true, tags: true, categoryId: true, badge: true },
   });
+  const leaving = rankForQuota(within).at(-1);
   await prisma.$transaction([
-    prisma.product.update({ where: { id: target.id }, data: { overQuota: false } }),
-    ...(oldestWithinQuota ? [prisma.product.update({ where: { id: oldestWithinQuota.id }, data: { overQuota: true } })] : []),
+    prisma.product.update({ where: { id: target.id }, data: { overQuota: false, quotaPinnedAt: new Date() } }),
+    ...(leaving ? [prisma.product.update({ where: { id: leaving.id }, data: { overQuota: true, quotaPinnedAt: null } })] : []),
   ]);
 }

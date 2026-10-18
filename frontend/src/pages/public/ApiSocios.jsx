@@ -29,7 +29,7 @@ const ENDPOINTS = [
   { id: "categories", scope: "catalog:read", method: "GET", path: "/categories", title: "Categorías", desc: "Categorías y subcategorías de productos.", params: [] },
   { id: "business-categories", scope: "catalog:read", method: "GET", path: "/business-categories", title: "Tipos de negocio", desc: "Tipos de tienda disponibles.", params: [] },
   { id: "provinces", scope: "catalog:read", method: "GET", path: "/locations/provinces", title: "Provincias", desc: "Provincias y estados activos.", params: [] },
-  { id: "municipalities", scope: "catalog:read", method: "GET", path: "/locations/municipalities", title: "Municipios", desc: "Municipios de una provincia.", params: [["provinceId", "Obligatorio"]] },
+  { id: "municipalities", scope: "catalog:read", method: "GET", path: "/locations/municipalities", title: "Municipios y ciudades", desc: "Municipios de una provincia de Cuba o ciudades de un estado de otro país. En un pedido van en shippingMunicipalityId; en un estado, si la ciudad no está en la lista, puede enviarse escrita en shippingCity.", params: [["provinceId", "Obligatorio"]] },
   { id: "cart", scope: "cart:validate", method: "POST", path: "/cart/validate", title: "Validar carrito", desc: "Revisa precios vigentes, stock y totales por tienda y moneda. Un carrito con productos de más de una tienda es inválido (multiple_stores). No guarda nada.", params: [],
     body: '{\n  "items": [\n    { "productId": "ID_DEL_PRODUCTO", "quantity": 2 }\n  ]\n}' },
   { id: "checkout", scope: "cart:validate", method: "GET", path: "/stores/{slug}/checkout", title: "Requisitos del pedido", desc: "Campos del formulario, métodos de pago, provincias donde entrega la tienda, si está abierta y a dónde llega el pedido (panel, WhatsApp o ambos).", path_params: ["slug"], params: [] },
@@ -220,7 +220,7 @@ export default function ApiSocios() {
           <li>Crea el pedido con <code>POST /orders</code> y una cabecera <code>Idempotency-Key</code> única por pedido. Si repites la misma clave, recibes el mismo pedido y no se duplica.</li>
           <li>Si la tienda recibe por WhatsApp, abre <code>data.whatsapp.url</code> para que el cliente envíe el pedido. Si recibe por panel, ya le llegó al vendedor.</li>
         </ol>
-        <p>El precio y el total siempre los calcula Baznova. Se rechaza cualquier campo que no esté en el formulario, un teléfono sin código de país, un municipio que no sea de la provincia, una provincia donde la tienda no entrega, productos pausados o sin stock, y más de 60 pedidos en 5 minutos.</p>
+        <p>El precio y el total siempre los calcula Baznova. Se rechaza cualquier campo que no esté en el formulario, un teléfono sin código de país, un municipio o ciudad que no sea de esa provincia o estado, una provincia donde la tienda no entrega, productos pausados o sin stock, y más de 60 pedidos en 5 minutos.</p>
         <Code>{`curl -X POST "${BASE}/orders" \\\n  -H "Authorization: Bearer TU_CREDENCIAL" \\\n  -H "Idempotency-Key: pedido-2026-0001" \\\n  -H "Content-Type: application/json" \\\n  -d '{"storeSlug":"mi-tienda","channel":"cod","customerName":"Ana Pérez","customerPhone":"+5355512345","customerEmail":"ana@correo.com","shippingProvinceId":"ID","shippingMunicipalityId":"ID","shippingAddress":"Calle 1 entre 2 y 3","items":[{"productId":"ID","quantity":1}]}'`}</Code>
       </Section>
 

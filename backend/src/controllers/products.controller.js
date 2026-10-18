@@ -108,7 +108,19 @@ export const productSchema = z.object({
   // Moneda del producto — elegida por el vendedor al publicar, validada
   // contra SiteSettings.availableCurrencies. Por defecto USD.
   currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
+  // Código de barras para la caja (letras, números, guion o punto). Vacío = sin código.
+  barcode: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() || null : v),
+    z.string().regex(/^[A-Za-z0-9.-]{3,40}$/, "El código de barras admite de 3 a 40 letras o números.").nullable().optional()
+  ),
 });
+
+// Un código de barras identifica un solo producto dentro de la tienda (la caja lo busca por ese código).
+export async function assertBarcodeFree(vendorId, barcode, exceptProductId = null) {
+  if (!barcode) return;
+  const taken = await prisma.product.findFirst({ where: { vendorId, barcode, ...(exceptProductId ? { id: { not: exceptProductId } } : {}) }, select: { name: true } });
+  if (taken) throw new AppError(`El código ${barcode} ya es de "${taken.name}".`, 409);
+}
 
 // Bloque 143 (pedido explícito — "el stock siempre debe ponerse al crear
 // un producto, y si es ilimitado debe ponerse como ilimitado al crear un
@@ -684,6 +696,7 @@ export async function createProduct(req, res) {
   assertStockModeConsistent(data.sizes, data.unlimitedStock);
   assertTableRestrictionConsistent(data.tableRestricted, restrictedTableIds);
   await assertTablesOwnedByVendor(vendor.id, restrictedTableIds);
+  await assertBarcodeFree(vendor.id, data.barcode);
   // La columna Stock de la base no es nullable — a esta altura ya se
   // validó (createProductSchema) que si stock sigue sin definir es porque
   // el producto es ilimitado o tiene tallas (reconcileStock ya lo calculó
@@ -773,6 +786,7 @@ export async function updateProduct(req, res) {
     restrictedTableIds ?? existing.restrictedTables.map((t) => t.id)
   );
   await assertTablesOwnedByVendor(vendor.id, restrictedTableIds);
+  await assertBarcodeFree(vendor.id, data.barcode, existing.id);
   // Bloque 65: cada guardado re-sincroniza la moneda del producto con la de
   // la tienda — así un producto viejo que haya quedado con una moneda
   // distinta (ej. la tienda la cambió después) se normaliza solo la próxima

@@ -14,7 +14,7 @@ router.post(
   // Bloque 146: selfieVideo es opcional (maxCount 1, no falla si no llega
   // — ver submitVerification) — video corto de liveness capturado junto
   // con la selfie cuando el navegador soporta detección de rostro.
-  kycUpload.fields([{ name: "selfie", maxCount: 1 }, { name: "idDocument", maxCount: 1 }, { name: "selfieVideo", maxCount: 1 }]),
+  kycUpload.fields([{ name: "selfie", maxCount: 1 }, { name: "idDocument", maxCount: 1 }, { name: "idDocumentBack", maxCount: 1 }, { name: "selfieVideo", maxCount: 1 }]),
   verificationController.submitVerification
 );
 router.patch("/me/payment-method", authenticate, requireRole("VENDOR"), verificationController.chooseMyPaymentMethod);

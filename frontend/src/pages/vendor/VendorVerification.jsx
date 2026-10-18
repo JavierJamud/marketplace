@@ -1,16 +1,12 @@
 import { useEffect, useState } from "react";
-import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { Link, useSearchParams, useOutletContext, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Check, CreditCard, Landmark, ExternalLink, Sparkles, ArrowRight, Clock, Minus, Plus, RefreshCw, History, ShieldCheck } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
-import { Input } from "../../components/ui/Input.jsx";
-import { Select } from "../../components/ui/Select.jsx";
-import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { CameraCapture } from "../../components/CameraCapture.jsx";
+import { KycSubmitForm } from "../../components/vendor/KycSubmitForm.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { planFromSettings, STAGE_META } from "../../lib/verificationMeta.js";
 
@@ -290,8 +286,6 @@ export default function VendorVerification() {
   const navigate = useNavigate();
   const { vendor } = useOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [fullName, setFullName] = useState("");
-  const [idNumber, setIdNumber] = useState("");
   // Bloque 150 (pedido explícito): cuántos meses de adelanto paga el
   // vendedor — se elige junto con el método, un solo paso.
   const [months, setMonths] = useState(MIN_MONTHS);
@@ -305,30 +299,7 @@ export default function VendorVerification() {
   // ofrecía la forma de volver a abrirlo. Este flag fuerza a mostrar el
   // selector de nuevo bajo pedido explícito del vendedor.
   const [changingMethod, setChangingMethod] = useState(false);
-  const [selfieBlob, setSelfieBlob] = useState(null);
-  const [idBlob, setIdBlob] = useState(null);
-  // Bloque 146: opcional — solo se llena si el navegador soporta detección
-  // de rostro + MediaRecorder (ver CameraCapture.jsx). Nunca bloquea el
-  // envío si queda en null.
-  const [selfieVideoBlob, setSelfieVideoBlob] = useState(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
-  // Bloque 66 (pedido explícito): datos legales de la tienda, pedidos desde
-  // el arranque del trámite junto con los documentos — nunca en una fase
-  // posterior. Todos privados (nunca se exponen en el perfil público).
-  const [idDocumentType, setIdDocumentType] = useState("");
-  const [companyTaxId, setCompanyTaxId] = useState("");
-  // Bloque 165 (bug real reportado en vivo — una tienda llegaba a VERIFIED
-  // con esto vacío porque nunca se lo pedía en ningún lado): obligatorio
-  // desde el arranque del trámite, junto con el resto de los datos legales.
-  const [companyAddress, setCompanyAddress] = useState("");
-  // Bloque 247 (pedido explícito — "no deben quedar bloqueados los negocios"):
-  // país, provincia y municipio de registro legal salen del catálogo o se
-  // escriben a mano (mismo selector del registro). `stateOther` es el nombre
-  // que usa LocationPicker para la provincia escrita a mano.
-  const [legalLoc, setLegalLoc] = useState({ countryId: "", countryOther: "", provinceId: "", municipalityId: "", municipalityOther: "", stateOther: "" });
-  const [legalStatus, setLegalStatus] = useState({ error: "Cargando ubicación." });
-  const [legalPrefilled, setLegalPrefilled] = useState(false);
-
   // Bloque 144 (bug real reportado en vivo — mismo caso que ["my-vendor"]
   // en VendorLayout.jsx, ver el comentario largo ahí): esta es LA pantalla
   // que muestra si ya te aprobaron o no — un dato en caché de hasta 5
@@ -360,36 +331,6 @@ export default function VendorVerification() {
   const mergedPlans = [regularPlan, businessPlan].filter(Boolean);
   const currentPlan = vendor?.planType === "BUSINESS" ? businessPlan : regularPlan;
   const currentPlanFeatures = currentPlan?.features;
-
-  // Precarga la ubicación legal con lo que el negocio ya registró (primero lo
-  // que quedó de un envío anterior, si no, el lugar donde opera): así un
-  // negocio con una provincia escrita a mano en el registro no tiene que
-  // volver a buscarla en una lista donde todavía no aparece.
-  useEffect(() => {
-    if (legalPrefilled || !vendor) return;
-    const loc = vendor.locations?.[0];
-    const hasLegal = vendor.registrationCountryId || vendor.registrationCountryOther;
-    setLegalLoc(
-      hasLegal
-        ? {
-            countryId: vendor.registrationCountryId ?? "",
-            countryOther: vendor.registrationCountryOther ?? "",
-            provinceId: vendor.legalProvinceId ?? "",
-            municipalityId: vendor.legalMunicipalityId ?? "",
-            municipalityOther: vendor.legalMunicipalityOther ?? "",
-            stateOther: vendor.legalProvinceOther ?? "",
-          }
-        : {
-            countryId: loc?.countryId ?? "",
-            countryOther: loc?.countryOther ?? "",
-            provinceId: loc?.provinceId ?? "",
-            municipalityId: loc?.municipalityId ?? "",
-            municipalityOther: loc?.municipalityOther ?? "",
-            stateOther: loc?.stateOther ?? "",
-          }
-    );
-    setLegalPrefilled(true);
-  }, [vendor, legalPrefilled]);
 
   // Bloque 235: enviar los documentos KYC puede ser justo el último
   // requisito del checklist del trial gratuito (maybeAutoActivateTrial ya
@@ -426,40 +367,6 @@ export default function VendorVerification() {
     }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Aviso al salir con datos escritos o fotos tomadas que todavía no se enviaron. El trámite no se puede guardar a medias:
-  // solo se puede descartar o seguir completándolo.
-  useUnsavedGuard(!!(fullName || idNumber || companyTaxId || selfieBlob || idBlob || selfieVideoBlob || idDocumentType), undefined);
-
-  const submit = useMutation({
-    mutationFn: async () => {
-      const form = new FormData();
-      if (fullName) form.append("fullName", fullName);
-      form.append("idNumber", idNumber);
-      form.append("idDocumentType", idDocumentType);
-      if (companyTaxId) form.append("companyTaxId", companyTaxId);
-      form.append("companyAddress", companyAddress);
-      if (legalLoc.countryId) form.append("registrationCountryId", legalLoc.countryId);
-      if (legalLoc.countryOther.trim()) form.append("registrationCountryOther", legalLoc.countryOther.trim());
-      if (legalLoc.provinceId) form.append("legalProvinceId", legalLoc.provinceId);
-      if (legalLoc.stateOther.trim()) form.append("legalProvinceOther", legalLoc.stateOther.trim());
-      if (legalLoc.municipalityId) form.append("legalMunicipalityId", legalLoc.municipalityId);
-      if (legalLoc.municipalityOther.trim()) form.append("legalMunicipalityOther", legalLoc.municipalityOther.trim());
-      form.append("selfie", selfieBlob, "selfie.jpg");
-      form.append("idDocument", idBlob, "documento.jpg");
-      // Bloque 146: opcional — solo se manda si el navegador lo pudo grabar.
-      if (selfieVideoBlob) form.append("selfieVideo", selfieVideoBlob, "selfie-video.webm");
-      return (await api.post("/verification/me", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
-    },
-    onSuccess: () => {
-      toast.success(`Solicitud enviada. Un admin de ${settings?.siteName || "Baznova"} va a revisar tus documentos pronto.`);
-      setSelfieBlob(null);
-      setIdBlob(null);
-      setSelfieVideoBlob(null);
-      invalidate();
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo enviar la solicitud."),
-  });
 
   const choosePaymentMethod = useMutation({
     mutationFn: async (method) => (await api.patch("/verification/me/payment-method", { method, months })).data,
@@ -507,31 +414,6 @@ export default function VendorVerification() {
   const stepStates = computeStepStates(status, !!data?.paymentClaimedAt);
   const canSubmitDocs = status === "NOT_STARTED" || status === "REJECTED";
   const isBusiness = vendor?.planType === "BUSINESS";
-  // Bloque 66: mismo mínimo que exige submitVerification server-side — se
-  // avisa acá antes de intentar enviar, en vez de dejar que el 400 del
-  // backend sea la primera noticia.
-  const descriptionTooShort = !vendor?.description || vendor.description.trim().length < 30;
-  const canSubmit =
-    !submit.isPending &&
-    !!selfieBlob &&
-    !!idBlob &&
-    !!idDocumentType &&
-    // Bloque 153 (pedido explícito): el nombre del responsable pasa a ser
-    // obligatorio para poder enviar — mismo mínimo que exige el backend.
-    fullName.trim().length >= 2 &&
-    // Bloque 165 (pedido explícito — "esos son campos obligatorios a
-    // llenar antes de verificar la tienda"): idNumber y companyAddress se
-    // suman a la lista de obligatorios — antes idNumber era opcional y
-    // companyAddress ni se pedía, lo que dejaba tiendas VERIFIED con estos
-    // datos vacíos y sin forma de completarlos después (ver
-    // updateMyVendor, backend, candado de identidad).
-    idNumber.trim().length >= 4 &&
-    companyAddress.trim().length > 0 &&
-    // Un país o provincia escrito a mano también cuenta (ver LocationPicker):
-    // con un país escrito a mano la provincia del registro legal es un texto.
-    (!!legalLoc.countryOther.trim() ? !!legalLoc.stateOther.trim() : !legalStatus.error) &&
-    !descriptionTooShort;
-
   // Bloque 150 (pedido explícito — "el cliente podrá seleccionar cuántos
   // meses desea pagar... si no se realiza el pago y se confirma,
   // automáticamente se deberán enviar nuevos datos"): ya no hay ninguna
@@ -705,129 +587,7 @@ export default function VendorVerification() {
         </>
       )}
 
-      {canSubmitDocs && (
-        <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
-          <div className="mb-1 text-[15px] font-bold text-on-surface">Documentos</div>
-          <p className="mb-4 text-[12.5px] text-outline">
-            Privados y cifrados. Captura en vivo desde tu cámara — no se acepta subir fotos de la galería.
-          </p>
-
-          {descriptionTooShort && (
-            <p className="mb-4 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
-              ⚠️ Tu tienda necesita una descripción de al menos 30 caracteres antes de verificarte —{" "}
-              <Link to="/vendedor/configuracion" className="underline">
-                edítala en Configuración
-              </Link>
-              .
-            </p>
-          )}
-
-          <div className="mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <Input label="Nombre completo del responsable" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
-            <Input label="Número de identidad" required value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
-          </div>
-
-          <div className="mb-4">
-            <Select label="Tipo de documento" required value={idDocumentType} onChange={(e) => setIdDocumentType(e.target.value)}>
-              <option value="" disabled>Elige cuál presentas...</option>
-              <option value="NATIONAL_ID">Carné de identidad</option>
-              <option value="PASSPORT">Pasaporte</option>
-              <option value="INTERNATIONAL_ID">Carné de extranjería</option>
-            </Select>
-          </div>
-
-          <p className="mb-1 text-[13px] font-bold text-on-surface">Datos legales de la tienda</p>
-          <p className="mb-3 text-label-sm text-outline">
-            Privados — nunca se muestran en tu perfil público (eso se configura aparte).
-          </p>
-          <div className="mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <Input
-              label={vendor?.ownerIdNumber ? "ID fiscal de la empresa (opcional, ya tienes ID personal)" : "ID fiscal de la empresa"}
-              value={companyTaxId}
-              onChange={(e) => setCompanyTaxId(e.target.value)}
-            />
-            <div className="sm:col-span-2">
-              <LocationPicker
-                value={legalLoc}
-                onChange={(patch) => setLegalLoc((prev) => ({ ...prev, ...patch }))}
-                onStatus={setLegalStatus}
-                labels={{
-                  country: "País de registro legal",
-                  countryOther: "Escribe el país de registro legal",
-                  province: "Provincia o estado de registro legal",
-                  provinceOther: "Escribe la provincia o estado de registro legal",
-                  municipality: "Municipio de registro legal",
-                  municipalityOther: "Escribe el municipio de registro legal",
-                }}
-              />
-              {legalLoc.countryOther.trim() && (
-                <div className="mt-4">
-                  <Input
-                    label="Provincia o estado de registro legal"
-                    required
-                    maxLength={80}
-                    value={legalLoc.stateOther}
-                    onChange={(e) => setLegalLoc((prev) => ({ ...prev, stateOther: e.target.value }))}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="sm:col-span-2">
-              <Input
-                label="Dirección de la empresa"
-                required
-                value={companyAddress}
-                onChange={(e) => setCompanyAddress(e.target.value)}
-                placeholder="Ej.: Calle 23 #456, Vedado, La Habana"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-            <div>
-              {/* Bloque 146 (pedido explícito — "debe indicar que tiene que
-                  ser la foto de la persona responsable, debe coincidir con
-                  la foto del documento de identidad"): esta aclaración
-                  vivía en ningún lado antes — el óvalo no explicaba para
-                  qué es ni contra qué se compara. */}
-              <p className="mb-1.5 text-[11.5px] text-outline">
-                Foto de la cara de la persona responsable — tiene que coincidir con la foto del documento de identidad que subes al
-                lado.
-              </p>
-              <CameraCapture
-                shape="oval"
-                label="Foto del responsable"
-                instructions="Centra tu cara dentro del óvalo"
-                facingMode="user"
-                onCaptured={setSelfieBlob}
-                onVideoCaptured={setSelfieVideoBlob}
-              />
-            </div>
-            <div>
-              <p className="mb-1.5 text-[11.5px] text-outline">
-                Documento de identidad, bien enfocado y legible — el mismo tipo que elegiste arriba.
-              </p>
-              <CameraCapture
-                shape="rect"
-                label="Documento de identidad"
-                instructions="Alinea el documento dentro del marco"
-                facingMode="environment"
-                onCaptured={setIdBlob}
-              />
-            </div>
-          </div>
-
-          <Button className="mt-4" onClick={() => submit.mutate()} disabled={!canSubmit}>
-            {submit.isPending ? "Enviando..." : "Enviar solicitud"}
-          </Button>
-          {!canSubmit && (
-            <p className="mt-2 text-label-sm text-outline">
-              Captura la selfie y el documento, escribe el nombre del responsable, elige el tipo de documento, y completa el país/provincia
-              de registro para poder enviar.
-            </p>
-          )}
-        </div>
-      )}
+      {canSubmitDocs && <KycSubmitForm vendor={vendor} siteName={settings?.siteName} onSubmitted={invalidate} />}
 
       {/* Bloque 145 (pedido explícito — "el cliente debe recibir la
           información que diga que esa aprobación será válida por 24 horas

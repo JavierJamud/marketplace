@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isValidPhoneNumber, parsePhoneNumberFromString, getCountryCallingCode } from "libphonenumber-js";
+import { isValidPhoneNumber, parsePhoneNumberFromString, getCountryCallingCode, getCountries } from "libphonenumber-js";
 import { ComboSelect } from "./ComboSelect.jsx";
 import { Flag } from "./Flag.jsx";
 import { usePhoneCountries } from "../../lib/usePhoneCountries.js";
@@ -11,8 +11,32 @@ import { splitE164, toE164 } from "../../lib/phone.js";
 // cliente no está, se le explica cómo pedir que lo activen. El valor que sale por onChange siempre es E.164 completo
 // (+5355512345), listo para guardar y para armar enlaces wa.me sin transformar.
 // onCountryChange (opcional) recibe el código ISO del país elegido (el registro lo guarda junto al teléfono).
-export function PhoneInput({ label, value, onChange, onCountryChange, required, placeholder, error, hideMissingCountryHelp = false }) {
-  const { countries, isLoading, isError } = usePhoneCountries();
+// anyCountry: acepta números de cualquier país del mundo, no solo los habilitados (contacto de quien compra en el checkout:
+// puede estar fuera del país de la tienda).
+const PRIORITY = ["CU", "US", "MX", "ES"];
+function allCountries() {
+  let names;
+  try {
+    names = new Intl.DisplayNames(["es"], { type: "region" });
+  } catch {
+    names = null;
+  }
+  return getCountries()
+    .map((code) => ({ code, name: names?.of(code) ?? code, callingCode: getCountryCallingCode(code) }))
+    .sort((a, b) => {
+      const pa = PRIORITY.indexOf(a.code);
+      const pb = PRIORITY.indexOf(b.code);
+      if (pa !== -1 || pb !== -1) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
+      return a.name.localeCompare(b.name, "es");
+    });
+}
+
+export function PhoneInput({ label, value, onChange, onCountryChange, required, placeholder, error, hideMissingCountryHelp = false, anyCountry = false }) {
+  const enabled = usePhoneCountries();
+  const world = useMemo(() => (anyCountry ? allCountries() : null), [anyCountry]);
+  const countries = world ?? enabled.countries;
+  const isLoading = world ? false : enabled.isLoading;
+  const isError = world ? false : enabled.isError;
   const { siteName, supportWhatsapp } = usePlatformSettings();
   const initial = splitE164(value);
   const [country, setCountry] = useState(initial.country);
@@ -139,7 +163,7 @@ export function PhoneInput({ label, value, onChange, onCountryChange, required, 
       </div>
 
       {isError && <p className="text-label-sm text-error">No pudimos cargar la lista de países. Recarga la página.</p>}
-      {!hideMissingCountryHelp && !isError && (
+      {!hideMissingCountryHelp && !anyCountry && !isError && (
         <p className="text-[12px] leading-[17px] text-on-surface-variant">
           ¿Tu país no está en la lista? Todavía no lo hemos habilitado: contacta a soporte para pedir que lo activen,{" "}
           <a href={contactHref} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">

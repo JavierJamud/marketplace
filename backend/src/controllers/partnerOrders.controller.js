@@ -105,8 +105,8 @@ export async function getCheckoutRequirements(req, res) {
         { name: "customerPhone", required: true, format: "E.164 con código de país, ej. +5355512345", label: "Teléfono" },
         { name: "customerEmail", required: true, format: "correo válido", label: "Correo" },
         { name: "shippingProvinceId", required: true, label: "Provincia o estado (usa la lista delivery.provinces)" },
-        { name: "shippingMunicipalityId", required: "si la provincia no es de tipo STATE", label: "Municipio de esa provincia (GET /locations/municipalities)" },
-        { name: "shippingCity", required: "solo si la provincia es de tipo STATE", label: "Ciudad" },
+        { name: "shippingMunicipalityId", required: "en provincias (PROVINCE); en estados (STATE), esto o shippingCity", label: "Municipio o ciudad de esa provincia o estado (GET /locations/municipalities)" },
+        { name: "shippingCity", required: "solo en estados (STATE) y si no envías shippingMunicipalityId", label: "Ciudad escrita, cuando no está en la lista" },
         { name: "shippingAddress", required: true, min: 5, max: 300, label: "Dirección" },
         { name: "items", required: true, max: 50, label: "Productos: { productId, quantity, size? } (size solo si el producto tiene tallas)" },
         { name: "discountCode", required: false, label: "Código de descuento de la tienda" },
@@ -201,19 +201,20 @@ export async function createPartnerOrder(req, res) {
   // Cobertura geográfica: la provincia existe, y el municipio (o ciudad, en estados) es coherente con ella.
   const province = await prisma.province.findUnique({ where: { id: body.shippingProvinceId } });
   if (!province || !province.isActive) throw new AppError("La provincia o estado indicado no existe.", 400);
+  // Provincias (Cuba): municipio del catálogo obligatorio. Estados: la ciudad del catálogo (shippingMunicipalityId) o, si no
+  // está en la lista, escrita (shippingCity); la forma escrita sigue valiendo para los socios que ya la usan.
   let place;
-  if (province.type === "STATE") {
-    if (!body.shippingCity) throw new AppError("Falta la ciudad (shippingCity) para esta provincia o estado.", 400);
-    if (body.shippingMunicipalityId) throw new AppError("Esta provincia o estado no usa municipios; envía shippingCity.", 400);
-    place = body.shippingCity;
-  } else {
-    if (!body.shippingMunicipalityId) throw new AppError("Falta el municipio (shippingMunicipalityId).", 400);
+  if (body.shippingMunicipalityId) {
     const municipality = await prisma.municipality.findUnique({ where: { id: body.shippingMunicipalityId } });
     if (!municipality || !municipality.isActive || municipality.provinceId !== province.id) {
-      throw new AppError("El municipio no pertenece a la provincia indicada.", 400);
+      throw new AppError(`${province.type === "STATE" ? "La ciudad" : "El municipio"} no pertenece a la provincia o estado indicado.`, 400);
     }
-    if (body.shippingCity) throw new AppError("Esta provincia usa municipios; no envíes shippingCity.", 400);
     place = municipality.name;
+  } else if (province.type === "STATE") {
+    if (!body.shippingCity) throw new AppError("Falta la ciudad: envía shippingMunicipalityId (de GET /locations/municipalities) o shippingCity.", 400);
+    place = body.shippingCity;
+  } else {
+    throw new AppError("Falta el municipio (shippingMunicipalityId).", 400);
   }
 
   const data = {

@@ -51,7 +51,7 @@ export async function planFactsForPrompt() {
   const { regular, business, pricing } = await getPlansFacts();
   const line = (p, price) =>
     p
-      ? `- ${p.displayName} (${price}): productos ${limit(p.maxProducts)}; provincias ${limit(p.maxProvinces)}; mesas QR ${p.allowQrTables ? limit(p.maxTables) : "no"}; usuarios de equipo ${p.allowStaffUsers ? limit(p.maxStaffUsers) : "no"}; pedidos por WhatsApp ${yesNo(p.allowWhatsappOrders)}, por panel ${yesNo(p.allowPanelOrders)}; destacada en la Home ${yesNo(p.featuredInHome)}; asistente de IA ${yesNo(p.allowAiChatbot)}${p.features?.length ? `; beneficios: ${p.features.join(", ")}` : ""}.`
+      ? `- ${p.displayName} (${price}): productos ${limit(p.maxProducts)}; provincias ${limit(p.maxProvinces)}; mesas QR ${p.allowQrTables ? limit(p.maxTables) : "no"}; usuarios de equipo ${p.allowStaffUsers ? limit(p.maxStaffUsers) : "no"}; pedidos por WhatsApp ${yesNo(p.allowWhatsappOrders)}, por panel ${yesNo(p.allowPanelOrders)}; destacada en la Home ${yesNo(p.featuredInHome)}; asistente de IA ${yesNo(p.allowAiChatbot)}; caja ${yesNo(p.allowPos)}; fidelidad ${yesNo(p.allowLoyalty)}; correos a clientes ${yesNo(p.allowCustomerEmails)}${p.features?.length ? `; beneficios: ${p.features.join(", ")}` : ""}.`
       : null;
   return [line(regular, "gratis"), line(business, businessPriceText(pricing))].filter(Boolean).join("\n");
 }
@@ -75,6 +75,9 @@ export async function plansAnswer() {
     ["Ofertas de tienda activas", r?.allowStoreOffers ? limit(r?.maxActiveStoreOffers) : "No", b?.allowStoreOffers ? limit(b?.maxActiveStoreOffers) : "No"],
     ["Códigos de descuento", r?.allowDiscountCodes ? limit(r?.maxDiscountCodes) : "No", b?.allowDiscountCodes ? limit(b?.maxDiscountCodes) : "No"],
     ["Asistente de IA en tu tienda", yesNo(r?.allowAiChatbot), yesNo(b?.allowAiChatbot)],
+    ["Caja con código de barras", yesNo(r?.allowPos), yesNo(b?.allowPos)],
+    ["Programa de fidelidad", yesNo(r?.allowLoyalty), yesNo(b?.allowLoyalty)],
+    ["Correos a tus clientes", yesNo(r?.allowCustomerEmails), yesNo(b?.allowCustomerEmails)],
     ["Destacada en la Home y búsquedas", yesNo(r?.featuredInHome), yesNo(b?.featuredInHome)],
     ["Insignia de tienda verificada", "No", "Sí, tras la verificación"],
   ];

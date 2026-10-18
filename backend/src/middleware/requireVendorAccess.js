@@ -1,5 +1,15 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { planAllows } from "../lib/planConfig.js";
+
+// Usuarios del equipo: son del plan de pago. Si la tienda bajó de plan, las cuentas se conservan pero no entran hasta que vuelva.
+async function assertStaffPlan(staff) {
+  if (!staff) return;
+  const vendor = await prisma.vendor.findUnique({ where: { id: staff.vendorId }, select: { planType: true } });
+  if (vendor && !(await planAllows(vendor.planType, "allowStaffUsers"))) {
+    throw new AppError("El plan actual de la tienda no incluye usuarios del equipo. Pide al dueño que cambie de plan.", 403, { planRequired: "allowStaffUsers" });
+  }
+}
 
 // Bloque 183 (pedido explícito — "solo le va a salir la sección de pedidos
 // o la que él designe... las demás secciones él no las verá"): reemplaza
@@ -30,6 +40,7 @@ export function requireVendorAccess(...sections) {
       const staff = await prisma.vendorStaff.findUnique({ where: { userId: req.user.id } });
       const hasAccess = sections.length === 0 || sections.some((s) => staff?.allowedSections.includes(s));
       if (staff?.isActive && hasAccess) {
+        await assertStaffPlan(staff);
         req.vendorStaff = staff; // Disponible para quien lo necesite (ver vendorStaff.controller.js).
         return next();
       }
@@ -69,6 +80,7 @@ export function requireVendorWrite(...sections) {
           ? staff?.allowedSections.length > 0
           : sections.some((s) => staff?.allowedSections.includes(s) && staffSectionLevel(staff, s) === "manage");
       if (staff?.isActive && hasWriteAccess) {
+        await assertStaffPlan(staff);
         req.vendorStaff = staff;
         return next();
       }

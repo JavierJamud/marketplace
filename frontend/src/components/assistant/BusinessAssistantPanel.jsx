@@ -559,6 +559,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
             <Plus className="h-4 w-4" aria-hidden="true" />
             Nueva conversación
           </button>
+          <p className="mb-2 px-1 text-[12px] leading-[17px] text-outline">Cada vez que entras al panel empieza una conversación nueva. Las anteriores quedan aquí y se borran solas a los 30 días sin usarlas.</p>
           {conversations.length === 0 ? (
             <p className="m-auto max-w-[260px] py-8 text-center text-[13px] text-on-surface-variant">Todavía no tienes conversaciones guardadas. Haz tu primera pregunta y aparecerá aquí.</p>
           ) : (

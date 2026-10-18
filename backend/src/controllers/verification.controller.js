@@ -13,7 +13,7 @@ import { getBrandSettings, getSubscriptionPricing } from "./settings.controller.
 // segundo consumidor real de este mismo "avisar al admin ya" (ver lib/adminNotify.js).
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
-import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
+import { maybeAutoActivateTrial, missingBeforeVerification } from "../services/trialEligibility.service.js";
 import { resolveLegalLocation } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
@@ -189,6 +189,13 @@ export async function submitVerification(req, res) {
     throw new AppError(`Ya tienes una solicitud en curso — espera la resolución del equipo de ${siteName}.`, 409);
   }
 
+  // La insignia exige la tienda completa: datos, descripción, dónde opera, logo y un producto publicado van antes que los
+  // documentos (el asistente "Completa tu tienda" los pide en ese orden). Se revisa antes de mirar las fotos.
+  const missing = await missingBeforeVerification(vendor.id);
+  if (missing.length > 0) {
+    throw new AppError(`Antes de enviar tus documentos completa: ${missing.map((m) => m.label.toLowerCase()).join(", ")}.`, 400, { missing: missing.map((m) => m.key) });
+  }
+
   const data = submitSchema.parse(req.body);
   // Se valida la ubicación ANTES de procesar las fotos: un dato mal armado no
   // debe dejar archivos guardados de un envío que se va a rechazar.
@@ -202,6 +209,8 @@ export async function submitVerification(req, res) {
   });
   const selfieFile = req.files?.selfie?.[0];
   const idFile = req.files?.idDocument?.[0];
+  // Reverso del documento: obligatorio salvo con pasaporte, que no tiene reverso.
+  const idBackFile = req.files?.idDocumentBack?.[0];
   // Bloque 146: opcional a propósito — el navegador puede no soportar
   // detección de rostro/MediaRecorder (Safari/Firefox viejos), en cuyo caso
   // CameraCapture.jsx nunca graba nada y este campo simplemente no llega.
@@ -210,10 +219,17 @@ export async function submitVerification(req, res) {
   if (!selfieFile || !idFile) {
     throw new AppError("Necesitas capturar la selfie y el documento con la cámara antes de enviar.", 400);
   }
+  if (data.idDocumentType !== "PASSPORT" && !idBackFile) {
+    throw new AppError("Falta la foto del reverso del documento.", 400);
+  }
 
-  const [selfieCheck, idCheck] = await Promise.all([validateKycImage(selfieFile.filename), validateKycImage(idFile.filename)]);
-  if (!selfieCheck.ok || !idCheck.ok) {
-    const reasons = [!selfieCheck.ok && `selfie (${selfieCheck.reason})`, !idCheck.ok && `documento (${idCheck.reason})`].filter(Boolean).join("; ");
+  const [selfieCheck, idCheck, backCheck] = await Promise.all([
+    validateKycImage(selfieFile.filename),
+    validateKycImage(idFile.filename),
+    idBackFile ? validateKycImage(idBackFile.filename) : { ok: true },
+  ]);
+  if (!selfieCheck.ok || !idCheck.ok || !backCheck.ok) {
+    const reasons = [!selfieCheck.ok && `selfie (${selfieCheck.reason})`, !idCheck.ok && `documento (${idCheck.reason})`, !backCheck.ok && `reverso (${backCheck.reason})`].filter(Boolean).join("; ");
     throw new AppError(`No se pudo procesar la captura: ${reasons}. Vuelve a intentarlo.`, 400);
   }
 
@@ -224,7 +240,7 @@ export async function submitVerification(req, res) {
   // hace falta ningún chequeo en tiempo de ejecución acá.
   if (!vendor.description || vendor.description.trim().length < MIN_DESCRIPTION_LENGTH) {
     throw new AppError(
-      `Completa la descripción de tu tienda (mínimo ${MIN_DESCRIPTION_LENGTH} caracteres) antes de verificarte — puedes editarla en Configuración.`,
+      `Completa la descripción de tu tienda (mínimo ${MIN_DESCRIPTION_LENGTH} caracteres) antes de verificarte. Está en Completa tu tienda, paso "Datos de tu tienda".`,
       400
     );
   }
@@ -263,6 +279,7 @@ export async function submitVerification(req, res) {
     idDocumentType: data.idDocumentType,
     selfieUrl: selfieFile.filename,
     idPhotoFrontUrl: idFile.filename,
+    idPhotoBackUrl: data.idDocumentType !== "PASSPORT" ? idBackFile?.filename ?? null : null,
     selfieVideoUrl: selfieVideoFile?.filename ?? null,
     notes: null,
     // Reinicia cualquier rastro de un ciclo de pago anterior (relevante si
@@ -817,7 +834,9 @@ export async function getVerificationFile(req, res) {
         ? vendor.verification.paymentProofUrl
         : type === "video"
           ? vendor.verification.selfieVideoUrl
-          : vendor.verification.idPhotoFrontUrl;
+          : type === "idBack"
+            ? vendor.verification.idPhotoBackUrl
+            : vendor.verification.idPhotoFrontUrl;
   if (!filename) throw new AppError("Documento no encontrado.", 404);
 
   // Encontrado durante verificación en vivo del Bloque 49 (VendorProfile.jsx

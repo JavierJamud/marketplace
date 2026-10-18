@@ -114,3 +114,22 @@ export const errorReportRateLimit = rateLimit({
   legacyHeaders: false,
   message: { error: "Ya enviaste varios reportes. Prueba de nuevo en unos minutos." },
 });
+
+// Pantallas públicas de la caja (cliente en el mostrador y tablero de pedidos): consultan cada 1,5 s, así que el tope es por
+// minuto y amplio; solo corta a quien pregunta mucho más rápido que una pantalla real.
+// Aviso de "la app instalada se abrió": uno por apertura; el tope solo frena abusos.
+export const appInstallRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas solicitudes." },
+});
+
+export const posDisplayRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas consultas. La pantalla se actualizará en un momento." },
+});

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Store, BadgeCheck } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
@@ -41,6 +41,20 @@ export function SearchBar() {
   const debounceRef = useRef(null);
   const requestIdRef = useRef(0);
 
+  // Lo escrito no queda "pegado" al cambiar de página: en los resultados (/catalogo) la barra muestra lo que se está
+  // buscando (lo que dice la dirección); en cualquier otra página, incluida la principal, se vacía.
+  const location = useLocation();
+  const syncedRef = useRef(null); // texto puesto por la página (no escrito): no abre sugerencias
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const onResults = location.pathname === "/catalogo";
+    const next = onResults ? params.get("q") ?? "" : "";
+    syncedRef.current = next;
+    setQ(next);
+    setOnlyVerified(onResults && params.get("onlyVerified") === "true");
+    setOpen(false);
+  }, [location.pathname, location.search]);
+
   useEffect(() => {
     function onClickOutside(e) {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -59,7 +73,7 @@ export function SearchBar() {
   useEffect(() => {
     clearTimeout(debounceRef.current);
     const trimmed = q.trim();
-    if (trimmed.length < MIN_CHARS) {
+    if (trimmed.length < MIN_CHARS || q === syncedRef.current) {
       setResults([]);
       setVendorResults([]);
       setCategoryResults([]);
@@ -121,7 +135,7 @@ export function SearchBar() {
       <form onSubmit={handleSubmit} className="flex h-11 items-center rounded-2xl bg-black/20 pl-3.5 pr-0.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-shadow focus-within:shadow-[inset_0_1px_2px_rgba(0,0,0,0.25),inset_0_0_0_2px_rgba(255,255,255,0.5)]">
         <input
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { syncedRef.current = null; setQ(e.target.value); }}
           onFocus={() => (results.length > 0 || vendorResults.length > 0) && setOpen(true)}
           placeholder="Buscar productos"
           aria-label="Buscar productos y tiendas"

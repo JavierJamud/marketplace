@@ -2,6 +2,8 @@ import { Router } from "express";
 import * as tablesController from "../controllers/tables.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
+import { orderStatusRateLimit } from "../middleware/rateLimit.js";
+import * as posController from "../controllers/pos.controller.js";
 
 const router = Router();
 
@@ -74,6 +76,8 @@ router.patch("/orders/:tableOrderId/cancel", authenticate, requireVendorWrite("p
 // Público (cliente escaneando el QR)
 router.get("/qr/:qrToken", tablesController.getTableByToken);
 router.post("/qr/:qrToken/order", tablesController.createTableOrder);
+// Pedido hecho en la caja y mandado a mesa: el cliente escribe su número en la página de la mesa.
+router.post("/qr/:qrToken/claim-pos", orderStatusRateLimit, posController.claimForTable);
 // Bloque 158: seguimiento del pedido ya enviado — sin login, el `id` (cuid)
 // es el token de acceso, igual que qrToken arriba.
 router.get("/order/:id", tablesController.getTableOrderStatus);

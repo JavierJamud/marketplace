@@ -39,6 +39,8 @@ export function usePlatformSettings() {
   });
   return {
     siteName: data?.siteName || DEFAULT_SITE_NAME,
+    // Si el admin apagó la PWA no se ofrece instalar la app (botones del footer).
+    pwaEnabled: data ? data.pwaEnabled !== false : false,
     // Bloque 290: zona horaria de la plataforma, para el saludo y la hora de los paneles.
     timezone: data?.timezone || null,
     // Bloque 294: tope de mesas por plan ({ REGULAR: 10, BUSINESS: null }); null = sin tope.

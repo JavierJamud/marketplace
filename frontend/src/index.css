@@ -353,3 +353,22 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 600px;
 }
+
+/* Avisos (Sileo, ver components/ui/AppToaster.jsx).
+   - Encima de modales y paneles: el aviso de "guardado" o de error se tiene que ver aunque haya un modal abierto.
+   - Ancho: nunca más que la pantalla (Sileo trae 350px fijos y en teléfonos de 360px se salía).
+   - Título como se escribió: Sileo pone mayúscula en cada palabra, que en español se lee mal.
+   - Descripción más clara sobre el azul marino (contraste AA). */
+:root {
+  --sileo-width: min(350px, calc(100vw - 1.5rem));
+}
+[data-sileo-viewport] {
+  z-index: 10000;
+}
+[data-sileo-title] {
+  text-transform: none;
+  font-weight: 600;
+}
+[data-sileo-viewport][data-theme="light"] [data-sileo-description] {
+  color: rgba(255, 255, 255, 0.78);
+}

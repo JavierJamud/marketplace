@@ -228,6 +228,10 @@ enum EmailType {
   ACCOUNT_DELETION_REMINDER
   ACCOUNT_DELETION_REACTIVATED
   ACCOUNT_DELETION_COMPLETED
+  // Recordatorios automáticos al cliente (loyalty.job.js): carrito sin terminar y "volviste a mirar esta tienda" (puntos u
+  // oferta). Respetan User.marketingEmails.
+  CART_REMINDER
+  STORE_REMINDER
 }
 
 enum EmailStatus {
@@ -479,7 +483,11 @@ model Product {
   // `sizes` (cada talla sí necesita su propio stock real, ver
   // assertStockModeConsistent en products.controller.js).
   unlimitedStock Boolean @default(false)
+  // Código de barras (EAN, UPC o propio de la tienda) para venderlo escaneando en la caja. Único dentro de cada tienda.
   barcode     String?
+  // La tienda eligió a mano que este producto ocupe su cupo de productos visibles (ver swapProductQuota). Pesa primero al
+  // recalcular el cupo; el tope de cambios por día se cuenta con esta fecha.
+  quotaPinnedAt DateTime?
   images      String[] @default([])
   badge       String?
   // Bloque 52: tallas (pedido explícito) — letras (XS/S/M/L...) o números
@@ -747,6 +755,9 @@ model ProductOption {
 // ---------------------------------------------------------------------------
 
 model User {
+  // Categorías de aviso push que esta persona silenció.
+  pushMuted String[] @default([])
+  pushSubscriptions PushSubscription[]
   // Bloque 299: si es una cuenta PARTNER, el socio al que pertenece.
   partnerAccount Partner? @relation("PartnerPortalUser")
   id           String   @id @default(cuid())
@@ -909,10 +920,38 @@ model User {
   // Bloque 229 (Fase 2): anomalías de ranking que este admin revisó — ver
   // RankingAnomaly más abajo.
   rankingAnomaliesReviewed RankingAnomaly[] @relation("RankingAnomalyReviewedBy")
+  loyaltyAccounts LoyaltyAccount[]
+  storeVisits     StoreVisit[]
+  // Recordatorios de carrito, de puntos y ofertas de tiendas que visitó. Se apagan desde el perfil o desde el enlace del correo.
+  marketingEmails      Boolean   @default(true)
+  // Último de esos correos: entre uno y otro pasan al menos 3 días, sea de la tienda que sea.
+  lastMarketingEmailAt DateTime?
 
   // Bloque 241: lista de clientes del admin (filtra por rol y ordena por
   // fecha de registro con miles de filas).
   @@index([role, createdAt])
+
+  appInstalls AppInstall[]
+}
+
+// Una aplicación instalada (Marketplace, Tienda o Admin) en un dispositivo. La app guarda `installId` en el dispositivo y
+// avisa cada vez que se abre (lastSeenAt). Ver controllers/appInstalls.controller.js.
+model AppInstall {
+  id              String   @id @default(cuid())
+  installId       String
+  app             String // CLIENT | VENDOR | ADMIN
+  platform        String // android | ios | desktop
+  userId          String?
+  userAgent       String?
+  identityVersion Int      @default(1)
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([installId, app])
+  @@index([userId, app])
+  @@index([lastSeenAt])
 }
 
 // Bloque 60: reemplaza el refresh token JWT sin estado por uno opaco
@@ -1044,6 +1083,12 @@ model PlanConfig {
   allowWhatsappOrders Boolean @default(true)
   allowPanelOrders    Boolean @default(true)
   featuredInHome      Boolean @default(false)
+  allowLoyalty        Boolean @default(true)
+  // Caja con código de barras (ventas de mostrador, pantallas de cliente y movimientos de dinero).
+  allowPos            Boolean @default(true)
+  // Correos a clientes con el nombre de la tienda (pedidos, mensajes, facturas, reseñas, recordatorios) y correos automáticos
+  // de gestión (stock bajo, cierre de caja). Los correos de seguridad y de cuenta no dependen del plan.
+  allowCustomerEmails Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1324,6 +1369,14 @@ model Vendor {
   // reutiliza las señales de la Fase 1"): anomalías detectadas por los
   // crons de reseñas/clics contra esta tienda, ver RankingAnomaly más abajo.
   rankingAnomalies RankingAnomaly[]
+  // Programa de puntos de la tienda y los saldos de sus clientes.
+  loyaltyProgram  LoyaltyProgram?
+  loyaltyAccounts LoyaltyAccount[]
+  storeVisits     StoreVisit[]
+  // Caja con código de barras: ventas de mostrador, movimientos de caja y pantallas públicas.
+  posSales    PosSale[]
+  cashEntries CashEntry[]
+  posSettings PosSettings?
 
   // Bloque 241: lista de tiendas del admin (filtro por plan, orden por fecha).
   @@index([planType, createdAt])
@@ -1702,6 +1755,9 @@ model Order {
   customerName           String?
   customerPhone          String?
   customerEmail          String?
+  // Quien recibe la entrega, si no es quien compra (compras para otra persona, también desde otro país).
+  recipientName          String?
+  recipientPhone         String?
   shippingAddress        String?
   shippingProvinceId     String?
   shippingMunicipalityId String?
@@ -1737,6 +1793,12 @@ model Order {
   // de red cree el pedido dos veces (único por socio).
   partnerId      String?
   idempotencyKey String?
+
+  // Programa de puntos: puntos que el cliente usó para pagar parte de este pedido (y su valor, ya restado de total) y los que
+  // ganó al entregarse. El saldo vive en LoyaltyAccount; esto es solo para mostrarlo en el pedido.
+  loyaltyPointsRedeemed Int?
+  loyaltyDiscount       Decimal? @db.Decimal(12, 2)
+  loyaltyPointsEarned   Int?
 
   vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   partner  Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
@@ -2371,6 +2433,10 @@ enum MaintenanceMode {
 
 model SiteSettings {
   id String @id @default(cuid())
+  // Interruptor de emergencia de la PWA (service worker y avisos push).
+  pwaEnabled Boolean @default(true)
+  // Recordatorios automáticos a clientes (carrito sin terminar, puntos y ofertas de tiendas que visitaron).
+  customerRemindersEnabled Boolean @default(true)
   maintenanceMode    MaintenanceMode @default(OFF)
   // Texto opcional que ven los visitantes; sin él se muestra uno por defecto.
   maintenanceMessage String?
@@ -2604,12 +2670,16 @@ model AssistantConversation {
   userId    String
   vendorId  String?
   title     String
+  // Sesión (inicio de sesión en el panel) en la que empezó. Al entrar de nuevo al panel el asistente arranca una conversación
+  // nueva; las anteriores quedan en el historial hasta 30 días sin uso (jobs/chatRetention.job.js).
+  sessionId String?
   createdAt DateTime       @default(now())
   updatedAt DateTime       @default(now())
 
   messages AssistantMessage[]
 
   @@index([scope, userId, vendorId, updatedAt])
+  @@index([updatedAt])
 }
 
 // Bloque 238 + 245: estado cacheado de salud de cada MODELO de IA
@@ -2798,6 +2868,12 @@ enum VendorNotificationType {
   // El cliente canceló su pedido, o cambió sus productos, desde su cuenta o desde el asistente.
   ORDER_CANCELLED_BY_CUSTOMER
   ORDER_EDITED_BY_CUSTOMER
+  // Aviso del equipo de la plataforma (cambio, autorización, respuesta a una solicitud o a un ticket), solo si el admin eligió notificar.
+  ADMIN_NOTICE
+  NEW_CUSTOMER
+  NEW_MESSAGE
+  ORDER_OVERDUE
+  LOW_STOCK
 }
 
 model VendorNotification {
@@ -3449,6 +3525,8 @@ model CartSnapshot {
   // que se muestra mientras tanto.
   discount Json?
   updatedAt DateTime @updatedAt
+  // Recordatorio de carrito ya enviado para este contenido: si el cliente cambia el carrito (updatedAt posterior), vuelve a valer.
+  remindedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -3753,4 +3831,239 @@ model ChatQuestionLog {
   @@index([vendorId, createdAt])
   @@index([userId, createdAt])
   @@index([sessionId])
+}
+
+// Dispositivos que aceptaron recibir avisos push. `app` dice desde qué aplicación se suscribió (CLIENT, VENDOR o ADMIN).
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  app        String
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Claves VAPID del servidor para los avisos push. La clave privada se guarda cifrada.
+model WebPushKey {
+  id         String   @id @default("main")
+  publicKey  String
+  privateKey String
+  createdAt  DateTime @default(now())
+}
+
+// Operaciones hechas sin conexión y reenviadas al volver la red (ver middleware/idempotency.js). La clave la genera el
+// dispositivo; status/body quedan vacíos mientras la operación se está procesando. Se borran a los 7 días.
+model IdempotentRequest {
+  key       String   @id
+  method    String
+  path      String
+  status    Int?
+  body      Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Programa de puntos por tienda. Cada tienda decide si lo usa (apagado al crearla), cuántos puntos da por cada monto
+// comprado, bonos por pedidos grandes, cuánto vale un punto en su moneda y cuánto se puede pagar con puntos en un pedido.
+// Los puntos se ganan cuando el pedido se marca Entregado y se canjean en el checkout: el servidor calcula y descuenta todo,
+// nunca acepta un monto que mande el navegador.
+// ---------------------------------------------------------------------------
+enum LoyaltyValueOrder {
+  AMOUNT_FIRST
+  POINTS_FIRST
+}
+
+model LoyaltyProgram {
+  vendorId         String   @id
+  enabled          Boolean  @default(false)
+  // Por cada `earnPerAmount` de la moneda de la tienda, `earnPoints` puntos.
+  earnPerAmount    Decimal  @default(100) @db.Decimal(12, 2)
+  earnPoints       Int      @default(1)
+  // [{ minTotal, bonusPoints }]: puntos extra si el pedido llega a ese monto (se aplica el escalón más alto alcanzado).
+  bonusTiers       Json     @default("[]")
+  // Valor del punto tal como lo escribió la tienda: `valuePoints` puntos equivalen a `valueAmount` de su moneda
+  // ("10 USD = 1 punto" o "1000 puntos = 10 USD"; `valueOrder` dice en qué orden se muestra). Los cálculos usan este par.
+  valuePoints      Int               @default(1)
+  valueAmount      Decimal           @default(1) @db.Decimal(14, 4)
+  valueOrder       LoyaltyValueOrder @default(AMOUNT_FIRST)
+  // Cuánto vale 1 punto (valueAmount / valuePoints). Se guarda para consultas y reportes; no se escribe a mano.
+  pointValue       Decimal           @default(1) @db.Decimal(18, 8)
+  // Mínimo de puntos juntados en la tienda para poder canjearlos, y parte máxima del pedido que se paga con puntos (%).
+  minRedeemPoints  Int               @default(10)
+  maxRedeemPercent Int               @default(50)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+model LoyaltyAccount {
+  id               String    @id @default(cuid())
+  vendorId         String
+  userId           String
+  balance          Int       @default(0)
+  lifetimeEarned   Int       @default(0)
+  lifetimeRedeemed Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  vendor       Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions LoyaltyTransaction[]
+
+  @@unique([vendorId, userId])
+  @@index([userId])
+}
+
+enum LoyaltyTxType {
+  EARN
+  REDEEM
+  // El pedido que dio puntos se anuló después de entregado.
+  EARN_REVERSED
+  // El pedido pagado en parte con puntos se canceló: se devuelven.
+  REDEEM_REFUNDED
+  // Ajuste a mano de la tienda (regalo, compensación, corrección), siempre con nota.
+  ADJUST
+}
+
+model LoyaltyTransaction {
+  id           String        @id @default(cuid())
+  accountId    String
+  type         LoyaltyTxType
+  // Con signo: positivo suma al saldo, negativo resta.
+  points       Int
+  balanceAfter Int
+  orderId      String?
+  orderCode    String?
+  note         String?
+  createdAt    DateTime      @default(now())
+
+  account LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  // Un pedido da puntos, los canjea, los revierte o los devuelve una sola vez cada cosa, aunque el cambio de estado se repita.
+  @@unique([orderId, type])
+}
+
+// Visitas de un cliente con sesión a una tienda (su página o un producto suyo). Sirve para el correo "volviste a mirar esta
+// tienda" (puntos sin usar u oferta activa), que sale como mínimo 3 días después de la última visita sin compra.
+model StoreVisit {
+  userId      String
+  vendorId    String
+  firstAt     DateTime  @default(now())
+  lastAt      DateTime  @default(now())
+  visits      Int       @default(1)
+  // Último recordatorio enviado por esta tienda a este cliente (como mucho uno cada 14 días).
+  lastNudgeAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@id([userId, vendorId])
+  @@index([lastAt])
+}
+
+// ---------------------------------------------------------------------------
+// Caja con código de barras (panel de la tienda > Caja). Una venta de mostrador se arma escaneando productos; al primer
+// escaneo se crea sola con un número corto de 4 caracteres. Se cierra de dos formas:
+//  - cobrada en caja: se descuenta el stock, se registra como pedido entregado (cuenta en las estadísticas) y entran los
+//    movimientos de caja (efectivo recibido y vuelto);
+//  - a mesa (restaurantes): queda pendiente hasta que se escanea el QR de la mesa; ahí pasa a la cuenta de esa mesa.
+// La pantalla para el cliente y el tablero de pedidos son páginas públicas con un enlace secreto que solo se ve en el panel
+// y que la tienda puede cambiar cuando quiera (el enlace viejo deja de funcionar).
+// ---------------------------------------------------------------------------
+enum PosSaleStatus {
+  OPEN
+  PAID
+  PENDING_TABLE
+  SENT_TO_TABLE
+  CANCELLED
+}
+
+enum PosFulfillment {
+  PREPARING
+  READY
+  PICKED_UP
+}
+
+model PosSale {
+  id            String          @id @default(cuid())
+  vendorId      String
+  // 4 caracteres sin letras ni números que se confundan (sin O/0, I/1). Único entre las ventas recientes de la tienda.
+  code          String
+  customerName  String?
+  // [{ productId, name, price, currency, quantity, barcode }]: el precio se toma del producto al escanear.
+  items         Json            @default("[]")
+  total         Decimal         @default(0) @db.Decimal(12, 2)
+  currency      String          @default("CUP")
+  status        PosSaleStatus   @default(OPEN)
+  fulfillment   PosFulfillment?
+  paymentMethod String?
+  cashReceived  Decimal?        @db.Decimal(12, 2)
+  changeGiven   Decimal?        @db.Decimal(12, 2)
+  orderId       String?
+  tableOrderId  String?
+  tableNumber   Int?
+  createdById   String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  paidAt        DateTime?
+  readyAt       DateTime?
+  pickedUpAt    DateTime?
+
+  vendor      Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cashEntries CashEntry[]
+
+  @@index([vendorId, status, updatedAt])
+  @@index([vendorId, code])
+}
+
+enum CashEntryType {
+  SALE
+  CHANGE
+  DEPOSIT
+  WITHDRAWAL
+}
+
+// Movimientos de caja. SALE y CHANGE los crea solo el cobro de una venta (efectivo recibido y vuelto); DEPOSIT y WITHDRAWAL
+// son entradas y salidas a mano (fondo inicial, pago a un proveedor), siempre con nota. amount lleva signo.
+model CashEntry {
+  id          String        @id @default(cuid())
+  vendorId    String
+  type        CashEntryType
+  amount      Decimal       @db.Decimal(12, 2)
+  currency    String        @default("CUP")
+  posSaleId   String?
+  note        String?
+  createdById String
+  createdAt   DateTime      @default(now())
+
+  vendor  Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  posSale PosSale? @relation(fields: [posSaleId], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, createdAt])
+}
+
+model PosSettings {
+  vendorId     String   @id
+  displayToken String   @unique
+  boardToken   String   @unique
+  // Imagen que muestra la pantalla del cliente cuando no hay ninguna venta en curso.
+  idleImageUrl String?
+  // Minutos que un pedido listo se queda en la pantalla de pedidos antes de darse por recogido solo.
+  readyAutoClearMinutes Int @default(15)
+  // Pantalla del cliente sin venta: SHOWCASE = vitrina animada de productos y ofertas; IMAGE = la imagen fija de arriba.
+  idleMode     String   @default("SHOWCASE")
+  updatedAt    DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 }

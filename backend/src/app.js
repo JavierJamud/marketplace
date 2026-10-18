@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { idempotency } from "./middleware/idempotency.js";
 import helmet from "helmet";
 import morgan from "morgan";
 import "express-async-errors";
@@ -26,6 +27,7 @@ import settingsRoutes from "./routes/settings.routes.js";
 import suggestionsRoutes from "./routes/suggestions.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import assistantRoutes from "./routes/assistant.routes.js";
+import pushRoutes from "./routes/push.routes.js";
 import announcementsRoutes from "./routes/announcements.routes.js";
 import staticPagesRoutes from "./routes/staticPages.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
@@ -33,6 +35,8 @@ import offersRoutes from "./routes/offers.routes.js";
 import discountCodesRoutes from "./routes/discountCodes.routes.js";
 import storeOffersRoutes from "./routes/storeOffers.routes.js";
 import faqRoutes from "./routes/faq.routes.js";
+import loyaltyRoutes from "./routes/loyalty.routes.js";
+import posRoutes from "./routes/pos.routes.js";
 import cartRoutes from "./routes/cart.routes.js";
 import sharedCartsRoutes from "./routes/sharedCarts.routes.js";
 import customerListingsRoutes from "./routes/customerListings.routes.js";
@@ -130,6 +134,8 @@ app.use(morgan(env.nodeEnv === "development" ? "dev" : "combined"));
 app.post("/stripe/webhook", express.raw({ type: "application/json" }), receiveStripeWebhook);
 
 app.use(express.json({ limit: "5mb" }));
+// Reintentos sin duplicados de lo hecho sin conexión (cabecera Idempotency-Key, ver middleware/idempotency.js).
+app.use(idempotency);
 // Cualquier cambio exitoso (crear, editar, borrar) vacía la caché de consultas públicas: lo nuevo se ve de inmediato.
 app.use((req, res, next) => {
   if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
@@ -209,6 +215,7 @@ app.use("/settings", settingsRoutes);
 app.use("/suggestions", suggestionsRoutes);
 app.use("/ai", aiRoutes);
 app.use("/assistant", assistantRoutes);
+app.use("/push", pushRoutes);
 app.use("/announcements", announcementsRoutes);
 app.use("/static-pages", staticPagesRoutes);
 app.use("/contact", contactRoutes);
@@ -217,6 +224,8 @@ app.use("/discount-codes", discountCodesRoutes);
 app.use("/store-offers", storeOffersRoutes);
 app.use("/faq", faqRoutes);
 app.use("/cart", cartRoutes);
+app.use("/loyalty", loyaltyRoutes);
+app.use("/pos", posRoutes);
 app.use("/shared-carts", sharedCartsRoutes);
 app.use("/customer-listings", customerListingsRoutes);
 app.use("/reports", reportsRoutes);

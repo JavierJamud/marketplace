@@ -1,3 +1,4 @@
+import * as vendorManage from "../controllers/adminVendorManage.controller.js";
 import { Router } from "express";
 import * as adminController from "../controllers/admin.controller.js";
 import * as announcementsController from "../controllers/announcements.controller.js";
@@ -32,13 +33,14 @@ import * as partnersController from "../controllers/partners.controller.js";
 import * as partnerApps from "../controllers/partnerApplications.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
+import { notifyVendorChoice } from "../middleware/notifyVendorChoice.js";
 import { siteUpload } from "../middleware/siteUpload.js";
 import { offerUpload } from "../middleware/offerUpload.js";
 
 const router = Router();
 
 // Todo el módulo admin exige rol ADMIN (rechaza 403 a vendedor/cliente).
-router.use(authenticate, requireRole("ADMIN"));
+router.use(authenticate, requireRole("ADMIN"), notifyVendorChoice);
 
 // Socios de la API (Partner API): crear socios, llaves, permisos, cuotas, dominios e IP.
 router.get("/partners/scopes", partnersController.listScopes);
@@ -67,6 +69,9 @@ router.get("/dashboard", adminController.getDashboard);
 router.get("/dashboard/sales-series", adminController.getDashboardSalesSeries);
 
 router.get("/vendors", adminController.listVendors);
+// Página "Gestionar" de cada tienda y tiendas nuevas del panel principal.
+router.get("/vendors/new", vendorManage.listNewVendors);
+router.get("/vendors/:id/manage", vendorManage.getVendorManage);
 router.patch("/vendors/:id", requireActionCode(vendorChangeAction), adminController.updateVendor);
 // Bloque 165: acciones de cuenta directas desde el admin — contraseña y
 // correo de LOGIN del vendedor (distinto de Vendor.email, ya cubierto por
@@ -275,6 +280,10 @@ router.patch("/settings/offer-policy", requireActionCode("PLATFORM_SETTINGS"), s
 router.patch("/settings/listing-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateListingPolicy);
 router.patch("/settings/review-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateReviewPolicy);
 router.patch("/settings/chat-widget", settingsController.updateChatWidgetSettings);
+router.get("/settings/pwa", settingsController.getPwaStatus);
+router.patch("/settings/pwa", settingsController.updatePwaSettings);
+router.get("/settings/customer-reminders", settingsController.getCustomerRemindersStatus);
+router.patch("/settings/customer-reminders", settingsController.updateCustomerRemindersSettings);
 router.patch("/settings/product-payment-methods", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductPaymentMethods);
 router.patch("/settings/maintenance", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateMaintenance);
 router.patch("/settings/branding", requireActionCode("PLATFORM_BRANDING"), settingsController.updateBranding);

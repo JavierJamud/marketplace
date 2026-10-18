@@ -141,7 +141,7 @@ export function errorHandler(err, req, res, _next) {
       logError({
         origin: inferOrigin(req),
         message: err.message,
-        context: { method: req.method, path: req.originalUrl, statusCode: err.statusCode, detail: err.details?.detail },
+        context: { method: req.method, path: req.originalUrl, statusCode: err.statusCode, detail: err.details?.detail, userId: req.user?.id },
       });
     }
     return res.status(err.statusCode).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
@@ -150,7 +150,7 @@ export function errorHandler(err, req, res, _next) {
   logError({
     origin: inferOrigin(req),
     message: err instanceof Error ? err.message : String(err),
-    context: { method: req.method, path: req.originalUrl, stack: err?.stack?.slice(0, 2000) },
+    context: { method: req.method, path: req.originalUrl, stack: err?.stack?.slice(0, 2000), userId: req.user?.id },
   });
   res.status(500).json({ error: "Error interno del servidor." });
 }

@@ -84,7 +84,7 @@ function SpinnerSVG({ size, color }) {
 }
 
 // ─── Ícono genérico ───────────────────────────────────────────────────────────
-function ToastIcon({ name, size = 20, color }) {
+export function ToastIcon({ name, size = 20, color }) {
   if (name === "loading") return <SpinnerSVG size={size} color={color} />;
   const paths = ICON_PATHS[name] ?? ICON_PATHS.info;
   return (

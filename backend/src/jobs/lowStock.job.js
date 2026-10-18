@@ -55,6 +55,12 @@ export async function runLowStockJob() {
 
     const sorted = [...vendorProducts].sort((a, b) => a.stock - b.stock);
     await sendLowStockAlertEmail(vendor, sorted);
+    // Mismo aviso en la campana del panel (y como push, ver lib/notify.js).
+    const names = sorted.slice(0, 3).map((p) => `${p.name} (${p.stock})`).join(", ");
+    const more = sorted.length > 3 ? ` y ${sorted.length - 3} más` : "";
+    await prisma.vendorNotification
+      .create({ data: { vendorId, type: "LOW_STOCK", title: sorted.length === 1 ? "Un producto se está agotando" : `${sorted.length} productos se están agotando`, body: `${names}${more}.` } })
+      .catch(() => {});
     await prisma.product.updateMany({ where: { id: { in: sorted.map((p) => p.id) } }, data: { lowStockNotifiedAt: new Date() } });
     vendorsNotified++;
   }

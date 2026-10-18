@@ -1,3 +1,4 @@
+import { assertVendorUnique } from "../services/vendorUniqueness.service.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
@@ -5,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { transitionVendorVerification, syncVerificationArchive, withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { notifyVerificationEvent } from "../services/verificationNotify.service.js";
+import { adminNoticeToVendor } from "../lib/notify.js";
 import { cancelStripeSubscription } from "../lib/stripe.js";
 import { sendAdminDirectEmail, sendVendorReactivatedEmail } from "../lib/email.js";
 import { getSubscriptionPricing } from "./settings.controller.js";
@@ -39,15 +41,24 @@ const SUBSCRIPTION_STATUS_LABEL = {
 // SOLO verificationStatus (sin los includes de verification/locations que
 // esa lista sí necesita) y de todas formas compartir el mismo criterio de
 // conteo/MRR — nunca dos copias del cálculo.
+// Una tienda en su prueba gratis de 30 días está VERIFIED con Premium, pero todavía no paga: se cuenta aparte ("trial") y
+// no suma al MRR.
+const inTrial = (v) => !!v.trialEndsAt && new Date(v.trialEndsAt) > new Date();
+function subscriptionStatusOf(v) {
+  const status = SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment";
+  return status === "active" && inTrial(v) ? "trial" : status;
+}
+
 async function computeSubscriptionMetrics(vendors) {
-  const statuses = vendors.map((v) => SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment");
+  const statuses = vendors.map(subscriptionStatusOf);
   const active = statuses.filter((s) => s === "active").length;
+  const trial = statuses.filter((s) => s === "trial").length;
   const pendingPayment = statuses.filter((s) => s === "pending_payment").length;
   const rejected = statuses.filter((s) => s === "rejected").length;
   const paymentFailed = statuses.filter((s) => s === "payment_failed").length;
   const suspended = statuses.filter((s) => s === "suspended").length;
   const { cardPricePerMonthUsd } = await getSubscriptionPricing();
-  return { active, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * cardPricePerMonthUsd };
+  return { active, trial, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * cardPricePerMonthUsd };
 }
 
 // Bloque 48: embudo de verificación para el dashboard — NOT_STARTED es la
@@ -220,7 +231,7 @@ export async function getDashboard(_req, res) {
 
   const [subscriptionMetrics, verificationFunnelRaw] = await Promise.all([
     computeSubscriptionMetrics(
-      await prisma.vendor.findMany({ where: { planType: "BUSINESS", deletedAt: null }, select: { verificationStatus: true } })
+      await prisma.vendor.findMany({ where: { planType: "BUSINESS", deletedAt: null }, select: { verificationStatus: true, trialEndsAt: true } })
     ),
     prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
   ]);
@@ -591,6 +602,16 @@ export async function updateVendor(req, res) {
   if (data.isBlocked === true && !data.blockReason && !vendor.blockReason) {
     throw new AppError("Escribe el motivo del bloqueo.", 400);
   }
+  const changed = (key) => data[key] != null && String(data[key]).trim() !== String(vendor[key] ?? "").trim();
+  await assertVendorUnique(
+    {
+      companyName: changed("companyName") ? data.companyName : undefined,
+      whatsapp: changed("whatsapp") ? data.whatsapp : undefined,
+      email: changed("email") ? data.email : undefined,
+      ownerIdNumber: changed("ownerIdNumber") ? data.ownerIdNumber : undefined,
+    },
+    vendor.id
+  );
   const vendorData = { ...data };
   delete vendorData.blockReason;
   if (data.isBlocked === true) {
@@ -606,6 +627,11 @@ export async function updateVendor(req, res) {
   // Bloque 52: el cupo de productos depende del plan — si este guardado lo
   // cambió, recalcula qué productos de ESTA tienda quedan dentro/fuera.
   if (data.planType && data.planType !== vendor.planType) await recalcVendorProductQuota(id);
+  if (data.isBlocked === true && !vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue bloqueada", `Motivo: ${vendorData.blockReason}. Escríbenos desde Mensajes si necesitas ayuda.`);
+  else if (data.isBlocked === false && vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue desbloqueada", "Ya está visible otra vez y puedes vender con normalidad.");
+  if (data.planType && data.planType !== vendor.planType) {
+    await adminNoticeToVendor(id, "Cambió tu plan", data.planType === "BUSINESS" ? "Tu tienda pasó al Plan Premium." : "Tu tienda pasó al Plan Regular.");
+  }
   res.json({ vendor: updated });
 }
 
@@ -717,6 +743,7 @@ export async function reactivateVendor(req, res) {
   ]);
 
   await sendVendorReactivatedEmail({ ...updated, user: vendor.user }, reason);
+  await adminNoticeToVendor(id, "Tu tienda fue reactivada", reason);
   res.json({ vendor: updated });
 }
 
@@ -1373,6 +1400,7 @@ export async function decideVendorChangeRequest(req, res) {
   if (decision === "reject" && !notes?.trim()) throw new AppError("Indica el motivo del rechazo.", 400);
 
   if (decision === "approve") {
+    await assertVendorUnique({ companyName: request.companyName ?? undefined, ownerIdNumber: request.ownerIdNumber ?? undefined }, request.vendorId);
     await prisma.vendor.update({
       where: { id: request.vendorId },
       data: {
@@ -1421,7 +1449,9 @@ export async function listSubscriptions(_req, res) {
       slug: v.slug,
       color: v.color,
       province: v.locations?.[0]?.province?.name ?? null,
-      status: SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment",
+      status: subscriptionStatusOf(v),
+      trialEndsAt: inTrial(v) ? v.trialEndsAt : null,
+      trialDaysLeft: inTrial(v) ? Math.ceil((new Date(v.trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null,
       nextPaymentDueDate: v.nextPaymentDueDate,
       hasStripeSubscription: !!v.stripeSubscriptionId,
       paymentMethod: ver?.paymentMethod ?? null,
@@ -1852,7 +1882,8 @@ export async function resolveSupportCase(req, res) {
 }
 
 export async function listAdminNotifications(_req, res) {
-  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases] = await Promise.all([
+  const DAY = 24 * 60 * 60 * 1000;
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases, newVendors, newTrials, acceptedTrials] = await Promise.all([
     prisma.vendor.findMany({
       where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } },
       select: { id: true, companyName: true, createdAt: true },
@@ -1902,9 +1933,33 @@ export async function listAdminNotifications(_req, res) {
       take: 5,
     }),
     prisma.supportCase.findMany({ where: { status: "OPEN", vendorId: null }, select: { id: true, name: true, kind: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5 }),
+    // Tiendas registradas en las últimas 48 h (antes solo llegaba el aviso push, no quedaban en la campana).
+    prisma.vendor.findMany({ where: { createdAt: { gte: new Date(Date.now() - 2 * DAY) }, deletedAt: null }, select: { id: true, companyName: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5 }),
+    // Pruebas gratis de 30 días activadas en las últimas 48 h (la prueba vence a los 30 días de activarse).
+    prisma.vendor.findMany({ where: { trialEndsAt: { gte: new Date(Date.now() + 28 * DAY) }, deletedAt: null }, select: { id: true, companyName: true, trialEndsAt: true }, take: 5 }),
+    // Tiendas que aceptaron la prueba en las últimas 48 h y todavía no completaron los requisitos para que se active.
+    prisma.vendor.findMany({ where: { trialStartedAt: { gte: new Date(Date.now() - 2 * DAY) }, trialEndsAt: null, deletedAt: null }, select: { id: true, companyName: true, trialStartedAt: true }, orderBy: { trialStartedAt: "desc" }, take: 5 }),
   ]);
 
   const items = [
+    ...newVendors.map((v) => ({
+      id: `new-vendor-${v.id}`,
+      text: `Tienda nueva registrada: ${v.companyName}`,
+      to: `/admin/tiendas/${v.id}`,
+      createdAt: v.createdAt,
+    })),
+    ...acceptedTrials.map((v) => ({
+      id: `trial-accepted-${v.id}`,
+      text: `Aceptó la prueba gratis (completando requisitos): ${v.companyName}`,
+      to: `/admin/tiendas/${v.id}`,
+      createdAt: v.trialStartedAt,
+    })),
+    ...newTrials.map((v) => ({
+      id: `trial-${v.id}`,
+      text: `Prueba gratis activada: ${v.companyName}`,
+      to: `/admin/tiendas/${v.id}`,
+      createdAt: new Date(new Date(v.trialEndsAt).getTime() - 30 * DAY),
+    })),
     ...openSupportCases.map((c) => ({
       id: `support-${c.id}`,
       text: `${c.kind === "ORDER" ? "Problema con un pedido" : "Problema con la web"}: ${c.name}`,
@@ -1969,7 +2024,10 @@ export async function listAdminNotifications(_req, res) {
     paymentClaims.length +
     reportedReviews.length +
     pendingFraudReports.length +
-    recentOrders.length;
+    recentOrders.length +
+    newVendors.length +
+    newTrials.length +
+    acceptedTrials.length;
 
   res.json({ items: items.slice(0, 12), total });
 }

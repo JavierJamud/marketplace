@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { CreditCard, Landmark, Bot, Clock, X, Plus, Sparkles, SlidersHorizontal } from "lucide-react";
+import { CreditCard, Landmark, Clock, X, Plus, Sparkles } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
+import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 
 const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark };
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP" };
@@ -18,6 +20,8 @@ const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transfer
 // nuevos del cobro recurrente.
 const STATUS_META = {
   active: { label: "Activa", bg: "rgba(12,174,83,0.12)", color: "#0A8F42" },
+  // Prueba gratis de 30 días: Premium completo sin pagar todavía.
+  trial: { label: "Free 30 días", bg: "rgba(51,116,117,0.12)", color: "#245a5b" },
   pending_payment: { label: "Pago pendiente", bg: "rgba(254,152,0,0.15)", color: "#8A5100" },
   rejected: { label: "Rechazada", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
   payment_failed: { label: "Pago fallido", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
@@ -116,10 +120,13 @@ const PLAN_TOGGLE_FIELDS = [
   { key: "allowWhatsappOrders", label: "Pedidos por WhatsApp" },
   { key: "allowPanelOrders", label: "Pedidos por el panel" },
   { key: "featuredInHome", label: "Destacada en la Home / búsqueda" },
+  { key: "allowLoyalty", label: "Programa de fidelidad (puntos) para sus clientes" },
+  { key: "allowPos", label: "Caja con código de barras" },
+  { key: "allowCustomerEmails", label: "Correos a clientes y avisos de gestión por correo" },
 ];
 
 // Una tarjeta completa por plan — nombre visible, beneficios en texto libre,
-// límites numéricos y los 13 interruptores de función. Guarda TODO el plan
+// límites numéricos y los interruptores de función. Guarda TODO el plan
 // en un solo request (PATCH /admin/plan-configs), nunca columnas sueltas.
 function PlanConfigCard({ plan }) {
   const queryClient = useQueryClient();
@@ -157,7 +164,13 @@ function PlanConfigCard({ plan }) {
       </div>
 
       <div className="mb-5">
-        <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Límites — vacío = sin límite</div>
+        <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Límites (vacío = sin límite)</div>
+        {plan.planType === "REGULAR" && (
+          <p className="mb-3 rounded-lg bg-tertiary-accent/[0.07] px-3 py-2 text-[12px] text-on-surface">
+            Estos límites se aplican también cuando una tienda termina su prueba gratis de 30 días o baja de Premium. Los productos que pasen
+            del límite quedan ocultos, nunca se borran: se quedan visibles los que más vendieron, mejor valorados y con la ficha más completa.
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {PLAN_LIMIT_FIELDS.map((f) => (
             <div key={f.key}>
@@ -333,6 +346,7 @@ function GrantBusinessCard() {
   const [vendorSearch, setVendorSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [reason, setReason] = useState("");
+  const [notifyVendor, setNotifyVendor] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(vendorSearch.trim()), 300);
     return () => clearTimeout(timer);
@@ -347,9 +361,10 @@ function GrantBusinessCard() {
     selectedVendor && !regularVendors.some((v) => v.id === selectedVendor.id) ? [selectedVendor, ...regularVendors] : regularVendors;
 
   const grant = useMutation({
-    mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/grant-business`, { reason: reason.trim() })).data,
+    mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/grant-business`, { reason: reason.trim() }, notifyVendorConfig(notifyVendor))).data,
     onSuccess: () => {
-      toast.success("Plan Premium activado a mano — se avisó a la tienda.");
+      toast.success("Plan Premium activado a mano.");
+      setNotifyVendor(false);
       setVendorId("");
       setSelectedVendor(null);
       setReason("");
@@ -395,13 +410,16 @@ function GrantBusinessCard() {
           placeholder="Ej.: acuerdo comercial directo con el vendedor..."
         />
       </div>
-      <Button
-        className="rounded-xl font-bold"
-        disabled={!vendorId || reason.trim().length < 5 || grant.isPending}
-        onClick={() => grant.mutate()}
-      >
-        {grant.isPending ? "Activando..." : "Activar Plan Premium"}
-      </Button>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Button
+          className="rounded-xl font-bold"
+          disabled={!vendorId || reason.trim().length < 5 || grant.isPending}
+          onClick={() => grant.mutate()}
+        >
+          {grant.isPending ? "Activando..." : "Activar Plan Premium"}
+        </Button>
+        <NotifyVendorCheckbox checked={notifyVendor} onChange={setNotifyVendor} />
+      </div>
     </div>
   );
 }
@@ -411,6 +429,7 @@ function SubscriptionsTab() {
   const [revoking, setRevoking] = useState(null);
   const [confirmRevoke, setConfirmRevoke] = useState(null);
   const [revokeReason, setRevokeReason] = useState("");
+  const [notifyVendor, setNotifyVendor] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-subscriptions"],
@@ -418,15 +437,16 @@ function SubscriptionsTab() {
   });
 
   const revoke = useMutation({
-    mutationFn: async ({ vendorId, reason }) => (await api.post(`/admin/vendors/${vendorId}/revoke-business`, { reason })).data,
+    mutationFn: async ({ vendorId, reason }) => (await api.post(`/admin/vendors/${vendorId}/revoke-business`, { reason }, notifyVendorConfig(notifyVendor))).data,
     onSuccess: () => {
-      toast.success("Plan Premium revocado — se avisó a la tienda.");
+      toast.success("Plan Premium revocado.");
       queryClient.invalidateQueries({ queryKey: ["admin-subscriptions"] });
       queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
       queryClient.invalidateQueries({ queryKey: ["admin-vendor-pick"] });
       setRevoking(null);
       setConfirmRevoke(null);
       setRevokeReason("");
+      setNotifyVendor(false);
     },
     onError: (err) => {
       toast.error(err.response?.data?.error ?? "No se pudo revocar el Plan Premium.");
@@ -435,95 +455,143 @@ function SubscriptionsTab() {
   });
 
   const subscriptions = data?.subscriptions ?? [];
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  // Filtros por estado: "Con problemas" junta pago fallido y suspendida, que piden la misma acción (revisar el cobro).
+  const FILTERS = [
+    { id: "all", label: "Todas", match: () => true },
+    { id: "active", label: "Pagando", match: (s) => s.status === "active" },
+    { id: "trial", label: "Free 30 días", match: (s) => s.status === "trial" },
+    { id: "pending_payment", label: "Pago pendiente", match: (s) => s.status === "pending_payment" },
+    { id: "problems", label: "Con problemas", match: (s) => ["payment_failed", "suspended", "rejected"].includes(s.status) },
+  ];
+  const visible = useMemo(() => {
+    const f = FILTERS.find((x) => x.id === filter) ?? FILTERS[0];
+    const q = search.trim().toLowerCase();
+    return subscriptions.filter((s) => f.match(s) && (!q || s.companyName.toLowerCase().includes(q)));
+  }, [subscriptions, filter, search]); // eslint-disable-line react-hooks/exhaustive-deps
   const metrics = data
     ? [
-        { label: "Suscripciones activas", value: String(data.metrics.active) },
+        { label: "Pagando", value: String(data.metrics.active) },
+        { label: "Free 30 días", value: String(data.metrics.trial ?? 0), delta: "Prueba gratis, no suma al MRR" },
         { label: "Pago pendiente", value: String(data.metrics.pendingPayment) },
         { label: "Problemas de cobro", value: String(data.metrics.paymentFailed + data.metrics.suspended) },
-        { label: "MRR estimado", value: fmtUsd(data.metrics.mrrUsd), delta: "USD, según Stripe" },
+        { label: "MRR estimado", value: fmtUsd(data.metrics.mrrUsd), delta: "USD, solo tiendas que pagan" },
       ]
     : [];
+  const countFor = (f) => subscriptions.filter(f.match).length;
 
   return (
     <div>
       <div className="mb-6 rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
-        💡 El cobro es recurrente de verdad: Stripe cobra cada mes solo (factura fallida = "Pago fallido", suscripción
-        cancelada = "Suspendida"); CUP se renueva a mano cada ciclo, con recordatorio automático 7 días antes de vencer.
+        El cobro es recurrente: Stripe cobra cada mes solo (factura fallida = "Pago fallido", suscripción cancelada = "Suspendida"); CUP se
+        renueva a mano cada ciclo, con recordatorio automático 7 días antes de vencer. Las tiendas en "Free 30 días" reciben aviso 7, 3 y 1
+        día antes de que termine la prueba; al terminar pasan solas a Regular con sus límites.
       </div>
 
       <div className="mb-6">
         <GrantBusinessCard />
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-[18px] lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-[18px] lg:grid-cols-5">
         {metrics.map((m) => (
-          <div key={m.label} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5">
+          <div key={m.label} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] sm:p-5">
             <div className="mb-2 text-[12.5px] text-outline">{m.label}</div>
             <div className="font-display text-2xl font-extrabold text-on-surface">{m.value}</div>
-            {m.delta && <div className="mt-1 text-[11.5px] font-semibold text-verified-dark">{m.delta}</div>}
+            {m.delta && <div className="mt-1 text-[11.5px] font-semibold text-on-surface-variant">{m.delta}</div>}
           </div>
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        <div className="grid grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[640px]">
-          <span>Tienda</span><span>Provincia</span><span>Estado</span><span>Pago</span><span className="text-right">Acciones</span>
+      <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filtrar suscripciones">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.id}
+              onClick={() => setFilter(f.id)}
+              className={`min-h-10 flex-shrink-0 rounded-full border px-3.5 text-[12.5px] font-bold ${filter === f.id ? "border-primary bg-primary text-on-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"}`}
+            >
+              {f.label} <span className="opacity-70">{countFor(f)}</span>
+            </button>
+          ))}
+        </div>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar tienda"
+          aria-label="Buscar tienda"
+          className="h-11 w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none focus:border-tertiary-accent sm:w-64"
+        />
+      </div>
+
+      <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+        <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.5fr)_auto] gap-3 rounded-t-2xl bg-surface-container-low px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-outline md:grid">
+          <span>Tienda</span>
+          <span>Provincia</span>
+          <span>Estado</span>
+          <span>Pago</span>
+          <span className="text-right">Acciones</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
         {!isLoading && subscriptions.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Todavía no hay tiendas en el Plan Premium.</p>}
-        {subscriptions.map((s) => {
-          const status = STATUS_META[s.status];
+        {!isLoading && subscriptions.length > 0 && visible.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Ninguna tienda con este filtro.</p>}
+        {visible.map((s) => {
+          const status = STATUS_META[s.status] ?? STATUS_META.pending_payment;
           const PaymentIcon = PAYMENT_METHOD_ICON[s.paymentMethod];
           return (
-            <div key={s.vendorId} className="grid min-w-[640px] grid-cols-[2fr_1.2fr_1fr_1.4fr_1fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"
-                  style={{ background: s.color ?? "#232F3E" }}
-                >
+            <div key={s.vendorId} className="flex flex-col gap-2.5 border-t border-surface-container px-4 py-3.5 first:border-t-0 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.5fr)_auto] md:items-center md:gap-3 md:px-5 md:first:border-t">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white" style={{ background: s.color ?? "#232F3E" }} aria-hidden="true">
                   {s.companyName[0]}
                 </span>
-                <span className="text-[13.5px] font-semibold text-on-surface">{s.companyName}</span>
+                <Link to={`/admin/tiendas/${s.vendorId}`} className="min-w-0 truncate text-[13.5px] font-semibold text-on-surface hover:underline">
+                  {s.companyName}
+                </Link>
               </div>
-              <span className="text-[13px] text-on-surface-variant">{s.province ?? "—"}</span>
-              <span className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={{ background: status.bg, color: status.color }}>
-                {status.label}
-              </span>
+              <span className="text-[12.5px] text-on-surface-variant md:text-[13px]">{s.province ?? "Sin provincia"}</span>
+              <div className="flex flex-col items-start gap-0.5">
+                <span className="w-fit rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={{ background: status.bg, color: status.color }}>
+                  {status.label}
+                </span>
+                {s.status === "trial" && s.trialDaysLeft != null && (
+                  <span className={`text-[11.5px] font-semibold ${s.trialDaysLeft <= 7 ? "text-error" : "text-on-surface-variant"}`}>
+                    {s.trialDaysLeft === 1 ? "Queda 1 día" : `Quedan ${s.trialDaysLeft} días`}
+                  </span>
+                )}
+              </div>
               <div className="text-[12px] text-on-surface-variant">
                 {s.paymentMethod ? (
                   <div className="flex items-center gap-1.5">
-                    <PaymentIcon className="h-3.5 w-3.5 flex-shrink-0 text-tertiary-accent" />
+                    <PaymentIcon className="h-3.5 w-3.5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />
                     <span>{PAYMENT_METHOD_LABEL[s.paymentMethod]}</span>
                   </div>
                 ) : (
-                  <span className="text-outline">Sin elegir todavía</span>
+                  <span className="text-outline">{s.status === "trial" ? "Todavía no elige cómo pagar" : "Sin elegir todavía"}</span>
                 )}
                 {s.paymentConfirmedAt && <div className="mt-0.5 text-[11px] text-outline">Confirmado {fmtDate(s.paymentConfirmedAt)}</div>}
                 {!s.paymentConfirmedAt && s.paymentMethod === "CARD" && (
                   <div className="mt-0.5 flex items-center gap-1 text-[11px] text-outline">
-                    <Clock className="h-3 w-3 flex-shrink-0" />
+                    <Clock className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
                     {s.stripeCheckoutExpired ? "Link vencido" : "Esperando pago en Stripe"}
                   </div>
                 )}
-                {s.status === "active" && s.nextPaymentDueDate && (
-                  <div className="mt-0.5 text-[11px] text-outline">Próximo vencimiento: {fmtDate(s.nextPaymentDueDate)}</div>
-                )}
+                {s.status === "active" && s.nextPaymentDueDate && <div className="mt-0.5 text-[11px] text-outline">Próximo vencimiento: {fmtDate(s.nextPaymentDueDate)}</div>}
               </div>
-              <div className="flex flex-wrap justify-end gap-1.5">
-                <Link
-                  to={`/tienda/${s.slug}`}
-                  target="_blank"
-                  className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant"
-                >
-                  Ver
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                <Link to={`/admin/tiendas/${s.vendorId}`} className="flex min-h-10 items-center rounded-lg bg-surface-container px-3 text-[12.5px] font-semibold text-on-surface">
+                  Gestionar
                 </Link>
-                {["active", "payment_failed", "suspended"].includes(s.status) && (
+                {["active", "trial", "payment_failed", "suspended"].includes(s.status) && (
                   <button
+                    type="button"
                     onClick={() => setConfirmRevoke(s)}
                     disabled={revoke.isPending && revoking === s.vendorId}
-                    className="flex items-center gap-1 rounded-[7px] border border-error px-2.5 py-1.5 text-[12px] font-semibold text-error disabled:opacity-50"
+                    className="flex min-h-10 items-center gap-1 rounded-lg border border-error px-3 text-[12.5px] font-semibold text-error disabled:opacity-50"
                   >
-                    <Bot className="h-3.5 w-3.5" />
                     {revoke.isPending && revoking === s.vendorId ? "Revocando..." : "Revocar"}
                   </button>
                 )}
@@ -547,6 +615,7 @@ function SubscriptionsTab() {
         onCancel={() => {
           setConfirmRevoke(null);
           setRevokeReason("");
+          setNotifyVendor(false);
         }}
       >
         <textarea
@@ -556,6 +625,7 @@ function SubscriptionsTab() {
           rows={3}
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
+        <NotifyVendorCheckbox checked={notifyVendor} onChange={setNotifyVendor} />
       </ConfirmModal>
     </div>
   );

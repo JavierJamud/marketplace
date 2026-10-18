@@ -446,7 +446,8 @@ async function searchVendorIdsByTerms(terms) {
 
 const VENDOR_SEARCH_LIMIT = 20;
 async function searchVendors({ terms, provinceId, municipalityId, verification, zone }) {
-  const askedLocation = municipalityId ? { some: { municipalityId } } : provinceId ? { some: { provinceId } } : undefined;
+  // Con municipio o ciudad también entran las tiendas que cubren toda la provincia o el estado (vendorZoneWhere).
+  const askedLocation = provinceId ? vendorZoneWhere({ provinceId, municipalityId }) : undefined;
   // El lugar elegido por el cliente manda; lo que pida en el mensaje se suma como filtro adicional.
   const chosenZone = zone ? vendorZoneWhere(zone) : undefined;
   const locationFilter = chosenZone && askedLocation ? undefined : chosenZone ?? askedLocation;

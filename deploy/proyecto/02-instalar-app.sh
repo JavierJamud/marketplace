@@ -91,6 +91,8 @@ sudo -u zeudin npx prisma generate
 sudo -u zeudin npx prisma migrate deploy
 # Catálogo mundial de países (apagados): el admin enciende los que quiere recibir. Solo agrega los que faltan.
 sudo -u zeudin node prisma/seed-countries.mjs
+# Municipios de Cuba y ciudades de cada estado de los demás países: solo agrega los que faltan.
+sudo -u zeudin node prisma/seed-ciudades.mjs
 
 echo ">> Frontend: compilación (la API se llama por /api en el mismo dominio)"
 cd $APP.new/frontend
@@ -206,6 +208,30 @@ server {
         proxy_connect_timeout 3s;       # si la API está reiniciando, falla rápido (el navegador reintenta solo)
     }
 
+    # Canal en vivo (avisos y actualizaciones al instante): conexión larga que la API mantiene con un latido cada 20 segundos.
+    location = /api/push/stream {
+        proxy_pass http://127.0.0.1:$PUERTO_API/push/stream;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_connect_timeout 3s;
+    }
+
+    # PWA: el service worker y los manifiestos se revisan en cada visita (sin caché), para que una versión nueva o el
+    # interruptor de emergencia lleguen de inmediato a los teléfonos.
+    location ~ ^/(sw\.js|manifest-(cliente|tienda|admin)\.webmanifest)\$ {
+        types { application/javascript js; application/manifest+json webmanifest; }
+        add_header Cache-Control "no-cache";
+        include $RAIZ/cabeceras-seguridad.conf;
+        try_files \$uri =404;
+    }
+
     # Precarga de la imagen del encabezado: nginx la pide a la API para armar el HTML de la portada (SSI). Esa llamada NUNCA debe
     # retrasar la página: con 1 segundo de tope, y si la API tarda o está reiniciando, la portada sale sin precarga (vacío) en vez
     # de quedarse en blanco esperando.
@@ -251,8 +277,9 @@ server {
         try_files \$uri /index.html;
     }
 
-    # Zonas privadas: se sirve la aplicación pero se pide a los buscadores que no las indexen
-    location ~ ^/(admin|vendedor|socio|cuenta|carrito|carrito-compartido|checkout|mesa|vender)(/|\$) {
+    # Zonas privadas: se sirve la aplicación pero se pide a los buscadores que no las indexen. "caja" son las pantallas de la caja
+    # (enlace secreto) y "correos" la baja de correos (enlace firmado): nunca deben aparecer en un buscador.
+    location ~ ^/(admin|vendedor|socio|cuenta|carrito|carrito-compartido|checkout|mesa|vender|caja|correos)(/|\$) {
         add_header X-Robots-Tag "noindex, nofollow" always;
         add_header Cache-Control "no-cache";
         include $RAIZ/cabeceras-seguridad.conf;
@@ -269,7 +296,7 @@ server {
 
     # Archivos fijos de public/ (fuente y script del preloader, íconos, sonidos, imagen para compartir): casi nunca cambian,
     # así que se guardan 30 días en el navegador. Si alguno cambia, se renombra (como og-baznova-3.png).
-    location ~* ^/(opentype\.min\.js|logo-loader\.js|fonts/|flags/|sounds/|mediapipe/|blaze_face|favicon|apple-touch-icon|og-baznova|email-logo) {
+    location ~* ^/(opentype\.min\.js|logo-loader\.js|fonts/|flags/|sounds/|mediapipe/|blaze_face|favicon|apple-touch-icon|og-baznova|email-logo|pwa/) {
         expires 30d;
         add_header Cache-Control "public";
         include $RAIZ/cabeceras-seguridad.conf;

@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
-import { assertPlanAllows, getPlanLimit } from "../lib/planConfig.js";
+import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
 
 // Bloque 52: códigos de descuento del vendedor, aplicables por el cliente en
 // el carrito (ver resolveDiscountForOrder/createOrder en orders.controller.js).
@@ -211,8 +211,10 @@ export async function resolveDiscountForOrder(client, { vendorId, code, subtotal
   const normalizedCode = (code ?? "").trim().toUpperCase();
   if (!normalizedCode) throw new AppError("Escribe un código de descuento.", 400);
 
-  const discountCode = await client.discountCode.findUnique({ where: { vendorId_code: { vendorId, code: normalizedCode } } });
+  const discountCode = await client.discountCode.findUnique({ where: { vendorId_code: { vendorId, code: normalizedCode } }, include: { vendor: { select: { planType: true } } } });
   if (!discountCode) throw new AppError("Código de descuento inválido para esta tienda.", 404);
+  // Los códigos son del plan de pago: si la tienda bajó de plan, los que ya tenía se conservan pero no se aplican.
+  if (!(await planAllows(discountCode.vendor.planType, "allowDiscountCodes"))) throw new AppError("Esta tienda no acepta códigos de descuento por ahora.", 409);
   if (!discountCode.active) throw new AppError("Este código de descuento ya no está activo.", 409);
 
   const now = new Date();

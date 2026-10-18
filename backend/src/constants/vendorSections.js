@@ -22,6 +22,8 @@ export const VENDOR_SECTIONS = [
   { key: "ofertas-tienda", label: "Ofertas de tienda" },
   { key: "pedidos", label: "Pedidos" },
   { key: "clientes", label: "Clientes" },
+  { key: "puntos", label: "Programa de fidelidad" },
+  { key: "caja", label: "Caja" },
   { key: "mesas", label: "Mesas / QR" },
   { key: "mensajes", label: "Mensajes" },
   { key: "resenas", label: "Reseñas" },

@@ -1,63 +1,60 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Boxes, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Ban, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Boxes, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
 import { ActionCodeProvider } from "../../components/admin/ActionCodeProvider.jsx";
 import { searchSections } from "../../lib/sectionSearch.js";
+import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 
+// Menú del admin por secciones (GroupedNav): el orden aquí es el orden dentro de cada sección. "Tiendas suspendidas" ya no
+// tiene entrada propia: es el filtro "Suspendidas" de Tiendas.
 const NAV = [
-  // Bloque 194 (pedido explícito — "cambiarla por el nombre Dashboard,
-  // tanto en vendedores como en admin").
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/tiendas", label: "Tiendas", icon: Store },
-  { to: "/admin/tiendas-suspendidas", label: "Tiendas suspendidas", icon: Ban },
-  { to: "/admin/productos", label: "Productos", icon: Package },
-  { to: "/admin/ventas-rapidas", label: "Venta rápida", icon: Zap },
-  // Feature B (pedido explícito): badge propio (fraudReportsCount), mismo
-  // criterio que "Errores" (errorCount) más abajo.
-  { to: "/admin/reportes-fraude", label: "Reportes de fraude", icon: ShieldAlert, badge: "fraudReportsCount" },
-  // Bloque 229 (Fase 2 del blindaje del ranking): badge propio
-  // (rankingAnomaliesCount), mismo criterio que "Reportes de fraude" arriba.
-  { to: "/admin/anomalias-ranking", label: "Anomalías del ranking", icon: Radar, badge: "rankingAnomaliesCount" },
-  { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck },
-  { to: "/admin/clientes", label: "Clientes", icon: Users },
-  { to: "/admin/ventas-manuales", label: "Agentes de Ventas", icon: Wallet },
-  // Bloque 70 (pedido explícito): récord de todo lo que hacen vendedores y
-  // clientes en sus paneles + gráfica de uso por día/semana/mes.
-  { to: "/admin/actividad", label: "Actividad", icon: Activity },
-  { to: "/admin/sugerencias", label: "Sugerencias", icon: MessageSquare },
-  { to: "/admin/comentarios", label: "Comentarios", icon: Star },
-  { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle },
-  { to: "/admin/campanas", label: "Campañas", icon: Megaphone },
-  { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard },
-  { to: "/admin/socios-api", label: "Socios de la API", icon: Plug },
-  { to: "/admin/ofertas", label: "Ofertas", icon: Tag },
-  // Auditoría de seguridad: antes no había ninguna supervisión de admin
-  // sobre esto (Bloque 52) — ver discountCodes.controller.js/storeOffers.controller.js.
-  { to: "/admin/codigos-descuento", label: "Códigos de descuento", icon: Percent },
-  { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift },
-  { to: "/admin/anuncios", label: "Anuncios", icon: Image },
-  // Pedido explícito: todos los ajustes (marca aparte, seguridad, integraciones, planes, políticas) en Configuración.
-  { to: "/admin/configuracion", label: "Configuración", icon: Settings },
-  { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot },
-  // Bloque 33: badge propio (errorCount) en vez de "notifications" — ver
-  // el useQuery de abajo y el render del badge en el map de NAV.
-  { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount" },
-  { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2, badge: "locationSuggestionsCount" },
-  { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags },
-  { to: "/admin/casos-soporte", label: "Casos de soporte", icon: LifeBuoy },
-  { to: "/admin/categorias-producto", label: "Categorías de producto", icon: Boxes },
-  // Bloque 53: "Páginas" quedó solo para Términos/Privacidad — FAQ, Contacto
-  // y Centro de ayuda pasaron a tener su propia entrada de menú.
-  { to: "/admin/paginas", label: "Términos y privacidad", icon: FileText },
-  { to: "/admin/preguntas-frecuentes", label: "Preguntas frecuentes", icon: HelpCircle },
-  { to: "/admin/contacto", label: "Contacto", icon: Mail },
-  { to: "/admin/centro-ayuda", label: "Centro de ayuda", icon: LifeBuoy },
-  { to: "/admin/perfil", label: "Mi perfil", icon: UserCog },
+  { to: "/admin/tiendas", label: "Tiendas", icon: Store, group: "tiendas" },
+  { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck, group: "tiendas" },
+  { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard, group: "tiendas" },
+  { to: "/admin/ventas-manuales", label: "Agentes de Ventas", icon: Wallet, group: "tiendas" },
+  { to: "/admin/reportes-fraude", label: "Reportes de fraude", icon: ShieldAlert, badge: "fraudReportsCount", group: "tiendas" },
+  { to: "/admin/anomalias-ranking", label: "Anomalías del ranking", icon: Radar, badge: "rankingAnomaliesCount", group: "tiendas" },
+  { to: "/admin/productos", label: "Productos", icon: Package, group: "catalogo" },
+  { to: "/admin/ventas-rapidas", label: "Venta rápida", icon: Zap, group: "catalogo" },
+  { to: "/admin/categorias-producto", label: "Categorías de producto", icon: Boxes, group: "catalogo" },
+  { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags, group: "catalogo" },
+  { to: "/admin/clientes", label: "Clientes", icon: Users, group: "clientes" },
+  { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle, group: "clientes" },
+  { to: "/admin/comentarios", label: "Comentarios", icon: Star, group: "clientes" },
+  { to: "/admin/casos-soporte", label: "Casos de soporte", icon: LifeBuoy, group: "clientes" },
+  { to: "/admin/sugerencias", label: "Sugerencias", icon: MessageSquare, group: "clientes" },
+  { to: "/admin/campanas", label: "Campañas", icon: Megaphone, group: "marketing" },
+  { to: "/admin/ofertas", label: "Ofertas", icon: Tag, group: "marketing" },
+  { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift, group: "marketing" },
+  { to: "/admin/codigos-descuento", label: "Códigos de descuento", icon: Percent, group: "marketing" },
+  { to: "/admin/anuncios", label: "Anuncios", icon: Image, group: "marketing" },
+  { to: "/admin/paginas", label: "Términos y privacidad", icon: FileText, group: "contenido" },
+  { to: "/admin/preguntas-frecuentes", label: "Preguntas frecuentes", icon: HelpCircle, group: "contenido" },
+  { to: "/admin/centro-ayuda", label: "Centro de ayuda", icon: LifeBuoy, group: "contenido" },
+  { to: "/admin/contacto", label: "Contacto", icon: Mail, group: "contenido" },
+  { to: "/admin/configuracion", label: "Configuración", icon: Settings, group: "sistema" },
+  { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot, group: "sistema" },
+  { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2, badge: "locationSuggestionsCount", group: "sistema" },
+  { to: "/admin/socios-api", label: "Socios de la API", icon: Plug, group: "sistema" },
+  { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount", group: "sistema" },
+  { to: "/admin/actividad", label: "Actividad", icon: Activity, group: "sistema" },
+  { to: "/admin/perfil", label: "Mi perfil", icon: UserCog, group: "cuenta" },
+];
+
+const NAV_GROUPS = [
+  { id: "tiendas", label: "Tiendas" },
+  { id: "catalogo", label: "Catálogo" },
+  { id: "clientes", label: "Clientes y atención" },
+  { id: "marketing", label: "Marketing" },
+  { id: "contenido", label: "Contenido del sitio" },
+  { id: "sistema", label: "Sistema" },
+  { id: "cuenta", label: "Mi cuenta" },
 ];
 
 
@@ -389,7 +386,12 @@ export default function AdminLayout() {
             `className` del `<aside>`). El scroll vuelve al nav — el logo de
             arriba queda fijo, solo el nav se desliza internamente. */}
         <nav className="mt-[18px] flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto">
-          {NAV.map(({ to, label, icon: Icon, end, badge }) => (
+          <GroupedNav
+            items={NAV}
+            groups={NAV_GROUPS}
+            storageKey="admin-nav-groups"
+            badgeFor={(n) => ({ errorCount, fraudReportsCount, locationSuggestionsCount, rankingAnomaliesCount })[n.badge] ?? 0}
+            renderLink={({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -423,7 +425,8 @@ export default function AdminLayout() {
                 </span>
               )}
             </NavLink>
-          ))}
+            )}
+          />
         </nav>
       </aside>
 
@@ -435,7 +438,7 @@ export default function AdminLayout() {
           header queda exactamente alineado con las tarjetas del dashboard. */}
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col overflow-x-clip px-4 py-6 lg:px-[38px] lg:py-4">
         <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} onLogout={handleLogout} />
-        <main className="flex-1">
+        <main className="flex-1 pb-24">
           <Outlet />
         </main>
       </div>

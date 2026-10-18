@@ -6,6 +6,7 @@ import { isNoindexPath, isDynamicSeoPath, staticSeoFor } from "./lib/seoRoutes.j
 
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
+import { PwaManager } from "./components/pwa/PwaManager.jsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -31,6 +32,7 @@ const Privacy = lazy(() => import("./pages/public/Privacy.jsx"));
 const Faq = lazy(() => import("./pages/public/Faq.jsx"));
 const Ayuda = lazy(() => import("./pages/public/Ayuda.jsx"));
 const Contacto = lazy(() => import("./pages/public/Contacto.jsx"));
+const EmailUnsubscribe = lazy(() => import("./pages/public/EmailUnsubscribe.jsx"));
 import NotFound from "./pages/public/NotFound.jsx";
 
 // Cliente
@@ -43,6 +45,11 @@ const VendorProducts = lazy(() => import("./pages/vendor/VendorProducts.jsx"));
 const VendorStoreOffers = lazy(() => import("./pages/vendor/VendorStoreOffers.jsx"));
 const VendorOrders = lazy(() => import("./pages/vendor/VendorOrders.jsx"));
 const VendorCustomers = lazy(() => import("./pages/vendor/VendorCustomers.jsx"));
+const VendorLoyalty = lazy(() => import("./pages/vendor/VendorLoyalty.jsx"));
+const VendorSetupGuide = lazy(() => import("./pages/vendor/VendorSetupGuide.jsx"));
+const VendorPos = lazy(() => import("./pages/vendor/VendorPos.jsx"));
+const PosDisplay = lazy(() => import("./pages/pos/PosDisplay.jsx"));
+const PosBoard = lazy(() => import("./pages/pos/PosBoard.jsx"));
 const VendorTables = lazy(() => import("./pages/vendor/VendorTables.jsx"));
 const VendorVerification = lazy(() => import("./pages/vendor/VendorVerification.jsx"));
 const PagoManual = lazy(() => import("./pages/vendor/PagoManual.jsx"));
@@ -60,6 +67,7 @@ const AdminLayout = lazy(() => import("./pages/admin/AdminLayout.jsx"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard.jsx"));
 const AdminVendors = lazy(() => import("./pages/admin/AdminVendors.jsx"));
 const AdminSuspendedVendors = lazy(() => import("./pages/admin/AdminSuspendedVendors.jsx"));
+const AdminVendorManage = lazy(() => import("./pages/admin/AdminVendorManage.jsx"));
 const AdminVerifications = lazy(() => import("./pages/admin/AdminVerifications.jsx"));
 const AdminCustomers = lazy(() => import("./pages/admin/AdminCustomers.jsx"));
 const AdminActivityLog = lazy(() => import("./pages/admin/AdminActivityLog.jsx"));
@@ -186,6 +194,7 @@ export default function App() {
   return (
     <>
       <RouteLoader />
+      <PwaManager />
       <ErrorBoundary resetKey={currentPath}>
       {/* Las pantallas que no son de la portada (paneles, cuenta, pago, ayuda) se descargan solo cuando se abren:
           el primer ingreso al sitio baja mucho menos JavaScript. */}
@@ -228,6 +237,7 @@ export default function App() {
         <Route path="/faq" element={<Faq />} />
         <Route path="/ayuda" element={<Ayuda />} />
         <Route path="/contacto" element={<Contacto />} />
+        <Route path="/correos/baja" element={<EmailUnsubscribe />} />
         <Route path="/api-socios" element={<ApiSocios />} />
         <Route path="/socios/solicitar" element={<SolicitudSocio />} />
       </Route>
@@ -241,6 +251,9 @@ export default function App() {
           componente y mismo POST /auth/login de siempre (ver comentario en
           Account.jsx), solo cambia el copy y qué vistas ofrece cada una. */}
       <Route path="/vendedor/ingresar" element={<Account mode="vendor" />} />
+      {/* Pantallas de la caja (enlace secreto del panel): a pantalla completa, sin cabecera ni pie del sitio. */}
+      <Route path="/caja/pantalla/:token" element={<PosDisplay />} />
+      <Route path="/caja/tablero/:token" element={<PosBoard />} />
       <Route path="/admin/ingresar" element={<Account mode="admin" />} />
       {/* Bloque 299: panel del socio de la API (rol PARTNER), con la misma estructura que los demás paneles. */}
       <Route path="/socio/ingresar" element={<Account mode="partner" />} />
@@ -285,6 +298,9 @@ export default function App() {
         <Route path="ofertas-tienda" element={<VendorStoreOffers />} />
         <Route path="pedidos" element={<VendorOrders />} />
         <Route path="clientes" element={<VendorCustomers />} />
+        <Route path="puntos" element={<VendorLoyalty />} />
+        <Route path="completar" element={<VendorSetupGuide />} />
+        <Route path="caja" element={<VendorPos />} />
         <Route path="mesas" element={<VendorTables />} />
         <Route path="verificacion" element={<VendorVerification />} />
         <Route path="pago-manual" element={<PagoManual />} />
@@ -316,6 +332,7 @@ export default function App() {
       >
         <Route index element={<AdminDashboard />} />
         <Route path="tiendas" element={<AdminVendors />} />
+        <Route path="tiendas/:id" element={<AdminVendorManage />} />
         <Route path="tiendas-suspendidas" element={<AdminSuspendedVendors />} />
         <Route path="productos" element={<AdminProducts />} />
         <Route path="ventas-manuales" element={<AdminManualSales />} />

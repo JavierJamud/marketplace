@@ -29,6 +29,7 @@ import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
 import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
+import { NewVendorsCard } from "../../components/admin/NewVendorsCard.jsx";
 
 function fmtMoney(amount, currency) {
   return `${Number(amount).toLocaleString("es-CU", { maximumFractionDigits: 0 })} ${currency}`;
@@ -427,7 +428,7 @@ export default function AdminDashboard() {
               data.topPotentialVendors.map((v) => {
                 const h = HEALTH_LEVEL[v.level];
                 return (
-                  <Link key={v.vendorId} to="/admin/tiendas" className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/60">
+                  <Link key={v.vendorId} to={`/admin/tiendas/${v.vendorId}`} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/60">
                     <div
                       className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold text-white"
                       style={{ background: v.color || "#337475" }}
@@ -508,6 +509,8 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      <NewVendorsCard />
 
       {/* ── Actividad reciente + suscripción por moneda / provincias ── */}
       <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">

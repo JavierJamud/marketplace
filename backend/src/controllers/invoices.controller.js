@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { assertPlanAllows } from "../lib/planConfig.js";
 import { generateInvoicePdf, generateWarrantyPdf } from "../lib/pdf.js";
 import { sendDocumentEmail } from "../lib/email.js";
 import { invoiceEmail, warrantyEmail } from "../templates/documentEmail.js";
@@ -100,6 +101,7 @@ export async function emailInvoice(req, res) {
   const { id } = req.params;
   const data = invoiceEmailSchema.parse(req.body);
   const { vendor, order } = await loadConfirmedOrderForVendor(req.user.id, id);
+  await assertPlanAllows(vendor, "allowCustomerEmails", "Enviar la factura por correo es del Plan Premium. Descárgala y envíala por WhatsApp.");
   const customer = resolveCustomer(data, order);
 
   const pdfBuffer = await generateInvoicePdf({ vendor, order, items: pdfItemsFrom(order.items), customer, ...(await pdfContext(order)) });
@@ -164,6 +166,7 @@ export async function emailWarranty(req, res) {
   const { id } = req.params;
   const data = warrantyEmailSchema.parse(req.body);
   const { vendor, order } = await loadConfirmedOrderForVendor(req.user.id, id);
+  await assertPlanAllows(vendor, "allowCustomerEmails", "Enviar la garantía por correo es del Plan Premium. Descárgala y envíala por WhatsApp.");
   assertWarrantySectionComplete(vendor);
   const items = selectWarrantyItems(order, data.orderItemIds);
   const customer = resolveCustomer(data, order);

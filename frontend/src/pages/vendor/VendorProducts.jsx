@@ -17,6 +17,8 @@ import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
+import { SearchBox } from "../../components/ui/SearchBox.jsx";
+import { productMatches } from "../../lib/textMatch.js";
 
 // Bloque 52: presets rápidos de tallas de ropa — un click para agregar/quitar,
 // además del input libre (numéricas de calzado, "Talla única", etc.).
@@ -121,9 +123,10 @@ const EMPTY_FORM = {
   sizes: [],
   sizeStock: {},
   priceTiers: [],
+  barcode: "",
 };
 
-function ProductModal({ product, planType, isRestaurant, categories, onClose, vendorCurrency }) {
+export function ProductModal({ product, planType, isRestaurant, categories, onClose, vendorCurrency }) {
   const queryClient = useQueryClient();
   // Bloque 66: a diferencia de savedProduct (que pasa a existir tanto para
   // un producto editado COMO para uno recién creado en esta misma sesión de
@@ -171,6 +174,7 @@ function ProductModal({ product, planType, isRestaurant, categories, onClose, ve
           sizes: product.sizes ?? [],
           sizeStock: product.sizeStock ?? {},
           priceTiers: (product.priceTiers ?? []).map((t) => ({ minQty: String(t.minQty), price: String(t.price) })),
+          barcode: product.barcode ?? "",
         }
       : { ...EMPTY_FORM, currency: vendorCurrency ?? "CUP" }
   );
@@ -310,6 +314,7 @@ function ProductModal({ product, planType, isRestaurant, categories, onClose, ve
         tableRestricted: form.availableForTableMenu ? form.tableRestricted : false,
         restrictedTableIds: form.availableForTableMenu && form.tableRestricted ? form.restrictedTableIds : [],
         tags: form.tags,
+        barcode: form.barcode.trim() || null,
         sizes: sizesEnabled ? form.sizes : [],
         sizeStock: sizesEnabled ? form.sizeStock : {},
         // Siempre se manda (aunque sea []) para que apagar el checkbox borre
@@ -530,6 +535,17 @@ function ProductModal({ product, planType, isRestaurant, categories, onClose, ve
             <div className="grid grid-cols-2 gap-3">
               {!sizesEnabled && !form.unlimitedStock && (
                 <Input label="Stock" type="number" min={0} required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
+              )}
+              {/* Para venderlo escaneando en la Caja. Con un lector USB se puede escanear aquí mismo. */}
+              {!sizesEnabled && (
+                <Input
+                  label="Código de barras"
+                  value={form.barcode}
+                  maxLength={40}
+                  placeholder="Opcional"
+                  onChange={(e) => setForm({ ...form, barcode: e.target.value.replace(/[^A-Za-z0-9.-]/g, "") })}
+                  onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                />
               )}
             </div>
 
@@ -938,8 +954,10 @@ export default function VendorProducts() {
   const queryClient = useQueryClient();
   const [modalState, setModalState] = useState(null); // null | { mode: "new" } | { mode: "edit", product }
   const [deleteTarget, setDeleteTarget] = useState(null); // producto a eliminar, para el modal de confirmación
-  const [stockFilter, setStockFilter] = useState("all"); // all | top | low | out | paused
   const [searchParams, setSearchParams] = useSearchParams();
+  // El buscador del panel llega con ?q= (texto) o ?filtro= (estado: low, out, paused, top).
+  const [stockFilter, setStockFilter] = useState(() => (["top", "low", "out", "paused"].includes(searchParams.get("filtro")) ? searchParams.get("filtro") : "all"));
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [requestSortDesc, setRequestSortDesc] = useState(true);
 
   const { data, isLoading } = useQuery({
@@ -1026,12 +1044,15 @@ export default function VendorProducts() {
   }
   const pausedCount = products.filter((p) => groupOf(p) === "paused").length;
 
+  // Texto: nombre, descripción, etiquetas de búsqueda y código de barras, sin tildes y con tolerancia a errores de tipeo
+  // (lib/textMatch.js). Se combina con la pestaña de estado elegida.
+  const searched = search.trim() ? products.filter((p) => productMatches(p, search)) : products;
   const filteredProducts =
-    stockFilter === "top" ? products.filter((p) => topSellerIds.has(p.id))
-    : stockFilter === "low" ? products.filter((p) => stockStatus(p) === "low")
-    : stockFilter === "out" ? products.filter((p) => stockStatus(p) === "out")
-    : stockFilter === "paused" ? products.filter((p) => groupOf(p) === "paused")
-    : products;
+    stockFilter === "top" ? searched.filter((p) => topSellerIds.has(p.id))
+    : stockFilter === "low" ? searched.filter((p) => stockStatus(p) === "low")
+    : stockFilter === "out" ? searched.filter((p) => stockStatus(p) === "out")
+    : stockFilter === "paused" ? searched.filter((p) => groupOf(p) === "paused")
+    : searched;
 
   // El conteo de solicitudes solo importa (y solo se muestra como columna)
   // mirando la pestaña "Sin stock" — ahí es donde el vendedor decide qué
@@ -1093,6 +1114,20 @@ export default function VendorProducts() {
           ))}
         </dl>
       </div>
+
+      <SearchBox
+        className="mb-3"
+        value={search}
+        onChange={(v) => {
+          setSearch(v);
+          const next = new URLSearchParams(searchParams);
+          if (v.trim()) next.set("q", v);
+          else next.delete("q");
+          setSearchParams(next, { replace: true });
+        }}
+        placeholder="Buscar por nombre, descripción, etiqueta o código de barras"
+        resultText={search.trim() ? `${filteredProducts.length} de ${products.length} productos` : undefined}
+      />
 
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map((t) => (

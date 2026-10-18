@@ -25,6 +25,10 @@ import { formatPrice } from "../../lib/format.js";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
 import { CancelOrderModal, CancelBlockedModal, EditOrderModal } from "../../components/customer/CustomerOrderActions.jsx";
+import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
+import { APPS } from "../../lib/pwa.js";
+import { MyPoints } from "../../components/customer/MyPoints.jsx";
+import { EmailPreferencesCard } from "../../components/customer/EmailPreferencesCard.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -43,6 +47,7 @@ const TABS = [
   { id: "orders", label: "Mis pedidos" },
   { id: "quick-sale", label: "Venta rápida" },
   { id: "wishlist", label: "Favoritos" },
+  { id: "points", label: "Mis puntos" },
   { id: "addresses", label: "Direcciones" },
   { id: "profile", label: "Perfil" },
   { id: "suggestions", label: "Sugerencias" },
@@ -506,6 +511,12 @@ export default function CustomerPanel() {
                       </div>
                     ))}
                   </div>
+                  {(o.loyaltyPointsRedeemed > 0 || o.loyaltyPointsEarned > 0) && (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-semibold text-verified-dark">
+                      {o.loyaltyPointsRedeemed > 0 && <span>Pagaste {fmtCUP(o.loyaltyDiscount)} con {o.loyaltyPointsRedeemed} puntos</span>}
+                      {o.loyaltyPointsEarned > 0 && <span>Ganaste {o.loyaltyPointsEarned} puntos</span>}
+                    </div>
+                  )}
                   {/* Cancelar o cambiar el pedido: el servidor decide qué corresponde según el estado (canCancel / canEdit). */}
                   {(o.canEdit || o.canCancel || o.canAskToCancel) && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-surface-container pt-3">
@@ -959,6 +970,13 @@ export default function CustomerPanel() {
           </div>
         )}
 
+        {tab === "points" && (
+          <div className="max-w-[640px]">
+            <h1 className="mb-5 font-display text-headline-md text-on-surface">Mis puntos</h1>
+            <MyPoints />
+          </div>
+        )}
+
         {tab === "suggestions" && (
           <div>
             <h1 className="mb-5 font-display text-headline-md text-on-surface">Sugerencias</h1>
@@ -985,7 +1003,7 @@ export default function CustomerPanel() {
                 <Spinner />
               ) : (
                 <div className="flex flex-col gap-3.5">
-                  <Input label="Nombre completo" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} />
+                  <Input data-guard="name" label="Nombre completo" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} />
                   <PhoneInput
                     label="Teléfono (WhatsApp)"
                     required
@@ -1034,6 +1052,14 @@ export default function CustomerPanel() {
             </div>
 
             {changingEmail && <ChangeEmailModal currentEmail={customer?.email} onClose={() => setChangingEmail(false)} />}
+
+            <div className="mt-5 max-w-[480px]">
+              <NotificationSettings app={APPS.cliente} />
+            </div>
+
+            <div className="mt-5 max-w-[480px]">
+              <EmailPreferencesCard />
+            </div>
 
             <div className="mt-5 max-w-[480px]">
               <TwoFactorCard />

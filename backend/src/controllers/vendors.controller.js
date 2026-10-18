@@ -1,3 +1,5 @@
+import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
+import { touchStoreVisit } from "../services/loyalty.service.js";
 import { toPublicVendor } from "../lib/publicVendor.js";
 import { z } from "zod";
 import { unlink, readFile } from "node:fs/promises";
@@ -10,6 +12,8 @@ import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { slugify } from "../utils/slugify.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { getVendorInsights } from "../services/vendorInsights.service.js";
+import { searchVendorPanel } from "../services/vendorSearch.service.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { getBrandSettings } from "./settings.controller.js";
@@ -180,6 +184,7 @@ export async function createVendor(req, res) {
 
   const existing = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (existing) throw new AppError("Este usuario ya tiene una tienda registrada.", 409);
+  await assertVendorUnique({ companyName: data.companyName, whatsapp: data.whatsapp, email: data.email, ownerIdNumber: data.ownerIdNumber });
 
   const businessCategory = await prisma.businessCategory.findUnique({ where: { id: data.businessCategoryId } });
   if (!businessCategory) throw new AppError("Ese tipo de negocio no existe.", 400);
@@ -548,49 +553,9 @@ export function stripOwnerPrivateFields(vendor, role) {
 // Order.customerName/Phone/Email).
 export async function searchMyVendor(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
-
-  const q = String(req.query.q ?? "").trim();
-  if (q.length < 2) return res.json({ orders: [], tableOrders: [], products: [] });
-
-  const asNumber = Number(q);
-  const isNumeric = !Number.isNaN(asNumber) && q !== "";
-
-  const orders = await prisma.order.findMany({
-    where: {
-      vendorId: vendor.id,
-      OR: [
-        { code: { contains: q, mode: "insensitive" } },
-        { customerName: { contains: q, mode: "insensitive" } },
-        { customerPhone: { contains: q, mode: "insensitive" } },
-      ],
-    },
-    orderBy: { createdAt: "desc" },
-    take: 6,
-  });
-
-  let tableOrders = [];
-  if (vendor.isRestaurant) {
-    tableOrders = await prisma.tableOrder.findMany({
-      where: {
-        table: { vendorId: vendor.id },
-        OR: [
-          ...(isNumeric ? [{ orderNumber: Math.trunc(asNumber) }] : []),
-          { customerName: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      include: { table: true },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-    });
-  }
-
-  const products = await prisma.product.findMany({
-    where: { vendorId: vendor.id, name: { contains: q, mode: "insensitive" } },
-    select: { id: true, name: true, price: true, images: true },
-    take: 6,
-  });
-
-  res.json({ orders, tableOrders, products });
+  // Un usuario del equipo solo encuentra lo de las secciones que tiene asignadas (el dueño, todo).
+  const sections = req.vendorStaff ? req.vendorStaff.allowedSections : null;
+  res.json(await searchVendorPanel(vendor, req.query.q, sections));
 }
 
 // Bloque 17 (auditoría de seguridad): este endpoint era el único de todo el
@@ -680,6 +645,19 @@ export async function updateMyVendor(req, res) {
   }
 
   if (data.currency) await assertCurrencyAllowed(data.currency);
+
+  // Nombre, WhatsApp, correo y documento del responsable no pueden ser los de otra tienda. Solo se comprueba lo que cambia: el
+  // formulario manda todo en cada guardado y una coincidencia vieja no debe impedir guardar otra cosa.
+  const changed = (key) => data[key] != null && String(data[key]).trim() !== String(vendor[key] ?? "").trim();
+  await assertVendorUnique(
+    {
+      companyName: changed("companyName") ? data.companyName : undefined,
+      whatsapp: changed("whatsapp") ? data.whatsapp : undefined,
+      email: changed("email") ? data.email : undefined,
+      ownerIdNumber: changed("ownerIdNumber") ? data.ownerIdNumber : undefined,
+    },
+    vendor.id
+  );
 
   // Bloque 153 (pedido explícito — "todos los datos de la tienda no se
   // pueden modificar después de estar verificadas sin aprobación del
@@ -1021,6 +999,14 @@ export async function acceptTrialOffer(req, res) {
   // trialStartedAt que ya existía.
   if (!vendor.trialStartedAt) {
     await prisma.vendor.update({ where: { id: vendor.id }, data: { trialStartedAt: new Date() } });
+    // El admin se entera siempre (correo, campana y aviso push): la prueba se activa sola al completar los requisitos, sin
+    // revisión humana, así que este es el momento de mirar quién la pidió.
+    void notifyAdminActionNeeded(
+      `Tienda aceptó la prueba gratis: ${vendor.companyName}`,
+      `${vendor.companyName} aceptó la prueba gratis de 30 días del Plan Premium. Se activará sola cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado).`,
+      vendor.id,
+      { url: `/admin/tiendas/${vendor.id}` }
+    ).catch(() => {});
     // Por si ya tenía TODO completo de antes (caso raro, pero posible: una
     // tienda vieja que ya cumplía el checklist antes de que este feature
     // existiera) — no hace falta esperar a la próxima escritura de perfil.
@@ -1045,6 +1031,7 @@ export async function markTrialWelcomeSeen(req, res) {
 export async function updateSchedule(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  await assertPlanAllows(vendor, "allowSchedules", "Tu plan actual no incluye horarios de atención.");
 
   const { days } = scheduleSchema.parse(req.body);
   const rows = flattenScheduleDays(days);
@@ -1495,6 +1482,12 @@ export async function getDashboardAnalytics(req, res) {
 // consejos diarios"): endpoint chico y aparte de los otros 2 de arriba —
 // toda la lógica real vive en services/vendorDailyTips.service.js
 // (generación + caché de un día).
+// Secciones del panel principal basadas en los algoritmos de la plataforma (ver services/vendorInsights.service.js).
+export async function getDashboardInsights(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  res.json(await getVendorInsights(vendor));
+}
+
 export async function getVendorDailyTips(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { tips, generatedAt } = await getOrGenerateVendorDailyTips(vendor.id);
@@ -1514,6 +1507,8 @@ export async function trackEngagement(req, res) {
   if (!vendor) throw new AppError("Tienda no encontrada.", 404);
 
   await prisma.vendorEngagement.create({ data: { vendorId: vendor.id, customerId: req.user.id, type } });
+  // También cuenta como visita para el recordatorio "volviste a mirar esta tienda" (puntos u oferta).
+  await touchStoreVisit(req.user.id, vendor.id).catch(() => {});
   res.status(201).end();
 }
 
@@ -1727,7 +1722,7 @@ export async function syncProvinceLocations(req, res) {
     // "Todos los municipios"
     await prisma.vendorLocation.deleteMany({ where: { vendorId: vendor.id, provinceId } });
     await prisma.vendorLocation.create({
-      data: { vendorId: vendor.id, provinceId, municipalityId: null },
+      data: { vendorId: vendor.id, provinceId, countryId: province.countryId ?? null, municipalityId: null },
     });
   } else {
     // Especificar municipios
@@ -1746,6 +1741,8 @@ export async function syncProvinceLocations(req, res) {
         where: { id: { in: municipalityIds }, provinceId, isActive: true },
       });
       const validIds = new Set(validMunicipalities.map((m) => m.id));
+      // Si ninguna de las elegidas existe o sigue activa, se avisa: antes se borraba la zona entera sin decir nada.
+      if (validIds.size === 0) throw new AppError("Ninguno de los municipios o ciudades elegidos está disponible. Vuelve a elegirlos.", 400);
 
       await prisma.vendorLocation.deleteMany({
         where: { vendorId: vendor.id, provinceId, OR: [{ municipalityId: null }, { municipalityId: { notIn: [...validIds] } }] },
@@ -1754,10 +1751,12 @@ export async function syncProvinceLocations(req, res) {
       const currentLocs = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id, provinceId } });
       const currentMunIds = new Set(currentLocs.map((l) => l.municipalityId));
 
-      for (const mId of validIds) {
-        if (!currentMunIds.has(mId)) {
-          await prisma.vendorLocation.create({ data: { vendorId: vendor.id, provinceId, municipalityId: mId } });
-        }
+      // En un solo paso (un estado puede tener cientos de ciudades elegidas).
+      const toCreate = [...validIds].filter((mId) => !currentMunIds.has(mId));
+      if (toCreate.length) {
+        await prisma.vendorLocation.createMany({
+          data: toCreate.map((mId) => ({ vendorId: vendor.id, provinceId, countryId: province.countryId ?? null, municipalityId: mId })),
+        });
       }
     }
   }
@@ -1767,6 +1766,8 @@ export async function syncProvinceLocations(req, res) {
     include: { province: { include: { country: true } }, municipality: true },
   });
 
+  // Elegir dónde opera puede ser lo último que faltaba para la prueba gratis.
+  await maybeAutoActivateTrial(vendor.id).catch(() => {});
   res.json({ locations: updatedLocations });
 }
 
@@ -1831,4 +1832,13 @@ export async function removeAiDocument(req, res) {
   });
 
   res.status(204).end();
+}
+
+// Comprobación previa del registro de tienda (antes de crear la cuenta): avisa en el formulario si el nombre, el WhatsApp o el
+// correo ya los usa otra tienda, para no crear una cuenta que después no pueda abrir su tienda.
+export async function checkVendorAvailability(req, res) {
+  const data = z
+    .object({ companyName: z.string().trim().max(120).optional(), whatsapp: z.string().trim().max(30).optional(), email: z.string().trim().max(200).optional() })
+    .parse(req.body ?? {});
+  res.json({ conflicts: await findVendorConflicts(data) });
 }

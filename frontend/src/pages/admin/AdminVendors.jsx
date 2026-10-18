@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { X, Store, Radar, Star } from "lucide-react";
 import { IconCircle, CARD } from "../../components/dashboard/DashboardCard.jsx";
@@ -8,16 +8,14 @@ import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { useListParams, useDebouncedSearch } from "../../lib/useListParams.js";
 import { timeAgo, exactDate } from "../../lib/relativeTime.js";
-import { StatTile, StatStrip, SortHeader, SearchField, RowSkeletons, Pagination, ActionMenu } from "../../components/admin/ListControls.jsx";
+import { StatTile, StatStrip, SortHeader, SearchField, RowSkeletons, Pagination } from "../../components/admin/ListControls.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
-import { ConfirmModal } from "../../components/ConfirmModal.jsx";
-import { AdminVendorStaffModal } from "../../components/admin/AdminVendorStaffModal.jsx";
 import { RepresentativeFileModal } from "../../components/admin/RepresentativeFileModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { SuspendedVendorsList, useSuspendedVendors } from "./AdminSuspendedVendors.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -33,7 +31,7 @@ function fmtCUP(n) {
 // tiene por qué respetar — para eso está este formulario). Contraseña y
 // correo de LOGIN van aparte, con su propio botón — son acciones sensibles
 // de cuenta, no un campo más del formulario general.
-function EditVendorModal({ vendor, onSave, onCancel, saving }) {
+export function EditVendorModal({ vendor, onSave, onCancel, saving }) {
   const [form, setForm] = useState({
     companyName: vendor.companyName,
     whatsapp: vendor.whatsapp,
@@ -116,7 +114,7 @@ function EditVendorModal({ vendor, onSave, onCancel, saving }) {
           <p className="mt-1 border-t border-surface-container-high pt-3 text-label-sm font-bold text-on-surface-variant">
             Datos de identidad (privados)
           </p>
-          <Input label="Nombre del responsable" value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
+          <Input data-guard="name" label="Nombre del responsable" value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} />
           <Input label="Identificación del responsable" value={form.ownerIdNumber} onChange={(e) => setForm({ ...form, ownerIdNumber: e.target.value })} />
           <Input label="Dirección de la empresa" value={form.companyAddress} onChange={(e) => setForm({ ...form, companyAddress: e.target.value })} />
         </div>
@@ -181,7 +179,7 @@ function fmtDateTime(iso) {
 
 const KITCHEN_STATUS_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo" };
 
-function StatsModal({ vendorName, onClose }) {
+export function StatsModal({ vendorName, onClose }) {
   const { data, isLoading } = useQuery({
     queryKey: ["vendor-stats", vendorName.id],
     queryFn: async () => (await api.get(`/admin/vendors/${vendorName.id}/stats`)).data.stats,
@@ -274,7 +272,7 @@ const SORT_OPTIONS = [
 ];
 
 const ROW_GRID =
-  "md:grid md:grid-cols-[minmax(0,2.4fr)_128px_64px_96px_112px_60px_92px_44px] md:items-center md:gap-3";
+  "md:grid md:grid-cols-[minmax(0,2.4fr)_128px_64px_96px_112px_60px_92px_96px] md:items-center md:gap-3";
 
 const VERIFICATION_LABEL = {
   NOT_STARTED: "Sin verificar",
@@ -286,34 +284,19 @@ const VERIFICATION_LABEL = {
   SUSPENDED: "Verificación suspendida",
 };
 
-function VendorRow({ v, onStats, onRepresentative, onStaff, onEdit, onTogglePlan, onBlock, onDelete, onRestore, onPermanent }) {
+function VendorRow({ v }) {
   const place = v.locations?.[0]?.province?.name ?? null;
   const hasSales = v.sales30 > 0;
   const pending = !!v.adminDeletionRequestedAt;
+  // Todas las acciones (editar, plan, bloquear, eliminar, responsable, usuarios, estadísticas) viven en la página Gestionar.
   const menu = (
-    <ActionMenu
-      label={`Acciones de ${v.companyName}`}
-      items={
-        pending
-          ? [
-              // Bloque 272: en eliminación pendiente solo se puede restaurar o eliminar ya.
-              { label: "Restaurar tienda", onClick: onRestore },
-              { label: "Ver responsable", onClick: onRepresentative },
-              { label: "Ver estadísticas", onClick: onStats },
-              { label: "Eliminar definitivamente", onClick: onPermanent, danger: true },
-            ]
-          : [
-              { label: "Ver responsable", onClick: onRepresentative },
-              { label: "Ver estadísticas", onClick: onStats },
-              { label: "Usuarios del sistema", onClick: onStaff },
-              { label: "Ver tienda pública", onClick: () => window.open(`/tienda/${v.slug}`, "_blank", "noopener") },
-              { label: "Editar", onClick: onEdit },
-              { label: v.planType === "BUSINESS" ? "Pasar a plan Regular" : "Pasar a plan Business", onClick: onTogglePlan },
-              { label: "Bloquear", onClick: onBlock },
-              { label: "Eliminar", onClick: onDelete, danger: true },
-            ]
-      }
-    />
+    <Link
+      to={`/admin/tiendas/${v.id}`}
+      aria-label={`Gestionar ${v.companyName}`}
+      className="flex min-h-10 items-center justify-center rounded-lg bg-surface-container px-3 text-[12.5px] font-semibold text-on-surface hover:bg-surface-container-high focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+    >
+      Gestionar
+    </Link>
   );
   return (
     <div className={`border-b border-surface-container px-4 py-2.5 last:border-b-0 ${ROW_GRID}`}>
@@ -395,12 +378,7 @@ function VendorRow({ v, onStats, onRepresentative, onStaff, onEdit, onTogglePlan
 }
 
 export default function AdminVendors() {
-  const queryClient = useQueryClient();
   const [params, setParams] = useListParams(LIST_DEFAULTS);
-  const [editing, setEditing] = useState(null);
-  const [deleting, setDeleting] = useState(null);
-  const [permanent, setPermanent] = useState(null); // tienda en eliminación pendiente que se va a eliminar ya
-  const [viewingStats, setViewingStats] = useState(null);
   // Bloque 277: ficha del responsable; también se abre con /admin/tiendas?responsable=<tienda> (enlace del asistente).
   const [viewingRep, setViewingRep] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -408,26 +386,21 @@ export default function AdminVendors() {
   useEffect(() => {
     if (repParam) setViewingRep({ id: repParam, companyName: "" });
   }, [repParam]);
-  // Bloque 183 (pedido explícito — "el administrador general del sistema
-  // también puede controlar y verificar lo mismo que pueda hacer el
-  // vendedor... poder verificar cuáles son los usuarios que ha creado ese
-  // vendedor"): mismo mirror que ya tiene el propio dueño en su panel
-  // (VendorUsers.jsx), acá scopeado por vendorId en vez de resolveMyVendor.
-  const [viewingStaff, setViewingStaff] = useState(null);
-  const [blocking, setBlocking] = useState(null); // tienda a bloquear, para el modal de confirmación
-  const [blockReason, setBlockReason] = useState("");
-
   const commitSearch = useCallback((q) => setParams({ q }), [setParams]);
   const [searchText, setSearchText] = useDebouncedSearch(params.q, commitSearch);
 
+  // "Suspendidas" (antes una página aparte) usa su propia lista; la consulta principal sigue para los contadores de arriba.
+  const showSuspended = params.status === "suspended";
+  const listStatus = showSuspended ? "all" : params.status;
+  const suspended = useSuspendedVendors();
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["admin-list-vendors", params],
+    queryKey: ["admin-list-vendors", { ...params, status: listStatus }],
     queryFn: async () =>
       (
         await api.get("/admin/vendors", {
           params: {
             q: params.q || undefined,
-            status: params.status,
+            status: listStatus,
             provinceId: params.province || undefined,
             sort: params.sort,
             dir: params.dir,
@@ -444,58 +417,12 @@ export default function AdminVendors() {
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
 
-  const update = useMutation({
-    mutationFn: async ({ id, payload }) => (await api.patch(`/admin/vendors/${id}`, payload)).data,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-vendor-pick"] });
-      setEditing(null);
-      setBlocking(null);
-      setBlockReason("");
-    },
-    onError: (err) => {
-      toast.error(err.response?.data?.error ?? "No se pudo actualizar la tienda.");
-    },
-  });
-
-  // Bloque 272: eliminar = pasar a "eliminación pendiente" (plazo configurable en Seguridad).
+  // Bloque 272: plazo de eliminación (configurable en Seguridad), para el texto del filtro.
   const { data: security } = useQuery({
     queryKey: ["admin-security-settings"],
     queryFn: async () => (await api.get("/admin/security/settings")).data.settings,
   });
   const deletionDays = security?.vendorDeletionDays ?? 30;
-
-  const remove = useMutation({
-    mutationFn: async (id) => (await api.delete(`/admin/vendors/${id}`)).data,
-    onSuccess: (result) => {
-      const when = result?.scheduledFor ? new Date(result.scheduledFor).toLocaleDateString("es-CU", { day: "numeric", month: "long" }) : null;
-      toast.success(`La tienda pasó a eliminación pendiente${when ? `: se eliminará el ${when} si no la restauras` : ""}.`);
-      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
-      setDeleting(null);
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo eliminar la tienda."),
-  });
-  const restore = useMutation({
-    mutationFn: async (id) => (await api.post(`/admin/vendors/${id}/restore-deletion`)).data,
-    onSuccess: () => {
-      toast.success("Tienda restaurada: vuelve a estar visible.");
-      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo restaurar la tienda."),
-  });
-  // Pide el código enviado al correo (lo gestiona ActionCodeProvider al recibir el 403).
-  const removeForever = useMutation({
-    mutationFn: async (id) => api.delete(`/admin/vendors/${id}/permanent`),
-    onSuccess: () => {
-      toast.success("Tienda eliminada definitivamente.");
-      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
-      setPermanent(null);
-    },
-    onError: (err) => {
-      if (!err.actionCodeCancelled) toast.error(err.response?.data?.error ?? "No se pudo eliminar la tienda.");
-      setPermanent(null);
-    },
-  });
 
   // Si al borrar o filtrar la página actual queda más allá del final, vuelve
   // a la última que existe.
@@ -514,6 +441,7 @@ export default function AdminVendors() {
     { key: "business", label: "Business", value: kpis?.business },
     { key: "inactive", label: "Inactivas", value: kpis?.inactive, hint: "30 días sin entrar", tone: "warn" },
     { key: "flagged", label: "Con alertas", value: kpis?.flagged, hint: "Ranking", tone: "danger" },
+    { key: "suspended", label: "Suspendidas", value: suspended.data?.length, hint: "Bloqueadas o sin uso", tone: "danger" },
     { key: "deletion", label: "Eliminación pendiente", value: kpis?.deletion, hint: `Se borran a los ${deletionDays} días`, tone: "danger" },
   ];
   const onSort = (sort, dir) => setParams({ sort, dir });
@@ -540,6 +468,10 @@ export default function AdminVendors() {
         ))}
       </StatStrip>
 
+      {showSuspended ? (
+        <SuspendedVendorsList />
+      ) : (
+      <>
       <div className="mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por nombre, enlace o correo" className="sm:col-span-2 lg:col-span-1" />
         <select
@@ -597,19 +529,7 @@ export default function AdminVendors() {
         )}
 
         {data?.vendors.map((v) => (
-          <VendorRow
-            key={v.id}
-            v={v}
-            onStats={() => setViewingStats(v)}
-            onRepresentative={() => setViewingRep(v)}
-            onStaff={() => setViewingStaff(v)}
-            onEdit={() => setEditing(v)}
-            onTogglePlan={() => update.mutate({ id: v.id, payload: { planType: v.planType === "BUSINESS" ? "REGULAR" : "BUSINESS" } })}
-            onBlock={() => setBlocking(v)}
-            onDelete={() => setDeleting(v)}
-            onRestore={() => restore.mutate(v.id)}
-            onPermanent={() => setPermanent(v)}
-          />
+          <VendorRow key={v.id} v={v} />
         ))}
 
         {data && data.vendors.length === 0 && (
@@ -636,42 +556,9 @@ export default function AdminVendors() {
           noun="tiendas"
         />
       )}
-
-      {editing && (
-        <EditVendorModal
-          vendor={editing}
-          saving={update.isPending}
-          onCancel={() => setEditing(null)}
-          // Bloque 196: mutateAsync (misma mutación `update` de siempre, solo
-          // la variante que devuelve una promesa) — hace falta para que
-          // useDirtyModal (dentro de EditVendorModal) pueda esperar a que el
-          // guardado realmente termine antes de cerrar el modal.
-          onSave={(form) => update.mutateAsync({ id: editing.id, payload: form })}
-        />
+      </>
       )}
 
-      <ConfirmModal
-        open={!!deleting}
-        title={`¿Eliminar "${deleting?.companyName}"?`}
-        message={`La tienda se oculta de todo el sitio y su dueño no podrá entrar. No se borra todavía: queda en "Eliminación pendiente" durante ${deletionDays} días. Si no la restauras en ese plazo, se elimina sola y de forma definitiva. Puedes eliminarla antes desde el filtro "Eliminación pendiente". Para confirmar este cambio se te pedirá un código enviado a tu correo.`}
-        confirmLabel={remove.isPending ? "Eliminando..." : "Continuar"}
-        danger
-        confirmDisabled={remove.isPending}
-        onConfirm={() => remove.mutate(deleting.id)}
-        onCancel={() => setDeleting(null)}
-      />
-      {permanent && (
-        <ConfirmDeleteModal
-          title={`¿Eliminar definitivamente "${permanent.companyName}"?`}
-          description="Se elimina ya, sin esperar el plazo. Sus pedidos y reseñas históricos se conservan, pero la tienda y su cuenta no se pueden recuperar. Antes de eliminar se te pedirá un código enviado a tu correo."
-          confirmLabel="Eliminar definitivamente"
-          pending={removeForever.isPending}
-          onCancel={() => setPermanent(null)}
-          onConfirm={() => removeForever.mutate(permanent.id)}
-        />
-      )}
-
-      {viewingStats && <StatsModal vendorName={viewingStats} onClose={() => setViewingStats(null)} />}
       {viewingRep && (
         <RepresentativeFileModal
           vendor={viewingRep}
@@ -681,29 +568,6 @@ export default function AdminVendors() {
           }}
         />
       )}
-      {viewingStaff && <AdminVendorStaffModal vendor={viewingStaff} onClose={() => setViewingStaff(null)} />}
-
-      <ConfirmModal
-        open={!!blocking}
-        title={`¿Bloquear "${blocking?.companyName}"?`}
-        message="La tienda se oculta de todo el sitio. El dueño sí puede entrar a su panel, pero ve el motivo que escribas abajo y no puede usar ninguna sección hasta que la desbloquees."
-        confirmLabel={update.isPending ? "Bloqueando..." : "Sí, bloquear"}
-        danger
-        confirmDisabled={blockReason.trim().length < 5 || update.isPending}
-        onConfirm={() => update.mutate({ id: blocking.id, payload: { isBlocked: true, blockReason: blockReason.trim() } })}
-        onCancel={() => {
-          setBlocking(null);
-          setBlockReason("");
-        }}
-      >
-        <textarea
-          value={blockReason}
-          onChange={(e) => setBlockReason(e.target.value)}
-          placeholder="Motivo del bloqueo (obligatorio, lo va a ver el vendedor)..."
-          rows={3}
-          className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
-        />
-      </ConfirmModal>
     </div>
   );
 }

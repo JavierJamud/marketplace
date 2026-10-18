@@ -329,11 +329,12 @@ function deliveryCoverageText(vendor) {
   if (!byCountry.size) return "Cobertura de entrega: no cargada en el sistema — si preguntan, sugiere confirmar por WhatsApp.";
 
   const lines = [...byCountry].map(([country, { regions, wholeCountry }]) => {
-    const parts = [...regions].map(([region, munis]) => (munis.size ? `${region} (municipios: ${[...munis].join(", ")})` : region));
+    // Los estados se dividen en ciudades; las provincias de Cuba, en municipios.
+    const parts = [...regions].map(([region, munis]) => (munis.size ? `${region} (${region.startsWith("estado ") ? "ciudades" : "municipios"}: ${[...munis].join(", ")})` : region));
     if (wholeCountry) parts.push("además hace envíos a este país");
     return `- País ${country}: ${parts.join("; ") || "hace envíos a este país"}`;
   });
-  return `COBERTURA DE ENTREGA (por país; cada país contiene provincias o estados, y cada provincia contiene municipios):
+  return `COBERTURA DE ENTREGA (por país; cada país contiene provincias o estados; las provincias contienen municipios y los estados, ciudades):
 ${lines.join("\n")}
 Países donde entrega: ${[...byCountry.keys()].join(", ")}.${vendor.companyAddress ? `\nDirección del local: ${vendor.companyAddress}` : ""}`;
 }

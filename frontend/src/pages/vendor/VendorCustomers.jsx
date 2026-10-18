@@ -183,7 +183,8 @@ function CustomerDetail({ customerId, canWrite, onClose }) {
 export default function VendorCustomers() {
   const outlet = useOutletContext?.() ?? {};
   const canWrite = canWriteSection(outlet.staffSectionPermissions ?? null, "clientes");
-  const [search, setSearch] = useState("");
+  // El buscador del panel llega con ?q= (nombre, teléfono o correo del cliente elegido).
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
   const [segment, setSegment] = useState("all");
   const [sort, setSort] = useState("recent");
   const [openId, setOpenId] = useState(null);

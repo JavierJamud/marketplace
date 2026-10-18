@@ -614,6 +614,17 @@ export default function Account({ mode = "customer" }) {
         toast.error("Elige el tipo de negocio de tu tienda.");
         return;
       }
+      // Antes de crear la cuenta: si el nombre, el WhatsApp o el correo ya son de otra tienda, se avisa aquí y no se sigue.
+      try {
+        const { data } = await api.post("/vendors/check-availability", { companyName: storeForm.companyName, whatsapp: form.phone, email: form.email });
+        const first = Object.values(data.conflicts ?? {})[0];
+        if (first) {
+          toast.error(first);
+          return;
+        }
+      } catch {
+        /* si la comprobación falla, el servidor vuelve a comprobarlo al crear la tienda */
+      }
     }
     if (completingStore) {
       // La cuenta ya existe y tiene sesión: solo falta crear la tienda.
@@ -1197,8 +1208,8 @@ export default function Account({ mode = "customer" }) {
                   {/* Bloque 114 (pedido explícito): nombre y apellidos por
                       separado, no un solo "Nombre completo". */}
                   <div className="grid grid-cols-2 gap-3">
-                    <Input label="Nombre" required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
-                    <Input label="Apellidos" required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                    <Input data-guard="name" label="Nombre" required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+                    <Input data-guard="name" label="Apellidos" required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
                   </div>
                   <Input label="Correo" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                   <div>

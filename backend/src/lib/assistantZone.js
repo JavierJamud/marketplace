@@ -15,7 +15,7 @@ const CHANGE_INTENT = /(cambi|modific|otra|otro|distint|diferent|ver\s+(solo|otr
 const CLEAR_INTENT = /(quit|elimin|borr|desactiv|sin\s+filtro|ver\s+todo|todas\s+las\s+(provincias|tiendas|zonas)|todo\s+el\s+(pais|catalogo))/;
 const YES = /^(si|claro|dale|ok|okay|vale|confirmo|confirmar|hazlo|cambia|cambialo|cambiar|por favor|adelante|yes)( |$)/;
 const NO = /^(no|cancelar|cancela|salir|dejalo|dejarlo|ninguno|nada|mejor no|dejar)( |$)/;
-const ALL = /^(todo|todos|toda|todas|ver todo|todo el|toda la|todos los|cualquiera|sin filtro|quitar|y sus municipios)( |$)|^todo/;
+const ALL = /^(todo|todos|toda|todas|ver todo|todo el|toda la|todos los|cualquiera|sin filtro|quitar|y sus municipios|y sus ciudades)( |$)|^todo/;
 
 export const HOW_TO_CHANGE =
   "Para cambiarlo tú mismo: en la portada toca el botón amarillo «Entrega en…» (junto al título) y, en Catálogo, Tiendas y Venta rápida, el botón con tu lugar que está debajo del título. Elige el país, luego la provincia o el estado y el municipio, y toca «Ver resultados». Para ver todo, usa «Quitar el filtro y ver todo».";
@@ -54,10 +54,14 @@ function askProvince(served, countryId, lead = "") {
 function askMunicipality(served, countryId, provinceId, lead = "") {
   const province = served.provinces.find((p) => p.id === provinceId);
   const municipalities = served.municipalities.filter((m) => m.provinceId === provinceId);
-  return reply(`${lead}¿Dónde quieres ver los productos: en todo ${province?.name} y sus municipios, o en un municipio en específico?`, {
+  // Las provincias (Cuba) se dividen en municipios; los estados, en ciudades.
+  const isState = province?.type === "STATE";
+  const many = isState ? "ciudades" : "municipios";
+  const one = isState ? "una ciudad en específico" : "un municipio en específico";
+  return reply(`${lead}¿Dónde quieres ver los productos: en todo ${province?.name} y sus ${many}, o en ${one}?`, {
     options: [
-      opt(`Todo ${province?.name} y sus municipios`),
-      ...municipalities.map((m) => opt(fold(m.name) === fold(province?.name) ? `${m.name} (solo el municipio)` : `${m.name} (${m.count} ${m.count === 1 ? "tienda" : "tiendas"})`)),
+      opt(`Todo ${province?.name} y sus ${many}`),
+      ...municipalities.map((m) => opt(fold(m.name) === fold(province?.name) ? `${m.name} (${isState ? "solo la ciudad" : "solo el municipio"})` : `${m.name} (${m.count} ${m.count === 1 ? "tienda" : "tiendas"})`)),
       CANCEL,
     ],
     flow: { step: "municipality", countryId, provinceId },

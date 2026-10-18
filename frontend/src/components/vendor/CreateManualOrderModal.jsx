@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
+import { offlineRequest, QUEUED_TEXT, QUEUED_TITLE } from "../../lib/offlineQueue.js";
 import { X, Plus, Trash2 } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { generateId } from "../../lib/uuid.js";
@@ -62,18 +63,25 @@ export function CreateManualOrderModal({ tableId, tableLabel, onClose, onCreated
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   const create = useMutation({
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
     mutationFn: async () =>
-      (
-        await api.post(`/tables/me/${tableId}/order`, {
+      offlineRequest({
+        method: "post",
+        url: `/tables/me/${tableId}/order`,
+        data: {
           items: items.map((i) => (i.productId ? { productId: i.productId, quantity: i.quantity } : { name: i.name, price: i.price, quantity: i.quantity })),
           customerName: customerName.trim() || undefined,
-        })
-      ).data,
-    onSuccess: ({ tableOrder }) => {
-      toast.success(`Se abrió la cuenta en ${tableLabel}.`);
+        },
+        label: `Abrir cuenta en ${tableLabel}`,
+      }),
+    onSuccess: (r) => {
+      const tableOrder = r.data?.tableOrder;
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success(`Se abrió la cuenta en ${tableLabel}.`);
       queryClient.invalidateQueries({ queryKey: ["my-tables"] });
       queryClient.invalidateQueries({ queryKey: ["my-orders"] });
-      onCreated?.(tableOrder);
+      if (tableOrder) onCreated?.(tableOrder);
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo crear el pedido."),

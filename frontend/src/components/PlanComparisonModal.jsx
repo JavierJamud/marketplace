@@ -17,11 +17,11 @@ function buildRows(regular, business) {
   const limitLabel = (n) => (n === null ? "Ilimitados" : `Hasta ${n}`);
   return [
     { label: "Productos publicados", regular: limitLabel(regular.maxProducts), business: limitLabel(business.maxProducts) },
-    {
-      label: "Emails manuales a clientes",
-      regular: regular.maxMonthlyOrderEmails === null ? "Ilimitados" : `${regular.maxMonthlyOrderEmails} por mes`,
-      business: business.maxMonthlyOrderEmails === null ? "Ilimitados" : `${business.maxMonthlyOrderEmails} por mes`,
-    },
+    { label: "Correos a tus clientes", regular: regular.allowCustomerEmails, business: business.allowCustomerEmails },
+    { label: "Caja con código de barras", regular: regular.allowPos, business: business.allowPos },
+    { label: "Códigos de descuento", regular: regular.allowDiscountCodes, business: business.allowDiscountCodes },
+    { label: "Mesas con QR", regular: regular.allowQrTables, business: business.allowQrTables },
+    { label: "Usuarios del equipo", regular: regular.allowStaffUsers, business: business.allowStaffUsers },
     { label: "Pedidos por WhatsApp", regular: regular.allowWhatsappOrders, business: business.allowWhatsappOrders },
     { label: "Pedidos por el panel", regular: regular.allowPanelOrders, business: business.allowPanelOrders },
     { label: "Badge de tienda verificada", regular: false, business: true },
@@ -29,6 +29,7 @@ function buildRows(regular, business) {
     { label: "Chatbot con IA", regular: regular.allowAiChatbot, business: business.allowAiChatbot },
     { label: "Horarios de atención", regular: regular.allowSchedules, business: business.allowSchedules },
     { label: "Ofertas de tienda", regular: regular.allowStoreOffers, business: business.allowStoreOffers },
+    { label: "Programa de fidelidad", regular: regular.allowLoyalty, business: business.allowLoyalty },
   ];
 }
 

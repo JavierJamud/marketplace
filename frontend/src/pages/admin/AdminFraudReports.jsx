@@ -5,6 +5,8 @@ import toast from "../../lib/toast.jsx";
 import { ShieldAlert } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
+import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 
 function fmtDate(iso) {
@@ -46,6 +48,7 @@ export default function AdminFraudReports() {
   const [dismissNote, setDismissNote] = useState("");
   const [resolveTarget, setResolveTarget] = useState(null);
   const [resolveNote, setResolveNote] = useState("");
+  const [notifyVendor, setNotifyVendor] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-fraud-reports", statusFilter],
@@ -58,13 +61,14 @@ export default function AdminFraudReports() {
   };
 
   const requestEvidence = useMutation({
-    mutationFn: async (id) => (await api.post(`/admin/reports/${id}/request-evidence`)).data,
+    // Pedir evidencia siempre avisa: el aviso es la acción misma (el reportado tiene un plazo para responder).
+    mutationFn: async (id) => (await api.post(`/admin/reports/${id}/request-evidence`, {}, notifyVendorConfig(true))).data,
     onSuccess: () => { toast.success("Evidencia solicitada — se le avisó al reportado."); invalidate(); },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo pedir evidencia."),
   });
 
   const dismiss = useMutation({
-    mutationFn: async ({ id, resolutionNote }) => (await api.post(`/admin/reports/${id}/dismiss`, { resolutionNote })).data,
+    mutationFn: async ({ id, resolutionNote }) => (await api.post(`/admin/reports/${id}/dismiss`, { resolutionNote }, notifyVendorConfig(notifyVendor))).data,
     onSuccess: () => {
       toast.success("Reporte cerrado sin acción.");
       setDismissTarget(null);
@@ -75,7 +79,7 @@ export default function AdminFraudReports() {
   });
 
   const resolve = useMutation({
-    mutationFn: async ({ id, resolutionNote }) => (await api.post(`/admin/reports/${id}/resolve`, { resolutionNote })).data,
+    mutationFn: async ({ id, resolutionNote }) => (await api.post(`/admin/reports/${id}/resolve`, { resolutionNote }, notifyVendorConfig(notifyVendor))).data,
     onSuccess: () => {
       toast.success("Fraude confirmado — se aplicó la suspensión.");
       setResolveTarget(null);
@@ -169,13 +173,13 @@ export default function AdminFraudReports() {
                       </button>
                     )}
                     <button
-                      onClick={() => { setDismissTarget(r); setDismissNote(""); }}
+                      onClick={() => { setDismissTarget(r); setDismissNote(""); setNotifyVendor(false); }}
                       className="rounded-[7px] bg-verified-dark px-2.5 py-1.5 text-[12px] font-semibold text-white"
                     >
                       Sin acción
                     </button>
                     <button
-                      onClick={() => { setResolveTarget(r); setResolveNote(""); }}
+                      onClick={() => { setResolveTarget(r); setResolveNote(""); setNotifyVendor(false); }}
                       className="rounded-[7px] bg-error px-2.5 py-1.5 text-[12px] font-semibold text-white"
                     >
                       Confirmar fraude
@@ -222,6 +226,7 @@ export default function AdminFraudReports() {
           rows={3}
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
+        <NotifyVendorCheckbox checked={notifyVendor} onChange={setNotifyVendor} />
       </ConfirmModal>
 
       <ConfirmModal
@@ -241,6 +246,7 @@ export default function AdminFraudReports() {
           rows={3}
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
+        <NotifyVendorCheckbox checked={notifyVendor} onChange={setNotifyVendor} />
       </ConfirmModal>
     </div>
   );

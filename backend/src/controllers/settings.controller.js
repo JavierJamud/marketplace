@@ -8,6 +8,9 @@ import { env } from "../config/env.js";
 import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 import { createHeroVariant, smallVariantName } from "../lib/heroVariants.js";
+import { forgetPwaEnabled } from "../lib/push.js";
+import { connectedCount } from "../lib/realtime.js";
+import { clearPublicCache } from "../middleware/publicCache.js";
 
 // Bloque 294: tope de mesas de cada plan (null = sin tope), para los formularios del restaurante.
 async function tablesLimitByPlan() {
@@ -101,6 +104,7 @@ export async function getSettings(_req, res) {
       maxReviewsPerStorePerPeriod: settings.maxReviewsPerStorePerPeriod,
       vendorsCanReview: settings.vendorsCanReview,
       showChatWidget: settings.showChatWidget,
+      pwaEnabled: settings.pwaEnabled,
       productPaymentMethods: settings.productPaymentMethods,
       // Bloque 65: de qué conjunto puede elegir una tienda su moneda
       // operativa única al registrarse o cambiarla después.
@@ -224,6 +228,9 @@ const planConfigSchema = z.object({
   allowWhatsappOrders: z.boolean().optional(),
   allowPanelOrders: z.boolean().optional(),
   featuredInHome: z.boolean().optional(),
+  allowLoyalty: z.boolean().optional(),
+  allowPos: z.boolean().optional(),
+  allowCustomerEmails: z.boolean().optional(),
 });
 
 export async function listPlanConfigs(_req, res) {
@@ -282,6 +289,45 @@ export async function updateChatWidgetSettings(req, res) {
   const settings = await getOrCreateSettings();
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
   res.json({ settings: { showChatWidget: updated.showChatWidget } });
+}
+
+// Interruptor de emergencia de la PWA: apagado, los dispositivos desinstalan el service worker y vacían su caché al siguiente acceso, y
+// el servidor deja de enviar avisos push.
+const pwaSchema = z.object({ pwaEnabled: z.boolean() });
+
+// Estado de la PWA para el admin: si está encendida, cuántos dispositivos reciben avisos (por aplicación) y cuántas pantallas
+// están conectadas en vivo ahora mismo.
+export async function getPwaStatus(_req, res) {
+  const settings = await getOrCreateSettings();
+  const byApp = await prisma.pushSubscription.groupBy({ by: ["app"], _count: { _all: true } });
+  const devices = Object.fromEntries(byApp.map((r) => [r.app, r._count._all]));
+  res.json({ pwaEnabled: settings.pwaEnabled, devices, connected: connectedCount() });
+}
+
+export async function updatePwaSettings(req, res) {
+  const { pwaEnabled } = pwaSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: { pwaEnabled } });
+  forgetPwaEnabled();
+  clearPublicCache();
+  res.json({ settings: { pwaEnabled: updated.pwaEnabled } });
+}
+
+// Recordatorios automáticos a clientes (jobs/customerReminders.job.js): interruptor general y cuántos salieron en 30 días.
+export async function getCustomerRemindersStatus(_req, res) {
+  const settings = await getOrCreateSettings();
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const sent = await prisma.emailLog.groupBy({ by: ["type"], where: { type: { in: ["CART_REMINDER", "STORE_REMINDER"] }, status: "SENT", createdAt: { gte: since } }, _count: { _all: true } });
+  const optedOut = await prisma.user.count({ where: { role: "CUSTOMER", marketingEmails: false } });
+  const byType = Object.fromEntries(sent.map((r) => [r.type, r._count._all]));
+  res.json({ enabled: settings.customerRemindersEnabled, cart30d: byType.CART_REMINDER ?? 0, store30d: byType.STORE_REMINDER ?? 0, optedOut });
+}
+
+export async function updateCustomerRemindersSettings(req, res) {
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+  const settings = await getOrCreateSettings();
+  await prisma.siteSettings.update({ where: { id: settings.id }, data: { customerRemindersEnabled: enabled } });
+  res.json({ enabled });
 }
 
 // Solo "cod"/"prepaid" son togglables acá — "whatsapp" es el canal

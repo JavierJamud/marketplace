@@ -1,34 +1,33 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Ban } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
-import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
+import { notifyVendorConfig } from "../../lib/notifyVendor.js";
+import { CARD } from "../../components/dashboard/DashboardCard.jsx";
 
+// Tiendas bloqueadas a mano por un admin o suspendidas solas por 90 días sin entrar al panel. Antes era una página aparte
+// del menú; ahora es el filtro "Suspendidas" de Tiendas (AdminVendors.jsx), que muestra esta lista.
 function fmtDate(iso) {
-  if (!iso) return "—";
+  if (!iso) return "Sin dato";
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-// Bloque 62/76: junta las 2 formas en que una tienda queda inhabilitada —
-// bloqueo manual del admin (Vendor.isBlocked, reversible con un clic, sin
-// motivo obligatorio para desbloquear) y suspensión automática por 90 días
-// de inactividad (Vendor.status:"SUSPENDED", reactivar SÍ exige un motivo,
-// auditoría real vía VendorStatusLog). Antes vivían separadas (esta pantalla
-// solo mostraba las automáticas); ahora "Tiendas" (AdminVendors.jsx) excluye
-// ambos casos por completo — desde que se bloquea/suspende una tienda, solo
-// se ve y se gestiona acá, hasta volver a estar activa.
-export default function AdminSuspendedVendors() {
-  const queryClient = useQueryClient();
-  const [reactivating, setReactivating] = useState(null);
-  const [reason, setReason] = useState("");
-
-  const { data, isLoading } = useQuery({
+export function useSuspendedVendors() {
+  return useQuery({
     queryKey: ["admin-suspended-vendors"],
     queryFn: async () => (await api.get("/admin/vendors/suspended")).data.vendors,
   });
+}
+
+export function SuspendedVendorsList() {
+  const queryClient = useQueryClient();
+  const [reactivating, setReactivating] = useState(null);
+  const [reason, setReason] = useState("");
+  const [notifyVendor, setNotifyVendor] = useState(false);
+  const { data, isLoading, isError, refetch } = useSuspendedVendors();
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-suspended-vendors"] });
@@ -36,9 +35,9 @@ export default function AdminSuspendedVendors() {
   };
 
   const reactivate = useMutation({
-    mutationFn: async ({ id, reason }) => (await api.post(`/admin/vendors/${id}/reactivate`, { reason })).data,
+    mutationFn: async ({ id, reason }) => (await api.post(`/admin/vendors/${id}/reactivate`, { reason }, notifyVendorConfig(notifyVendor))).data,
     onSuccess: () => {
-      toast.success("Tienda reactivada — se le avisó por correo.");
+      toast.success("Tienda reactivada");
       invalidate();
       setReactivating(null);
       setReason("");
@@ -46,12 +45,10 @@ export default function AdminSuspendedVendors() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo reactivar la tienda."),
   });
 
-  // Desbloquear no exige motivo (mismo criterio que ya tenía AdminVendors.jsx
-  // — el bloqueo manual es reversible con un clic sin explicación).
   const unblock = useMutation({
     mutationFn: async (id) => (await api.patch(`/admin/vendors/${id}`, { isBlocked: false })).data,
     onSuccess: () => {
-      toast.success("Tienda desbloqueada.");
+      toast.success("Tienda desbloqueada");
       invalidate();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo desbloquear la tienda."),
@@ -60,64 +57,54 @@ export default function AdminSuspendedVendors() {
   const rows = data ?? [];
 
   return (
-    <div>
-      <div className="mb-1 flex items-center gap-3">
-        <IconCircle icon={Ban} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Tiendas suspendidas</h1>
-      </div>
-      <p className="mb-4 text-[13.5px] text-outline">
-        Tiendas bloqueadas a mano por un admin o suspendidas automáticamente por 90 días sin acceso al panel de vendedor.
-        Ocultas de todo el sitio hasta desbloquearlas/reactivarlas.
-      </p>
-
-      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        <div className="grid grid-cols-[1.6fr_1fr_1.3fr_1.3fr_2fr_1.2fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[820px]">
-          <span>Tienda</span><span>Tipo</span><span>Desde</span><span>Último acceso</span><span>Motivo</span><span className="text-right">Acción</span>
-        </div>
+    <>
+      <p className="mb-3 text-[12.5px] text-outline">Bloqueadas a mano por un admin o suspendidas solas por 90 días sin entrar al panel. No se ven en el sitio hasta desbloquearlas o reactivarlas.</p>
+      <div className={CARD}>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
-        {!isLoading && rows.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay tiendas suspendidas ahora mismo.</p>}
+        {isError && (
+          <div className="flex flex-col items-center gap-2 p-6 text-center">
+            <p className="text-body-md text-error">No se pudo cargar la lista.</p>
+            <button type="button" onClick={() => refetch()} className="min-h-10 rounded-lg border border-outline-variant px-3 text-[13px] font-semibold">Reintentar</button>
+          </div>
+        )}
+        {!isLoading && !isError && rows.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay tiendas suspendidas ahora mismo.</p>}
         {rows.map((v) => {
           const isBlocked = v.isBlocked;
           return (
-            <div key={v.id} className="grid min-w-[820px] grid-cols-[1.6fr_1fr_1.3fr_1.3fr_2fr_1.2fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"
-                  style={{ background: v.color ?? "#232F3E" }}
-                >
+            <div key={v.id} className="flex flex-col gap-2 border-b border-surface-container px-4 py-3 last:border-b-0 md:flex-row md:items-center md:gap-4">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white" style={{ background: v.color ?? "#232F3E" }} aria-hidden="true">
                   {v.companyName[0]}
                 </span>
-                <div>
-                  <span className="text-[13.5px] font-semibold text-on-surface">{v.companyName}</span>
-                  <div className="text-[11.5px] text-outline">{v.locations?.[0]?.province?.name ?? "—"}</div>
+                <div className="min-w-0">
+                  <Link to={`/admin/tiendas/${v.id}`} className="block truncate text-[13.5px] font-semibold text-on-surface hover:underline">
+                    {v.companyName}
+                  </Link>
+                  <div className="text-[11.5px] text-outline">
+                    <span className={`mr-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${isBlocked ? "bg-error/10 text-error" : "bg-secondary/10 text-secondary"}`}>{isBlocked ? "Bloqueada" : "Suspendida"}</span>
+                    desde {fmtDate(isBlocked ? v.blockedAt : v.suspendedAt)} · entró por última vez {fmtDate(v.user?.lastLoginAt)}
+                  </div>
                 </div>
               </div>
-              <span
-                className="w-fit rounded-full px-2.5 py-1 text-[11px] font-bold"
-                style={isBlocked ? { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" } : { background: "rgba(138,81,0,0.12)", color: "#8a5100" }}
-              >
-                {isBlocked ? "Bloqueada" : "Suspendida"}
-              </span>
-              <span className="text-[13px] text-on-surface-variant">{fmtDate(isBlocked ? v.blockedAt : v.suspendedAt)}</span>
-              <span className="text-[13px] text-on-surface-variant">{fmtDate(v.user?.lastLoginAt)}</span>
-              <span className="text-[12.5px] text-on-surface-variant">{(isBlocked ? v.blockReason : v.suspensionReason) ?? "—"}</span>
-              <div className="flex flex-wrap justify-end gap-1.5">
-                <Link to={`/tienda/${v.slug}`} target="_blank" className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant">
-                  Ver
+              <p className="text-[12.5px] text-on-surface-variant md:max-w-[34%]">{(isBlocked ? v.blockReason : v.suspensionReason) ?? "Sin motivo registrado"}</p>
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                <Link to={`/admin/tiendas/${v.id}`} className="flex min-h-10 items-center rounded-lg bg-surface-container px-3 text-[12.5px] font-semibold text-on-surface">
+                  Gestionar
                 </Link>
                 {isBlocked && (
-                  <button
-                    onClick={() => unblock.mutate(v.id)}
-                    disabled={unblock.isPending}
-                    className="rounded-[7px] bg-verified-dark px-2.5 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
-                  >
+                  <button type="button" onClick={() => unblock.mutate(v.id)} disabled={unblock.isPending} className="min-h-10 rounded-lg bg-verified-dark px-3 text-[12.5px] font-semibold text-white disabled:opacity-50">
                     Desbloquear
                   </button>
                 )}
                 {v.status === "SUSPENDED" && (
                   <button
-                    onClick={() => { setReactivating(v); setReason(""); }}
-                    className="rounded-[7px] bg-verified-dark px-2.5 py-1.5 text-[12px] font-semibold text-white"
+                    type="button"
+                    onClick={() => {
+                      setReactivating(v);
+                      setReason("");
+                      setNotifyVendor(false);
+                    }}
+                    className="min-h-10 rounded-lg bg-verified-dark px-3 text-[12.5px] font-semibold text-white"
                   >
                     Reactivar
                   </button>
@@ -131,7 +118,7 @@ export default function AdminSuspendedVendors() {
       <ConfirmModal
         open={!!reactivating}
         title={`¿Reactivar "${reactivating?.companyName}"?`}
-        message="Vuelve a ser visible en todo el sitio y su dueño puede volver a entrar al panel de vendedor. Se le avisa por correo con el motivo que escribas abajo."
+        message="Vuelve a verse en todo el sitio y su dueño puede volver a entrar al panel. Se le avisa por correo con el motivo que escribas."
         confirmLabel={reactivate.isPending ? "Reactivando..." : "Sí, reactivar"}
         confirmDisabled={reason.trim().length < 5 || reactivate.isPending}
         onConfirm={() => reactivate.mutate({ id: reactivating.id, reason: reason.trim() })}
@@ -140,11 +127,17 @@ export default function AdminSuspendedVendors() {
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Motivo de la reactivación (obligatorio, se envía al vendedor)..."
+          placeholder="Motivo de la reactivación (obligatorio)..."
           rows={3}
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
+        <NotifyVendorCheckbox checked={notifyVendor} onChange={setNotifyVendor} />
       </ConfirmModal>
-    </div>
+    </>
   );
+}
+
+// La dirección vieja sigue funcionando (marcadores, enlaces del asistente): lleva al filtro nuevo.
+export default function AdminSuspendedVendors() {
+  return <Navigate to="/admin/tiendas?status=suspended" replace />;
 }

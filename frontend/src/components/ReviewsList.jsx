@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import useEmblaCarousel from "embla-carousel-react";
-import { Check, ChevronLeft, ChevronRight, MessageCircle, MessageSquareText } from "lucide-react";
+import { BadgeCheck, ChevronLeft, ChevronRight, Flag, MessageCircle, MessageSquareText, Package, Store } from "lucide-react";
 import { StarRating } from "./ui/StarRating.jsx";
 import { EmptyState } from "./ui/EmptyState.jsx";
 import { imgUrl } from "../lib/imgUrl.js";
@@ -9,10 +9,13 @@ import { timeAgo } from "../lib/relativeTime.js";
 import { usePlatformSettings } from "../lib/usePlatformSettings.js";
 import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 
-// Tarjeta de reseña, pequeña y siempre del mismo tamaño. De arriba abajo: el perfil del cliente con su nombre y, a la derecha, las fotos
-// que compartió (hasta 2: una al frente y la otra detrás, inclinada); la calificación; el título (si el cliente puso uno); el comentario;
-// cuándo se escribió y si fue compra verificada; y abajo el botón de las respuestas de la tienda o de la plataforma, que al tocarlo
-// reemplazan el comentario sin cambiar el tamaño, y "Reportar".
+// Tarjeta de reseña. Se lee de arriba abajo como una conversación:
+//  1. Quién la escribió: avatar, nombre y, en la misma línea, hace cuánto y que es compra verificada.
+//  2. Qué calificó: las estrellas con la nota y, en la página de la tienda, el producto (o "la tienda") como etiqueta enlazada.
+//  3. El comentario (título opcional y texto, recortado con "Leer más") y debajo las fotos que compartió.
+//  4. Las respuestas de la tienda o de la plataforma, visibles en un recuadro suave (la primera abierta; si hay dos, se despliegan).
+//  5. Abajo, discreto, "Reportar".
+// Todas las tarjetas del carrusel miden lo mismo de alto (h-full): el pie queda alineado aunque los textos tengan distinto largo.
 
 function initials(name) {
   return (name ?? "?")
@@ -28,32 +31,14 @@ function initials(name) {
 const AVATAR_TONES = ["bg-secondary-container text-on-secondary-container", "bg-tertiary-accent text-white"];
 const toneFor = (name) => AVATAR_TONES[(String(name ?? "?").charCodeAt(0) || 0) % AVATAR_TONES.length];
 
-// Las fotos del comentario: la primera al frente y, si hay una segunda, detrás y un poco inclinada.
-function PhotoStack({ images, onOpen }) {
-  const [front, back] = images;
-  const frame = "overflow-hidden rounded bg-surface-container shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-tertiary-accent";
-  return (
-    <div className="pointer-events-none absolute right-4 top-4 z-10 h-14 w-[5.25rem] [&>*]:pointer-events-auto">
-      {back && (
-        <button type="button" onClick={() => onOpen?.(imgUrl(back))} aria-label="Ver la segunda foto de la reseña" className={`absolute right-0 top-1.5 h-11 w-11 rotate-[12deg] ${frame}`}>
-          <img src={imgUrl(back)} alt="" loading="lazy" className="h-full w-full object-cover" />
-        </button>
-      )}
-      <button type="button" onClick={() => onOpen?.(imgUrl(front))} aria-label="Ver la foto de la reseña" className={`absolute top-0 z-10 h-[3.25rem] w-[3.25rem] shadow-lg ${back ? "left-1" : "right-0"} ${frame}`}>
-        <img src={imgUrl(front)} alt="" loading="lazy" className="h-full w-full object-cover" />
-      </button>
-    </div>
-  );
-}
-
 export function ReviewCard({ r, vendorName, vendorSlug, showContext = false, onImageClick, currentUserId, onReportClick, onReading }) {
   const { siteName } = usePlatformSettings();
   const [expanded, setExpanded] = useState(false);
-  const [showReplies, setShowReplies] = useState(false);
+  const [allReplies, setAllReplies] = useState(false);
   // "Reportar" lo ve cualquiera menos el autor del comentario. Sin sesión, tocarlo lleva a iniciar sesión (lo resuelve quien usa la tarjeta).
   const canReport = !(currentUserId && r.userId === currentUserId);
-  // Con el texto desplegado o las respuestas abiertas, el carrusel no debe pasar a otra reseña (se está leyendo).
-  const reading = expanded || showReplies;
+  // Con el texto o las respuestas desplegadas, el carrusel no debe pasar a otra reseña (se está leyendo).
+  const reading = expanded || allReplies;
   useEffect(() => {
     onReading?.(r.id, reading);
     return () => onReading?.(r.id, false);
@@ -62,105 +47,128 @@ export function ReviewCard({ r, vendorName, vendorSlug, showContext = false, onI
   const storeName = vendorName ?? r.vendor?.companyName;
   // Respuestas: la de la tienda y la de la plataforma, cada una con su autor.
   const replies = [
-    r.vendorReply && storeName ? { key: "tienda", who: storeName, label: "Respuesta del vendedor", text: r.vendorReply } : null,
+    r.vendorReply && storeName ? { key: "tienda", who: storeName, label: "Respuesta de la tienda", text: r.vendorReply } : null,
     r.adminReply ? { key: "plataforma", who: siteName, label: "Respuesta de la plataforma", text: r.adminReply } : null,
   ].filter(Boolean);
+  const shownReplies = allReplies ? replies : replies.slice(0, 1);
   const body = r.comment ?? "";
-  const long = body.length > (r.title ? 60 : 95);
+  const long = body.length > 140;
   const slug = vendorSlug ?? r.vendor?.slug;
 
-  // Qué es la reseña: de un producto de la tienda (con enlace a él) o de la tienda en general.
-  const subtitle = showContext ? (
+  // Sobre qué es la reseña: un producto de la tienda (con enlace a él) o la tienda en general.
+  const about = showContext ? (
     r.product && slug && r.product.slug ? (
-      <Link to={`/producto/${slug}/${r.product.slug}`} className="block truncate text-[12px] leading-4 text-on-surface-variant hover:text-tertiary-accent hover:underline">
-        Producto · {r.product.name}
+      <Link
+        to={`/producto/${slug}/${r.product.slug}`}
+        title={r.product.name}
+        className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-surface-container px-2.5 py-1 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface focus-visible:outline-2 focus-visible:outline-tertiary-accent"
+      >
+        <Package className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+        <span className="truncate">{r.product.name}</span>
       </Link>
     ) : (
-      <span className="block truncate text-[12px] leading-4 text-on-surface-variant">{r.product ? `Producto · ${r.product.name}` : "Reseña de la tienda"}</span>
+      <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-surface-container px-2.5 py-1 text-[12px] font-semibold text-on-surface-variant">
+        {r.product ? <Package className="h-3 w-3 flex-shrink-0" aria-hidden="true" /> : <Store className="h-3 w-3 flex-shrink-0" aria-hidden="true" />}
+        <span className="truncate">{r.product ? r.product.name : "Sobre la tienda"}</span>
+      </span>
     )
   ) : null;
 
   return (
-    <article id={`resena-${r.id}`} className="relative flex h-[15rem] min-w-0 flex-col rounded-md border border-surface-container-high bg-surface-container-lowest p-4 shadow-[0_8px_22px_-14px_rgba(14,26,40,0.3)]">
-      {photos.length > 0 && <PhotoStack images={photos} onOpen={onImageClick} />}
-      <header className={`flex h-14 items-start gap-2.5 ${photos.length > 1 ? "pr-[5.75rem]" : photos.length === 1 ? "pr-[4rem]" : ""}`}>
-        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold ${toneFor(r.authorName)}`} aria-hidden="true">
+    <article id={`resena-${r.id}`} className="flex h-full min-w-0 flex-col rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5 shadow-[0_1px_2px_rgba(14,26,40,0.04),0_10px_28px_-18px_rgba(14,26,40,0.35)]">
+      {/* 1. Quién */}
+      <header className="flex items-center gap-3">
+        <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-[14px] font-extrabold ${toneFor(r.authorName)}`} aria-hidden="true">
           {initials(r.authorName)}
         </div>
-        <div className="min-w-0 flex-1 pt-0.5">
-          <p className="truncate font-display text-[15px] font-extrabold leading-5 text-on-surface">{r.authorName}</p>
-          {subtitle}
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-display text-[15.5px] font-extrabold leading-5 text-on-surface">{r.authorName}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] leading-4 text-on-surface-variant">
+            <span>{timeAgo(r.createdAt)}</span>
+            <span className="h-1 w-1 rounded-full bg-outline-variant" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1 font-semibold text-verified-dark">
+              {/* Todo comentario exige sesión de cliente; "compra verificada" solo si compró en la tienda antes de comentar. */}
+              <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" /> {r.isVerifiedPurchase ? "Compra verificada" : "Cliente verificado"}
+            </span>
+          </p>
         </div>
       </header>
 
-      {r.rating ? (
-        <div className="mt-1">
-          <StarRating value={r.rating} size="h-4 w-4" />
+      {/* 2. Qué calificó */}
+      {(r.rating || about) && (
+        <div className="mt-3.5 flex min-w-0 flex-wrap items-center gap-2">
+          {r.rating ? (
+            <span className="inline-flex flex-shrink-0 items-center gap-1.5">
+              <StarRating value={r.rating} size="h-4 w-4" />
+              <span className="text-[13px] font-bold text-on-surface">{Number(r.rating).toFixed(1)}</span>
+            </span>
+          ) : null}
+          {about && <span className="min-w-0 max-w-full">{about}</span>}
         </div>
-      ) : null}
+      )}
 
-      {/* El comentario, o las respuestas cuando se piden con el botón (ocupan el mismo lugar). */}
-      <div className={`mt-1.5 min-h-0 flex-1 ${expanded || showReplies ? "overflow-y-auto" : "overflow-hidden"}`}>
-        {showReplies ? (
-          <div className="flex flex-col gap-2">
-            {replies.map((rep) => (
-              <div key={rep.key}>
-                <div className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary-container text-[9.5px] font-extrabold text-white" aria-hidden="true">
-                    {initials(rep.who)}
-                  </span>
-                  <p className="min-w-0 truncate text-[12.5px] font-bold text-on-surface">
-                    {rep.who} <span className="font-normal text-outline">· {rep.label}</span>
-                  </p>
-                </div>
-                <p className="mt-0.5 whitespace-pre-line break-words text-[13px] leading-[18px] text-on-surface">{rep.text}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-            {r.title && <p title={r.title} className="truncate font-display text-[15px] font-extrabold leading-5 text-on-surface">{r.title}</p>}
-            {body && <p className={`whitespace-pre-line break-words text-[13px] leading-[18px] text-on-surface-variant ${r.title ? "mt-0.5" : ""} ${expanded ? "" : r.title ? "line-clamp-2" : "line-clamp-3"}`}>{body}</p>}
-          </>
+      {/* 3. El comentario y sus fotos */}
+      <div className="mt-3 min-w-0 flex-1">
+        {r.title && <p className="font-display text-[15px] font-extrabold leading-5 text-on-surface">{r.title}</p>}
+        {body && (
+          <p className={`whitespace-pre-line break-words text-[14px] leading-[21px] text-on-surface ${r.title ? "mt-1" : ""} ${expanded ? "" : "line-clamp-4"}`}>{body}</p>
         )}
-      </div>
-
-      {/* Cuándo se escribió. Todo comentario exige una sesión de cliente, por eso todos llevan "Cliente verificado". */}
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] leading-4 text-on-surface-variant">
-        <span>{timeAgo(r.createdAt)}</span>
-        <span className="h-1 w-1 rounded-full bg-outline-variant" aria-hidden="true" />
-        <span className="inline-flex items-center gap-1">
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-verified text-white" aria-hidden="true">
-            <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
-          </span>
-          Cliente verificado
-        </span>
-      </div>
-
-      <div className="mt-1 flex min-h-8 items-center gap-1.5">
-        {replies.length > 0 && (
-          <button type="button" onClick={() => setShowReplies((v) => !v)} aria-pressed={showReplies} className="inline-flex min-h-8 flex-shrink-0 items-center gap-1 whitespace-nowrap rounded bg-surface-container px-2 text-[12.5px] font-semibold text-on-surface hover:bg-surface-container-high">
-            <MessageCircle className="h-3.5 w-3.5 text-tertiary-accent" aria-hidden="true" />
-            {showReplies ? (
-              "Ver comentario"
-            ) : (
-              <>
-                Respuestas <span className="text-tertiary-accent">({replies.length})</span>
-              </>
-            )}
-          </button>
-        )}
-        {long && !showReplies && (
-          <button type="button" onClick={() => setExpanded((v) => !v)} className="min-h-8 flex-shrink-0 whitespace-nowrap px-0.5 text-[12.5px] font-semibold text-tertiary-accent hover:underline">
+        {long && (
+          <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded} className="mt-1 min-h-8 text-[13px] font-semibold text-tertiary-accent hover:underline">
             {expanded ? "Ver menos" : "Leer más"}
           </button>
         )}
-        {canReport && (
-          <button type="button" onClick={() => onReportClick?.(r)} className="ml-auto min-h-8 flex-shrink-0 whitespace-nowrap pl-0.5 text-[13px] font-bold text-tertiary-accent hover:underline">
-            Reportar
-          </button>
+        {photos.length > 0 && (
+          <div className="mt-3 flex gap-2">
+            {photos.map((src, i) => (
+              <button
+                key={src}
+                type="button"
+                onClick={() => onImageClick?.(imgUrl(src))}
+                aria-label={`Ver la foto ${i + 1} de la reseña`}
+                className="h-16 w-16 overflow-hidden rounded-xl bg-surface-container focus:outline-none focus-visible:ring-2 focus-visible:ring-tertiary-accent"
+              >
+                <img src={imgUrl(src)} alt="" loading="lazy" className="h-full w-full object-cover transition-transform hover:scale-105" />
+              </button>
+            ))}
+          </div>
         )}
       </div>
+
+      {/* 4. Respuestas */}
+      {replies.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {shownReplies.map((rep) => (
+            <div key={rep.key} className="rounded-xl bg-surface-container-low px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary-container text-[10px] font-extrabold text-white" aria-hidden="true">
+                  {initials(rep.who)}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[12.5px] font-bold leading-4 text-on-surface">{rep.who}</p>
+                  <p className="text-[11.5px] leading-4 text-on-surface-variant">{rep.label}</p>
+                </div>
+              </div>
+              <p className={`mt-1.5 whitespace-pre-line break-words text-[13px] leading-[19px] text-on-surface-variant ${allReplies ? "" : "line-clamp-3"}`}>{rep.text}</p>
+            </div>
+          ))}
+          {(replies.length > 1 || replies.some((rep) => rep.text.length > 120)) && (
+            <button type="button" onClick={() => setAllReplies((v) => !v)} aria-expanded={allReplies} className="inline-flex min-h-8 items-center gap-1 text-[12.5px] font-semibold text-tertiary-accent hover:underline">
+              <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              {allReplies ? "Ver menos" : replies.length > 1 ? `Ver las ${replies.length} respuestas` : "Ver respuesta completa"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 5. Reportar: acción secundaria, sin competir con el comentario */}
+      {canReport && (
+        <div className="mt-4 flex justify-end border-t border-surface-container-high pt-2">
+          <button type="button" onClick={() => onReportClick?.(r)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container hover:text-on-surface">
+            <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Reportar
+          </button>
+        </div>
+      )}
     </article>
   );
 }
@@ -269,11 +277,12 @@ export function ReviewsList({ reviews, vendorName, vendorSlug, showContext = fal
           </div>
         </div>
       )}
-      {/* En celular el carrusel llega de borde a borde de la pantalla para que se vean los pedazos de las tarjetas vecinas. */}
-      <div className="-mx-4 overflow-hidden sm:-mx-6 lg:mx-0" ref={emblaRef} onPointerDown={() => setTouching(true)} onPointerUp={() => setTouching(false)} onPointerCancel={() => setTouching(false)} onPointerEnter={(e) => setHovering(e, true)} onPointerLeave={(e) => setHovering(e, false)} role="region" aria-roledescription="carrusel" aria-label="Reseñas de clientes">
-        <div className="flex touch-pan-y py-2">
+      {/* En celular el carrusel llega de borde a borde de la pantalla para que se vean los pedazos de las tarjetas vecinas. En
+          pantallas grandes, -mx-2 compensa el espacio entre tarjetas para que la primera quede alineada con el resto de la sección. */}
+      <div className="-mx-4 overflow-hidden sm:-mx-6 lg:-mx-2" ref={emblaRef} onPointerDown={() => setTouching(true)} onPointerUp={() => setTouching(false)} onPointerCancel={() => setTouching(false)} onPointerEnter={(e) => setHovering(e, true)} onPointerLeave={(e) => setHovering(e, false)} role="region" aria-roledescription="carrusel" aria-label="Reseñas de clientes">
+        <div className="flex touch-pan-y items-stretch py-2">
           {reviews.map((r, i) => (
-            <div key={r.id} role="group" aria-roledescription="diapositiva" aria-label={`Reseña ${i + 1} de ${total}`} className="min-w-0 flex-none basis-[84%] px-1.5 sm:basis-[56%] md:basis-[44%] lg:basis-1/3 xl:basis-1/4">
+            <div key={r.id} role="group" aria-roledescription="diapositiva" aria-label={`Reseña ${i + 1} de ${total}`} className="min-w-0 flex-none basis-[86%] px-2 sm:basis-[60%] md:basis-1/2 xl:basis-1/3">
               <ReviewCard r={r} vendorName={vendorName} vendorSlug={vendorSlug} showContext={showContext} onImageClick={onImageClick} currentUserId={currentUserId} onReportClick={onReportClick} onReading={onReading} />
             </div>
           ))}

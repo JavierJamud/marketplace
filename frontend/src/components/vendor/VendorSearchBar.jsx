@@ -2,12 +2,35 @@ import { useEffect, useRef, useState } from "react";
 import { searchSections } from "../../lib/sectionSearch.js";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ShoppingCart, UtensilsCrossed, Package, LayoutGrid, X } from "lucide-react";
+import { Search, ShoppingCart, UtensilsCrossed, Package, LayoutGrid, X, ScanBarcode, Contact, Tag, Gift, Star } from "lucide-react";
 import { api } from "../../lib/api.js";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
+function fmtCUP(n, currency = "CUP") {
+  return `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currency}`;
 }
+
+// Estado de stock de cada producto encontrado (mismos nombres que la lista de Productos).
+const PRODUCT_STATUS = {
+  active: { label: "Disponible", cls: "bg-verified/10 text-verified-dark" },
+  unlimited: { label: "Siempre disponible", cls: "bg-verified/10 text-verified-dark" },
+  low: { label: "Stock bajo", cls: "bg-secondary/10 text-[#8A5100]" },
+  out: { label: "Sin stock", cls: "bg-error/10 text-error" },
+  paused: { label: "Pausado", cls: "bg-surface-container-high text-on-surface-variant" },
+  quota: { label: "Fuera del cupo", cls: "bg-surface-container-high text-on-surface-variant" },
+};
+// Filtro de la lista de Productos que corresponde a cada estado buscado por palabra ("agotados", "stock bajo"...).
+const STATUS_TO_TAB = { out: "out", low: "low", paused: "paused", quota: "paused" };
+
+function Group({ title, children }) {
+  return (
+    <div className="mb-1.5">
+      <p className="px-2.5 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+const rowCls = "flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-on-surface hover:bg-surface-container focus-visible:bg-surface-container focus-visible:outline-none";
 
 // Bloque 175 (pedido explícito — "vamos a agregar en el panel de vendedor
 // una barra de búsqueda para buscar clientes o pedidos o todo lo que se
@@ -147,10 +170,22 @@ export function VendorSearchBar({ vendor, staffSections }) {
     setQuery("");
   }
 
-  const visibleTableOrders = canSeeOrderResults ? data?.tableOrders ?? [] : [];
+  const visibleTableOrders = data?.tableOrders ?? [];
   const visibleOrders = canSeeOrderResults ? data?.orders ?? [] : [];
   const visibleProducts = canSeeProductResults ? data?.products ?? [] : [];
-  const hasResults = matchingSections.length > 0 || visibleOrders.length > 0 || visibleTableOrders.length > 0 || visibleProducts.length > 0;
+  const posSales = data?.posSales ?? [];
+  const customers = data?.customers ?? [];
+  const discountCodes = data?.discountCodes ?? [];
+  const storeOffers = data?.storeOffers ?? [];
+  const reviews = data?.reviews ?? [];
+  const statusFilter = data?.statusFilter ?? null;
+  const productTotal = data?.productTotal ?? 0;
+  const hasResults =
+    matchingSections.length + visibleOrders.length + visibleTableOrders.length + visibleProducts.length + posSales.length + customers.length + discountCodes.length + storeOffers.length + reviews.length > 0;
+  // "Ver todos" lleva a Productos con el mismo texto (o el filtro de estado) ya aplicado.
+  const allProductsPath = statusFilter
+    ? `/vendedor/productos?filtro=${STATUS_TO_TAB[statusFilter.status] ?? "all"}`
+    : `/vendedor/productos?q=${encodeURIComponent(query.trim())}`;
 
   return (
     <div ref={containerRef} className="relative w-full max-w-[420px]">
@@ -163,7 +198,8 @@ export function VendorSearchBar({ vendor, staffSections }) {
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder="Buscar pedidos, clientes, productos, secciones..."
+          placeholder="Buscar productos, etiquetas, pedidos, clientes..."
+          aria-label="Buscar en tu panel"
           className="w-full min-w-0 bg-transparent text-[13px] text-on-surface outline-none placeholder:text-outline"
         />
         {query && (
@@ -237,22 +273,110 @@ export function VendorSearchBar({ vendor, staffSections }) {
           )}
 
           {visibleProducts.length > 0 && (
-            <div>
-              <p className="px-2.5 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Productos</p>
-              {visibleProducts.map((p) => (
-                <button
-                  key={p.id}
-                  // Bloque 263: abre ESE producto para editarlo, no solo la lista.
-                  onClick={() => goToSection(`/vendedor/productos?editar=${p.id}`)}
-                  className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-on-surface hover:bg-surface-container"
-                >
+            <Group title={statusFilter ? `Productos: ${statusFilter.label}` : data?.fuzzy ? "Productos parecidos" : "Productos"}>
+              {visibleProducts.map((p) => {
+                const st = PRODUCT_STATUS[p.status] ?? PRODUCT_STATUS.active;
+                return (
+                  <button
+                    key={p.id}
+                    // Bloque 263: abre ESE producto para editarlo, no solo la lista.
+                    onClick={() => goToSection(`/vendedor/productos?editar=${p.id}`)}
+                    className={rowCls}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Package className="h-3.5 w-3.5 flex-shrink-0 text-outline" />
+                      <span className="min-w-0">
+                        <span className="block truncate">{p.name}</span>
+                        {p.matchedBy && p.matchedBy !== "Parecido" && <span className="block truncate text-[11.5px] text-outline">{p.matchedBy}</span>}
+                      </span>
+                    </span>
+                    <span className="flex flex-shrink-0 flex-col items-end gap-0.5">
+                      <span className="text-[12px] font-semibold text-outline">{fmtCUP(p.price, p.currency)}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${st.cls}`}>
+                        {st.label}
+                        {p.stock != null && p.status !== "paused" ? ` · ${p.stock}` : ""}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              {productTotal > visibleProducts.length && (
+                <button onClick={() => goToSection(allProductsPath)} className={`${rowCls} font-semibold text-tertiary-accent`}>
+                  Ver los {productTotal} productos en Productos
+                </button>
+              )}
+            </Group>
+          )}
+
+          {posSales.length > 0 && (
+            <Group title="Ventas de caja">
+              {posSales.map((s) => (
+                <button key={s.id} onClick={() => goToSection("/vendedor/caja")} className={rowCls}>
                   <span className="flex items-center gap-2 truncate">
-                    <Package className="h-3.5 w-3.5 flex-shrink-0 text-outline" /> {p.name}
+                    <ScanBarcode className="h-3.5 w-3.5 flex-shrink-0 text-outline" /> {s.code}
+                    {s.customerName && ` · ${s.customerName}`}
                   </span>
-                  <span className="flex-shrink-0 text-[12px] font-semibold text-outline">{fmtCUP(p.price)}</span>
+                  <span className="flex-shrink-0 text-[12px] font-semibold text-outline">{fmtCUP(s.total, s.currency)}</span>
                 </button>
               ))}
-            </div>
+            </Group>
+          )}
+
+          {customers.length > 0 && (
+            <Group title="Clientes">
+              {customers.map((c) => (
+                <button key={c.id} onClick={() => goToSection(`/vendedor/clientes?q=${encodeURIComponent(c.name || c.phone || c.email || "")}`)} className={rowCls}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Contact className="h-3.5 w-3.5 flex-shrink-0 text-outline" />
+                    <span className="truncate">{c.name || "Cliente"}</span>
+                  </span>
+                  <span className="truncate text-[12px] text-outline">{c.phone || c.email}</span>
+                </button>
+              ))}
+            </Group>
+          )}
+
+          {discountCodes.length > 0 && (
+            <Group title="Códigos de descuento">
+              {discountCodes.map((c) => (
+                <button key={c.id} onClick={() => goToSection("/vendedor/ofertas-tienda")} className={rowCls}>
+                  <span className="flex items-center gap-2 truncate">
+                    <Tag className="h-3.5 w-3.5 flex-shrink-0 text-outline" /> {c.code}
+                  </span>
+                  <span className="flex-shrink-0 text-[12px] text-outline">{c.active ? "Activo" : "Inactivo"}</span>
+                </button>
+              ))}
+            </Group>
+          )}
+
+          {storeOffers.length > 0 && (
+            <Group title="Ofertas de tienda">
+              {storeOffers.map((o) => (
+                <button key={o.id} onClick={() => goToSection("/vendedor/ofertas-tienda")} className={rowCls}>
+                  <span className="flex items-center gap-2 truncate">
+                    <Gift className="h-3.5 w-3.5 flex-shrink-0 text-outline" /> {o.title}
+                  </span>
+                  <span className="flex-shrink-0 text-[12px] text-outline">{o.active ? "Activa" : "Borrador"}</span>
+                </button>
+              ))}
+            </Group>
+          )}
+
+          {reviews.length > 0 && (
+            <Group title="Reseñas">
+              {reviews.map((r) => (
+                <button key={r.id} onClick={() => goToSection("/vendedor/resenas")} className={rowCls}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Star className="h-3.5 w-3.5 flex-shrink-0 text-outline" />
+                    <span className="min-w-0">
+                      <span className="block truncate">{r.authorName}</span>
+                      {r.comment && <span className="block truncate text-[11.5px] text-outline">{r.comment}</span>}
+                    </span>
+                  </span>
+                  {r.rating != null && <span className="flex-shrink-0 text-[12px] font-semibold text-outline">{r.rating} ★</span>}
+                </button>
+              ))}
+            </Group>
           )}
         </div>
       )}

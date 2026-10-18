@@ -47,6 +47,10 @@ const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por P
 // mandarlo; dejarlo acá disparaba updateStatus sin motivo, que el backend
 // ahora rechaza (ver updateOrderStatus, orders.controller.js).
 const ORDER_TRANSITIONS = { PREPARING: ["READY", "DELIVERED"], READY: ["DELIVERED"], DELIVERED: [], CANCELLED: [] };
+// Ventas de la caja (o.pos): se recogen en el mostrador, así que sus estados se llaman como en la caja y en la pantalla de
+// pedidos del local. Cambiar el estado aquí también lo cambia allí.
+const POS_STATUS_LABEL = { PREPARING: "Preparando", READY: "Listo para recoger", DELIVERED: "Recogido", CANCELLED: "Anulado" };
+const statusLabelFor = (o, status) => (o.pos && POS_STATUS_LABEL[status]) || STATUS_LABEL[status];
 const KITCHEN_STEPS = ["RECEIVED", "PREPARING", "READY"];
 const KITCHEN_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo" };
 
@@ -364,6 +368,7 @@ export default function VendorOrders() {
       cancelReason: o.cancelReason,
       rawId: o.id,
       raw: o,
+      pos: o.pos ?? null,
     })),
     ...(data?.tableOrders ?? []).map((t) => ({
       key: `table-${t.id}`,
@@ -503,6 +508,11 @@ export default function VendorOrders() {
                   >
                     {CHANNEL_LABEL[o.channel]}
                   </span>
+                  {o.pos && (
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10.5px] font-bold text-primary" title="Venta cobrada en la caja">
+                      Caja · {o.pos.code}
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 text-[12.5px] text-outline">
                   {o.customer} · {new Date(o.date).toLocaleString("es-CU")}
@@ -536,7 +546,7 @@ export default function VendorOrders() {
                   className="rounded-full px-3 py-1.5 text-[11.5px] font-bold"
                   style={{ background: `${STATUS_COLOR[o.status]}1f`, color: STATUS_COLOR[o.status] }}
                 >
-                  {STATUS_LABEL[o.status]}
+                  {statusLabelFor(o, o.status)}
                 </span>
               )}
 
@@ -715,7 +725,7 @@ export default function VendorOrders() {
                       onClick={() => updateStatus.mutate({ id: o.rawId, status: next })}
                       className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[11.5px] font-bold text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container"
                     >
-                      {STATUS_LABEL[next]}
+                      {statusLabelFor(o, next)}
                     </button>
                   ))}
                   {/* Bloque 197 (pedido explícito — "esto se puede hacer

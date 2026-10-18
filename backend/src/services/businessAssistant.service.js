@@ -372,7 +372,7 @@ export async function listConversations({ scope, userId, vendorId = null }) {
     where: owner({ scope, userId, vendorId }),
     orderBy: { updatedAt: "desc" },
     take: LIST_CONVERSATIONS,
-    select: { id: true, title: true, updatedAt: true },
+    select: { id: true, title: true, updatedAt: true, sessionId: true },
   });
 }
 
@@ -423,7 +423,7 @@ export function smallTalkReply(message) {
 // vuelve a leer una charla vieja (la anterior queda en el historial).
 const CONVERSATION_IDLE_MS = 24 * 60 * 60 * 1000;
 
-export async function runAssistant({ scope, userId, vendorId = null, who, message, planContext = null, conversationId = null, onProgress = () => {} }) {
+export async function runAssistant({ scope, userId, vendorId = null, who, message, planContext = null, conversationId = null, sessionId = null, onProgress = () => {} }) {
   const tools = TOOLS_BY_SCOPE[scope];
   const { siteName } = await getBrandSettings();
   // Una conversación existente solo se acepta si es de esta misma persona.
@@ -557,7 +557,7 @@ export async function runAssistant({ scope, userId, vendorId = null, who, messag
   if (conversation) {
     conversation = await prisma.assistantConversation.update({ where: { id: conversation.id }, data: { updatedAt: askedAt } });
   } else {
-    conversation = await prisma.assistantConversation.create({ data: { scope, userId, vendorId, title: message.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS), createdAt: askedAt, updatedAt: askedAt } });
+    conversation = await prisma.assistantConversation.create({ data: { scope, userId, vendorId, sessionId, title: message.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS), createdAt: askedAt, updatedAt: askedAt } });
   }
   await prisma.assistantMessage.create({ data: { scope, userId, vendorId, conversationId: conversation.id, role: "user", content: message, createdAt: askedAt } });
   await prisma.assistantMessage.create({

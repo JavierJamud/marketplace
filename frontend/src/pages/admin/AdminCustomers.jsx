@@ -41,7 +41,7 @@ function EditCustomerModal({ customer, onSave, onCancel, saving }) {
       <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">Editar cliente</h2>
         <div className="flex flex-col gap-3.5">
-          <Input label="Nombre completo" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+          <Input data-guard="name" label="Nombre completo" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
           <Input label="Correo" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <Input label="Teléfono" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         </div>

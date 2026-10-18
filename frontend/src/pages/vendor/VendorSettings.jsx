@@ -82,7 +82,17 @@ function Modal({ title, onClose, onBackdropClick, children }) {
   );
 }
 
+// Cuba se divide en provincias con municipios; los demás países, en estados con ciudades.
+function zoneUnit(province) {
+  return province?.type === "STATE"
+    ? { many: "ciudades", Many: "Ciudades", all: "Todo el estado (todas las ciudades)", whole: "Todo el estado", one: "ciudad" }
+    : { many: "municipios", Many: "Municipios", all: "Toda la provincia (todos los municipios)", whole: "Toda la provincia", one: "municipio" };
+}
+const ZONE_LIST_MAX = 150;
+
 function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, onSave, isPending }) {
+  const unit = zoneUnit(province);
+  const [search, setSearch] = useState("");
   const { data: municipalities = [] } = useQuery({
     queryKey: ["admin-municipalities", province.id],
     queryFn: async () => (await api.get(`/locations/provinces/${province.id}/municipalities`)).data.municipalities,
@@ -128,6 +138,13 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
     }
   }
 
+  const matchingMunicipalities = useMemo(() => {
+    const q = search.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (!q) return municipalities;
+    return municipalities.filter((m) => m.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(q));
+  }, [municipalities, search]);
+  const visibleMunicipalities = matchingMunicipalities.slice(0, ZONE_LIST_MAX);
+
   // Bloque 196: único borrador de este modal es la selección de municipios
   // — el botón "Guardar Municipios" real solo se bloquea por isPending
   // (cualquier selección, incluso vacía, es válida), así que acá siempre
@@ -144,7 +161,7 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
   });
 
   return (
-    <Modal title={`Gestionar Municipios en ${province.name}`} onClose={onClose} onBackdropClick={dirtyModal.handleBackdropClick}>
+    <Modal title={`${unit.Many} de ${province.name}`} onClose={onClose} onBackdropClick={dirtyModal.handleBackdropClick}>
       <div className="mb-4 flex flex-col gap-3">
         <label className="flex items-center gap-2.5 rounded-xl border border-surface-container-high bg-surface-container/30 p-3 text-[13px] font-bold text-on-surface cursor-pointer">
           <input
@@ -153,15 +170,27 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
             onChange={toggleAll}
             className="h-4 w-4 rounded accent-tertiary-accent"
           />
-          Toda la provincia (todos los municipios)
+          {unit.all}
         </label>
 
-        <div className="text-[12px] font-bold text-outline uppercase tracking-wider mt-2">
-          Municipios disponibles ({municipalities.length})
+        <div className="mt-2 flex items-center justify-between gap-2 text-[12px] font-bold uppercase tracking-wider text-outline">
+          <span>{unit.Many} disponibles ({municipalities.length.toLocaleString("es-CU")})</span>
+          {selectedIds !== null && <span className="normal-case tracking-normal text-tertiary-accent">{selectedIds.length} elegidos</span>}
         </div>
 
+        {municipalities.length > 15 && (
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Buscar ${unit.one}...`}
+            aria-label={`Buscar ${unit.one} en ${province.name}`}
+            className="h-10 w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+          />
+        )}
+
         <div className="grid grid-cols-1 gap-2 max-h-[250px] overflow-y-auto pr-1">
-          {municipalities.map((m) => {
+          {visibleMunicipalities.map((m) => {
             const isChecked = selectedIds === null || selectedIds.includes(m.id);
             return (
               <label
@@ -182,8 +211,14 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
               </label>
             );
           })}
+          {matchingMunicipalities.length > visibleMunicipalities.length && (
+            <p className="py-2 text-[12px] text-on-surface-variant">Hay {matchingMunicipalities.length.toLocaleString("es-CU")} coincidencias: escribe para encontrar la que buscas.</p>
+          )}
+          {municipalities.length > 0 && matchingMunicipalities.length === 0 && (
+            <p className="py-2 text-[12px] text-outline italic">Ninguna coincide con “{search.trim()}”.</p>
+          )}
           {municipalities.length === 0 && (
-            <p className="py-2 text-[12px] text-outline italic">Esta provincia no tiene municipios activos registrados en el catálogo.</p>
+            <p className="py-2 text-[12px] text-outline italic">No hay {unit.many} activos en el catálogo para {province.name}.</p>
           )}
         </div>
       </div>
@@ -195,7 +230,7 @@ function ManageVendorMunicipalitiesModal({ province, vendorLocations, onClose, o
           disabled={isPending}
           onClick={() => onSave({ provinceId: province.id, municipalityIds: selectedIds })}
         >
-          {isPending ? "Guardando..." : "Guardar Municipios"}
+          {isPending ? "Guardando..." : "Guardar"}
         </Button>
       </div>
 
@@ -550,6 +585,7 @@ export default function VendorSettings() {
     }
     try {
       await Promise.all([saveProfile.mutateAsync(), saveSchedule.mutateAsync()]);
+      setBaseline(JSON.stringify({ form, days }));
       toast.success("Cambios guardados.");
       invalidateVendor();
       return true;
@@ -565,7 +601,19 @@ export default function VendorSettings() {
     }
   }
 
-  useUnsavedGuard(baseline !== null && JSON.stringify({ form, days }) !== baseline, async () => {
+  // Hay cambios sin guardar: activa los botones de guardar y muestra la barra fija de abajo.
+  const isDirty = baseline !== null && JSON.stringify({ form, days }) !== baseline;
+  const saving = saveProfile.isPending || saveSchedule.isPending;
+  const savableTab = activeTab !== "seguridad" && activeTab !== "equipo";
+  function discardChanges() {
+    if (!baseline) return;
+    const saved = JSON.parse(baseline);
+    setForm(saved.form);
+    setDays(saved.days);
+    setErrors({});
+  }
+
+  useUnsavedGuard(isDirty, async () => {
     if (!(await handleSaveAll())) throw new Error("No se guardó");
   });
 
@@ -634,8 +682,8 @@ export default function VendorSettings() {
             </p>
           </div>
         </div>
-        <Button onClick={handleSaveAll} disabled={saveProfile.isPending || saveSchedule.isPending} className={`rounded-xl font-bold ${activeTab === "seguridad" || activeTab === "equipo" ? "hidden" : ""}`}>
-          {saveProfile.isPending || saveSchedule.isPending ? "Guardando..." : "Guardar cambios"}
+        <Button onClick={handleSaveAll} disabled={saving || !isDirty} className={`rounded-xl font-bold ${savableTab ? "" : "hidden"}`}>
+          {saving ? "Guardando..." : isDirty ? "Guardar cambios" : "Sin cambios"}
         </Button>
       </div>
 
@@ -1200,12 +1248,12 @@ export default function VendorSettings() {
                           </button>
                         </div>
 
-                        {/* Municipality Pills for PROVINCE */}
-                        {province.type !== "STATE" ? (
+                        {/* Municipios (provincias de Cuba) o ciudades (estados) donde entrega. */}
+                        {(
                           <div className="flex flex-wrap gap-1.5 my-2">
                             {isAllMun ? (
                               <span className="rounded-md bg-verified/15 text-verified-dark px-2.5 py-1 text-[11.5px] font-bold flex items-center gap-1">
-                                <CheckCircle2 className="h-3 w-3" /> Toda la provincia
+                                <CheckCircle2 className="h-3 w-3" /> {zoneUnit(province).whole}
                               </span>
                             ) : (
                               locations.map((l) => (
@@ -1213,7 +1261,7 @@ export default function VendorSettings() {
                                   key={l.id}
                                   className="rounded-md bg-surface-container-high px-2.5 py-1 text-[11.5px] font-semibold text-on-surface flex items-center gap-1.5"
                                 >
-                                  {l.municipality?.name ?? "Municipio"}
+                                  {l.municipality?.name ?? zoneUnit(province).one}
                                   <button
                                     onClick={() => {
                                       openConfirm({
@@ -1235,20 +1283,15 @@ export default function VendorSettings() {
                               ))
                             )}
                           </div>
-                        ) : (
-                          <p className="text-[11.5px] text-outline my-2 italic">Toda la extensión del estado</p>
                         )}
                       </div>
 
-                      {/* Manage Municipalities Button for PROVINCE */}
-                      {province.type !== "STATE" && (
-                        <button
-                          onClick={() => setManagingProvince(province)}
-                          className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container/40 py-1.5 text-[11.5px] font-bold text-on-surface-variant hover:bg-surface-container transition"
-                        >
-                          <Settings2 className="h-3.5 w-3.5" /> Gestionar municipios
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setManagingProvince(province)}
+                        className="mt-2 flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container/40 py-1.5 text-[11.5px] font-bold text-on-surface-variant hover:bg-surface-container transition"
+                      >
+                        <Settings2 className="h-3.5 w-3.5" /> Elegir {zoneUnit(province).many}
+                      </button>
                     </div>
                   );
                 })}
@@ -1422,6 +1465,20 @@ export default function VendorSettings() {
       )}
 
       {/* Modals */}
+      {/* Barra fija abajo: aparece en cuanto se cambia cualquier valor, para guardar sin volver arriba. Los botones van a la
+          izquierda para que el botón flotante del asistente (abajo a la derecha) no los tape; en celular la barra va encima de ese botón. */}
+      {savableTab && isDirty && (
+        <div className="sticky bottom-[88px] z-30 mt-6 flex flex-wrap items-center gap-3 rounded-2xl sm:bottom-4 border border-secondary/40 bg-surface-container-lowest p-3 shadow-[0_20px_50px_-12px_rgba(14,26,40,0.35)] motion-safe:animate-fade-up" role="region" aria-label="Cambios sin guardar">
+          <Button onClick={handleSaveAll} disabled={saving} className="rounded-xl font-bold">
+            {saving ? "Guardando..." : "Guardar cambios"}
+          </Button>
+          <Button variant="ghost" onClick={discardChanges} disabled={saving} className="rounded-xl">
+            Descartar
+          </Button>
+          <span className="text-[13px] font-semibold text-on-surface-variant">Tienes cambios sin guardar</span>
+        </div>
+      )}
+
       {managingProvince && (
         <ManageVendorMunicipalitiesModal
           province={managingProvince}
@@ -1430,9 +1487,9 @@ export default function VendorSettings() {
           isPending={syncProvince.isPending}
           onSave={({ provinceId, municipalityIds }) => {
             openConfirm({
-              title: `¿Guardar municipios en ${managingProvince.name}?`,
+              title: `¿Guardar ${zoneUnit(managingProvince).many} de ${managingProvince.name}?`,
               message: `Se actualizarán las zonas de entrega configuradas para ${managingProvince.name}.`,
-              confirmLabel: "Sí, guardar municipios",
+              confirmLabel: "Sí, guardar",
               onConfirm: () => {
                 closeConfirm();
                 syncProvince.mutate({ provinceId, municipalityIds });

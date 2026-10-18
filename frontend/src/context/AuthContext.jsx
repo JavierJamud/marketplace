@@ -4,6 +4,7 @@ import { api, setSessionExpiredHandler } from "../lib/api.js";
 import { getBrowserId, getDeviceToken, setDeviceToken } from "../lib/deviceId.js";
 import { IdleWarningModal } from "../components/IdleWarningModal.jsx";
 import { queryClient, queryPersister } from "../lib/queryClient.js";
+import { detachPush } from "../lib/pwa.js";
 
 const AuthContext = createContext(null);
 
@@ -275,6 +276,8 @@ export function AuthProvider({ children }) {
   // servidor. Nunca toca browserId/deviceToken — eso es "recordar este
   // dispositivo", sobrevive a un logout normal a propósito.
   const logout = async () => {
+    // Este dispositivo deja de recibir los avisos push de esta persona (antes de cerrar la sesión en el servidor).
+    await detachPush().catch(() => {});
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       try {
@@ -291,6 +294,7 @@ export function AuthProvider({ children }) {
   // confianza del lado del servidor; esta pestaña es uno de esos
   // dispositivos, así que también se limpia acá.
   const logoutAllDevices = async () => {
+    await detachPush().catch(() => {});
     await api.post("/auth/logout-all");
     clearLocalSession();
   };

@@ -1,11 +1,15 @@
 import "./lib/safeStorage.js";
+import { installInputGuards } from "./lib/inputGuards.js";
+
+// Filtro central de campos numéricos y de nombres (ver lib/inputGuards.js).
+installInputGuards();
 import ReportErrorModal from "./components/ReportErrorModal.jsx";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { defaultShouldDehydrateQuery } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { Toaster } from "react-hot-toast";
+import { AppToaster } from "./components/ui/AppToaster.jsx";
 import App from "./App.jsx";
 import { queryClient, queryPersister } from "./lib/queryClient.js";
 import { CacheNotice } from "./components/CacheNotice.jsx";
@@ -77,18 +81,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               <App />
               <CacheNotice />
               <ReportErrorModal />
-              {/* Toaster: contenedor posicionado en top-right.
-                  El diseño visual completo (card, sombra, animaciones) lo
-                  gestiona <Toast> en components/ui/Toast.jsx — el Toaster
-                  solo actúa como portal de montaje sin estilos propios.
-                  La duración de cada toast la decide toast.jsx según contenido. */}
-              <Toaster
-                position="top-right"
-                containerStyle={{ top: 16, right: 16, zIndex: 9999 }}
-                toastOptions={{
-                  style: { padding: 0, background: "transparent", boxShadow: "none", maxWidth: "none" },
-                }}
-              />
+              {/* Avisos de todo el sitio (Sileo), ver lib/toast.jsx y components/ui/AppToaster.jsx. */}
+              <AppToaster />
             </CartProvider>
             </FlowProvider>
           </LocationProvider>

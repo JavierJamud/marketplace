@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Facebook, Instagram, Mail, MessageCircle } from "lucide-react";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { AppDownloadButtons } from "../pwa/AppDownloadButtons.jsx";
 
 // Bloque 223: footer en mobile con las secciones agrupadas para no sumar puro
 // scroll vertical. Bloque 251: sin líneas divisorias y con los iconos bajo la
@@ -33,7 +34,7 @@ function SocialLink({ href, label, Icon }) {
 }
 
 export function Footer() {
-  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl } = usePlatformSettings();
+  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl, pwaEnabled } = usePlatformSettings();
   return (
     <footer className="rounded-t-[28px] bg-primary">
       <div className="container-app grid gap-8 pb-2 pt-10 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:gap-8 md:pt-11">
@@ -64,6 +65,7 @@ export function Footer() {
               <Mail className="h-[18px] w-[18px]" />
             </Link>
           </div>
+          {pwaEnabled && <AppDownloadButtons />}
         </div>
 
         {/* Enlaces: 2 columnas en celular, y desde md cada grupo recupera su

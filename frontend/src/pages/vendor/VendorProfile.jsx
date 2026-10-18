@@ -18,6 +18,8 @@ import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
+import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
+import { APPS } from "../../lib/pwa.js";
 
 function PasswordCard() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -164,7 +166,7 @@ function OwnerNameCard() {
           Tienda verificada — este dato ya no se edita aquí. Para cambiarlo, usa "Solicitar cambio de datos" más abajo.
         </p>
       )}
-      <Input label="Nombre del responsable" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} disabled={locked} />
+      <Input data-guard="name" label="Nombre del responsable" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} disabled={locked} />
       {!locked && (
         <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Guardando..." : "Guardar"}
@@ -261,7 +263,7 @@ function ChangeRequestCard() {
       ) : (
         <div className="flex flex-col gap-3.5">
           <Input label="Nuevo nombre de la tienda (opcional)" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder={vendor.companyName} />
-          <Input label="Nuevo responsable (opcional)" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder={vendor.ownerName ?? "—"} />
+          <Input data-guard="name" label="Nuevo responsable (opcional)" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder={vendor.ownerName ?? "—"} />
           <Input label="Nuevo ID del responsable (opcional)" value={ownerIdNumber} onChange={(e) => setOwnerIdNumber(e.target.value)} placeholder={vendor.ownerIdNumber ?? "—"} />
           <Input label="Nueva dirección (opcional)" value={companyAddress} onChange={(e) => setCompanyAddress(e.target.value)} placeholder={vendor.companyAddress ?? "—"} />
           <div>
@@ -320,7 +322,8 @@ function KycDocumentsCard() {
       <p className="mb-4 text-[12.5px] text-outline">Las fotos que enviaste para verificar tu tienda.</p>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <PrivateDocument vendorId={vendor.id} type="selfie" label="Foto del responsable" Icon={UserIcon} available={!!vendor.verification.selfieUrl} />
-        <PrivateDocument vendorId={vendor.id} type="id" label="Documento de identidad" Icon={FileText} available={!!vendor.verification.idPhotoFrontUrl} />
+        <PrivateDocument vendorId={vendor.id} type="id" label={vendor.verification.idPhotoBackUrl ? "Documento (frente)" : "Documento de identidad"} Icon={FileText} available={!!vendor.verification.idPhotoFrontUrl} />
+        {vendor.verification.idPhotoBackUrl && <PrivateDocument vendorId={vendor.id} type="idBack" label="Documento (reverso)" Icon={FileText} available />}
         {/* Bloque 146: solo aparece si el navegador lo pudo grabar al
             enviar la solicitud — nunca obligatorio. */}
         {vendor.verification.selfieVideoUrl && (
@@ -399,7 +402,7 @@ function StoreInfoCard() {
         />
         <div>
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-label-md font-semibold text-on-surface-variant">Descripción de la marca</span>
+            <span className="text-label-md font-semibold text-on-surface-variant">Descripción de la tienda (mínimo 30 caracteres)</span>
             <AiGenerateButton
               kind="store"
               currentText={form.description}
@@ -447,7 +450,7 @@ function resolveVendorImg(path) {
 // logo se ve en el avatar circular de Store.jsx. Bloque 207: la portada
 // (foto de fondo del banner) se retiró — el banner de cada tienda ahora es
 // siempre el color de marca + un patrón de íconos, ver StoreHeaderBanner.jsx.
-function StoreBrandingCard() {
+export function StoreBrandingCard() {
   const queryClient = useQueryClient();
   const { vendor } = useOutletContext();
   const logoFileRef = useRef(null);
@@ -589,6 +592,9 @@ export default function VendorProfile() {
         <Button variant="outline" className="rounded-xl" onClick={() => setChangingEmail(true)}>Cambiar correo</Button>
       </div>
 
+      <div className="mb-5">
+        <NotificationSettings app={APPS.tienda} />
+      </div>
       <PasswordCard />
       <OwnerNameCard />
       <StoreInfoCard />

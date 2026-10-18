@@ -18,4 +18,30 @@ import { PrismaClient } from "@prisma/client";
 // patrón `existing.vendorId !== vendor.id` repetido en products/orders/
 // tables/vendors/verification.controller.js). Auditado en Bloque 17: todos
 // los endpoints que toman un :id de ruta fueron revisados uno por uno.
-export const prisma = new PrismaClient();
+const base = new PrismaClient();
+
+// Cada escritura en la base de datos avisa a este gancho (ver lib/notify.js): así las pantallas abiertas se actualizan al instante y
+// los avisos salen sin tener que acordarse de llamarlos en cada lugar. El gancho nunca puede romper ni retrasar la consulta.
+let mutationHook = null;
+export function setMutationHook(fn) {
+  mutationHook = fn;
+}
+const WRITES = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "upsert", "delete", "deleteMany"]);
+
+export const prisma = base.$extends({
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }) {
+        const result = await query(args);
+        if (mutationHook && WRITES.has(operation)) {
+          try {
+            mutationHook({ model, operation, args, result });
+          } catch {
+            /* los avisos son auxiliares */
+          }
+        }
+        return result;
+      },
+    },
+  },
+});

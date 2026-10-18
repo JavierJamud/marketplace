@@ -53,6 +53,8 @@ export function ZoneDialog({ onClose, welcome = false }) {
   // Cada paso aparece solo cuando hace falta y hay tiendas registradas en él.
   const showLevel1 = !!countryId && provinces.length > 0;
   const showLevel2 = !!provinceId && municipalities.length > 0;
+  // Las provincias (Cuba) se dividen en municipios; los estados, en ciudades.
+  const chosenIsState = provinces.find((p) => p.id === provinceId)?.type === "STATE";
 
   useEffect(() => {
     first.current?.focus();
@@ -116,9 +118,9 @@ export function ZoneDialog({ onClose, welcome = false }) {
             )}
 
             {showLevel2 && (
-              <Field label="Municipio" id={`${uid}-m`} hint={`Déjalo en “Todos” para ver toda la ${allStates ? "región" : "provincia"}.`}>
+              <Field label={chosenIsState ? "Ciudad" : "Municipio"} id={`${uid}-m`} hint={chosenIsState ? "Déjalo en “Todas” para ver todo el estado." : "Déjalo en “Todos” para ver toda la provincia."}>
                 <select id={`${uid}-m`} value={municipalityId ?? ""} onChange={(e) => setMunicipality(e.target.value)} className={selectClass}>
-                  <option value="">Todos los municipios</option>
+                  <option value="">{chosenIsState ? "Todas las ciudades" : "Todos los municipios"}</option>
                   {municipalities.map((m) => (
                     <option key={m.id} value={m.id}>{m.name} · {plural(m.count)}</option>
                   ))}

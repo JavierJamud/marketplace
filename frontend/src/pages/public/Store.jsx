@@ -32,6 +32,7 @@ import ofertImage from "../../assets/images/ofert.webp";
 // Store.jsx y TableOrder.jsx): extraído a un componente propio, reusado en
 // ambos lugares — ver components/StoreHeaderBanner.jsx.
 import { StoreHeaderBanner } from "../../components/StoreHeaderBanner.jsx";
+import { StoreLoyaltyBanner } from "../../components/StoreLoyaltyBanner.jsx";
 // Bloque 209 (pedido explícito, con captura de referencia — solo para el
 // menú digital, NO para el resto de la tienda): misma tarjeta horizontal
 // que usa TableOrder.jsx, reusada acá únicamente en la pestaña "Menú del
@@ -513,6 +514,8 @@ export default function Store() {
           explícito: van ARRIBA de los productos, no abajo del todo) —
           distinta de la sección "Ofertas" del Home: esta vive DENTRO de
           cada tienda, solo visible si tiene al menos una StoreOffer activa. */}
+      <StoreLoyaltyBanner vendorId={v.id} vendorName={v.companyName} />
+
       {v.storeOffers?.length > 0 && (
         <div className="container-app pt-8">
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Ofertas</h2>

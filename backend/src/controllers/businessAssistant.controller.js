@@ -58,8 +58,11 @@ function makeHandlers({ scope, resolveOwner }) {
     // Abre el chat: lista de conversaciones y la más reciente ya cargada.
     async get(req, res) {
       const owner = await resolveOwner(req);
-      const conversations = await listConversations(owner);
-      const active = conversations[0] ? await getConversation({ ...owner, conversationId: conversations[0].id }) : null;
+      const rows = await listConversations(owner);
+      // Cada vez que la persona entra al panel (sesión nueva) el chat abre vacío: la conversación de antes queda en el historial.
+      const current = rows[0] && rows[0].sessionId && rows[0].sessionId === req.user.sid ? rows[0] : null;
+      const active = current ? await getConversation({ ...owner, conversationId: current.id }) : null;
+      const conversations = rows.map(({ sessionId: _s, ...c }) => c);
       res.json({ access: { ...owner.access, quota: await freeQuota(owner) }, conversations, active });
     },
     async open(req, res) {
@@ -80,7 +83,7 @@ function makeHandlers({ scope, resolveOwner }) {
         });
         return;
       }
-      const run = (onProgress) => runAssistant({ scope, userId: owner.userId, vendorId: owner.vendorId, who: owner.who, message, planContext: owner.planContext, conversationId, onProgress });
+      const run = (onProgress) => runAssistant({ scope, userId: owner.userId, vendorId: owner.vendorId, who: owner.who, message, planContext: owner.planContext, conversationId, sessionId: req.user.sid, onProgress });
 
       const after = quota ? { quota: { ...quota, used: quota.used + 1, remaining: quota.remaining - 1 } } : {};
       if (req.query.stream !== "1") {

@@ -106,7 +106,7 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
           </button>
         </div>
         <div className="flex flex-col gap-3.5">
-          <Input label="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <Input data-guard="name" label="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} />
           <Input label="Correo electrónico" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <Select label="Tipo de usuario" value={staffType} onChange={(e) => handleStaffTypeChange(e.target.value)}>
             {STAFF_TYPES.filter((t) => t.key !== "WAITER" || isRestaurant).map((t) => (

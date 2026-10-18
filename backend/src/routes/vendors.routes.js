@@ -11,12 +11,13 @@ import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVe
 import * as vendorCustomersController from "../controllers/vendorCustomers.controller.js";
 import { vendorAiDocUpload } from "../middleware/vendorAiDocUpload.js";
 import { vendorBrandingUpload } from "../middleware/vendorBrandingUpload.js";
-import { chatRateLimit, assistantRateLimit } from "../middleware/rateLimit.js";
+import { chatRateLimit, assistantRateLimit, registerRateLimit } from "../middleware/rateLimit.js";
 import { kycUpload } from "../middleware/kycUpload.js";
 
 const router = Router();
 
 router.get("/", publicCache(20_000, { skip: (req) => !!req.query.q }), vendorsController.listVendors);
+router.post("/check-availability", registerRateLimit, vendorsController.checkVendorAvailability);
 // Auditoría de seguridad: estas 4 eran las únicas rutas "/me/*" de este
 // archivo sin requireRole("VENDOR") explícito — hoy no eran explotables
 // porque resolveMyVendor() ya devuelve 404 a quien no tenga fila en Vendor,
@@ -67,6 +68,7 @@ router.get("/me/dashboard/sales-series", authenticate, requireVendorAccess("resu
 // Bloque 194: consejos diarios de IA — ver el comentario largo en
 // getVendorDailyTips/vendorDailyTips.service.js.
 router.get("/me/dashboard/tips", authenticate, requireVendorAccess("resumen"), vendorsController.getVendorDailyTips);
+router.get("/me/dashboard/insights", authenticate, requireVendorAccess("resumen"), vendorsController.getDashboardInsights);
 // Bloque 246: asistente de negocio (solo lectura). Solo el dueño (nunca un
 // usuario de sistema) y solo con tienda verificada, plan de pago y el
 // interruptor del plan encendido; el control fino lo hace el controller.

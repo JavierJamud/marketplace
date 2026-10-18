@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma.js";
 import { transitionVendorVerification } from "./vendorVerification.service.js";
 import { recalcVendorProductQuota } from "../lib/planConfig.js";
 import { logActivity } from "../lib/activityLog.js";
+import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 
 // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
 // Premium, gancho de lanzamiento): único lugar que calcula si una tienda
@@ -66,6 +67,15 @@ export async function getTrialChecklist(vendorOrId) {
   ];
 }
 
+// Requisitos que se completan dentro del propio envío de la verificación (datos legales, documento y selfie). Todo lo demás
+// tiene que estar hecho ANTES de enviarla: la insignia de verificada exige la tienda completa, se pida o no la prueba gratis.
+export const KYC_FORM_KEYS = new Set(["companyAddress", "registrationCountryId", "legalProvinceId", "idDocument", "selfie"]);
+
+export async function missingBeforeVerification(vendorOrId) {
+  const checklist = await getTrialChecklist(vendorOrId);
+  return checklist.filter((item) => !item.done && !KYC_FORM_KEYS.has(item.key));
+}
+
 export async function isTrialChecklistComplete(vendorOrId) {
   const checklist = await getTrialChecklist(vendorOrId);
   return checklist.length > 0 && checklist.every((item) => item.done);
@@ -118,5 +128,11 @@ async function activateVendorTrial(vendorOrId) {
     action: "trial_activated",
     description: "Se activó solo el trial gratuito de 30 días del Plan Premium al completar todos los requisitos.",
   });
+  void notifyAdminActionNeeded(
+    `Prueba gratis activada: ${vendor.companyName}`,
+    `${vendor.companyName} completó todos los requisitos y ya tiene activa la prueba gratis de 30 días del Plan Premium (hasta el ${trialEndsAt.toLocaleDateString("es-CU", { timeZone: "America/Havana" })}).`,
+    vendor.id,
+    { url: `/admin/tiendas/${vendor.id}` }
+  ).catch(() => {});
   return updated;
 }

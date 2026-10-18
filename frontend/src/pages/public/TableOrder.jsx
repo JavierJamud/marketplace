@@ -196,6 +196,50 @@ function ThankYouScreen({ vendorName, onContinue }) {
   );
 }
 
+// Pedido hecho en la caja del local y mandado a mesa: el cliente escribe aquí el número de 4 caracteres que le dieron y el
+// pedido pasa a la cuenta de esta mesa.
+function PosClaim({ qrToken, onClaimed }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const claim = useMutation({
+    mutationFn: async () => (await api.post(`/tables/qr/${qrToken}/claim-pos`, { code: code.trim().toUpperCase() })).data,
+    onSuccess: () => {
+      toast.success("Pedido sumado a tu mesa");
+      setCode("");
+      setOpen(false);
+      onClaimed();
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo sumar el pedido."),
+  });
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mb-4 min-h-11 text-[13px] font-bold text-tertiary-accent underline">
+        ¿Pediste en caja? Escribe tu número
+      </button>
+    );
+  }
+  return (
+    <form
+      className="mb-5 flex gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (code.trim().length === 4) claim.mutate();
+      }}
+    >
+      <input
+        autoFocus
+        aria-label="Número de tu pedido en caja"
+        placeholder="Ej.: K7MP"
+        maxLength={4}
+        value={code}
+        onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+        className="h-11 w-32 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-center text-[16px] font-bold tracking-[0.2em] outline-none focus:border-tertiary-accent"
+      />
+      <Button type="submit" disabled={code.trim().length !== 4 || claim.isPending}>{claim.isPending ? "Sumando..." : "Sumar a mi mesa"}</Button>
+    </form>
+  );
+}
+
 export default function TableOrder() {
   const { qrToken } = useParams();
   const queryClient = useQueryClient();
@@ -315,6 +359,7 @@ export default function TableOrder() {
 
         {blockedByPendingApproval ? null : (
           <>
+            <PosClaim qrToken={qrToken} onClaimed={() => queryClient.invalidateQueries({ queryKey: ["table", qrToken] })} />
             {activeOrder && (
               <h3 className="mb-3 font-display text-title-md text-on-surface">Agregar a la cuenta</h3>
             )}

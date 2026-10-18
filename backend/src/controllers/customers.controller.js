@@ -106,7 +106,7 @@ export async function getMyOrders(req, res) {
 
   // Qué puede hacer el cliente con cada pedido (lo decide el servidor; el botón solo lo refleja).
   res.json({
-    orders: orders.map((o) => ({ ...o, canCancel: CUSTOMER_CAN_CANCEL.includes(o.status), canAskToCancel: o.status === "PREPARING" || o.status === "READY" || o.status === "DELIVERED", canEdit: CUSTOMER_CAN_EDIT.includes(o.status) && !o.discountCodeId })),
+    orders: orders.map((o) => ({ ...o, canCancel: CUSTOMER_CAN_CANCEL.includes(o.status), canAskToCancel: o.status === "PREPARING" || o.status === "READY" || o.status === "DELIVERED", canEdit: CUSTOMER_CAN_EDIT.includes(o.status) && !o.discountCodeId && !o.loyaltyPointsRedeemed })),
   });
 }
 

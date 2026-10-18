@@ -10,6 +10,8 @@ import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import AdminBranding from "./AdminBranding.jsx";
+import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
+import { APPS } from "../../lib/pwa.js";
 
 // Bloque 76 (pedido explícito): "Marca de la plataforma" pasa de ser una
 // entrada propia del menú a vivir acá, como subsección — un admin solo
@@ -52,8 +54,8 @@ function PersonalDataCard() {
       </div>
       <p className="mb-4 text-[12.5px] text-outline">Solo tú los ves. No se muestran a nadie ni se envían a ningún lado.</p>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <Input label="Nombre" value={firstName} maxLength={60} autoComplete="given-name" onChange={(e) => setFirstName(e.target.value)} />
-        <Input label="Apellidos" value={lastName} maxLength={60} autoComplete="family-name" onChange={(e) => setLastName(e.target.value)} />
+        <Input data-guard="name" label="Nombre" value={firstName} maxLength={60} autoComplete="given-name" onChange={(e) => setFirstName(e.target.value)} />
+        <Input data-guard="name" label="Apellidos" value={lastName} maxLength={60} autoComplete="family-name" onChange={(e) => setLastName(e.target.value)} />
       </div>
       <Button className="mt-4" disabled={unchanged || save.isPending} onClick={() => save.mutate()}>
         {save.isPending ? "Guardando..." : "Guardar"}
@@ -143,6 +145,10 @@ export default function AdminProfile() {
 
           <div className="mb-5">
             <PasswordCard />
+          </div>
+
+          <div className="mb-5">
+            <NotificationSettings app={APPS.admin} />
           </div>
 
           {changingEmail && <ChangeEmailModal currentEmail={user?.email} onClose={() => setChangingEmail(false)} />}

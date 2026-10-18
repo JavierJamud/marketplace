@@ -10,6 +10,8 @@ import { ListingPolicyCard } from "./AdminOffers.jsx";
 import { ReviewPolicyCard } from "./AdminReviews.jsx";
 import { ProductImageLinksPanel } from "./AdminLocations.jsx";
 import { MaintenanceCard } from "../../components/admin/MaintenanceCard.jsx";
+import { PwaSettingsCard } from "../../components/admin/PwaSettingsCard.jsx";
+import { CustomerRemindersCard } from "../../components/admin/CustomerRemindersCard.jsx";
 
 // Pedido explícito: una sola sección "Configuración" con TODOS los ajustes del
 // panel, en vez de tenerlos repartidos por Marca, Seguridad, Suscripciones,
@@ -41,6 +43,8 @@ export default function AdminSettings() {
       {tab === "general" && (
         <div className="flex max-w-[820px] flex-col gap-5">
           <MaintenanceCard />
+          <PwaSettingsCard />
+          <CustomerRemindersCard />
           <AdminBranding mode="general" />
         </div>
       )}

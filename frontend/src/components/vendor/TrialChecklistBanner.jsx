@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Check, ChevronDown, ChevronUp, ArrowRight, Sparkles } from "lucide-react";
 import { api } from "../../lib/api.js";
 
@@ -25,10 +25,12 @@ const STEPS = {
   hasPublishedProduct: { to: "/vendedor/productos?nuevo=1", action: "Publicar un producto" },
 };
 
-// Banner persistente (no modal): visible en cualquier sección del panel mientras el vendedor aceptó el trial pero todavía no
-// completó los pasos. Montado en VendorLayout.jsx.
+// Banner persistente (no modal): visible en cualquier sección del panel mientras la tienda no está verificada y le falta algún
+// paso (haya aceptado o no la prueba gratis: la insignia exige los mismos pasos). El botón lleva al asistente "Completa tu
+// tienda", donde se hace cada paso sin cambiar de pantalla. Montado en VendorLayout.jsx; no se muestra dentro del asistente.
 export function TrialChecklistBanner({ vendor }) {
   const [expanded, setExpanded] = useState(false);
+  const { pathname } = useLocation();
   const { data } = useQuery({
     queryKey: ["vendor-trial"],
     queryFn: async () => (await api.get("/vendors/me/trial")).data.trial,
@@ -36,19 +38,20 @@ export function TrialChecklistBanner({ vendor }) {
     staleTime: 20_000,
   });
 
-  // Visible solo entre "aceptó la oferta" y "el trial ya se activó".
-  if (!vendor?.id || !data?.trialStartedAt || data.trialEndsAt) return null;
+  // Con la tienda verificada (o la prueba ya activa) no hay nada que completar.
+  if (!vendor?.id || !data || data.trialEndsAt || vendor.verificationStatus === "VERIFIED" || pathname.startsWith("/vendedor/completar")) return null;
+  const trialAccepted = !!data.trialStartedAt;
 
   const items = data.checklist;
   const total = items.length;
   const done = items.filter((i) => i.done).length;
   const next = items.find((i) => !i.done);
   if (!next) return null;
-  const step = STEPS[next.key];
+  const step = STEPS[next.key] && { ...STEPS[next.key], to: "/vendedor/completar" };
   const percent = Math.round((done / total) * 100);
 
   return (
-    <section className="mb-5 overflow-hidden rounded-2xl border border-outline-variant/60 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-14px_rgba(15,23,42,0.18)]" aria-label="Pasos para activar tu Premium gratis">
+    <section className="mb-5 overflow-hidden rounded-2xl border border-outline-variant/60 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-14px_rgba(15,23,42,0.18)]" aria-label={trialAccepted ? "Pasos para activar tu Premium gratis" : "Pasos para verificar tu tienda"}>
       <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div className="flex min-w-0 items-start gap-3.5">
           <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-secondary-container/25 text-secondary">
@@ -56,10 +59,14 @@ export function TrialChecklistBanner({ vendor }) {
           </span>
           <div className="min-w-0">
             <p className="text-[11.5px] font-bold uppercase tracking-wide text-secondary">
-              Paso {done + 1} de {total} para tu Premium gratis
+              Paso {done + 1} de {total} {trialAccepted ? "para tu Premium gratis" : "para verificar tu tienda"}
             </p>
             <h2 className="mt-0.5 font-display text-[17px] font-extrabold leading-tight text-on-surface">{next.label}</h2>
-            <p className="mt-1 text-[12.5px] text-on-surface-variant">Cuando completes todos, tu tienda pasa a verificada y Premium sin esperar revisión de nadie.</p>
+            <p className="mt-1 text-[12.5px] text-on-surface-variant">
+              {trialAccepted
+                ? "Cuando completes todos, tu tienda pasa a verificada y Premium sin esperar revisión de nadie."
+                : "Son obligatorios para obtener la insignia de tienda verificada. Hazlos todos desde un solo lugar."}
+            </p>
           </div>
         </div>
         {step && (

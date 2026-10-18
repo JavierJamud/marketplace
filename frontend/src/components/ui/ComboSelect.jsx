@@ -8,7 +8,9 @@ import { matchesQuery } from "./SearchBox.jsx";
 // el texto vuelve a la opción vigente.
 //   options: [{ value, label, icon? }]   icon es un nodo de React ya armado (por ejemplo, <CategoryIcon />).
 //   allOption: { label } agrega una primera opción de valor "" (por ejemplo "Todos los tipos de negocio").
-export function ComboSelect({ label, required, value, onChange, options, placeholder = "Escribe para buscar", allOption, error, className, size = "md", emptyText = "No hay coincidencias" }) {
+//   maxShown: con listas muy largas (las ciudades de un estado) solo se dibujan las primeras coincidencias y se pide seguir
+//   escribiendo para afinar; así la lista abre rápido también en un celular.
+export function ComboSelect({ label, required, value, onChange, options, placeholder = "Escribe para buscar", allOption, error, className, size = "md", emptyText = "No hay coincidencias", maxShown, disabled }) {
   const id = useId();
   const rootRef = useRef(null);
   const listRef = useRef(null);
@@ -19,7 +21,8 @@ export function ComboSelect({ label, required, value, onChange, options, placeho
 
   const all = useMemo(() => (allOption ? [{ value: "", label: allOption.label }, ...options] : options), [allOption, options]);
   const selected = all.find((o) => o.value === value) ?? null;
-  const filtered = useMemo(() => all.filter((o) => matchesQuery(o.label, query)), [all, query]);
+  const matches = useMemo(() => all.filter((o) => matchesQuery(o.label, query)), [all, query]);
+  const filtered = maxShown ? matches.slice(0, maxShown) : matches;
   const shownText = open ? query : selected?.label ?? "";
 
   useEffect(() => {
@@ -90,6 +93,7 @@ export function ComboSelect({ label, required, value, onChange, options, placeho
           aria-autocomplete="list"
           autoComplete="off"
           required={required}
+          disabled={disabled}
           value={shownText}
           placeholder={placeholder}
           onFocus={() => {
@@ -148,6 +152,11 @@ export function ComboSelect({ label, required, value, onChange, options, placeho
               <span>{o.label}</span>
             </li>
           ))}
+          {matches.length > filtered.length && (
+            <li className="px-4 py-2 text-[12.5px] text-on-surface-variant">
+              Hay {matches.length.toLocaleString("es-CU")} coincidencias: sigue escribiendo para encontrar la tuya.
+            </li>
+          )}
         </ul>
       )}
       {error && <span className="mt-1 block text-label-sm text-error">{error}</span>}

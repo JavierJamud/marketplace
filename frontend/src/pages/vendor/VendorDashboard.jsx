@@ -27,6 +27,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts";
 import { api } from "../../lib/api.js";
 import { CARD, CARD_SHADOW, IconCircle, ArrowLink, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
+import { TodayTodo, InsightsTiles, InsightsGrid, useVendorInsights } from "../../components/vendor/DashboardInsights.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -144,7 +145,7 @@ function SalesChartCard() {
   const [rangeOpen, setRangeOpen] = useState(false);
   const hasRange = Boolean(range.from && range.to);
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isPlaceholderData } = useQuery({
     queryKey: ["vendor-sales-series", granularity, hasRange ? range.from : null, hasRange ? range.to : null],
     queryFn: async () =>
       (
@@ -252,7 +253,9 @@ function SalesChartCard() {
           en el eje principal) — la gráfica colapsaba a 0px de alto y
           desaparecía en silencio, aunque los datos sí habían llegado bien.
           Solo la altura fija, sin flex-1. */}
-      <div className={`mt-2 h-[220px] transition-opacity ${isFetching ? "opacity-50" : "opacity-100"}`}>
+      {/* Solo se atenúa mientras llega un filtro nuevo (datos del filtro anterior en pantalla). Una recarga en segundo plano,
+          por un aviso en vivo, cambia las barras sin atenuar ni repetir la animación de entrada. */}
+      <div className={`mt-2 h-[220px] transition-opacity ${isFetching && isPlaceholderData ? "opacity-50" : "opacity-100"}`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={series} margin={{ top: 32, right: 4, left: -8, bottom: angleTicks ? 20 : 0 }}>
             <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e8e5e6" />
@@ -267,7 +270,7 @@ function SalesChartCard() {
             />
             <YAxis tick={{ fontSize: 10, fill: "#65676c" }} axisLine={false} tickLine={false} width={44} />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(0,0,0,0.03)" }} />
-            <Bar dataKey="total" radius={[7, 7, 7, 7]} maxBarSize={34} fill="#337475">
+            <Bar dataKey="total" radius={[7, 7, 7, 7]} maxBarSize={34} fill="#337475" isAnimationActive={!data || isPlaceholderData}>
               <LabelList dataKey="total" content={(props) => <PeakLabel {...props} peakIndex={peakIndex} />} />
             </Bar>
           </BarChart>
@@ -423,6 +426,8 @@ export default function VendorDashboard() {
     staleTime: 60 * 60 * 1000,
   });
 
+  const { data: insights } = useVendorInsights();
+
   const bestSellers = analytics?.bestSellers?.[bestSellerTab] ?? [];
 
   // Mismo rango que usa el backend para salesThisWeek (últimos 7 días, ver
@@ -447,6 +452,8 @@ export default function VendorDashboard() {
           </Link>
         </div>
       </div>
+
+      <TodayTodo insights={insights} />
 
       <WeeklySummaryCard className="mb-5" />
 
@@ -482,6 +489,8 @@ export default function VendorDashboard() {
             últimos 12 meses sea una sola con varios botones de cambio"). */}
         <SalesChartCard />
       </div>
+
+      <InsightsTiles insights={insights} />
 
       {/* Bloque 230 (Fase 3, pedido explícito — "score de salud de tienda
           para el vendedor (semáforo) — reutiliza completitud, cancelaciones,
@@ -667,6 +676,8 @@ export default function VendorDashboard() {
           </div>
         )}
       </div>
+
+      <InsightsGrid insights={insights} />
 
       {/* Bloque 194 ("el inventario en tiempo real"): la query de arriba ya
           se refresca sola (staleTime global de 5min, ver queryClient.js —

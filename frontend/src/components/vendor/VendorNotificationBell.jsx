@@ -17,9 +17,11 @@ function timeAgo(iso) {
 
 // A dónde lleva cada tipo de aviso. Los que no tienen un lugar propio solo se dan por atendidos.
 function destinationFor(n) {
-  if (n.type === "NEW_ORDER" || n.type === "ORDER_CANCELLED_BY_CUSTOMER" || n.type === "ORDER_EDITED_BY_CUSTOMER") return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
+  if (["NEW_ORDER", "ORDER_CANCELLED_BY_CUSTOMER", "ORDER_EDITED_BY_CUSTOMER", "ORDER_OVERDUE"].includes(n.type)) return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
   if (n.type === "SUPPORT_CASE") return "/vendedor/pedidos";
-  if (n.type === "VENDOR_STAFF_OUT_OF_STOCK") return "/vendedor/productos";
+  if (n.type === "VENDOR_STAFF_OUT_OF_STOCK" || n.type === "LOW_STOCK") return "/vendedor/productos";
+  if (n.type === "NEW_CUSTOMER") return "/vendedor/clientes";
+  if (n.type === "NEW_MESSAGE") return "/vendedor/mensajes";
   if (n.type.startsWith("FRAUD_REPORT")) return "/vendedor/reportes";
   if (/^(VERIFICATION|TRIAL|SUBSCRIPTION|VENDOR_CHANGE|VENDOR_SUSPENDED)/.test(n.type)) return "/vendedor/verificacion";
   return null;
@@ -102,7 +104,7 @@ export function VendorNotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-[calc(100%+10px)] z-20 w-80 rounded-xl border border-surface-container-high bg-surface-container-lowest shadow-xl">
+        <div className="absolute right-0 top-[calc(100%+10px)] z-20 w-[min(20rem,calc(100vw-24px))] rounded-xl border border-surface-container-high bg-surface-container-lowest shadow-xl">
           <div className="flex items-center justify-between border-b border-surface-container px-3.5 py-2.5">
             <span className="text-[13px] font-bold text-on-surface">Notificaciones</span>
             {data?.notifications?.length > 0 && (
@@ -129,6 +131,16 @@ export function VendorNotificationBell() {
               <p className="px-3.5 py-6 text-center text-[12.5px] text-on-surface-variant">No tienes avisos pendientes.</p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              navigate("/vendedor/perfil#avisos");
+            }}
+            className="block min-h-10 w-full border-t border-surface-container px-3.5 py-2.5 text-left text-[12px] font-semibold text-tertiary-accent hover:bg-surface-container/60"
+          >
+            Elegir qué avisos recibir en el celular
+          </button>
         </div>
       )}
     </div>

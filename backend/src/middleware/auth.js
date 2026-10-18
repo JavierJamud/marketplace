@@ -35,7 +35,8 @@ export async function authenticate(req, _res, next) {
     throw new AppError("Sesión inválida o expirada.", 401);
   }
 
-  req.user = { id: payload.sub, role: payload.role };
+  // sid: la sesión de este inicio de sesión (sirve, por ejemplo, para que el asistente abra una conversación nueva en cada una).
+  req.user = { id: payload.sub, role: payload.role, sid: payload.sid };
   next();
 }
 

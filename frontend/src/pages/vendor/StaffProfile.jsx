@@ -7,6 +7,8 @@ import { Button } from "../../components/ui/Button.jsx";
 import { vendorSectionLabel } from "../../lib/vendorSections.js";
 import { staffTypeLabel } from "../../lib/staffTypes.js";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
+import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
+import { APPS } from "../../lib/pwa.js";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -108,6 +110,10 @@ export default function StaffProfile() {
         >
           {changePassword.isPending ? "Guardando..." : "Cambiar contraseña"}
         </Button>
+      </div>
+
+      <div className="mb-5">
+        <NotificationSettings app={APPS.tienda} />
       </div>
 
       <DeleteAccountCard />

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
+import { offlineRequest, QUEUED_TEXT, QUEUED_TITLE } from "../../lib/offlineQueue.js";
 import { X, Plus, Minus, Trash2, CheckCircle2, DollarSign, History, UtensilsCrossed, Store, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatElapsed } from "../../lib/duration.js";
@@ -155,21 +156,16 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
   };
 
   const addItem = useMutation({
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
     mutationFn: async () => {
       const quantity = Number(addQty);
-      if (manualMode) {
-        return (
-          await api.post(`/tables/orders/${orderId}/items/add`, {
-            name: manualName.trim(),
-            price: Number(manualPrice),
-            quantity,
-          })
-        ).data;
-      }
-      return (await api.post(`/tables/orders/${orderId}/items/add`, { productId: addingProductId, quantity })).data;
+      const data = manualMode ? { name: manualName.trim(), price: Number(manualPrice), quantity } : { productId: addingProductId, quantity };
+      return offlineRequest({ method: "post", url: `/tables/orders/${orderId}/items/add`, data, label: `Agregar a la cuenta de ${tableLabel ?? "la mesa"}` });
     },
-    onSuccess: () => {
-      toast.success("Se agregó a la cuenta.");
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Se agregó a la cuenta.");
       setAddingProductId("");
       setAddQty("1");
       setManualName("");
@@ -185,9 +181,12 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
   // de este bloque, ver makeOrderItem en tables.controller.js) y sobre una
   // cuenta ya aceptada — el backend rechaza lo demás con un mensaje claro.
   const removeItem = useMutation({
-    mutationFn: async (itemId) => (await api.delete(`/tables/orders/${orderId}/items/${itemId}`)).data,
-    onSuccess: () => {
-      toast.success("Producto quitado de la cuenta.");
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
+    mutationFn: async (itemId) => offlineRequest({ method: "delete", url: `/tables/orders/${orderId}/items/${itemId}`, label: `Quitar de la cuenta de ${tableLabel ?? "la mesa"}` }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Producto quitado de la cuenta.");
       setRemovingItem(null);
       invalidateAll();
     },
@@ -198,8 +197,10 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
   });
 
   const changeItemQty = useMutation({
-    mutationFn: async ({ itemId, quantity }) => (await api.patch(`/tables/orders/${orderId}/items/${itemId}`, { quantity })).data,
-    onSuccess: invalidateAll,
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
+    mutationFn: async ({ itemId, quantity }) => offlineRequest({ method: "patch", url: `/tables/orders/${orderId}/items/${itemId}`, data: { quantity }, label: `Cambiar cantidad en ${tableLabel ?? "la mesa"}` }),
+    onSuccess: (r) => (r.queued ? toast.info(QUEUED_TITLE, QUEUED_TEXT) : invalidateAll()),
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cambiar la cantidad."),
   });
 
@@ -207,24 +208,32 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
   // Listo), independiente del resto de la cuenta — una ronda de consumo
   // agregada después de que la cuenta ya venía en curso.
   const advanceItemStatus = useMutation({
-    mutationFn: async ({ itemId, status }) => (await api.patch(`/tables/orders/${orderId}/items/${itemId}/status`, { status })).data,
-    onSuccess: invalidateAll,
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
+    mutationFn: async ({ itemId, status }) => offlineRequest({ method: "patch", url: `/tables/orders/${orderId}/items/${itemId}/status`, data: { status }, label: `Estado de un producto en ${tableLabel ?? "la mesa"}` }),
+    onSuccess: (r) => (r.queued ? toast.info(QUEUED_TITLE, QUEUED_TEXT) : invalidateAll()),
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar el estado."),
   });
 
   const markDelivered = useMutation({
-    mutationFn: async () => (await api.patch(`/tables/orders/${orderId}/delivered`)).data,
-    onSuccess: () => {
-      toast.success("Marcado como entregado.");
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
+    mutationFn: async () => offlineRequest({ method: "patch", url: `/tables/orders/${orderId}/delivered`, label: `Entregado: ${tableLabel ?? "la mesa"}` }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Marcado como entregado.");
       invalidateAll();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo marcar como entregado."),
   });
 
   const clearTable = useMutation({
-    mutationFn: async () => (await api.patch(`/tables/orders/${orderId}/clear`)).data,
-    onSuccess: () => {
-      toast.success("Cuenta cobrada — mesa liberada.");
+    // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
+    networkMode: "always",
+    mutationFn: async () => offlineRequest({ method: "patch", url: `/tables/orders/${orderId}/clear`, label: `Cobrar y liberar ${tableLabel ?? "la mesa"}` }),
+    onSuccess: (r) => {
+      if (r.queued) toast.info(QUEUED_TITLE, QUEUED_TEXT);
+      else toast.success("Cuenta cobrada: mesa liberada.");
       setConfirmClose(false);
       invalidateAll();
       onClose();
