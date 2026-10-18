@@ -875,6 +875,7 @@ export async function updateProduct(req, res) {
       include: { ...productPriceTiersInclude, restrictedTables: { select: { id: true } } },
     });
   });
+  logActivity({ actorId: req.user.id, actorRole: actorRoleForVendorAction(req), vendorId: vendor.id, action: "product_updated", description: `Editó el producto "${existing.name}"`, meta: { productId: id } });
   res.json({ product });
 }
 
@@ -888,6 +889,7 @@ export async function deleteProduct(req, res) {
   await prisma.product.delete({ where: { id } });
   // Las fotos de un producto eliminado no se vuelven a usar: se borran del disco (con sus miniaturas).
   void deleteUploadedImages(existing.images);
+  logActivity({ actorId: req.user.id, actorRole: actorRoleForVendorAction(req), vendorId: vendor.id, action: "product_deleted", description: `Eliminó el producto "${existing.name}"` });
   res.json({ ok: true });
 }
 

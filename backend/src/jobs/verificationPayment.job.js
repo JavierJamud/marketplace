@@ -46,6 +46,8 @@ async function processDeferredCancellations() {
       cancelAtPeriodEnd: true,
       nextPaymentDueDate: { lt: new Date() },
       stripeSubscriptionId: null,
+      // Los que el admin pasó a Regular al vencer los resuelve trialExpiry.job.js (conservan la insignia).
+      planDowngradeAt: null,
     },
   });
 
@@ -68,6 +70,7 @@ async function sendPaymentReminders() {
       verificationStatus: "VERIFIED",
       nextPaymentDueDate: dayRange(REMINDER_DAYS_BEFORE),
       stripeSubscriptionId: null,
+      planDowngradeAt: null,
     },
     include: { user: true },
   });
@@ -90,6 +93,7 @@ async function expireOverduePayments() {
       cancelAtPeriodEnd: false,
       nextPaymentDueDate: { lt: new Date() },
       stripeSubscriptionId: null,
+      planDowngradeAt: null,
     },
   });
 

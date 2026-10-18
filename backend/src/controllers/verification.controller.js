@@ -31,6 +31,7 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete, TRIAL_DAYS } from "../services/trialEligibility.service.js";
 import { recalcVendorProductQuota, getPlanConfig, buildPlanIncludes } from "../lib/planConfig.js";
 import { resolveLegalLocation } from "../services/registrationLocation.service.js";
+import { applyPlanDowngrade } from "../services/planDowngrade.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
 // Bloque 150 (pedido explícito): cuántos meses puede elegir pagar de
@@ -690,12 +691,15 @@ export async function getMySubscription(req, res) {
       periodEnd,
       daysRemaining: periodEnd ? Math.ceil((new Date(periodEnd).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null,
       cancelAtPeriodEnd: vendor.cancelAtPeriodEnd,
+      // Cambio a Regular programado por el admin (fecha y motivo): la tienda lo ve en Suscripción.
+      planDowngradeAt: vendor.planDowngradeAt,
+      planDowngradeReason: vendor.planDowngradeReason,
       autoRenews,
       nextCharge: autoRenews ? { at: periodEnd, amount: card?.amountUsd ?? amount, currency: "USD" } : null,
       card: card?.card ?? null,
       cardStatus: card?.status ?? null,
       paymentFailed: vendor.verificationStatus === "PAYMENT_FAILED" || card?.status === "past_due" || card?.status === "unpaid",
-      canReactivate: (vendor.verificationStatus === "VERIFIED" && vendor.cancelAtPeriodEnd) || (["SUSPENDED", "PAYMENT_FAILED"].includes(vendor.verificationStatus) && !!vendor.stripeCustomerId),
+      canReactivate: !vendor.planDowngradeAt && (vendor.verificationStatus === "VERIFIED" && vendor.cancelAtPeriodEnd) || (["SUSPENDED", "PAYMENT_FAILED"].includes(vendor.verificationStatus) && !!vendor.stripeCustomerId),
       cardIntervals: CARD_INTERVAL_MONTHS,
       cardPricePerMonthUsd: pricing.cardPricePerMonthUsd,
       pendingRenewal,
@@ -1082,6 +1086,7 @@ export async function cancelMySubscription(req, res) {
 //    página de pago de Stripe para poner otra tarjeta y pagar.
 export async function reactivateMySubscription(req, res) {
   const vendor = await loadMyVendor(req);
+  if (vendor.planDowngradeAt) throw new AppError("El equipo de la plataforma programó el paso de tu tienda al plan Regular. Escríbenos en Mensajes si quieres mantener Premium.", 409);
   if (vendor.verificationStatus === "VERIFIED" && vendor.cancelAtPeriodEnd) {
     if (vendor.stripeSubscriptionId) await setCardSubscriptionCancelAtPeriodEnd(vendor.stripeSubscriptionId, false);
     await prisma.vendor.update({ where: { id: vendor.id }, data: { cancelAtPeriodEnd: false } });
@@ -1276,6 +1281,12 @@ async function handleCardSubscriptionUpdated(sub) {
 async function handleCardSubscriptionDeleted(sub) {
   const vendor = await prisma.vendor.findFirst({ where: { stripeSubscriptionId: sub.id } });
   if (!vendor) return;
+  // El admin había programado el paso a Regular al terminar el periodo: se aplica eso (conserva la insignia).
+  if (vendor.planDowngradeAt) {
+    await prisma.vendor.update({ where: { id: vendor.id }, data: { stripeSubscriptionId: null } });
+    await applyPlanDowngrade(vendor.id, { source: "STRIPE_WEBHOOK" });
+    return;
+  }
   if (vendor.trialEndsAt || (vendor.verificationStatus === "VERIFIED" && vendor.planType === "REGULAR")) {
     // Canceló durante la prueba (o la prueba no llegó a cobrarse): vuelve al plan gratis y conserva la insignia.
     await transitionVendorVerification(vendor.id, "VERIFIED", {

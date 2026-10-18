@@ -474,7 +474,7 @@ const ADMIN_TOOLS = {
     schema: z.object({}).strict(),
     async run() {
       const [verifs, reports, anomalies, locations, errors, anomalyRows, locationRows] = await Promise.all([
-        prisma.vendor.count({ where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } } }),
+        prisma.vendor.count({ where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] }, deletedAt: null } }),
         prisma.report.count({ where: { status: { in: ["PENDING", "EVIDENCE_REQUESTED"] } } }),
         prisma.rankingAnomaly.count({ where: { status: "PENDING" } }),
         prisma.locationSuggestion.count({ where: { status: "PENDING" } }),

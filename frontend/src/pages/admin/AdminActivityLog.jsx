@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Store, User, Activity } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
+import { UsageOverview } from "../../components/admin/VendorUsage.jsx";
 
 const PERIODS = [
   { value: "day", label: "Hoy" },
@@ -71,6 +72,8 @@ export default function AdminActivityLog() {
       <p className="mb-[22px] text-[13.5px] text-outline">
         Registro de las acciones que hacen vendedores y clientes en sus paneles, y qué tiendas/clientes más usan la plataforma.
       </p>
+
+      <UsageOverview />
 
       <div className="mb-5 flex gap-2">
         {PERIODS.map((p) => (

@@ -110,6 +110,18 @@ export function SubscriptionOverview({ onChoosePayment }) {
         <span className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${statusChip.cls}`}>{statusChip.label}</span>
       </div>
 
+      {/* El equipo programó el paso al plan Regular: hasta esa fecha sigue todo igual y no se renueva. */}
+      {s.planDowngradeAt && (
+        <div role="status" className="mb-4 flex gap-2 rounded-xl border border-secondary/30 bg-secondary-container/30 p-3.5 text-[13px] text-on-surface">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-secondary" aria-hidden="true" />
+          <p>
+            Tu tienda pasará al plan Regular el <strong>{new Date(s.planDowngradeAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>.
+            Hasta ese día tienes todas las funciones Premium y no se te cobra la renovación.
+            {s.planDowngradeReason ? ` Motivo: ${s.planDowngradeReason}.` : ""} Si quieres mantener Premium, escríbenos en Mensajes.
+          </p>
+        </div>
+      )}
+
       {s.paymentFailed && isCard && (
         <div className="mb-4 flex flex-col gap-2 rounded-xl border border-error/30 bg-error/5 p-3.5 sm:flex-row sm:items-center">
           <p className="flex min-w-0 flex-1 gap-2 text-[13px] text-on-surface">

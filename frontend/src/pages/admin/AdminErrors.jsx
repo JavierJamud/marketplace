@@ -50,6 +50,13 @@ export default function AdminErrors() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "tickets" ? "tickets" : "system";
   const setTab = (id) => setParams(id === "tickets" ? { tab: "tickets" } : {});
+  // Lo pendiente de cada pestaña (mismo contador que el menú lateral).
+  const { data: sectionCounts } = useQuery({
+    queryKey: ["admin-section-counts"],
+    queryFn: async () => (await api.get("/admin/section-counts")).data,
+    refetchInterval: 30000,
+  });
+  const tabsWithCounts = ERROR_TABS.map((t) => ({ ...t, count: sectionCounts?.errores?.tabs?.[t.id === "system" ? "sistema" : "tickets"] ?? 0 }));
   const [originFilter, setOriginFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("unresolved");
 
@@ -87,7 +94,7 @@ export default function AdminErrors() {
         del backend) — este es el único lugar del sitio donde se ve el detalle real, nunca se expone al cliente/vendedor.
       </p>
 
-      <Tabs tabs={ERROR_TABS} value={tab} onChange={setTab} className="mb-4" />
+      <Tabs tabs={tabsWithCounts} value={tab} onChange={setTab} className="mb-4" />
       {tab === "tickets" ? (
         <AdminSupportTickets />
       ) : (

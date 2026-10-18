@@ -18,18 +18,22 @@ import { Button } from "../../components/ui/Button.jsx";
 // un admin decida sobre los documentos"; PAYMENT_FAILED+SUSPENDED comparten
 // "problemas de cobro" porque las 2 implican que la tienda YA estuvo
 // verificada y perdió el badge por el cobro recurrente, no por documentos).
+// "Todas" es la vista de entrada: se cargan todas las solicitudes una sola vez y cada pestaña filtra esa misma lista (así una
+// tienda nunca sale en dos pestañas y los números cuadran). `id` es el que va en la URL (?tab=pago) para que los avisos
+// abran la pestaña exacta; `action` marca las pestañas con algo por hacer (su número se resalta).
 const TABS = [
-  { key: "PENDING_DOCS,IN_REVIEW", label: "Documentos pendientes" },
-  { key: "PENDING_PAYMENT", label: "Pago pendiente" },
-  { key: "PAYMENT_FAILED,SUSPENDED", label: "Problemas de cobro" },
-  { key: "REJECTED", label: "Rechazadas" },
-  { key: "VERIFIED", label: "Verificadas" },
+  { key: "ALL", id: "todas", label: "Todas" },
+  { key: "PENDING_DOCS,IN_REVIEW", id: "docs", label: "Documentos pendientes", action: true },
+  { key: "PENDING_PAYMENT", id: "pago", label: "Pago pendiente", action: true },
+  { key: "PAYMENT_FAILED,SUSPENDED", id: "cobro", label: "Problemas de cobro", action: true },
+  { key: "REJECTED", id: "rechazadas", label: "Rechazadas" },
+  { key: "VERIFIED", id: "verificadas", label: "Verificadas" },
   // Bloque 153 (pedido explícito — "el admin debe aprobar los demás meses
   // pagos" / "se debe enviar la solicitud al admin"): 2 pestañas especiales
   // — no son un `verificationStatus`, así que se manejan aparte (otro
   // endpoint, otra lista) en vez de forzarlas en el mismo listado.
-  { key: "RENEWALS", label: "Renovaciones" },
-  { key: "CHANGE_REQUESTS", label: "Cambios de datos" },
+  { key: "RENEWALS", id: "renovaciones", label: "Renovaciones", action: true },
+  { key: "CHANGE_REQUESTS", id: "cambios", label: "Cambios de datos", action: true },
 ];
 
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta", CUP_TRANSFER: "Transferencia CUP", MANUAL: "pago registrado por el equipo" };
@@ -538,7 +542,16 @@ function ChangeRequestsList() {
 
 export default function AdminVerifications() {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState(TABS[0].key);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = (TABS.find((t) => t.id === searchParams.get("tab")) ?? TABS[0]).key;
+  const setTab = (key) => {
+    const next = new URLSearchParams(searchParams);
+    const id = TABS.find((t) => t.key === key)?.id;
+    if (id && id !== "todas") next.set("tab", id);
+    else next.delete("tab");
+    setSearchParams(next, { replace: true });
+  };
+  const [search, setSearch] = useState("");
   const [rejectTarget, setRejectTarget] = useState(null); // id de la verificación a rechazar
   const [rejectReason, setRejectReason] = useState("");
   // Bloque 72 (pedido explícito): { vendorId, companyName, verificationStatus }
@@ -546,7 +559,6 @@ export default function AdminVerifications() {
   const [archiveVendor, setArchiveVendor] = useState(null);
   // Bloque 276: el asistente de negocio enlaza al perfil archivado de una tienda con
   // /admin/verificaciones?archivo=<tienda>; al llegar con ese parámetro se abre el archivo.
-  const [searchParams, setSearchParams] = useSearchParams();
   const archiveParam = searchParams.get("archivo");
   useEffect(() => {
     if (archiveParam) setArchiveVendor({ vendorId: archiveParam, companyName: "", verificationStatus: null });
@@ -560,12 +572,25 @@ export default function AdminVerifications() {
   // en esos 2 casos (cada una trae su propia lista, ver RenewalsList/
   // ChangeRequestsList más abajo).
   const isSpecialTab = tab === "RENEWALS" || tab === "CHANGE_REQUESTS";
-  const { data, isLoading } = useQuery({
-    queryKey: ["admin-verifications", tab],
-    queryFn: async () => (await api.get("/admin/verifications", { params: { status: tab } })).data.verifications,
+  const { data: all, isLoading } = useQuery({
+    queryKey: ["admin-verifications", "ALL"],
+    queryFn: async () => (await api.get("/admin/verifications", { params: { status: "ALL" } })).data.verifications,
     refetchOnMount: "always",
-    enabled: !isSpecialTab,
   });
+  // Renovaciones y cambios de datos no son un estado de la tienda: sus números vienen del contador de secciones.
+  const { data: sectionCounts } = useQuery({
+    queryKey: ["admin-section-counts"],
+    queryFn: async () => (await api.get("/admin/section-counts")).data,
+    refetchInterval: 30000,
+  });
+  const inTab = (t, v) => t.key === "ALL" || t.key.split(",").includes(v.verificationStatus);
+  const tabCount = (t) =>
+    t.key === "RENEWALS" ? sectionCounts?.verificaciones?.tabs?.renovaciones ?? 0 : t.key === "CHANGE_REQUESTS" ? sectionCounts?.verificaciones?.tabs?.cambios ?? 0 : (all ?? []).filter((v) => inTab(t, v)).length;
+  const q = search.trim().toLowerCase();
+  const currentTab = TABS.find((t) => t.key === tab);
+  const data = (all ?? []).filter(
+    (v) => inTab(currentTab, v) && (!q || [v.vendor?.companyName, v.vendor?.ownerName, v.fullName, v.vendor?.user?.email, v.vendor?.email, v.vendor?.whatsapp].some((x) => String(x ?? "").toLowerCase().includes(q)))
+  );
 
   // Bloque 150: precios por mes (CUP/USD) — solo para mostrar el monto
   // ESPERADO junto al declarado por el vendedor, nunca se usan para validar
@@ -577,7 +602,10 @@ export default function AdminVerifications() {
   const cupPricePerMonth = settings?.cupSubscriptionPriceCup ?? 2500;
   const cardPricePerMonthUsd = settings?.cardSubscriptionPriceUsd ?? 25;
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-verifications"] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-verifications"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-section-counts"] });
+  };
   const notify = useNotifyChoices();
 
   const decide = useMutation({
@@ -647,19 +675,41 @@ export default function AdminVerifications() {
         🔒 Datos sensibles: no compartas ni descargues estas imágenes fuera del panel.
       </div>
 
-      <div className="mb-[22px] flex flex-wrap gap-1.5 border-b border-surface-container-high">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-[13.5px] font-bold transition-colors ${
-              tab === t.key ? "border-b-2 border-secondary text-on-surface" : "text-outline hover:text-on-surface"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap gap-1.5 border-b border-surface-container-high" role="tablist" aria-label="Filtrar solicitudes">
+        {TABS.map((t) => {
+          const n = tabCount(t);
+          const urgent = t.action && n > 0;
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex min-h-11 items-center gap-1.5 px-3.5 py-2.5 text-[13.5px] font-bold transition-colors ${
+                tab === t.key ? "border-b-2 border-secondary text-on-surface" : "text-outline hover:text-on-surface"
+              }`}
+            >
+              {t.label}
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[11px] font-extrabold ${urgent ? "bg-error text-white" : "bg-surface-container text-on-surface-variant"}`}
+                aria-label={urgent ? `${n} por atender` : `${n}`}
+              >
+                {n}
+              </span>
+            </button>
+          );
+        })}
       </div>
+      {!isSpecialTab && (
+        <div className="mb-5">
+          <Input
+            label="Buscar tienda"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Nombre de la tienda, responsable, correo o teléfono"
+          />
+        </div>
+      )}
 
       {tab === "RENEWALS" && <RenewalsList />}
       {tab === "CHANGE_REQUESTS" && <ChangeRequestsList />}
@@ -667,7 +717,9 @@ export default function AdminVerifications() {
       {!isSpecialTab && (
         <>
       {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
-      {!isLoading && data?.length === 0 && <p className="text-body-md text-on-surface-variant">No hay solicitudes en esta pestaña.</p>}
+      {!isLoading && data?.length === 0 && (
+        <p className="text-body-md text-on-surface-variant">{q ? `Ninguna solicitud coincide con "${search.trim()}".` : "No hay solicitudes con este filtro."}</p>
+      )}
 
       <div className="flex flex-col gap-4">
         {data?.map((v) => {

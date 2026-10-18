@@ -1284,6 +1284,10 @@ model Vendor {
   // Bloque 302: la tienda decide si quiere un correo por cada pedido nuevo (web o API de un socio).
   notifyNewOrderEmail Boolean @default(true)
   cancelAtPeriodEnd Boolean @default(false)
+  // El admin programó pasar la tienda al plan Regular al terminar lo que ya tiene (prueba gratis o periodo pagado): hasta esta
+  // fecha conserva Premium y no se le renueva el cobro; ese día una tarea diaria aplica el cambio. Null = nada programado.
+  planDowngradeAt     DateTime?
+  planDowngradeReason String?
   // Bloque 198 (pedido explícito — "se podrán enviar recordatorios a los
   // usuarios en caso de que el vendedor asigne un día que sea el día para
   // cuadrar la caja"): null = recordatorio desactivado. DAILY no usa ningún
@@ -1355,6 +1359,7 @@ model Vendor {
   winbackEmailLogs WinbackEmailLog[]
   verificationStatusLogs VerificationStatusLog[]
   activityLogs     ActivityLog[]
+  sectionUsage     VendorSectionUsage[]
   verificationArchives VerificationArchive[]
   reports          Report[]
   // Bloque 153 (pedido explícito): pagos de RENOVACIÓN de la suscripción
@@ -4158,4 +4163,29 @@ model PosSettings {
   updatedAt    DateTime @updatedAt
 
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+// Uso del panel de cada tienda, por sección y por día: cuántas veces entró, cuánto tiempo estuvo con la pantalla activa y
+// cuántas acciones hizo (guardar, crear, cambiar estados). Sirve al admin para ver qué usa más cada tienda, dónde le hace
+// falta ayuda y qué herramientas ofrecerle. Una fila por tienda, sección y día: no crece con cada clic.
+model VendorSectionUsage {
+  id       String   @id @default(cuid())
+  vendorId String
+  section  String
+  day      DateTime @db.Date
+  views    Int      @default(0)
+  activeMs Int      @default(0)
+  actions  Int      @default(0)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, section, day])
+  @@index([day])
+}
+
+// Último análisis de uso hecho con IA: por tienda (scope = id de la tienda) o de todas juntas (scope = "ALL").
+model UsageInsight {
+  scope     String   @id
+  data      Json
+  updatedAt DateTime @updatedAt
 }

@@ -63,6 +63,7 @@ import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js"
 import { renderStoreOgImagePng } from "./controllers/og.controller.js";
 import { clearPublicCache } from "./middleware/publicCache.js";
 import { maintenanceGate } from "./middleware/maintenance.js";
+import { trackVendorActions } from "./lib/vendorUsage.js";
 import { renderStorePage, renderProductPage, sitemapXml, heroPreload } from "./controllers/seoPages.controller.js";
 
 export const app = express();
@@ -135,6 +136,8 @@ app.use(morgan(env.nodeEnv === "development" ? "dev" : "combined"));
 app.post("/stripe/webhook", express.raw({ type: "application/json" }), receiveStripeWebhook);
 
 app.use(express.json({ limit: "5mb" }));
+// Cuenta las acciones que guardan algo en el panel de cada tienda, por sección (uso del panel, ver lib/vendorUsage.js).
+app.use(trackVendorActions);
 // Reintentos sin duplicados de lo hecho sin conexión (cabecera Idempotency-Key, ver middleware/idempotency.js).
 app.use(idempotency);
 // Cualquier cambio exitoso (crear, editar, borrar) vacía la caché de consultas públicas: lo nuevo se ve de inmediato.

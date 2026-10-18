@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { sendTrialExpiringSoonEmail } from "../lib/email.js";
 import { transitionVendorVerification } from "../services/vendorVerification.service.js";
 import { recalcVendorProductQuota } from "../lib/planConfig.js";
+import { applyScheduledDowngrades } from "../services/planDowngrade.service.js";
 
 // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
 // Premium): mismo molde EXACTO que verificationPayment.job.js (incluyendo
@@ -27,7 +28,8 @@ async function sendTrialExpiringSoonReminders() {
   for (const daysLeft of REMINDER_DAYS_BEFORE) {
     const vendors = await prisma.vendor.findMany({
       // Las pruebas con tarjeta las cobra Stripe sola al terminar: no reciben el aviso de "tu prueba se acaba, elige cómo pagar".
-      where: { verificationStatus: "VERIFIED", trialEndsAt: dayRange(daysLeft), stripeSubscriptionId: null },
+      // Si el admin ya programó el paso a Regular, el aviso de "elige cómo pagar" no aplica.
+      where: { verificationStatus: "VERIFIED", trialEndsAt: dayRange(daysLeft), stripeSubscriptionId: null, planDowngradeAt: null },
       include: { user: true },
     });
     for (const vendor of vendors) {
@@ -67,10 +69,12 @@ async function expireTrials() {
 // Exportado por separado (no solo el scheduler) para poder correrlo a mano
 // en un smoke test sin esperar al horario del cron.
 export async function runTrialExpiryJob() {
+  // Primero los cambios a Regular que programó el admin: así una prueba que vence el mismo día queda resuelta una sola vez.
+  const downgraded = await applyScheduledDowngrades();
   const reminders = await sendTrialExpiringSoonReminders();
   const expired = await expireTrials();
-  console.log(`[trialExpiryJob] recordatorios=${reminders} vencidos=${expired}`);
-  return { reminders, expired };
+  console.log(`[trialExpiryJob] cambios-a-regular=${downgraded} recordatorios=${reminders} vencidos=${expired}`);
+  return { downgraded, reminders, expired };
 }
 
 // Una vez al día, 10:30am hora Cuba — después de reviewAnomalyJob (10:00,

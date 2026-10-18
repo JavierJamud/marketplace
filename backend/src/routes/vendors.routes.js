@@ -6,6 +6,7 @@ import * as reviewsController from "../controllers/reviews.controller.js";
 import * as chatController from "../controllers/chat.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
 import { authenticate } from "../middleware/auth.js";
+import * as usageController from "../controllers/usage.controller.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 import * as vendorCustomersController from "../controllers/vendorCustomers.controller.js";
@@ -40,6 +41,8 @@ router.post("/me/logo", authenticate, requireRole("VENDOR"), vendorBrandingUploa
 // Premium): mismo criterio de auth que /me/logo arriba — solo el dueño,
 // nunca un usuario de sistema.
 router.get("/me/trial", authenticate, requireRole("VENDOR"), vendorsController.getMyTrial);
+// Uso del panel (entradas a cada sección y tiempo activo). Dueño o usuario del equipo.
+router.post("/me/usage", authenticate, usageController.recordMyUsage);
 router.post("/me/trial/accept", authenticate, requireRole("VENDOR"), vendorsController.acceptTrialOffer);
 router.post("/me/trial/decline", authenticate, requireRole("VENDOR"), vendorsController.declineTrialOffer);
 router.post("/me/trial/welcome-seen", authenticate, requireRole("VENDOR"), vendorsController.markTrialWelcomeSeen);

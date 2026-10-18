@@ -11,6 +11,7 @@ import { cancelStripeSubscription } from "../lib/stripe.js";
 import { sendAdminDirectEmail, sendVendorReactivatedEmail } from "../lib/email.js";
 import { getSubscriptionPricing } from "./settings.controller.js";
 import { logActivity } from "../lib/activityLog.js";
+import { applyPlanDowngrade, scheduleOrCancelDowngrade } from "../services/planDowngrade.service.js";
 import { finalizeUserDeletion } from "../lib/accountDeletion.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 import { computeVendorHealthScore } from "./vendors.controller.js";
@@ -111,8 +112,8 @@ export async function getDashboard(_req, res) {
     prisma.tableOrder.count({ where: { createdAt: { gte: monthStart } } }),
     prisma.order.aggregate({ _sum: { total: true } }),
     prisma.tableOrder.aggregate({ _sum: { total: true } }),
-    prisma.vendor.count({ where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } } }),
-    prisma.vendor.count({ where: { planType: "BUSINESS" } }),
+    prisma.vendor.count({ where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] }, deletedAt: null } }),
+    prisma.vendor.count({ where: { planType: "BUSINESS", deletedAt: null } }),
   ]);
 
   const gmv = Number(orderSum._sum.total ?? 0) + Number(tableOrderSum._sum.total ?? 0);
@@ -1044,7 +1045,9 @@ export async function listVerifications(req, res) {
   // agrupa PENDING_DOCS+IN_REVIEW en una sola pestaña, PAYMENT_FAILED+SUSPENDED en otra).
   const statuses = status ? String(status).toUpperCase().split(",") : null;
   const vendors = await prisma.vendor.findMany({
-    where: { verificationStatus: statuses ? { in: statuses } : { not: "NOT_STARTED" } },
+    // Sin las tiendas eliminadas: una tienda borrada y vuelta a registrar con el mismo nombre salía dos veces (la vieja en
+    // Verificadas y la nueva en Pago pendiente), como si una misma tienda tuviera dos estados.
+    where: { deletedAt: null, verificationStatus: statuses && !statuses.includes("ALL") ? { in: statuses } : { not: "NOT_STARTED" } },
     include: {
       verification: true,
       // Todas las provincias donde opera (antes solo la primera) y lo demás que la tienda cargó: el admin ve en la
@@ -1609,6 +1612,39 @@ export async function revokeBusinessPlan(req, res) {
   res.json({ vendor: updated });
 }
 
+// Pasar una tienda de Premium (pagado o prueba gratis) a Regular: ahora mismo, o al terminar lo que ya tiene. También anula un
+// cambio programado. Ver services/planDowngrade.service.js.
+const downgradeSchema = z.object({
+  when: z.enum(["now", "period_end", "cancel"]),
+  reason: z.string().trim().max(300).optional(),
+});
+
+export async function downgradeVendorPlan(req, res) {
+  const { id } = req.params;
+  const { when, reason } = downgradeSchema.parse(req.body);
+  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (when !== "cancel") {
+    if (vendor.planType !== "BUSINESS") throw new AppError("Esta tienda ya está en el plan Regular.", 409);
+    if (!reason || reason.length < 5) throw new AppError("Escribe un motivo de al menos 5 caracteres (lo verá la tienda).", 400);
+  }
+  if (when === "now") {
+    const updated = await applyPlanDowngrade(id, { actorId: req.user.id, source: "ADMIN_ACTION", reason });
+    logActivity({ actorId: req.user.id, actorRole: "ADMIN", vendorId: id, action: "plan_downgraded_now", description: `Pasó la tienda al plan Regular de inmediato: ${reason}` });
+    return res.json({ vendor: updated });
+  }
+  const updated = await scheduleOrCancelDowngrade(vendor, { when, reason });
+  if (!updated) throw new AppError("La tienda no tiene una prueba ni un periodo pagado en curso: usa \"Ahora mismo\".", 409);
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: id,
+    action: when === "cancel" ? "plan_downgrade_cancelled" : "plan_downgrade_scheduled",
+    description: when === "cancel" ? "Anuló el paso programado al plan Regular" : `Programó el paso al plan Regular para el ${new Date(updated.planDowngradeAt).toLocaleDateString("es-CU")}: ${reason}`,
+  });
+  res.json({ vendor: updated });
+}
+
 // Bloque 52 (pedido explícito — "podemos activar la suscripción
 // manualmente desde el panel de administrador para algunas tiendas... se
 // debe justificar y poner el motivo"): única vía para otorgar Premium SIN
@@ -1989,11 +2025,53 @@ export async function resolveSupportCase(req, res) {
   res.json({ case: updated });
 }
 
+// Sección › subsección de cada tipo de aviso de la campanita (por el prefijo de su id) y, si corresponde, la pestaña exacta.
+const NOTICE_WHERE = [
+  ["new-vendor-", "Tiendas"],
+  ["trial-accepted-", "Tiendas › Prueba gratis"],
+  ["trial-", "Suscripciones › Free 30 días"],
+  ["support-", "Casos de soporte"],
+  ["verification-", "Verificaciones › Documentos pendientes", "/admin/verificaciones?tab=docs"],
+  ["message-", "Mensajes"],
+  ["payment-", "Verificaciones › Pago pendiente", "/admin/verificaciones?tab=pago"],
+  ["report-", "Comentarios › Reportados"],
+  ["fraud-", "Reportes de fraude › Pendientes"],
+  ["ticket-", "Errores › Tickets de las tiendas"],
+  ["order-", "Tiendas › Pedidos nuevos"],
+];
+
+// Contadores por sección y por pestaña para las marcas del menú lateral y de cada pestaña: así el admin ve si lo pendiente
+// está en la sección o en una de sus subsecciones.
+export async function getSectionCounts(_req, res) {
+  const alive = { deletedAt: null };
+  const [docs, pago, cobro, renovaciones, cambios, mensajes, comentarios, casos, sugerencias, erroresSistema, tickets] = await Promise.all([
+    prisma.vendor.count({ where: { ...alive, verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } } }),
+    prisma.vendor.count({ where: { ...alive, verificationStatus: "PENDING_PAYMENT" } }),
+    prisma.vendor.count({ where: { ...alive, verificationStatus: { in: ["PAYMENT_FAILED", "SUSPENDED"] } } }),
+    prisma.subscriptionPayment.count({ where: { confirmedAt: null, claimedAt: { not: null } } }),
+    prisma.vendorChangeRequest.count({ where: { status: "PENDING" } }),
+    prisma.vendorMessage.count({ where: { senderRole: "VENDOR", readAt: null } }),
+    prisma.review.count({ where: { reportStatus: "REPORTED" } }),
+    prisma.supportCase.count({ where: { status: "OPEN", vendorId: null } }),
+    prisma.suggestion.count({ where: { status: "NEW" } }),
+    prisma.errorLog.count({ where: { resolved: false } }),
+    prisma.supportTicket.count({ where: { status: { in: ["NEW", "IN_REVIEW"] } } }),
+  ]);
+  res.json({
+    verificaciones: { total: docs + pago + renovaciones + cambios, tabs: { docs, pago, cobro, renovaciones, cambios } },
+    mensajes: { total: mensajes },
+    comentarios: { total: comentarios },
+    casosSoporte: { total: casos },
+    sugerencias: { total: sugerencias },
+    errores: { total: erroresSistema + tickets, tabs: { sistema: erroresSistema, tickets } },
+  });
+}
+
 export async function listAdminNotifications(_req, res) {
   const DAY = 24 * 60 * 60 * 1000;
   const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases, newVendors, newTrials, acceptedTrials, newTickets] = await Promise.all([
     prisma.vendor.findMany({
-      where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } },
+      where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] }, deletedAt: null },
       select: { id: true, companyName: true, createdAt: true },
       orderBy: { createdAt: "desc" },
       take: 5,
@@ -2008,7 +2086,7 @@ export async function listAdminNotifications(_req, res) {
     // Bloque 70 (pedido explícito): pago CUP reclamado ("Ya pagué") sin
     // confirmar todavía por un admin — antes invisible en la campanita.
     prisma.vendor.findMany({
-      where: { verification: { paymentClaimedAt: { not: null }, paymentConfirmedById: null } },
+      where: { verification: { paymentClaimedAt: { not: null }, paymentConfirmedById: null }, deletedAt: null },
       select: { id: true, companyName: true, verification: { select: { paymentClaimedAt: true } } },
       take: 5,
     }),
@@ -2125,11 +2203,19 @@ export async function listAdminNotifications(_req, res) {
     })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
 
+  // Cada aviso dice en qué sección (y subsección, si la tiene) está, y lleva directo a esa pestaña.
+  for (const item of items) {
+    const hit = NOTICE_WHERE.find(([prefix]) => item.id.startsWith(prefix));
+    if (!hit) continue;
+    item.where = hit[1];
+    if (hit[2]) item.to = hit[2];
+  }
+
   if (newSuggestions > 0) {
-    items.push({ id: "suggestions", text: `${newSuggestions} sugerencia(s) nueva(s)`, to: "/admin/sugerencias", createdAt: null });
+    items.push({ id: "suggestions", where: "Sugerencias", text: `${newSuggestions} sugerencia(s) nueva(s)`, to: "/admin/sugerencias", createdAt: null });
   }
   if (unresolvedErrors > 0) {
-    items.push({ id: "errors", text: `${unresolvedErrors} error(es) sin resolver`, to: "/admin/errores", createdAt: null });
+    items.push({ id: "errors", where: "Errores › Errores del sistema", text: `${unresolvedErrors} error(es) sin resolver`, to: "/admin/errores", createdAt: null });
   }
 
   const total =

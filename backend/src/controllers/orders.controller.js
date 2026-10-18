@@ -515,6 +515,8 @@ async function syncPosSaleFromOrder(order, status, userId) {
   });
 }
 
+const ORDER_STATUS_ES = { NEW: "Nuevo", CONFIRMED: "Confirmado", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado" };
+
 export async function updateOrderStatus(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
@@ -595,6 +597,9 @@ export async function updateOrderStatus(req, res) {
     if (earned) updated.loyaltyPointsEarned = earned;
   }
 
+  if (status !== "CANCELLED") {
+    logActivity({ actorId: req.user.id, actorRole: actorRoleForVendorAction(req), vendorId: vendor.id, action: "order_status_changed", description: `Pasó el pedido ${order.code} a "${ORDER_STATUS_ES[status] ?? status}"`, meta: { orderId: id, status } });
+  }
   if (status === "CANCELLED") {
     logActivity({
       actorId: req.user.id,

@@ -15,7 +15,7 @@ import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 const NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/admin/tiendas", label: "Tiendas", icon: Store, group: "tiendas" },
-  { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck, group: "tiendas" },
+  { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck, badge: "verificaciones", group: "tiendas" },
   { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard, group: "tiendas" },
   { to: "/admin/ventas-manuales", label: "Agentes de Ventas", icon: Wallet, group: "tiendas" },
   { to: "/admin/reportes-fraude", label: "Reportes de fraude", icon: ShieldAlert, badge: "fraudReportsCount", group: "tiendas" },
@@ -25,10 +25,10 @@ const NAV = [
   { to: "/admin/categorias-producto", label: "Categorías de producto", icon: Boxes, group: "catalogo" },
   { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags, group: "catalogo" },
   { to: "/admin/clientes", label: "Clientes", icon: Users, group: "clientes" },
-  { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle, group: "clientes" },
-  { to: "/admin/comentarios", label: "Comentarios", icon: Star, group: "clientes" },
-  { to: "/admin/casos-soporte", label: "Casos de soporte", icon: LifeBuoy, group: "clientes" },
-  { to: "/admin/sugerencias", label: "Sugerencias", icon: MessageSquare, group: "clientes" },
+  { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle, badge: "mensajes", group: "clientes" },
+  { to: "/admin/comentarios", label: "Comentarios", icon: Star, badge: "comentarios", group: "clientes" },
+  { to: "/admin/casos-soporte", label: "Casos de soporte", icon: LifeBuoy, badge: "casosSoporte", group: "clientes" },
+  { to: "/admin/sugerencias", label: "Sugerencias", icon: MessageSquare, badge: "sugerencias", group: "clientes" },
   { to: "/admin/campanas", label: "Campañas", icon: Megaphone, group: "marketing" },
   { to: "/admin/ofertas", label: "Ofertas", icon: Tag, group: "marketing" },
   { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift, group: "marketing" },
@@ -233,6 +233,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
                     }}
                     className="block w-full border-b border-surface-container px-3.5 py-2.5 text-left text-[12.5px] last:border-b-0 hover:bg-surface-container"
                   >
+                    {n.where && <span className="mb-0.5 block text-[10.5px] font-bold uppercase tracking-wide text-tertiary-accent">{n.where}</span>}
                     {n.text}
                   </button>
                 ))}
@@ -315,6 +316,23 @@ export default function AdminLayout() {
     refetchInterval: 20000,
   });
   const locationSuggestionsCount = locationSuggestionsCountData?.count ?? 0;
+  // Lo pendiente de cada sección (y de sus pestañas, que cada página muestra en sus propias marcas).
+  const { data: sectionCounts } = useQuery({
+    queryKey: ["admin-section-counts"],
+    queryFn: async () => (await api.get("/admin/section-counts")).data,
+    refetchInterval: 30000,
+  });
+  const badgeCounts = {
+    errorCount,
+    fraudReportsCount,
+    locationSuggestionsCount,
+    rankingAnomaliesCount,
+    verificaciones: sectionCounts?.verificaciones?.total ?? 0,
+    mensajes: sectionCounts?.mensajes?.total ?? 0,
+    comentarios: sectionCounts?.comentarios?.total ?? 0,
+    casosSoporte: sectionCounts?.casosSoporte?.total ?? 0,
+    sugerencias: sectionCounts?.sugerencias?.total ?? 0,
+  };
   const { siteName, logoUrl } = usePlatformSettings();
 
   // Bloque 20: el drawer mobile se cierra solo al navegar a otra sección —
@@ -391,7 +409,7 @@ export default function AdminLayout() {
             items={NAV}
             groups={NAV_GROUPS}
             storageKey="admin-nav-groups"
-            badgeFor={(n) => ({ errorCount, fraudReportsCount, locationSuggestionsCount, rankingAnomaliesCount })[n.badge] ?? 0}
+            badgeFor={(n) => badgeCounts[n.badge] ?? 0}
             renderLink={({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
@@ -405,24 +423,9 @@ export default function AdminLayout() {
             >
               <Icon className="h-[17px] w-[17px]" />
               <span className="flex-1">{label}</span>
-              {badge === "errorCount" && errorCount > 0 && (
+              {badge && badgeCounts[badge] > 0 && (
                 <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
-                  {errorCount}
-                </span>
-              )}
-              {badge === "fraudReportsCount" && fraudReportsCount > 0 && (
-                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
-                  {fraudReportsCount}
-                </span>
-              )}
-              {badge === "locationSuggestionsCount" && locationSuggestionsCount > 0 && (
-                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
-                  {locationSuggestionsCount}
-                </span>
-              )}
-              {badge === "rankingAnomaliesCount" && rankingAnomaliesCount > 0 && (
-                <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[10px] font-bold text-white">
-                  {rankingAnomaliesCount}
+                  {badgeCounts[badge] > 99 ? "99+" : badgeCounts[badge]}
                 </span>
               )}
             </NavLink>

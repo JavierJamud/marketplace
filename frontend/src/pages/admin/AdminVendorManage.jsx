@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, History, KeyRound, ListChecks, MonitorSmartphone, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, KeyRound, ListChecks, MonitorSmartphone, Users } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
@@ -18,6 +18,7 @@ import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { AdminVendorStaffModal } from "../../components/admin/AdminVendorStaffModal.jsx";
 import { RepresentativeFileModal } from "../../components/admin/RepresentativeFileModal.jsx";
 import { EditVendorModal, StatsModal } from "./AdminVendors.jsx";
+import { VendorUsageSection } from "../../components/admin/VendorUsage.jsx";
 
 // Gestionar una tienda (/admin/tiendas/:id): estado, lo que le falta configurar, accesos y dispositivos, equipo, asistente,
 // actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista.
@@ -31,7 +32,6 @@ const VERIFICATION_LABEL = {
   REJECTED: "Rechazada",
   SUSPENDED: "Verificación suspendida",
 };
-const ROLE_LABEL = { VENDOR: "Dueño", VENDOR_STAFF: "Equipo", ADMIN: "Admin", CUSTOMER: "Cliente" };
 
 function Section({ icon: Icon, title, children, action }) {
   return (
@@ -62,7 +62,8 @@ export default function AdminVendorManage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [modal, setModal] = useState(null); // edit | stats | rep | staff | block | delete | permanent | plan
+  const [modal, setModal] = useState(null); // edit | stats | rep | staff | block | delete | permanent | plan | downgrade
+  const [downgradeWhen, setDowngradeWhen] = useState("period_end");
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(false);
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["admin-vendor-manage", id], queryFn: async () => (await api.get(`/admin/vendors/${id}/manage`)).data });
@@ -85,6 +86,13 @@ export default function AdminVendorManage() {
     mutationFn: async ({ payload, notify: n = false }) => (await api.patch(`/admin/vendors/${id}`, payload, notifyVendorConfig(n))).data,
     onSuccess: () => done("Tienda actualizada"),
     onError: fail("No se pudo actualizar la tienda."),
+  });
+  // Pasar a Regular ahora o al terminar lo que ya tiene, o anular un cambio programado (ver planDowngrade.service.js).
+  const downgrade = useMutation({
+    mutationFn: async ({ when, reason: r }) => (await api.post(`/admin/vendors/${id}/downgrade`, { when, reason: r })).data,
+    onSuccess: (_, { when }) =>
+      done(when === "now" ? "La tienda pasó al plan Regular" : when === "cancel" ? "Se anuló el cambio programado" : "Cambio a Regular programado"),
+    onError: fail("No se pudo cambiar el plan."),
   });
   const reactivate = useMutation({
     mutationFn: async () => (await api.post(`/admin/vendors/${id}/reactivate`, { reason: reason.trim() }, notifyVendorConfig(notify))).data,
@@ -124,7 +132,7 @@ export default function AdminVendorManage() {
     );
   }
 
-  const { vendor: v, owner, staff, counts, access, activity, errors, assistant, requirements = [], extras = [], plan, usage, tickets = [] } = data;
+  const { vendor: v, owner, staff, counts, access, errors, assistant, requirements = [], extras = [], plan, usage, tickets = [] } = data;
   const pendingDeletion = !!v.adminDeletionRequestedAt;
   const suspendedByInactivity = v.status === "SUSPENDED";
   const btn = "min-h-10";
@@ -157,6 +165,7 @@ export default function AdminVendorManage() {
           ) : (
             <Chip tone={v.verificationStatus === "VERIFIED" ? "good" : "neutral"}>{VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</Chip>
           )}
+          {v.planDowngradeAt && <Chip tone="bad">Pasa a Regular el {exactDate(v.planDowngradeAt)}</Chip>}
           {v.isBlocked && <Chip tone="bad">Bloqueada</Chip>}
           {suspendedByInactivity && <Chip tone="bad">Suspendida por inactividad</Chip>}
           {pendingDeletion && <Chip tone="bad">Eliminación pendiente</Chip>}
@@ -180,7 +189,23 @@ export default function AdminVendorManage() {
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("rep")}>Responsable</Button>
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("staff")}>Usuarios del sistema</Button>
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("stats")}>Estadísticas</Button>
-            <Button size="sm" variant="outline" className={btn} onClick={() => setModal("plan")}>{v.planType === "BUSINESS" ? "Pasar a Regular" : "Pasar a Business"}</Button>
+            {v.planDowngradeAt ? (
+              <Button size="sm" variant="outline" className={btn} onClick={() => downgrade.mutate({ when: "cancel" })} disabled={downgrade.isPending}>
+                Anular paso a Regular
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className={btn}
+                onClick={() => {
+                  setDowngradeWhen(v.premiumUntil && new Date(v.premiumUntil) > new Date() ? "period_end" : "now");
+                  setModal(v.planType === "BUSINESS" ? "downgrade" : "plan");
+                }}
+              >
+                {v.planType === "BUSINESS" ? "Pasar a Regular" : "Pasar a Business"}
+              </Button>
+            )}
             {v.isBlocked ? (
               <Button size="sm" className={btn} onClick={() => update.mutate({ payload: { isBlocked: false } })} disabled={update.isPending}>Desbloquear</Button>
             ) : (
@@ -238,22 +263,9 @@ export default function AdminVendorManage() {
           </ul>
         </Section>
 
-        <Section icon={History} title="Actividad reciente">
-          {activity.length === 0 ? (
-            <p className="text-[13px] text-on-surface-variant">Sin actividad registrada.</p>
-          ) : (
-            <ul className="max-h-[360px] divide-y divide-surface-container-high overflow-y-auto">
-              {activity.map((a) => (
-                <li key={a.id} className="py-2">
-                  <p className="text-[13px] text-on-surface">{a.description}</p>
-                  <p className="text-[11.5px] text-outline" title={exactDate(a.createdAt)}>
-                    {a.who ?? ROLE_LABEL[a.role] ?? ""} · {timeAgo(a.createdAt)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
+        <div className="lg:col-span-2">
+          <VendorUsageSection vendorId={v.id} />
+        </div>
 
         <Section icon={AlertTriangle} title="Errores" action={<Link to="/admin/errores" className="text-[12.5px] font-bold text-tertiary-accent">Ir a Errores</Link>}>
           {errors.length === 0 ? (
@@ -311,6 +323,53 @@ export default function AdminVendorManage() {
         onCancel={() => setModal(null)}
       >
         <NotifyVendorCheckbox checked={notify} onChange={setNotify} />
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={modal === "downgrade"}
+        title={`¿Pasar "${v.companyName}" al plan Regular?`}
+        message="Pierde las funciones Premium y se aplican los límites del plan Regular. Los productos que pasen del cupo quedan ocultos, no se borran. Conserva la insignia de verificada si ya la tiene."
+        confirmLabel={downgrade.isPending ? "Guardando..." : downgradeWhen === "now" ? "Pasar a Regular ahora" : "Programar el cambio"}
+        confirmDisabled={reason.trim().length < 5 || downgrade.isPending}
+        onConfirm={() => downgrade.mutate({ when: downgradeWhen, reason: reason.trim() })}
+        onCancel={() => setModal(null)}
+      >
+        <fieldset className="mb-3 flex flex-col gap-2">
+          <legend className="mb-1.5 text-[12.5px] font-bold text-on-surface">¿Cuándo?</legend>
+          {[
+            {
+              value: "period_end",
+              label: v.premiumUntil && new Date(v.premiumUntil) > new Date() ? `Al terminar lo que ya tiene (${exactDate(v.premiumUntil)})` : "Al terminar lo que ya tiene",
+              hint: v.trial.active
+                ? "Sigue con la prueba gratis hasta esa fecha y después pasa sola a Regular."
+                : `Sigue con Premium hasta esa fecha y no se le renueva${v.paysWithCard ? " el cobro con tarjeta" : ""}.`,
+              disabled: !(v.premiumUntil && new Date(v.premiumUntil) > new Date()),
+            },
+            { value: "now", label: "Ahora mismo", hint: v.paysWithCard ? "Pierde Premium al instante y se cancela su suscripción con tarjeta." : "Pierde Premium al instante." },
+          ].map((o) => (
+            <label
+              key={o.value}
+              className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 ${downgradeWhen === o.value ? "border-tertiary-accent bg-tertiary-accent/[0.06]" : "border-outline-variant"} ${o.disabled ? "cursor-not-allowed opacity-50" : ""}`}
+            >
+              <input type="radio" name="downgrade-when" value={o.value} checked={downgradeWhen === o.value} disabled={o.disabled} onChange={() => setDowngradeWhen(o.value)} className="mt-1" />
+              <span>
+                <span className="block text-[13px] font-bold text-on-surface">{o.label}</span>
+                <span className="block text-[12px] text-on-surface-variant">{o.disabled ? "No tiene una prueba ni un periodo pagado en curso." : o.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <label htmlFor="downgrade-reason" className="mb-1 block text-[12.5px] font-bold text-on-surface">
+          Motivo (lo verá la tienda)
+        </label>
+        <textarea
+          id="downgrade-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Ej.: no cumple las condiciones del plan Premium"
+          rows={3}
+          className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+        />
       </ConfirmModal>
 
       <ConfirmModal

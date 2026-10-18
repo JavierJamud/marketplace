@@ -1,3 +1,4 @@
+import * as usageController from "../controllers/usage.controller.js";
 import * as vendorManage from "../controllers/adminVendorManage.controller.js";
 import { Router } from "express";
 import * as adminController from "../controllers/admin.controller.js";
@@ -169,6 +170,8 @@ router.get("/verification-archive/:id/file/:type", verificationArchiveController
 // vendedor, ver retryMyStripeCheckout en verification.routes.js).
 router.get("/subscriptions", adminController.listSubscriptions);
 router.post("/vendors/:id/revoke-business", requireActionCode("PLAN_CHANGE"), adminController.revokeBusinessPlan);
+// Pasar a Regular ahora, al terminar el periodo, o anular un cambio programado.
+router.post("/vendors/:id/downgrade", requireActionCode("PLAN_CHANGE"), adminController.downgradeVendorPlan);
 // Bloque 52: activación manual del Plan Premium, con motivo obligatorio.
 router.post("/vendors/:id/grant-business", requireActionCode("PLAN_CHANGE"), adminController.grantBusinessPlan);
 
@@ -190,6 +193,12 @@ router.delete("/customers/:id", requireActionCode("DELETE_CUSTOMER"), adminContr
 // puntual (distinto del envío masivo de /campaigns).
 router.get("/search", adminController.adminSearch);
 router.get("/notifications", adminController.listAdminNotifications);
+router.get("/section-counts", adminController.getSectionCounts);
+// Uso del panel de las tiendas y su análisis con IA.
+router.get("/usage/overview", usageController.adminUsageOverview);
+router.post("/usage/insights", usageController.adminUsageInsights);
+router.get("/vendors/:id/usage", usageController.adminVendorUsage);
+router.post("/vendors/:id/usage/insights", usageController.adminVendorUsageInsights);
 router.get("/support-cases", adminController.listSupportCases);
 router.patch("/support-cases/:id/resolve", adminController.resolveSupportCase);
 router.post("/emails", adminController.sendAdminEmail);

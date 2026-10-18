@@ -25,6 +25,7 @@ import { DocsApprovedPopup } from "../../components/vendor/DocsApprovedPopup.jsx
 import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { OfflineBar } from "../../components/vendor/OfflineBar.jsx";
+import { usePanelUsage } from "../../lib/usePanelUsage.js";
 
 // Bloque 183 (pedido explícito — "saldrán siempre todas las secciones que
 // están en el panel de vendedor, para que el vendedor pueda asignar... el
@@ -203,6 +204,9 @@ export default function VendorLayout() {
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  // Uso del panel por sección (lo ve el admin en la ficha de la tienda). Solo cuenta a la tienda y su equipo.
+  usePanelUsage(location.pathname, user?.role === "VENDOR" || user?.role === "VENDOR_STAFF");
 
   // Bloque 168 (bug real reportado en vivo — "no suena cuando entran [los
   // pedidos]"): el aviso de sonido de NewOrderPopup.jsx llega por un poll de

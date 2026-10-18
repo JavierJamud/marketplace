@@ -208,6 +208,11 @@ export async function getVendorManage(req, res) {
       adminDeletionRequestedAt: vendor.adminDeletionRequestedAt ?? null,
       trial: { startedAt: vendor.trialStartedAt, endsAt: vendor.trialEndsAt, daysLeft: trialDaysLeft, active: !!vendor.trialEndsAt && trialDaysLeft > 0 },
       nextPaymentDueDate: vendor.nextPaymentDueDate ?? null,
+      // Paso a Regular programado por el admin y hasta cuándo tiene Premium hoy (para elegir "al terminar el periodo").
+      planDowngradeAt: vendor.planDowngradeAt ?? null,
+      planDowngradeReason: vendor.planDowngradeReason ?? null,
+      premiumUntil: vendor.trialEndsAt ?? vendor.nextPaymentDueDate ?? null,
+      paysWithCard: !!vendor.stripeSubscriptionId,
     },
     owner: vendor.user,
     payment: vendor.verification ?? null,

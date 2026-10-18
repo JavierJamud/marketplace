@@ -30,6 +30,12 @@ export function Tabs({ tabs, value, onChange, className }) {
           >
             {Icon && <Icon className="h-4 w-4" />}
             {t.label}
+            {/* `count` (opcional): lo pendiente en esa pestaña; en rojo si hay algo por atender. */}
+            {t.count > 0 && (
+              <span className="rounded-full bg-error px-1.5 py-0.5 text-[11px] font-extrabold leading-none text-white" aria-label={`${t.count} por atender`}>
+                {t.count > 99 ? "99+" : t.count}
+              </span>
+            )}
           </button>
         );
       })}
