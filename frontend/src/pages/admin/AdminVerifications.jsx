@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { User, FileText, Receipt, Check, Bot, UserCheck, CreditCard, Landmark, Clock, Eye, Archive, X, Pencil, Trash2, RotateCcw, ShieldCheck } from "lucide-react";
+import { User, FileText, Receipt, Check, Bot, UserCheck, CreditCard, Landmark, Clock, Eye, Archive, X, Pencil, Trash2, RotateCcw, ShieldCheck, HandCoins, ChevronDown } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
+import { imgUrl } from "../../lib/imgUrl.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
 import { useNotifyChoices } from "../../lib/notifyVendor.js";
@@ -31,7 +32,7 @@ const TABS = [
   { key: "CHANGE_REQUESTS", label: "Cambios de datos" },
 ];
 
-const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta", CUP_TRANSFER: "Transferencia CUP" };
+const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta", CUP_TRANSFER: "Transferencia CUP", MANUAL: "pago registrado por el equipo" };
 const ID_DOCUMENT_TYPE_LABEL = { NATIONAL_ID: "Carné de identidad", PASSPORT: "Pasaporte", INTERNATIONAL_ID: "Carné de extranjería" };
 
 const STATUS_BADGE = {
@@ -606,6 +607,19 @@ export default function AdminVerifications() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo confirmar el pago."),
   });
 
+  const [manualTarget, setManualTarget] = useState(null); // solicitud a la que se le registra un pago a mano
+  const manualPayment = useMutation({
+    mutationFn: async ({ id, payload }) => (await api.post(`/admin/verifications/${id}/manual-payment`, payload, notify.config(id))).data,
+    onSuccess: (d) => {
+      toast.success("Pago registrado", `La tienda queda verificada con Premium hasta el ${fmtDate(d.periodEnd)}.`);
+      setManualTarget(null);
+      invalidate();
+    },
+    onError: (err) => {
+      if (!err.actionCodeCancelled) toast.error(err.response?.data?.error ?? "No se pudo registrar el pago.");
+    },
+  });
+
   // Bloque 151 (pedido explícito — "también se podrá cambiar desde el panel
   // de administrador... cambiarle el método de pago o restablecerlo para
   // que él pueda seleccionar otro diferente"): limpia el método elegido —
@@ -753,18 +767,7 @@ export default function AdminVerifications() {
                 </button>
               )}
 
-              {showLegalData && (
-                <div className="mb-4 grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-md bg-surface-container px-3.5 py-3 text-[12px] text-on-surface-variant sm:grid-cols-2">
-                  <div>Documento: <span className="font-semibold text-on-surface">{ID_DOCUMENT_TYPE_LABEL[v.idDocumentType] ?? "—"}</span></div>
-                  <div>ID fiscal / propietario: <span className="font-semibold text-on-surface">{v.vendor.companyTaxId ?? v.vendor.ownerIdNumber ?? "—"}</span></div>
-                  <div>País de registro: <span className="font-semibold text-on-surface">{v.vendor.registrationCountry ?? "—"}</span></div>
-                  <div>Provincia/municipio legal: <span className="font-semibold text-on-surface">
-                    {[v.vendor.legalProvince, v.vendor.legalMunicipality].filter(Boolean).join(" / ") || "—"}
-                  </span></div>
-                  <div className="sm:col-span-2">Dirección: <span className="font-semibold text-on-surface">{v.vendor.companyAddress ?? "—"}</span></div>
-                  <div className="sm:col-span-2">Descripción del negocio: <span className="font-semibold text-on-surface">{v.vendor.description ?? "—"}</span></div>
-                </div>
-              )}
+              {!isPendingOpen && <SubmittedData v={v} open={showLegalData} withDocuments={!(showDocsReview || v.verificationStatus === "REJECTED")} />}
 
               {(showDocsReview || v.verificationStatus === "REJECTED") && (
                 <div className="mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
@@ -969,13 +972,29 @@ export default function AdminVerifications() {
                 </div>
               )}
 
-              {(showDocsReview || showAwaitingClaim || showPaymentConfirm) && (
+              {inPaymentPhase && (
+                <div className="mt-3 flex flex-col items-stretch gap-2 rounded-md border border-dashed border-outline-variant p-3 sm:flex-row sm:items-center">
+                  <p className="min-w-0 flex-1 text-[12.5px] text-on-surface-variant">
+                    ¿Pagó por fuera de la plataforma o quieres activarla tú? Registra el pago a mano con los meses que quedan pagados.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setManualTarget(v)}
+                    className="flex min-h-10 items-center justify-center gap-1.5 rounded-full bg-primary px-4 text-[12.5px] font-bold text-white"
+                  >
+                    <HandCoins className="h-4 w-4" aria-hidden="true" /> Registrar pago manual
+                  </button>
+                </div>
+              )}
+
+              {(showDocsReview || showAwaitingClaim || showPaymentConfirm || inPaymentPhase) && (
                 <NotifyVendorCheckbox className="mt-1" checked={notify.isOn(v.id)} onChange={(on) => notify.set(v.id, on)} />
               )}
 
               {v.verificationStatus === "VERIFIED" && (
                 <p className="text-[12px] text-outline">
-                  {v.paymentMethod && `Paga por ${PAYMENT_METHOD_LABEL[v.paymentMethod]}. `}
+                  {v.paymentMethod && v.paymentMethod !== "MANUAL" && `Paga por ${PAYMENT_METHOD_LABEL[v.paymentMethod]}. `}
+                  {v.paymentMethod === "MANUAL" && `Pago registrado por el equipo${v.paymentMonths ? ` (${v.paymentMonths} ${v.paymentMonths === 1 ? "mes" : "meses"})` : ""}${v.paymentNote ? `: ${v.paymentNote}` : ""}. `}
                   {v.nextPaymentDueDate && `Próximo vencimiento: ${fmtDate(v.nextPaymentDueDate)}.`}
                 </p>
               )}
@@ -1010,6 +1029,15 @@ export default function AdminVerifications() {
         />
       </ConfirmModal>
 
+      {manualTarget && (
+        <ManualPaymentModal
+          verification={manualTarget}
+          pending={manualPayment.isPending}
+          onCancel={() => setManualTarget(null)}
+          onConfirm={(payload) => manualPayment.mutate({ id: manualTarget.id, payload })}
+        />
+      )}
+
       {archiveVendor && (
         <VerificationArchiveModal
           vendor={archiveVendor}
@@ -1019,6 +1047,154 @@ export default function AdminVerifications() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+
+// Todo lo que la tienda envió para verificarse, en un solo lugar: el responsable y su documento, la empresa y su ubicación
+// legal, los datos de la tienda y la cuenta, y las fotos. Abierto mientras se revisan los documentos; en los demás estados,
+// plegado para no alargar la lista.
+function SubmittedData({ v, open, withDocuments }) {
+  const d = v.vendor;
+  const rows = [
+    ["Responsable (según el documento)", v.fullName],
+    ["Responsable en el perfil", d.ownerName],
+    ["Tipo de documento", ID_DOCUMENT_TYPE_LABEL[v.idDocumentType]],
+    ["Número de documento", v.idNumber ?? d.ownerIdNumber],
+    ["ID fiscal de la empresa", d.companyTaxId],
+    ["País de registro legal", d.registrationCountry],
+    ["Provincia y municipio legal", [d.legalProvince, d.legalMunicipality].filter(Boolean).join(" / ")],
+    ["Dirección legal", d.companyAddress],
+    ["Tipo de negocio", d.businessCategory],
+    ["Dónde opera", d.operatesIn?.join(", ")],
+    ["Productos publicados", d.products != null ? String(d.products) : null],
+    ["WhatsApp de la tienda", d.whatsapp],
+    ["Correo de la tienda", d.email],
+    ["Cuenta (quien entra al panel)", [d.accountName, d.accountEmail, d.accountPhone].filter(Boolean).join(" · ")],
+    ["Solicitud enviada", fmtDateTime(v.createdAt)],
+  ];
+  return (
+    <details open={open} className="group mb-4 rounded-md bg-surface-container px-3.5 py-3">
+      <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 text-[12.5px] font-bold text-on-surface">
+        Datos que envió la tienda
+        <ChevronDown className="h-4 w-4 text-outline transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      {d.legalWrittenByHand?.length > 0 && (
+        <p className="mt-1 rounded bg-secondary-container/25 px-2.5 py-1.5 text-[12px] text-on-surface">
+          Escribió a mano (no estaba en el catálogo): {d.legalWrittenByHand.join(", ")}. Revísalo con cuidado.
+        </p>
+      )}
+      <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-[12px] text-on-surface-variant sm:grid-cols-2">
+        {rows.map(([k, val]) => (
+          <div key={k} className="min-w-0">
+            <dt className="inline">{k}: </dt>
+            <dd className="inline break-words font-semibold text-on-surface">{val || "Sin dato"}</dd>
+          </div>
+        ))}
+        <div className="min-w-0 sm:col-span-2">
+          <dt className="inline">Descripción del negocio: </dt>
+          <dd className="inline break-words font-semibold text-on-surface">{d.description || "Sin dato"}</dd>
+        </div>
+      </dl>
+      {d.logoUrl && (
+        <div className="mt-2 flex items-center gap-2 text-[12px] text-on-surface-variant">
+          Logo: <img src={imgUrl(d.logoUrl)} alt={`Logo de ${d.companyName}`} className="h-10 w-10 rounded-lg border border-surface-container-high bg-white object-contain" />
+        </div>
+      )}
+      {withDocuments && (
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <PrivateDocument vendorId={v.vendorId} type="selfie" label="Foto del responsable" Icon={User} available={!!v.selfieUrl} />
+          <PrivateDocument vendorId={v.vendorId} type="id" label={v.idPhotoBackUrl ? "Documento (frente)" : "Documento de identidad"} Icon={FileText} available={!!v.idPhotoFrontUrl} />
+          {v.idPhotoBackUrl && <PrivateDocument vendorId={v.vendorId} type="idBack" label="Documento (reverso)" Icon={FileText} available />}
+          {v.selfieVideoUrl && <PrivateDocument vendorId={v.vendorId} type="video" kind="video" label="Video (giro de cabeza)" Icon={User} available />}
+        </div>
+      )}
+    </details>
+  );
+}
+
+// Registrar un pago a mano: meses pagados (1 a 24), motivo obligatorio y, si se sabe, monto, moneda y referencia. Al
+// confirmar se pide el código de seguridad del admin (igual que para confirmar un pago).
+function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
+  const [months, setMonths] = useState(1);
+  const [reason, setReason] = useState("");
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState("USD");
+  const [reference, setReference] = useState("");
+  const until = new Date(Math.max(Date.now(), verification.nextPaymentDueDate ? new Date(verification.nextPaymentDueDate).getTime() : 0) + months * 30 * 24 * 60 * 60 * 1000);
+  const valid = reason.trim().length >= 5 && (amount === "" || Number(amount) >= 0);
+  const field = "min-h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none focus:border-tertiary-accent";
+  return (
+    <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/45 sm:items-center sm:p-4" onClick={() => !pending && onCancel()}>
+      <form
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="manual-payment-title"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!valid || pending) return;
+          onConfirm({ months, reason: reason.trim(), ...(amount !== "" ? { amount: Number(amount), currency } : {}), ...(reference.trim() ? { reference: reference.trim() } : {}) });
+        }}
+        className="flex max-h-[92dvh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <h2 id="manual-payment-title" className="text-[16px] font-bold text-on-surface">
+            Registrar pago manual de {verification.vendor.companyName}
+          </h2>
+          <button type="button" onClick={onCancel} aria-label="Cerrar" className="-mr-2 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full hover:bg-surface-container">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="text-[12.5px] text-on-surface-variant">
+          La tienda queda verificada con Premium como si hubiera pagado. Queda registrado quién lo hizo, cuándo, los meses y el motivo, y la tienda recibe el aviso.
+        </p>
+        <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-months">
+          Meses pagados
+        </label>
+        <select id="mp-months" value={months} onChange={(e) => setMonths(Number(e.target.value))} className={field}>
+          {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>
+              {n} {n === 1 ? "mes" : "meses"}
+            </option>
+          ))}
+        </select>
+        <p className="-mt-1 text-[12px] text-on-surface-variant">Premium hasta el {fmtDate(until.toISOString())}.</p>
+        <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-reason">
+          Motivo (obligatorio)
+        </label>
+        <textarea id="mp-reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} placeholder="Por ejemplo: pagó en efectivo en la oficina, o tienda de prueba del equipo." className={`${field} py-2`} />
+        <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-2">
+          <div>
+            <label className="mb-1 block text-[12.5px] font-semibold text-on-surface" htmlFor="mp-amount">
+              Monto (opcional)
+            </label>
+            <input id="mp-amount" type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className="mb-1 block text-[12.5px] font-semibold text-on-surface" htmlFor="mp-currency">
+              Moneda
+            </label>
+            <select id="mp-currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className={field}>
+              <option value="USD">USD</option>
+              <option value="CUP">CUP</option>
+            </select>
+          </div>
+        </div>
+        <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-ref">
+          Referencia (opcional)
+        </label>
+        <input id="mp-ref" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={120} placeholder="Número de transferencia, recibo..." className={field} />
+        <div className="mt-1 flex gap-2">
+          <button type="button" onClick={onCancel} disabled={pending} className="min-h-11 flex-1 rounded-xl border border-outline-variant text-[13.5px] font-semibold text-on-surface">
+            Cancelar
+          </button>
+          <button type="submit" disabled={!valid || pending} className="min-h-11 flex-1 rounded-xl bg-verified-dark text-[13.5px] font-bold text-white disabled:opacity-50">
+            {pending ? "Registrando..." : "Registrar y activar"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

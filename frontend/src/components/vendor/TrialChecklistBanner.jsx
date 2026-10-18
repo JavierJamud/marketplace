@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import { Check, ChevronDown, ChevronUp, ArrowRight, Sparkles } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { RegisterTrialCard } from "./RegisterTrialCard.jsx";
 
 // Pasos para completar el perfil y activar el Premium gratis. Se muestra UN paso a la vez: el siguiente pendiente, con un
 // botón que lleva directo a la pantalla donde se completa. Al terminarlo, pasa solo al siguiente. Los demás se pueden ver
@@ -46,7 +47,8 @@ export function TrialChecklistBanner({ vendor }) {
   const total = items.length;
   const done = items.filter((i) => i.done).length;
   const next = items.find((i) => !i.done);
-  if (!next) return null;
+  // Prueba con tarjeta y todos los pasos hechos: falta registrar la tarjeta (la prueba se activa al confirmarlo Stripe).
+  if (!next) return data.needsCard ? <RegisterTrialCard className="mb-5" /> : null;
   const step = STEPS[next.key] && { ...STEPS[next.key], to: "/vendedor/completar" };
   const percent = Math.round((done / total) * 100);
 

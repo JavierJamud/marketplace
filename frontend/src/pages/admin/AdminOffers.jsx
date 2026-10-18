@@ -23,7 +23,7 @@ function fmtDate(iso) {
 }
 
 const STATUS_STYLE = {
-  ACTIVE: { background: "rgba(12,174,83,0.12)", color: "#0A8F42" },
+  ACTIVE: { background: "rgba(12,174,83,0.12)", color: "#087A38" },
   EXPIRED: { background: "rgba(117,119,124,0.12)", color: "#65676c" },
   REMOVED: { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
   SUSPENDED: { background: "rgba(254,152,0,0.15)", color: "#8A5100" },
@@ -630,7 +630,7 @@ const AUDIENCE_OPTIONS = Object.keys(AUDIENCE_LABEL);
 const DELIVERY_LABEL = { EMAIL: "Solo correo", POPUP: "Solo popup", BOTH: "Correo + popup" };
 const TARGETED_STATUS_LABEL = { ACTIVE: "Activa", ARCHIVED: "Archivada" };
 const TARGETED_STATUS_STYLE = {
-  ACTIVE: { background: "rgba(12,174,83,0.12)", color: "#0A8F42" },
+  ACTIVE: { background: "rgba(12,174,83,0.12)", color: "#087A38" },
   ARCHIVED: { background: "rgba(117,119,124,0.12)", color: "#65676c" },
 };
 
@@ -1087,7 +1087,7 @@ function TargetedOffersSection() {
               {TARGETED_STATUS_LABEL[o.status]}
             </span>
             {o.status === "ARCHIVED" ? (
-              <button title="Reactivar" onClick={() => toggleStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-[#0A8F42]">
+              <button title="Reactivar" onClick={() => toggleStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-[#087A38]">
                 <CheckCircle2 className="h-4 w-4" />
               </button>
             ) : (
@@ -1260,7 +1260,7 @@ export default function AdminOffers() {
                 {STATUS_LABEL[o.status]}
               </span>
               {o.status === "SUSPENDED" ? (
-                <button title="Reactivar" onClick={() => quickStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-[#0A8F42]">
+                <button title="Reactivar" onClick={() => quickStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-[#087A38]">
                   <CheckCircle2 className="h-4 w-4" />
                 </button>
               ) : (

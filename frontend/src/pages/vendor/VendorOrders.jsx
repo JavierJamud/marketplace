@@ -30,7 +30,7 @@ function fmtCUP(n) {
 // ahí se confirmó la venta y se descontó stock de verdad) — READY/DELIVERED
 // siguen siendo pasos de logística POSTERIORES a la venta ya confirmada.
 const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
-const STATUS_COLOR = { NEW: "#8A5100", PREPARING: "#0A8F42", READY: "#337475", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
+const STATUS_COLOR = { NEW: "#8A5100", PREPARING: "#087A38", READY: "#337475", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
 const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
 const CHANNEL_COLOR = { CASH: "#128C7E", COD: "#337475", ONLINE: "#003435", TABLE: "#8A5100" };
@@ -670,7 +670,7 @@ export default function VendorOrders() {
                   <button
                     onClick={() => confirmSale.mutate(o.rawId)}
                     disabled={confirmSale.isPending}
-                    className="flex items-center gap-1.5 rounded-[7px] bg-[#0A8F42]/10 px-2.5 py-1.5 text-[11.5px] font-bold text-[#0A8F42] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-[7px] bg-[#087A38]/10 px-2.5 py-1.5 text-[11.5px] font-bold text-[#087A38] disabled:opacity-50"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar pedido
                   </button>

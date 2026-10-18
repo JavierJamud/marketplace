@@ -1,3 +1,4 @@
+import { RegisterTrialCard } from "../../components/vendor/RegisterTrialCard.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -284,7 +285,9 @@ export default function VendorSetupGuide() {
         {verificationStatus === "VERIFIED"
           ? "Tu tienda ya está verificada. Puedes revisar aquí cualquier dato."
           : trialAccepted
-            ? "Cuando termines los 5 pasos, tu prueba gratis de Premium se activa sola y tu tienda recibe la insignia de verificada."
+            ? trial?.trialBilling === "CARD"
+              ? "Cuando termines los 5 pasos, registra tu tarjeta (hoy no se cobra nada) y tu prueba gratis de Premium empieza."
+              : "Cuando termines los 5 pasos, tu prueba gratis de Premium se activa sola y tu tienda recibe la insignia de verificada."
             : "Estos 5 pasos son obligatorios para obtener la insignia de tienda verificada. Hazlos en orden: el último es enviar tus documentos."}
       </p>
 
@@ -300,6 +303,8 @@ export default function VendorSetupGuide() {
       {/* grid-cols-1 (columna de 0 a 100 %): con "grid" a secas la columna crece hasta el texto más largo de una línea, y el
           "Falta: dirección legal del negocio, país de registro legal..." del paso de identidad ensanchaba toda la lista (con el
           formulario y la cámara adentro) más allá de la pantalla del celular. */}
+      {trial?.needsCard && <RegisterTrialCard className="mb-4" />}
+
       <ol className="grid grid-cols-1 gap-3">
         {steps.map((s, i) => {
           const isOpen = active === s.id;

@@ -111,7 +111,7 @@ export function CancelBlockedModal({ order, onClose }) {
                 {store.address && <li className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" /> {store.address}</li>}
               </ul>
               {store.whatsapp && (
-                <a href={waLink(store.whatsapp, `Hola, quiero cancelar mi pedido ${result.orderCode}.`)} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#25D366] text-[13.5px] font-bold text-white">
+                <a href={waLink(store.whatsapp, `Hola, quiero cancelar mi pedido ${result.orderCode}.`)} target="_blank" rel="noopener noreferrer" className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#25D366] text-[13.5px] font-bold text-primary">
                   <MessageCircle className="h-4 w-4" aria-hidden="true" /> Escribir a la tienda por WhatsApp
                 </a>
               )}

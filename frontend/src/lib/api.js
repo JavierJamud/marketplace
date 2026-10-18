@@ -1,3 +1,4 @@
+import { recordApiCall } from "./diagnostics.js";
 import { isTechnicalFailure, recordApiFailure } from "./errorReport.js";
 import axios from "axios";
 
@@ -62,6 +63,7 @@ export async function getErrorMessage(err, fallback = "Ocurrió un error. Intent
 
 // Adjunta el access token guardado y bypass para localtunnel si aplica
 api.interceptors.request.use((config) => {
+  config.__startedAt = Date.now();
   const token = localStorage.getItem("accessToken");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   config.headers["bypass-tunnel-reminder"] = "true";
@@ -70,9 +72,13 @@ api.interceptors.request.use((config) => {
 
 // Si el access token expiró, intenta refrescarlo una vez y reintenta la petición
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    recordApiCall({ method: res.config?.method, url: res.config?.url, status: res.status, ms: res.config?.__startedAt ? Date.now() - res.config.__startedAt : null });
+    return res;
+  },
   async (error) => {
     const original = error.config;
+    recordApiCall({ method: original?.method, url: original?.url, status: error.response?.status, ms: original?.__startedAt ? Date.now() - original.__startedAt : null });
     // Distingue "esta llamada nunca llevó sesión" (visitante anónimo pegándole
     // a algo que da 401 — normal, no hay ninguna sesión que "expiró") de "esta
     // llamada SÍ llevaba un access token y aun así lo rechazaron" (sesión

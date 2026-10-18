@@ -34,7 +34,7 @@ export const STAGE_META = {
   PENDING_DOCS: { label: "Documentos enviados — esperando revisión", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
   IN_REVIEW: { label: "Un admin está revisando tus documentos", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
   PENDING_PAYMENT: { label: "Documentos aprobados — falta el pago", color: "#337475", bg: "rgba(51,116,117,0.1)", Icon: Clock },
-  VERIFIED: { label: "Tienda verificada", color: "#0A8F42", bg: "rgba(12,174,83,0.1)", Icon: CheckCircle2 },
+  VERIFIED: { label: "Tienda verificada", color: "#087A38", bg: "rgba(12,174,83,0.1)", Icon: CheckCircle2 },
   PAYMENT_FAILED: { label: "El cobro de tu suscripción falló", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: AlertTriangle },
   SUSPENDED: { label: "Tu suscripción fue suspendida", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: Ban },
   REJECTED: { label: "Documentos rechazados", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: XCircle },

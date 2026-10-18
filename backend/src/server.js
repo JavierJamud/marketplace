@@ -18,6 +18,7 @@ import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { startChatRetentionJob } from "./jobs/chatRetention.job.js";
+import { startSupportTicketRetentionJob } from "./jobs/supportTicketRetention.job.js";
 import { installNotifyHooks } from "./lib/notify.js";
 import { startPartnerUsageFlusher } from "./lib/partnerUsage.js";
 
@@ -120,6 +121,8 @@ startClickAnomalyJob();
 startTrialExpiryJob();
 // Conversaciones de los chatbots: se borran a las 24 h sin actividad; el registro del admin dura 90 días.
 startChatRetentionJob();
+// Tickets de errores visuales: se borran (con su captura) a los 90 días.
+startSupportTicketRetentionJob();
 // Avisos en vivo y push ante los cambios de la base de datos.
 installNotifyHooks();
 // API de socios: vuelca cada pocos segundos los movimientos y totales de uso a la base.

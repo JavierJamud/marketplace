@@ -1,6 +1,11 @@
 import "./lib/safeStorage.js";
 import { installInputGuards } from "./lib/inputGuards.js";
 import { installAspectRatioFallback } from "./lib/aspectRatioFallback.js";
+import { installDiagnostics } from "./lib/diagnostics.js";
+
+// Copia de la consola y de lo último que hizo la persona, para los reportes de errores visuales (ver lib/diagnostics.js).
+// Va primero para no perderse los mensajes del arranque.
+installDiagnostics();
 
 // Filtro central de campos numéricos y de nombres (ver lib/inputGuards.js).
 installInputGuards();

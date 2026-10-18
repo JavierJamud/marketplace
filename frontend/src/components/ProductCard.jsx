@@ -143,7 +143,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
           <div className="mb-0.5 flex items-center gap-1.5">
             {!hideVendor && (
               <>
-                <span className="truncate text-[10.5px] font-bold text-tertiary-accent">{v?.companyName}</span>
+                <span className="truncate text-[11.5px] font-bold text-tertiary-accent">{v?.companyName}</span>
                 {v?.isVerified && <VerifiedBadge size="sm" />}
               </>
             )}
@@ -192,7 +192,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
           <div className="flex flex-col">
             <span className="whitespace-nowrap text-[14.5px] font-bold text-on-surface">{formatPrice(product.price, product.currency)}</span>
             {product.oldPrice && (
-              <span className="text-[10.5px] leading-tight text-outline line-through">{formatPrice(product.oldPrice, product.currency)}</span>
+              <span className="text-[11.5px] leading-tight text-outline line-through">{formatPrice(product.oldPrice, product.currency)}</span>
             )}
           </div>
           {/* Bloque 155 (bug real reportado en vivo — hacer clic en el

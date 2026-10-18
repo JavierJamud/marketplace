@@ -74,7 +74,7 @@ function CardHeader({ meta, hasIntegration, isActive, saving, onToggle, models }
           <span className="text-[15px] font-bold text-on-surface">{meta.name}</span>
           <span
             className="rounded-full px-2.5 py-0.5 text-[10.5px] font-bold"
-            style={isActive ? { background: "rgba(12,174,83,0.12)", color: "#0A8F42" } : { background: "#f0edee", color: "#65676c" }}
+            style={isActive ? { background: "rgba(12,174,83,0.12)", color: "#087A38" } : { background: "#f0edee", color: "#65676c" }}
           >
             {isActive ? "Activo" : "Inactivo"}
           </span>

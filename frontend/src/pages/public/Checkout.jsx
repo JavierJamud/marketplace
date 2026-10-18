@@ -473,7 +473,7 @@ export default function Checkout() {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-lg font-bold text-white shadow hover:opacity-90"
+                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-lg font-bold text-primary shadow hover:opacity-90"
               >
                 <MessageCircle className="h-5 w-5" /> Enviar pedido por WhatsApp
               </a>

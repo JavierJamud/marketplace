@@ -303,7 +303,7 @@ function StoreOffersTab({ vendor }) {
         {storeOffers?.length > 0 && (
           <span
             className="rounded-full px-3 py-1.5 text-[12px] font-bold"
-            style={atLimit ? { background: "rgba(138,81,0,0.12)", color: "#8A5100" } : { background: "rgba(12,174,83,0.12)", color: "#0A8F42" }}
+            style={atLimit ? { background: "rgba(138,81,0,0.12)", color: "#8A5100" } : { background: "rgba(12,174,83,0.12)", color: "#087A38" }}
           >
             {activeCount}/{maxActive ?? "∞"} {maxActive === 1 ? "oferta activa" : "ofertas activas"}
           </span>

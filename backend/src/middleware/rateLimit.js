@@ -23,6 +23,17 @@ export const registerRateLimit = rateLimit({
   message: { error: "Demasiados registros desde este origen. Prueba de nuevo en unos minutos." },
 });
 
+// Consulta del stock real de los productos del carrito (POST /products/stock). El carrito la repite al abrirse, al volver a
+// la pestaña y cada 30 s mientras está a la vista: 120 por minuto da margen a varias pestañas sin dejar que un script la use
+// para recorrer el catálogo.
+export const cartStockRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas consultas de stock. Prueba de nuevo en un momento." },
+});
+
 export const ordersRateLimit = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 60,

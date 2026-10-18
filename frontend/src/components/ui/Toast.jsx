@@ -144,7 +144,7 @@ export function Toast({ type = "success", title, description, visible, duration 
         overflow: "hidden",
         /* Animación entrada/salida */
         animation: visible
-          ? "toastIn 0.42s cubic-bezier(0.34,1.56,0.64,1) forwards"
+          ? "toastIn 0.36s cubic-bezier(0.22,1,0.36,1) forwards"
           : "toastOut 0.22s cubic-bezier(0.4,0,1,1) forwards",
         willChange: "transform, opacity",
         /* Tipografía */

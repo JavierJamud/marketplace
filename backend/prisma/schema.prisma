@@ -129,6 +129,9 @@ enum VerificationStatusSource {
 enum VerificationPaymentMethod {
   CARD
   CUP_TRANSFER
+  // Pago registrado a mano por el admin (pagó por fuera de la plataforma, o una tienda que el equipo decide activar).
+  // El motivo queda en paymentNote / note.
+  MANUAL
 }
 
 // Bloque 66 (pedido explícito): qué tipo de documento de identidad subió el
@@ -164,6 +167,8 @@ enum EmailType {
   // Bloque 48: mensaje del formulario de /contacto — va al correo del
   // primer admin (no hay multi-admin todavía, ver Bloque 47 decisión D).
   CONTACT_MESSAGE
+  // Tickets de errores visuales: aviso al admin con la captura, acuse al que reportó y cada respuesta del admin.
+  SUPPORT_TICKET
   // Bloque 16: un solo tipo genérico para todo el ciclo de verificación
   // (docs aprobados/rechazados, link de pago, verificado) — mismo patrón que
   // STATUS_UPDATE ya usa un label map en vez de un enum-value por estado.
@@ -932,6 +937,8 @@ model User {
   @@index([role, createdAt])
 
   appInstalls AppInstall[]
+
+  supportTickets SupportTicket[]
 }
 
 // Una aplicación instalada (Marketplace, Tienda o Admin) en un dispositivo. La app guarda `installId` en el dispositivo y
@@ -1307,6 +1314,11 @@ model Vendor {
   trialOfferDismissedAt DateTime?
   trialStartedAt        DateTime?
   trialEndsAt           DateTime?
+  // Cómo paga después de la prueba gratis: "CARD" (registra la tarjeta en Stripe con 0 USD hoy y al terminar la prueba se
+  // cobra sola) o "CUP" (sin tarjeta; al terminar paga a mano). Nulo = pruebas aceptadas antes de existir la opción (CUP).
+  trialBilling          String?
+  // Cada cuántos meses se renueva la suscripción con tarjeta (1, 3, 6 o 12): para mostrarla y para reactivarla igual.
+  stripeIntervalMonths  Int?
   trialWelcomeSeenAt    DateTime?
   createdAt   DateTime @default(now())
 
@@ -1377,6 +1389,8 @@ model Vendor {
   posSales    PosSale[]
   cashEntries CashEntry[]
   posSettings PosSettings?
+
+  supportTickets SupportTicket[]
 
   // Bloque 241: lista de tiendas del admin (filtro por plan, orden por fecha).
   @@index([planType, createdAt])
@@ -1843,6 +1857,68 @@ model EmailLog {
 // que antes (esto nunca lo reemplaza), es un registro ADICIONAL para que
 // el admin tenga un solo lugar donde ver qué está fallando de verdad, sin
 // tener que revisar logs de servidor a mano.
+// Tickets de errores visuales. Desde el panel de la tienda, el botón "Reportar un problema" toma una captura de lo que la
+// persona ve, copia la consola del navegador y lo último que hizo en la página, y la persona explica el problema (escrito o
+// dictado). El admin lo ve en Errores, responde y cambia el estado; cada respuesta llega por correo a quien reportó. Todo
+// (fila, mensajes y la captura en disco) se borra a los 90 días (supportTicketRetention.job.js).
+enum SupportTicketStatus {
+  NEW
+  IN_REVIEW
+  WAITING_REPORTER
+  RESOLVED
+  CLOSED_NO_EVIDENCE
+  CLOSED_NOT_A_BUG
+}
+
+model SupportTicket {
+  id             String              @id @default(cuid())
+  // Número que ve la persona y el admin (T-00042).
+  number         Int                 @unique @default(autoincrement())
+  vendorId       String?
+  reporterId     String?
+  // Copia de quién reportó en ese momento: el ticket se entiende aunque después cambie el nombre o el correo.
+  reporterName   String?
+  reporterEmail  String
+  reporterRole   String
+  pagePath       String
+  section        String?
+  description    String
+  // Archivo en uploads/tickets (privado: solo se sirve al admin).
+  screenshotFile String?
+  consoleLog     Json?
+  activityTrail  Json?
+  device         Json?
+  status         SupportTicketStatus @default(NEW)
+  // Cómo se solucionó o por qué se cerró (obligatorio para "Solucionado").
+  resolution     String?
+  closedAt       DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  vendor   Vendor?                @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  reporter User?                  @relation(fields: [reporterId], references: [id], onDelete: SetNull)
+  messages SupportTicketMessage[]
+
+  @@index([status, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([createdAt])
+}
+
+model SupportTicketMessage {
+  id           String               @id @default(cuid())
+  ticketId     String
+  authorId     String?
+  body         String
+  // Estado al que pasó el ticket con esta respuesta (si cambió).
+  statusChange SupportTicketStatus?
+  emailedAt    DateTime?
+  createdAt    DateTime             @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
 model ErrorLog {
   id     String      @id @default(cuid())
   origin ErrorOrigin
@@ -1867,6 +1943,9 @@ enum ActivityActorRole {
   // dueño" de "lo hizo un usuario con acceso" en Admin > Actividad y en el
   // historial que ve el propio vendedor.
   VENDOR_STAFF
+  // Acciones del admin sobre una tienda (activar Premium, registrar un pago, restablecer el método...). Sin este valor esos
+  // registros fallaban en silencio y no quedaba constancia.
+  ADMIN
 }
 
 // Bloque 70 (pedido explícito): registro general de acciones de vendedores y
@@ -2093,7 +2172,9 @@ model VerificationRequest {
   // lo que el panel de admin muestra como "esperando confirmación".
   paymentClaimedAt     DateTime?
   paymentConfirmedAt    DateTime?
-  paymentConfirmedById  String?
+  paymentConfirmedById  String?
+  // Motivo del pago registrado a mano por el admin (método MANUAL).
+  paymentNote          String?
 
   // Bloque 25: reemplaza el link de pago simulado propio (paymentLinkToken)
   // por un Checkout Session real de Stripe. stripeCheckoutSessionId
@@ -2237,7 +2318,8 @@ model VerificationArchive {
   paymentClaimedAt        DateTime?
   stripePaidAt            DateTime?
   paymentConfirmedAt      DateTime?
-  paymentConfirmedById    String?
+  paymentConfirmedById    String?
+  paymentNote             String?
   verifiedAt              DateTime?
   rejectedAt              DateTime?
 
@@ -2286,10 +2368,14 @@ model SubscriptionPayment {
   stripeCheckoutExpiresAt DateTime?
   stripePaidAt            DateTime?
   stripePaymentIntentId   String?
+  // Factura de Stripe de un cobro automático de la suscripción (evita anotarla dos veces si Stripe reenvía el aviso).
+  stripeInvoiceId         String?  @unique
 
   claimedAt    DateTime?
   confirmedAt  DateTime?
-  confirmedById String?
+  confirmedById String?
+  // Motivo cuando lo registró el admin a mano (método MANUAL).
+  note          String?
   // Bloque 153: período real que este pago cubre — periodStart es el
   // vencimiento ANTERIOR (o el momento de la confirmación si no había
   // ninguno vigente), periodEnd = periodStart + months. Pagar antes de que

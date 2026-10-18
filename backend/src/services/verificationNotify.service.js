@@ -95,7 +95,7 @@ const EVENTS = {
   VERIFICATION_PAYMENT_FAILED: {
     title: "No pudimos cobrar tu suscripción",
     body: () =>
-      "El cobro de tu Plan Business falló — perdiste el badge de verificación hasta resolverlo. Actualiza tu método de pago o completa la transferencia CUP desde tu panel para recuperarlo, sin necesidad de volver a subir tus documentos.",
+      "No pudimos cobrar tu plan. Si pagas con tarjeta, entra a Suscripción en tu panel y pon otra tarjeta: se cobra en el momento y recuperas todo. Si pagas en CUP, completa la transferencia desde el mismo lugar. No hace falta volver a subir tus documentos.",
   },
   VERIFICATION_SUSPENDED: {
     title: "Tu suscripción fue suspendida",

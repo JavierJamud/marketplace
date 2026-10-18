@@ -147,7 +147,7 @@ function CustomerRow({ c, onEdit, onSuspend, onReactivate, onDelete }) {
       <div className="hidden md:block">
         <span
           className="rounded-full px-2.5 py-1 text-[11.5px] font-bold"
-          style={c.isSuspended ? { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" } : { background: "rgba(12,174,83,0.12)", color: "#0A8F42" }}
+          style={c.isSuspended ? { background: "rgba(186,26,26,0.12)", color: "#ba1a1a" } : { background: "rgba(12,174,83,0.12)", color: "#087A38" }}
         >
           {c.isSuspended ? "Suspendido" : "Activo"}
         </span>

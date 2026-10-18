@@ -15,6 +15,7 @@ import * as locationsController from "../controllers/locations.controller.js";
 import * as businessCategoriesController from "../controllers/businessCategories.controller.js";
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as errorLogsController from "../controllers/errorLogs.controller.js";
+import * as supportTickets from "../controllers/supportTickets.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
 import * as staticPagesController from "../controllers/staticPages.controller.js";
 import * as faqController from "../controllers/faq.controller.js";
@@ -143,6 +144,8 @@ router.delete("/vendor-staff-sales/:id", requireActionCode("VENDOR_CHANGE"), adm
 router.get("/verifications", adminController.listVerifications);
 router.patch("/verifications/:id", requireActionCode("VERIFICATION_CHANGE"), adminController.updateVerification);
 router.patch("/verifications/:id/confirm-payment", requireActionCode("PAYMENT_CONFIRM"), adminController.confirmSubscriptionPayment);
+// Pago registrado a mano por el admin (pagó por fuera o activación decidida por el equipo), con meses y motivo.
+router.post("/verifications/:id/manual-payment", requireActionCode("PAYMENT_CONFIRM"), adminController.registerManualPayment);
 // Bloque 151 (pedido explícito): "restablecerlo para que él pueda
 // seleccionar otro diferente" — limpia el método elegido, el vendedor
 // vuelve a ver el selector desde su panel.
@@ -351,6 +354,11 @@ router.delete("/reviews/:id", requireActionCode("CONTENT_MODERATION"), reviewsCo
 router.get("/errors", errorLogsController.listErrorLogs);
 router.get("/errors/unresolved-count", errorLogsController.getUnresolvedErrorCount);
 router.patch("/errors/:id/resolve", errorLogsController.resolveErrorLog);
+// Tickets de errores visuales que mandan las tiendas (captura, consola y actividad).
+router.get("/support-tickets", supportTickets.adminListTickets);
+router.get("/support-tickets/:id", supportTickets.adminGetTicket);
+router.get("/support-tickets/:id/screenshot", supportTickets.adminTicketScreenshot);
+router.post("/support-tickets/:id/reply", supportTickets.adminReplyTicket);
 
 // Bloque 51: sección "Ofertas" del panel admin — a diferencia de
 // offers.routes.js (vendedor), acá se permite contentType HTML y moderar

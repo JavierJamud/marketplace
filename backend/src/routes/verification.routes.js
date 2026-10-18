@@ -36,6 +36,12 @@ router.get("/:vendorId/file/:type", authenticate, verificationController.getVeri
 // la tienda YA está VERIFIED — mismo patrón que el ciclo inicial de arriba,
 // sobre SubscriptionPayment en vez de VerificationRequest.
 router.get("/me/subscription", authenticate, requireRole("VENDOR", "ADMIN"), verificationController.getMySubscription);
+// Suscripción con tarjeta y cobro automático (Stripe): pagar, prueba gratis con tarjeta, cancelar, reactivar y cambiar tarjeta.
+router.post("/me/card-subscription", authenticate, requireRole("VENDOR"), verificationController.startMyCardSubscription);
+router.post("/me/trial-card", authenticate, requireRole("VENDOR"), verificationController.startMyTrialCard);
+router.post("/me/card-subscription/cancel", authenticate, requireRole("VENDOR"), verificationController.cancelMySubscription);
+router.post("/me/card-subscription/reactivate", authenticate, requireRole("VENDOR"), verificationController.reactivateMySubscription);
+router.post("/me/card-subscription/update-card", authenticate, requireRole("VENDOR"), verificationController.updateMyCard);
 router.patch("/me/subscription/payment-method", authenticate, requireRole("VENDOR"), verificationController.chooseMyRenewalPayment);
 router.post("/me/subscription/stripe-checkout/retry", authenticate, requireRole("VENDOR"), verificationController.retryRenewalStripeCheckout);
 router.post(

@@ -57,3 +57,36 @@ export function canWriteSection(permissions, section) {
   if (permissions == null) return true;
   return (permissions[section] ?? "manage") === "manage";
 }
+
+// Nombre de la sección del panel a partir de una ruta: la de la pantalla (/vendedor/pedidos) o la de la API que falló
+// (/orders/...). Lo usa el admin para decir en qué parte de la tienda pasó un error o un reporte.
+const API_SECTION = [
+  [/^\/(api\/)?(orders|vendor-orders)/, "Pedidos"],
+  [/^\/(api\/)?products/, "Productos"],
+  [/^\/(api\/)?pos/, "Caja"],
+  [/^\/(api\/)?tables/, "Mesas / QR"],
+  [/^\/(api\/)?(discount-codes)/, "Códigos de descuento"],
+  [/^\/(api\/)?(store-offers)/, "Ofertas de tienda"],
+  [/^\/(api\/)?offers/, "Ofertas"],
+  [/^\/(api\/)?(loyalty)/, "Programa de fidelidad"],
+  [/^\/(api\/)?(verification)/, "Verificación"],
+  [/^\/(api\/)?vendors\/me\/assistant/, "Asistente de negocio"],
+  [/^\/(api\/)?vendors\/me\/staff|vendor-staff/, "Usuarios del sistema"],
+  [/^\/(api\/)?vendors\/me/, "Perfil y configuración"],
+  [/^\/(api\/)?(chat|ai)/, "Chat con IA"],
+  [/^\/(api\/)?reviews/, "Reseñas"],
+];
+const PAGE_SECTION = { completar: "Completa tu tienda", perfil: "Perfil", configuracion: "Configuración", verificacion: "Verificación", plan: "Plan" };
+
+export function sectionForPath(path) {
+  if (!path) return null;
+  const clean = String(path).split("?")[0];
+  const page = clean.match(/^\/vendedor\/?([^/]*)/);
+  if (page) {
+    const key = page[1];
+    if (!key) return "Dashboard";
+    return VENDOR_SECTIONS.some((s) => s.key === key) ? vendorSectionLabel(key) : PAGE_SECTION[key] ?? key;
+  }
+  if (clean.startsWith("/admin")) return "Panel del admin";
+  return API_SECTION.find(([re]) => re.test(clean))?.[1] ?? null;
+}

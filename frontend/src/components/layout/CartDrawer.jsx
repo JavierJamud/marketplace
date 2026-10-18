@@ -167,7 +167,7 @@ export function CartDrawer() {
               <button
                 type="button"
                 onClick={() => setConfirmingClear(true)}
-                className="flex-shrink-0 whitespace-nowrap rounded-full border border-error/35 px-2.5 py-1 text-[11px] font-bold text-error transition-colors hover:bg-error/10"
+                className="flex-shrink-0 whitespace-nowrap rounded-full border border-error/35 px-3 py-2 text-[12px] font-bold text-error transition-colors hover:bg-error/10"
               >
                 Vaciar
               </button>
@@ -239,8 +239,10 @@ export function CartDrawer() {
                           {formatPrice(unitPrice, it.currency)} c/u
                           {savings > 0 && <span className="ml-1.5 font-semibold text-tertiary-accent">· ahorras {formatPrice(savings, it.currency)}</span>}
                         </div>
-                        <div className="mt-1.5 flex items-center justify-between gap-2">
+                        {/* flex-wrap: en 320 px el total baja a la línea siguiente en vez de cortarse por la derecha. */}
+                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                           <div className="flex items-center gap-2">
+                            {/* Botones de 36 px: con los de 23 px de antes era fácil tocar el que no era en el celular. */}
                             <div className="flex items-center gap-0.5 rounded-full bg-surface-container p-0.5">
                               {/* Bloque 215 (pedido explícito, con Amazon de
                                   referencia): antes esto SIEMPRE era "-"
@@ -256,16 +258,16 @@ export function CartDrawer() {
                                 <button
                                   onClick={() => removeItem(it.productId, it.size)}
                                   title="Eliminar del carrito"
-                                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
+                                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-error transition-colors hover:bg-error/10"
                                 >
-                                  <Trash2 className="h-3 w-3" />
+                                  <Trash2 className="h-4 w-4" />
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => updateQuantity(it.productId, it.quantity - 1, it.size)}
-                                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
+                                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
                                 >
-                                  <Minus className="h-3 w-3" />
+                                  <Minus className="h-4 w-4" />
                                 </button>
                               )}
                               {/* min-w en vez de w fijo (Bloque 140/143): la
@@ -275,16 +277,18 @@ export function CartDrawer() {
                                   CartContext.jsx) — con un ancho fijo, un
                                   número de varios dígitos volvía a romper
                                   el layout como en el bug original. */}
-                              <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-6 w-9 flex-shrink-0 text-[12px]" />
+                              <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-9 w-10 flex-shrink-0 text-[14px]" />
                               <button
                                 onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)}
-                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest"
+                                disabled={it.stock != null && it.quantity >= it.stock}
+                                aria-label={it.stock != null && it.quantity >= it.stock ? `No hay más unidades de ${it.name}` : `Sumar una unidad de ${it.name}`}
+                                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-on-surface transition-colors hover:bg-surface-container-lowest disabled:opacity-30"
                               >
-                                <Plus className="h-3 w-3" />
+                                <Plus className="h-4 w-4" />
                               </button>
                             </div>
                           </div>
-                          <div className="flex-shrink-0 text-body-sm font-bold text-on-surface">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
+                          <div className="ml-auto flex-shrink-0 text-body-sm font-bold text-on-surface">{formatPrice(unitPrice * it.quantity, it.currency)}</div>
                         </div>
                       </div>
                     </div>

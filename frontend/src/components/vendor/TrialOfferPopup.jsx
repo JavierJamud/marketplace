@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { X, Gift, Check, Sparkles } from "lucide-react";
+import { X, Gift, Check, Sparkles, CreditCard, Landmark } from "lucide-react";
 import { api } from "../../lib/api.js";
 
 // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
@@ -13,6 +14,8 @@ import { api } from "../../lib/api.js";
 // entre dispositivos, cosa que localStorage nunca podría.
 export function TrialOfferPopup({ vendor }) {
   const queryClient = useQueryClient();
+  // Al aceptar, la tienda elige cómo pagará después de la prueba (tarjeta con cobro automático o CUP a mano).
+  const [choosingBilling, setChoosingBilling] = useState(false);
 
   // Bloque 235: staleTime corto a propósito (el default global del
   // proyecto es 5min, ver queryClient.js) — el checklist cambia seguido
@@ -34,7 +37,7 @@ export function TrialOfferPopup({ vendor }) {
   const business = settings?.plans?.find((p) => p.planType === "BUSINESS");
 
   const accept = useMutation({
-    mutationFn: async () => (await api.post("/vendors/me/trial/accept")).data,
+    mutationFn: async (billing) => (await api.post("/vendors/me/trial/accept", { billing })).data,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vendor-trial"] }),
   });
   const decline = useMutation({
@@ -111,13 +114,45 @@ export function TrialOfferPopup({ vendor }) {
                 </ul>
               )}
 
+              {choosingBilling ? (
+                <div className="flex flex-col gap-2.5">
+                  <p className="text-[13px] font-bold text-on-surface">¿Cómo pagarás cuando termine la prueba?</p>
+                  <button
+                    type="button"
+                    onClick={() => accept.mutate("CARD")}
+                    disabled={accept.isPending}
+                    className="flex min-h-11 items-start gap-3 rounded-xl border border-outline-variant p-3.5 text-left hover:border-tertiary-accent disabled:opacity-60"
+                  >
+                    <CreditCard className="mt-0.5 h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />
+                    <span>
+                      <span className="block text-[13.5px] font-bold text-on-surface">Con tarjeta</span>
+                      <span className="block text-[12px] text-on-surface-variant">Registras tu tarjeta al final de los pasos. Hoy no se cobra nada; el día 31 se cobra el primer mes solo. Puedes cancelar antes.</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => accept.mutate("CUP")}
+                    disabled={accept.isPending}
+                    className="flex min-h-11 items-start gap-3 rounded-xl border border-outline-variant p-3.5 text-left hover:border-tertiary-accent disabled:opacity-60"
+                  >
+                    <Landmark className="mt-0.5 h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />
+                    <span>
+                      <span className="block text-[13.5px] font-bold text-on-surface">En CUP</span>
+                      <span className="block text-[12px] text-on-surface-variant">Sin tarjeta. Cuando termine la prueba pagas por transferencia; si no, vuelves al plan gratis.</span>
+                    </span>
+                  </button>
+                  <button type="button" onClick={() => setChoosingBilling(false)} className="min-h-10 text-[12.5px] font-semibold text-on-surface-variant hover:underline">
+                    Volver
+                  </button>
+                </div>
+              ) : (
               <div className="flex flex-col gap-2.5 sm:flex-row">
                 <button
-                  onClick={() => accept.mutate()}
+                  onClick={() => setChoosingBilling(true)}
                   disabled={accept.isPending}
                   className="flex-1 rounded-xl bg-primary px-4 py-3 text-center text-[13.5px] font-bold text-white hover:bg-primary/90 disabled:opacity-60"
                 >
-                  {accept.isPending ? "Activando..." : "Empezar mi trial gratis"}
+                  Empezar mi prueba gratis
                 </button>
                 <button
                   onClick={() => decline.mutate()}
@@ -127,6 +162,7 @@ export function TrialOfferPopup({ vendor }) {
                   Ahora no
                 </button>
               </div>
+              )}
             </div>
           </motion.div>
         </motion.div>

@@ -24,9 +24,13 @@ export async function listErrorLogs(req, res) {
 // Badge de la barra lateral de Admin (AdminLayout.jsx) — endpoint liviano
 // aparte de listErrorLogs para no traer 300 mensajes/contextos completos
 // solo para mostrar un número.
+// El número del menú lateral de Errores suma los errores sin resolver y los tickets de las tiendas todavía abiertos.
 export async function getUnresolvedErrorCount(_req, res) {
-  const count = await prisma.errorLog.count({ where: { resolved: false } });
-  res.json({ count });
+  const [errors, tickets] = await Promise.all([
+    prisma.errorLog.count({ where: { resolved: false } }),
+    prisma.supportTicket.count({ where: { status: { in: ["NEW", "IN_REVIEW", "WAITING_REPORTER"] } } }),
+  ]);
+  res.json({ count: errors + tickets, errors, tickets });
 }
 
 // Nunca se borra un error — solo se marca, mantiene el historial completo

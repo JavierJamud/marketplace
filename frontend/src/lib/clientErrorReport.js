@@ -35,9 +35,16 @@ export function reportClientError({ kind, error, recovered = false }) {
       language: String(navigator.language ?? "").slice(0, 20),
       storage: storageOk(),
     };
+    // Con la sesión, si la hay: el admin sabe a quién (y a qué tienda) le falló la pantalla.
+    let token = null;
+    try {
+      token = localStorage.getItem("accessToken");
+    } catch {
+      /* sin almacenamiento */
+    }
     fetch(`${api.defaults.baseURL ?? ""}/error-reports/client`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify(body),
       keepalive: true,
       credentials: "omit",

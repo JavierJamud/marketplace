@@ -77,7 +77,7 @@ const WATCHED = new Set([
   "Table", "TableOrder", "VerificationRequest", "VerificationArchive", "SubscriptionPayment", "VendorChangeRequest", "Announcement",
   "Campaign", "Suggestion", "VendorMessage", "VendorNotification", "Review", "Address", "Favorite", "CustomerListing", "Report",
   "ProductRequest", "Offer", "DiscountCode", "StoreOffer", "SupportCase", "VendorCustomer", "User", "PlanConfig", "SiteSettings",
-  "Country", "Province", "Municipality", "LocationSuggestion", "ErrorLog", "Integration", "Partner", "PartnerApplication", "TargetedOffer",
+  "Country", "Province", "Municipality", "LocationSuggestion", "ErrorLog", "SupportTicket", "SupportTicketMessage", "Integration", "Partner", "PartnerApplication", "TargetedOffer",
   "PosSale", "CashEntry", "PosSettings", "LoyaltyProgram", "LoyaltyAccount",
 ]);
 

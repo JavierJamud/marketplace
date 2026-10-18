@@ -244,7 +244,7 @@ function StaffRow({ staff, onEdit, onHistory, invalidate }) {
         </div>
         <span
           className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
-          style={staff.isActive ? { background: "rgba(12,174,83,0.12)", color: "#0A8F42" } : { background: "rgba(186,26,26,0.1)", color: "#ba1a1a" }}
+          style={staff.isActive ? { background: "rgba(12,174,83,0.12)", color: "#087A38" } : { background: "rgba(186,26,26,0.1)", color: "#ba1a1a" }}
         >
           {staff.isActive ? "Activo" : "Inactivo"}
         </span>

@@ -145,7 +145,7 @@ export default function AdminActivityLog() {
                     log.actorRole === "VENDOR" ? "bg-secondary-container text-on-secondary-container" : "bg-surface-container text-on-surface-variant"
                   }`}
                 >
-                  {log.actorRole === "VENDOR" ? "Vendedor" : "Cliente"}
+                  {{ VENDOR: "Vendedor", VENDOR_STAFF: "Equipo de la tienda", ADMIN: "Admin", CUSTOMER: "Cliente" }[log.actorRole] ?? "Cliente"}
                 </span>
                 {log.vendor && <span className="text-[11.5px] text-outline">· {log.vendor.companyName}</span>}
               </div>

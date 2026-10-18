@@ -72,7 +72,7 @@ export default {
         verified: {
           light: "#2fdd73",
           DEFAULT: "#0cae53",
-          dark: "#0a8f42",
+          dark: "#087a38", // 5,5:1 sobre blanco (el anterior #0a8f42 daba 4,2:1)
         },
       },
       fontFamily: {

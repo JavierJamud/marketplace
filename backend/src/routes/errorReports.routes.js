@@ -7,6 +7,7 @@ import * as reports from "../controllers/errorReports.controller.js";
 const router = Router();
 router.post("/", errorReportRateLimit, optionalAuth, reports.createErrorReport);
 // Aviso automático de un fallo de pantalla (sin sesión; con tope por IP).
-router.post("/client", errorReportRateLimit, reports.reportClientCrash);
+// Con sesión opcional: si la persona estaba conectada se anota quién era (y de qué tienda) para el admin.
+router.post("/client", errorReportRateLimit, optionalAuth, reports.reportClientCrash);
 
 export default router;

@@ -20,7 +20,7 @@ import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 // explícitamente por el dueño), así que lo único que importa acá es si los
 // DATOS ya están completos, no si alguien ya los aprobó.
 const MIN_DESCRIPTION_LENGTH = 30; // mismo mínimo que submitSchema en verification.controller.js
-const TRIAL_DAYS = 30;
+export const TRIAL_DAYS = 30;
 
 async function loadVendorForChecklist(vendorId) {
   return prisma.vendor.findUnique({
@@ -95,6 +95,9 @@ export async function maybeAutoActivateTrial(vendorId) {
   // volvería a tocar el cron, no esto). VERIFIED = ya está verificada por
   // otra vía (a mano, pago real) — no hay nada que hacer.
   if (!vendor.trialStartedAt || vendor.trialEndsAt || vendor.verificationStatus === "VERIFIED") return false;
+  // Prueba con tarjeta: no se activa sola al completar los pasos. Falta registrar la tarjeta en Stripe (0 USD hoy) y la
+  // activa el aviso de Stripe (ver activateFromCardSubscription en verification.controller.js).
+  if (vendor.trialBilling === "CARD") return false;
   const complete = await isTrialChecklistComplete(vendor);
   if (!complete) return false;
   await activateVendorTrial(vendor);
@@ -104,17 +107,19 @@ export async function maybeAutoActivateTrial(vendorId) {
 // `vendorOrId`: igual que getTrialChecklist, acepta un vendor ya cargado
 // (necesita vendor.userId, por eso el `include` de loadVendorForChecklist
 // alcanza con el select por default) para no repetir el fetch.
-async function activateVendorTrial(vendorOrId) {
+// `options.trialEndsAt`: con la prueba con tarjeta, la fecha la pone Stripe (fin de la prueba de la suscripción).
+// `options.extraData`: datos de la suscripción de Stripe que se guardan en la misma transición.
+export async function activateVendorTrial(vendorOrId, { trialEndsAt: fixedEnd = null, extraData: extra = {}, reason = null } = {}) {
   const vendor = typeof vendorOrId === "string" ? await loadVendorForChecklist(vendorOrId) : vendorOrId;
-  const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  const trialEndsAt = fixedEnd ?? new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
   // Mismo molde que grantBusinessPlan (admin.controller.js) — la única
   // diferencia real es `source` (acá VENDOR_ACTION, nunca ADMIN_ACTION,
   // porque no hubo ningún admin de por medio) y que trialEndsAt sí se
   // guarda (grantBusinessPlan nunca inicia un trial, es Premium real).
   const updated = await transitionVendorVerification(vendor.id, "VERIFIED", {
-    reason: "Activación automática del trial gratuito de 30 días del Plan Premium.",
+    reason: reason ?? "Activación automática del trial gratuito de 30 días del Plan Premium.",
     source: "VENDOR_ACTION",
-    extraData: { planType: "BUSINESS", trialEndsAt },
+    extraData: { planType: "BUSINESS", trialEndsAt, ...extra },
     notify: { type: "TRIAL_ACTIVATED" },
   });
   await recalcVendorProductQuota(vendor.id);

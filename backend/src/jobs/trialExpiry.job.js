@@ -26,7 +26,8 @@ async function sendTrialExpiringSoonReminders() {
   let sent = 0;
   for (const daysLeft of REMINDER_DAYS_BEFORE) {
     const vendors = await prisma.vendor.findMany({
-      where: { verificationStatus: "VERIFIED", trialEndsAt: dayRange(daysLeft) },
+      // Las pruebas con tarjeta las cobra Stripe sola al terminar: no reciben el aviso de "tu prueba se acaba, elige cómo pagar".
+      where: { verificationStatus: "VERIFIED", trialEndsAt: dayRange(daysLeft), stripeSubscriptionId: null },
       include: { user: true },
     });
     for (const vendor of vendors) {
@@ -45,7 +46,8 @@ async function sendTrialExpiringSoonReminders() {
 // se pierden las funciones Premium (isPremiumActive exige AMBAS cosas).
 async function expireTrials() {
   const vendors = await prisma.vendor.findMany({
-    where: { trialEndsAt: { lt: new Date() }, planType: "BUSINESS" },
+    // Con tarjeta, el final de la prueba lo resuelve Stripe (cobra el primer mes o avisa del fallo): este reloj no la toca.
+    where: { trialEndsAt: { lt: new Date() }, planType: "BUSINESS", stripeSubscriptionId: null },
   });
 
   let expired = 0;

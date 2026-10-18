@@ -52,7 +52,7 @@ const SECTIONS = [
   { label: "Ofertas de tienda", path: "/vendedor/ofertas-tienda", key: "ofertas-tienda" },
   { label: "Pedidos", path: "/vendedor/pedidos" },
   { label: "Mesas / QR", path: "/vendedor/mesas", restaurantOnly: true },
-  { label: "Verificación y plan", path: "/vendedor/verificacion" },
+  { label: "Suscripción", path: "/vendedor/verificacion" },
   { label: "Mensajes", path: "/vendedor/mensajes" },
   { label: "Reseñas", path: "/vendedor/resenas" },
   { label: "Reportes de fraude", path: "/vendedor/reportes" },

@@ -20,6 +20,8 @@ import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx
 import { unlockAudioOnFirstInteraction } from "../../lib/orderNotificationSound.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
+import { ReportProblemButton } from "../../components/vendor/ReportProblemButton.jsx";
+import { DocsApprovedPopup } from "../../components/vendor/DocsApprovedPopup.jsx";
 import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { OfflineBar } from "../../components/vendor/OfflineBar.jsx";
@@ -61,7 +63,7 @@ const NAV = [
   { to: "/vendedor/clientes", label: "Clientes", icon: Contact, section: "clientes", group: "clientes" },
   { to: "/vendedor/puntos", label: "Programa de fidelidad", icon: Award, section: "puntos", group: "clientes" },
   { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas", group: "ventas" },
-  { to: "/vendedor/verificacion", label: "Verificación y plan", icon: ShieldCheck, ownerOnly: true, group: "negocio" },
+  { to: "/vendedor/verificacion", label: "Suscripción", icon: ShieldCheck, ownerOnly: true, group: "negocio" },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes", group: "clientes" },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star, section: "resenas", group: "clientes" },
   // Feature B (pedido explícito): badge propio (fraudReportsPendingCount)
@@ -649,7 +651,11 @@ export default function VendorLayout() {
           recibe consejos y la recomendación de suscribirse. Un usuario de sistema
           no lo ve (son consejos sobre todo el negocio). */}
       {!isStaff && <BusinessAssistantWidget endpoint="/vendors/me/assistant" quickPrompts={VENDOR_ASSISTANT_PROMPTS} quickPromptsFree={VENDOR_ASSISTANT_PROMPTS_FREE} />}
+      {/* Reportar un error visual de la pantalla actual (captura, consola y lo último que hizo): dueño y usuarios del sistema. */}
+      <ReportProblemButton />
       {!isStaff && <TrialWelcomePopup vendor={vendor} />}
+      {/* Documentos aprobados por el equipo: felicitación y camino al paso 3 (el pago). Solo el dueño decide sobre el plan. */}
+      {!isStaff && <DocsApprovedPopup vendor={vendor} />}
       {/* Bloque 164: montado a nivel de layout (como el de arriba) — así
           suena y aparece sin importar en qué sección del panel esté el
           vendedor, no solo dentro de "Pedidos". Bloque 183: un usuario de

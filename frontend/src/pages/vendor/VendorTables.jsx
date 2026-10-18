@@ -24,7 +24,7 @@ const KITCHEN_STATUS_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", RE
 // QR de verdad"): paleta fija de colores para diferenciar mesas a simple
 // vista en el panel — determinística por tableNumber (mismo color siempre
 // para la misma mesa, sin persistir nada nuevo en la base de datos).
-const TABLE_COLORS = ["#337475", "#8A5100", "#0A8F42", "#7B4FA6", "#B5442C", "#0E6BA8", "#A6437B", "#4F6B2E"];
+const TABLE_COLORS = ["#337475", "#8A5100", "#087A38", "#7B4FA6", "#B5442C", "#0E6BA8", "#A6437B", "#4F6B2E"];
 function colorForTable(tableNumber) {
   return TABLE_COLORS[(tableNumber - 1) % TABLE_COLORS.length];
 }
@@ -249,7 +249,7 @@ function TableCard({ table, logoDataUrl, tableUrl, canManageTable, canManageOrde
         )}
         <span
           className="flex-shrink-0 rounded-full px-2.5 py-0.5 text-[10.5px] font-bold"
-          style={occupied ? { background: "rgba(138,81,0,0.12)", color: "#8A5100" } : { background: "rgba(12,174,83,0.12)", color: "#0A8F42" }}
+          style={occupied ? { background: "rgba(138,81,0,0.12)", color: "#8A5100" } : { background: "rgba(12,174,83,0.12)", color: "#087A38" }}
         >
           {occupied ? "Ocupada" : "Libre"}
         </span>

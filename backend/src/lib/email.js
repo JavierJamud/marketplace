@@ -20,6 +20,7 @@ import { twoFactorCodeEmail } from "../templates/twoFactorCode.js";
 import { emailChangeCodeEmail } from "../templates/emailChangeCode.js";
 import { registrationCodeEmail } from "../templates/registrationCode.js";
 import { adminDirectEmail } from "../templates/adminDirectEmail.js";
+import { supportTicketAdminEmail, supportTicketReceiptEmail, supportTicketUpdateEmail } from "../templates/supportTicket.js";
 import { contactMessageEmail } from "../templates/contactMessage.js";
 import { vendorInactivityReminderEmail } from "../templates/vendorInactivityReminder.js";
 import { vendorSuspendedEmail } from "../templates/vendorSuspended.js";
@@ -367,6 +368,39 @@ export async function sendAdminDirectEmail({ to, subject, message, recipientName
   const { subject: finalSubject, html } = await adminDirectEmail({ subject, message, recipientName });
   const result = await sendViaResend({ to, subject: finalSubject, html });
   await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "MANUAL", to, subject: finalSubject, result });
+  return result;
+}
+
+// --- Tickets de errores visuales -------------------------------------------------------------------------------------------
+// Al admin: con la captura adjunta (la ve aunque no abra el panel). "Responder" le escribe directo a quien reportó.
+export async function sendSupportTicketAdminEmail({ ticket, code, vendorName, screenshot }) {
+  const admin = await prisma.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" }, select: { email: true } });
+  if (!admin?.email) return { ok: false, error: "Sin admin" };
+  const { subject, html } = await supportTicketAdminEmail({ ticket, code, vendorName, hasScreenshot: !!screenshot });
+  const attachments = screenshot ? [{ filename: `${code}-captura.webp`, content: screenshot }] : undefined;
+  const result = await sendViaResend({ to: admin.email, subject, html, attachments, replyTo: ticket.reporterEmail, fromName: "Reportes de errores" });
+  await logEmail({ vendorId: ticket.vendorId, orderId: null, type: "SUPPORT_TICKET", to: admin.email, subject, result });
+  return result;
+}
+
+async function adminReplyTo() {
+  const admin = await prisma.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" }, select: { email: true } });
+  return admin?.email ?? undefined;
+}
+
+// A quien reportó: acuse con el número del ticket.
+export async function sendSupportTicketReceiptEmail({ ticket, code, vendorName }) {
+  const { subject, html } = await supportTicketReceiptEmail({ ticket, code, vendorName });
+  const result = await sendViaResend({ to: ticket.reporterEmail, subject, html, replyTo: await adminReplyTo() });
+  await logEmail({ vendorId: ticket.vendorId, orderId: null, type: "SUPPORT_TICKET", to: ticket.reporterEmail, subject, result });
+  return result;
+}
+
+// A quien reportó: cada respuesta o cambio de estado del admin.
+export async function sendSupportTicketUpdateEmail({ ticket, code, body, statusLabel, resolution, closed }) {
+  const { subject, html } = await supportTicketUpdateEmail({ ticket, code, body, statusLabel, resolution, closed });
+  const result = await sendViaResend({ to: ticket.reporterEmail, subject, html, replyTo: await adminReplyTo() });
+  await logEmail({ vendorId: ticket.vendorId, orderId: null, type: "SUPPORT_TICKET", to: ticket.reporterEmail, subject, result });
   return result;
 }
 

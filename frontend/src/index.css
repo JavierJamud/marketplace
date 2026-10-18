@@ -35,6 +35,13 @@
   textarea {
     min-width: 0;
   }
+  /* Texto de ejemplo de los campos: el gris por defecto (#9ca3af) da 2,5:1 sobre blanco y no se lee al sol en el celular.
+     Este da 4,6:1 y sigue claramente más suave que lo escrito. Las clases placeholder:* de cada campo lo siguen ajustando. */
+  input::placeholder,
+  textarea::placeholder {
+    color: #717379;
+    opacity: 1;
+  }
   /* Videos e imágenes nunca más anchos que su contenedor (la cámara del teléfono entrega 1280 px o más). */
   video,
   canvas {

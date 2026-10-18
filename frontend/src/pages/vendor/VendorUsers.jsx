@@ -515,7 +515,7 @@ function StaffCard({ staff, onView }) {
         </div>
         <span
           className="flex-shrink-0 rounded-full px-2.5 py-0.5 text-[10.5px] font-bold"
-          style={staff.isActive ? { background: "rgba(12,174,83,0.12)", color: "#0A8F42" } : { background: "rgba(186,26,26,0.1)", color: "#ba1a1a" }}
+          style={staff.isActive ? { background: "rgba(12,174,83,0.12)", color: "#087A38" } : { background: "rgba(186,26,26,0.1)", color: "#ba1a1a" }}
         >
           {staff.isActive ? "Activo" : "Inactivo"}
         </span>
@@ -707,7 +707,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
         <div className="mb-4 flex flex-wrap items-center gap-1.5">
           <span
             className="rounded-full px-2.5 py-0.5 text-[10.5px] font-bold"
-            style={staff.isActive ? { background: "rgba(12,174,83,0.12)", color: "#0A8F42" } : { background: "rgba(186,26,26,0.1)", color: "#ba1a1a" }}
+            style={staff.isActive ? { background: "rgba(12,174,83,0.12)", color: "#087A38" } : { background: "rgba(186,26,26,0.1)", color: "#ba1a1a" }}
           >
             {staff.isActive ? "Activo" : "Inactivo"}
           </span>
@@ -749,7 +749,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
             </div>
             <div className="rounded-md bg-surface-container p-2">
               <p className="text-[10.5px] text-outline">Vendido (mes)</p>
-              <p className="text-[14px] font-bold text-[#0A8F42]">{staff.unitsSoldThisMonth} u.</p>
+              <p className="text-[14px] font-bold text-[#087A38]">{staff.unitsSoldThisMonth} u.</p>
             </div>
           </div>
         )}

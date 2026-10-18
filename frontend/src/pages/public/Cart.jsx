@@ -188,7 +188,12 @@ export default function Cart() {
                           layout (mismo criterio ya aplicado en
                           CartDrawer.jsx). */}
                       <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-9 w-12 px-1 text-body-md" />
-                      <button onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
+                      <button
+                        onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)}
+                        disabled={it.stock != null && it.quantity >= it.stock}
+                        aria-label={it.stock != null && it.quantity >= it.stock ? `No hay más unidades de ${it.name}` : `Sumar una unidad de ${it.name}`}
+                        className="flex h-9 w-8 items-center justify-center text-on-surface disabled:opacity-30"
+                      >
                         <Plus className="h-3.5 w-3.5" />
                       </button>
                     </div>

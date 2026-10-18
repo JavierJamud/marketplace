@@ -72,6 +72,12 @@ export default function Product() {
   const { data, isLoading } = useQuery({
     queryKey: ["product", vendorSlug, productSlug],
     queryFn: async () => (await api.get(`/products/${vendorSlug}/${productSlug}`)).data,
+    // El stock de la ficha tiene que ser el real: con los 5 minutos de caché general, un producto que otra persona acababa
+    // de agotar seguía mostrando unidades. Se vuelve a pedir cada 30 s con la pestaña a la vista y al volver a ella; el
+    // selector de cantidad ya se ajusta solo si baja (ver remainingStock).
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   // Reinicia la miniatura seleccionada al navegar a otro producto (ej. desde

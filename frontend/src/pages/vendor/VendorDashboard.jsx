@@ -63,7 +63,7 @@ const STATUS_LABEL = {
 const STATUS_COLOR = {
   NEW: "#337475",
   PREPARING: "#8A5100",
-  READY: "#0A8F42",
+  READY: "#087A38",
   DELIVERED: "#0CAE53",
   CANCELLED: "#ba1a1a",
   RECEIVED: "#65676c",
@@ -381,7 +381,7 @@ const INVENTORY_STATS = [
   {
     key: "unlimited",
     label: "Disponibles siempre",
-    color: "#0A8F42",
+    color: "#087A38",
     value: (inv) => inv.unlimitedStockProducts,
     products: (inv) => inv.products.unlimited,
     badge: () => "Sin seguimiento",
@@ -757,7 +757,7 @@ export default function VendorDashboard() {
         </div>
         <div className="mt-3 flex flex-col">
           {bestSellers.length ? (
-            bestSellers.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.soldCount} ${p.soldCount === 1 ? "vendido" : "vendidos"}`} badgeColor="#0A8F42" />)
+            bestSellers.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.soldCount} ${p.soldCount === 1 ? "vendido" : "vendidos"}`} badgeColor="#087A38" />)
           ) : (
             <p className="py-2 text-body-md text-on-surface-variant">Sin ventas suficientes en este período todavía.</p>
           )}
@@ -813,7 +813,7 @@ export default function VendorDashboard() {
                     <div className="text-[13px] font-semibold text-on-surface">{s.fullName}</div>
                     <div className="text-[11px] text-outline">{s.ordersHandled} {s.ordersHandled === 1 ? "pedido" : "pedidos"}</div>
                   </div>
-                  <div className="flex-shrink-0 text-[13px] font-bold text-[#0A8F42]">{fmtCUP(s.totalSales)}</div>
+                  <div className="flex-shrink-0 text-[13px] font-bold text-[#087A38]">{fmtCUP(s.totalSales)}</div>
                 </div>
               ))
             ) : (

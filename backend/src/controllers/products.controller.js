@@ -393,6 +393,34 @@ async function findCoPurchasedProductIds(productId, limit) {
   return coItems.map((c) => c.productId);
 }
 
+// Stock real de los productos que el cliente tiene en el carrito. El carrito guarda el stock del momento en que se agregó
+// cada producto; sin esta consulta, si otra persona compraba o la tienda bajaba el inventario, el cliente podía seguir
+// subiendo la cantidad hasta el número viejo y solo se enteraba al confirmar el pedido. Devuelve solo lo necesario para
+// limitar la cantidad (nada de precios de costo ni datos de la tienda). Un producto que ya no se puede pedir (pausado,
+// oculto, fuera del cupo del plan o tienda bloqueada) vuelve como no disponible, con las mismas reglas que createOrder.
+const cartStockSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(50) });
+
+export async function getCartStock(req, res) {
+  const { ids } = cartStockSchema.parse(req.body);
+  const products = await prisma.product.findMany({
+    where: { id: { in: [...new Set(ids)] } },
+    select: { id: true, stock: true, sizeStock: true, unlimitedStock: true, isActive: true, hiddenFromStore: true, overQuota: true, vendor: { select: { isBlocked: true, status: true } } },
+  });
+  res.set("Cache-Control", "no-store");
+  res.json({
+    products: products.map((p) => {
+      const available = p.isActive && !p.hiddenFromStore && !p.overQuota && !p.vendor?.isBlocked && p.vendor?.status === "ACTIVE";
+      return {
+        id: p.id,
+        available,
+        unlimitedStock: p.unlimitedStock,
+        stock: p.unlimitedStock ? null : p.stock,
+        sizeStock: p.unlimitedStock ? null : p.sizeStock ?? null,
+      };
+    }),
+  });
+}
+
 export async function getProductBySlug(req, res) {
   const { vendorSlug, productSlug } = req.params;
 

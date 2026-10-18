@@ -156,12 +156,12 @@ export default function PagoManual() {
     return (
       <div className="max-w-[560px]">
         <Link to="/vendedor/verificacion" className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-on-surface-variant">
-          <ArrowLeft className="h-4 w-4" /> Volver a Verificación y plan
+          <ArrowLeft className="h-4 w-4" /> Volver a Suscripción
         </Link>
         <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
           <p className="text-[13.5px] text-on-surface-variant">
             No tienes ningún pago pendiente de confirmar ahora mismo. Si necesitas verificarte, elegir tu método de pago o renovar,
-            hazlo desde "Verificación y plan".
+            hazlo desde "Suscripción".
           </p>
         </div>
       </div>
@@ -176,7 +176,7 @@ export default function PagoManual() {
   return (
     <div className="max-w-[560px]">
       <Link to="/vendedor/verificacion" className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-on-surface-variant">
-        <ArrowLeft className="h-4 w-4" /> Volver a Verificación y plan
+        <ArrowLeft className="h-4 w-4" /> Volver a Suscripción
       </Link>
 
       <h1 className="mb-1 font-display text-[22px] font-bold text-on-surface">

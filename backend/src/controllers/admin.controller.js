@@ -1047,7 +1047,12 @@ export async function listVerifications(req, res) {
     where: { verificationStatus: statuses ? { in: statuses } : { not: "NOT_STARTED" } },
     include: {
       verification: true,
-      locations: { include: { province: true }, take: 1 },
+      // Todas las provincias donde opera (antes solo la primera) y lo demás que la tienda cargó: el admin ve en la
+      // solicitud todo lo que envió, sin ir a buscarlo a otro lado.
+      locations: { include: { province: true, country: true } },
+      businessCategory: { select: { name: true } },
+      user: { select: { email: true, phone: true, fullName: true, createdAt: true } },
+      _count: { select: { products: true } },
       // Bloque 66: datos legales privados de verificación — solo se exponen
       // acá (panel de admin), nunca en un endpoint público.
       registrationCountry: true,
@@ -1108,14 +1113,27 @@ export async function listVerifications(req, res) {
       registrationCountry: v.registrationCountry?.name ?? v.registrationCountryOther ?? null,
       legalProvince: v.legalProvince?.name ?? v.legalProvinceOther ?? null,
       legalMunicipality: v.legalMunicipality?.name ?? v.legalMunicipalityOther ?? null,
+      // Datos legales escritos a mano (no estaban en el catálogo): el admin los revisa con más cuidado.
+      legalWrittenByHand: [v.registrationCountryOther && "país", v.legalProvinceOther && "provincia", v.legalMunicipalityOther && "municipio"].filter(Boolean),
       companyAddress: v.companyAddress,
+      ownerName: v.ownerName,
+      businessCategory: v.businessCategory?.name ?? null,
+      operatesIn: [...new Set(v.locations.map((l) => l.province?.name ?? l.stateOther ?? l.country?.name).filter(Boolean))],
+      logoUrl: v.logoUrl,
+      products: v._count.products,
+      accountEmail: v.user?.email ?? null,
+      accountPhone: v.user?.phone ?? null,
+      accountName: v.user?.fullName ?? null,
     },
     fullName: v.verification?.fullName ?? null,
     idNumber: v.verification?.idNumber ?? null,
     idDocumentType: v.verification?.idDocumentType ?? null,
     selfieUrl: v.verification?.selfieUrl ?? null,
     idPhotoFrontUrl: v.verification?.idPhotoFrontUrl ?? null,
+    // Antes no se mandaba y el reverso del documento nunca se veía en la solicitud.
+    idPhotoBackUrl: v.verification?.idPhotoBackUrl ?? null,
     selfieVideoUrl: v.verification?.selfieVideoUrl ?? null,
+    paymentNote: v.verification?.paymentNote ?? null,
     notes: v.verification?.notes ?? null,
     paymentMethod: v.verification?.paymentMethod ?? null,
     // Bloque 150: cuántos meses eligió pagar y lo que declaró al reclamar el
@@ -1250,6 +1268,96 @@ export async function confirmSubscriptionPayment(req, res) {
   await recalcVendorProductQuota(verification.vendorId);
 
   res.json({ verification: updated });
+}
+
+// Pago registrado a mano por el admin. Cubre la tienda que pagó por fuera de la plataforma (efectivo, transferencia a otra
+// cuenta) o la que el equipo decide activar: el admin elige cuántos meses quedan pagados y el motivo, y la tienda pasa a
+// verificada con Premium hasta esa fecha, sin esperar a que elija un método ni a que pulse "Ya pagué". Queda registrado
+// como cualquier pago confirmado: en la solicitud y su archivo (método MANUAL, meses, monto, quién y cuándo), en el
+// historial de estados, en la actividad de la tienda y, si era una renovación, en su historial de pagos. La tienda recibe
+// el aviso de verificada.
+const manualPaymentSchema = z.object({
+  months: z.number().int().min(1).max(24),
+  reason: z.string().trim().min(5, "Escribe el motivo (por ejemplo: pagó en efectivo en la oficina).").max(500),
+  amount: z.number().min(0).max(10_000_000).optional(),
+  currency: z.enum(["USD", "CUP"]).optional(),
+  reference: z.string().trim().max(120).optional(),
+});
+
+export async function registerManualPayment(req, res) {
+  const { id } = req.params;
+  const data = manualPaymentSchema.parse(req.body);
+  const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
+  if (!verification) throw new AppError("Solicitud no encontrada.", 404);
+  const status = verification.vendor.verificationStatus;
+  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(status)) {
+    throw new AppError("Solo se puede registrar un pago a una tienda en pago pendiente, vencida o suspendida.", 409);
+  }
+
+  const now = new Date();
+  const renewal = status !== "PENDING_PAYMENT";
+  // Si todavía le quedaba tiempo pagado, los meses se suman desde ese vencimiento (no se pierden días); si no, desde hoy.
+  const due = verification.vendor.nextPaymentDueDate;
+  const periodStart = due && due > now ? due : now;
+  const periodEnd = new Date(periodStart.getTime() + data.months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  const note = `${data.reason}${data.reference ? ` · Referencia: ${data.reference}` : ""}`;
+  const paymentData = {
+    paymentMethod: "MANUAL",
+    paymentMonths: data.months,
+    paymentAmount: data.amount ?? null,
+    paymentCurrency: data.currency ?? null,
+    paymentClaimedAt: now,
+    paymentConfirmedAt: now,
+    paymentConfirmedById: req.user.id,
+    paymentNote: note,
+  };
+
+  await prisma.verificationRequest.update({
+    where: { id },
+    // Un link de pago con tarjeta que hubiera quedado abierto ya no sirve: se cierra.
+    data: { ...paymentData, stripeCheckoutSessionId: null, stripeCheckoutUrl: null, stripeCheckoutExpiresAt: null },
+  });
+  await syncVerificationArchive(verification.vendorId, paymentData);
+  if (renewal) {
+    await prisma.subscriptionPayment.create({
+      data: {
+        vendorId: verification.vendorId,
+        paymentMethod: "MANUAL",
+        months: data.months,
+        amount: data.amount ?? null,
+        currency: data.currency ?? "USD",
+        payerName: "Registrado por el equipo",
+        claimedAt: now,
+        confirmedAt: now,
+        confirmedById: req.user.id,
+        periodStart,
+        periodEnd,
+        note,
+      },
+    });
+  }
+
+  const extraData = { planType: "BUSINESS", nextPaymentDueDate: periodEnd };
+  // Mismo cuidado que confirmSubscriptionPayment: si venía de la prueba gratis, ya no la debe bajar el cron de la prueba.
+  if (verification.vendor.trialEndsAt) extraData.trialEndsAt = null;
+  const months = `${data.months} ${data.months === 1 ? "mes" : "meses"}`;
+  const updated = await transitionVendorVerification(verification.vendorId, "VERIFIED", {
+    reason: `Pago registrado a mano por el admin: ${months}, hasta el ${periodEnd.toLocaleDateString("es-CU")}. ${note}`,
+    actorId: req.user.id,
+    source: "ADMIN_ACTION",
+    extraData,
+    notify: { type: "VERIFICATION_VERIFIED" },
+  });
+  await recalcVendorProductQuota(verification.vendorId);
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: verification.vendorId,
+    action: "subscription_manual_payment",
+    description: `Registró un pago manual de ${months}${data.amount != null ? ` (${data.amount} ${data.currency ?? ""})`.trimEnd() : ""}, Premium hasta el ${periodEnd.toLocaleDateString("es-CU")}. Motivo: ${note}`,
+  });
+
+  res.json({ verification: updated, periodEnd });
 }
 
 // Bloque 151 (pedido explícito — "también se podrá cambiar desde el panel

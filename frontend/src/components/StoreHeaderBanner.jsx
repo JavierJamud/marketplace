@@ -215,13 +215,13 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                    v.isOpenNow ? "bg-verified/20 text-verified-light" : "bg-white/10 text-white/60"
+                    v.isOpenNow ? "bg-verified/20 text-[#7dffb0]" : "bg-white/10 text-white/90"
                   }`}
                 >
                   {v.isOpenNow ? "Abierto ahora" : v.nextOpenLabel || "Cerrado ahora"}
                 </span>
                 {v.category?.name && (
-                  <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white/80">
+                  <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white/90">
                     {v.category.name}
                   </span>
                 )}
@@ -280,7 +280,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                 href={waLink(v.whatsapp, `Hola ${v.companyName}, tengo una consulta sobre sus productos.`)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-label-md font-bold text-white shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
               >
                 <MessageCircle className="h-[17px] w-[17px]" />
                 Contactar
@@ -301,7 +301,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               <div className="flex items-center gap-1.5">
                 <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue className="text-white" />
                 {v.reviewStats?.total > 0 && (
-                  <span className="text-[12px] text-white/50">
+                  <span className="text-[12px] text-white/90">
                     ({v.reviewStats.total} reseña{v.reviewStats.total === 1 ? "" : "s"})
                   </span>
                 )}
@@ -337,7 +337,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                       return (
                         <span
                           key={methodId}
-                          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/75"
+                          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/90"
                         >
                           <Icon className="h-2.5 w-2.5" />
                           {method.label}

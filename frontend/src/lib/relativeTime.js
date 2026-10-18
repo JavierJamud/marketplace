@@ -19,6 +19,13 @@ export function exactDate(iso) {
   return iso ? new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" }) : "";
 }
 
+// Fecha y hora: "17 oct 2026, 14:32".
+export function exactDateTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${exactDate(iso)}, ${d.toLocaleTimeString("es-CU", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+}
+
 // Bloque 245: para estados en vivo (un modelo de IA caído) importa el minuto,
 // no el día: "recién", "hace 3 min", "hace 2 h", "hace 1 d".
 export function timeSince(iso) {

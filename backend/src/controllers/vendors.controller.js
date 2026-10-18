@@ -979,8 +979,12 @@ export async function getMyTrial(req, res) {
       trialStartedAt: vendor.trialStartedAt,
       trialEndsAt: vendor.trialEndsAt,
       trialWelcomeSeenAt: vendor.trialWelcomeSeenAt,
+      // "CARD": registra la tarjeta (0 USD hoy) y al terminar la prueba se cobra solo; "CUP": sin tarjeta, paga a mano.
+      trialBilling: vendor.trialBilling ?? (vendor.trialStartedAt ? "CUP" : null),
       checklist,
       checklistComplete: checklist.length > 0 && checklist.every((item) => item.done),
+      // Prueba con tarjeta y todos los pasos hechos: falta registrar la tarjeta en Stripe para activarla.
+      needsCard: vendor.trialBilling === "CARD" && !vendor.trialEndsAt && vendor.verificationStatus !== "VERIFIED" && checklist.length > 0 && checklist.every((item) => item.done),
     },
   });
 }
@@ -992,18 +996,23 @@ export async function declineTrialOffer(req, res) {
   res.json({ ok: true });
 }
 
+// Al aceptar, la tienda elige cómo pagará después de la prueba: con tarjeta (la registra en Stripe con 0 USD hoy y al día
+// 31 se cobra sola) o en CUP (sin tarjeta; al terminar paga a mano).
+const acceptTrialSchema = z.object({ billing: z.enum(["CARD", "CUP"]).default("CUP") });
+
 export async function acceptTrialOffer(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
+  const { billing } = acceptTrialSchema.parse(req.body ?? {});
   // Idempotente a propósito — un doble clic/doble request nunca pisa un
   // trialStartedAt que ya existía.
   if (!vendor.trialStartedAt) {
-    await prisma.vendor.update({ where: { id: vendor.id }, data: { trialStartedAt: new Date() } });
+    await prisma.vendor.update({ where: { id: vendor.id }, data: { trialStartedAt: new Date(), trialBilling: billing } });
     // El admin se entera siempre (correo, campana y aviso push): la prueba se activa sola al completar los requisitos, sin
     // revisión humana, así que este es el momento de mirar quién la pidió.
     void notifyAdminActionNeeded(
       `Tienda aceptó la prueba gratis: ${vendor.companyName}`,
-      `${vendor.companyName} aceptó la prueba gratis de 30 días del Plan Premium. Se activará sola cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado).`,
+      `${vendor.companyName} aceptó la prueba gratis de 30 días del Plan Premium (después paga ${billing === "CARD" ? "con tarjeta, cobro automático" : "en CUP, a mano"}). Se activará cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado)${billing === "CARD" ? " y registre su tarjeta" : ""}.`,
       vendor.id,
       { url: `/admin/tiendas/${vendor.id}` }
     ).catch(() => {});

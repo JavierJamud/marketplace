@@ -37,7 +37,7 @@ function fmtCUP(n) {
 // Mismos labels/colores que VendorOrders.jsx para consistencia visual, sin
 // los controles de gestión (ese panel es del vendedor, este es de lectura).
 const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
-const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#0A8F42", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
+const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#087A38", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
 const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
 // BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).

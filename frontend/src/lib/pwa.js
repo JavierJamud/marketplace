@@ -165,6 +165,25 @@ export function onInstallAvailability(fn) {
   return () => listeners.delete(fn);
 }
 
+// Chrome avisa que la app se puede instalar unos segundos después de abrir la página. Si la persona toca "Instalar" antes,
+// se espera un poco a ese aviso en vez de mostrarle los pasos manuales enseguida.
+export function waitForInstallPrompt(ms = 3000) {
+  if (deferredPrompt) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      listeners.delete(check);
+      resolve(false);
+    }, ms);
+    function check(p) {
+      if (!p) return;
+      clearTimeout(timer);
+      listeners.delete(check);
+      resolve(true);
+    }
+    listeners.add(check);
+  });
+}
+
 export async function promptInstall() {
   if (!deferredPrompt) return "unavailable";
   const prompt = deferredPrompt;

@@ -3,8 +3,12 @@ import * as productsController from "../controllers/products.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 import { productUpload } from "../middleware/productUpload.js";
+import { cartStockRateLimit } from "../middleware/rateLimit.js";
 
 const router = Router();
+
+// Stock real de los productos del carrito (público: el carrito existe sin cuenta).
+router.post("/stock", cartStockRateLimit, productsController.getCartStock);
 
 // Panel de vendedor (siempre resuelve vendorId desde el usuario autenticado)
 // Bloque 185 (bug real reportado en vivo, con captura — "cuando el usuario

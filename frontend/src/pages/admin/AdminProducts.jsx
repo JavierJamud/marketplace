@@ -403,7 +403,7 @@ function ProductRow({ p, open, onToggleOpen, onTogglePause, onEdit, onDelete }) 
             type="button"
             onClick={onTogglePause}
             className="h-8 rounded-full px-3 text-[11px] font-bold"
-            style={p.isActive ? { background: "rgba(12,174,83,0.12)", color: "#0A8F42" } : { background: "rgba(117,119,124,0.12)", color: "#5c5e63" }}
+            style={p.isActive ? { background: "rgba(12,174,83,0.12)", color: "#087A38" } : { background: "rgba(117,119,124,0.12)", color: "#5c5e63" }}
             aria-label={p.isActive ? "Pausar producto" : "Activar producto"}
           >
             {p.isActive ? "Activo" : "Pausado"}

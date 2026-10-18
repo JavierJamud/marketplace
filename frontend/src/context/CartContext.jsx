@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { useAuth } from "./AuthContext.jsx";
@@ -351,6 +352,11 @@ export function CartProvider({ children }) {
   };
 
   const updateQuantity = (productId, quantity, size = null) => {
+    // Pedir más de lo que hay se avisa (antes el número simplemente no subía y el cliente no sabía por qué).
+    const current = itemsRef.current.find((i) => i.productId === productId && i.size === size);
+    if (current && quantity > current.quantity && quantity > resolveStockCap(current.stock)) {
+      toast.warning(current.stock > 0 ? `Solo hay ${current.stock} disponibles de "${current.name}".` : `"${current.name}" no tiene unidades disponibles.`);
+    }
     setItems((prev) => {
       const existing = prev.find((i) => i.productId === productId && i.size === size);
       if (!existing) return prev;
@@ -361,6 +367,73 @@ export function CartProvider({ children }) {
       return prev.map((i) => (i.productId === productId && i.size === size ? { ...i, quantity: clamped } : i));
     });
   };
+
+  // Stock real en vivo. Cada línea guarda el stock del momento en que se agregó; si después otra persona compra o la tienda
+  // baja el inventario, ese número queda viejo y el cliente podía subir la cantidad hasta él y recién enterarse al confirmar.
+  // Por eso se vuelve a pedir al servidor al cargar la página, al abrir el carrito, al volver a la pestaña y cada 30 s
+  // mientras el carrito o el pago están a la vista. Las líneas que ya no alcanzan se ajustan y se avisa de cada cambio.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const syncingRef = useRef(false);
+  const syncStock = useCallback(async () => {
+    if (!itemsRef.current.length || syncingRef.current) return;
+    syncingRef.current = true;
+    try {
+      const ids = [...new Set(itemsRef.current.map((i) => i.productId))];
+      const { data } = await api.post("/products/stock", { ids });
+      const byId = new Map(data.products.map((p) => [p.id, p]));
+      const fresh = (it) => {
+        const p = byId.get(it.productId);
+        if (!p || !p.available) return { gone: true };
+        const stock = p.unlimitedStock ? null : it.size ? Number(p.sizeStock?.[it.size] ?? 0) : Number(p.stock ?? 0);
+        return { stock, soldOut: stock !== null && stock <= 0 };
+      };
+      // Los avisos se calculan una vez con el carrito actual; el ajuste se aplica sobre el estado más reciente (por si el
+      // cliente tocó algo mientras llegaba la respuesta).
+      for (const it of itemsRef.current) {
+        const f = fresh(it);
+        if (f.gone) toast.warning(`"${it.name}" ya no está disponible. Lo quitamos de tu carrito.`);
+        else if (f.soldOut) toast.warning(`"${it.name}" se agotó. Lo quitamos de tu carrito.`);
+        else if (f.stock !== null && it.quantity > f.stock) toast.warning(`Solo quedan ${f.stock} de "${it.name}". Ajustamos tu carrito.`);
+      }
+      setItems((prev) => {
+        const next = [];
+        for (const it of prev) {
+          const f = fresh(it);
+          if (f.gone || f.soldOut) continue;
+          next.push({ ...it, stock: f.stock, quantity: Math.max(1, Math.min(it.quantity, resolveStockCap(f.stock))) });
+        }
+        if (next.length === 0) {
+          setVendor({});
+          setDiscount(null);
+        }
+        return next;
+      });
+    } catch {
+      /* sin conexión: queda el último dato y el servidor vuelve a comprobar al confirmar el pedido */
+    } finally {
+      syncingRef.current = false;
+    }
+  }, []);
+
+  const { pathname } = useLocation();
+  const cartVisible = isDrawerOpen || pathname === "/carrito" || pathname === "/checkout";
+  useEffect(() => {
+    syncStock();
+  }, [syncStock]);
+  useEffect(() => {
+    if (!cartVisible) return undefined;
+    syncStock();
+    const timer = setInterval(syncStock, 30_000);
+    return () => clearInterval(timer);
+  }, [cartVisible, syncStock]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") syncStock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [syncStock]);
 
   const clearCart = () => {
     setItems([]);

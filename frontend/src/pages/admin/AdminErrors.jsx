@@ -1,4 +1,13 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Tabs } from "../../components/ui/Tabs.jsx";
+import AdminSupportTickets from "../../components/admin/AdminSupportTickets.jsx";
+
+// Pestañas: los errores técnicos que registra el sistema y los tickets que mandan las tiendas con su captura.
+const ERROR_TABS = [
+  { id: "system", label: "Errores del sistema" },
+  { id: "tickets", label: "Tickets de las tiendas" },
+];
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Check, AlertTriangle } from "lucide-react";
@@ -38,6 +47,9 @@ const ORIGIN_LABELS = {
 
 export default function AdminErrors() {
   const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "tickets" ? "tickets" : "system";
+  const setTab = (id) => setParams(id === "tickets" ? { tab: "tickets" } : {});
   const [originFilter, setOriginFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("unresolved");
 
@@ -75,6 +87,11 @@ export default function AdminErrors() {
         del backend) — este es el único lugar del sitio donde se ve el detalle real, nunca se expone al cliente/vendedor.
       </p>
 
+      <Tabs tabs={ERROR_TABS} value={tab} onChange={setTab} className="mb-4" />
+      {tab === "tickets" ? (
+        <AdminSupportTickets />
+      ) : (
+        <>
       <div className="mb-2.5 flex flex-wrap gap-2">
         {ORIGIN_FILTERS.map((f) => (
           <button
@@ -164,6 +181,8 @@ export default function AdminErrors() {
           </div>
         ))}
       </div>
+        </>
+      )}
     </div>
   );
 }

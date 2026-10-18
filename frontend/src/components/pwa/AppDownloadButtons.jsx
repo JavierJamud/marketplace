@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Share, SquarePlus, MoreVertical, X } from "lucide-react";
+import { Download, Share, SquarePlus, MoreVertical, X } from "lucide-react";
 import toast from "../../lib/toast.jsx";
-import { APPS, detectInstalled, devicePlatform, isIos, onInstallAvailability, promptInstall } from "../../lib/pwa.js";
+import { APPS, detectInstalled, devicePlatform, isIos, onInstallAvailability, promptInstall, waitForInstallPrompt } from "../../lib/pwa.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
 // Botones "Android" y "iPhone" del footer para instalar la app de compras (Baznova Marketplace).
@@ -38,20 +38,34 @@ function Step({ n, children }) {
   );
 }
 
-function HowToModal({ kind, onClose }) {
+function HowToModal({ kind, onClose, onInstall, canInstall, busy }) {
   const onPhone = devicePlatform() !== "desktop";
-  const pageUrl = `${window.location.origin}/`;
+  const pageUrl = `${window.location.origin}/?instalar=1`;
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="app-howto-title" onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl">
+      <div role="dialog" aria-modal="true" aria-labelledby="app-howto-title" onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:pb-5">
         <div className="mb-3 flex items-start justify-between gap-3">
           <h2 id="app-howto-title" className="font-display text-[19px] font-extrabold text-on-surface">
-            {kind === "installed" ? "Ya tienes la app" : kind === "ios" ? "Instalar en iPhone o iPad" : "Instalar en Android"}
+            {kind === "installed" ? "Ya tienes la app" : kind === "link" ? `Instala ${APP.name}` : kind === "ios" ? "Instalar en iPhone o iPad" : "Instalar en Android"}
           </h2>
           <button type="button" onClick={onClose} aria-label="Cerrar" className="-mr-2 -mt-1 flex h-11 w-11 items-center justify-center rounded-full hover:bg-surface-container">
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Llegó desde el código QR: en Android con Chrome, un toque abre la instalación del navegador. */}
+        {kind === "link" && (
+          <>
+            <p className="mb-4 text-[14px] leading-[21px] text-on-surface-variant">Abre más rápido y recibe avisos de tus pedidos. Se instala en tu pantalla de inicio.</p>
+            {canInstall ? (
+              <button type="button" onClick={onInstall} disabled={busy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-secondary-container text-[15px] font-bold text-on-secondary-container disabled:opacity-60">
+                <Download className="h-5 w-5" aria-hidden="true" /> Instalar ahora
+              </button>
+            ) : (
+              <p className="text-[13px] text-on-surface-variant">{busy ? "Preparando la instalación..." : "Sigue los pasos de abajo."}</p>
+            )}
+          </>
+        )}
 
         {kind === "installed" && <p className="text-[14px] leading-[21px] text-on-surface-variant">Búscala como "{APP.name}" en tu pantalla de inicio o en el menú de aplicaciones. Si la borraste, vuelve a tocar el botón dentro de unos días o instálala desde el menú del navegador.</p>}
 
@@ -62,7 +76,7 @@ function HowToModal({ kind, onClose }) {
           </div>
         )}
 
-        {kind === "ios" && (
+        {(kind === "ios" || (kind === "link" && isIos())) && (
           <ol className="grid gap-3">
             <Step n={1}>Abre Baznova en <b>Safari</b> (en otros navegadores el paso puede no aparecer).</Step>
             <Step n={2}>
@@ -74,7 +88,7 @@ function HowToModal({ kind, onClose }) {
           </ol>
         )}
 
-        {kind === "android" && (
+        {(kind === "android" || (kind === "link" && !isIos() && !canInstall && !busy)) && (
           <ol className="grid gap-3">
             <Step n={1}>Abre Baznova en <b>Chrome</b>.</Step>
             <Step n={2}>
@@ -97,18 +111,44 @@ export function AppDownloadButtons() {
   const [busy, setBusy] = useState(false);
   useEffect(() => onInstallAvailability((p) => setCanInstall(!!p)), []);
 
+  // Desde el código QR (?instalar=1): se abre la ventana de instalar apenas carga la página, y se quita el parámetro de la
+  // dirección para que no vuelva a salir al recargar. El navegador exige un toque para instalar: no puede hacerse solo.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("instalar") !== "1") return;
+    params.delete("instalar");
+    const rest = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+    setModal("link");
+    if (!isIos()) {
+      setBusy(true);
+      waitForInstallPrompt(4000).finally(() => setBusy(false));
+    }
+  }, []);
+
+  const installFromLink = async () => {
+    const outcome = await promptInstall();
+    if (outcome === "accepted") {
+      setModal(null);
+      toast.success("App instalada", "La encuentras en tu pantalla de inicio y en el menú de aplicaciones.");
+    }
+  };
+
   const install = async (target) => {
     setBusy(true);
     const { installed } = await detectInstalled(APP, { loggedIn: !!user });
-    setBusy(false);
     const platform = devicePlatform();
+    // Si Chrome todavía no avisó que se puede instalar (pasa los primeros segundos), se le da un momento antes de mostrar
+    // los pasos a mano.
+    const ready = canInstall || (target === "android" && !isIos() && !installed ? await waitForInstallPrompt(3000) : false);
+    setBusy(false);
     // En un iPhone el botón de Android no sirve: se muestran los pasos de iPhone.
     const realTarget = target === "android" && isIos() ? "ios" : target;
     // "Ya instalada" solo vale para este mismo dispositivo (en una computadora, el botón de iPhone muestra el QR igual).
     const sameDevice = realTarget === "ios" ? platform === "ios" : platform !== "ios";
     if (installed && sameDevice) return setModal("installed");
     // Android (y computadora con Chrome o Edge): un toque abre la ventana de instalación del navegador.
-    if (realTarget === "android" && canInstall) {
+    if (realTarget === "android" && ready) {
       const outcome = await promptInstall();
       if (outcome === "accepted") {
         toast.success("App instalada", platform === "desktop" ? "Quedó en tu computadora, en el menú de aplicaciones." : "La encuentras en tu pantalla de inicio y en el menú de aplicaciones.");
@@ -140,7 +180,7 @@ export function AppDownloadButtons() {
           </span>
         </button>
       </div>
-      {modal && <HowToModal kind={modal} onClose={() => setModal(null)} />}
+      {modal && <HowToModal kind={modal} onClose={() => setModal(null)} onInstall={installFromLink} canInstall={canInstall} busy={busy} />}
     </div>
   );
 }

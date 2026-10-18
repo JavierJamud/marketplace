@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { CreditCard, Landmark, Clock, X, Plus, Sparkles } from "lucide-react";
+import { CreditCard, Landmark, Clock, X, Plus, Sparkles, HandCoins } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
@@ -12,14 +12,14 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 
-const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark };
-const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP" };
+const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark, MANUAL: HandCoins };
+const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP", MANUAL: "Registrado por el equipo" };
 
 // Bloque 64: status ya viene calculado 1:1 desde Vendor.verificationStatus
 // (ver listSubscriptions en admin.controller.js) — se agregan los 2 estados
 // nuevos del cobro recurrente.
 const STATUS_META = {
-  active: { label: "Activa", bg: "rgba(12,174,83,0.12)", color: "#0A8F42" },
+  active: { label: "Activa", bg: "rgba(12,174,83,0.12)", color: "#087A38" },
   // Prueba gratis de 30 días: Premium completo sin pagar todavía.
   trial: { label: "Free 30 días", bg: "rgba(51,116,117,0.12)", color: "#245a5b" },
   pending_payment: { label: "Pago pendiente", bg: "rgba(254,152,0,0.15)", color: "#8A5100" },

@@ -120,7 +120,7 @@ export async function reportClientCrash(req, res) {
   await logError({
     origin: "PAGINA",
     message: `Pantalla con error (${data.kind}${data.recovered ? ", se recargó sola" : ""}) en ${path || "?"}: ${data.message}`,
-    context: { ...data, userAgent: String(req.get("user-agent") ?? "").slice(0, 300), reportedAt: new Date().toISOString() },
+    context: { ...data, userId: req.user?.id ?? undefined, userAgent: String(req.get("user-agent") ?? "").slice(0, 300), reportedAt: new Date().toISOString() },
   });
   res.status(204).end();
 }

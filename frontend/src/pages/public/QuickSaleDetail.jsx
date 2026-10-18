@@ -112,7 +112,7 @@ export default function QuickSaleDetail() {
                 href={waLink(listing.owner.phone, message)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-label-md font-bold text-white shadow-md transition-all hover:brightness-95"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-95"
               >
                 <MessageCircle className="h-[18px] w-[18px]" />
                 Pedir por WhatsApp
