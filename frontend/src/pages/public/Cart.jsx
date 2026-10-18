@@ -239,7 +239,7 @@ export default function Cart() {
                     }
                   }}
                   placeholder="Código de descuento"
-                  className="h-10 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+                  className="h-10 min-w-0 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
                 />
                 <button
                   onClick={() => applyDiscount.mutate()}

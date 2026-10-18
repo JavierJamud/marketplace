@@ -6,6 +6,40 @@
   html {
     @apply scroll-smooth;
   }
+  /* Ninguna página puede quedar más ancha que la pantalla: si algún contenido se pasa (un video de la cámara con su ancho
+     real de 1280 px, una tabla), se recorta en vez de dejar mover la página de lado o achicarla en el celular. `clip` no rompe
+     los elementos sticky (overflow:hidden sí); los navegadores viejos que no lo entienden usan hidden. */
+  html,
+  body {
+    overflow-x: hidden;
+  }
+  @supports (overflow: clip) {
+    html,
+    body {
+      overflow-x: clip;
+    }
+  }
+  /* En pantallas táctiles, los campos de texto con letra de menos de 16 px hacen que iPhone acerque la página sola al
+     tocarlos (y luego queda con zoom). Con 16 px como mínimo eso no pasa. Solo en táctiles: en computadora se ven igual. */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    select,
+    textarea {
+      font-size: max(16px, 1em) !important;
+    }
+  }
+  /* Un campo dentro de una fila flex ("Código de descuento" + "Aplicar") no se encoge por debajo de unos 20 caracteres y
+     empuja el botón fuera de una pantalla de 320 px. Con min-width 0 se ajusta al espacio que queda. */
+  input,
+  select,
+  textarea {
+    min-width: 0;
+  }
+  /* Videos e imágenes nunca más anchos que su contenedor (la cámara del teléfono entrega 1280 px o más). */
+  video,
+  canvas {
+    max-width: 100%;
+  }
   body {
     @apply bg-background text-on-background font-body;
     /* Bloque 23: bloquea el double-tap-zoom de mobile que algunos navegadores

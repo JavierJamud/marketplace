@@ -426,8 +426,9 @@ export function CameraCapture({ shape, label, instructions, facingMode = "user",
   const showsVideoEl = phase === "live" || phase === "counting" || isLivenessPhase;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-surface-container-high">
-      <div className="relative flex aspect-[4/3] w-full items-center justify-center bg-[#101418]">
+    // min-w-0 + w-full: dentro de una cuadrícula, el ancho real del video (1280 px o más) no estira la columna ni la página.
+    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-surface-container-high">
+      <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-[#101418]">
         {phase === "idle" && (
           <button
             type="button"
@@ -458,7 +459,7 @@ export function CameraCapture({ shape, label, instructions, facingMode = "user",
 
         {showsVideoEl && (
           <>
-            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full max-w-full object-cover" />
             {shape === "oval" ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div

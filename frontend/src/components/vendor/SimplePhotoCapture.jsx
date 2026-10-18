@@ -103,7 +103,7 @@ export function SimplePhotoCapture({ onCaptured }) {
             </button>
           </div>
         )}
-        {phase === "live" && <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />}
+        {phase === "live" && <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full max-w-full object-cover" />}
         {phase === "done" && previewUrl && <img src={previewUrl} alt="Foto capturada" className="h-full w-full object-cover" />}
         <canvas ref={canvasRef} className="hidden" />
       </div>

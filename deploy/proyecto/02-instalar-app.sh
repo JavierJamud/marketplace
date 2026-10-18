@@ -84,21 +84,28 @@ ln -sfn $ENVF $APP.new/backend/.env.production
 ln -sfn $ENVF $APP.new/backend/.env
 chown -R zeudin:zeudin $APP.new
 
-echo ">> Backend: dependencias (compiladas para $(uname -m)), Prisma y migraciones"
+echo ">> Backend: dependencias (compiladas para $(uname -m)) y Prisma"
 cd $APP.new/backend
 sudo -u zeudin npm ci --no-audit --no-fund
 sudo -u zeudin npx prisma generate
-sudo -u zeudin npx prisma migrate deploy
-# Catálogo mundial de países (apagados): el admin enciende los que quiere recibir. Solo agrega los que faltan.
-sudo -u zeudin node prisma/seed-countries.mjs
-# Municipios de Cuba y ciudades de cada estado de los demás países: solo agrega los que faltan.
-sudo -u zeudin node prisma/seed-ciudades.mjs
 
 echo ">> Frontend: compilación (la API se llama por /api en el mismo dominio)"
 cd $APP.new/frontend
 sudo -u zeudin npm ci --no-audit --no-fund
 # FRONTEND_URL es el dominio real: las etiquetas de vista previa (og:image) del index deben llevar la dirección pública, no localhost.
 sudo -u zeudin env VITE_API_URL=/api FRONTEND_URL="$URL_PUBLICA" npm run build
+
+# Las migraciones van aquí, con todo ya compilado, y no al principio: mientras se compila (unos 20 minutos) la versión vieja sigue
+# atendiendo a los clientes, y si la base ya hubiera cambiado (una columna quitada, por ejemplo) esa versión fallaría todo ese
+# tiempo. Así el código viejo convive con la base nueva solo los segundos que tarda el cambio de versión.
+echo ">> Base de datos: migraciones y catálogos"
+cd $APP.new/backend
+sudo -u zeudin npx prisma migrate deploy
+# Catálogo mundial de países (apagados): el admin enciende los que quiere recibir. Solo agrega los que faltan.
+sudo -u zeudin node prisma/seed-countries.mjs
+# Municipios de Cuba y ciudades de cada estado de los demás países: solo agrega los que faltan.
+sudo -u zeudin node prisma/seed-ciudades.mjs
+cd /
 
 echo ">> Activando la versión nueva"
 rm -rf $RAIZ/app.prev

@@ -205,7 +205,9 @@ export function KycSubmitForm({ vendor, siteName, onSubmitted }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+      {/* min-w-0 en cada celda: sin esto, el ancho real del video de la cámara estira la columna y saca el formulario de la
+          pantalla del celular. */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 [&>*]:min-w-0">
         <div>
           {/* Bloque 146 (pedido explícito — "debe indicar que tiene que
               ser la foto de la persona responsable, debe coincidir con

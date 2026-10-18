@@ -1,8 +1,11 @@
 import "./lib/safeStorage.js";
 import { installInputGuards } from "./lib/inputGuards.js";
+import { installAspectRatioFallback } from "./lib/aspectRatioFallback.js";
 
 // Filtro central de campos numéricos y de nombres (ver lib/inputGuards.js).
 installInputGuards();
+// Alto de las cajas aspect-* en navegadores viejos sin aspect-ratio (ver lib/aspectRatioFallback.js).
+installAspectRatioFallback();
 import ReportErrorModal from "./components/ReportErrorModal.jsx";
 import React from "react";
 import ReactDOM from "react-dom/client";

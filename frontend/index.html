@@ -225,6 +225,10 @@
           },
           { passive: false }
         );
+        // Safari de iPhone y iPad maneja el pellizco con sus propios eventos de gesto: también se bloquean.
+        ["gesturestart", "gesturechange", "gestureend"].forEach(function (type) {
+          document.addEventListener(type, function (e) { e.preventDefault(); }, { passive: false });
+        });
       })();
     </script>
 
