@@ -120,8 +120,11 @@ async function siteSuggestions(snap) {
   return chips.length >= 3 ? chips : null;
 }
 
+export const MAX_CUSTOM_SUGGESTIONS = 6;
+
 export async function getAssistantSuggestions() {
-  const settings = await prisma.siteSettings.findFirst({ select: { botAutoLearn: true } });
+  const settings = await prisma.siteSettings.findFirst({ select: { botAutoLearn: true, botCustomSuggestions: true } });
+  if (settings?.botCustomSuggestions?.length) return { chips: settings.botCustomSuggestions, auto: false, custom: true };
   const auto = !(settings && settings.botAutoLearn === false);
   const snap = auto ? await freshSnapshot().catch(() => null) : null;
   const chips = (await siteSuggestions(snap).catch(() => null)) ?? (snap?.suggestions?.length ? snap.suggestions : await defaultSuggestions());
@@ -130,12 +133,28 @@ export async function getAssistantSuggestions() {
 
 // Vista del admin: ajuste, resumen y cuántas correcciones han enseñado criterios.
 export async function getLearningOverview() {
-  const [settings, lessons, examples] = await Promise.all([
-    prisma.siteSettings.findFirst({ select: { botAutoLearn: true, botLearningSnapshot: true, botLearningAt: true } }),
+  const [settings, lessons, examples, current] = await Promise.all([
+    prisma.siteSettings.findFirst({ select: { botAutoLearn: true, botLearningSnapshot: true, botLearningAt: true, botCustomSuggestions: true } }),
     prisma.chatTrainingExample.count({ where: { botTipo: "GENERAL", activo: true, leccion: { not: null } } }),
     prisma.chatTrainingExample.count({ where: { botTipo: "GENERAL", activo: true } }),
+    getAssistantSuggestions().catch(() => null),
   ]);
-  return { autoLearn: settings?.botAutoLearn ?? true, computedAt: settings?.botLearningAt ?? null, snapshot: settings?.botLearningSnapshot ?? null, lessons, examples };
+  return {
+    autoLearn: settings?.botAutoLearn ?? true,
+    computedAt: settings?.botLearningAt ?? null,
+    snapshot: settings?.botLearningSnapshot ?? null,
+    lessons,
+    examples,
+    // Lo que el chat muestra de verdad ahora mismo (las del admin, o las automáticas) y la lista del admin.
+    currentSuggestions: current?.chips ?? [],
+    customSuggestions: settings?.botCustomSuggestions ?? [],
+    maxCustomSuggestions: MAX_CUSTOM_SUGGESTIONS,
+  };
+}
+
+export async function setCustomSuggestions(list) {
+  const settings = await prisma.siteSettings.findFirst();
+  if (settings) await prisma.siteSettings.update({ where: { id: settings.id }, data: { botCustomSuggestions: list } });
 }
 
 export async function setAutoLearn(value) {

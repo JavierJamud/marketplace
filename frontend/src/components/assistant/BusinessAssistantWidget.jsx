@@ -125,14 +125,17 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
       )}
 
       {/* En celular el botón se oculta mientras la hoja está abierta (la hoja ya
-          trae su propio botón de cerrar). */}
+          trae su propio botón de cerrar). También se oculta con la cámara de
+          la Caja abierta (CameraScanner marca <html data-camera-open>): flotando
+          encima tapaba la imagen. Al final de cada página los paneles dejan
+          un hueco de su alto (pb-28 en el <main>) para que nunca tape lo último. */}
       <button
         ref={toggleRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Cerrar el asistente de negocio" : "Abrir el asistente de negocio"}
         aria-expanded={open}
-        className={`group fixed bottom-4 right-4 z-40 flex h-14 items-center gap-2.5 rounded-full border border-surface-container-high bg-surface-container-lowest py-1.5 pl-1.5 pr-5 text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-8px_rgba(14,26,40,0.45)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6 ${
+        className={`group fixed bottom-4 right-4 z-40 flex h-14 [html[data-camera-open]_&]:hidden items-center gap-2.5 rounded-full border border-surface-container-high bg-surface-container-lowest py-1.5 pl-1.5 pr-5 text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-8px_rgba(14,26,40,0.45)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6 ${
           open ? "max-sm:hidden" : ""
         }`}
       >

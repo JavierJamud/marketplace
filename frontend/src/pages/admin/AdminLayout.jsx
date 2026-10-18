@@ -438,7 +438,7 @@ export default function AdminLayout() {
           header queda exactamente alineado con las tarjetas del dashboard. */}
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col overflow-x-clip px-4 py-6 lg:px-[38px] lg:py-4">
         <SearchAndNotifications onOpenSidebar={() => setSidebarOpen(true)} onLogout={handleLogout} />
-        <main className="flex-1 pb-24">
+        <main className="flex-1 pb-28">
           <Outlet />
         </main>
       </div>

@@ -2450,6 +2450,9 @@ model SiteSettings {
   // cada día con lo que preguntan y buscan los clientes (ver lib/assistantLearning.js).
   botAutoLearn         Boolean   @default(true)
   botLearningSnapshot  Json?
+  // Preguntas sugeridas escritas por el admin. Con alguna cargada, el chat muestra estas (en este orden) en vez de las
+  // automáticas; vacía, vuelven las automáticas.
+  botCustomSuggestions String[]  @default([])
   // "Lo más buscado" de la portada: términos elegidos y frases generadas por IA (lib/trendingSearches.js).
   trendingSearches Json?
   botLearningAt        DateTime?

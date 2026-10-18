@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power, Sparkles, RefreshCw, Search, X, ShieldCheck, ChevronLeft, ChevronRight, MessageSquareText } from "lucide-react";
+import { FileText, Trash2, Bot, ThumbsUp, ThumbsDown, GraduationCap, Power, Sparkles, RefreshCw, Search, X, ShieldCheck, ChevronLeft, ChevronRight, MessageSquareText, Pencil, ArrowUp, ArrowDown, Plus } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
@@ -182,8 +182,11 @@ function AutoLearningSection() {
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
         El asistente aprende solo de lo que los clientes preguntan y buscan en el sitio. Cada día se recalculan las preguntas que aparecen al abrir el chat
-        (y los temas y rubros más pedidos). Con el aprendizaje desactivado se muestran siempre las preguntas base.
+        (y los temas y rubros más pedidos). Con el aprendizaje desactivado se muestran siempre las preguntas base. Si escribes tus propias
+        preguntas, el chat muestra las tuyas.
       </p>
+
+      {!isLoading && data && <SuggestionsEditor data={data} />}
 
       {isLoading ? (
         <p className="text-[13px] text-outline">Cargando...</p>
@@ -192,13 +195,7 @@ function AutoLearningSection() {
       ) : (
         <div className="grid gap-5 md:grid-cols-2">
           <div>
-            <div className="mb-2 text-[13px] font-bold text-on-surface">Preguntas sugeridas al abrir el chat</div>
-            <div className="flex flex-wrap gap-1.5">
-              {snap.suggestions.map((s) => (
-                <span key={s} className="rounded-full border border-outline-variant px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">{s}</span>
-              ))}
-            </div>
-            <div className="mb-2 mt-5 text-[13px] font-bold text-on-surface">Rubros más buscados</div>
+            <div className="mb-2 text-[13px] font-bold text-on-surface">Rubros más buscados</div>
             {snap.topCategories?.length ? (
               <ol className="flex list-decimal flex-col gap-1 pl-5 text-[12.5px] text-on-surface-variant">
                 {snap.topCategories.map((c) => <li key={c.name}>{c.name}</li>)}
@@ -630,5 +627,141 @@ function ChatReviewSection() {
         )}
       </div>
     </>
+  );
+}
+
+// Preguntas que aparecen al abrir el chat del marketplace. Muestra las que el chat usa de verdad ahora mismo; el admin puede
+// escribir las suyas (hasta el máximo del servidor), ordenarlas y volver a las automáticas cuando quiera.
+function SuggestionsEditor({ data }) {
+  const queryClient = useQueryClient();
+  const custom = data.customSuggestions ?? [];
+  const max = data.maxCustomSuggestions ?? 6;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState([]);
+
+  const save = useMutation({
+    mutationFn: async (customSuggestions) => (await api.patch("/assistant/learning", { customSuggestions })).data,
+    onSuccess: (d, list) => {
+      queryClient.setQueryData(["assistant-learning"], d);
+      queryClient.invalidateQueries({ queryKey: ["assistant-suggestions"] });
+      setEditing(false);
+      toast.success(list.length ? "Preguntas guardadas. El chat ya muestra las tuyas." : "Listo. El chat vuelve a usar las preguntas automáticas.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar las preguntas."),
+  });
+
+  function startEditing() {
+    // Se parte de las tuyas o, si aún no hay, de las que el chat muestra ahora, para no empezar de cero.
+    setDraft((custom.length ? custom : data.currentSuggestions ?? []).slice(0, max));
+    setEditing(true);
+  }
+  const setAt = (i, value) => setDraft((d) => d.map((q, j) => (j === i ? value : q)));
+  const removeAt = (i) => setDraft((d) => d.filter((_, j) => j !== i));
+  const move = (i, dir) =>
+    setDraft((d) => {
+      const j = i + dir;
+      if (j < 0 || j >= d.length) return d;
+      const next = [...d];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  const cleaned = draft.map((q) => q.trim()).filter(Boolean);
+  const tooShort = cleaned.some((q) => q.length < 3);
+
+  return (
+    <div className="mb-5 rounded-xl border border-surface-container-high p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[13px] font-bold text-on-surface">Preguntas sugeridas al abrir el chat</div>
+          <div className="text-[12px] text-outline">{custom.length ? "Escritas por ti" : "Automáticas"}</div>
+        </div>
+        {!editing && (
+          <div className="flex flex-wrap gap-2">
+            {custom.length > 0 && (
+              <button
+                type="button"
+                disabled={save.isPending}
+                onClick={() => save.mutate([])}
+                className="flex min-h-11 items-center rounded-full border border-outline-variant px-4 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+              >
+                Volver a las automáticas
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={startEditing}
+              className="flex min-h-11 items-center gap-1.5 rounded-full bg-primary px-4 text-[12.5px] font-bold text-white hover:bg-primary/90"
+            >
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+              Editar preguntas
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="flex flex-wrap gap-1.5">
+          {(data.currentSuggestions ?? []).map((s) => (
+            <span key={s} className="rounded-full border border-outline-variant px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">{s}</span>
+          ))}
+        </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!tooShort) save.mutate(cleaned);
+          }}
+        >
+          <ol className="flex flex-col gap-2">
+            {draft.map((q, i) => (
+              // En celular los botones van en una segunda línea: al lado del campo lo dejaban tan estrecho que la pregunta no se leía.
+              <li key={i} className="flex min-w-0 flex-wrap items-center gap-1 border-b border-surface-container pb-2 last:border-b-0 sm:flex-nowrap sm:border-b-0 sm:pb-0">
+                <span className="w-5 flex-shrink-0 text-right text-[12px] font-semibold text-outline">{i + 1}.</span>
+                <input
+                  value={q}
+                  onChange={(e) => setAt(i, e.target.value)}
+                  maxLength={80}
+                  aria-label={`Pregunta ${i + 1}`}
+                  placeholder="Ej.: ¿Hacen entregas a domicilio?"
+                  className="h-11 min-w-0 flex-1 basis-[calc(100%-1.75rem)] rounded-lg sm:basis-0 border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface focus:border-tertiary-accent focus:outline-none"
+                />
+                <span className="ml-auto flex">
+                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Subir la pregunta ${i + 1}`} className="flex h-11 w-9 flex-shrink-0 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container disabled:opacity-30">
+                  <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button type="button" onClick={() => move(i, 1)} disabled={i === draft.length - 1} aria-label={`Bajar la pregunta ${i + 1}`} className="flex h-11 w-9 flex-shrink-0 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container disabled:opacity-30">
+                  <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button type="button" onClick={() => removeAt(i)} aria-label={`Quitar la pregunta ${i + 1}`} className="flex h-11 w-9 flex-shrink-0 items-center justify-center rounded-lg text-error hover:bg-error/10">
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </button>
+                </span>
+              </li>
+            ))}
+          </ol>
+          {draft.length === 0 && <p className="text-[12.5px] text-outline">Sin preguntas tuyas, el chat usa las automáticas.</p>}
+          {tooShort && <p className="mt-2 text-[12px] text-error">Cada pregunta necesita al menos 3 caracteres.</p>}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setDraft((d) => [...d, ""])}
+              disabled={draft.length >= max}
+              className="flex min-h-11 items-center gap-1.5 rounded-full border border-dashed border-outline-variant px-4 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-40"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {draft.length >= max ? `Máximo ${max} preguntas` : "Añadir pregunta"}
+            </button>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setEditing(false)} className="flex min-h-11 items-center rounded-full px-4 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container">
+                Cancelar
+              </button>
+              <button type="submit" disabled={save.isPending || tooShort} className="flex min-h-11 items-center rounded-full bg-primary px-5 text-[12.5px] font-bold text-white hover:bg-primary/90 disabled:opacity-50">
+                {save.isPending ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

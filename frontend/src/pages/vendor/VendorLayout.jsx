@@ -567,7 +567,7 @@ export default function VendorLayout() {
           cualquier sobrante horizontal sin crear un contenedor de scroll (el
           buscador fijo de arriba sigue pegado). Las tablas anchas ya traen su
           propio scroll interno. */}
-      <main className="min-w-0 overflow-x-clip px-4 pb-24 pt-6 lg:px-[38px] lg:pt-4">
+      <main className="min-w-0 overflow-x-clip px-4 pb-28 pt-6 lg:px-[38px] lg:pt-4">
         {/* Bloque 233 (pedido explícito, con captura — "esta barra siempre
             debe aparecer fija en el panel de vendedores para fácil acceso a
             su uso"): antes se iba con el resto del contenido al hacer

@@ -17,7 +17,7 @@ import { cancelOrderForCustomer } from "./orders.controller.js";
 import { createSupportCase } from "../services/supportCase.service.js";
 import { tightenReply, getLiveSnapshot } from "../lib/assistantStyle.js";
 import { planFactsForPrompt } from "../lib/platformFacts.js";
-import { getAssistantSuggestions, getLearningOverview, computeLearningSnapshot, setAutoLearn } from "../lib/assistantLearning.js";
+import { getAssistantSuggestions, getLearningOverview, computeLearningSnapshot, setAutoLearn, setCustomSuggestions, MAX_CUSTOM_SUGGESTIONS } from "../lib/assistantLearning.js";
 import { getBrandSettings } from "./settings.controller.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { CONVERSATIONAL_FILLERS, WANTS_CHEAP_RE, toSearchStem } from "../lib/searchStem.js";
@@ -1488,8 +1488,24 @@ export async function refreshLearning(_req, res) {
   res.json(await getLearningOverview());
 }
 
+const learningSchema = z
+  .object({
+    autoLearn: z.boolean().optional(),
+    // Lista vacía = volver a las preguntas automáticas.
+    customSuggestions: z
+      .array(z.string().trim().min(3, "Cada pregunta necesita al menos 3 caracteres.").max(80, "Cada pregunta puede tener hasta 80 caracteres."))
+      .max(MAX_CUSTOM_SUGGESTIONS, `Puedes poner hasta ${MAX_CUSTOM_SUGGESTIONS} preguntas.`)
+      .optional(),
+  })
+  .refine((d) => d.autoLearn !== undefined || d.customSuggestions !== undefined, "Nada que guardar.");
+
 export async function updateLearning(req, res) {
-  const { autoLearn } = z.object({ autoLearn: z.boolean() }).parse(req.body);
-  await setAutoLearn(autoLearn);
+  const { autoLearn, customSuggestions } = learningSchema.parse(req.body);
+  if (autoLearn !== undefined) await setAutoLearn(autoLearn);
+  if (customSuggestions !== undefined) {
+    // Sin repetidas (sin distinguir mayúsculas), en el orden que puso el admin.
+    const seen = new Set();
+    await setCustomSuggestions(customSuggestions.filter((q) => !seen.has(q.toLowerCase()) && seen.add(q.toLowerCase())));
+  }
   res.json(await getLearningOverview());
 }
