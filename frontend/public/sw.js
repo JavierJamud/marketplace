@@ -144,6 +144,41 @@ self.addEventListener("push", (event) => {
   );
 });
 
+// El navegador puede renovar la suscripción por su cuenta (vence, cambia el servicio de avisos). Sin esto, el servidor seguía
+// enviando a la dirección vieja y la tienda dejaba de recibir avisos sin saberlo hasta abrir la app otra vez. Aquí se vuelve a
+// suscribir con la misma clave y se le pasa al servidor la dirección vieja (la prueba de que es este dispositivo) y la nueva.
+function keyBytes(base64url) {
+  const pad = "=".repeat((4 - (base64url.length % 4)) % 4);
+  const raw = atob((base64url + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      const oldEndpoint = event.oldSubscription?.endpoint;
+      if (!oldEndpoint) return;
+      let sub = event.newSubscription;
+      if (!sub) {
+        let key = event.oldSubscription?.options?.applicationServerKey;
+        if (!key) {
+          const res = await fetch("/api/push/public-key", { cache: "no-store" });
+          const { key: k } = await res.json();
+          if (!k) return;
+          key = keyBytes(k);
+        }
+        sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
+      const json = sub.toJSON();
+      await fetch("/api/push/rotate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldEndpoint, endpoint: json.endpoint, keys: json.keys }),
+      });
+    })().catch(() => {})
+  );
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const target = new URL(event.notification.data?.url || "/", self.location.origin).href;

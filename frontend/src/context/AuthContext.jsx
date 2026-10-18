@@ -15,6 +15,7 @@ const LAST_ACTIVITY_KEY = "zeudin_last_activity";
 // Bloque 60 (pedido explícito): 30 min sin actividad -> aviso con cuenta
 // regresiva de 5 min ("¿sigues ahí?") -> si no hay CLIC en "Sigo aquí" en
 // ese tiempo, cierre real. Total: hasta 35 min desde la última actividad.
+// Desde v26.0.79 solo aplica al administrador (ver el efecto de inactividad más abajo).
 const IDLE_WARNING_MS = 30 * 60 * 1000;
 const IDLE_COUNTDOWN_MS = 5 * 60 * 1000;
 const ACTIVITY_EVENTS = ["mousedown", "keydown", "scroll", "touchstart"];
@@ -150,8 +151,11 @@ export function AuthProvider({ children }) {
   }, [clearLocalSession, navigate]);
 
   // --- Bloque 60: expiración por inactividad (30 min) + aviso de 5 min ----
+  // Solo para el administrador (puede tocar toda la plataforma). Clientes y tiendas quedan conectados: la tienda deja el panel
+  // abierto esperando pedidos y, si se cerraba a los 35 min, perdía los avisos en vivo y el sonido, y al tocar una notificación
+  // caía en la pantalla de ingreso. Su sesión dura 30 días en el servidor y se renueva sola cada vez que usa el sitio.
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.role !== "ADMIN") return;
 
     let lastThrottledWrite = 0;
     function markActivity() {

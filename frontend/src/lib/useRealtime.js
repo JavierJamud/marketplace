@@ -92,13 +92,20 @@ export function useRealtime(enabled) {
       controller?.abort();
       connect();
     };
+    // El teléfono corta la conexión cuando la página queda en segundo plano. Al volver a verla, si estaba esperando para
+    // reintentar, se reconecta enseguida (y se refrescan los datos) en vez de esperar hasta 30 s sin avisos.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && attempt > 0) onOnline();
+    };
     window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
     connect();
     return () => {
       stopped = true;
       clearTimeout(retryTimer);
       clearTimeout(timer.current);
       window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
       controller?.abort();
     };
   }, [enabled, queryClient]);

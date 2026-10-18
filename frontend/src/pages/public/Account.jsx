@@ -314,6 +314,36 @@ const emptyStoreForm = {
 // rechazan el login con un error genérico si el rol devuelto no corresponde
 // a la URL usada — nunca revelan que el email existe con otro rol (ver
 // roleAllowedForMode/handleLogin más abajo).
+// Paso del código de ingreso guardado en el navegador. En el celular, ir a la app del correo a buscar el código deja esta
+// pestaña en segundo plano y el navegador (Firefox sobre todo) puede descargarla y recargarla al volver: sin esto la persona
+// caía otra vez en el formulario de ingreso y el código que acababa de recibir ya no tenía dónde escribirse. Se guarda solo lo
+// necesario para mostrar ese paso (nunca la contraseña) y vence con el código (10 minutos como máximo).
+const PENDING_2FA_MAX_MS = 10 * 60 * 1000;
+const pending2faKey = (mode) => `zeudin_pending_2fa:${mode}`;
+
+function readPending2fa(mode) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(pending2faKey(mode)) || "null");
+    if (!saved?.email) return null;
+    const expires = saved.expiresAt ? new Date(saved.expiresAt).getTime() : saved.savedAt + PENDING_2FA_MAX_MS;
+    if (Date.now() > Math.min(expires, saved.savedAt + PENDING_2FA_MAX_MS)) {
+      localStorage.removeItem(pending2faKey(mode));
+      return null;
+    }
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function clearPending2fa(mode) {
+  try {
+    localStorage.removeItem(pending2faKey(mode));
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
 export default function Account({ mode = "customer" }) {
   // Enlace de socio que llegó directo a esta pantalla (…/vendedor/ingresar?socio=CODIGO).
   useEffect(() => capturePartnerRef(), []);
@@ -329,8 +359,10 @@ export default function Account({ mode = "customer" }) {
   const canRegister = mode !== "admin" && mode !== "partner";
 
   // "login" | "register" | "register-verify" | "forgot-email" | "forgot-code" | "forgot-newpass" | "two-factor"
-  const [view, setView] = useState(mode === "admin" || mode === "partner" ? "login" : searchParams.get("tab") === "registro" ? "register" : "login");
-  const [twoFactorEmail, setTwoFactorEmail] = useState("");
+  // Si la pestaña se recargó mientras la persona buscaba el código en su correo, se vuelve directo a ese paso.
+  const [pending2fa] = useState(() => readPending2fa(mode));
+  const [view, setView] = useState(pending2fa ? "two-factor" : mode === "admin" || mode === "partner" ? "login" : searchParams.get("tab") === "registro" ? "register" : "login");
+  const [twoFactorEmail, setTwoFactorEmail] = useState(pending2fa?.email ?? "");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   // Bloque 46 (pedido explícito — "vamos a corregir que en el inicio de
   // sesión... agregar un botón de reenviar código... y la espera de
@@ -338,13 +370,26 @@ export default function Account({ mode = "customer" }) {
   // se habilita un botón enviar código nuevamente"): timestamp real que
   // manda el backend (auth.controller.js) — nunca "5 minutos" fijo acá, así
   // la cuenta regresiva sigue siendo exacta después de un reenvío.
-  const [twoFactorExpiresAt, setTwoFactorExpiresAt] = useState(null);
+  const [twoFactorExpiresAt, setTwoFactorExpiresAt] = useState(pending2fa?.expiresAt ?? null);
   // Bloque 273: "totp" = el código sale de la app autenticadora; "email" = llega al correo.
-  const [twoFactorMethod, setTwoFactorMethod] = useState("email");
+  const [twoFactorMethod, setTwoFactorMethod] = useState(pending2fa?.method ?? "email");
   // Mensaje "código incorrecto" que se muestra debajo de las casillas (los 3 pasos de código).
   const [codeError, setCodeError] = useState("");
-  const [challengeToken, setChallengeToken] = useState("");
+  const [challengeToken, setChallengeToken] = useState(pending2fa?.challengeToken ?? "");
   const twoFactorSecondsLeft = useCountdownSeconds(twoFactorExpiresAt);
+  // Mientras se está en el paso del código, se guarda (y se actualiza si se reenvía o cambia de método); al salir de él, se borra.
+  useEffect(() => {
+    try {
+      if (view === "two-factor" && twoFactorEmail) {
+        const savedAt = readPending2fa(mode)?.savedAt ?? Date.now();
+        localStorage.setItem(pending2faKey(mode), JSON.stringify({ email: twoFactorEmail, method: twoFactorMethod, expiresAt: twoFactorExpiresAt, challengeToken, savedAt }));
+      } else {
+        clearPending2fa(mode);
+      }
+    } catch {
+      /* sin almacenamiento: el paso funciona igual mientras la pestaña no se recargue */
+    }
+  }, [view, twoFactorEmail, twoFactorMethod, twoFactorExpiresAt, challengeToken, mode]);
   // Bloque 59: código de verificación de correo (segundo paso del registro)
   // — el email pendiente de verificar es siempre form.email, no hace falta
   // duplicarlo en un estado propio.
@@ -363,7 +408,7 @@ export default function Account({ mode = "customer" }) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [loginForm, setLoginForm] = useState({ email: pending2fa?.email ?? "", password: "" });
   const [form, setForm] = useState(emptyRegisterForm);
   const [storeForm, setStoreForm] = useState(emptyStoreForm);
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -464,6 +509,7 @@ export default function Account({ mode = "customer" }) {
           setTwoFactorExpiresAt(result.twoFactorExpiresAt);
           setTwoFactorMethod(result.method ?? "email");
           setChallengeToken(result.challengeToken ?? "");
+          clearPending2fa(mode);
           setView("two-factor");
           if ((result.method ?? "email") === "email") toast.success("Te enviamos un código a tu correo.");
           return;
@@ -512,6 +558,7 @@ export default function Account({ mode = "customer" }) {
     try {
       await withMinDelay(async () => {
         const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined, challengeToken);
+        clearPending2fa(mode);
         if (!roleAllowedForMode(user.role)) {
           logout();
           toast.error("Credenciales inválidas.");
@@ -805,6 +852,12 @@ export default function Account({ mode = "customer" }) {
 
   async function handleResendTwoFactorCode() {
     if (challengeToken) return handleSendEmailCodeInstead();
+    // Tras una recarga de la pestaña la contraseña ya no está (nunca se guarda): para un código nuevo hay que volver a ponerla.
+    if (!loginForm.password) {
+      toast.error("Para recibir otro código, vuelve a escribir tu contraseña.");
+      setView("login");
+      return;
+    }
     setResendingCode(true);
     try {
       const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);

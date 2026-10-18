@@ -297,12 +297,15 @@ export default function VendorSetupGuide() {
         </span>
       </div>
 
-      <ol className="grid gap-3">
+      {/* grid-cols-1 (columna de 0 a 100 %): con "grid" a secas la columna crece hasta el texto más largo de una línea, y el
+          "Falta: dirección legal del negocio, país de registro legal..." del paso de identidad ensanchaba toda la lista (con el
+          formulario y la cámara adentro) más allá de la pantalla del celular. */}
+      <ol className="grid grid-cols-1 gap-3">
         {steps.map((s, i) => {
           const isOpen = active === s.id;
           const blockedKyc = s.id === "identidad" && steps.slice(0, 4).some((x) => !x.done);
           return (
-            <li key={s.id} className={`rounded-2xl border bg-surface-container-lowest ${isOpen ? "border-tertiary-accent/50" : "border-surface-container-high"}`}>
+            <li key={s.id} className={`min-w-0 rounded-2xl border bg-surface-container-lowest ${isOpen ? "border-tertiary-accent/50" : "border-surface-container-high"}`}>
               <button
                 type="button"
                 onClick={() => setOpenId(isOpen ? "__none" : s.id)}

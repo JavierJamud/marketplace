@@ -34,6 +34,27 @@ export async function subscribe(req, res) {
   res.status(201).json({ ok: true });
 }
 
+// El navegador puede cambiar la dirección de la suscripción por su cuenta (evento pushsubscriptionchange del service worker).
+// Ahí no hay sesión (el service worker no ve el token), así que la prueba es la dirección vieja: una URL única e imposible de
+// adivinar que solo conoce ese dispositivo. Se pasa la misma persona y la misma app a la dirección nueva; sin esto, la tienda
+// dejaba de recibir avisos en silencio hasta volver a abrir la app.
+const rotateSchema = z.object({
+  oldEndpoint: z.string().url().max(1000).startsWith("https://"),
+  endpoint: subscribeSchema.shape.endpoint,
+  keys: subscribeSchema.shape.keys,
+});
+
+export async function rotate(req, res) {
+  const data = rotateSchema.parse(req.body);
+  const old = await prisma.pushSubscription.findUnique({ where: { endpoint: data.oldEndpoint } });
+  if (!old) return res.status(404).json({ error: "Suscripción no encontrada." });
+  await prisma.$transaction([
+    prisma.pushSubscription.deleteMany({ where: { endpoint: data.endpoint, NOT: { id: old.id } } }),
+    prisma.pushSubscription.update({ where: { id: old.id }, data: { endpoint: data.endpoint, p256dh: data.keys.p256dh, auth: data.keys.auth } }),
+  ]);
+  res.json({ ok: true });
+}
+
 export async function unsubscribe(req, res) {
   const { endpoint } = z.object({ endpoint: z.string().url().max(1000) }).parse(req.body);
   await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: req.user.id } });

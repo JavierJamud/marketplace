@@ -11,6 +11,7 @@ router.get("/public-key", push.publicKey);
 router.get("/stream", authenticate, push.realtimeStream);
 router.post("/subscribe", authenticate, push.subscribe);
 router.post("/unsubscribe", authenticate, push.unsubscribe);
+router.post("/rotate", appInstallRateLimit, push.rotate);
 router.get("/preferences", authenticate, push.getPreferences);
 router.patch("/preferences", authenticate, push.updatePreferences);
 
