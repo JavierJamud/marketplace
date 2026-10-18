@@ -23,7 +23,7 @@ export const VENDOR_SECTIONS = [
   { key: "mesas", label: "Mesas / QR" },
   { key: "mensajes", label: "Mensajes" },
   { key: "resenas", label: "Reseñas" },
-  { key: "reportes", label: "Reportes de fraude" },
+  { key: "reportes", label: "Reportes" },
   // Bloque 202 (pedido explícito — "no será una sección visible en el
   // panel del... dueño, será una sección que se habilita sola cuando un
   // usuario de venta tiene productos asignados"): sigue siendo una clave

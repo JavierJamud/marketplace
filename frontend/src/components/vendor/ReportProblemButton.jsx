@@ -65,7 +65,7 @@ export function ReportProblemButton() {
         disabled={capturing}
         aria-label="Reportar un problema en esta pantalla"
         title="Reportar un problema en esta pantalla"
-        className="fixed bottom-4 left-4 z-40 flex h-12 items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-3.5 text-[13px] font-bold text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent disabled:opacity-70 sm:bottom-6 sm:left-6 lg:left-[296px] [html[data-camera-open]_&]:hidden"
+        className="fixed bottom-4 left-4 z-40 flex h-12 items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-3.5 text-[13px] font-bold text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent disabled:opacity-70 sm:bottom-6 sm:left-6 lg:left-[296px] [html[data-camera-open]_&]:hidden"
       >
         {capturing ? <Camera className="h-5 w-5 animate-pulse text-tertiary-accent" aria-hidden="true" /> : <Bug className="h-5 w-5 text-tertiary-accent" aria-hidden="true" />}
         <span className="hidden sm:inline">{capturing ? "Tomando captura..." : "Reportar un problema"}</span>
@@ -265,7 +265,8 @@ function ReportDialog({ shot, page, onRetake, onClose }) {
   );
 }
 
-function MyTickets() {
+// También se muestra en Reportes → "Enviados" (ver components/reports/ReportsCenter.jsx).
+export function MyTickets() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["my-support-tickets"], queryFn: async () => (await api.get("/support-tickets/mine")).data.tickets });
   if (isLoading) return <p className="text-[13px] text-on-surface-variant">Cargando...</p>;
   if (isError)

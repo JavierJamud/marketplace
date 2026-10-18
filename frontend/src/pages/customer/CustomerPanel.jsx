@@ -1,5 +1,5 @@
 import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -29,6 +29,7 @@ import { NotificationSettings } from "../../components/pwa/NotificationSettings.
 import { APPS } from "../../lib/pwa.js";
 import { MyPoints } from "../../components/customer/MyPoints.jsx";
 import { EmailPreferencesCard } from "../../components/customer/EmailPreferencesCard.jsx";
+import { ReportsCenter } from "../../components/reports/ReportsCenter.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -50,6 +51,8 @@ const TABS = [
   { id: "points", label: "Mis puntos" },
   { id: "addresses", label: "Direcciones" },
   { id: "profile", label: "Perfil" },
+  // Lo que reportaste y lo que te reportaron (ventas rápidas), con su estado. Ver ReportsCenter.jsx.
+  { id: "reports", label: "Reportes" },
   { id: "suggestions", label: "Sugerencias" },
 ];
 
@@ -87,6 +90,15 @@ export default function CustomerPanel() {
     const wanted = new URLSearchParams(window.location.search).get("tab");
     return TABS.some((x) => x.id === wanted) ? wanted : "orders";
   });
+  // En el celular las pestañas van en una fila deslizable: se centra la activa (por ejemplo, al entrar con ?tab=reports) sin
+  // mover la página, solo la fila.
+  const tabsNavRef = useRef(null);
+  useEffect(() => {
+    const nav = tabsNavRef.current;
+    const active = nav?.querySelector('[aria-current="page"]');
+    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
+    nav.scrollTo({ left: active.offsetLeft - nav.clientWidth / 2 + active.clientWidth / 2, behavior: "smooth" });
+  }, [tab]);
   const [orderToCancel, setOrderToCancel] = useState(null);
   const [orderToEdit, setOrderToEdit] = useState(null);
   const [orderBlocked, setOrderBlocked] = useState(null);
@@ -428,10 +440,11 @@ export default function CustomerPanel() {
   }
 
   return (
-    <div className="container-app grid grid-cols-1 gap-8 py-9 lg:grid-cols-[250px_1fr] lg:items-start">
-      {/* SIDEBAR */}
-      <aside className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
-        <div className="mb-5 flex items-center gap-3 border-b border-surface-container-high pb-[18px]">
+    <div className="container-app grid grid-cols-1 gap-5 py-5 lg:grid-cols-[250px_1fr] lg:items-start lg:gap-8 lg:py-9">
+      {/* SIDEBAR. En el celular las pestañas van en una fila que se desliza: antes eran una lista de 8 renglones que llenaba la
+          primera pantalla y el contenido de la pestaña quedaba abajo, fuera de la vista. */}
+      <aside className="min-w-0 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 lg:p-[22px]">
+        <div className="mb-3 flex items-center gap-3 border-b border-surface-container-high pb-3 lg:mb-5 lg:pb-[18px]">
           <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent font-display text-[17px] font-bold text-white">
             {customer?.fullName?.[0] ?? user.email[0].toUpperCase()}
           </div>
@@ -439,13 +452,17 @@ export default function CustomerPanel() {
             <div className="text-[14px] font-bold text-on-surface">{customer?.fullName ?? user.email}</div>
             <div className="text-[12px] text-outline">{customer?.province?.name ?? "Cuba"}</div>
           </div>
+          <button onClick={handleLogout} className="ml-auto min-h-11 rounded-md px-2 text-[12.5px] font-semibold text-error lg:hidden">
+            Cerrar sesión
+          </button>
         </div>
-        <nav className="flex flex-col gap-1">
+        <nav ref={tabsNavRef} aria-label="Secciones de tu cuenta" className="relative -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0 lg:pb-0">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`rounded-md px-3.5 py-2.5 text-left text-[13.5px] font-bold ${
+              aria-current={tab === t.id ? "page" : undefined}
+              className={`min-h-11 flex-shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-left text-[13.5px] font-bold lg:rounded-md lg:py-2.5 ${
                 tab === t.id ? "bg-primary-container text-white" : "text-on-surface-variant hover:bg-surface-container"
               }`}
             >
@@ -455,14 +472,14 @@ export default function CustomerPanel() {
         </nav>
         <button
           onClick={handleLogout}
-          className="mt-4 w-full rounded-md px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5"
+          className="mt-4 hidden w-full rounded-md px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5 lg:block"
         >
           Cerrar sesión
         </button>
       </aside>
 
       {/* CONTENT */}
-      <div>
+      <div className="min-w-0">
         {tab === "orders" && (
           <div>
             <WelcomeHeading name={(customer?.fullName ?? "").split(" ")[0] || "bienvenido"} className="mb-4" />
@@ -974,6 +991,13 @@ export default function CustomerPanel() {
           <div className="max-w-[640px]">
             <h1 className="mb-5 font-display text-headline-md text-on-surface">Mis puntos</h1>
             <MyPoints />
+          </div>
+        )}
+
+        {tab === "reports" && (
+          <div>
+            <h1 className="mb-4 font-display text-headline-md text-on-surface">Reportes</h1>
+            <ReportsCenter audience="customer" />
           </div>
         )}
 

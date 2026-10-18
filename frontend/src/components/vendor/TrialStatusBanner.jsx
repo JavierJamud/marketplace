@@ -25,7 +25,7 @@ export function TrialStatusBanner({ vendor }) {
   return (
     <div
       role="status"
-      className={`mb-4 flex flex-col gap-2 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${ending ? "border-error/30 bg-error/[0.06]" : "border-tertiary-accent/25 bg-tertiary-accent/[0.06]"}`}
+      className={`mb-4 flex gap-2 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${ending ? "flex-col" : "flex-row items-center justify-between"} ${ending ? "border-error/30 bg-error/[0.06]" : "border-tertiary-accent/25 bg-tertiary-accent/[0.06]"}`}
     >
       <div className="flex min-w-0 items-start gap-3">
         {ending ? <Clock className="mt-0.5 h-5 w-5 flex-shrink-0 text-error" aria-hidden="true" /> : <Sparkles className="mt-0.5 h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />}
@@ -33,7 +33,9 @@ export function TrialStatusBanner({ vendor }) {
           <p className="text-[13.5px] font-bold text-on-surface">
             Free 30 días · {left}
           </p>
-          <p className="text-[12.5px] leading-[18px] text-on-surface-variant">
+          {/* Mientras falta más de una semana, en el celular basta con la línea de arriba: el detalle ocupaba media pantalla en
+              cada sección del panel. Cerca del final se muestra siempre, porque ahí sí hay que actuar. */}
+          <p className={`text-[12.5px] leading-[18px] text-on-surface-variant ${ending ? "" : "hidden sm:block"}`}>
             {ending
               ? `Tu Premium gratis termina el ${endLabel}. Elige cómo pagar para seguir en Premium; si no, tu tienda pasa sola a Regular y los productos que pasen de su límite quedan ocultos (no se borran).`
               : `Tienes todas las funciones Premium gratis hasta el ${endLabel}.`}

@@ -26,10 +26,20 @@ function maskSecret(plaintext) {
   return `${head}${"·".repeat(Math.max(3, plaintext.length - 8))}${tail}`;
 }
 
+// Si la clave guardada no se puede descifrar (se cifró con otra clave maestra, por ejemplo al restaurar un respaldo en otro
+// servidor) se trata como "sin clave": antes una sola fila dañada tiraba un error 500 y dejaba sin abrir toda la página de
+// integraciones. El listado la marca como `unreadable` para pedir que se vuelva a pegar.
 function decryptIntegration(i) {
   if (!i.credentialsCiphertext) return null;
-  return decryptSecret({ ciphertext: i.credentialsCiphertext, iv: i.credentialsIv, authTag: i.credentialsAuthTag });
+  try {
+    return decryptSecret({ ciphertext: i.credentialsCiphertext, iv: i.credentialsIv, authTag: i.credentialsAuthTag });
+  } catch {
+    console.warn(`[integrations] No se pudo descifrar la clave de "${i.name}": hay que volver a guardarla.`);
+    return null;
+  }
 }
+
+const isUnreadable = (i) => !!i.credentialsCiphertext && decryptIntegration(i) === null;
 
 // Stripe guarda sus 3 credenciales como un único JSON cifrado en la misma
 // columna credentialsCiphertext que el resto de las integraciones usa para
@@ -57,6 +67,7 @@ export async function listIntegrations(_req, res) {
           name: i.name,
           isActive: i.isActive,
           updatedAt: i.updatedAt,
+          unreadable: isUnreadable(i),
           publishableKeyMask: maskSecret(publishableKey),
           secretKeyMask: maskSecret(secretKey),
           webhookSecretMask: maskSecret(webhookSecret),
@@ -67,6 +78,7 @@ export async function listIntegrations(_req, res) {
         name: i.name,
         isActive: i.isActive,
         keyMask: maskSecret(decryptIntegration(i)),
+        unreadable: isUnreadable(i),
         fromEmail: i.fromEmail,
         updatedAt: i.updatedAt,
       };

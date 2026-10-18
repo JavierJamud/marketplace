@@ -20,7 +20,8 @@ export function planFromSettings(plans, planType) {
     planType,
     name: p.displayName,
     priceLabel: isBusiness ? null : "Gratis", // el precio real de Premium lo arma quien lo use (varía CUP/USD)
-    features: p.features ?? [],
+    // Lo que incluye el plan, armado con sus límites y funciones reales (backend: buildPlanIncludes).
+    features: p.includes ?? p.features ?? [],
   };
 }
 

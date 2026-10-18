@@ -416,7 +416,7 @@ export default function VendorTables() {
   const canManageTable = canWriteSection(staffSectionPermissions, "mesas");
   const canManageOrders = canWriteSection(staffSectionPermissions, "mesas") || canWriteSection(staffSectionPermissions, "pedidos");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: tablesError } = useQuery({
     queryKey: ["my-tables"],
     queryFn: async () => (await api.get("/tables/me")).data.tables,
     // Bloque 168 (pedido explícito — "los cambios de los estados de los
@@ -468,6 +468,27 @@ export default function VendorTables() {
   });
 
   if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando mesas...</p>;
+
+  // Tienda que no es restaurante (o sin permiso para Mesas) que llegó por un enlace directo: se explica por qué no puede usar
+  // esta sección en vez de mostrar una lista vacía con un "Agregar mesa" que el servidor rechaza.
+  const blocked = tablesError?.response?.status === 403;
+  if (blocked) {
+    return (
+      <div>
+        <div className="mb-4 flex items-center gap-3">
+          <IconCircle icon={UtensilsCrossed} tone="teal" />
+          <h1 className="font-display text-[22px] font-extrabold tracking-tight text-on-surface sm:text-[26px]">Mesas y códigos QR</h1>
+        </div>
+        <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-[14px] text-on-surface-variant">
+          <p className="font-bold text-on-surface">{tablesError.response.data?.error ?? "No tienes acceso a esta sección."}</p>
+          <p className="mt-1">Las mesas con QR sirven para que los clientes pidan desde su mesa. Si tu negocio es un restaurante o cafetería, cambia el tipo de negocio en Configuración.</p>
+          <Link to="/vendedor/configuracion" className="mt-3 inline-flex min-h-11 items-center font-bold text-tertiary-accent underline">
+            Ir a Configuración
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

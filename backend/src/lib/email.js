@@ -364,8 +364,8 @@ export async function sendRegistrationCodeEmail(user, code) {
 // Bloque 47: correo puntual admin -> cliente/tienda (AdminChat.jsx, pestaña
 // "Correo directo") — vendorId solo si el destinatario es una tienda, mismo
 // EmailLog type MANUAL que sendManualOrderEmail (pedido explícito del bloque).
-export async function sendAdminDirectEmail({ to, subject, message, recipientName, vendorId }) {
-  const { subject: finalSubject, html } = await adminDirectEmail({ subject, message, recipientName });
+export async function sendAdminDirectEmail({ to, subject, message, recipientName, vendorId, cta }) {
+  const { subject: finalSubject, html } = await adminDirectEmail({ subject, message, recipientName, cta });
   const result = await sendViaResend({ to, subject: finalSubject, html });
   await logEmail({ vendorId: vendorId ?? null, orderId: null, type: "MANUAL", to, subject: finalSubject, result });
   return result;

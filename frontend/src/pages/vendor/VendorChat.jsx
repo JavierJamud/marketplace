@@ -51,7 +51,10 @@ export default function VendorChat() {
   }, [messages, isApproved, queryClient]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Se baja solo dentro de la lista de mensajes: scrollIntoView también movía la página entera y escondía el título
+    // y las pestañas debajo de la barra de arriba (sobre todo en el celular).
+    const box = bottomRef.current?.parentElement;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
   if (!isApproved) {

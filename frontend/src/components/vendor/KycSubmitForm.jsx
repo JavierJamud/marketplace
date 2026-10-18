@@ -5,7 +5,7 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { Input } from "../ui/Input.jsx";
-import { Select } from "../ui/Select.jsx";
+import { IdCard, BookUser, Contact, Check } from "lucide-react";
 import { Button } from "../ui/Button.jsx";
 import { LocationPicker } from "../LocationPicker.jsx";
 import { CameraCapture } from "../CameraCapture.jsx";
@@ -13,6 +13,29 @@ import { CameraCapture } from "../CameraCapture.jsx";
 // Formulario de verificación de identidad (documento, selfie y datos legales). Vive aparte para usarlo en dos lugares con el
 // mismo comportamiento: la página "Verificación y plan" y el paso de identidad de "Completa tu tienda".
 // `onSubmitted` se llama cuando el servidor aceptó la solicitud (para refrescar lo que dependa de ella).
+// Documentos aceptados y cómo se llaman sus datos: el formulario se adapta al que elige la persona.
+const DOC_TYPES = [
+  { value: "NATIONAL_ID", label: "Carné de identidad", short: "carné de identidad", hint: "Tiene frente y reverso", Icon: IdCard, numberLabel: "Número del carné de identidad", numberPlaceholder: "Ej.: 85010112345" },
+  { value: "PASSPORT", label: "Pasaporte", short: "pasaporte", hint: "Solo la página con tu foto", Icon: BookUser, numberLabel: "Número de pasaporte", numberPlaceholder: "Ej.: K1234567" },
+  { value: "INTERNATIONAL_ID", label: "Carné de extranjería", short: "carné de extranjería", hint: "Tiene frente y reverso", Icon: Contact, numberLabel: "Número del carné de extranjería", numberPlaceholder: "Ej.: E12345678" },
+];
+
+// Un paso del formulario: número (o check al completarlo), título y contenido.
+function KycStep({ n, title, done, note, children }) {
+  return (
+    <section className="mb-5 border-t border-surface-container-high pt-4 first-of-type:border-t-0 first-of-type:pt-0" aria-labelledby={`kyc-step-${n}`}>
+      <h3 id={`kyc-step-${n}`} className="mb-1 flex items-center gap-2.5 text-[14px] font-bold text-on-surface">
+        <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[12.5px] font-extrabold ${done ? "bg-verified text-white" : "bg-secondary-container text-on-secondary-container"}`}>
+          {done ? <Check className="h-4 w-4" strokeWidth={3} aria-label="Hecho" /> : n}
+        </span>
+        {title}
+      </h3>
+      {note && <p className="mb-3 ml-[38px] text-[12px] text-on-surface-variant">{note}</p>}
+      <div className={note ? "" : "mt-3"}>{children}</div>
+    </section>
+  );
+}
+
 export function KycSubmitForm({ vendor, siteName, onSubmitted }) {
   const [fullName, setFullName] = useState("");
   const [idNumber, setIdNumber] = useState("");
@@ -113,12 +136,15 @@ export function KycSubmitForm({ vendor, siteName, onSubmitted }) {
   const KYC_KEYS = new Set(["companyAddress", "registrationCountryId", "legalProvinceId", "idDocument", "selfie"]);
   const storeMissing = (trial?.checklist ?? []).filter((c) => !c.done && !KYC_KEYS.has(c.key)).map((c) => c.label.toLowerCase());
   const needsBack = idDocumentType !== "PASSPORT";
+  const docType = DOC_TYPES.find((d) => d.value === idDocumentType) ?? null;
+  const idDataDone = fullName.trim().length >= 2 && idNumber.trim().length >= 4;
+  const legalDone = !(legalLoc.countryOther.trim() ? !legalLoc.stateOther.trim() : !!legalStatus.error) && !!companyAddress.trim();
 
   // Qué falta en este formulario, en el orden en que aparece. El botón se activa cuando la lista queda vacía.
   const formMissing = [
-    fullName.trim().length < 2 && "nombre completo del responsable",
-    idNumber.trim().length < 4 && "número de identidad (4 caracteres o más)",
     !idDocumentType && "tipo de documento",
+    fullName.trim().length < 2 && "nombre completo del responsable",
+    idNumber.trim().length < 4 && `${docType ? docType.numberLabel.toLowerCase() : "número del documento"} (4 caracteres o más)`,
     (legalLoc.countryOther.trim() ? !legalLoc.stateOther.trim() : !!legalStatus.error) && "país y provincia de registro legal",
     !companyAddress.trim() && "dirección de la empresa",
     !selfieBlob && "foto del responsable",
@@ -131,7 +157,7 @@ export function KycSubmitForm({ vendor, siteName, onSubmitted }) {
     <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
       <div className="mb-1 text-[15px] font-bold text-on-surface">Documentos</div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Privados y cifrados. Captura en vivo desde tu cámara — no se acepta subir fotos de la galería.
+        Privados y cifrados. Elige tu documento y sigue los pasos: cada uno se abre al completar el anterior.
       </p>
 
       {storeMissing.length > 0 && (
@@ -144,108 +170,101 @@ export function KycSubmitForm({ vendor, siteName, onSubmitted }) {
         </div>
       )}
 
-      <div className="mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <Input data-guard="name" label="Nombre completo del responsable" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        <Input label="Número de identidad" required value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
-      </div>
+      {/* Pasos guiados: primero el tipo de documento y, según cuál, sus datos; después los datos legales y por último las fotos.
+          Cada paso se abre al completar el anterior (los anteriores siguen a la vista para corregirlos). */}
+      <KycStep n={1} title="¿Qué documento vas a presentar?" done={!!idDocumentType}>
+        <div role="radiogroup" aria-label="Tipo de documento" className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          {DOC_TYPES.map((d) => (
+            <button
+              key={d.value}
+              type="button"
+              role="radio"
+              aria-checked={idDocumentType === d.value}
+              onClick={() => setIdDocumentType(d.value)}
+              className={`flex min-h-14 items-center gap-3 rounded-xl border p-3.5 text-left transition-colors ${idDocumentType === d.value ? "border-tertiary-accent bg-tertiary-accent/[0.07]" : "border-outline-variant hover:border-tertiary-accent/60"}`}
+            >
+              <d.Icon className="h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />
+              <span>
+                <span className="block text-[13.5px] font-bold text-on-surface">{d.label}</span>
+                <span className="block text-[11.5px] text-on-surface-variant">{d.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </KycStep>
 
-      <div className="mb-4">
-        <Select label="Tipo de documento" required value={idDocumentType} onChange={(e) => setIdDocumentType(e.target.value)}>
-          <option value="" disabled>Elige cuál presentas...</option>
-          <option value="NATIONAL_ID">Carné de identidad</option>
-          <option value="PASSPORT">Pasaporte</option>
-          <option value="INTERNATIONAL_ID">Carné de extranjería</option>
-        </Select>
-      </div>
-
-      <p className="mb-1 text-[13px] font-bold text-on-surface">Datos legales de la tienda</p>
-      <p className="mb-3 text-label-sm text-outline">
-        Privados — nunca se muestran en tu perfil público (eso se configura aparte).
-      </p>
-      <div className="mb-4 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-        <Input
-          label={vendor?.ownerIdNumber ? "ID fiscal de la empresa (opcional, ya tienes ID personal)" : "ID fiscal de la empresa"}
-          value={companyTaxId}
-          onChange={(e) => setCompanyTaxId(e.target.value)}
-        />
-        <div className="sm:col-span-2">
-          <LocationPicker
-            value={legalLoc}
-            onChange={(patch) => setLegalLoc((prev) => ({ ...prev, ...patch }))}
-            onStatus={setLegalStatus}
-            labels={{
-              country: "País de registro legal",
-              countryOther: "Escribe el país de registro legal",
-              province: "Provincia o estado de registro legal",
-              provinceOther: "Escribe la provincia o estado de registro legal",
-              municipality: "Municipio de registro legal",
-              municipalityOther: "Escribe el municipio de registro legal",
-            }}
-          />
-          {legalLoc.countryOther.trim() && (
-            <div className="mt-4">
-              <Input
-                label="Provincia o estado de registro legal"
-                required
-                maxLength={80}
-                value={legalLoc.stateOther}
-                onChange={(e) => setLegalLoc((prev) => ({ ...prev, stateOther: e.target.value }))}
-              />
-            </div>
-          )}
-        </div>
-        <div className="sm:col-span-2">
-          <Input
-            label="Dirección de la empresa"
-            required
-            value={companyAddress}
-            onChange={(e) => setCompanyAddress(e.target.value)}
-            placeholder="Ej.: Calle 23 #456, Vedado, La Habana"
-          />
-        </div>
-      </div>
-
-      {/* min-w-0 en cada celda: sin esto, el ancho real del video de la cámara estira la columna y saca el formulario de la
-          pantalla del celular. */}
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 [&>*]:min-w-0">
-        <div>
-          {/* Bloque 146 (pedido explícito — "debe indicar que tiene que
-              ser la foto de la persona responsable, debe coincidir con
-              la foto del documento de identidad"): esta aclaración
-              vivía en ningún lado antes — el óvalo no explicaba para
-              qué es ni contra qué se compara. */}
-          <p className="mb-1.5 text-[11.5px] text-outline">
-            Foto de la cara de la persona responsable — tiene que coincidir con la foto del documento de identidad que subes al
-            lado.
-          </p>
-          <CameraCapture
-            shape="oval"
-            label="Foto del responsable"
-            instructions="Centra tu cara dentro del óvalo"
-            facingMode="user"
-            onCaptured={setSelfieBlob}
-            onVideoCaptured={setSelfieVideoBlob}
-          />
-        </div>
-        <div>
-          <p className="mb-1.5 text-[11.5px] text-outline">
-            {needsBack ? "Frente del documento" : "Documento"}, bien enfocado y legible: el mismo tipo que elegiste arriba.
-          </p>
-          <CameraCapture
-            shape="rect"
-            label={needsBack ? "Documento (frente)" : "Documento de identidad"}
-            instructions="Alinea el documento dentro del marco"
-            facingMode="environment"
-            onCaptured={setIdBlob}
-          />
-        </div>
-        {needsBack && (
-          <div>
-            <p className="mb-1.5 text-[11.5px] text-outline">Reverso del documento (la otra cara), también legible.</p>
-            <CameraCapture shape="rect" label="Documento (reverso)" instructions="Da vuelta el documento y alinéalo en el marco" facingMode="environment" onCaptured={setIdBackBlob} />
+      {docType && (
+        <KycStep n={2} title={`Datos de tu ${docType.short}`} done={idDataDone}>
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <Input data-guard="name" label={`Nombre completo, como aparece en el ${docType.short}`} required value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            <Input label={docType.numberLabel} required value={idNumber} onChange={(e) => setIdNumber(e.target.value)} placeholder={docType.numberPlaceholder} />
           </div>
-        )}
-      </div>
+        </KycStep>
+      )}
+
+      {docType && idDataDone && (
+        <KycStep n={3} title="Datos legales de la tienda" done={legalDone} note="Privados: nunca se muestran en tu perfil público.">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <Input
+              label={vendor?.ownerIdNumber ? "ID fiscal de la empresa (opcional, ya tienes ID personal)" : "ID fiscal de la empresa"}
+              value={companyTaxId}
+              onChange={(e) => setCompanyTaxId(e.target.value)}
+            />
+            <div className="sm:col-span-2">
+              <LocationPicker
+                value={legalLoc}
+                onChange={(patch) => setLegalLoc((prev) => ({ ...prev, ...patch }))}
+                onStatus={setLegalStatus}
+                labels={{
+                  country: "País de registro legal",
+                  countryOther: "Escribe el país de registro legal",
+                  province: "Provincia o estado de registro legal",
+                  provinceOther: "Escribe la provincia o estado de registro legal",
+                  municipality: "Municipio de registro legal",
+                  municipalityOther: "Escribe el municipio de registro legal",
+                }}
+              />
+              {legalLoc.countryOther.trim() && (
+                <div className="mt-4">
+                  <Input
+                    label="Provincia o estado de registro legal"
+                    required
+                    maxLength={80}
+                    value={legalLoc.stateOther}
+                    onChange={(e) => setLegalLoc((prev) => ({ ...prev, stateOther: e.target.value }))}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="sm:col-span-2">
+              <Input label="Dirección de la empresa" required value={companyAddress} onChange={(e) => setCompanyAddress(e.target.value)} placeholder="Ej.: Calle 23 #456, Vedado, La Habana" />
+            </div>
+          </div>
+        </KycStep>
+      )}
+
+      {docType && idDataDone && legalDone && (
+        <KycStep n={4} title="Fotos" done={!!selfieBlob && !!idBlob && (!needsBack || !!idBackBlob)} note="Captura en vivo con la cámara: no se aceptan fotos de la galería.">
+          {/* min-w-0 en cada celda: sin esto, el ancho real del video de la cámara estira la columna y saca el formulario de la
+              pantalla del celular. */}
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 [&>*]:min-w-0">
+            <div>
+              <p className="mb-1.5 text-[11.5px] text-outline">Tu cara: tiene que coincidir con la foto de tu {docType.short}.</p>
+              <CameraCapture shape="oval" label="Foto del responsable" instructions="Centra tu cara dentro del óvalo" facingMode="user" onCaptured={setSelfieBlob} onVideoCaptured={setSelfieVideoBlob} />
+            </div>
+            <div>
+              <p className="mb-1.5 text-[11.5px] text-outline">{needsBack ? `Frente de tu ${docType.short}` : `La página con tu foto del ${docType.short}`}, bien enfocado y legible.</p>
+              <CameraCapture shape="rect" label={needsBack ? `${docType.label} (frente)` : docType.label} instructions="Alinea el documento dentro del marco" facingMode="environment" onCaptured={setIdBlob} />
+            </div>
+            {needsBack && (
+              <div>
+                <p className="mb-1.5 text-[11.5px] text-outline">Reverso de tu {docType.short} (la otra cara), también legible.</p>
+                <CameraCapture shape="rect" label={`${docType.label} (reverso)`} instructions="Da vuelta el documento y alinéalo en el marco" facingMode="environment" onCaptured={setIdBackBlob} />
+              </div>
+            )}
+          </div>
+        </KycStep>
+      )}
 
       <Button className="mt-4" onClick={() => submit.mutate()} disabled={!canSubmit}>
         {submit.isPending ? "Enviando..." : "Enviar solicitud"}

@@ -156,7 +156,7 @@ export function Header() {
   const panelLabel = user?.role === "ADMIN" ? "Panel de administración" : user?.role === "VENDOR" ? "Panel de vendedor" : "Mi cuenta";
 
   return (
-    <header className="pointer-events-none sticky top-0 z-50 h-[76px]">
+    <header data-toast-anchor className="pointer-events-none sticky top-0 z-50 h-[76px]">
       <div className="container-app pt-2">
         <div
           data-top={atTop}

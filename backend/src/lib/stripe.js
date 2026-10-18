@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 import { getStripeConfig } from "../controllers/integrations.controller.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { prisma } from "./prisma.js";
-import { getPlanConfig } from "./planConfig.js";
+import { getPlanConfig, buildPlanIncludes } from "./planConfig.js";
 
 // Bloque 25: reemplaza el checkout simulado (PaymentLink.jsx) por un
 // Checkout Session real de Stripe. CUP no es una moneda soportada por
@@ -216,7 +216,7 @@ async function planProductData(months, { trialDays = 0 } = {}) {
   const [{ siteName, logoUrl }, plan] = await Promise.all([getBrandSettings(), getPlanConfig("BUSINESS")]);
   const planName = plan?.displayName ?? "Premium";
   const every = months === 1 ? "cada mes" : `cada ${months} meses`;
-  const features = (plan?.features ?? []).slice(0, 6).join(" · ");
+  const features = buildPlanIncludes(plan).slice(0, 6).join(" · ");
   const description = [
     trialDays ? `${trialDays} días gratis; después se cobra ${every}.` : `Se renueva sola ${every}.`,
     features,

@@ -109,12 +109,13 @@ function ServiceCard({ name, meta, integration, modelsData, onToggle, onSave, on
   return (
     <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5">
       <CardHeader meta={meta} hasIntegration={!!integration} isActive={isActive} saving={saving} onToggle={() => onToggle(integration)} models={modelsData?.models} />
+      {integration?.unreadable && <UnreadableNotice />}
       <div className="flex gap-2.5">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           type="password"
-          placeholder={integration ? integration.keyMask : "Pega la clave aquí..."}
+          placeholder={integration?.keyMask || "Pega la clave aquí..."}
           className="h-11 min-w-0 flex-1 rounded-lg border border-outline-variant px-3.5 font-mono text-[13px] outline-none"
         />
         <button
@@ -224,6 +225,7 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
         saving={saving}
         onToggle={() => onToggle(integration)}
       />
+      {integration?.unreadable && <UnreadableNotice />}
 
       <div className="flex flex-col gap-3">
         <StripeFieldRow
@@ -271,6 +273,15 @@ function StripeCard({ integration, onToggle, onSave, saving }) {
         </button>
       </div>
     </div>
+  );
+}
+
+// La clave guardada ya no se puede leer (se cifró en otro servidor o con otra clave maestra): hay que pegarla de nuevo.
+function UnreadableNotice() {
+  return (
+    <p role="status" className="mb-3 rounded-lg bg-error/10 px-3 py-2 text-[12.5px] font-semibold text-error">
+      La clave guardada no se puede leer en este servidor. Pégala de nuevo y guarda para que vuelva a funcionar.
+    </p>
   );
 }
 

@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, itemsTable, totalRow, paragraph, fmtCUP, resolveAssetUrl, pickVariant, esc } from "./_shared.js";
+import { emailShell, ctaButton, itemsTable, totalRow, paragraph, fmtCUP, resolveAssetUrl, pickVariant, esc, orderProgress } from "./_shared.js";
 
 // Mismos labels/colores que VendorOrders.jsx y CustomerPanel.jsx — una sola
 // paleta de estados en todo el sistema, no una paralela para email.
@@ -27,6 +27,7 @@ export async function statusUpdateEmail(order) {
     badge: { label, color },
     bodyMjml: `
       ${paragraph(`Tu pedido <strong>${esc(order.code)}</strong> en <strong>${esc(order.vendor.companyName)}</strong> cambió de estado:`)}
+      ${order.status === "CANCELLED" ? "" : orderProgress(order.status)}
       ${order.status === "CANCELLED" && order.cancelReason ? paragraph(`<strong>Motivo de la cancelación:</strong> ${esc(order.cancelReason.replace(/^Cancelado por el cliente: /, ""))}`) : ""}
       ${itemsWithImages.length > 0 ? itemsTable(itemsWithImages) : ""}
       ${order.total != null ? totalRow("Total", fmtCUP(order.total)) : ""}

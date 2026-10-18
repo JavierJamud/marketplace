@@ -125,7 +125,7 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
   const notifTotal = notifications?.total ?? 0;
 
   return (
-    <div className="sticky top-2 z-30 lg:top-4 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
+    <div data-toast-anchor className="sticky top-2 z-30 lg:top-4 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
       <button
         onClick={onOpenSidebar}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container lg:hidden"
@@ -201,7 +201,8 @@ function SearchAndNotifications({ onOpenSidebar, onLogout }) {
         )}
       </div>
 
-      <div className="flex-1" />
+      {/* Separador solo en pantalla grande: en el celular se llevaba la mitad del ancho y el buscador quedaba en "Busc". */}
+      <div className="hidden flex-1 lg:block" />
 
       <div className="flex flex-shrink-0 items-center gap-1">
         <div ref={notifRef} className="relative">

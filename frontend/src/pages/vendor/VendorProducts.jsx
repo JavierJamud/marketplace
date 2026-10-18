@@ -1244,7 +1244,8 @@ export default function VendorProducts() {
       </div>
 
       <div className="mt-4 flex items-center gap-2 rounded-md border border-secondary-container/25 bg-secondary-container/[0.08] px-[18px] py-3.5 text-[12.5px] text-secondary">
-        💡 {data?.limit ? `En plan Business tienes productos ilimitados. En Regular el límite es ${data.limit}.` : "Tienes productos ilimitados con el Plan Business."}
+        {/* Sale del límite real de su plan (lo configura el admin): ni el número ni el nombre del plan van fijos aquí. */}
+        💡 {data?.limit ? `Tu plan permite hasta ${data.limit} productos publicados. Para publicar más, mejora tu plan en Suscripción.` : "Tu plan te permite publicar productos sin límite."}
       </div>
 
       {modalState && (

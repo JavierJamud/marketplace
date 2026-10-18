@@ -1,6 +1,8 @@
 import { prisma } from "./prisma.js";
 import { sendAdminDirectEmail } from "./email.js";
 import { notifyAdmins } from "./notify.js";
+import { env } from "../config/env.js";
+import { esc } from "../templates/_shared.js";
 
 // Bloque 66: "el admin será notificado inmediatamente vía correo electrónico
 // cuando haya que aprobar algo en el sistema" — mismo criterio de "un solo
@@ -17,5 +19,8 @@ export async function notifyAdminActionNeeded(subject, message, vendorId, { url 
   const admin = await prisma.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } });
   if (!admin?.email) return;
   // Saludo neutro: el nombre del admin es privado y nunca va en correos.
-  await sendAdminDirectEmail({ to: admin.email, subject, message, recipientName: "Administrador", vendorId }).catch(() => {});
+  // El mensaje puede traer texto de clientes (motivo de un reporte): se escapa antes de ponerlo en el HTML del correo. Con `url`,
+  // el correo lleva un botón que abre directo lo que hay que revisar, igual que el aviso push.
+  const cta = url ? { label: "Verlo en el panel", url: `${String(env.frontendUrl).replace(/\/+$/, "")}${url}` } : undefined;
+  await sendAdminDirectEmail({ to: admin.email, subject, message: esc(String(message ?? "")), recipientName: "Administrador", vendorId, cta }).catch(() => {});
 }

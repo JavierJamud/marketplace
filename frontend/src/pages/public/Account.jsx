@@ -664,6 +664,12 @@ export default function Account({ mode = "customer" }) {
       // Antes de crear la cuenta: si el nombre, el WhatsApp o el correo ya son de otra tienda, se avisa aquí y no se sigue.
       try {
         const { data } = await api.post("/vendors/check-availability", { companyName: storeForm.companyName, whatsapp: form.phone, email: form.email });
+        if (data.accountExists && !completingStore) {
+          toast.warning("Ya tienes una cuenta con este correo", "Inicia sesión para entrar a tu tienda. Si no recuerdas la contraseña, toca «¿Olvidaste tu contraseña?».");
+          setLoginForm((f) => ({ ...f, email: form.email, password: "" }));
+          setView("login");
+          return;
+        }
         const first = Object.values(data.conflicts ?? {})[0];
         if (first) {
           toast.error(first);
@@ -697,22 +703,13 @@ export default function Account({ mode = "customer" }) {
         toast.success("Te mandamos un código de verificación a tu correo.");
       });
     } catch (err) {
-      // Bloque 59: correo ya registrado — en vez de un error seco, se manda
-      // directo al flujo de restablecer contraseña, con el código ya en
-      // camino (tal como se pidió: "detectará y enviará directamente a
-      // restablecer contraseña").
+      // Correo ya registrado: no se crea otra cuenta ni se cambia la contraseña. Se avisa y se lleva a iniciar sesión con el
+      // correo ya escrito (antes mandaba solo un código para restablecer la contraseña y parecía que el registro la cambiaba;
+      // cambiarla es cosa de "¿Olvidaste tu contraseña?" o de Mi perfil, a pedido de la persona).
       if (err.response?.data?.details?.duplicate) {
-        try {
-          const { data } = await api.post("/auth/forgot-password", { email: form.email });
-          setResetExpiresAt(data.codeExpiresAt);
-        } catch {
-          // best-effort — si este intento puntual falla, el cliente igual
-          // puede pedir el código a mano desde la pantalla a la que lo mandamos.
-        }
-        toast.error("Ya existe una cuenta con este correo — te mandamos un código para restablecer tu contraseña.");
-        setResetEmail(form.email);
-        setResetCode("");
-        setView("forgot-code");
+        toast.warning("Ya tienes una cuenta con este correo", "Inicia sesión. Si no recuerdas la contraseña, toca «¿Olvidaste tu contraseña?».");
+        setLoginForm((f) => ({ ...f, email: form.email, password: "" }));
+        setView("login");
         return;
       }
       toast.error(err.response?.data?.error ?? "Algo salió mal. Intenta de nuevo.");

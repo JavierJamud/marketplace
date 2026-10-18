@@ -453,3 +453,40 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
   }
   return html;
 }
+
+
+// Seguimiento del pedido en los correos al cliente: 4 pasos (recibido, en preparación, en camino, entregado) con su icono y
+// una línea de puntos entre ellos. Lo hecho va en color; lo que falta, en gris; y la línea que sigue al paso actual va casi
+// llena, para que se vea que el pedido avanza hacia el siguiente. Es fijo (no hay animaciones en un correo): cada correo de
+// cambio de estado lleva el seguimiento al día. Los iconos son ilustraciones planas a dos tonos (bolsa, caja, camión y mano con
+// el punto de entrega), en los colores de la marca o en gris; son PNG (Gmail y Outlook no muestran SVG) servidos en /brand.
+const ORDER_STEPS = [
+  // Etiquetas cortas: en el celular cada paso mide unos 70 px y una palabra larga se partía por la mitad.
+  { key: "NEW", icon: "received", label: "Recibido" },
+  { key: "PREPARING", icon: "preparing", label: "Preparando" },
+  { key: "READY", icon: "onway", label: "En camino" },
+  { key: "DELIVERED", icon: "delivered", label: "Entregado" },
+];
+
+export function orderProgress(status) {
+  const current = ORDER_STEPS.findIndex((s) => s.key === status);
+  if (current < 0) return "";
+  const base = `${trimSlash(env.backendUrl)}/brand/order-steps`;
+  // Línea punteada que se estira o encoge con el ancho del correo (con puntos de ancho fijo, en un celular de 360 px el último
+  // paso quedaba cortado). Tramos ya recorridos, llenos; el que sigue al paso actual, casi lleno (70 %); los demás, en gris.
+  const line = (pct, color) => (pct > 0 ? `<td width="${pct}%" style="border-top:4px dotted ${color};font-size:0;line-height:0;">&nbsp;</td>` : "");
+  const connector = (i) => {
+    const filled = i < current ? 100 : i === current ? 70 : 0;
+    return `<td valign="top" style="padding:23px 4px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;"><tr>${line(filled, "#337475")}${line(100 - filled, "#dcdadb")}</tr></table></td>`;
+  };
+  const step = (s, i) => {
+    const on = i <= current;
+    const color = i === current ? "#0e1a28" : on ? "#44474c" : "#9a9ca1";
+    return `<td align="center" valign="top" width="62" style="width:62px;">
+      <img src="${base}/${s.icon}-${on ? "on" : "off"}.png" width="48" height="48" alt="" style="display:block;width:48px;height:48px;border:0;margin:0 auto;" />
+      <div style="font-size:11px;line-height:14px;color:${color};font-weight:${i === current ? 700 : 500};padding-top:6px;word-break:keep-all;overflow-wrap:normal;">${s.label}</div>
+    </td>`;
+  };
+  const cells = ORDER_STEPS.map((s, i) => step(s, i) + (i < ORDER_STEPS.length - 1 ? connector(i) : "")).join("");
+  return paragraph(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;"><tr>${cells}</tr></table>`, { padding: "6px 0 18px" });
+}

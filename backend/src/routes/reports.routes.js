@@ -15,6 +15,8 @@ router.post("/", authenticate, reportRateLimit, reportUpload.single("screenshot"
 // convención (aunque acá no hay colisión real de path, "/me/list" no
 // matchea nunca "/:id/evidence").
 router.get("/me/list", authenticate, reportsController.listMyReportsAgainstMe);
+// Reportes que YO hice (de fraude y de comentarios), para ver en qué estado están.
+router.get("/me/made", authenticate, reportsController.listMyReportsMade);
 
 // Respuesta del reportado (vendedor o dueño de venta rápida) al pedido de
 // evidencia — la evaluación en sí (resolveReportTarget) confirma que quien

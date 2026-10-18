@@ -69,7 +69,7 @@ const NAV = [
   // Feature B (pedido explícito): badge propio (fraudReportsPendingCount)
   // — cuenta lo que necesita SU respuesta (EVIDENCE_REQUESTED y sin
   // evidenceSentAt todavía), no todo lo que le pasó alguna vez.
-  { to: "/vendedor/reportes", label: "Reportes de fraude", icon: ShieldAlert, badge: true, section: "reportes", group: "clientes" },
+  { to: "/vendedor/reportes", label: "Reportes", icon: ShieldAlert, badge: true, section: "reportes", group: "clientes" },
   // Bloque 202 (pedido explícito — "no será una sección visible en el
   // panel del... dueño, será una sección que se habilita sola cuando un
   // usuario de venta tiene productos asignados"): `staffOnly` es nuevo —
@@ -579,7 +579,7 @@ export default function VendorLayout() {
             respecto al scroll de la página; z-index por encima del
             contenido normal pero por debajo del overlay del sidebar móvil
             (z-40, ver más arriba) y de los popups globales (z-50+). */}
-        <div className="sticky top-2 z-30 lg:top-4 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
+        <div data-toast-anchor className="sticky top-2 z-30 lg:top-4 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
           <button
             onClick={() => setSidebarOpen(true)}
             className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high lg:hidden"

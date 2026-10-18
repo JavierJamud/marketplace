@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
+import { useFocusFromQuery } from "../../lib/useFocusFromQuery.js";
 
 // El equipo de la plataforma también puede responder cualquier comentario. Su respuesta es aparte de la de la tienda (un comentario
 // puede tener las dos): se publica con el nombre de la plataforma y el cliente recibe un correo con ella.
@@ -206,6 +207,8 @@ export default function AdminReviews() {
     queryKey: ["admin-reviews"],
     queryFn: async () => (await api.get("/admin/reviews")).data.reviews,
   });
+  // Desde un aviso (?review=id): se va directo al comentario reportado.
+  const focused = useFocusFromQuery("review", !isLoading);
 
   const toggleHidden = useMutation({
     mutationFn: async ({ id, isHidden }) => (await api.patch(`/admin/reviews/${id}/hidden`, { isHidden })).data,
@@ -264,7 +267,8 @@ export default function AdminReviews() {
         {reviews?.map((r) => (
           <div
             key={r.id}
-            className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5"
+            data-focus-id={r.id}
+            className={`rounded-2xl border ${focused === r.id ? "border-tertiary-accent ring-2 ring-tertiary-accent" : "border-surface-container-high/70"} bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5`}
             style={{ opacity: r.isHidden ? 0.6 : 1 }}
           >
             <div className="mb-2.5 flex flex-wrap items-start justify-between gap-3">

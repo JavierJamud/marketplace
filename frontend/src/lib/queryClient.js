@@ -27,7 +27,11 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000,
-      retry: 1,
+      // Un error 4xx (sin permiso, no existe, plan que no lo incluye) no se arregla repitiendo: se reintenta solo lo de red o 5xx.
+      retry: (count, error) => {
+        const status = error?.response?.status;
+        return count < 1 && !(status >= 400 && status < 500);
+      },
       refetchOnWindowFocus: false,
     },
   },

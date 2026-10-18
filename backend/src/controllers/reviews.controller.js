@@ -315,7 +315,8 @@ export async function reportReview(req, res) {
     `${reporterIsVendorOwner ? `El vendedor de "${review.vendor?.companyName}"` : "Un cliente"} reportó un comentario${
       reason ? ` (motivo: "${reason}")` : ""
     } — quedó oculto mientras lo revisas en el panel de administración.`,
-    review.vendorId ?? undefined
+    review.vendorId ?? undefined,
+    { url: `/admin/comentarios?review=${id}` }
   );
 
   res.json({ review: updated });

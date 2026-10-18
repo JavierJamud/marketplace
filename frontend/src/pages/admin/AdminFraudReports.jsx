@@ -8,6 +8,7 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { useFocusFromQuery } from "../../lib/useFocusFromQuery.js";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -90,6 +91,8 @@ export default function AdminFraudReports() {
   });
 
   const reports = data ?? [];
+  // Desde un aviso (?report=id): se va directo a ese reporte.
+  const focused = useFocusFromQuery("report", !isLoading);
   const isTerminal = (s) => ["RESOLVED_NO_ACTION", "RESOLVED_SUSPENDED", "DISMISSED"].includes(s);
 
   return (
@@ -133,7 +136,7 @@ export default function AdminFraudReports() {
           const target = targetInfo(r);
           const status = STATUS_LABEL[r.status];
           return (
-            <div key={r.id} className="grid min-w-[900px] grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
+            <div key={r.id} data-focus-id={r.id} className={`grid min-w-[900px] ${focused === r.id ? "bg-tertiary-accent/10 ring-2 ring-inset ring-tertiary-accent" : ""} grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5`}>
               <div>
                 {target.href ? (
                   <Link to={target.href} target="_blank" className="text-[13px] font-semibold text-tertiary-accent hover:underline">{target.label}</Link>

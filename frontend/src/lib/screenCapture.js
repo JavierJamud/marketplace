@@ -1,9 +1,10 @@
 // Captura de lo que la persona ve en este momento (para los tickets de errores visuales). La librería se carga solo al usarla.
 //
 // La librería dibuja la página entera, no la ventana. Para que el resultado sea lo que había en pantalla:
-//  1. Se anota dónde está ahora cada elemento fijo o pegajoso (barra de arriba, botones flotantes): dibujada la página
-//     entera, sin scroll, quedarían arriba del todo y no donde la persona los veía.
-//  2. En la copia que se dibuja, esos elementos se colocan en su lugar real dentro de la página.
+//  1. Se anota dónde está ahora cada elemento fijo (botones flotantes) o pegajoso (barra lateral, buscador de arriba):
+//     dibujada la página entera, sin scroll, quedarían arriba del todo y no donde la persona los veía.
+//  2. En la copia, los fijos se colocan en su sitio real; los pegajosos se desplazan sin salir de su lugar en la página
+//     (si salieran, la cuadrícula del panel se correría y la captura mostraría otra estructura).
 //  3. Se recorta justo la ventana visible.
 // Lo marcado con data-no-capture (el propio botón de reportar) no sale en la captura.
 
@@ -29,7 +30,18 @@ export async function captureViewport() {
     if (!r.width || !r.height) continue;
     const id = String(i++);
     el.setAttribute("data-capture-pin", id);
-    pinned.set(id, { top: r.top + scrollY, left: r.left + scrollX, width: r.width, height: r.height });
+    if (pos === "fixed") {
+      pinned.set(id, { kind: "fixed", top: r.top + scrollY, left: r.left + scrollX, width: r.width, height: r.height });
+    } else {
+      // Pegajoso (barra lateral, buscador de arriba): ocupa su lugar en la página (una columna de la cuadrícula, por
+      // ejemplo). Sacarlo del flujo, como a los fijos, corría todo lo demás. Se mide dónde estaría sin pegarse (cambio
+      // instantáneo: el navegador no pinta entre estas dos líneas) y en la copia solo se desplaza esa diferencia.
+      const prev = el.style.position;
+      el.style.position = "static";
+      const natural = el.getBoundingClientRect();
+      el.style.position = prev;
+      pinned.set(id, { kind: "sticky", dy: r.top - natural.top, dx: r.left - natural.left });
+    }
   }
 
   try {
@@ -53,6 +65,11 @@ export async function captureViewport() {
         if (id == null) return;
         const p = pinned.get(id);
         if (!p) return;
+        if (p.kind === "sticky") {
+          // Conserva su espacio en la página y se corre lo mismo que estaba corrido en pantalla.
+          Object.assign(cloned.style, { position: "relative", top: `${p.dy}px`, left: `${p.dx}px`, bottom: "auto", right: "auto" });
+          return;
+        }
         // En la página dibujada entera, "fixed" se mide desde arriba de la página (y no depende de los contenedores con
         // position relative, a diferencia de "absolute"): se pone en el sitio real donde la persona lo veía.
         Object.assign(cloned.style, { position: "fixed", top: `${p.top}px`, left: `${p.left}px`, width: `${p.width}px`, height: `${p.height}px`, right: "auto", bottom: "auto", margin: "0", transform: "none" });

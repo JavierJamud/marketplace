@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 
 // Feature B (pedido explícito): reportes de fraude sobre producto/tienda/
 // venta rápida — patrón "exactamente uno de estos 3 campos" (mismo criterio
@@ -83,6 +84,35 @@ export async function listMyReportsAgainstMe(req, res) {
   res.json({ reports });
 }
 
+// Reportes que hizo el usuario logueado (de fraude y de comentarios), con su estado. Solo lo que le toca saber a quien
+// reportó: qué reportó, cuándo, su mensaje y en qué quedó; nunca la evidencia ni los datos del reportado.
+export async function listMyReportsMade(req, res) {
+  const [reports, reviews] = await Promise.all([
+    prisma.report.findMany({
+      where: { reporterId: req.user.id },
+      select: {
+        id: true, status: true, message: true, createdAt: true, resolvedAt: true,
+        product: { select: { name: true, slug: true, vendor: { select: { slug: true } } } },
+        vendor: { select: { companyName: true, slug: true } },
+        customerListing: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
+    prisma.review.findMany({
+      where: { reportedById: req.user.id, reportStatus: { not: null } },
+      select: {
+        id: true, comment: true, reportStatus: true, reportReason: true, reportedAt: true, reportResolvedAt: true,
+        product: { select: { name: true } },
+        vendor: { select: { companyName: true } },
+      },
+      orderBy: { reportedAt: "desc" },
+      take: 100,
+    }),
+  ]);
+  res.json({ reports, reviewReports: reviews });
+}
+
 export async function createReport(req, res) {
   try {
     if (!req.file) throw new AppError("La captura de pantalla es obligatoria.", 400);
@@ -108,6 +138,13 @@ export async function createReport(req, res) {
         message: data.message,
       },
     });
+    const reporter = await prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true, role: true } });
+    void notifyAdminActionNeeded(
+      "Reporte de fraude nuevo",
+      `${reporter?.fullName ?? "Un usuario"} (${reporter?.role === "VENDOR" ? "tienda" : reporter?.role === "ADMIN" ? "admin" : "cliente"}) reportó el ${target.label}: "${data.message.slice(0, 300)}"`,
+      target.vendorId ?? undefined,
+      { url: `/admin/reportes-fraude?report=${report.id}` }
+    ).catch(() => {});
     res.status(201).json({ report });
   } catch (err) {
     // Igual criterio que reviews.controller.js/createReview: Multer ya

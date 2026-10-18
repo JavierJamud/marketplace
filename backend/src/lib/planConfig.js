@@ -190,3 +190,43 @@ export async function swapProductQuota(vendorId, productIdToActivate) {
     ...(leaving ? [prisma.product.update({ where: { id: leaving.id }, data: { overQuota: true, quotaPinnedAt: null } })] : []),
   ]);
 }
+
+
+// Lo que incluye un plan, armado SOLO con lo que el admin configura en Suscripciones (límites y funciones encendidas). Es lo
+// que ven las tiendas en "Tu plan incluye", en la comparación de planes y en la página de pago: así nunca contradice lo que
+// el sistema aplica de verdad (antes salía del texto libre del plan y podía decir "hasta 20 productos" con un límite de 10).
+// El texto libre del admin se agrega al final como beneficios extra, sin las líneas con números (podrían contradecir un
+// límite real; los límites ya salen arriba con el valor configurado).
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const TOPICS = ["producto", "provincia", "envio", "whatsapp", "pedido", "caja", "chat", "usuario", "mesa", "codigo", "oferta", "punto", "correo", "horario", "resena", "destacad", "perfil"];
+
+export function buildPlanIncludes(config) {
+  if (!config) return [];
+  const c = config;
+  const lines = [];
+  lines.push(c.maxProducts == null ? "Productos ilimitados" : `Hasta ${plural(c.maxProducts, "producto publicado", "productos publicados")}`);
+  lines.push(c.maxProvinces == null ? "Vende en todas las provincias" : `Vende en hasta ${plural(c.maxProvinces, "provincia", "provincias")}`);
+  if (c.maxDeliveryCountries != null) lines.push(`Envíos a hasta ${plural(c.maxDeliveryCountries, "país", "países")}`);
+  if (c.allowWhatsappOrders) lines.push("Pedidos por WhatsApp");
+  if (c.allowPanelOrders) lines.push("Pedidos en tu panel");
+  if (c.allowPos) lines.push("Caja con código de barras");
+  if (c.allowAiChatbot) lines.push("Chat con IA en tu tienda");
+  if (c.allowStaffUsers) lines.push(c.maxStaffUsers == null ? "Usuarios del sistema ilimitados" : `Hasta ${plural(c.maxStaffUsers, "usuario del sistema", "usuarios del sistema")}`);
+  if (c.allowQrTables) lines.push(c.maxTables == null ? "Menú con QR para mesas" : `Menú con QR para hasta ${plural(c.maxTables, "mesa", "mesas")}`);
+  if (c.allowDiscountCodes) lines.push(c.maxDiscountCodes == null ? "Códigos de descuento" : `Hasta ${plural(c.maxDiscountCodes, "código de descuento", "códigos de descuento")}`);
+  if (c.allowStoreOffers) lines.push(c.maxActiveStoreOffers == null ? "Ofertas de tienda" : `Hasta ${plural(c.maxActiveStoreOffers, "oferta de tienda activa", "ofertas de tienda activas")}`);
+  if (c.allowLoyalty) lines.push("Programa de puntos para tus clientes");
+  if (c.allowCustomerEmails) lines.push(c.maxMonthlyOrderEmails == null ? "Correos a tus clientes con el nombre de tu tienda" : `Correos a tus clientes (hasta ${c.maxMonthlyOrderEmails} al mes)`);
+  if (c.allowSchedules) lines.push("Horario de atención");
+  if (c.allowReviewPhotos) lines.push("Reseñas con fotos");
+  if (c.allowAdminChat) lines.push("Chat con el equipo de la plataforma");
+  if (c.featuredInHome) lines.push("Destacada en la portada");
+  if (c.allowPublicProfile) lines.push("Perfil público de tu tienda");
+  // Un extra que habla de algo que ya está arriba (con otras palabras) se omite para no repetirlo.
+  const norm = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const covered = TOPICS.filter((k) => lines.some((l) => norm(l).includes(k)));
+  const extras = (c.features ?? [])
+    .map((f) => String(f).trim())
+    .filter((f) => f && !/\d/.test(f) && !covered.some((k) => norm(f).includes(k)));
+  return [...lines, ...extras];
+}

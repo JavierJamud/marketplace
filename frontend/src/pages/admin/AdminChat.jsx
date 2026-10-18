@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Send, ShieldCheck, Store as StoreIcon, Mail, Search, X, MessageCircle } from "lucide-react";
+import { Send, ShieldCheck, Store as StoreIcon, Mail, Search, X, MessageCircle, ArrowLeft } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 
@@ -227,7 +227,10 @@ export default function AdminChat() {
   }, [thread, activeVendorId, queryClient]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Se baja solo dentro de la lista de mensajes: scrollIntoView también movía la página entera y escondía el título
+    // y las pestañas debajo de la barra de arriba (sobre todo en el celular).
+    const box = bottomRef.current?.parentElement;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [thread]);
 
   return (
@@ -261,8 +264,9 @@ export default function AdminChat() {
       {tab === "direct-email" ? (
         <DirectEmailPanel />
       ) : (
-    <div className="flex flex-1 gap-5 overflow-hidden">
-      <div className="flex w-[320px] flex-shrink-0 flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+    // En el celular se ve una cosa a la vez: la lista, o la conversación abierta con un botón para volver a la lista.
+    <div className="flex min-h-0 flex-1 gap-5 overflow-hidden">
+      <div className={`${activeVendorId ? "hidden md:flex" : "flex"} w-full flex-shrink-0 flex-col overflow-hidden rounded-2xl md:w-[320px] border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]`}>
         <div className="border-b border-surface-container-high p-4">
           <h1 className="font-display text-[17px] font-bold text-on-surface">Mensajes</h1>
           <p className="text-[12px] text-outline">Conversaciones con tiendas</p>
@@ -296,7 +300,7 @@ export default function AdminChat() {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+      <div className={`${activeVendorId ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]`}>
         {!activeVendorId ? (
           <div className="flex flex-1 items-center justify-center text-body-md text-on-surface-variant">
             Elige una tienda para ver la conversación.
@@ -304,6 +308,17 @@ export default function AdminChat() {
         ) : (
           <>
             <div className="flex items-center gap-2.5 border-b border-surface-container-high p-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveVendorId(null);
+                  navigate("/admin/mensajes");
+                }}
+                aria-label="Volver a las conversaciones"
+                className="-ml-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container md:hidden"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
               <StoreIcon className="h-4 w-4 text-tertiary-accent" />
               <span className="text-[14px] font-bold text-on-surface">{thread?.vendor?.companyName}</span>
               {thread?.vendor?.isVerified && <ShieldCheck className="h-3.5 w-3.5 text-verified-dark" />}

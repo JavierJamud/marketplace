@@ -159,7 +159,10 @@ function PlanConfigCard({ plan }) {
       <Input label="Nombre visible del plan" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} className="mb-4" />
 
       <div className="mb-5">
-        <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Qué incluye (texto libre, lo ve el vendedor)</div>
+        <div className="mb-1 text-label-md font-semibold text-on-surface-variant">Beneficios extra (texto libre, lo ve la tienda)</div>
+        <p className="mb-2 text-[12px] text-on-surface-variant">
+          Los límites (productos, provincias, mesas...) y las funciones encendidas abajo ya se muestran solos con su valor real. Aquí escribe solo beneficios que no estén en esa lista y sin números: las líneas con números no se muestran, para que nunca contradigan un límite.
+        </p>
         <FeatureChipList items={form.features} onChange={(features) => setForm({ ...form, features })} />
       </div>
 

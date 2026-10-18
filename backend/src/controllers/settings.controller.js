@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
-import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota } from "../lib/planConfig.js";
+import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota, buildPlanIncludes } from "../lib/planConfig.js";
 import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 import { createHeroVariant, smallVariantName } from "../lib/heroVariants.js";
 import { forgetPwaEnabled } from "../lib/push.js";
@@ -80,7 +80,9 @@ export async function getSettings(_req, res) {
   // (VendorVerification.jsx, PlanComparisonModal.jsx, Account.jsx). Antes
   // cada pantalla tenía su propia copia hardcodeada (verificationMeta.js) que
   // podía decir cualquier cosa sin relación con lo que el backend aplicaba.
-  const plans = await getAllPlanConfigs();
+  // `includes`: lo que incluye cada plan armado con sus límites y funciones reales (ver buildPlanIncludes). `features` sigue
+  // siendo el texto libre que edita el admin.
+  const plans = (await getAllPlanConfigs()).map((p) => ({ ...p, includes: buildPlanIncludes(p) }));
   res.json({
     settings: {
       plans,

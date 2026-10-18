@@ -1849,5 +1849,8 @@ export async function checkVendorAvailability(req, res) {
   const data = z
     .object({ companyName: z.string().trim().max(120).optional(), whatsapp: z.string().trim().max(30).optional(), email: z.string().trim().max(200).optional() })
     .parse(req.body ?? {});
-  res.json({ conflicts: await findVendorConflicts(data) });
+  // Si el correo ya es de una cuenta, se avisa antes que nada: no se crea otra cuenta ni se toca la de antes (la pantalla
+  // lleva a iniciar sesión). Es el mismo dato que ya revela el registro al intentarlo.
+  const accountExists = data.email?.trim() ? !!(await prisma.user.findFirst({ where: { email: { equals: data.email.trim(), mode: "insensitive" } }, select: { id: true } })) : false;
+  res.json({ conflicts: await findVendorConflicts(data), accountExists });
 }

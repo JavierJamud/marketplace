@@ -1991,7 +1991,7 @@ export async function resolveSupportCase(req, res) {
 
 export async function listAdminNotifications(_req, res) {
   const DAY = 24 * 60 * 60 * 1000;
-  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases, newVendors, newTrials, acceptedTrials] = await Promise.all([
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases, newVendors, newTrials, acceptedTrials, newTickets] = await Promise.all([
     prisma.vendor.findMany({
       where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] } },
       select: { id: true, companyName: true, createdAt: true },
@@ -2047,6 +2047,8 @@ export async function listAdminNotifications(_req, res) {
     prisma.vendor.findMany({ where: { trialEndsAt: { gte: new Date(Date.now() + 28 * DAY) }, deletedAt: null }, select: { id: true, companyName: true, trialEndsAt: true }, take: 5 }),
     // Tiendas que aceptaron la prueba en las últimas 48 h y todavía no completaron los requisitos para que se active.
     prisma.vendor.findMany({ where: { trialStartedAt: { gte: new Date(Date.now() - 2 * DAY) }, trialEndsAt: null, deletedAt: null }, select: { id: true, companyName: true, trialStartedAt: true }, orderBy: { trialStartedAt: "desc" }, take: 5 }),
+    // Reportes de problemas (tickets) que el admin todavía no abrió.
+    prisma.supportTicket.findMany({ where: { status: "NEW" }, select: { id: true, number: true, section: true, pagePath: true, reporterName: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5 }),
   ]);
 
   const items = [
@@ -2095,14 +2097,20 @@ export async function listAdminNotifications(_req, res) {
     ...reportedReviews.map((r) => ({
       id: `report-${r.id}`,
       text: `Comentario reportado${r.vendor ? ` — ${r.vendor.companyName}` : ""}`,
-      to: "/admin/comentarios",
+      to: `/admin/comentarios?review=${r.id}`,
       createdAt: r.reportedAt,
     })),
     ...pendingFraudReports.map((r) => ({
       id: `fraud-${r.id}`,
       text: `Reporte de fraude: ${r.product?.name ?? r.vendor?.companyName ?? r.customerListing?.name ?? "objetivo eliminado"}`,
-      to: "/admin/reportes-fraude",
+      to: `/admin/reportes-fraude?report=${r.id}`,
       createdAt: r.createdAt,
+    })),
+    ...newTickets.map((t) => ({
+      id: `ticket-${t.id}`,
+      text: `Reporte de problema T-${String(t.number).padStart(5, "0")}: ${t.section ?? t.pagePath}${t.reporterName ? ` (${t.reporterName})` : ""}`,
+      to: `/admin/errores?tab=tickets&ticket=${t.id}`,
+      createdAt: t.createdAt,
     })),
     // Bloque 231 (pedido explícito): visibilidad en tiempo real de pedidos
     // nuevos — no hay una vista de detalle de pedido del lado admin, así
@@ -2132,6 +2140,7 @@ export async function listAdminNotifications(_req, res) {
     paymentClaims.length +
     reportedReviews.length +
     pendingFraudReports.length +
+    newTickets.length +
     recentOrders.length +
     newVendors.length +
     newTrials.length +

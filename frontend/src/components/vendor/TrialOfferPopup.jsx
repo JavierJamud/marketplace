@@ -103,9 +103,9 @@ export function TrialOfferPopup({ vendor }) {
                 Prueba todo sin costo durante 30 días. Puedes seguir pagando o volver a Regular cuando quieras, sin compromiso.
               </p>
 
-              {business?.features?.length > 0 && (
+              {business?.includes?.length > 0 && (
                 <ul className="mb-5 flex flex-col gap-2">
-                  {business.features.map((feature) => (
+                  {business.includes.map((feature) => (
                     <li key={feature} className="flex items-start gap-2 text-[13px] text-on-surface">
                       <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-verified" strokeWidth={2.5} />
                       {feature}

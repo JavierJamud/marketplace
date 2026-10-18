@@ -55,7 +55,7 @@ const SECTIONS = [
   { label: "Suscripción", path: "/vendedor/verificacion" },
   { label: "Mensajes", path: "/vendedor/mensajes" },
   { label: "Reseñas", path: "/vendedor/resenas" },
-  { label: "Reportes de fraude", path: "/vendedor/reportes" },
+  { label: "Reportes", path: "/vendedor/reportes" },
   // Bloque 289: cada subsección lleva a SU pestaña de Configuración (?tab=) y se encuentra también
   // por lo que contiene (`keywords`).
   { label: "Configuración", path: "/vendedor/configuracion", keywords: "ajustes de la tienda" },

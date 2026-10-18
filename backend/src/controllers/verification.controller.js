@@ -29,7 +29,7 @@ import { getBrandSettings, getSubscriptionPricing } from "./settings.controller.
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete, TRIAL_DAYS } from "../services/trialEligibility.service.js";
-import { recalcVendorProductQuota, getPlanConfig } from "../lib/planConfig.js";
+import { recalcVendorProductQuota, getPlanConfig, buildPlanIncludes } from "../lib/planConfig.js";
 import { resolveLegalLocation } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
@@ -679,7 +679,7 @@ export async function getMySubscription(req, res) {
       status: vendor.verificationStatus,
       planName: plan?.displayName ?? (vendor.planType === "BUSINESS" ? "Premium" : "Regular"),
       planType: vendor.planType,
-      features: plan?.features ?? [],
+      features: buildPlanIncludes(plan),
       method,
       inTrial,
       amount,

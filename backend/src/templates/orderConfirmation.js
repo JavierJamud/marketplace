@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { emailShell, ctaButton, itemsTable, totalRow, metaList, paragraph, smallNote, resolveAssetUrl, esc } from "./_shared.js";
+import { emailShell, ctaButton, itemsTable, totalRow, metaList, paragraph, smallNote, resolveAssetUrl, esc, orderProgress } from "./_shared.js";
 import { orderCurrency, money, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
 
 // Bloque 14: valores de OrderChannel consolidados (COD/TABLE sin cambios,
@@ -25,6 +25,7 @@ export async function orderConfirmationEmail(order) {
     badge: { label: "Pedido recibido", color: "#0CAE53" },
     bodyMjml: `
       ${paragraph(`Hola ${esc(order.customerName)}, tu pedido <strong>${esc(order.code)}</strong> quedó registrado. La tienda lo revisa y te avisamos cuando lo confirme.`)}
+      ${orderProgress("NEW")}
       ${itemsTable(itemsWithImages.map((i) => ({ ...i, currency })))}
       ${Number(order.discountAmount) > 0 || Number(order.loyaltyDiscount) > 0 ? totalRow("Subtotal", money(subtotal, currency)) : ""}
       ${Number(order.discountAmount) > 0 ? totalRow("Código de descuento", `-${money(order.discountAmount, currency)}`) : ""}
