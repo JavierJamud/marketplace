@@ -48,7 +48,7 @@ async function activeOffer(vendorId, now) {
       OR: [{ startsAt: null }, { startsAt: { lte: now } }],
       AND: [{ OR: [{ isLimitedTime: false }, { expiresAt: { gt: now } }] }],
     },
-    include: { discountCode: { select: { code: true, type: true, value: true } } },
+    include: { discountCode: { select: { code: true, type: true, value: true, currency: true } } },
     orderBy: { createdAt: "desc" },
   });
   if (!offer) return null;
@@ -56,7 +56,7 @@ async function activeOffer(vendorId, now) {
   return {
     title: offer.title,
     code: dc.code,
-    discountLabel: dc.type === "PERCENTAGE" ? `${Number(dc.value)} % de descuento` : `${Number(dc.value).toLocaleString("es-CU")} de descuento`,
+    discountLabel: dc.type === "PERCENTAGE" ? `${Number(dc.value)} % de descuento` : `${Number(dc.value).toLocaleString("es-CU")} ${dc.currency} de descuento`,
     expiresAt: offer.isLimitedTime ? offer.expiresAt : null,
   };
 }

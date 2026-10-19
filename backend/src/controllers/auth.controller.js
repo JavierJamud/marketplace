@@ -19,9 +19,10 @@ import {
 } from "../lib/email.js";
 import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
+import { TRUSTED_DEVICE_TTL_MS, isSessionIdle, revokeSession, IDLE_MESSAGE } from "../lib/sessionPolicy.js";
 
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rodante (se extiende en cada refresh)
-const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 días, ventana rodante (se extiende en cada login saltado)
+// Tope absoluto de una sesión; en la práctica se cierra antes, a los 60 minutos sin actividad (ver lib/sessionPolicy.js).
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Bloque 60: reemplaza el viejo signTokens(user) (JWT de refresco sin
 // estado, imposible de revocar de verdad) — el refresh token pasa a ser un
@@ -296,7 +297,7 @@ const loginSchema = z.object({
   browserId: z.string().nullish(),
   // Bloque 60: token de "dispositivo de confianza" (ver TrustedDevice) — si
   // este navegador ya verificó un código de login para ESTA cuenta en los
-  // últimos 30 días, se salta el paso de 2FA.
+  // últimos 15 días con actividad, se salta el paso de 2FA.
   deviceToken: z.string().nullish(),
   // Bloque 76 (bug real reportado en vivo): qué formulario de login se usó
   // ("admin"/"vendor", ausente = /cuenta, acepta cualquier rol como
@@ -395,7 +396,7 @@ export async function login(req, res) {
   // Bloque 60 (pedido explícito): el código de login pasa a ser obligatorio
   // para TODAS las cuentas (antes era opt-in vía user.twoFactorEnabled) —
   // se salta ÚNICAMENTE si este navegador ya quedó marcado de confianza
-  // para ESTA cuenta puntual dentro de los últimos 30 días.
+  // para ESTA cuenta puntual mientras haya usado la cuenta en los últimos 15 días (ver lib/sessionPolicy.js).
   const trustedDevice = data.deviceToken
     ? await prisma.trustedDevice.findFirst({
         where: { userId: user.id, tokenHash: hashToken(data.deviceToken), expiresAt: { gt: new Date() } },
@@ -442,8 +443,7 @@ export async function login(req, res) {
     return res.json({ requiresTwoFactor: true, method: "email", email: user.email, twoFactorExpiresAt: twoFactorCodeExpiresAt });
   }
 
-  // Dispositivo de confianza válido — ventana rodante: se le extienden otros
-  // 30 días en vez de dejarlo vencer desde el primer uso.
+  // Navegador de confianza válido: se le renuevan los 15 días desde ahora (ventana rodante, ver lib/sessionPolicy.js).
   await prisma.trustedDevice.update({
     where: { id: trustedDevice.id },
     data: { lastUsedAt: new Date(), expiresAt: new Date(Date.now() + TRUSTED_DEVICE_TTL_MS) },
@@ -548,7 +548,7 @@ export async function verifyTwoFactorLogin(req, res) {
   });
 
   // Bloque 60: este navegador acaba de probar que tiene acceso al correo de
-  // la cuenta — queda marcado de confianza por 30 días (no se le va a
+  // la cuenta — queda marcado de confianza (15 días que se renuevan con el uso) (no se le va a
   // volver a pedir el código hasta que expire o inicie sesión desde otro
   // navegador/dispositivo).
   const deviceToken = await issueTrustedDevice(user.id);
@@ -575,6 +575,10 @@ export async function refresh(req, res) {
   if (!session || session.revokedAt || session.expiresAt.getTime() < Date.now()) {
     throw new AppError("Sesión inválida o expirada.", 401);
   }
+  if (isSessionIdle(session)) {
+    await revokeSession(session.id);
+    throw new AppError(IDLE_MESSAGE, 401, { reason: "idle" });
+  }
 
   const user = await prisma.user.findUnique({ where: { id: session.userId } });
   if (!user || user.isSuspended || user.deletedAt) throw new AppError("Esta cuenta no está disponible.", 403);
@@ -582,6 +586,11 @@ export async function refresh(req, res) {
   await prisma.session.update({
     where: { id: session.id },
     data: { lastUsedAt: new Date(), expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
+  });
+  // La cuenta está en uso: el navegador de confianza no vence mientras tanto.
+  await prisma.trustedDevice.updateMany({
+    where: { userId: user.id, expiresAt: { gt: new Date() } },
+    data: { lastUsedAt: new Date(), expiresAt: new Date(Date.now() + TRUSTED_DEVICE_TTL_MS) },
   });
 
   const accessToken = jwt.sign({ sub: user.id, role: user.role, sid: session.id }, env.jwtSecret, { expiresIn: "1h" });

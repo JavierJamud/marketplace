@@ -6,8 +6,9 @@ import { openStream } from "../lib/realtime.js";
 import { AppError } from "../utils/AppError.js";
 
 // Canal en vivo (SSE) de la persona con sesión abierta.
+// El canal en vivo funciona aunque el admin apague la app instalable: de él depende que las pantallas abiertas se
+// actualicen solas cuando algo cambia (un pedido, una verificación, un ajuste de la tienda).
 export async function realtimeStream(req, res) {
-  if (!(await pwaEnabled())) return res.status(204).end();
   openStream(req, res, req.user.id);
 }
 

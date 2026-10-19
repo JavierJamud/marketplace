@@ -70,21 +70,25 @@ export default function AdminCustomerListings() {
 
       <div className="flex flex-col gap-4">
         {owners.map((owner) => (
-          <div key={owner.id} className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+          <div key={owner.id} className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
             <div className="flex flex-wrap items-center justify-between gap-2 bg-surface-container-low px-[22px] py-3">
-              <div>
+              <div className="min-w-0">
                 <span className="text-[14px] font-bold text-on-surface">{owner.fullName ?? owner.email}</span>
-                <span className="ml-2 text-[12px] text-outline">{owner.email} · {owner.phone}</span>
+                <span className="block break-all text-[12px] text-outline sm:ml-2 sm:inline">{owner.email} · {owner.phone}</span>
               </div>
               <span className="text-[12px] font-semibold text-outline">{owner.customerListings.length}/5 anuncios</span>
             </div>
-            <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr_1.2fr] gap-3 px-[22px] py-2.5 text-[11px] font-bold uppercase tracking-wide text-outline min-w-[700px]">
+            {/* En el celular cada anuncio es una tarjeta (antes era una tabla de 700px que escondía el estado y los botones). */}
+            <div className="hidden grid-cols-[1.6fr_1fr_1fr_1fr_1.2fr] gap-3 px-[22px] py-2.5 text-[11px] font-bold uppercase tracking-wide text-outline md:grid">
               <span>Producto</span><span>Precio</span><span>Estado</span><span>Vence</span><span className="text-right">Acción</span>
             </div>
             {owner.customerListings.map((l) => (
-              <div key={l.id} className="grid min-w-[700px] grid-cols-[1.6fr_1fr_1fr_1fr_1.2fr] items-center gap-3 border-t border-surface-container px-[22px] py-3">
-                <span className="text-[13px] font-semibold text-on-surface">{l.name}</span>
-                <span className="text-[13px] text-on-surface-variant">{formatPrice(l.price, l.currency)}</span>
+              <div key={l.id} className="flex flex-col gap-2 border-t border-surface-container px-4 py-3 md:grid md:grid-cols-[1.6fr_1fr_1fr_1fr_1.2fr] md:items-center md:gap-3 md:px-[22px]">
+                <div className="flex items-baseline justify-between gap-3 md:contents">
+                  <span className="min-w-0 text-[13px] font-semibold text-on-surface">{l.name}</span>
+                  <span className="flex-shrink-0 text-[13px] text-on-surface-variant">{formatPrice(l.price, l.currency)}</span>
+                </div>
+                <div className="flex items-center gap-2 md:contents">
                 <span
                   className="w-fit rounded-full px-2.5 py-1 text-[11px] font-bold"
                   style={
@@ -97,9 +101,10 @@ export default function AdminCustomerListings() {
                 >
                   {l.isSold ? "Vendido" : l.isActive ? "Activo" : "Suspendido/sin foto"}
                 </span>
-                <span className="text-[12.5px] text-on-surface-variant">{fmtDate(l.expiresAt)}</span>
-                <div className="flex flex-wrap justify-end gap-1.5">
-                  <Link to={`/ventas-rapidas/${l.id}`} target="_blank" className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant">
+                <span className="text-[12.5px] text-on-surface-variant"><span className="md:hidden">Vence: </span>{fmtDate(l.expiresAt)}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 md:justify-end">
+                  <Link to={`/ventas-rapidas/${l.id}`} target="_blank" className="inline-flex min-h-9 items-center rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant">
                     Ver
                   </Link>
                   <button

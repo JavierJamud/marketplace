@@ -7,6 +7,7 @@ import { isNoindexPath, isDynamicSeoPath, staticSeoFor } from "./lib/seoRoutes.j
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
 import { PwaManager } from "./components/pwa/PwaManager.jsx";
+import { VersionWatcher } from "./components/VersionWatcher.jsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -195,6 +196,7 @@ export default function App() {
     <>
       <RouteLoader />
       <PwaManager />
+      <VersionWatcher />
       <ErrorBoundary resetKey={currentPath}>
       {/* Las pantallas que no son de la portada (paneles, cuenta, pago, ayuda) se descargan solo cuando se abren:
           el primer ingreso al sitio baja mucho menos JavaScript. */}

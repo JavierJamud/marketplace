@@ -306,7 +306,7 @@ export async function listStoreOffers(req, res) {
       // El código exclusivo solo se entrega dentro de Baznova.
       discount: o.discountCodeExclusive
         ? null
-        : { code: o.discountCode.code, type: o.discountCode.type, value: Number(o.discountCode.value), minPurchase: o.discountCode.minPurchase === null ? null : Number(o.discountCode.minPurchase) },
+        : { code: o.discountCode.code, type: o.discountCode.type, value: Number(o.discountCode.value), currency: o.discountCode.currency, minPurchase: o.discountCode.minPurchase === null ? null : Number(o.discountCode.minPurchase) },
       store: { slug: v.slug, name: v.companyName, url: `${siteUrl()}/tienda/${v.slug}` },
     })),
   });

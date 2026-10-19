@@ -6,6 +6,7 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
 import { formatPrice } from "../../lib/format.js";
+import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
 import { sectionForPath } from "../../lib/vendorSections.js";
 import { StatusChip } from "../../components/admin/AdminSupportTickets.jsx";
 import { CARD } from "../../components/dashboard/DashboardCard.jsx";
@@ -19,6 +20,7 @@ import { AdminVendorStaffModal } from "../../components/admin/AdminVendorStaffMo
 import { RepresentativeFileModal } from "../../components/admin/RepresentativeFileModal.jsx";
 import { EditVendorModal, StatsModal } from "./AdminVendors.jsx";
 import { VendorUsageSection } from "../../components/admin/VendorUsage.jsx";
+import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
 
 // Gestionar una tienda (/admin/tiendas/:id): estado, lo que le falta configurar, accesos y dispositivos, equipo, asistente,
 // actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista.
@@ -145,9 +147,7 @@ export default function AdminVendorManage() {
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full font-display text-lg font-bold text-white" style={{ background: v.color ?? "#232F3E" }} aria-hidden="true">
-            {v.companyName[0]?.toUpperCase()}
-          </span>
+          <VendorAvatar vendor={v} className="h-12 w-12 rounded-full text-lg" />
           <div className="min-w-0">
             <h1 className="flex items-center gap-1.5 truncate font-display text-[24px] font-extrabold tracking-tight text-on-surface">
               {v.companyName} {v.verificationStatus === "VERIFIED" && !v.trial.active && <VerifiedBadge size="sm" />}
@@ -576,9 +576,13 @@ function RequirementsSection({ requirements, extras }) {
         {extras.map((x) => (
           <div key={x.key} className="grid grid-cols-1 gap-0.5 py-1.5 sm:grid-cols-[minmax(0,11rem)_minmax(0,1fr)] sm:gap-3">
             <dt className="flex items-center gap-1.5 text-[12.5px] text-on-surface-variant">
-              {x.done ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-verified-dark" aria-hidden="true" /> : <CircleDashed className="h-3.5 w-3.5 flex-shrink-0 text-error" aria-hidden="true" />} {x.label}
+              {x.done ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-verified-dark" aria-hidden="true" /> : <CircleDashed className="h-3.5 w-3.5 flex-shrink-0 text-outline" aria-hidden="true" />} {x.label}
             </dt>
-            <dd className={`min-w-0 break-words text-[13px] ${x.done ? "text-on-surface" : "text-error"}`}>{x.done ? x.value ?? "Sí" : "Sin configurar"}</dd>
+            {/* No es obligatorio: lo que falta va en gris, no en rojo (el rojo se leía como un error de la tienda). */}
+            <dd className={`min-w-0 break-words text-[13px] ${x.done ? "text-on-surface" : "text-on-surface-variant"}`}>
+              {x.done ? (Array.isArray(x.value) ? x.value.map((m) => resolvePaymentMethod(m).label).join(", ") : x.value ?? "Sí") : "Todavía no lo configuró"}
+              {!x.done && x.hint && <span className="block text-[11.5px] text-outline">{x.hint}</span>}
+            </dd>
           </div>
         ))}
       </dl>

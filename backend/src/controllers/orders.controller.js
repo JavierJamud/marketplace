@@ -271,7 +271,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
     let total = subtotal;
 
     if (data.discountCode) {
-      const resolved = await resolveDiscountForOrder(tx, { vendorId: data.vendorId, code: data.discountCode, subtotal });
+      const resolved = await resolveDiscountForOrder(tx, { vendorId: data.vendorId, code: data.discountCode, items: orderItems });
       const claim = await tx.discountCode.updateMany({
         where: {
           id: resolved.discountCode.id,

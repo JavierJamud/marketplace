@@ -492,7 +492,7 @@ async function showcaseFor(vendorId) {
     }),
     prisma.storeOffer.findMany({
       where: { vendorId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] }] },
-      include: { discountCode: { select: { code: true, type: true, value: true, active: true } } },
+      include: { discountCode: { select: { code: true, type: true, value: true, currency: true, active: true } } },
       take: 5,
     }),
   ]);
@@ -534,7 +534,7 @@ async function showcaseFor(vendorId) {
         title: o.title,
         description: shortText(o.description, 170),
         code: o.discountCode.code,
-        discount: o.discountCode.type === "PERCENTAGE" ? `${Number(o.discountCode.value)} %` : Number(o.discountCode.value),
+        discount: o.discountCode.type === "PERCENTAGE" ? `${Number(o.discountCode.value)} %` : `${Number(o.discountCode.value).toLocaleString("es-CU")} ${o.discountCode.currency}`,
         expiresAt: o.expiresAt,
       })),
   };

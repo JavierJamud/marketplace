@@ -64,7 +64,8 @@ function readStored() {
           quantity: Math.max(1, Math.min(Number(i.quantity) || 1, resolveStockCap(i.stock))),
         }))
       : [];
-    return { vendor: parsed.vendor ?? {}, items, discount: parsed.discount ?? null };
+    // Un descuento guardado antes de que los códigos tuvieran moneda se descarta: no se sabe a qué productos aplica.
+    return { vendor: parsed.vendor ?? {}, items, discount: parsed.discount?.currency ? parsed.discount : null };
   } catch {
     return { vendor: {}, items: [], discount: null };
   }
@@ -168,7 +169,7 @@ export function CartProvider({ children }) {
         if (!data.cart || !data.cart.items?.length) return;
         const local = readStored();
         if (!local.items?.length) {
-          replaceCart(data.cart.vendorMeta, data.cart.items, data.cart.discount ?? null);
+          replaceCart(data.cart.vendorMeta, data.cart.items, data.cart.discount?.currency ? data.cart.discount : null);
         } else if (local.vendor?.vendorId === data.cart.vendorMeta?.vendorId) {
           mergeItems(data.cart.items, "max");
         }
@@ -316,6 +317,7 @@ export function CartProvider({ children }) {
   // clearCart: si sacar este ítem deja el carrito en 0, se resetea vendor
   // (y el código de descuento, que es de la tienda vigente) junto con items.
   const removeItem = (productId, size = null) => {
+    const removed = items.find((i) => i.productId === productId && i.size === size);
     setItems((prev) => {
       const next = prev.filter((i) => !(i.productId === productId && i.size === size));
       if (next.length === 0) {
@@ -324,7 +326,7 @@ export function CartProvider({ children }) {
       }
       return next;
     });
-    toast.success("Producto eliminado del carrito");
+    toast.success("Eliminado del carrito", removed?.name, { icon: "delete" });
   };
 
   // Bloque 249 (bug real reportado en vivo: el chat de la tienda sacaba TODAS

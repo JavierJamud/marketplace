@@ -16,6 +16,7 @@ import { RepresentativeFileModal } from "../../components/admin/RepresentativeFi
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { SuspendedVendorsList, useSuspendedVendors } from "./AdminSuspendedVendors.jsx";
+import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -301,13 +302,7 @@ function VendorRow({ v }) {
   return (
     <div className={`border-b border-surface-container px-4 py-2.5 last:border-b-0 ${ROW_GRID}`}>
       <div className="flex min-w-0 items-center gap-3">
-        <span
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white"
-          style={{ background: v.color ?? "#232F3E" }}
-          aria-hidden="true"
-        >
-          {v.companyName[0]?.toUpperCase()}
-        </span>
+        <VendorAvatar vendor={v} className="h-10 w-10 rounded-full text-sm" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[13.5px] font-semibold text-on-surface">{v.companyName}</span>

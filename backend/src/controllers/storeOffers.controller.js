@@ -28,7 +28,7 @@ export const storeOfferSummarySelect = {
   active: true,
   createdAt: true,
   discountCode: {
-    select: { id: true, code: true, type: true, value: true, active: true },
+    select: { id: true, code: true, type: true, value: true, currency: true, active: true },
   },
 };
 

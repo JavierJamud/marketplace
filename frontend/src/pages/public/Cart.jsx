@@ -38,11 +38,11 @@ export default function Cart() {
 
   const applyDiscount = useMutation({
     mutationFn: async () =>
-      (await api.post("/discount-codes/validate", { vendorId, code: codeInput.trim(), subtotal })).data,
+      (await api.post("/discount-codes/validate", { vendorId, code: codeInput.trim(), items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })) })).data,
     onSuccess: ({ discount: applied }) => {
       setDiscount(applied);
       setCodeInput("");
-      toast.success(`Código "${applied.code}" aplicado — descuento de ${formatPrice(applied.amount)}.`);
+      toast.success(`Código "${applied.code}" aplicado: descuento de ${formatPrice(applied.amount, applied.currency)}.`);
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo aplicar el código."),
   });
@@ -226,7 +226,7 @@ export default function Cart() {
             (discount ? (
               <div className="mb-2.5 flex items-center justify-between rounded-md bg-verified/10 px-3 py-2 text-[12.5px] font-semibold text-verified-dark">
                 <span className="flex items-center gap-1.5">
-                  <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount)})
+                  <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount, discount.currency)})
                 </span>
                 <button onClick={clearDiscount} className="rounded-full p-1 hover:bg-verified/15" title="Quitar código">
                   <X className="h-3.5 w-3.5" />
@@ -259,13 +259,13 @@ export default function Cart() {
           {discount && (
             <div className="mb-2.5 flex justify-between text-[13.5px] font-semibold text-verified-dark">
               <span>Descuento ({vendorName})</span>
-              <span>-{formatPrice(discount.amount)}</span>
+              <span>-{formatPrice(discount.amount, discount.currency)}</span>
             </div>
           )}
 
           <div className="mb-[18px] flex justify-between border-t border-surface-container-high pt-3 text-title-lg font-bold text-on-surface">
             <span>Total</span>
-            <span>{discount && subtotal != null ? formatPrice(Math.max(0, subtotal - discount.amount)) : formatMixedTotal(items)}</span>
+            <span>{discount && subtotal != null ? formatPrice(Math.max(0, subtotal - discount.amount), discount.currency) : formatMixedTotal(items)}</span>
           </div>
           {/* Bloque 231 (pedido explícito — mismo cambio que CartDrawer.jsx:
               siempre navy de marca + ícono de compra, nunca el verde de

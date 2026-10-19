@@ -26,12 +26,18 @@ import { sileo } from "sileo";
 import { ToastIcon } from "../components/ui/Toast.jsx";
 import { FRIENDLY_TITLE, FRIENDLY_HINT, getRecentFailure, shouldShowFriendlyToast, openErrorReport } from "./errorReport.js";
 
-const DURATION_TITLE = 2800;
 const DURATION_WITH_DESC = 5000;
 const DURATION_WITH_ACTION = 9000;
 // El título de Sileo va en una sola línea, en la pastilla de arriba. Un texto más largo pasa a la descripción, que sí se ajusta.
 const TITLE_MAX = 34;
 const SHORT_TITLE = { success: "Listo", error: "No se pudo", warning: "Atención", info: "Aviso", loading: "Un momento" };
+// Título corto de la pastilla según el tema del aviso (el texto completo va en la tarjeta que se despliega).
+const ICON_TITLE = {
+  cart: "Carrito", delete: "Eliminado", heart: "Favoritos", lock: "Seguridad", mail: "Correo", payment: "Pago", order: "Pedido",
+  review: "Reseña", message: "Mensaje", image: "Imagen", user: "Cuenta", store: "Tienda", shipping: "Entrega", package: "Producto",
+  link: "Enlace", upload: "Subido", download: "Descarga", bell: "Aviso", location: "Ubicación", phone: "Contacto",
+  settings: "Configuración", calendar: "Fecha", shield: "Verificación", save: "Guardado",
+};
 
 // Bloque 216: el ícono se elige leyendo el propio texto, así los cientos de avisos ya escritos son específicos sin tocar cada
 // pantalla. Los verbos de acción van antes que los sustantivos ("Producto eliminado" es papelera, no paquete).
@@ -87,7 +93,14 @@ function showToast(type, rawTitle, rawDescription, opts = {}) {
     title = SHORT_TITLE[type] ?? "Aviso";
   }
   const iconName = icon ?? inferIcon(type, rawTitle, rawDescription);
-  const duration = customDuration ?? (type === "loading" ? null : action ? DURATION_WITH_ACTION : description ? DURATION_WITH_DESC : DURATION_TITLE);
+  // Todos los avisos se despliegan con la animación de Sileo (la pastilla se abre en tarjeta). Sileo solo la hace cuando hay
+  // descripción: un aviso de una sola línea ("Agregado al carrito") quedaba como una pastilla quieta. Ahora el texto pasa a la
+  // tarjeta y la pastilla lleva un título corto según el tema.
+  if (!description && type !== "loading" && title) {
+    description = title;
+    title = ICON_TITLE[iconName] ?? SHORT_TITLE[type] ?? "Aviso";
+  }
+  const duration = customDuration ?? (type === "loading" ? null : action ? DURATION_WITH_ACTION : DURATION_WITH_DESC);
 
   const payload = {
     ...rest,

@@ -27,7 +27,7 @@ function fmtDateInput(iso) {
 
 function discountLabel(code) {
   if (!code) return "";
-  return code.type === "PERCENTAGE" ? `-${Number(code.value)}%` : `-${Number(code.value).toLocaleString("es-CU")} CUP`;
+  return code.type === "PERCENTAGE" ? `-${Number(code.value)}%` : `-${Number(code.value).toLocaleString("es-CU")} ${code.currency ?? "CUP"}`;
 }
 
 // Bloque 232 (pedido explícito — "se podrán crear una oferta o varias
@@ -426,7 +426,7 @@ function vigenciaLabel(c) {
 }
 
 function valueLabel(c) {
-  return c.type === "PERCENTAGE" ? `${Number(c.value)}%` : `${Number(c.value).toLocaleString("es-CU")} CUP`;
+  return c.type === "PERCENTAGE" ? `${Number(c.value)}% · productos en ${c.currency ?? "CUP"}` : `${Number(c.value).toLocaleString("es-CU")} ${c.currency ?? "CUP"}`;
 }
 
 function DiscountCodesTab() {
@@ -476,7 +476,7 @@ function DiscountCodesTab() {
         <EmptyState
           icon={Percent}
           title="Todavía no creaste ningún código"
-          description="Crea uno con porcentaje o monto fijo en CUP, con o sin límite de usos ni vencimiento."
+          description="Crea uno con porcentaje o monto fijo, en la moneda de tus productos, con o sin límite de usos ni vencimiento."
         />
       )}
 

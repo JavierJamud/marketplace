@@ -126,8 +126,9 @@ export default function AdminFraudReports() {
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        <div className="grid grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[900px]">
+      {/* Tabla desde pantallas grandes; en el celular cada reporte es una tarjeta (la tabla de 900px escondía estado y botones). */}
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+        <div className="hidden grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline lg:grid">
           <span>Objetivo</span><span>Reportante</span><span>Estado</span><span>Mensaje</span><span>Fecha</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
@@ -136,8 +137,8 @@ export default function AdminFraudReports() {
           const target = targetInfo(r);
           const status = STATUS_LABEL[r.status];
           return (
-            <div key={r.id} data-focus-id={r.id} className={`grid min-w-[900px] ${focused === r.id ? "bg-tertiary-accent/10 ring-2 ring-inset ring-tertiary-accent" : ""} grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5`}>
-              <div>
+            <div key={r.id} data-focus-id={r.id} className={`flex flex-col gap-2 ${focused === r.id ? "bg-tertiary-accent/10 ring-2 ring-inset ring-tertiary-accent" : ""} border-t border-surface-container px-4 py-3.5 lg:grid lg:grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] lg:items-center lg:gap-3 lg:px-[22px]`}>
+              <div className="min-w-0">
                 {target.href ? (
                   <Link to={target.href} target="_blank" className="text-[13px] font-semibold text-tertiary-accent hover:underline">{target.label}</Link>
                 ) : (
@@ -145,9 +146,10 @@ export default function AdminFraudReports() {
                 )}
                 {target.sub && <div className="text-[11.5px] text-outline">{target.sub}</div>}
               </div>
-              <div>
+              <div className="min-w-0">
+                <span className="text-[11px] text-outline lg:hidden">Reportó: </span>
                 <span className="text-[12.5px] font-semibold text-on-surface">{r.reporter?.fullName ?? "—"}</span>
-                <div className="text-[11px] text-outline">{r.reporter?.email}</div>
+                <div className="break-all text-[11px] text-outline">{r.reporter?.email}</div>
               </div>
               <span className="w-fit rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: status.bg, color: status.color }}>
                 {status.label}
@@ -155,7 +157,7 @@ export default function AdminFraudReports() {
               </span>
               <p className="line-clamp-2 text-[12.5px] text-on-surface-variant">{r.message}</p>
               <span className="text-[12px] text-outline">{fmtDate(r.createdAt)}</span>
-              <div className="flex flex-wrap justify-end gap-1.5">
+              <div className="flex flex-wrap gap-1.5 lg:justify-end">
                 <a href={imgUrl(r.screenshotUrl)} target="_blank" rel="noreferrer" className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[12px] font-semibold text-on-surface-variant">
                   Captura
                 </a>

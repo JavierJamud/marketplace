@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { prisma } from "../lib/prisma.js";
+import { isSessionIdle, revokeSession, touchSession, IDLE_MESSAGE } from "../lib/sessionPolicy.js";
 
 // Bloque 60: además de verificar firma/expiración del JWT, ahora valida el
 // claim `sid` (id de la Session, ver auth.controller.js/createSession)
@@ -30,10 +31,15 @@ export async function authenticate(req, _res, next) {
   }
 
   if (!payload.sid) throw new AppError("Sesión inválida o expirada.", 401);
-  const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { revokedAt: true, expiresAt: true } });
+  const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { id: true, revokedAt: true, expiresAt: true, lastUsedAt: true } });
   if (!session || session.revokedAt || session.expiresAt.getTime() < Date.now()) {
     throw new AppError("Sesión inválida o expirada.", 401);
   }
+  if (isSessionIdle(session)) {
+    await revokeSession(session.id);
+    throw new AppError(IDLE_MESSAGE, 401, { reason: "idle" });
+  }
+  touchSession(session, payload.sub);
 
   // sid: la sesión de este inicio de sesión (sirve, por ejemplo, para que el asistente abra una conversación nueva en cada una).
   req.user = { id: payload.sub, role: payload.role, sid: payload.sid };
@@ -49,8 +55,11 @@ export async function optionalAuth(req, _res, next) {
     if (token) {
       const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
       if (payload.sid) {
-        const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { revokedAt: true, expiresAt: true } });
-        if (session && !session.revokedAt && session.expiresAt.getTime() > Date.now()) req.user = { id: payload.sub, role: payload.role };
+        const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { id: true, revokedAt: true, expiresAt: true, lastUsedAt: true } });
+        if (session && !session.revokedAt && session.expiresAt.getTime() > Date.now() && !isSessionIdle(session)) {
+          req.user = { id: payload.sub, role: payload.role };
+          touchSession(session, payload.sub);
+        }
       }
     }
   } catch {

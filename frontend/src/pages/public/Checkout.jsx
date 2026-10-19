@@ -54,7 +54,7 @@ function buildOrderWhatsAppText(info) {
     WA_SEPARATOR,
   ];
   if (info.discount) {
-    lines.push(`🏷️ Descuento (${info.discount.code}): -${formatPrice(info.discount.amount)}`);
+    lines.push(`🏷️ Descuento (${info.discount.code}): -${formatPrice(info.discount.amount, info.discount.currency)}`);
   }
   if (info.loyaltyPoints) {
     lines.push(`⭐ Puntos usados (${info.loyaltyPoints}): -${formatPrice(info.loyaltyDiscount, info.loyaltyCurrency)}`);
@@ -212,11 +212,12 @@ export default function Checkout() {
 
   const discountSubtotal = singleCurrencySubtotal(items);
   const applyDiscount = useMutation({
-    mutationFn: async () => (await api.post("/discount-codes/validate", { vendorId, code: codeInput.trim(), subtotal: discountSubtotal })).data,
+    mutationFn: async () =>
+      (await api.post("/discount-codes/validate", { vendorId, code: codeInput.trim(), items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })) })).data,
     onSuccess: ({ discount: applied }) => {
       setDiscount(applied);
       setCodeInput("");
-      toast.success(`Código "${applied.code}" aplicado — descuento de ${formatPrice(applied.amount)}.`);
+      toast.success(`Código "${applied.code}" aplicado: descuento de ${formatPrice(applied.amount, applied.currency)}.`);
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo aplicar el código."),
   });
@@ -292,7 +293,8 @@ export default function Checkout() {
         ? formatPrice(Number(order.total), loyalty.program.currency)
         : discount
         ? formatPrice(
-            Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount)
+            Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount),
+            discount.currency
           )
         : formatMixedTotal(items);
       setConfirmedInfo({
@@ -412,7 +414,7 @@ export default function Checkout() {
               {confirmedInfo.discount && (
                 <div className="mt-1.5 flex justify-between text-[12px] text-verified-dark">
                   <span>Descuento ({confirmedInfo.discount.code})</span>
-                  <span>-{formatPrice(confirmedInfo.discount.amount)}</span>
+                  <span>-{formatPrice(confirmedInfo.discount.amount, confirmedInfo.discount.currency)}</span>
                 </div>
               )}
               {confirmedInfo.loyaltyPoints > 0 && (
@@ -793,7 +795,7 @@ export default function Checkout() {
               (discount ? (
                 <div className="mb-3 flex items-center justify-between rounded-md bg-verified/10 px-3 py-2 text-[12.5px] font-semibold text-verified-dark">
                   <span className="flex items-center gap-1.5">
-                    <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount)})
+                    <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount, discount.currency)})
                   </span>
                   <button onClick={clearDiscount} className="rounded-full p-1 hover:bg-verified/15" title="Quitar código">
                     <X className="h-3.5 w-3.5" />
@@ -836,7 +838,7 @@ export default function Checkout() {
                 {loyalty.used
                   ? formatPrice(loyalty.total, loyalty.program.currency)
                   : discount
-                  ? formatPrice(Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount))
+                  ? formatPrice(Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount), discount.currency)
                   : formatMixedTotal(items)}
               </span>
             </div>

@@ -108,7 +108,7 @@ export async function getVendorManage(req, res) {
   const missing = checklist.filter((c) => !c.done).map((c) => c.label);
   if (vendor._count.schedules === 0) missing.push("Horario de atención");
   if (!(vendor.checkoutPaymentOptions?.length)) missing.push("Formas de pago en el checkout");
-  if (!vendor.acceptedPaymentMethods?.length) missing.push("Métodos de pago aceptados");
+  if (!vendor.acceptedPaymentMethods?.length) missing.push("Formas de cobro a sus clientes");
   if (vendor.isRestaurant && vendor._count.tables === 0) missing.push("Mesas con QR (es restaurante)");
 
   // Cada requisito del plan Premium con el dato real con el que la tienda lo completó (o vacío si le falta). Las fotos de
@@ -143,7 +143,15 @@ export async function getVendorManage(req, res) {
   const extras = [
     { key: "schedules", label: "Horario de atención", done: vendor.schedules.length > 0, value: scheduleSummary(vendor.schedules) },
     { key: "checkout", label: "Formas de pago en el checkout", done: !!vendor.checkoutPaymentOptions?.length, value: (vendor.checkoutPaymentOptions ?? []).map((k) => CHECKOUT_LABEL[k] ?? k).join(", ") || null },
-    { key: "accepted", label: "Métodos de pago aceptados", done: !!vendor.acceptedPaymentMethods?.length, value: (vendor.acceptedPaymentMethods ?? []).join(", ") || null },
+    // Cómo cobra la tienda a SUS clientes (Transfermóvil, Zelle, efectivo...), elegido en su Configuración. No es el pago de
+    // la suscripción: antes se llamaba "Métodos de pago aceptados" y se confundía con eso.
+    {
+      key: "accepted",
+      label: "Formas de cobro a sus clientes",
+      hint: "Transfermóvil, Zelle, efectivo… La tienda las elige en Configuración › Métodos de pago.",
+      done: !!vendor.acceptedPaymentMethods?.length,
+      value: vendor.acceptedPaymentMethods ?? [],
+    },
     ...(vendor.isRestaurant ? [{ key: "tables", label: "Mesas con QR", done: vendor._count.tables > 0, value: vendor._count.tables ? `${vendor._count.tables} mesas` : null }] : []),
   ];
 
@@ -291,7 +299,7 @@ export async function listNewVendors(req, res) {
     where: { createdAt: { gte: new Date(Date.now() - days * DAY) }, deletedAt: null },
     orderBy: { createdAt: "desc" },
     take: 12,
-    select: { id: true, companyName: true, color: true, createdAt: true, planType: true, verificationStatus: true, trialEndsAt: true, isBlocked: true, user: { select: { lastLoginAt: true } } },
+    select: { id: true, companyName: true, color: true, logoUrl: true, createdAt: true, planType: true, verificationStatus: true, trialEndsAt: true, isBlocked: true, user: { select: { lastLoginAt: true } } },
   });
   const rows = [];
   for (const v of vendors) {
@@ -300,6 +308,7 @@ export async function listNewVendors(req, res) {
       id: v.id,
       companyName: v.companyName,
       color: v.color,
+      logoUrl: v.logoUrl,
       createdAt: v.createdAt,
       planType: v.planType,
       verificationStatus: v.verificationStatus,

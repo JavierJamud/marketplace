@@ -24,7 +24,7 @@ export function CartConflictModal() {
   function handleReplace() {
     const productName = pendingConflict.product.name;
     resolveConflict(true);
-    toast.success(`Carrito vaciado — "${productName}" agregado ✓`);
+    toast.success("Carrito nuevo", `Vaciamos el carrito anterior y agregamos "${productName}".`, { icon: "cart" });
   }
 
   return (

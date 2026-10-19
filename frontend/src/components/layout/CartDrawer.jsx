@@ -304,12 +304,12 @@ export function CartDrawer() {
                   <span className="flex items-center gap-1">
                     <Tag className="h-3.5 w-3.5" /> {discount.code}
                   </span>
-                  <span>-{formatPrice(discount.amount)}</span>
+                  <span>-{formatPrice(discount.amount, discount.currency)}</span>
                 </div>
               )}
               <div className="mb-3 flex justify-between text-title-md font-bold text-on-surface">
                 <span>Total</span>
-                <span>{discount ? formatPrice(Math.max(0, subtotal - discount.amount)) : formatMixedTotal(items)}</span>
+                <span>{discount ? formatPrice(Math.max(0, subtotal - discount.amount), discount.currency) : formatMixedTotal(items)}</span>
               </div>
 
               {/* Bloque 231 (pedido explícito — "el botón de completar

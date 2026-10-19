@@ -48,7 +48,7 @@ const MAX_REVIEW_IMAGES = 2;
 
 function discountBadgeLabel(discountCode) {
   if (!discountCode) return "";
-  return discountCode.type === "PERCENTAGE" ? `-${Number(discountCode.value)}%` : `-${Number(discountCode.value).toLocaleString("es-CU")} CUP`;
+  return discountCode.type === "PERCENTAGE" ? `-${Number(discountCode.value)}%` : `-${Number(discountCode.value).toLocaleString("es-CU")} ${discountCode.currency ?? "CUP"}`;
 }
 
 // Bloque 52: cuenta regresiva en vivo para ofertas de tienda por tiempo

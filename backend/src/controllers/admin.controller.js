@@ -1435,7 +1435,7 @@ export async function resetVerificationPaymentMethod(req, res) {
 export async function listPendingSubscriptionPayments(_req, res) {
   const payments = await prisma.subscriptionPayment.findMany({
     where: { confirmedAt: null, claimedAt: { not: null } },
-    include: { vendor: { select: { id: true, companyName: true, color: true, email: true, whatsapp: true } } },
+    include: { vendor: { select: { id: true, companyName: true, color: true, logoUrl: true, email: true, whatsapp: true } } },
     orderBy: { claimedAt: "asc" },
   });
   res.json({ payments });
@@ -1487,7 +1487,7 @@ export async function listVendorChangeRequests(req, res) {
   const { status } = req.query;
   const requests = await prisma.vendorChangeRequest.findMany({
     where: { status: status ? String(status).toUpperCase() : "PENDING" },
-    include: { vendor: { select: { id: true, companyName: true, color: true, email: true, whatsapp: true, verificationStatus: true } } },
+    include: { vendor: { select: { id: true, companyName: true, color: true, logoUrl: true, email: true, whatsapp: true, verificationStatus: true } } },
     orderBy: { createdAt: "asc" },
   });
   res.json({ requests });

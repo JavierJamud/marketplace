@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { CARD, CardHeader } from "../dashboard/DashboardCard.jsx";
+import { VendorAvatar } from "../ui/VendorAvatar.jsx";
 
 // Tiendas registradas en los últimos 14 días, en el panel principal del admin: cuánto llevan de su configuración (los
 // mismos pasos que pide la prueba gratis) y si ya activaron la prueba. Cada fila abre su página Gestionar.
@@ -29,9 +30,7 @@ export function NewVendorsCard() {
             return (
               <li key={v.id}>
                 <Link to={`/admin/tiendas/${v.id}`} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/60">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-extrabold text-white" style={{ background: v.color || "#337475" }} aria-hidden="true">
-                    {v.companyName.charAt(0).toUpperCase()}
-                  </span>
+                  <VendorAvatar vendor={v} className="h-9 w-9 rounded-full text-[13px]" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-semibold text-on-surface">{v.companyName}</span>
                     <span className="block text-[11.5px] text-outline">

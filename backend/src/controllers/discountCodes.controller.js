@@ -5,6 +5,16 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
+import { resolveUnitPrice } from "../lib/pricing.js";
+
+const CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
+
+// Solo las monedas que el admin tiene habilitadas (las mismas que se ofrecen al cargar un producto).
+async function assertCurrencyAvailable(currency) {
+  const s = await prisma.siteSettings.findFirst({ select: { availableCurrencies: true } });
+  const allowed = s?.availableCurrencies ?? CURRENCIES;
+  if (!allowed.includes(currency)) throw new AppError(`La moneda "${currency}" no está disponible actualmente.`, 400);
+}
 
 // Bloque 52: códigos de descuento del vendedor, aplicables por el cliente en
 // el carrito (ver resolveDiscountForOrder/createOrder en orders.controller.js).
@@ -37,6 +47,7 @@ export const discountCodeSummarySelect = {
   code: true,
   type: true,
   value: true,
+  currency: true,
   minPurchase: true,
   maxPurchase: true,
   maxUses: true,
@@ -63,6 +74,7 @@ const createDiscountCodeSchema = z
     code: z.string().trim().min(2).max(24).optional(),
     type: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]),
     value: z.number().positive(),
+    currency: z.enum(CURRENCIES).default("CUP"),
     minPurchase: z.number().nonnegative().optional(),
     maxPurchase: z.number().positive().optional(),
     maxUses: z.number().int().positive().optional(),
@@ -96,6 +108,7 @@ export async function createDiscountCode(req, res) {
     if (currentCount >= maxDiscountCodes) throw new AppError(`Tu plan permite hasta ${maxDiscountCodes} código(s) de descuento.`, 403);
   }
   const data = createDiscountCodeSchema.parse(req.body);
+  await assertCurrencyAvailable(data.currency);
 
   const code = await uniqueCodeForVendor(vendor.id, data.code);
 
@@ -105,6 +118,7 @@ export async function createDiscountCode(req, res) {
       code,
       type: data.type,
       value: data.value,
+      currency: data.currency,
       minPurchase: data.minPurchase ?? null,
       maxPurchase: data.maxPurchase ?? null,
       maxUses: data.maxUses ?? null,
@@ -129,6 +143,7 @@ const updateDiscountCodeSchema = z
   .object({
     type: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
     value: z.number().positive().optional(),
+    currency: z.enum(CURRENCIES).optional(),
     minPurchase: z.number().nonnegative().optional().nullable(),
     maxPurchase: z.number().positive().optional().nullable(),
     maxUses: z.number().int().positive().optional().nullable(),
@@ -162,6 +177,10 @@ export async function updateDiscountCode(req, res) {
   if (data.active !== undefined) patch.active = data.active;
   if (data.type !== undefined) patch.type = data.type;
   if (data.value !== undefined) patch.value = data.value;
+  if (data.currency !== undefined) {
+    await assertCurrencyAvailable(data.currency);
+    patch.currency = data.currency;
+  }
   if (data.minPurchase !== undefined) patch.minPurchase = data.minPurchase;
   if (data.maxPurchase !== undefined) patch.maxPurchase = data.maxPurchase;
   if (data.maxUses !== undefined) patch.maxUses = data.maxUses;
@@ -207,7 +226,9 @@ export async function deleteDiscountCode(req, res) {
 // createOrder (orders.controller.js) al confirmar el pedido — mismos checks
 // en ambos puntos para que nunca se muestre un descuento en el carrito que
 // después el backend rechace al pagar por una razón distinta.
-export async function resolveDiscountForOrder(client, { vendorId, code, subtotal }) {
+// `items` son los ítems del pedido con el precio unitario ya resuelto en el servidor: [{ price, quantity, currency }].
+// El código solo descuenta los de su misma moneda: un monto en CUP nunca se resta de un precio en USD.
+export async function resolveDiscountForOrder(client, { vendorId, code, items }) {
   const normalizedCode = (code ?? "").trim().toUpperCase();
   if (!normalizedCode) throw new AppError("Escribe un código de descuento.", 400);
 
@@ -223,11 +244,19 @@ export async function resolveDiscountForOrder(client, { vendorId, code, subtotal
   if (discountCode.maxUses != null && discountCode.usesCount >= discountCode.maxUses) {
     throw new AppError("Este código de descuento ya alcanzó su límite de usos.", 409);
   }
+
+  const cur = discountCode.currency;
+  const matching = (items ?? []).filter((i) => (i.currency ?? "CUP") === cur);
+  if (matching.length === 0) {
+    const others = [...new Set((items ?? []).map((i) => i.currency ?? "CUP"))].join(" y ");
+    throw new AppError(`Este código es para productos en ${cur} y tu carrito tiene productos en ${others || "otra moneda"}. Solo se puede usar con productos en ${cur}.`, 409);
+  }
+  const subtotal = matching.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
   if (discountCode.minPurchase != null && subtotal < Number(discountCode.minPurchase)) {
-    throw new AppError(`Este código requiere una compra mínima de ${Number(discountCode.minPurchase).toLocaleString("es-CU")} CUP.`, 409);
+    throw new AppError(`Este código requiere una compra mínima de ${Number(discountCode.minPurchase).toLocaleString("es-CU")} ${cur} en productos en ${cur}.`, 409);
   }
   if (discountCode.maxPurchase != null && subtotal > Number(discountCode.maxPurchase)) {
-    throw new AppError(`Este código no aplica a compras mayores a ${Number(discountCode.maxPurchase).toLocaleString("es-CU")} CUP.`, 409);
+    throw new AppError(`Este código no aplica a compras mayores a ${Number(discountCode.maxPurchase).toLocaleString("es-CU")} ${cur}.`, 409);
   }
 
   const rawAmount =
@@ -237,10 +266,11 @@ export async function resolveDiscountForOrder(client, { vendorId, code, subtotal
   return { discountCode, discountAmount: Math.round(discountAmount * 100) / 100 };
 }
 
+// Se mandan los productos (no un subtotal): los precios y la moneda salen de la base, igual que al crear el pedido.
 const validateDiscountCodeSchema = z.object({
   vendorId: z.string(),
   code: z.string().trim().min(1),
-  subtotal: z.number().nonnegative(),
+  items: z.array(z.object({ productId: z.string(), quantity: z.number().int().positive() })).min(1).max(100),
 });
 
 // Público — preview desde el carrito, ANTES de confirmar el pedido. Nunca
@@ -249,12 +279,25 @@ const validateDiscountCodeSchema = z.object({
 // sin gastar usos.
 export async function validateDiscountCode(req, res) {
   const data = validateDiscountCodeSchema.parse(req.body);
-  const { discountCode, discountAmount } = await resolveDiscountForOrder(prisma, data);
+  const products = await prisma.product.findMany({
+    where: { id: { in: data.items.map((i) => i.productId) }, vendorId: data.vendorId },
+    select: { id: true, price: true, priceTiers: true, currency: true },
+  });
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const items = data.items
+    .filter((i) => byId.has(i.productId))
+    .map((i) => {
+      const p = byId.get(i.productId);
+      return { price: resolveUnitPrice(p.price, p.priceTiers, i.quantity), quantity: i.quantity, currency: p.currency };
+    });
+  if (items.length === 0) throw new AppError("Los productos del carrito no son de esta tienda.", 400);
+  const { discountCode, discountAmount } = await resolveDiscountForOrder(prisma, { vendorId: data.vendorId, code: data.code, items });
   res.json({
     discount: {
       code: discountCode.code,
       type: discountCode.type,
       value: Number(discountCode.value),
+      currency: discountCode.currency,
       amount: discountAmount,
     },
   });

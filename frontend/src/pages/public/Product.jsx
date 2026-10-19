@@ -365,7 +365,7 @@ export default function Product() {
     if (cartQuantity > 0) {
       if (qty === cartQuantity) return;
       updateQuantity(product.id, qty, hasSizes ? selectedSize : null);
-      toast.success("Carrito actualizado ✓");
+      toast.success("Carrito actualizado", `${qty} × ${product.name}`, { icon: "cart" });
       setAdded(true);
       setTimeout(() => setAdded(false), 2000);
       return;
@@ -396,7 +396,7 @@ export default function Product() {
       Math.min(qty, remainingStock)
     );
     if (result.conflict) return;
-    toast.success("Agregado al carrito ✓");
+    toast.success("Agregado al carrito", `${Math.min(qty, remainingStock)} × ${product.name}`, { icon: "cart" });
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
   }

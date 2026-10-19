@@ -37,8 +37,8 @@ export function PwaManager() {
     return () => window.removeEventListener(SYNC_EVENT, onSync);
   }, [queryClient]);
 
-  // Canal en vivo y avisos: solo con sesión y con la PWA encendida.
-  useRealtime(!!user && enabled === true);
+  // Canal en vivo: con sesión, siempre (las pantallas se actualizan solas). Los avisos dentro de la página, con la PWA encendida.
+  useRealtime(!!user);
 
   // La aplicación que le toca a esta persona en esta zona (y si le corresponde alguna).
   const ownApp = useMemo(() => {

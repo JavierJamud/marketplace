@@ -109,8 +109,9 @@ export default function AdminRankingAnomalies() {
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        <div className="grid grid-cols-[1.1fr_1.8fr_2.4fr_1.3fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline min-w-[900px]">
+      {/* Tabla desde pantallas grandes; en el celular, una tarjeta por anomalía con sus botones a la vista. */}
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+        <div className="hidden grid-cols-[1.1fr_1.8fr_2.4fr_1.3fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline lg:grid">
           <span>Tipo</span><span>Objetivo</span><span>Detalle</span><span>Fecha</span><span className="text-right">Acción</span>
         </div>
         {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
@@ -119,7 +120,7 @@ export default function AdminRankingAnomalies() {
           const target = targetInfo(a);
           const status = STATUS_LABEL[a.status];
           return (
-            <div key={a.id} className="grid min-w-[900px] grid-cols-[1.1fr_1.8fr_2.4fr_1.3fr_1.6fr] items-center gap-3 border-t border-surface-container px-[22px] py-3.5">
+            <div key={a.id} className="flex flex-col gap-2 border-t border-surface-container px-4 py-3.5 lg:grid lg:grid-cols-[1.1fr_1.8fr_2.4fr_1.3fr_1.6fr] lg:items-center lg:gap-3 lg:px-[22px]">
               <div>
                 <span className="text-[12.5px] font-semibold text-on-surface">{KIND_LABEL[a.kind] ?? a.kind}</span>
                 <div className="mt-0.5 w-fit rounded-full px-2 py-0.5 text-[10.5px] font-bold" style={{ background: status.bg, color: status.color }}>
@@ -136,7 +137,7 @@ export default function AdminRankingAnomalies() {
               </div>
               <p className="text-[12.5px] text-on-surface-variant">{a.details}</p>
               <span className="text-[12px] text-outline">{fmtDate(a.detectedAt)}</span>
-              <div className="flex flex-wrap justify-end gap-1.5">
+              <div className="flex flex-wrap gap-1.5 lg:justify-end">
                 {a.status === "PENDING" && (
                   <>
                     <button

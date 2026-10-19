@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { X } from "lucide-react";
 import { api } from "../../lib/api.js";
@@ -29,6 +29,12 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
   const [manualCode, setManualCode] = useState(isEdit ? code.code : "");
   const [type, setType] = useState(isEdit ? code.type : "PERCENTAGE");
   const [value, setValue] = useState(isEdit ? String(code.value) : "");
+  // Moneda del código: solo descuenta productos publicados en esa moneda. Si no se elige, la de la tienda.
+  const { data: siteSettings } = useQuery({ queryKey: ["site-settings"], queryFn: async () => (await api.get("/settings")).data.settings });
+  const { data: myVendor } = useQuery({ queryKey: ["my-vendor"], queryFn: async () => (await api.get("/vendors/me")).data.vendor });
+  const [pickedCurrency, setPickedCurrency] = useState(isEdit ? code.currency ?? "CUP" : null);
+  const currency = pickedCurrency ?? myVendor?.currency ?? "CUP";
+  const currencies = siteSettings?.availableCurrencies ?? ["CUP", "USD"];
   const [minPurchase, setMinPurchase] = useState(isEdit && code.minPurchase != null ? String(code.minPurchase) : "");
   const [maxPurchase, setMaxPurchase] = useState(isEdit && code.maxPurchase != null ? String(code.maxPurchase) : "");
   const [maxUses, setMaxUses] = useState(isEdit && code.maxUses != null ? String(code.maxUses) : "");
@@ -45,6 +51,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
       const payload = {
         type,
         value: Number(value),
+        currency,
         minPurchase: minPurchase ? Number(minPurchase) : undefined,
         maxPurchase: maxPurchase ? Number(maxPurchase) : undefined,
         maxUses: maxUses ? Number(maxUses) : undefined,
@@ -69,7 +76,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
 
   // Bloque 196: snapshot del borrador con el que se abrió el modal.
   const draftSnapshot = () =>
-    JSON.stringify({ manualCode, type, value, minPurchase, maxPurchase, maxUses, hasExpiry, startsAt, expiresAt });
+    JSON.stringify({ manualCode, type, value, pickedCurrency, minPurchase, maxPurchase, maxUses, hasExpiry, startsAt, expiresAt });
   const initialFormSnapshot = useRef(draftSnapshot());
   const isDirty = draftSnapshot() !== initialFormSnapshot.current;
   // Misma condición que ya deshabilita "Guardar"/"Crear" más abajo, menos
@@ -127,7 +134,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
             <div className="grid grid-cols-2 gap-2.5">
               {[
                 { v: "PERCENTAGE", l: "Porcentaje (%)" },
-                { v: "FIXED_AMOUNT", l: "Monto fijo (CUP)" },
+                { v: "FIXED_AMOUNT", l: `Monto fijo (${currency})` },
               ].map((o) => (
                 <button
                   key={o.v}
@@ -144,8 +151,32 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
             </div>
           </div>
 
+          <div>
+            <span className="mb-1.5 block text-label-md text-on-surface-variant">Moneda de los productos</span>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Moneda de los productos">
+              {currencies.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  role="radio"
+                  aria-checked={currency === c}
+                  disabled={locked}
+                  onClick={() => setPickedCurrency(c)}
+                  className={`min-h-11 min-w-[64px] rounded-xl border-2 px-3 text-[12.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50 ${
+                    currency === c ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant"
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-outline">
+              Solo descuenta productos publicados en {currency}. Si el cliente lleva solo productos en otra moneda, el código no se aplica.
+            </p>
+          </div>
+
           <Input
-            label={type === "PERCENTAGE" ? "Valor del descuento (%)" : "Valor del descuento (CUP)"}
+            label={type === "PERCENTAGE" ? "Valor del descuento (%)" : `Valor del descuento (${currency})`}
             type="number"
             min={0}
             max={type === "PERCENTAGE" ? 100 : undefined}
@@ -158,7 +189,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
 
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="Compra mínima (opcional)"
+              label={`Compra mínima en ${currency} (opcional)`}
               type="number"
               min={0}
               disabled={locked}
@@ -166,7 +197,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
               onChange={(e) => setMinPurchase(e.target.value)}
             />
             <Input
-              label="Compra máxima (opcional)"
+              label={`Compra máxima en ${currency} (opcional)`}
               type="number"
               min={0}
               disabled={locked}

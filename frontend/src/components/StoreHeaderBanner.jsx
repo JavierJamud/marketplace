@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Share2, MessageCircle, ShieldAlert, Heart } from "lucide-react";
+import { Share2, MessageCircle, ShieldAlert, Heart, MapPin, Package, CalendarDays } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { copyToClipboard } from "../lib/clipboard.js";
@@ -91,7 +91,11 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
   }
 
   const location = v.locations?.[0];
-  const locationLabel = location ? `${location.municipality?.name ?? ""}, ${location.province?.name}` : "Cuba";
+  // Sin municipio salía ", Santiago de Cuba" con la coma suelta: solo se unen las partes que existen.
+  const locationLabel = location ? [location.municipality?.name, location.province?.name ?? location.stateOther].filter(Boolean).join(", ") || "Cuba" : "Cuba";
+  // El sello va pegado a la última palabra del nombre: así nunca queda solo en otra línea ni flotando a la derecha.
+  const nameWords = v.companyName.trim().split(/\s+/);
+  const nameLast = nameWords.pop();
   const joinedYear = new Date(v.createdAt).getFullYear();
   // Bloque 207: patrón fijo por tienda (mismo id -> mismo patrón siempre),
   // nunca recalculado al azar en cada render.
@@ -177,42 +181,43 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
             largo más arriba) tiene que vivir acá en ese caso, como
             pb extra sobre el degradado base (sin ninguna capa oscura de
             por medio, así que no hay costura de color posible). */}
-        <div className={`container-app relative flex flex-col gap-5 pt-5 sm:flex-row sm:items-center sm:justify-between sm:pt-6 ${minimal ? "pb-[60px]" : "pb-5"}`}>
-          {/* Avatar + info de tienda */}
-          <div className="flex items-center gap-4 sm:gap-5">
-            <div
-              className="relative flex h-[76px] w-[76px] flex-shrink-0 items-center justify-center rounded-full font-display text-[32px] font-extrabold text-white shadow-xl ring-1 ring-white/20 sm:h-[92px] sm:w-[92px] sm:text-[40px]"
-              style={{ background: "rgba(255,255,255,0.12)", backdropFilter: "blur(8px)" }}
-            >
-              <span className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full">
-                {v.logoUrl ? (
-                  <img src={imgUrl(v.logoUrl)} alt={v.companyName} className="h-full w-full object-cover" />
-                ) : (
-                  v.companyName[0]
-                )}
-              </span>
-              <span
-                className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-2 border-white shadow ${
-                  v.isOpenNow ? "bg-verified" : "bg-outline"
-                }`}
-              />
-            </div>
-
-            {/* Nombre, categoría, descripción */}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start gap-1.5">
-                <h1 className="font-display text-[22px] font-extrabold leading-tight text-white sm:text-[26px]">
-                  {v.companyName}
-                </h1>
-                {v.isVerified && (
-                  <span className="mt-0.5 flex-shrink-0 self-start">
-                    <VerifiedBadge size="md" />
-                  </span>
-                )}
+        <div className={`container-app relative flex flex-col gap-4 pt-5 sm:flex-row sm:items-start sm:justify-between sm:pt-6 ${minimal ? "pb-[60px]" : "pb-5"}`}>
+          {/* Logo delante del nombre en una sola fila y la descripción debajo a todo el ancho: en el celular el logo ya no
+              queda centrado contra un bloque de texto largo. */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3.5 sm:gap-5">
+              <div className="relative h-[68px] w-[68px] flex-shrink-0 sm:h-[92px] sm:w-[92px]">
+                <span
+                  className="flex h-full w-full items-center justify-center overflow-hidden rounded-full font-display text-[28px] font-extrabold text-white shadow-xl ring-2 ring-white/30 sm:text-[40px]"
+                  style={{ background: v.logoUrl ? "#fff" : v.color ?? "rgba(255,255,255,0.12)" }}
+                >
+                  {v.logoUrl ? <img src={imgUrl(v.logoUrl)} alt={`Logo de ${v.companyName}`} className="h-full w-full object-cover" /> : v.companyName[0]}
+                </span>
+                <span
+                  title={v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
+                  className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-[2.5px] border-white shadow sm:bottom-1.5 sm:right-1.5 ${
+                    v.isOpenNow ? "bg-verified" : "bg-outline"
+                  }`}
+                />
               </div>
 
-              {/* Sub-badges: estado · categoría · mesa */}
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <h1 className="break-words font-display text-[21px] font-extrabold leading-tight text-white sm:text-[26px]">
+                  {nameWords.length > 0 && <>{nameWords.join(" ")} </>}
+                  <span className="whitespace-nowrap">
+                    {nameLast}
+                    {v.isVerified && <VerifiedBadge size="md" className="ml-1.5 align-[-0.15em] sm:h-6 sm:w-6" />}
+                  </span>
+                </h1>
+
+              {/* Sello a la vista (más claro que el ícono solo) · estado · categoría · mesa */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                {v.isVerified && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-extrabold text-verified-dark shadow-sm">
+                    <VerifiedBadge size="sm" title="" />
+                    Tienda verificada
+                  </span>
+                )}
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
                     v.isOpenNow ? "bg-verified/20 text-[#7dffb0]" : "bg-white/10 text-white/90"
@@ -236,12 +241,12 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                   </span>
                 )}
               </div>
-
-              {/* Descripción */}
-              {v.description && (
-                <p className="mt-2 line-clamp-3 max-w-[680px] text-[13px] leading-relaxed text-white/65">{v.description}</p>
-              )}
+              </div>
             </div>
+
+            {v.description && (
+              <p className="mt-3 line-clamp-3 max-w-[680px] text-[13px] leading-relaxed text-white/75 sm:ml-[112px]">{v.description}</p>
+            )}
           </div>
 
           {/* Botones de acción — alineados a la derecha */}
@@ -307,29 +312,25 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                 )}
               </div>
 
-              <span className="h-3.5 w-px bg-white/15" />
-
-              {/* Productos */}
-              <span className="text-[12.5px] text-white/70">
-                <span className="font-bold text-white">{v.products?.length ?? 0}</span>{" "}
+              {/* Sin separadores verticales: al pasar a otra línea en el celular quedaban sueltos al inicio. */}
+              <span className="inline-flex items-center gap-1.5 text-[12.5px] text-white/75">
+                <Package className="h-3.5 w-3.5 text-white/60" aria-hidden="true" />
+                <span className="font-bold text-white">{v.products?.length ?? 0}</span>
                 producto{(v.products?.length ?? 0) === 1 ? "" : "s"}
               </span>
 
-              <span className="h-3.5 w-px bg-white/15" />
+              <span className="inline-flex items-center gap-1.5 text-[12.5px] text-white/75">
+                <MapPin className="h-3.5 w-3.5 text-white/60" aria-hidden="true" />
+                {locationLabel}
+              </span>
 
-              {/* Ubicación */}
-              <span className="text-[12.5px] text-white/70">📍 {locationLabel}</span>
-
-              <span className="h-3.5 w-px bg-white/15" />
-
-              {/* Año */}
-              <span className="text-[12.5px] text-white/70">
+              <span className="inline-flex items-center gap-1.5 text-[12.5px] text-white/75">
+                <CalendarDays className="h-3.5 w-3.5 text-white/60" aria-hidden="true" />
                 Desde <span className="font-bold text-white">{joinedYear}</span>
               </span>
 
               {v.acceptedPaymentMethods?.length > 0 && (
                 <>
-                  <span className="h-3.5 w-px bg-white/15" />
                   <div className="flex flex-wrap items-center gap-1.5">
                     {v.acceptedPaymentMethods.map((methodId) => {
                       const method = resolvePaymentMethod(methodId);

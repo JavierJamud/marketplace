@@ -11,14 +11,25 @@ const { version } = JSON.parse(readFileSync(new URL("./package.json", import.met
 // Pone la versión en el splash de carga (index.html usa %APP_VERSION%).
 const appVersionHtml = () => ({ name: "app-version-html", transformIndexHtml: (html) => html.replaceAll("%APP_VERSION%", version) });
 
+// Compilación publicada (version.json): las pestañas abiertas la consultan para saber si corren una versión vieja (ver
+// components/VersionWatcher.jsx). Mismo valor que __APP_BUILD__.
+const build = `${version}-${Date.now().toString(36)}`;
+const versionJson = () => ({
+  name: "version-json",
+  apply: "build",
+  generateBundle() {
+    this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version, build }) });
+  },
+});
+
 export default defineConfig(({ mode }) => {
   // Prefijo "" (no solo "VITE_") — ogMeta.js también quiere leer
   // FRONTEND_URL si algún día se define, que no lleva ese prefijo.
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets(), appVersionHtml()],
+    plugins: [react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets(), appVersionHtml(), versionJson()],
     // __APP_BUILD__ cambia en cada compilación: invalida la caché guardada en el navegador (ver main.jsx) para que una respuesta con forma vieja nunca rompa una pantalla nueva.
-    define: { __APP_VERSION__: JSON.stringify(version), __APP_BUILD__: JSON.stringify(`${version}-${Date.now().toString(36)}`) },
+    define: { __APP_VERSION__: JSON.stringify(version), __APP_BUILD__: JSON.stringify(build) },
     // Sin mapas de código ni comentarios en lo que se publica.
     // Sin mapas de código (traerían los comentarios internos del código fuente) y apuntando a navegadores actuales: así no se
     // incluyen transformaciones ni ayudas para navegadores viejos que casi nadie usa.

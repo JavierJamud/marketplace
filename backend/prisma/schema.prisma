@@ -2177,7 +2177,7 @@ model VerificationRequest {
   // lo que el panel de admin muestra como "esperando confirmación".
   paymentClaimedAt     DateTime?
   paymentConfirmedAt    DateTime?
-  paymentConfirmedById  String?
+  paymentConfirmedById  String?
   // Motivo del pago registrado a mano por el admin (método MANUAL).
   paymentNote          String?
 
@@ -2323,7 +2323,7 @@ model VerificationArchive {
   paymentClaimedAt        DateTime?
   stripePaidAt            DateTime?
   paymentConfirmedAt      DateTime?
-  paymentConfirmedById    String?
+  paymentConfirmedById    String?
   paymentNote             String?
   verifiedAt              DateTime?
   rejectedAt              DateTime?
@@ -2378,7 +2378,7 @@ model SubscriptionPayment {
 
   claimedAt    DateTime?
   confirmedAt  DateTime?
-  confirmedById String?
+  confirmedById String?
   // Motivo cuando lo registró el admin a mano (método MANUAL).
   note          String?
   // Bloque 153: período real que este pago cubre — periodStart es el
@@ -3541,6 +3541,9 @@ model DiscountCode {
   // Porcentaje (0-100) si type es PERCENTAGE, monto en CUP si FIXED_AMOUNT —
   // nunca ambos a la vez, mismo criterio que un radio button en el form.
   value    Decimal      @db.Decimal(12, 2)
+  // Moneda del código: solo descuenta los productos del carrito en esta moneda (un monto en CUP no se resta de un
+  // precio en USD). El monto fijo y el mínimo/máximo de compra se leen en esta moneda.
+  currency ProductCurrency @default(CUP)
   // Mínimo/máximo de SUBTOTAL del carrito (de los productos de ESTA tienda)
   // para que el código aplique — ambos opcionales, validados en el
   // formulario (max > min si los dos están presentes).

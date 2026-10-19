@@ -7,6 +7,7 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 import { imgUrl } from "../../lib/imgUrl.js";
+import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
 import { useNotifyChoices } from "../../lib/notifyVendor.js";
@@ -355,13 +356,8 @@ function RenewalsList() {
       {data.map((p) => (
         <div key={p.id} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-[22px]">
           <div className="mb-3 flex items-center gap-3">
-            <div
-              className="flex h-11 w-11 items-center justify-center rounded-[11px] font-display text-base font-bold text-white"
-              style={{ background: p.vendor.color ?? "#232F3E" }}
-            >
-              {p.vendor.companyName[0]}
-            </div>
-            <div>
+            <VendorAvatar vendor={p.vendor} />
+            <div className="min-w-0">
               <div className="text-[15px] font-bold text-on-surface">{p.vendor.companyName}</div>
               <div className="text-[11.5px] text-outline/80">{p.vendor.email ?? "sin correo"} · {p.vendor.whatsapp ?? "sin WhatsApp"}</div>
             </div>
@@ -450,13 +446,8 @@ function ChangeRequestsList() {
       {data.map((r) => (
         <div key={r.id} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-[22px]">
           <div className="mb-3 flex items-center gap-3">
-            <div
-              className="flex h-11 w-11 items-center justify-center rounded-[11px] font-display text-base font-bold text-white"
-              style={{ background: r.vendor.color ?? "#232F3E" }}
-            >
-              {r.vendor.companyName[0]}
-            </div>
-            <div>
+            <VendorAvatar vendor={r.vendor} />
+            <div className="min-w-0">
               <div className="text-[15px] font-bold text-on-surface">{r.vendor.companyName}</div>
               <div className="text-[11.5px] text-outline/80">{r.vendor.email ?? "sin correo"} · {r.vendor.whatsapp ?? "sin WhatsApp"}</div>
             </div>
@@ -752,15 +743,11 @@ export default function AdminVerifications() {
 
           return (
             <div key={v.id} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-[22px]">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-[11px] font-display text-base font-bold text-white"
-                    style={{ background: v.vendor.color ?? "#232F3E" }}
-                  >
-                    {v.vendor.companyName[0]}
-                  </div>
-                  <div>
+              {/* En móvil las insignias bajan debajo del nombre en vez de apretar la columna del texto. */}
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5">
+                <div className="flex min-w-0 flex-1 basis-[240px] items-start gap-3">
+                  <VendorAvatar vendor={v.vendor} />
+                  <div className="min-w-0 break-words">
                     <div className="text-[15px] font-bold text-on-surface">{v.vendor.companyName}</div>
                     <div className="text-[12.5px] text-outline">
                       {v.fullName ?? "Responsable sin nombre registrado"} · {v.vendor.locations?.[0]?.province?.name ?? "Cuba"}
@@ -781,7 +768,7 @@ export default function AdminVerifications() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {v.verificationStatus === "VERIFIED" && (
                     <span
                       className={`flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-bold ${

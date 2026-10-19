@@ -158,7 +158,7 @@ export function AddToCartControl({ product, size = "md", variant = "square" }) {
             // CartConflictModal.jsx).
             const result = addItem(toCartProduct(product, activeSize));
             if (result.conflict) return;
-            toast.success("Agregado al carrito ✓");
+            toast.success("Agregado al carrito", product.name, { icon: "cart" });
             // Tracking mínimo para "clientes potenciales" — solo el primer
             // agregado (no los +/- del stepper), solo clientes logueados.
             const vendorId = product.vendorId ?? product.vendor?.id;

@@ -8,7 +8,7 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
 function discountLabel(code) {
   if (!code) return "";
-  return code.type === "PERCENTAGE" ? `-${Number(code.value)}%` : `-${Number(code.value).toLocaleString("es-CU")} CUP`;
+  return code.type === "PERCENTAGE" ? `-${Number(code.value)}%` : `-${Number(code.value).toLocaleString("es-CU")} ${code.currency ?? "CUP"}`;
 }
 
 // Bloque 52: "cuántas ofertas activas puede tener cada tienda" pasó a ser un

@@ -3,7 +3,7 @@ import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CategoryPicker } from "../../components/CategoryPicker.jsx";
-import { Pencil, Trash2, X, ArrowUpDown, Star, Ruler, Layers, Package } from "lucide-react";
+import { Pencil, Trash2, X, ArrowUpDown, Star, Ruler, Layers, Package, ChevronDown } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
@@ -956,6 +956,8 @@ export default function VendorProducts() {
   const [deleteTarget, setDeleteTarget] = useState(null); // producto a eliminar, para el modal de confirmación
   const [searchParams, setSearchParams] = useSearchParams();
   // El buscador del panel llega con ?q= (texto) o ?filtro= (estado: low, out, paused, top).
+  // La leyenda arranca abierta en pantallas grandes y cerrada en el celular.
+  const [legendOpenAtStart] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches);
   const [stockFilter, setStockFilter] = useState(() => (["top", "low", "out", "paused"].includes(searchParams.get("filtro")) ? searchParams.get("filtro") : "all"));
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [requestSortDesc, setRequestSortDesc] = useState(true);
@@ -1065,7 +1067,8 @@ export default function VendorProducts() {
         })
       : filteredProducts;
 
-  const gridCols = stockFilter === "out" ? "grid-cols-[2.1fr_0.9fr_0.9fr_1fr_1fr_0.8fr]" : "grid-cols-[2.4fr_1fr_1fr_1fr_0.8fr]";
+  // Columnas de la tabla desde md; en el celular cada producto es una tarjeta de dos líneas (ver renderRow).
+  const gridCols = stockFilter === "out" ? "md:grid-cols-[2.1fr_0.9fr_0.9fr_1fr_1fr_0.8fr]" : "md:grid-cols-[2.4fr_1fr_1fr_1fr_0.8fr]";
 
   const TABS = [
     { id: "all", label: "Todos", count: products.length },
@@ -1099,9 +1102,13 @@ export default function VendorProducts() {
 
       {/* Leyenda: qué significa cada etiqueta de color (mismos nombres y colores que
           los títulos de grupo y las etiquetas de cada producto). */}
-      <div className="mb-4 rounded-xl border border-surface-container-high/70 bg-surface-container-lowest p-3.5">
-        <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-outline">Qué significa cada etiqueta</p>
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+      {/* En el celular se abre al tocarla: abierta ocupaba media pantalla antes de llegar a los productos. */}
+      <details className="group mb-4 rounded-xl border border-surface-container-high/70 bg-surface-container-lowest p-3.5" open={legendOpenAtStart}>
+        <summary className="flex min-h-6 cursor-pointer list-none items-center justify-between text-[12px] font-bold uppercase tracking-wide text-outline">
+          Qué significa cada etiqueta
+          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
           {["top", "low", "out", "paused", "unlimited", "active"].map((id) => (
             <div key={id} className="flex items-start gap-2">
               <dt className="flex-shrink-0">
@@ -1113,7 +1120,7 @@ export default function VendorProducts() {
             </div>
           ))}
         </dl>
-      </div>
+      </details>
 
       <SearchBox
         className="mb-3"
@@ -1151,9 +1158,9 @@ export default function VendorProducts() {
           en silencio en vez de poder verse; ahora el propio contenedor
           scrollea horizontal, mismo patrón que ya usa VendorDiscountCodes.jsx
           para su tabla) */}
-      <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        <div className="min-w-[720px]">
-          <div className={`grid ${gridCols} gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline`}>
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+        <div>
+          <div className={`hidden ${gridCols} gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline md:grid`}>
             <span>Producto</span><span>Precio</span><span>Stock</span><span>Etiquetas</span>
             {stockFilter === "out" && (
               <button
@@ -1177,16 +1184,16 @@ export default function VendorProducts() {
               return (
               <div
                   key={p.id}
-                  className={`grid ${gridCols} items-center gap-3 border-t border-surface-container px-[22px] py-3.5 ${ROW_TINT[status]}`}
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-t border-surface-container px-4 py-3 md:gap-3 md:px-[22px] md:py-3.5 ${gridCols} ${ROW_TINT[status]}`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     {p.images?.[0] ? (
                       <img src={imgUrl(p.images[0])} alt="" className="h-11 w-11 flex-shrink-0 rounded-[9px] object-cover" />
                     ) : (
                       <div className="h-11 w-11 flex-shrink-0 rounded-[9px] bg-surface-container" />
                     )}
-                    <div>
-                      <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-on-surface">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5 break-words text-[13.5px] font-semibold text-on-surface">
                         {p.name}
                         {p.sizes?.length > 0 && (
                           <span title={`Tallas: ${p.sizes.join(", ")}`} className="rounded-full bg-tertiary-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold text-tertiary-accent">
@@ -1197,8 +1204,10 @@ export default function VendorProducts() {
                       <div className="text-[11.5px] text-outline">{p.category?.name ?? "Sin categoría"}</div>
                     </div>
                   </div>
-                  <span className="text-[13.5px] font-bold text-on-surface">{formatPrice(p.price, p.currency)}</span>
-                  <span className="text-[13.5px] text-on-surface-variant">{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
+                  <span className="text-right text-[13.5px] font-bold text-on-surface md:text-left">{formatPrice(p.price, p.currency)}</span>
+                  {/* Stock, etiquetas y solicitudes: una línea debajo del nombre en el celular, columnas propias desde md. */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 md:contents">
+                  <span className="text-[13.5px] text-on-surface-variant"><span className="md:hidden">Stock: </span>{p.unlimitedStock ? "∞" : `${p.stock} u.`}</span>
                   <span className="flex flex-wrap gap-1.5">
                     {tagsOf(p).map((tag) => (
                       <span key={tag} className="w-fit whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={TAGS[tag].style}>
@@ -1208,14 +1217,26 @@ export default function VendorProducts() {
                   </span>
                   {stockFilter === "out" && (
                     <span className="text-[13.5px] font-bold text-on-surface">
+                      <span className="font-normal text-on-surface-variant md:hidden">Lo pidieron: </span>
                       {p._count?.requests ?? 0} {p._count?.requests === 1 ? "pedido" : "pedidos"}
                     </span>
                   )}
-                  <div className="flex justify-end gap-2">
-                    <button onClick={() => setModalState({ mode: "edit", product: p })} aria-label={`Editar ${p.name}`} title="Editar producto" className="text-tertiary-accent">
+                  </div>
+                  <div className="flex justify-end gap-1">
+                    <button
+                      onClick={() => setModalState({ mode: "edit", product: p })}
+                      aria-label={`Editar ${p.name}`}
+                      title="Editar producto"
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-tertiary-accent hover:bg-tertiary-accent/10 md:h-8 md:w-8"
+                    >
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button onClick={() => setDeleteTarget(p)} aria-label={`Eliminar ${p.name}`} title="Eliminar producto" className="text-error">
+                    <button
+                      onClick={() => setDeleteTarget(p)}
+                      aria-label={`Eliminar ${p.name}`}
+                      title="Eliminar producto"
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-error hover:bg-error/10 md:h-8 md:w-8"
+                    >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
@@ -1229,7 +1250,7 @@ export default function VendorProducts() {
               if (inGroup.length === 0) return null;
               return (
                 <div key={g.id}>
-                  <div className="flex flex-wrap items-center gap-2 border-t border-surface-container bg-surface-container-low/60 px-[22px] py-2.5">
+                  <div className="flex flex-wrap items-center gap-2 border-t border-surface-container bg-surface-container-low/60 px-4 py-2.5 md:px-[22px]">
                     <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={TAGS[g.id].style}>
                       {g.title} ({inGroup.length})
                     </span>

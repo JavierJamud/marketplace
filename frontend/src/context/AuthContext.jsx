@@ -5,6 +5,7 @@ import { getBrowserId, getDeviceToken, setDeviceToken } from "../lib/deviceId.js
 import { IdleWarningModal } from "../components/IdleWarningModal.jsx";
 import { queryClient, queryPersister } from "../lib/queryClient.js";
 import { detachPush } from "../lib/pwa.js";
+import toast from "../lib/toast.jsx";
 
 const AuthContext = createContext(null);
 
@@ -12,11 +13,10 @@ const ACCESS_TOKEN_KEY = "accessToken";
 const REFRESH_TOKEN_KEY = "refreshToken";
 const LAST_ACTIVITY_KEY = "zeudin_last_activity";
 
-// Bloque 60 (pedido explícito): 30 min sin actividad -> aviso con cuenta
-// regresiva de 5 min ("¿sigues ahí?") -> si no hay CLIC en "Sigo aquí" en
-// ese tiempo, cierre real. Total: hasta 35 min desde la última actividad.
-// Desde v26.0.79 solo aplica al administrador (ver el efecto de inactividad más abajo).
-const IDLE_WARNING_MS = 30 * 60 * 1000;
+// 60 minutos sin actividad cierran la sesión de clientes, tiendas y admin (pedido explícito). A los 55 aparece el aviso
+// "¿Sigues ahí?" con 5 minutos de cuenta regresiva; sin el clic en "Sigo aquí", se cierra. El servidor aplica el mismo
+// límite por su lado (backend/src/lib/sessionPolicy.js) para una pestaña cerrada o un teléfono apagado.
+const IDLE_WARNING_MS = 55 * 60 * 1000;
 const IDLE_COUNTDOWN_MS = 5 * 60 * 1000;
 const ACTIVITY_EVENTS = ["mousedown", "keydown", "scroll", "touchstart"];
 const ACTIVITY_THROTTLE_MS = 15 * 1000; // no escribir en localStorage en cada pixel de scroll
@@ -32,6 +32,12 @@ export function loginPathFor(pathname) {
   // Solo el panel del socio (/socio y /socio/...): /socios/solicitar es una página pública y no debe mandar al login.
   if (pathname === "/socio" || pathname?.startsWith("/socio/")) return "/socio/ingresar";
   return "/";
+}
+
+// Al cerrarse por inactividad se manda a la pantalla de ingreso de cada uno; el cliente, al ingreso de clientes.
+function idleLoginPathFor(pathname) {
+  const path = loginPathFor(pathname);
+  return path === "/" ? "/cuenta" : path;
 }
 
 export function AuthProvider({ children }) {
@@ -102,10 +108,24 @@ export function AuthProvider({ children }) {
   // Único punto que de verdad "cierra todo" sin que un componente lo pida a
   // mano — expiración por inactividad, refresh fallido (api.js) y
   // sincronización entre pestañas pasan por acá.
-  const forceLogout = useCallback(() => {
-    clearLocalSession();
-    navigate(loginPathFor(locationRef.current.pathname), { replace: true });
-  }, [clearLocalSession, navigate]);
+  // reason "idle": se cerró por inactividad (lo detectó este navegador o el servidor); se avisa y se manda al ingreso.
+  const forceLogout = useCallback(
+    (reason) => {
+      const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+      // Se revoca también en el servidor (sin esperar): si no, la sesión quedaría viva hasta que el servidor la venza solo.
+      if (refreshToken) api.post("/auth/logout", { refreshToken }).catch(() => {});
+      const wasLoggedIn = !!userRef.current;
+      clearLocalSession();
+      // Solo si estaba usando la cuenta en esta pestaña: quien vuelve al sitio al otro día no es mandado al ingreso.
+      if (reason === "idle" && wasLoggedIn) {
+        navigate(idleLoginPathFor(locationRef.current.pathname), { replace: true });
+        toast.info("Tu sesión se cerró porque pasaron 60 minutos sin actividad. Vuelve a iniciar sesión.");
+        return;
+      }
+      navigate(loginPathFor(locationRef.current.pathname), { replace: true });
+    },
+    [clearLocalSession, navigate]
+  );
 
   // api.js no es un componente — no puede navegar ni leer el user actual
   // directo, así que se conecta acá una sola vez.
@@ -150,12 +170,9 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("storage", onStorage);
   }, [clearLocalSession, navigate]);
 
-  // --- Bloque 60: expiración por inactividad (30 min) + aviso de 5 min ----
-  // Solo para el administrador (puede tocar toda la plataforma). Clientes y tiendas quedan conectados: la tienda deja el panel
-  // abierto esperando pedidos y, si se cerraba a los 35 min, perdía los avisos en vivo y el sonido, y al tocar una notificación
-  // caía en la pantalla de ingreso. Su sesión dura 30 días en el servidor y se renueva sola cada vez que usa el sitio.
+  // --- Expiración por inactividad (60 min, con aviso a los 55) para todos los roles ---
   useEffect(() => {
-    if (!user || user.role !== "ADMIN") return;
+    if (!user) return;
 
     let lastThrottledWrite = 0;
     function markActivity() {
@@ -178,7 +195,7 @@ export function AuthProvider({ children }) {
       const idleFor = Date.now() - last;
 
       if (idleFor >= IDLE_WARNING_MS + IDLE_COUNTDOWN_MS) {
-        forceLogout();
+        forceLogout("idle");
         return;
       }
       if (idleFor >= IDLE_WARNING_MS) {
