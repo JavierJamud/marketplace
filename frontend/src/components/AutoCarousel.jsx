@@ -13,17 +13,25 @@ import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
 // habría loop ni forma de que "vuelvan a entrar" las que ya pasaron). Tras
 // arrastrar a mano el autoplay sigue (stopOnInteraction: false); se detiene al
 // pasar el mouse. Con "reducir movimiento" no avanza solo, pero se arrastra.
+// En pantalla se ven hasta 3 tarjetas a la vez (en el teléfono, la del centro y las vecinas asomándose). Con menos de
+// MIN_TO_LOOP tarjetas, repetir la lista para el loop hacía que la MISMA tienda u oferta se viera dos veces al mismo tiempo
+// (pasaba con 2 tiendas verificadas). Ahí no se repite: cada tarjeta sale una sola vez, centrada si caben, y el avance
+// automático vuelve al principio al llegar al final.
+const MIN_TO_LOOP = 4;
+
 export function AutoCarousel({ items, getKey, renderItem, itemClassName, align = "center", delay = 4000, minSlides = 6, label }) {
   const reducedMotion = usePrefersReducedMotion();
+  const canLoop = items.length >= MIN_TO_LOOP;
   const slides = useMemo(() => {
+    if (!canLoop) return items.map((item) => ({ item, key: `${getKey(item)}-0`, copy: 0 }));
     const repeat = Math.max(1, Math.ceil(minSlides / items.length));
     return Array.from({ length: repeat }, (_, round) => items.map((item) => ({ item, key: `${getKey(item)}-${round}`, copy: round }))).flat();
-  }, [items, getKey, minSlides]);
+  }, [items, getKey, minSlides, canLoop]);
   const plugins = useMemo(
     () => (reducedMotion ? [] : [Autoplay({ delay, stopOnMouseEnter: true, stopOnInteraction: false })]),
     [reducedMotion, delay]
   );
-  const [emblaRef] = useEmblaCarousel({ loop: true, align, duration: 30 }, plugins);
+  const [emblaRef] = useEmblaCarousel({ loop: canLoop, align, duration: 30 }, plugins);
 
   // Las copias (para que el loop tenga con qué llenar el ancho) se ven y se tocan igual que el original: con pocos anuncios casi
   // todo lo visible son copias, y antes llevaban `inert`, que las dejaba sin responder al clic. Solo se ocultan a los lectores de
@@ -34,7 +42,8 @@ export function AutoCarousel({ items, getKey, renderItem, itemClassName, align =
 
   return (
     <div className="overflow-hidden" ref={emblaRef} role="region" aria-label={label}>
-      <div className="flex touch-pan-y">
+      {/* "safe center": centra cuando las tarjetas caben; si no caben, arranca a la izquierda y se desliza normal. */}
+      <div className={`flex touch-pan-y ${canLoop ? "" : "[justify-content:safe_center]"}`}>
         {slides.map(({ item, key, copy }) => (
           <div key={key} className={`min-w-0 flex-none ${itemClassName}`} {...(copy > 0 ? { "aria-hidden": true, ref: skipCopyFocus } : {})}>
             {renderItem(item)}

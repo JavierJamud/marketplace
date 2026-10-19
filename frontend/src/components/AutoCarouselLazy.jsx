@@ -7,7 +7,7 @@ const AutoCarousel = lazy(() => import("./AutoCarousel.jsx").then((m) => ({ defa
 function StaticRow({ items, getKey, renderItem, itemClassName }) {
   return (
     <div className="overflow-hidden">
-      <div className="flex touch-pan-y">
+      <div className={`flex touch-pan-y ${items.length >= 4 ? "" : "[justify-content:safe_center]"}`}>
         {items.map((item) => (
           <div key={getKey(item)} className={`min-w-0 flex-none ${itemClassName}`}>
             {renderItem(item)}

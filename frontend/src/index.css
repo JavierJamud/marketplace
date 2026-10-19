@@ -406,7 +406,8 @@
 [data-sileo-viewport] {
   z-index: 10000;
 }
-[data-sileo-title] {
+/* Con el viewport delante: Sileo carga su CSS después y, con la misma especificidad, ganaba (ponía Mayúscula Cada Palabra). */
+[data-sileo-viewport] [data-sileo-title] {
   text-transform: none;
   font-weight: 600;
 }
