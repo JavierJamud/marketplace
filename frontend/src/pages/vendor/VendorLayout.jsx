@@ -5,7 +5,6 @@ import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, S
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
-import { Spinner } from "../../components/ui/Spinner.jsx";
 import { VendorNotificationBell } from "../../components/vendor/VendorNotificationBell.jsx";
 import { TrialOfferPopup } from "../../components/vendor/TrialOfferPopup.jsx";
 import { TrialChecklistBanner } from "../../components/vendor/TrialChecklistBanner.jsx";
@@ -26,6 +25,7 @@ import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { OfflineBar } from "../../components/vendor/OfflineBar.jsx";
 import { usePanelUsage } from "../../lib/usePanelUsage.js";
+import { AppShellSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 183 (pedido explícito — "saldrán siempre todas las secciones que
 // están en el panel de vendedor, para que el vendedor pueda asignar... el
@@ -300,11 +300,7 @@ export default function VendorLayout() {
   // sin esto, un usuario de sistema vería el NAV completo (sin filtrar)
   // por un instante mientras esa segunda consulta todavía está en camino.
   if (vendorLoading || (isStaff && !staffProfile)) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-surface-container">
-        <Spinner />
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   // Un VENDOR autenticado sin tienda propia (o con error al cargarla) no

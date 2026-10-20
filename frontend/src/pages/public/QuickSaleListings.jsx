@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { Package } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
+import { QuickSaleCard, QuickSaleCardSkeleton } from "../../components/QuickSaleCard.jsx";
+import { SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
@@ -70,6 +71,12 @@ export default function QuickSaleListings() {
         <EmptyState icon={Package} title="No hay anuncios de venta rápida por ahora" />
       )}
       {!isLoading && listings?.length > 0 && shown.length === 0 && <p className="text-body-md text-on-surface-variant">Ningún anuncio coincide con tu búsqueda.</p>}
+
+      {isLoading && (
+        <SkeletonGroup label="Cargando anuncios" className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }, (_, i) => <QuickSaleCardSkeleton key={i} />)}
+        </SkeletonGroup>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {shown.map((l) => (

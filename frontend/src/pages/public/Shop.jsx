@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ZoneChip } from "../../components/ZonePicker.jsx";
-import { ProductCard } from "../../components/ProductCard.jsx";
+import { ProductCard, ProductGridSkeleton } from "../../components/ProductCard.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { ShopFilters, ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
@@ -231,7 +231,7 @@ export default function Shop() {
               </div>
             )}
 
-            {isLoading && <p className="text-body-md text-on-surface-variant">Cargando productos...</p>}
+            {isLoading && <ProductGridSkeleton count={15} className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" />}
 
             {!isLoading && products.length > 0 && (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">

@@ -7,6 +7,7 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { CARD } from "../../components/dashboard/DashboardCard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Tiendas bloqueadas a mano por un admin o suspendidas solas por 90 días sin entrar al panel. Antes era una página aparte
 // del menú; ahora es el filtro "Suspendidas" de Tiendas (AdminVendors.jsx), que muestra esta lista.
@@ -60,7 +61,7 @@ export function SuspendedVendorsList() {
     <>
       <p className="mb-3 text-[12.5px] text-outline">Bloqueadas a mano por un admin o suspendidas solas por 90 días sin entrar al panel. No se ven en el sitio hasta desbloquearlas o reactivarlas.</p>
       <div className={CARD}>
-        {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
+        {isLoading && <ListSkeleton />}
         {isError && (
           <div className="flex flex-col items-center gap-2 p-6 text-center">
             <p className="text-body-md text-error">No se pudo cargar la lista.</p>

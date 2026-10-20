@@ -6,6 +6,7 @@ import { Radar } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -114,7 +115,7 @@ export default function AdminRankingAnomalies() {
         <div className="hidden grid-cols-[1.1fr_1.8fr_2.4fr_1.3fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline lg:grid">
           <span>Tipo</span><span>Objetivo</span><span>Detalle</span><span>Fecha</span><span className="text-right">Acción</span>
         </div>
-        {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
+        {isLoading && <ListSkeleton />}
         {!isLoading && anomalies.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay anomalías aquí.</p>}
         {anomalies.map((a) => {
           const target = targetInfo(a);

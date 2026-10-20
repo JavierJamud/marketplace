@@ -5,7 +5,8 @@ import { SlidersHorizontal, X, Store as StoreIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { useMediaQuery } from "../../lib/useMediaQuery.js";
-import { StoreCard } from "../../components/StoreCard.jsx";
+import { StoreCard, StoreGridSkeleton } from "../../components/StoreCard.jsx";
+import { Skeleton } from "../../components/ui/Skeleton.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { ZoneChip } from "../../components/ZonePicker.jsx";
@@ -159,7 +160,7 @@ export default function Stores() {
       <div className="container-app py-5 md:py-9">
         <h1 className="mb-1 text-headline-lg-mobile text-on-surface md:text-headline-lg">{title}</h1>
         <p className="mb-3 text-body-md text-on-surface-variant">
-          {total} {noun} {hasZoneFilter ? `en ${zoneName}` : "en total"} · las verificadas se muestran primero.
+          {isLoading || zoneLoading ? <Skeleton width={260} /> : <>{total} {noun} {hasZoneFilter ? `en ${zoneName}` : "en total"} · las verificadas se muestran primero.</>}
         </p>
         <ZoneChip className="mb-5" />
 
@@ -210,7 +211,7 @@ export default function Stores() {
               />
             )}
 
-            {(isLoading || zoneLoading) && <p className="text-body-md text-on-surface-variant">Cargando tiendas...</p>}
+            {(isLoading || zoneLoading) && <StoreGridSkeleton count={6} />}
 
             {!isLoading && !isError && total === 0 && (
               <EmptyState

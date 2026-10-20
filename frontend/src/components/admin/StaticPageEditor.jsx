@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { Button } from "../ui/Button.jsx";
 import { ConfirmModal } from "../ConfirmModal.jsx";
 import { IconCircle } from "../dashboard/DashboardCard.jsx";
+import { FormSkeleton } from "../ui/Skeleton.jsx";
 
 // Bloque 53: editor de una sola página estática (Contacto, Centro de ayuda)
 // — antes vivían mezcladas en la lista genérica de AdminPages.jsx junto con
@@ -77,7 +78,7 @@ export function StaticPageEditor({ slug, label, publicPath, helpText, icon = Fil
       </p>
 
       {isLoading ? (
-        <p className="text-body-md text-on-surface-variant">Cargando...</p>
+        <FormSkeleton fields={3} />
       ) : (
         <>
           <textarea

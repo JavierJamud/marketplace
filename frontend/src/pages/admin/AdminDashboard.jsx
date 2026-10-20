@@ -30,6 +30,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
 import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
 import { NewVendorsCard } from "../../components/admin/NewVendorsCard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtMoney(amount, currency) {
   return `${Number(amount).toLocaleString("es-CU", { maximumFractionDigits: 0 })} ${currency}`;
@@ -423,7 +424,7 @@ export default function AdminDashboard() {
           <CardHeader icon={Award} tone="green" title="Tiendas con alto potencial" subtitle="Salud ≥ 50 y más ingresos en 30 días" to="/admin/tiendas" linkLabel="Ver tiendas" />
           <div className="mt-3 flex flex-1 flex-col">
             {!data ? (
-              <p className="text-label-sm text-outline">Cargando...</p>
+              <ListSkeleton rows={4} />
             ) : data.topPotentialVendors.length ? (
               data.topPotentialVendors.map((v) => {
                 const h = HEALTH_LEVEL[v.level];
@@ -483,7 +484,7 @@ export default function AdminDashboard() {
           <CardHeader icon={ShieldCheck} tone="teal" title="Embudo de verificación" subtitle="Tiendas por etapa" to="/admin/verificaciones" linkLabel="Ver verificaciones" />
           <div className="mt-4 flex flex-1 flex-col justify-around gap-2.5">
             {!data ? (
-              <p className="text-label-sm text-outline">Cargando...</p>
+              <ListSkeleton rows={4} />
             ) : (
               <>
                 {mainFunnel.map((s) => (

@@ -7,7 +7,7 @@ import { conditionLabel } from "../../components/customer/ListingFormFields.jsx"
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { waLink } from "../../lib/whatsapp.js";
-import { Spinner } from "../../components/ui/Spinner.jsx";
+import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -30,9 +30,24 @@ export default function QuickSaleDetail() {
 
   if (isLoading) {
     return (
-      <div className="container-app flex justify-center py-20">
-        <Spinner />
-      </div>
+      <SkeletonGroup label="Cargando anuncio" className="container-app py-4 md:py-9">
+        <Skeleton width={170} height={14} className="mb-6" />
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2" aria-hidden="true">
+          <div className="aspect-[7/4] w-full">
+            <Skeleton height="100%" borderRadius={16} containerClassName="block h-full leading-none" />
+          </div>
+          <div>
+            <div className="mb-3 flex gap-2">
+              <Skeleton width={90} height={24} borderRadius={999} />
+              <Skeleton width={70} height={24} borderRadius={999} />
+            </div>
+            <Skeleton width="80%" height={28} className="mb-2" />
+            <Skeleton width={130} height={22} className="mb-4" />
+            <Skeleton count={3} height={13} />
+            <Skeleton height={48} borderRadius={12} className="mt-5" />
+          </div>
+        </div>
+      </SkeletonGroup>
     );
   }
 

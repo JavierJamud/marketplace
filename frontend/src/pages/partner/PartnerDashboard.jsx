@@ -5,6 +5,7 @@ import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
 import { WelcomeHeading } from "../../components/WelcomeSummary.jsx";
+import { CardListSkeleton, TilesSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const fmt = (n) => Number(n ?? 0).toLocaleString("es-CU");
 
@@ -85,7 +86,7 @@ export default function PartnerDashboard() {
       </div>
 
       {isLoading || !usage ? (
-        <p className="text-[13.5px] text-outline">Cargando tus métricas...</p>
+        <div className="grid gap-5"><TilesSkeleton /><CardListSkeleton cards={2} /></div>
       ) : (
         <>
           <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 [&>*:last-child:nth-child(odd)]:col-span-2 sm:[&>*:last-child:nth-child(odd)]:col-span-1">

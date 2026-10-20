@@ -12,6 +12,7 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { CameraScanner } from "../../components/pos/CameraScanner.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
 import { PlanUpsell, isPlanError } from "../../components/vendor/PlanUpsell.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Caja con código de barras. Se escanea con la cámara o con un lector USB/Bluetooth (que escribe el código y Enter en el
 // campo de arriba): el primer producto crea la venta con su número de 4 caracteres y cada escaneo repetido suma una unidad.
@@ -872,7 +873,7 @@ export default function VendorPos() {
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Vende escaneando el código de barras de cada producto. Cobra en el mostrador y el stock se descuenta solo.</p>
       <Tabs tabs={TABS} value={tab} onChange={setTab} className="mb-4" />
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {planLocked && (
         <PlanUpsell
           title="La caja es del Plan Premium"

@@ -12,7 +12,7 @@ import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
-import { PageLoader } from "../../components/ui/PageLoader.jsx";
+import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 import { PackageSearch } from "lucide-react";
 import { GatedStoreChat } from "../../components/GatedStoreChat.jsx";
@@ -291,7 +291,7 @@ export default function Product() {
 
   useSeo(productSeo(product, siteName), [product?.id, siteName]);
 
-  if (isLoading) return <PageLoader label="Cargando producto..." />;
+  if (isLoading) return <ProductDetailSkeleton />;
 
   if (!data?.product) {
     return (
@@ -874,5 +874,44 @@ export default function Product() {
         targetLabel={`el producto "${product.name}"`}
       />
     </div>
+  );
+}
+
+// Esqueleto de la ficha: misma ruta de migas, misma grilla (galería de 600px a la izquierda en escritorio) y el panel de compra
+// con tienda, nombre, valoración, precio, descripción, opciones y botones, en el orden en que aparecen al cargar.
+function ProductDetailSkeleton() {
+  return (
+    <SkeletonGroup label="Cargando producto">
+      <div className="container-app pt-6" aria-hidden="true">
+        <Skeleton width={220} height={12} />
+      </div>
+      <section className="container-app grid grid-cols-1 gap-8 pt-6 lg:grid-cols-[600px_1fr] lg:gap-11" aria-hidden="true">
+        <div className="mx-auto w-full max-w-[600px] lg:mx-0">
+          <div className="mb-3 aspect-[7/4] w-full">
+            <Skeleton height="100%" borderRadius={12} containerClassName="block h-full leading-none" />
+          </div>
+          <div className="flex gap-2">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} width={64} height={64} borderRadius={10} />
+            ))}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <Skeleton width="35%" height={13} className="mb-2.5" />
+          <Skeleton height={30} />
+          <Skeleton width="60%" height={30} className="mb-2.5" />
+          <Skeleton width="45%" height={14} className="mb-5" />
+          <Skeleton width={160} height={34} className="mb-4" />
+          <Skeleton count={3} height={14} />
+          <Skeleton width="70%" height={14} className="mb-5" />
+          <div className="mb-5 flex gap-2">
+            <Skeleton width={90} height={34} borderRadius={999} />
+            <Skeleton width={110} height={34} borderRadius={999} />
+          </div>
+          <Skeleton height={48} borderRadius={12} className="mb-3" />
+          <Skeleton height={48} borderRadius={12} />
+        </div>
+      </section>
+    </SkeletonGroup>
   );
 }

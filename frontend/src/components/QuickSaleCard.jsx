@@ -3,8 +3,28 @@ import { Eye, MapPin, Package } from "lucide-react";
 import { imgUrl, thumbUrl } from "../lib/imgUrl.js";
 import { formatPrice } from "../lib/format.js";
 import { conditionLabel } from "./customer/ListingFormFields.jsx";
+import { Skeleton } from "./ui/Skeleton.jsx";
 
 // Tarjeta de un anuncio de venta rápida (la misma en la portada y en la página de venta rápida).
+// Esqueleto del anuncio: misma foto 7/4, nombre, precio, lugar y el botón "Ver" pegado abajo a la derecha.
+export function QuickSaleCardSkeleton() {
+  return (
+    <div aria-hidden="true" className="relative flex h-full flex-col overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)]">
+      <div className="aspect-[7/4] w-full">
+        <Skeleton height="100%" borderRadius={0} containerClassName="block h-full leading-none" />
+      </div>
+      <div className="flex flex-1 flex-col p-3 pb-12">
+        <Skeleton width="75%" height={14} />
+        <Skeleton width="40%" height={16} />
+        <Skeleton width="55%" height={11} className="mt-1" />
+      </div>
+      <div className="absolute bottom-0 right-0">
+        <Skeleton width={72} height={40} borderRadius={0} containerClassName="block leading-none" />
+      </div>
+    </div>
+  );
+}
+
 // `eager`: en el carrusel de la portada la foto se pide al momento. Con carga diferida, Safari y Chrome en iPhone a veces no la
 // pedían dentro del carrusel (se mueve con transformaciones, no con scroll) y las tarjetas quedaban sin imagen hasta recargar.
 export function QuickSaleCard({ listing: l, eager = false }) {

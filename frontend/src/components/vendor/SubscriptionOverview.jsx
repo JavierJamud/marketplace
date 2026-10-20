@@ -5,6 +5,7 @@ import { AlertTriangle, CalendarClock, Check, CreditCard, History, Landmark, Ref
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { ConfirmModal } from "../ConfirmModal.jsx";
+import { CardListSkeleton } from "../ui/Skeleton.jsx";
 
 // Resumen de la suscripción en la pantalla "Suscripción" del panel. Muestra lo que incluye el plan (lo que el admin configura
 // en Suscripciones), el precio, cómo paga, la tarjeta, desde cuándo está suscrita, el periodo actual, cuánto le queda y el
@@ -76,7 +77,7 @@ export function SubscriptionOverview({ onChoosePayment }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo abrir Stripe."),
   });
 
-  if (isLoading) return <p className="mb-5 text-[13px] text-on-surface-variant">Cargando tu suscripción...</p>;
+  if (isLoading) return <CardListSkeleton />;
   if (isError)
     return (
       <p className="mb-5 text-[13px] text-error">

@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const fmt = (n) => Number(n ?? 0).toLocaleString("es-CU", { maximumFractionDigits: 2 });
 const FIELD = "min-h-11 w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[14px] text-on-surface focus:border-tertiary-accent focus:outline-none focus:ring-2 focus:ring-tertiary-accent/30";
@@ -117,7 +118,7 @@ export default function PartnerPlans() {
         Estos son los planes actuales de Baznova. Puedes sumarle un extra al precio de cada uno, nunca restarlo. Lo que sumas es tu ganancia por cada tienda que tenga ese plan. Tus precios finales también salen en tu API, en <code>GET /plans</code>.
       </p>
 
-      {isLoading && <p className="text-[13.5px] text-outline">Cargando los planes...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && <div className={`${CARD} p-6 text-[13.5px] text-error`}>No se pudieron cargar los planes. Intenta de nuevo en un momento.</div>}
       {data && data.plans.length === 0 && <div className={`${CARD} p-6 text-[13.5px] text-outline`}>Todavía no hay planes configurados en Baznova.</div>}
 

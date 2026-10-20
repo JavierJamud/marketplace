@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Check, X } from "lucide-react";
 import { api } from "../lib/api.js";
+import { Skeleton } from "./ui/Skeleton.jsx";
 
 // Bloque 52 (pedido explícito — "debe haber una concordancia con todo"):
 // antes esta tabla era un array ROWS 100% hardcodeado, sin ninguna relación
@@ -82,7 +83,7 @@ export function PlanComparisonModal({ onContinueRegular, businessHref = "/vended
               </div>
             ))
           ) : (
-            <div className="px-3 py-4 text-center text-[12px] text-outline">Cargando planes...</div>
+            <div className="px-3 py-4"><Skeleton count={4} height={14} className="mb-2" /></div>
           )}
         </div>
 

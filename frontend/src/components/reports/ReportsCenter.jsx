@@ -7,6 +7,7 @@ import { api, getErrorMessage } from "../../lib/api.js";
 import { exactDateTime } from "../../lib/relativeTime.js";
 import { Tabs } from "../ui/Tabs.jsx";
 import { MyTickets } from "../vendor/ReportProblemButton.jsx";
+import { CardListSkeleton } from "../ui/Skeleton.jsx";
 
 // Reportes de una persona en un solo lugar, en dos pestañas:
 //  - Recibidos: lo que otros (clientes, tiendas o el admin) reportaron de tu tienda, tus productos o tus ventas rápidas.
@@ -68,7 +69,7 @@ function madeTarget(r) {
 }
 
 function ListState({ isLoading, isError, refetch, empty, emptyText }) {
-  if (isLoading) return <p className="text-[13px] text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <CardListSkeleton />;
   if (isError)
     return (
       <p className="text-[13px] text-error">

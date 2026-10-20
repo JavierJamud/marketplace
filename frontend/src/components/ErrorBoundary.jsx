@@ -17,26 +17,45 @@ export function isStaleChunkError(error) {
   return /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Loading chunk [\w-]+ failed|Unable to preload CSS/i.test(String(error?.message ?? error));
 }
 
+// Borra los archivos de la aplicación que guardó el service worker; al recargar se bajan de nuevo del servidor. El service
+// worker no se quita: con él se irían también los avisos push de este dispositivo.
+async function resetAppFiles() {
+  try {
+    if (window.caches) for (const key of await caches.keys()) if (key.startsWith("baznova-")) await caches.delete(key);
+  } catch {
+    /* sin service worker o sin caché */
+  }
+}
+
+// Primer fallo: recarga simple. Si vuelve a fallar enseguida, lo que está roto es la copia guardada en el teléfono (pasó en
+// iPhone al cambiar de versión mientras la página cargaba): se borra el service worker y su caché, y se recarga una vez más.
 export function reloadOnceForNewVersion() {
   try {
+    const now = Date.now();
     const last = Number(sessionStorage.getItem("chunk_reload_at") || 0);
-    if (Date.now() - last < 15000) return false;
-    sessionStorage.setItem("chunk_reload_at", String(Date.now()));
+    if (now - last >= 15000) {
+      sessionStorage.setItem("chunk_reload_at", String(now));
+      window.location.reload();
+      return true;
+    }
+    const lastReset = Number(sessionStorage.getItem("chunk_reset_at") || 0);
+    if (now - lastReset < 120000) return false;
+    sessionStorage.setItem("chunk_reset_at", String(now));
   } catch {
     return false;
   }
-  window.location.reload();
+  resetAppFiles().finally(() => window.location.reload());
   return true;
 }
 
-// Borra lo que el navegador guardó de consultas anteriores (puede traer datos con forma vieja) y recarga.
+// Borra lo que el navegador guardó (consultas anteriores y archivos de la aplicación) y recarga.
 export function clearSavedDataAndReload() {
   try {
     localStorage.removeItem("zeudin_query_cache");
   } catch {
     /* sin almacenamiento */
   }
-  window.location.reload();
+  resetAppFiles().finally(() => window.location.reload());
 }
 
 // Un fallo de pantalla que no es de archivos viejos casi siempre se arregla borrando la caché guardada y recargando: se intenta una

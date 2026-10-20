@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
@@ -113,7 +114,7 @@ export default function VendorReviews() {
         puedes ocultarlo ni borrarlo directamente (eso lo decide el equipo de {siteName} al revisar el reporte).
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando reseñas...</p>}
+      {isLoading && <ListSkeleton />}
 
       {!isLoading && !reviews?.length && (
         <div className="max-w-[640px] rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">

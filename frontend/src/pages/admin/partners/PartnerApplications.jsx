@@ -6,6 +6,7 @@ import { CARD } from "../../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../../lib/api.js";
 import { EmptyState } from "../../../components/ui/EmptyState.jsx";
 import { BTN, BTN_PRIMARY, BTN_GHOST, BTN_DANGER, INPUT, LABEL, fmtDate, linesToList, errMsg, Modal } from "./ui.jsx";
+import { ListSkeleton } from "../../../components/ui/Skeleton.jsx";
 
 const STATUS = {
   PENDING: { label: "En revisión", cls: "bg-[#fe9800]/15 text-[#8A5100]" },
@@ -199,7 +200,7 @@ export default function PartnerApplications() {
           <button key={v} onClick={() => setStatus(v)} aria-pressed={status === v} className={`min-h-11 rounded-full border px-3.5 text-[12.5px] font-semibold ${status === v ? "border-primary bg-primary/10 text-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"}`}>{l}</button>
         ))}
       </div>
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando solicitudes...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && <p role="alert" className="rounded-xl bg-error/10 p-3 text-[13px] font-semibold text-error">No se pudieron cargar las solicitudes. Intenta de nuevo en un momento.</p>}
       {!isLoading && !isError && !data?.applications.length && <EmptyState icon={Inbox} title="No hay solicitudes" description="Cuando alguien pida usar la API desde la página de solicitud, aparecerá aquí." />}
       <div className="space-y-4">{data?.applications.map((a) => <ApplicationCard key={a.id} app={a} />)}</div>

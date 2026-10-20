@@ -14,6 +14,7 @@ import { KycSubmitForm } from "../../components/vendor/KycSubmitForm.jsx";
 import { STAGE_META } from "../../lib/verificationMeta.js";
 import { StoreBrandingCard } from "./VendorProfile.jsx";
 import { ProductModal } from "./VendorProducts.jsx";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // "Completa tu tienda": todo lo que hace falta para la insignia de verificada (y para que la prueba gratis se active sola) en
 // una sola pantalla, un paso a la vez y con el formulario de cada paso aquí mismo. El orden importa: los documentos van al
@@ -269,7 +270,7 @@ export default function VendorSetupGuide() {
     setOpenId(null);
   };
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
   if (isError) return <p className="text-body-md text-error">No se pudo cargar tu avance. Recarga la página.</p>;
 
   const percent = Math.round((doneCount / steps.length) * 100);

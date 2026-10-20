@@ -17,13 +17,19 @@ const SHELL = "baznova-shell";
 const MEDIA = "baznova-media";
 const MEDIA_MAX = 150;
 
+// Primera instalación: se activa enseguida (no hay otro service worker al que reemplazar). Al publicar una versión nueva, en
+// cambio, espera: si tomaba el control mientras una página cargaba sus archivos, cortaba esas descargas y la pantalla fallaba
+// ("Importing a module script failed" en iPhone). La página le avisa (SKIP_WAITING) cuando terminó de cargar o al pasar a
+// segundo plano, segundos después, así que la actualización no se atrasa.
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
       .then((c) => c.add(new Request("/index.html", { cache: "reload" })))
       .catch(() => {})
-      .then(() => self.skipWaiting())
+      .then(() => {
+        if (!self.registration.active) return self.skipWaiting();
+      })
   );
 });
 
@@ -79,9 +85,21 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         const cached = await caches.match(req, { cacheName: STATIC });
         if (cached) return cached;
-        const res = await fetch(req);
-        if (res.ok) caches.open(STATIC).then((c) => c.put(req, res.clone())).catch(() => {});
-        return res;
+        try {
+          const res = await fetch(req);
+          // La copia se saca antes de entregar la respuesta: si se clonaba después, la página ya había leído el cuerpo y en
+          // iPhone podía quedar guardado un archivo roto, que fallaba en cada recarga ("Importing a module script failed").
+          if (res.ok && res.type === "basic") {
+            const copy = res.clone();
+            caches.open(STATIC).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        } catch (err) {
+          // Si la red falla (por ejemplo, justo al cambiar de versión), cualquier copia guardada del mismo archivo sirve.
+          const any = await caches.match(req);
+          if (any) return any;
+          throw err;
+        }
       })()
     );
     return;

@@ -12,6 +12,7 @@ import { vendorSectionLabel } from "../../lib/vendorSections.js";
 import { STAFF_TYPES, STAFF_TYPE_DEFAULT_SECTIONS, staffTypeLabel } from "../../lib/staffTypes.js";
 import { UnsavedChangesModal } from "../UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../ui/Skeleton.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -347,7 +348,7 @@ export function AdminVendorStaffModal({ vendor, onClose }) {
           </button>
         </div>
 
-        {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+        {isLoading && <ListSkeleton />}
         {staff?.length === 0 && <p className="text-body-md text-on-surface-variant">Esta tienda todavía no creó ningún usuario de sistema.</p>}
 
         <div className="flex flex-col gap-3">

@@ -19,6 +19,7 @@ import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { productMatches } from "../../lib/textMatch.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 52: presets rápidos de tallas de ropa — un click para agregar/quitar,
 // además del input libre (numéricas de calzado, "Talla única", etc.).
@@ -1173,7 +1174,7 @@ export default function VendorProducts() {
             )}
             <span></span>
           </div>
-          {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
+          {isLoading && <ListSkeleton />}
           {!isLoading && products.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Todavía no publicaste productos.</p>}
           {!isLoading && products.length > 0 && visibleProducts.length === 0 && (
             <p className="p-5 text-body-md text-on-surface-variant">Ningún producto coincide con este filtro.</p>

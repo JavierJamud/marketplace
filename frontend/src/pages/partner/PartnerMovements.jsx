@@ -5,6 +5,7 @@ import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { Pagination } from "../../components/admin/ListControls.jsx";
+import { TableRowsSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const fmtTime = (d) => new Date(d).toLocaleString("es-CU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const FILTERS = [
@@ -67,11 +68,7 @@ export default function PartnerMovements() {
               </tr>
             </thead>
             <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-outline">Cargando...</td>
-                </tr>
-              )}
+              {isLoading && <TableRowsSkeleton rows={6} cols={6} />}
               {data && data.movements.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-3 py-8 text-center text-outline">No hay solicitudes con ese filtro.</td>

@@ -11,6 +11,7 @@ import { Select } from "../../components/ui/Select.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbox.jsx";
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark, MANUAL: HandCoins };
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP", MANUAL: "Registrado por el equipo" };
@@ -551,7 +552,7 @@ function SubscriptionsTab() {
           <span>Pago</span>
           <span className="text-right">Acciones</span>
         </div>
-        {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
+        {isLoading && <ListSkeleton />}
         {!isLoading && subscriptions.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Todavía no hay tiendas en el Plan Premium.</p>}
         {!isLoading && subscriptions.length > 0 && visible.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">Ninguna tienda con este filtro.</p>}
         {visible.map((s) => {

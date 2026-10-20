@@ -31,6 +31,7 @@ import { SimplePhotoCapture } from "../../components/vendor/SimplePhotoCapture.j
 import { SectionAccessPicker } from "../../components/vendor/SectionAccessPicker.jsx";
 import { vendorSectionLabel } from "../../lib/vendorSections.js";
 import { STAFF_TYPES, STAFF_TYPE_DEFAULT_SECTIONS, staffTypeLabel } from "../../lib/staffTypes.js";
+import { FormSkeleton, ListSkeleton, PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -783,7 +784,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
         <div>
           <h4 className="mb-2 text-[14px] font-bold text-on-surface">Productos asignados</h4>
           {loadingAllocations ? (
-            <p className="text-body-md text-on-surface-variant">Cargando...</p>
+            <ListSkeleton rows={3} />
           ) : allocations.length === 0 ? (
             <p className="rounded-md border border-dashed border-outline-variant p-4 text-center text-[13px] text-on-surface-variant">
               Todavía no tiene productos asignados — usa "Reasignar stock" arriba para darle stock.
@@ -985,7 +986,7 @@ export function CashCloseSettingsPanel() {
     queryKey: ["staff-sales-settings"],
     queryFn: async () => (await api.get("/vendor-staff-sales/settings")).data,
   });
-  return settings ? <CashCloseSettingsForm settings={settings} /> : <p className="text-body-md text-on-surface-variant">Cargando configuración...</p>;
+  return settings ? <CashCloseSettingsForm settings={settings} /> : <FormSkeleton />;
 }
 
 function CashCloseSettingsForm({ settings }) {
@@ -1174,7 +1175,7 @@ function SalesLogSection({ staffList }) {
       </div>
 
       {isLoading ? (
-        <p className="text-body-md text-on-surface-variant">Cargando...</p>
+        <ListSkeleton rows={3} />
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
           <table className="w-full min-w-[720px] text-left text-[12.5px]">
@@ -1442,7 +1443,7 @@ export default function VendorUsers() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["my-staff"] });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando usuarios...</p>;
+  if (isLoading) return <PanelSkeleton />;
 
   const salesStatsById = new Map((salesStaff ?? []).map((s) => [s.id, s]));
   const mergedStaff = (data ?? []).map((s) => ({ ...s, ...salesStatsById.get(s.id) }));

@@ -5,6 +5,7 @@ import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
 import { getBannerIconPattern } from "../lib/vendorBannerIcons.js";
 import { api } from "../lib/api.js";
+import { Skeleton, SkeletonGroup } from "./ui/Skeleton.jsx";
 
 const PALETTE = ["#232F3E", "#337475", "#8A5100", "#643900", "#0e1a28", "#003435"];
 function colorFor(id) {
@@ -25,6 +26,47 @@ const DESCRIPTION_LIMIT = 130;
 function truncateDescription(text) {
   if (text.length <= DESCRIPTION_LIMIT) return { short: text, truncated: false };
   return { short: text.slice(0, DESCRIPTION_LIMIT).trimEnd(), truncated: true };
+}
+
+// Esqueleto de la tarjeta de tienda: misma portada con el logo redondo y el nombre abajo, descripción, valoración y pie con
+// productos y tipo de negocio, como la tarjeta real. `compact` sigue las medidas de CompactStoreCard (portada de 104px, logo
+// de 40px), la del carrusel de tiendas verificadas de la portada.
+export function StoreCardSkeleton({ compact = false }) {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm">
+      <div className={`relative w-full ${compact ? "h-[104px]" : "h-[120px]"}`}>
+        <Skeleton height="100%" borderRadius={0} containerClassName="block h-full leading-none" />
+        <div className={`absolute flex items-center ${compact ? "bottom-2.5 left-3 right-3 gap-2" : "bottom-3 left-3.5 right-3.5 gap-2.5"}`}>
+          <Skeleton circle width={compact ? 40 : 48} height={compact ? 40 : 48} baseColor="#dcd9db" />
+          <div className="min-w-0 flex-1">
+            <Skeleton width="60%" height={compact ? 13 : 14} baseColor="#dcd9db" />
+            <Skeleton width="35%" height={compact ? 10 : 11} baseColor="#dcd9db" />
+          </div>
+        </div>
+      </div>
+      <div className={`flex flex-1 flex-col ${compact ? "p-3.5" : "p-4"}`}>
+        <Skeleton count={2} height={12} className="mb-1" />
+        <div className="mt-auto flex flex-col gap-1.5 pt-2">
+          <div className="flex items-center justify-between">
+            <Skeleton width={90} height={12} />
+            <Skeleton width={36} height={12} />
+          </div>
+          <Skeleton width="50%" height={11} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Grilla de esqueletos de tienda con las columnas que le pase cada página.
+export function StoreGridSkeleton({ count = 6, className = "grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3" }) {
+  return (
+    <SkeletonGroup label="Cargando tiendas" className={className}>
+      {Array.from({ length: count }, (_, i) => (
+        <StoreCardSkeleton key={i} />
+      ))}
+    </SkeletonGroup>
+  );
 }
 
 export function StoreCard({ vendor }) {

@@ -14,6 +14,7 @@ import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { useListParams, useDebouncedSearch } from "../../lib/useListParams.js";
 import { StatTile, StatStrip, SortHeader, SearchField, RowSkeletons, Pagination } from "../../components/admin/ListControls.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -240,7 +241,7 @@ function ProductDetail({ product, onTogglePause, onEdit, onDelete }) {
 
   return (
     <div className="border-t border-surface-container bg-surface-container/40 px-4 py-4">
-      {isLoading && <p className="text-[13px] text-on-surface-variant">Cargando estadísticas...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && (
         <div className="flex flex-wrap items-center gap-3 text-[13px] text-error">
           No se pudieron cargar las estadísticas.

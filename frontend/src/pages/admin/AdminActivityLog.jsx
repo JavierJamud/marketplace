@@ -4,6 +4,7 @@ import { Store, User, Activity } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { UsageOverview } from "../../components/admin/VendorUsage.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const PERIODS = [
   { value: "day", label: "Hoy" },
@@ -134,7 +135,7 @@ export default function AdminActivityLog() {
         </div>
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && !logsData?.logs?.length && <p className="text-body-md text-on-surface-variant">Todavía no hay actividad registrada.</p>}
 
       <div className="flex flex-col gap-2 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">

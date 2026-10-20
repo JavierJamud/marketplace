@@ -13,6 +13,7 @@ import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbo
 import { useNotifyChoices } from "../../lib/notifyVendor.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { ListSkeleton, PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 64: fuente única de verdad — las pestañas agrupan Vendor.verificationStatus
 // (PENDING_DOCS+IN_REVIEW comparten pestaña porque las 2 son "esperando que
@@ -309,7 +310,7 @@ function VerificationArchiveModal({ vendor, onClose }) {
           reciente ya cerrado) nunca se puede eliminar; las anteriores sí, a mano.
         </p>
 
-        {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+        {isLoading && <ListSkeleton />}
         {!isLoading && !archives?.length && (
           <p className="text-body-md text-on-surface-variant">Esta tienda todavía no tiene ninguna verificación archivada.</p>
         )}
@@ -348,7 +349,7 @@ function RenewalsList() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo confirmar la renovación."),
   });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
   if (!data?.length) return <p className="text-body-md text-on-surface-variant">No hay renovaciones esperando confirmación.</p>;
 
   return (
@@ -438,7 +439,7 @@ function ChangeRequestsList() {
     { key: "companyAddress", label: "Dirección" },
   ];
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
   if (!data?.length) return <p className="text-body-md text-on-surface-variant">No hay solicitudes de cambio esperando revisión.</p>;
 
   return (
@@ -707,7 +708,7 @@ export default function AdminVerifications() {
 
       {!isSpecialTab && (
         <>
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && data?.length === 0 && (
         <p className="text-body-md text-on-surface-variant">{q ? `Ninguna solicitud coincide con "${search.trim()}".` : "No hay solicitudes con este filtro."}</p>
       )}

@@ -10,6 +10,7 @@ import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import ToggleSwitch from "../../components/admin/ToggleSwitch.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
 import { fmtAmount, fmtPoints, pointsForAmount, pointsValue, TX_LABEL } from "../../lib/loyalty.js";
+import { ListSkeleton, PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Programa de fidelidad de la tienda. La tienda decide cuántos puntos da, cuánto valen y cuánto se puede pagar con ellos.
 // Los clientes con cuenta ganan los puntos cuando el pedido se marca Entregado y los usan en el checkout de esta tienda.
@@ -188,7 +189,7 @@ function MemberModal({ member, currency, canWrite, onClose }) {
             </form>
           )}
           <p className="mb-2 text-[13px] font-bold text-on-surface">Movimientos</p>
-          {isLoading && <p className="text-[13px] text-on-surface-variant">Cargando...</p>}
+          {isLoading && <ListSkeleton />}
           {isError && <p className="text-[13px] text-error">No se pudo cargar el historial.</p>}
           {data && data.length === 0 && <p className="text-[13px] text-on-surface-variant">Todavía no hay movimientos.</p>}
           {data && data.length > 0 && (
@@ -238,7 +239,7 @@ function Members({ currency, program, canWrite }) {
       <h2 className="mb-1 text-[15px] font-bold text-on-surface">Clientes con puntos</h2>
       <p className="mb-3 text-[12.5px] text-outline">Toca un cliente para ver sus movimientos{canWrite ? " o ajustarle puntos" : ""}.</p>
       <SearchBox value={q} onChange={setQ} placeholder="Buscar por nombre o correo" />
-      {isLoading && <p className="mt-3 text-[13px] text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && <p className="mt-3 text-[13px] text-error">No se pudo cargar la lista.</p>}
       {data && data.length === 0 && (
         <p className="mt-3 text-[13px] text-on-surface-variant">{q ? "Ningún cliente coincide con la búsqueda." : "Todavía ningún cliente tiene puntos. Aparecen aquí cuando entregas su primer pedido con el programa encendido."}</p>
@@ -313,7 +314,7 @@ export default function VendorLoyalty() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el programa."),
   });
 
-  if (isLoading || (data && !form)) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading || (data && !form)) return <PanelSkeleton />;
   if (isError) return <p className="text-body-md text-error">No se pudo cargar el programa de fidelidad. Recarga la página.</p>;
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));

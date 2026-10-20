@@ -9,6 +9,7 @@ import { Input } from "../ui/Input.jsx";
 import { Select } from "../ui/Select.jsx";
 import { Button } from "../ui/Button.jsx";
 import { exactDate } from "../../lib/relativeTime.js";
+import { ListSkeleton } from "../ui/Skeleton.jsx";
 
 // Bloque 244 (pedido explícito — "si el cliente no encuentra su país o
 // provincia, la escribe a mano y el admin la revisa y la agrega"): lista de
@@ -185,7 +186,7 @@ export function LocationSuggestionsPanel() {
       </div>
 
       <div className={CARD}>
-        {isLoading && <p className="p-6 text-body-md text-on-surface-variant">Cargando solicitudes...</p>}
+        {isLoading && <ListSkeleton />}
         {isError && (
           <div className="flex flex-col items-center gap-3 p-8 text-center">
             <p className="text-body-md text-error">No se pudieron cargar las solicitudes.</p>

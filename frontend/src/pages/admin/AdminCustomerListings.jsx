@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -61,7 +62,7 @@ export default function AdminCustomerListings() {
         Clientes sin tienda con anuncios de venta rápida publicados, agrupados por dueño. Vencen solos a los 30 días.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && owners.length === 0 && (
         <p className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5 text-body-md text-on-surface-variant">
           Ningún cliente tiene anuncios de venta rápida por ahora.

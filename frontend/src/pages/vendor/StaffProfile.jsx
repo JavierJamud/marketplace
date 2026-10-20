@@ -9,6 +9,7 @@ import { staffTypeLabel } from "../../lib/staffTypes.js";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
 import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
 import { APPS } from "../../lib/pwa.js";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -44,7 +45,7 @@ export default function StaffProfile() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cambiar la contraseña."),
   });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
 
   const photo = imgUrl(profile.photoUrl);
 

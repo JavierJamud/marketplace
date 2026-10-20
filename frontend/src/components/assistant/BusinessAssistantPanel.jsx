@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
 import { RecordingIndicator, TranscribingIndicator } from "../RecordingIndicator.jsx";
 import { revealText, appendWord } from "../../lib/revealText.js";
+import { ChatSkeleton } from "../ui/Skeleton.jsx";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA para el admin y
 // para los vendedores): una sola pantalla de chat para los dos paneles. El
@@ -492,7 +493,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
     ? "flex h-full min-h-0 flex-col bg-surface-container-lowest"
     : "flex h-[calc(100dvh-270px)] min-h-[420px] flex-col overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest md:h-[calc(100dvh-220px)]";
 
-  if (isLoading) return <div className={`${wrapper} items-center justify-center text-[13.5px] text-on-surface-variant`}>Cargando el asistente...</div>;
+  if (isLoading) return <div className={`${wrapper} justify-end p-4`}><ChatSkeleton bubbles={4} /></div>;
   if (isError) {
     return (
       <div className={`${wrapper} items-center justify-center p-5 text-center text-[13.5px] text-error`}>

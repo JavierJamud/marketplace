@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { CARD, IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { Bar } from "./PartnerDashboard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Tu credencial, siempre visible: no se oculta ni se muestra una sola vez. Solo Baznova puede regenerarla.
 function ApiKeyCard() {
@@ -16,7 +17,7 @@ function ApiKeyCard() {
     <section className={`${CARD} mb-5 p-5`} aria-labelledby="cred-title">
       <h2 id="cred-title" className="mb-1 text-[15px] font-bold text-on-surface">Tu credencial de la API</h2>
       <p className="mb-3 text-[12.5px] text-outline">Es la única que necesitas: productos, tiendas, carrito, pedidos y planes. Envíala en cada solicitud con <code>Authorization: Bearer</code>. Si se filtra, avisa a Baznova: solo el equipo puede regenerarla.</p>
-      {isLoading && <p className="text-[13px] text-outline">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {data && !data.apiKey && (
         <p className="text-[13px] text-on-surface-variant">
           {data.reason === "legacy" ? "Esta credencial se creó antes de poder verse aquí. Pídele a Baznova que la regenere y te llegará la nueva por correo." : "Todavía no tienes credencial. Baznova te la creará cuando apruebe tu solicitud."}
@@ -63,7 +64,7 @@ export default function PartnerKeys() {
 
       <ApiKeyCard />
 
-      {isLoading && <p className="text-[13.5px] text-outline">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && keys.length === 0 && <div className={`${CARD} p-6 text-[13.5px] text-outline`}>Todavía no tienes tu credencial. Baznova la creará cuando tu sitio esté listo.</div>}
 
       <div className="space-y-4">

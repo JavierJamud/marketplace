@@ -4,14 +4,16 @@ import { Link } from "react-router-dom";
 import { MapPinned, PlusCircle, ShieldCheck, Store } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
-import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
+import { ProductCard, ProductGridSkeleton, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
+import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { VerifiedStoresSlider } from "../../components/VerifiedStoresSlider.jsx";
+import { StoreCardSkeleton } from "../../components/StoreCard.jsx";
 import { OffersSlider } from "../../components/OffersSlider.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { HeroImageSlider } from "../../components/HeroImageSlider.jsx";
-import { QuickSaleCard } from "../../components/QuickSaleCard.jsx";
+import { QuickSaleCard, QuickSaleCardSkeleton } from "../../components/QuickSaleCard.jsx";
 import { ZoneDialog } from "../../components/ZonePicker.jsx";
 import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselLazy.jsx";
 
@@ -136,6 +138,51 @@ function SectionHead({ title, subtitle, to, cta = "Ver todo →" }) {
   );
 }
 
+// Mientras cargan las secciones de la portada: título de sección y la grilla de destacados con su misma forma.
+function BelowHeroSkeleton() {
+  return (
+    <section className="container-app pt-8 md:pt-11">
+      <SectionHeadSkeleton />
+      <ProductGridSkeleton count={20} itemClassName={featuredVisibility} />
+    </section>
+  );
+}
+
+function SectionHeadSkeleton() {
+  return (
+    <div className="mb-4 md:mb-6" aria-hidden="true">
+      <Skeleton width={240} height={26} />
+      <Skeleton width={300} height={13} className="mt-1" />
+    </div>
+  );
+}
+
+// Fila de anuncios con las mismas medidas que el carrusel (72% en celular, 3 por fila en tablet, 4 en escritorio).
+function QuickSalesSkeleton() {
+  return (
+    <SkeletonGroup label="Cargando anuncios" className="-mx-1.5 flex overflow-hidden">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className={`flex-none basis-[72%] px-1.5 sm:basis-1/3 lg:basis-1/4 ${i === 3 ? "hidden lg:block" : i === 2 ? "hidden sm:block" : ""}`}>
+          <QuickSaleCardSkeleton />
+        </div>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
+// Tiendas verificadas: la tarjeta centrada con las vecinas asomando, como el carrusel real.
+function VerifiedStoresSkeleton() {
+  return (
+    <SkeletonGroup label="Cargando tiendas" className="flex justify-center overflow-hidden">
+      {Array.from({ length: 3 }, (_, i) => (
+        <div key={i} className={`flex-none basis-[80%] px-2 sm:basis-[45%] lg:basis-1/3 ${i !== 1 ? "hidden sm:block" : ""} ${i === 2 ? "sm:hidden lg:block" : ""}`}>
+          <StoreCardSkeleton compact />
+        </div>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 // Cuántos destacados se ven según el ancho (la grilla pasa de 2 a 5 columnas):
 // 8 en celular (4 filas completas), 9 desde sm (3 columnas), 12 desde md (4
 // columnas) y 20 desde lg (5 columnas), siempre filas completas.
@@ -175,20 +222,20 @@ export default function Home() {
   }, [businessCategories]);
 
   // Ventas rápidas: anuncios de clientes sin tienda. Se muestran los más recientes y siempre hay un acceso para publicar el tuyo.
-  const { data: quickSales } = useQuery({
+  const { data: quickSales, isPending: quickSalesPending } = useQuery({
     queryKey: ["home-quick-sales", zoneKey],
     queryFn: async () => (await api.get("/customer-listings", { params: { limit: 8, ...zoneParams } })).data.listings,
     enabled: !zoneLoading,
     staleTime: 60 * 1000,
   });
 
-  const { data: featured } = useQuery({
+  const { data: featured, isPending: featuredPending } = useQuery({
     queryKey: ["home-featured", zoneKey],
     queryFn: async () => (await api.get("/search", { params: zoneParams })).data.products,
     enabled: !zoneLoading,
   });
 
-  const { data: verifiedVendors } = useQuery({
+  const { data: verifiedVendors, isPending: verifiedPending } = useQuery({
     queryKey: ["home-verified-vendors", zoneKey],
     queryFn: async () => (await api.get("/vendors", { params: { isVerified: true, ...zoneParams } })).data.vendors,
     enabled: !zoneLoading,
@@ -311,7 +358,9 @@ export default function Home() {
             title={hasZoneFilter ? `Destacados en ${zoneName}` : "Destacados en toda Cuba"}
             subtitle={hasZoneFilter ? "De tiendas verificadas cerca de ti" : "De tiendas verificadas en todo el país"}
           />
-          {featured?.length ? (
+          {featuredPending ? (
+            <ProductGridSkeleton count={20} itemClassName={featuredVisibility} />
+          ) : featured?.length ? (
             <>
               {/* Bloque 248 (hallazgo 15): 20 destacados en celular eran 3333px de
                   grilla, casi 4 pantallas antes de llegar a las tiendas o a la
@@ -361,7 +410,9 @@ export default function Home() {
               <Link to="/ventas-rapidas" className="flex min-h-11 flex-shrink-0 items-center text-label-md font-semibold text-tertiary-accent hover:underline">Ver todo →</Link>
             )}
           </div>
-          {quickSales?.length > 0 ? (
+          {quickSalesPending ? (
+            <QuickSalesSkeleton />
+          ) : quickSales?.length > 0 ? (
             <>
               {/* Pasa de un anuncio a la vez, sin fin, y también se desliza con el dedo. Solo lleva anuncios; el botón de publicar va fijo debajo. */}
               <div className="-mx-1.5">
@@ -449,7 +500,9 @@ export default function Home() {
             /vendors?isVerified=true (más recientes primero). */}
         <section className="container-app cv-auto pb-10 md:pb-14">
           <SectionHead title="Tiendas verificadas" to="/tiendas" />
-          {verifiedVendors?.length ? (
+          {verifiedPending ? (
+            <VerifiedStoresSkeleton />
+          ) : verifiedVendors?.length ? (
             <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
           ) : (
             <EmptyState
@@ -467,7 +520,7 @@ export default function Home() {
 
           </>
         ) : (
-          <div className="min-h-[100vh]" aria-hidden="true" />
+          <BelowHeroSkeleton />
         )}
       </div>
       {/* Bloque 52: apagable desde el admin (Marca de la plataforma). Default

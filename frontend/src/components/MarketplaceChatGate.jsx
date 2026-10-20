@@ -1,9 +1,10 @@
 import { useFlow } from "../context/FlowContext.jsx";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { lazyRetry } from "../lib/lazyRetry.js";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api.js";
 // El chat se descarga aparte, después de la página: no retrasa la primera carga.
-const MarketplaceChatWidget = lazy(() => import("./MarketplaceChatWidget.jsx").then((m) => ({ default: m.MarketplaceChatWidget })));
+const MarketplaceChatWidget = lazyRetry(() => import("./MarketplaceChatWidget.jsx").then((m) => ({ default: m.MarketplaceChatWidget })));
 
 // Bloque 269 (pedido explícito — "el chatbot de la página principal debe mostrarse
 // también en la página de tiendas y en la del catálogo de productos"): antes se

@@ -8,6 +8,7 @@ import { copyToClipboard } from "../../../lib/clipboard.js";
 import { EmptyState } from "../../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../../components/ConfirmModal.jsx";
 import { BTN, BTN_PRIMARY, BTN_GHOST, BTN_DANGER, INPUT, LABEL, fmt, fmtDate, linesToList, errMsg, Modal, StatusPill } from "./ui.jsx";
+import { PanelSkeleton } from "../../../components/ui/Skeleton.jsx";
 
 function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
   const qc = useQueryClient();
@@ -274,7 +275,7 @@ export default function PartnerDetail({ id, onBack }) {
     onError: (e) => toast.error(errMsg(e, "No se pudo revocar.")),
   });
 
-  if (isLoading || !data) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading || !data) return <PanelSkeleton />;
   const { partner, keys, usage } = data;
   const maxDay = Math.max(1, ...usage.byDay.map((d) => d.requests));
 

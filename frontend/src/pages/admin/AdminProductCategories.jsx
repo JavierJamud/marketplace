@@ -9,6 +9,7 @@ import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Categorías de producto (las que elige el vendedor al publicar). Dos niveles: categoría y subcategorías.
 // Las que crearon los vendedores aparecen marcadas "Nueva" hasta que el admin las edita o las acepta al renombrarlas.
@@ -162,7 +163,7 @@ export default function AdminProductCategories() {
         </button>
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && <p className="text-body-md text-error">No se pudieron cargar las categorías.</p>}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest">

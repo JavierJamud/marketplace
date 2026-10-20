@@ -20,6 +20,7 @@ import { StockRiskModal } from "../../components/StockRiskModal.jsx";
 import { DocumentModal } from "../../components/DocumentModal.jsx";
 import { TableOrderDetailModal } from "../../components/vendor/TableOrderDetailModal.jsx";
 import { OrderDetailModal } from "../../components/vendor/OrderDetailModal.jsx";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -350,7 +351,7 @@ export default function VendorOrders() {
     });
   }
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando pedidos...</p>;
+  if (isLoading) return <PanelSkeleton />;
 
   const merged = [
     ...(data?.orders ?? []).map((o) => ({

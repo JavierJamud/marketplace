@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 52 (pedido explícito — "estos son datos que el cliente solo puede
 // copiar y pegarlos en otro lado"): mismo patrón que ya usa el admin para
@@ -148,7 +149,7 @@ export default function PagoManual() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo enviar el aviso de pago."),
   });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
 
   const eligible = isRenewal || (ELIGIBLE_STATUSES.includes(verification?.verificationStatus) && !!verification?.paymentMethod);
 

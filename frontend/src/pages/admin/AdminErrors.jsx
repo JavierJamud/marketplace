@@ -13,6 +13,7 @@ import toast from "../../lib/toast.jsx";
 import { Check, AlertTriangle } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 33: el backend solo conoce los 6 valores reales de ErrorOrigin —
 // estos grupos son puramente de la UI (mapean a 1+ origin real cada uno),
@@ -126,7 +127,7 @@ export default function AdminErrors() {
         ))}
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && data?.length === 0 && <p className="text-body-md text-on-surface-variant">No hay errores para este filtro.</p>}
 
       <div className="flex flex-col gap-3.5">

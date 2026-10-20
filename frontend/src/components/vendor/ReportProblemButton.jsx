@@ -12,6 +12,7 @@ import { lockPageScroll } from "../../lib/scrollLock.js";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
 import { revealText, appendWord } from "../../lib/revealText.js";
 import { RecordingIndicator, TranscribingIndicator } from "../RecordingIndicator.jsx";
+import { CardListSkeleton } from "../ui/Skeleton.jsx";
 
 // Botón flotante del panel de la tienda para reportar un error visual. Al tocarlo se toma primero la captura de lo que la
 // persona ve (antes de abrir la ventana, para que la ventana no salga en ella); después la persona cuenta el problema,
@@ -268,7 +269,7 @@ function ReportDialog({ shot, page, onRetake, onClose }) {
 // También se muestra en Reportes → "Enviados" (ver components/reports/ReportsCenter.jsx).
 export function MyTickets() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["my-support-tickets"], queryFn: async () => (await api.get("/support-tickets/mine")).data.tickets });
-  if (isLoading) return <p className="text-[13px] text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <CardListSkeleton />;
   if (isError)
     return (
       <p className="text-[13px] text-error">

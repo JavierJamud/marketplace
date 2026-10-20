@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 53: esta sección quedó SOLO para Términos/Privacidad — FAQ pasó a
 // tener su propia sección con CRUD real (ver AdminFaq.jsx), y Contacto/Ayuda
@@ -151,7 +152,7 @@ export default function AdminPages() {
         Edita el HTML libre de estas dos páginas legales, o déjalas con su contenido predeterminado.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {data?.map((p) => (

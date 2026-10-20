@@ -9,6 +9,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const PAGE_LABEL = { HOME: "Inicio", STORES: "Tiendas", ALL: "Todo el sitio" };
 const POSITION_LABEL = { HERO: "Hero", TOP_BAR: "Franja superior" };
@@ -250,7 +251,7 @@ export default function AdminAnnouncements() {
         </button>
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {announcements?.map((a) => {

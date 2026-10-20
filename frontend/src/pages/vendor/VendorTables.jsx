@@ -11,6 +11,7 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { TableOrderDetailModal } from "../../components/vendor/TableOrderDetailModal.jsx";
 import { CreateManualOrderModal } from "../../components/vendor/CreateManualOrderModal.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -467,7 +468,7 @@ export default function VendorTables() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo agregar la mesa."),
   });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando mesas...</p>;
+  if (isLoading) return <PanelSkeleton />;
 
   // Tienda que no es restaurante (o sin permiso para Mesas) que llegó por un enlace directo: se explica por qué no puede usar
   // esta sección en vez de mostrar una lista vacía con un "Agregar mesa" que el servidor rechaza.

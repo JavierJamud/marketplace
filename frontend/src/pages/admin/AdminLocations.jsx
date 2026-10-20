@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 52: el panel de "Límites de entrega por plan" que vivía acá se
 // movió a Suscripciones → "Configuración de planes" — ahí quedó junto con
@@ -277,7 +278,7 @@ function CitiesDrawer({ province, onAdd, onEdit, onDelete }) {
         />
       </div>
       {isLoading && !data ? (
-        <p className="py-2 text-[12px] text-outline">Cargando...</p>
+        <ListSkeleton rows={3} avatar={false} />
       ) : isError ? (
         <p className="py-2 text-[12px] text-error">No se pudieron cargar. Prueba de nuevo.</p>
       ) : items.length === 0 ? (

@@ -21,6 +21,7 @@ import { RepresentativeFileModal } from "../../components/admin/RepresentativeFi
 import { EditVendorModal, StatsModal } from "./AdminVendors.jsx";
 import { VendorUsageSection } from "../../components/admin/VendorUsage.jsx";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Gestionar una tienda (/admin/tiendas/:id): estado, lo que le falta configurar, accesos y dispositivos, equipo, asistente,
 // actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista.
@@ -124,7 +125,7 @@ export default function AdminVendorManage() {
     },
   });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
   if (isError || !data) {
     return (
       <div className="flex flex-col items-start gap-3">

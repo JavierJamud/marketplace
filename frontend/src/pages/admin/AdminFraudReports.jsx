@@ -9,6 +9,7 @@ import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbo
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { useFocusFromQuery } from "../../lib/useFocusFromQuery.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -131,7 +132,7 @@ export default function AdminFraudReports() {
         <div className="hidden grid-cols-[1.8fr_1.2fr_1.3fr_1.6fr_1.3fr_1.6fr] gap-3 bg-surface-container-low px-[22px] py-3.5 text-[11.5px] font-bold uppercase tracking-wide text-outline lg:grid">
           <span>Objetivo</span><span>Reportante</span><span>Estado</span><span>Mensaje</span><span>Fecha</span><span className="text-right">Acción</span>
         </div>
-        {isLoading && <p className="p-5 text-body-md text-on-surface-variant">Cargando...</p>}
+        {isLoading && <ListSkeleton />}
         {!isLoading && reports.length === 0 && <p className="p-5 text-body-md text-on-surface-variant">No hay reportes aquí.</p>}
         {reports.map((r) => {
           const target = targetInfo(r);

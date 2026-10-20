@@ -5,6 +5,7 @@ import { Award, ChevronDown } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { imgUrl } from "../../lib/imgUrl.js";
 import { fmtAmount, fmtPoints, TX_LABEL } from "../../lib/loyalty.js";
+import { CardListSkeleton } from "../ui/Skeleton.jsx";
 
 // "Mis puntos" del panel del cliente: una fila por tienda con su saldo y lo que vale, y el historial de cada una al tocarla.
 const dateText = (d) => new Date(d).toLocaleDateString("es-CU", { day: "numeric", month: "short", year: "numeric" });
@@ -14,7 +15,7 @@ function History({ vendorId }) {
     queryKey: ["my-points-history", vendorId],
     queryFn: async () => (await api.get(`/loyalty/me/${vendorId}/history`)).data.transactions,
   });
-  if (isLoading) return <p className="px-4 pb-3 text-[12.5px] text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <CardListSkeleton cards={1} />;
   if (isError) return <p className="px-4 pb-3 text-[12.5px] text-error">No se pudo cargar el historial.</p>;
   if (!data?.length) return <p className="px-4 pb-3 text-[12.5px] text-on-surface-variant">Sin movimientos.</p>;
   return (
@@ -40,7 +41,7 @@ export function MyPoints() {
   const [open, setOpen] = useState(null);
   const { data, isLoading, isError } = useQuery({ queryKey: ["my-points"], queryFn: async () => (await api.get("/loyalty/me")).data.accounts });
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <CardListSkeleton cards={1} />;
   if (isError) return <p className="text-body-md text-error">No se pudieron cargar tus puntos. Recarga la página.</p>;
   if (!data?.length) {
     return (

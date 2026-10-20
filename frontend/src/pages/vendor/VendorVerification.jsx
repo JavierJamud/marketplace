@@ -9,6 +9,7 @@ import { KycSubmitForm } from "../../components/vendor/KycSubmitForm.jsx";
 import { SubscriptionOverview } from "../../components/vendor/SubscriptionOverview.jsx";
 import { PaymentChooser } from "../../components/vendor/PaymentChooser.jsx";
 import { planFromSettings, STAGE_META } from "../../lib/verificationMeta.js";
+import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Pantalla "Suscripción" del panel (antes "Verificación y plan"): el trámite de verificación (documentos, revisión y pago) y,
 // con la tienda verificada, el resumen de su suscripción. Con tarjeta el pago se hace en Stripe y la tienda queda verificada
@@ -123,7 +124,7 @@ export default function VendorVerification() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingStripe, data?.verificationStatus]);
 
-  if (isLoading) return <p className="text-body-md text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <PanelSkeleton />;
 
   const status = data?.verificationStatus ?? "NOT_STARTED";
   const meta = STAGE_META[status];

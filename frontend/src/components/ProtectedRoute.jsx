@@ -1,6 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
-import { Spinner } from "./ui/Spinner.jsx";
+import { AppShellSkeleton } from "./ui/Skeleton.jsx";
 
 // Bloque 60: reemplaza las 3 implementaciones manuales de guard que había
 // antes (una por panel, cada una escrita a mano y ligeramente distinta —
@@ -11,11 +11,7 @@ export function ProtectedRoute({ roles, redirectTo, children }) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-surface-container">
-        <Spinner />
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   if (!user || (roles && !roles.includes(user.role))) {

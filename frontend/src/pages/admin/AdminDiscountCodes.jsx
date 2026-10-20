@@ -6,6 +6,7 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   if (!iso) return null;
@@ -59,7 +60,7 @@ export default function AdminDiscountCodes() {
         Códigos de descuento de todos los vendedores. Puedes desactivar uno abusivo, o eliminarlo si nunca se usó.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       {!isLoading && !discountCodes?.length && (
         <EmptyState icon={Percent} title="Todavía no hay códigos de descuento" description="Los códigos que creen los vendedores van a aparecer aquí." />

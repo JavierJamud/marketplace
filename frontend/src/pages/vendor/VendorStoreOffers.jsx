@@ -14,6 +14,7 @@ import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { DiscountCodeFormModal } from "../../components/vendor/DiscountCodeFormModal.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -335,7 +336,7 @@ function StoreOffersTab({ vendor }) {
         />
       )}
 
-      {vendor?.isVerified && isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {vendor?.isVerified && isLoading && <ListSkeleton />}
 
       {vendor?.isVerified && !isLoading && !storeOffers?.length && (
         <EmptyState
@@ -470,7 +471,7 @@ function DiscountCodesTab() {
         editar ni eliminar — solo activar o desactivar.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       {!isLoading && !discountCodes?.length && (
         <EmptyState

@@ -11,7 +11,7 @@ import { copyToClipboard } from "../../lib/clipboard.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { AddToCartControl } from "../../components/AddToCartControl.jsx";
-import { PageLoader } from "../../components/ui/PageLoader.jsx";
+import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { Store as StoreIcon } from "lucide-react";
 import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
 import { resolveCurrency } from "../../lib/currencies.js";
@@ -40,7 +40,7 @@ import { StoreLoyaltyBanner } from "../../components/StoreLoyaltyBanner.jsx";
 // con ProductGrid tal cual estaban.
 import { DigitalMenuProductCard, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
 // Bloque 240: la misma tarjeta vertical que el Home y el catálogo.
-import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
+import { ProductCard, ProductGridSkeleton, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 import { useSeo } from "../../lib/seo.js";
 import { storeSeo } from "../../lib/seoBuilders.js";
 
@@ -429,7 +429,7 @@ export default function Store() {
 
   useSeo(storeSeo(data, siteName), [data?.id, siteName]);
 
-  if (isLoading) return <PageLoader label="Cargando tienda..." />;
+  if (isLoading) return <StorePageSkeleton />;
   if (!data) {
     return (
       <div className="container-app py-14">
@@ -830,5 +830,41 @@ export default function Store() {
         />
       </ConfirmModal>
     </div>
+  );
+}
+
+// Esqueleto de la tienda: la franja de color de arriba (StoreHeaderBanner) con logo redondo, nombre, etiquetas y descripción,
+// y debajo la hoja redondeada con las pestañas y la grilla de productos, con las mismas medidas de la página cargada.
+function StorePageSkeleton() {
+  const onDark = { baseColor: "rgba(255,255,255,0.12)", highlightColor: "rgba(255,255,255,0.24)" };
+  return (
+    <SkeletonGroup label="Cargando tienda">
+      <div className="-mt-[76px] bg-primary pt-[76px]" aria-hidden="true">
+        <div className="container-app flex flex-col gap-4 pb-5 pt-5 sm:pt-6">
+          <div className="flex items-center gap-3.5 sm:gap-5">
+            <div className="h-[68px] w-[68px] flex-shrink-0 sm:h-[92px] sm:w-[92px]">
+              <Skeleton circle height="100%" containerClassName="block h-full leading-none" {...onDark} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <Skeleton width="55%" height={26} {...onDark} />
+              <div className="mt-2 flex gap-1.5">
+                <Skeleton width={80} height={20} borderRadius={999} {...onDark} />
+                <Skeleton width={96} height={20} borderRadius={999} {...onDark} />
+              </div>
+            </div>
+          </div>
+          <div className="max-w-[680px] sm:ml-[112px]">
+            <Skeleton count={2} height={13} {...onDark} />
+          </div>
+        </div>
+        <div className="h-10" />
+      </div>
+      <div className="relative -mt-10 rounded-t-[40px] bg-background" aria-hidden="true">
+        <div className="container-app pt-8">
+          <Skeleton width={220} height={42} borderRadius={999} className="mb-5" />
+          <ProductGridSkeleton count={10} hideVendor />
+        </div>
+      </div>
+    </SkeletonGroup>
   );
 }

@@ -3,6 +3,7 @@ import { LifeBuoy, Mail, Phone, Check } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Problemas que los clientes le contaron al asistente del sitio. Los de un pedido con vendedor le llegan a esa tienda (y aquí
 // quedan como referencia); los de la web o de un pedido sin tienda conocida llegan solo al admin.
@@ -29,7 +30,7 @@ export default function AdminSupportCases() {
       </div>
       <p className="mb-5 text-[13.5px] text-outline">Lo que los clientes reportan desde el asistente, con sus datos de contacto.</p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && <p className="text-body-md text-error">No se pudieron cargar los casos.</p>}
       {data && !data.length && <p className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 text-body-md text-on-surface-variant">Todavía no hay casos.</p>}
 

@@ -211,10 +211,34 @@ export async function syncServiceWorker(enabled) {
   if (import.meta.env.DEV && !localStorage.getItem("pwa-dev")) return null;
   try {
     registration = await navigator.serviceWorker.register(`/sw.js?v=${encodeURIComponent(__APP_BUILD__)}`, { scope: "/" });
+    activateWaitingWhenSafe(registration);
     return registration;
   } catch {
     return null;
   }
+}
+
+// El service worker de una versión nueva queda en espera (ver sw.js). Se activa cuando la página ya terminó de cargar y lleva
+// un momento quieta, o en cuanto pasa a segundo plano: así nunca reemplaza al anterior en medio de una descarga.
+const watchedRegistrations = new WeakSet();
+function activateWaitingWhenSafe(reg) {
+  if (watchedRegistrations.has(reg)) return;
+  watchedRegistrations.add(reg);
+  let timer = null;
+  const activate = () => reg.waiting?.postMessage({ type: "SKIP_WAITING" });
+  const schedule = () => {
+    if (!reg.waiting) return;
+    clearTimeout(timer);
+    const run = () => (window.requestIdleCallback ? requestIdleCallback(activate, { timeout: 3000 }) : activate());
+    if (document.readyState === "complete") timer = setTimeout(run, 2500);
+    else window.addEventListener("load", () => (timer = setTimeout(run, 2500)), { once: true });
+  };
+  schedule();
+  reg.addEventListener("updatefound", () => {
+    const worker = reg.installing;
+    worker?.addEventListener("statechange", () => worker.state === "installed" && schedule());
+  });
+  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && activate());
 }
 
 // navigator.serviceWorker.ready no termina nunca si no hay service worker (PWA apagada o servidor de desarrollo): se espera

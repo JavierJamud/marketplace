@@ -6,6 +6,7 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDateTime } from "../../lib/relativeTime.js";
 import { CARD } from "../dashboard/DashboardCard.jsx";
+import { ListSkeleton } from "../ui/Skeleton.jsx";
 
 // Actividad y uso del panel de las tiendas (lo registran lib/usePanelUsage.js y backend lib/vendorUsage.js):
 //  - VendorUsageSection: en la ficha de una tienda. Qué secciones usa más, cuáles no usa (dónde capacitarla), los pasos que
@@ -169,7 +170,7 @@ export function VendorUsageSection({ vendorId }) {
         <PeriodPicker value={days} onChange={setDays} />
       </div>
 
-      {isLoading && <p className="text-[13px] text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && (
         <p className="text-[13px] text-error">
           No se pudo cargar el uso.{" "}
@@ -262,7 +263,7 @@ export function UsageOverview() {
         </h2>
         <PeriodPicker value={days} onChange={setDays} />
       </div>
-      {isLoading && <p className="text-[13px] text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && (
         <p className="text-[13px] text-error">
           No se pudo cargar el uso.{" "}

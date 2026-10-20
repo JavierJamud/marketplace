@@ -7,6 +7,7 @@ import { formatPrice } from "../../lib/format.js";
 import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
+import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 
 function imgUrl(path) {
@@ -80,10 +81,22 @@ export default function SharedCart() {
 
   if (isLoading) {
     return (
-      <div className="container-app flex min-h-[60vh] flex-col items-center justify-center gap-4 py-14 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-tertiary-accent/25 border-t-tertiary-accent" />
-        <p className="text-body-md text-on-surface-variant">Cargando el carrito compartido...</p>
-      </div>
+      <SkeletonGroup label="Cargando el carrito compartido" className="container-app max-w-[640px] py-14">
+        <Skeleton width={150} height={13} className="mb-2" />
+        <Skeleton width="60%" height={30} className="mb-2" />
+        <Skeleton width="85%" height={14} className="mb-8" />
+        <div className="flex flex-col gap-3" aria-hidden="true">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-lg border border-surface-container-high bg-surface-container-lowest p-3">
+              <Skeleton width={64} height={64} borderRadius={10} />
+              <div className="min-w-0 flex-1">
+                <Skeleton width="70%" height={14} />
+                <Skeleton width="35%" height={13} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </SkeletonGroup>
     );
   }
 

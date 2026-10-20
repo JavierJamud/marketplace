@@ -6,6 +6,7 @@ import { formatPrice } from "../lib/format.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
 import { AddToCartControl } from "./AddToCartControl.jsx";
+import { Skeleton, SkeletonGroup } from "./ui/Skeleton.jsx";
 
 // Mismo umbral que LOW_STOCK_THRESHOLD en VendorProducts.jsx/vendors.controller.js.
 const LOW_STOCK_THRESHOLD = 3;
@@ -41,6 +42,42 @@ const LOW_STOCK_THRESHOLD = 3;
 // El menú de restaurante/mesas NO usa esta tarjeta a propósito: es una carta
 // horizontal (DigitalMenuProductCard).
 export const PRODUCT_GRID_CLASS = "grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-5 md:grid-cols-4 lg:grid-cols-5";
+
+// Esqueleto de la tarjeta: mismo contenedor, misma foto 7/4 y mismas filas (tienda, nombre en dos líneas, lugar, precio y
+// botón de carrito) que la tarjeta real de abajo, para que al llegar los datos no se mueva nada.
+export function ProductCardSkeleton({ hideVendor = false }) {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)]">
+      <div className="p-[2px] pb-0">
+        <div className="aspect-[7/4] w-full">
+          <Skeleton height="100%" borderRadius={20} containerClassName="block h-full leading-none" />
+        </div>
+      </div>
+      <div className="flex flex-1 flex-col p-3 pt-2">
+        {!hideVendor && <Skeleton width="55%" height={11} className="mb-1" />}
+        <Skeleton count={2} height={14} className="mb-0.5" />
+        {!hideVendor && <Skeleton width="40%" height={10} className="mb-1" />}
+        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
+          <Skeleton width={64} height={18} />
+          <Skeleton width={36} height={36} borderRadius={10} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Grilla de esqueletos con las mismas columnas que la grilla real (por defecto PRODUCT_GRID_CLASS).
+export function ProductGridSkeleton({ count = 10, className = PRODUCT_GRID_CLASS, itemClassName, hideVendor, label = "Cargando productos" }) {
+  return (
+    <SkeletonGroup label={label} className={className}>
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className={typeof itemClassName === "function" ? itemClassName(i) : itemClassName}>
+          <ProductCardSkeleton hideVendor={hideVendor} />
+        </div>
+      ))}
+    </SkeletonGroup>
+  );
+}
 
 export function ProductCard({ product, trackSource = "catalog", vendor, hideVendor = false, topRightSlot = null, action }) {
   const v = vendor ?? product.vendor;

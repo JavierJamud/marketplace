@@ -8,6 +8,7 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { BTN_PRIMARY, INPUT, LABEL, fmt, errMsg, Modal, StatusPill } from "./partners/ui.jsx";
 import PartnerDetail from "./partners/PartnerDetail.jsx";
 import PartnerApplications from "./partners/PartnerApplications.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function PartnerForm({ onDone }) {
   const qc = useQueryClient();
@@ -82,7 +83,7 @@ export default function AdminPartners() {
         <button className={BTN_PRIMARY} onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> Nuevo socio</button>
       </div>}
 
-      {tab === "socios" && isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {tab === "socios" && isLoading && <ListSkeleton />}
       {tab === "socios" && !isLoading && !data?.partners.length && <EmptyState icon={Plug} title="Todavía no hay socios" description="Crea el primero para darle sus llaves de la API." />}
 
       {tab === "socios" && data?.partners.length > 0 && (

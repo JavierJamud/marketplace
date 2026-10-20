@@ -11,6 +11,7 @@ import { Select } from "../ui/Select.jsx";
 import { Input } from "../ui/Input.jsx";
 import { ConfirmModal } from "../ConfirmModal.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
+import { CardListSkeleton } from "../ui/Skeleton.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -247,7 +248,7 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
   if (!order) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
-        <div className="rounded-lg bg-surface-container-lowest p-6 text-body-md text-on-surface-variant">Cargando pedido...</div>
+        <div className="w-full max-w-md rounded-lg bg-surface-container-lowest p-6"><CardListSkeleton cards={2} label="Cargando pedido" /></div>
       </div>
     );
   }

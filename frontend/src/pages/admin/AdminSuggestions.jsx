@@ -4,6 +4,7 @@ import toast from "../../lib/toast.jsx";
 import { Store, User, Check, MessageSquare } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const FILTERS = [
   { id: "all", label: "Todas" },
@@ -59,7 +60,7 @@ export default function AdminSuggestions() {
         ))}
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && data?.length === 0 && <p className="text-body-md text-on-surface-variant">No hay sugerencias para este filtro.</p>}
 
       <div className="flex flex-col gap-3.5">

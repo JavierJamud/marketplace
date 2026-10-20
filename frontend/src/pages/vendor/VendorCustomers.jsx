@@ -9,6 +9,7 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Clientes de la tienda: cada persona que compró, con todos sus pedidos y movimientos. El registro se crea solo con cada pedido;
 // aquí se consulta, se busca, se contacta y se le pueden dejar notas (por ejemplo, "prefiere entrega en la tarde").
@@ -106,7 +107,7 @@ function CustomerDetail({ customerId, canWrite, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+          {isLoading && <ListSkeleton />}
           {isError && <p className="text-body-md text-error">No se pudo cargar el cliente.</p>}
           {customer && (
             <>
@@ -240,7 +241,7 @@ export default function VendorCustomers() {
         ))}
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando clientes...</p>}
+      {isLoading && <ListSkeleton />}
       {isError && <p className="text-body-md text-error">No se pudieron cargar los clientes.</p>}
       {!isLoading && !isError && !list.length && (
         <p className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5 text-body-md text-on-surface-variant">

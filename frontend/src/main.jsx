@@ -37,6 +37,7 @@ import "./index.css";
 import { reloadOnceForNewVersion, ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { reportClientError } from "./lib/clientErrorReport.js";
 import { UnsavedGuardProvider } from "./lib/unsavedGuard.jsx";
+import { AppSkeletonTheme } from "./components/ui/Skeleton.jsx";
 
 // Vite avisa cuando falla la descarga de un archivo de la página (versión nueva publicada): se recarga una vez.
 window.addEventListener("vite:preloadError", (e) => {
@@ -86,7 +87,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <LocationProvider>
             <FlowProvider>
             <CartProvider>
-              <App />
+              <AppSkeletonTheme>
+                <App />
+              </AppSkeletonTheme>
               <CacheNotice />
               <ReportErrorModal />
               {/* Avisos de todo el sitio (Sileo), ver lib/toast.jsx y components/ui/AppToaster.jsx. */}

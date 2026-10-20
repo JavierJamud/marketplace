@@ -8,7 +8,8 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { StoreHeaderBanner } from "../../components/StoreHeaderBanner.jsx";
-import { DigitalMenuProductCard, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
+import { DigitalMenuProductCard, DigitalMenuGridSkeleton, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
+import { Skeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -304,7 +305,7 @@ export default function TableOrder() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo enviar el pedido."),
   });
 
-  if (isLoading) return <div className="container-app py-14 text-center text-body-md text-on-surface-variant">Cargando menú...</div>;
+  if (isLoading) return <div className="container-app py-8"><Skeleton width={200} height={26} className="mb-5" /><DigitalMenuGridSkeleton /></div>;
 
   if (!table) {
     return (
@@ -314,7 +315,7 @@ export default function TableOrder() {
     );
   }
 
-  if (!vendorFull) return <div className="container-app py-14 text-center text-body-md text-on-surface-variant">Cargando menú...</div>;
+  if (!vendorFull) return <div className="container-app py-8"><Skeleton width={200} height={26} className="mb-5" /><DigitalMenuGridSkeleton /></div>;
 
   const total = Object.entries(cart).reduce((sum, [productId, qty]) => {
     const product = table.vendor.products.find((p) => p.id === productId);

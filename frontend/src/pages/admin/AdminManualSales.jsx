@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -174,7 +175,7 @@ export default function AdminManualSales() {
         </Select>
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       {/* Tabla en desktop, tarjetas en mobile — mismo criterio de scroll
           horizontal contenido que el resto de las listas del admin cuando el

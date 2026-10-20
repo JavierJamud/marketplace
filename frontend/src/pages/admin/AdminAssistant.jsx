@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ChatMarkdown } from "../../components/ChatMarkdown.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 30: entrenar al bot general del marketplace (Home) — a diferencia
 // del "Documento de IA" por tienda (VendorSettings.jsx, un solo archivo que
@@ -91,7 +92,7 @@ export default function AdminAssistant() {
       <div className="mb-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
         <div className="mb-3.5 text-[15px] font-bold text-on-surface">Documentos cargados</div>
         {isLoading ? (
-          <p className="text-[13px] text-outline">Cargando...</p>
+          <ListSkeleton rows={3} avatar={false} />
         ) : data?.length > 0 ? (
           <div className="flex flex-col gap-2">
             {data.map((doc) => (
@@ -189,7 +190,7 @@ function AutoLearningSection() {
       {!isLoading && data && <SuggestionsEditor data={data} />}
 
       {isLoading ? (
-        <p className="text-[13px] text-outline">Cargando...</p>
+        <ListSkeleton rows={3} avatar={false} />
       ) : !snap ? (
         <p className="text-[13px] text-outline">Todavía no hay un resumen calculado. Pulsa "Recalcular ahora".</p>
       ) : (
@@ -468,7 +469,7 @@ function ChatReviewSection() {
         )}
 
         {loadingLog && !log ? (
-          <p className="text-[13px] text-outline">Cargando...</p>
+          <ListSkeleton rows={3} avatar={false} />
         ) : logError ? (
           <p className="text-[13px] text-error">No se pudo cargar el registro. Prueba de nuevo en un momento.</p>
         ) : items.length === 0 ? (
@@ -577,7 +578,7 @@ function ChatReviewSection() {
           <Segmented label="Chatbot de los criterios" value={examplesBot} onChange={setExamplesBot} options={[{ id: "GENERAL", label: "Asistente del sitio" }, { id: "TIENDA", label: "Chats de tiendas" }]} />
         </div>
         {loadingExamples ? (
-          <p className="text-[13px] text-outline">Cargando...</p>
+          <ListSkeleton rows={3} avatar={false} />
         ) : examples?.length > 0 ? (
           <div className="flex flex-col gap-2">
             {examples.map((ex) => (

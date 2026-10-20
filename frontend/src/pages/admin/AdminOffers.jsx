@@ -10,6 +10,7 @@ import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -1059,7 +1060,7 @@ function TargetedOffersSection() {
         </button>
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {data?.map((o) => (
@@ -1236,7 +1237,7 @@ export default function AdminOffers() {
             </button>
           </div>
 
-          {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+          {isLoading && <ListSkeleton />}
 
           <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
             {data?.map((o) => {

@@ -10,6 +10,7 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 const AUDIENCE_LABEL = { CUSTOMER: "Clientes", VENDOR: "Vendedores" };
 
@@ -322,7 +323,7 @@ export default function AdminFaq() {
         ))}
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       {!isLoading && filtered.length === 0 && (
         <EmptyState

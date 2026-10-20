@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { StarRating } from "./ui/StarRating.jsx";
+import { Skeleton, SkeletonGroup } from "./ui/Skeleton.jsx";
 
 // Bloque 209 (pedido explícito, con captura de referencia): tarjeta
 // horizontal compartida por el menú digital — usada en el menú de mesa por
@@ -28,6 +29,35 @@ export const DIGITAL_MENU_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(
 // anterior tachado + "-X%") — ahora se ven en los dos lugares, mismo
 // criterio visual que ProductCard.jsx (badge de descuento sobre la imagen,
 // precio anterior tachado junto al precio real).
+// Esqueleto del plato del menú: misma tarjeta horizontal con la foto cuadrada a la izquierda, nombre, descripción, precio y botón.
+export function DigitalMenuProductCardSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-3 shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)]">
+      <div className="h-24 w-24 flex-shrink-0 sm:h-28 sm:w-28">
+        <Skeleton height="100%" borderRadius={12} containerClassName="block h-full leading-none" />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col py-0.5">
+        <Skeleton width="70%" height={14} />
+        <Skeleton count={2} height={11} className="mt-1" />
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <Skeleton width={70} height={16} />
+          <Skeleton width={36} height={36} borderRadius={10} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DigitalMenuGridSkeleton({ count = 6 }) {
+  return (
+    <SkeletonGroup label="Cargando menú" className={DIGITAL_MENU_GRID_CLASS}>
+      {Array.from({ length: count }, (_, i) => (
+        <DigitalMenuProductCardSkeleton key={i} />
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 export function DigitalMenuProductCard({
   to,
   image,

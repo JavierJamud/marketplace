@@ -9,6 +9,7 @@ import { api } from "../../lib/api.js";
 import { canWriteSection } from "../../lib/vendorSections.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -526,7 +527,7 @@ function StaffSelfView({ canWrite }) {
           </div>
         </div>
         {salesLoading ? (
-          <p className="text-body-md text-on-surface-variant">Cargando ventas...</p>
+          <ListSkeleton />
         ) : (
           <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
             {(salesData?.sales ?? []).length === 0 && <p className="p-4 text-body-md text-on-surface-variant">Sin ventas en este período.</p>}
@@ -541,7 +542,7 @@ function StaffSelfView({ canWrite }) {
         <h2 className="mb-1 text-[15px] font-bold text-on-surface">Detalle por producto</h2>
         <p className="mb-3 text-[11.5px] text-outline">Los productos que tu tienda te asignó — vende o libera cada uno desde aquí.</p>
         {allocationsLoading ? (
-          <p className="text-body-md text-on-surface-variant">Cargando...</p>
+          <ListSkeleton rows={3} />
         ) : (
           <div className="flex flex-col gap-2">
             {(allocations ?? []).length === 0 && <p className="text-body-md text-on-surface-variant">Todavía no tienes productos asignados.</p>}

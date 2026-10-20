@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { useFocusFromQuery } from "../../lib/useFocusFromQuery.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // El equipo de la plataforma también puede responder cualquier comentario. Su respuesta es aparte de la de la tienda (un comentario
 // puede tener las dos): se publica con el nombre de la plataforma y el cliente recibe un correo con ella.
@@ -260,7 +261,7 @@ export default function AdminReviews() {
         reportan — resuélvelos abajo antes de que el comentario vuelva a mostrarse.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
       {!isLoading && !reviews?.length && <p className="text-body-md text-on-surface-variant">Todavía no hay comentarios en el sitio.</p>}
 
       <div className="flex flex-col gap-3.5">

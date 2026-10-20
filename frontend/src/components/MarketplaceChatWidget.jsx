@@ -18,6 +18,7 @@ import { useCloseOnOutsideClick } from "../lib/useCloseOnOutsideClick.js";
 import { ChatMarkdown } from "./ChatMarkdown.jsx";
 import { ChatTextarea } from "./ChatTextarea.jsx";
 import { useChatUnread } from "../lib/useChatUnread.js";
+import { ChatSkeleton } from "./ui/Skeleton.jsx";
 
 // Bloque 39: por debajo de esto, se trata como "no dijo nada" — ver
 // stopAndSendRecording.
@@ -852,7 +853,7 @@ export function MarketplaceChatWidget() {
               <SuggestedChips chips={suggestions?.length ? suggestions : initialChips(featuredCategory)} onPick={handleSend} disabled={sending} />
             )}
 
-            {open && !historyLoaded && <p className="py-2 text-center text-[12px] text-outline">Cargando conversación...</p>}
+            {open && !historyLoaded && <ChatSkeleton />}
 
             {messages.map((m, i) =>
               m.role === "user" ? (

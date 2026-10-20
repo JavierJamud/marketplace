@@ -6,7 +6,6 @@ import toast from "../../lib/toast.jsx";
 import { Heart, Mail, Package, Pencil, Trash2, CheckCircle2, X as XIcon, ShieldAlert, Clock, Camera } from "lucide-react";
 import { api, getErrorMessage } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
-import { Spinner } from "../../components/ui/Spinner.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { LocationPicker } from "../../components/LocationPicker.jsx";
@@ -15,7 +14,7 @@ import { Button } from "../../components/ui/Button.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { ConditionPicker, TagsInput, PriceTiersEditor } from "../../components/customer/ListingFormFields.jsx";
 import { SuggestionBox } from "../../components/SuggestionBox.jsx";
-import { ProductCard } from "../../components/ProductCard.jsx";
+import { ProductCard, ProductGridSkeleton } from "../../components/ProductCard.jsx";
 import { StoreCard } from "../../components/StoreCard.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import TwoFactorCard from "../../components/TwoFactorCard.jsx";
@@ -30,6 +29,7 @@ import { APPS } from "../../lib/pwa.js";
 import { MyPoints } from "../../components/customer/MyPoints.jsx";
 import { EmailPreferencesCard } from "../../components/customer/EmailPreferencesCard.jsx";
 import { ReportsCenter } from "../../components/reports/ReportsCenter.jsx";
+import { CardListSkeleton, FormSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -485,7 +485,7 @@ export default function CustomerPanel() {
             <WelcomeHeading name={(customer?.fullName ?? "").split(" ")[0] || "bienvenido"} className="mb-4" />
             <WeeklySummaryCard className="mb-6" />
             <h2 className="mb-5 font-display text-headline-md text-on-surface">Mis pedidos</h2>
-            {ordersLoading && <p className="text-body-md text-on-surface-variant">Cargando pedidos...</p>}
+            {ordersLoading && <CardListSkeleton />}
             {!ordersLoading && orders?.length === 0 && (
               <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
                 Todavía no hiciste ningún pedido.
@@ -646,7 +646,7 @@ export default function CustomerPanel() {
               );
             })}
 
-            {listingsLoading && <p className="text-body-md text-on-surface-variant">Cargando tus anuncios...</p>}
+            {listingsLoading && <CardListSkeleton />}
             {!listingsLoading && !listings?.length && (
               <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
                 Todavía no publicaste ningún anuncio de venta rápida.
@@ -896,7 +896,7 @@ export default function CustomerPanel() {
           return (
             <div>
               <h1 className="mb-5 font-display text-headline-md text-on-surface">Favoritos</h1>
-              {favoritesLoading && <p className="text-body-md text-on-surface-variant">Cargando favoritos...</p>}
+              {favoritesLoading && <ProductGridSkeleton count={6} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" />}
               {!favoritesLoading && !favorites?.length && (
                 <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
                   Todavía no guardaste tiendas ni productos favoritos.
@@ -962,7 +962,7 @@ export default function CustomerPanel() {
             <h1 className="mb-5 font-display text-headline-md text-on-surface">Mis direcciones</h1>
             <div className="max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
               {customerLoading ? (
-                <Spinner />
+                <FormSkeleton fields={3} />
               ) : (
                 <div className="flex flex-col gap-3.5">
                   <Select label="Provincia" value={addressForm.provinceId} onChange={(e) => setAddressForm({ ...addressForm, provinceId: e.target.value })}>
@@ -1024,7 +1024,7 @@ export default function CustomerPanel() {
 
             <div className="max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
               {customerLoading ? (
-                <Spinner />
+                <FormSkeleton fields={3} />
               ) : (
                 <div className="flex flex-col gap-3.5">
                   <Input data-guard="name" label="Nombre completo" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} />

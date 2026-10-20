@@ -6,6 +6,7 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { exactDate, exactDateTime, timeAgo } from "../../lib/relativeTime.js";
 import { Lightbox } from "../ui/Lightbox.jsx";
+import { CardListSkeleton, ListSkeleton } from "../ui/Skeleton.jsx";
 
 // Tickets de errores visuales que mandan las tiendas desde su panel (botón "Reportar un problema"). Lista con filtros y, al
 // abrir uno: la captura de lo que veía la persona, su explicación, la copia de su consola, lo último que hizo, sus datos y
@@ -79,7 +80,7 @@ export default function AdminSupportTickets() {
       </label>
 
       {isLoading ? (
-        <p className="text-[13px] text-on-surface-variant">Cargando...</p>
+        <ListSkeleton rows={3} />
       ) : isError ? (
         <p className="text-[13px] text-error">
           No se pudieron cargar los tickets.{" "}
@@ -169,7 +170,7 @@ function TicketDetail({ id, onBack }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
 
-  if (isLoading) return <p className="text-[13px] text-on-surface-variant">Cargando...</p>;
+  if (isLoading) return <CardListSkeleton />;
   if (isError || !data)
     return (
       <div className="flex flex-col items-start gap-2">

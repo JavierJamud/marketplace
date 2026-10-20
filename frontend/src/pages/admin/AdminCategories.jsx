@@ -12,6 +12,7 @@ import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 112 (bug real reportado en vivo, con captura): "users" (el nombre
 // tal cual aparece en la URL de lucide.dev/icons/users) se rechazaba como
@@ -205,7 +206,7 @@ export default function AdminCategories() {
         />
       )}
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
         {categories?.filter((c) => matchesQuery(c.name, search)).map((c) => (

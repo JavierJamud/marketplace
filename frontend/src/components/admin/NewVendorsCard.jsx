@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { CARD, CardHeader } from "../dashboard/DashboardCard.jsx";
 import { VendorAvatar } from "../ui/VendorAvatar.jsx";
+import { ListSkeleton } from "../ui/Skeleton.jsx";
 
 // Tiendas registradas en los últimos 14 días, en el panel principal del admin: cuánto llevan de su configuración (los
 // mismos pasos que pide la prueba gratis) y si ya activaron la prueba. Cada fila abre su página Gestionar.
@@ -20,7 +21,7 @@ export function NewVendorsCard() {
   return (
     <div className={`${CARD} mb-5 p-6`}>
       <CardHeader icon={Sparkles} tone="orange" title="Tiendas nuevas" subtitle={data ? `${data.total} en los últimos ${data.days} días` : "Últimos 14 días"} to="/admin/tiendas" linkLabel="Ver todas" />
-      {isLoading && <p className="mt-3 text-label-sm text-outline">Cargando...</p>}
+      {isLoading && <ListSkeleton rows={3} />}
       {isError && <p className="mt-3 text-label-sm text-error">No se pudo cargar.</p>}
       {data && data.vendors.length === 0 && <p className="mt-3 text-label-sm text-outline">Ninguna tienda se registró en estos días.</p>}
       {data && data.vendors.length > 0 && (

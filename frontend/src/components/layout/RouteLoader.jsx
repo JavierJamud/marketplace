@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useIsFetching } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -33,20 +33,12 @@ function StuckPageHelper() {
   );
 }
 
-// Al cambiar de página: vuelve arriba del todo y, solo si los datos de la página nueva tardan más de 1 segundo, muestra un círculo
-// girando chico que no tapa nada. La barra de progreso de arriba se quitó a pedido del dueño: estorbaba la carga y llegó a quedarse
-// fija en la parte superior.
-const SPINNER_AFTER_MS = 1000;
+// Al cambiar de página: vuelve arriba del todo. El círculo girando que salía si los datos tardaban se quitó: cada página ya
+// muestra su esqueleto de carga en el lugar del contenido.
 
 export function RouteLoader() {
   const location = useLocation();
-  const [spinner, setSpinner] = useState(false);
-  const busy = useIsFetching() > 0;
-  const busyRef = useRef(busy);
-  busyRef.current = busy;
-
   useEffect(() => {
-    setSpinner(false);
     // Bloque 52 (pedido explícito): React Router no resetea el scroll al
     // navegar (a diferencia de una navegación de página completa normal) —
     // sin esto, entrar a una página nueva desde el final de una lista larga
@@ -64,28 +56,10 @@ export function RouteLoader() {
     // `#resenas` dentro de la misma página).
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     releaseStaleScrollLock();
-
-    const t = setTimeout(() => {
-      if (busyRef.current) setSpinner(true);
-    }, SPINNER_AFTER_MS);
-    return () => clearTimeout(t);
   }, [location.pathname]);
-
-  // Lo que cargaba terminó: se quita el indicador.
-  useEffect(() => {
-    if (!busy) setSpinner(false);
-  }, [busy]);
 
   return (
     <>
-      {spinner && (
-        <div role="status" aria-live="polite" className="pointer-events-none fixed left-1/2 top-24 z-[190] -translate-x-1/2">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-container-lowest shadow-lg ring-1 ring-black/5">
-            <Loader2 className="h-5 w-5 animate-spin text-secondary" aria-hidden="true" />
-            <span className="sr-only">Cargando la página</span>
-          </span>
-        </div>
-      )}
       {/* Bloque 135: aviso aparte si la carga pasa de 4 segundos. */}
       <StuckPageHelper />
     </>

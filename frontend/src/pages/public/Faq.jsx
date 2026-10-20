@@ -7,6 +7,7 @@ import { useSeo } from "../../lib/seo.js";
 import { staticSeoFor } from "../../lib/seoRoutes.js";
 import { faqJsonLd } from "../../lib/seoBuilders.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 
 // Bloque 53: antes esto era copy hardcodeado (buildCustomerFaqs/
@@ -88,7 +89,15 @@ export default function Faq() {
         </button>
       </div>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && (
+        <SkeletonGroup label="Cargando preguntas" className="flex flex-col gap-3">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="rounded-lg border border-surface-container-high bg-surface-container-lowest px-5 py-4" aria-hidden="true">
+              <Skeleton width={`${70 - (i % 3) * 12}%`} height={15} />
+            </div>
+          ))}
+        </SkeletonGroup>
+      )}
 
       {!isLoading && faqs?.length === 0 && (
         <EmptyState icon={HelpCircle} title="Todavía no hay preguntas en esta sección" description="Vuelve a intentarlo más adelante." />

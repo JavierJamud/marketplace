@@ -5,6 +5,7 @@ import { Gift, Power } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function discountLabel(code) {
   if (!code) return "";
@@ -46,7 +47,7 @@ export default function AdminStoreOffers() {
         cualquiera que incumpla políticas.
       </p>
 
-      {isLoading && <p className="text-body-md text-on-surface-variant">Cargando...</p>}
+      {isLoading && <ListSkeleton />}
 
       {!isLoading && !storeOffers?.length && (
         <EmptyState icon={Gift} title="Todavía no hay ofertas de tienda" description="Las ofertas que publiquen los vendedores van a aparecer aquí." />
