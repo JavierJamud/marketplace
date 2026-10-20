@@ -51,7 +51,6 @@ import errorReportRoutes from "./routes/errorReports.routes.js";
 import supportTicketRoutes from "./routes/supportTickets.routes.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { downloadTempVideo } from "./controllers/tempVideo.controller.js";
 import { SITE_UPLOAD_DIR } from "./controllers/settings.controller.js";
 import { PRODUCT_UPLOAD_DIR } from "./controllers/products.controller.js";
 import { VENDOR_BRANDING_DIR } from "./controllers/vendors.controller.js";
@@ -194,8 +193,6 @@ app.get("/og/tienda/:slug", renderStorePage);
 app.get("/og/producto/:vendorSlug/:productSlug", renderProductPage);
 app.get("/sitemap.xml", sitemapXml);
 app.get("/hero-preload", heroPreload);
-// Enlace público de un video comprimido en la página temporal del admin (ver tempVideo.controller.js).
-app.get("/videos-temporales/:id", downloadTempVideo);
 app.get("/og/tienda/:slug/imagen.png", renderStoreOgImagePng);
 
 // Modo mantenimiento: con todo el sitio en mantenimiento, la API pública responde 503 (ver middleware/maintenance.js).
