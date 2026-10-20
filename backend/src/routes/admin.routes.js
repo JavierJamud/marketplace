@@ -1,6 +1,7 @@
 import * as usageController from "../controllers/usage.controller.js";
 import * as vendorManage from "../controllers/adminVendorManage.controller.js";
 import { Router } from "express";
+import { AppError } from "../utils/AppError.js";
 import * as adminController from "../controllers/admin.controller.js";
 import * as announcementsController from "../controllers/announcements.controller.js";
 import * as campaignsController from "../controllers/campaigns.controller.js";
@@ -16,6 +17,8 @@ import * as locationsController from "../controllers/locations.controller.js";
 import * as businessCategoriesController from "../controllers/businessCategories.controller.js";
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as errorLogsController from "../controllers/errorLogs.controller.js";
+import * as tempVideoController from "../controllers/tempVideo.controller.js";
+import { tempVideoUpload } from "../middleware/tempVideoUpload.js";
 import * as supportTickets from "../controllers/supportTickets.controller.js";
 import * as chatTrainingController from "../controllers/chatTraining.controller.js";
 import * as staticPagesController from "../controllers/staticPages.controller.js";
@@ -360,6 +363,20 @@ router.delete("/reviews/:id", requireActionCode("CONTENT_MODERATION"), reviewsCo
 
 // Bloque 33: rutas literales ANTES de ":id/resolve" no hacen falta acá (no
 // hay colisión con "unresolved-count", que es un path fijo distinto).
+// Página temporal para comprimir videos (solo admin): subir, ver el avance, descargar el resultado y borrarlo.
+router.get("/temp-videos", tempVideoController.listTempVideos);
+router.post(
+  "/temp-videos",
+  (req, res, next) =>
+    tempVideoUpload(req, res, (err) => {
+      if (err?.code === "LIMIT_FILE_SIZE") return next(new AppError("El video pasa de 100 MB, el máximo que deja subir Cloudflare.", 413));
+      next(err);
+    }),
+  tempVideoController.uploadTempVideo
+);
+router.get("/temp-videos/:id/download", tempVideoController.downloadTempVideo);
+router.delete("/temp-videos/:id", tempVideoController.deleteTempVideo);
+
 router.get("/errors", errorLogsController.listErrorLogs);
 router.get("/errors/unresolved-count", errorLogsController.getUnresolvedErrorCount);
 router.patch("/errors/:id/resolve", errorLogsController.resolveErrorLog);

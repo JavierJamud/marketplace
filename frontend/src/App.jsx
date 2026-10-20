@@ -81,6 +81,7 @@ const AdminAnnouncements = lazyRetry(() => import("./pages/admin/AdminAnnounceme
 const AdminSettings = lazyRetry(() => import("./pages/admin/AdminSettings.jsx"));
 const AdminAssistant = lazyRetry(() => import("./pages/admin/AdminAssistant.jsx"));
 const AdminErrors = lazyRetry(() => import("./pages/admin/AdminErrors.jsx"));
+const AdminTempVideo = lazyRetry(() => import("./pages/admin/AdminTempVideo.jsx"));
 const AdminChat = lazyRetry(() => import("./pages/admin/AdminChat.jsx"));
 const AdminLocations = lazyRetry(() => import("./pages/admin/AdminLocations.jsx"));
 const AdminCategories = lazyRetry(() => import("./pages/admin/AdminCategories.jsx"));
@@ -362,6 +363,7 @@ export default function App() {
         {/* Bloque 259: el asistente pasó a ser un botón flotante; la ruta vieja redirige. */}
         <Route path="asistente-negocio" element={<Navigate to="/admin" replace />} />
         <Route path="errores" element={<AdminErrors />} />
+        <Route path="video-temporal" element={<AdminTempVideo />} />
         <Route path="ubicaciones" element={<AdminLocations />} />
         <Route path="categorias" element={<AdminCategories />} />
         <Route path="casos-soporte" element={<AdminSupportCases />} />
