@@ -9,6 +9,8 @@ export const CONVERSATIONAL_FILLERS = new Set([
   "salga", "salgan", "saliera", "salieran", "hacer", "hacerlo", "hacerlos", "hacerla", "hacerlas", "tienda", "tiendas",
   "mejor", "bueno", "buena", "buenos", "buenas", "precio", "precios", "cerca", "lugar", "ahora", "hoy", "pero", "entonces",
   "favorito", "alguien", "saber", "quiere", "queria", "quería", "gustaria", "gustaría", "podrian", "podrían", "ustedes", "usted",
+  // Preguntas sobre un producto ya mostrado ("¿quieres ver precios por cantidad?"): no son el nombre de lo que busca.
+  "quieres", "cantidad", "cantidades", "mayor", "mayoreo", "volumen",
 ]);
 
 // Quien busca barato quiere ver primero los precios más bajos.

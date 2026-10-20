@@ -70,6 +70,42 @@ function tiersText(p) {
   return ` · precios por cantidad (por unidad): ${p.priceTiers.map((t) => `desde ${t.minQty} u: ${fmtPrice(t.price, p.currency)}`).join(", ")}`;
 }
 
+// Pregunta por precios por cantidad o al por mayor ("Ver precios por cantidad", "¿precio al por mayor?"). Bug real: esas
+// palabras se buscaban como si fueran el nombre de un producto, no aparecía ninguno y el asistente decía "no hay paneles
+// solares" justo después de mostrar uno.
+const TIER_QUESTION_RE = /precios?\s+(por|al|de|en)\s+(cantidad|mayor|mayoreo|volumen)|al por mayor|mayoreo|por volumen|descuentos?\s+por\s+cantidad/;
+
+const plainText = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+
+// Precio por unidad según cuántas se compren, en rangos: "1 a 35: 235 USD", "36 a 71: 220 USD", "108 o más: 200 USD".
+function tierLines(p) {
+  const tiers = [...p.priceTiers].sort((a, b) => a.minQty - b.minQty);
+  const rows = [];
+  if (tiers[0].minQty > 1) rows.push({ from: 1, to: tiers[0].minQty - 1, price: p.price });
+  tiers.forEach((t, i) => rows.push({ from: t.minQty, to: tiers[i + 1] ? tiers[i + 1].minQty - 1 : null, price: t.price }));
+  return rows.map((r) => `- ${r.to == null ? `${r.from} o más` : r.from === r.to ? `${r.from}` : `${r.from} a ${r.to}`}: ${fmtPrice(r.price, p.currency)}`);
+}
+
+// Si la pregunta de precios por cantidad no nombra otro producto, habla de los últimos que mostró el asistente. La respuesta
+// sale de la base de datos tal cual (sin IA): son cifras de dinero y el modelo las omitía para cumplir con respuestas cortas.
+async function answerTierQuestion(message, history) {
+  if (!TIER_QUESTION_RE.test(plainText(message)) || extractSearchTerms(message).length) return null;
+  const lastShown = [...history].reverse().find((h) => h.role === "model" && h.productIds?.length);
+  if (!lastShown) return null;
+  const found = await prisma.product.findMany({
+    where: { id: { in: lastShown.productIds }, isActive: true, vendor: { isBlocked: false, status: "ACTIVE" } },
+    include: CANDIDATE_INCLUDE,
+  });
+  const products = lastShown.productIds.map((id) => found.find((p) => p.id === id)).filter(Boolean);
+  if (!products.length) return null;
+  const blocks = products.map((p) =>
+    p.priceTiers.length
+      ? `${p.name} (${p.vendor.companyName}), precio por unidad según cuántas compres:\n${tierLines(p).join("\n")}`
+      : `${p.name} (${p.vendor.companyName}) no tiene precios por cantidad: cada unidad cuesta ${fmtPrice(p.price, p.currency)}.`
+  );
+  return { text: blocks.join("\n\n"), products };
+}
+
 // Bloque 34 — bug real encontrado en vivo: el modelo a veces deja sintaxis
 // JSON colgando dentro del STRING de un suggestedFollowUp (ej. una vez
 // devolvió literalmente "Buscar otra]}:" como sugerencia) — mismo tipo de
@@ -1015,6 +1051,7 @@ ${liveSnapshot ? `${liveSnapshot}
 - Sin stock en la zona pedida pero sí en otro municipio de la provincia o en una provincia VECINA: nombra dónde sí hay y la tienda, y sugiere contactarla; nunca prometas envíos por ella. Si no hay en ninguna zona, dilo claro.
 - No tocas el carrito: solo recomiendas y muestras tarjetas ("puedes verlo" o "agregarlo desde la tienda"). El carrito admite productos de UNA sola tienda por pedido: si mezcla tiendas, explícalo y que complete una primero.
 - Si "text" menciona productos encontrados, cita SIEMPRE sus números en productIds; si no muestras ninguno, productIds vacío.
+- Precios por cantidad (mayoreo): si el cliente los pide, copia los "precios por cantidad" del candidato, uno por línea, aunque pase de 2 oraciones; si el candidato no los tiene, di que cuesta lo mismo por unidad. Nunca sugieras "ver precios por cantidad" de un producto que no los tiene.
 - Pedidos: si arriba aparece "CONSULTA DE PEDIDO", es el resultado real: úsalo tal cual. Si no aparece, pide el email o el número de confirmación antes de mandarlo a "Mis pedidos".
 
 ${fewShot}
@@ -1126,6 +1163,16 @@ export async function postMarketplaceChatMessage(req, res) {
     const savedZone = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: zoneChange.text, actions: zoneChange.actions, productIds: [] } });
     logChatExchange({ bot: "GENERAL", userId, sessionId, question: message, answer: zoneChange.text });
     return res.status(201).json({ message: { ...savedZone, actions: zoneChange.actions, products: [], vendors: [], showAllStoresButton: false, suggestedFollowUps: [] } });
+  }
+
+  const tierAnswer = await answerTierQuestion(message, history).catch(() => null);
+  if (tierAnswer) {
+    const tierIds = tierAnswer.products.map((p) => p.id);
+    const savedTier = await prisma.marketplaceChatMessage.create({ data: { sessionId, role: "model", content: tierAnswer.text, productIds: tierIds } });
+    logChatExchange({ bot: "GENERAL", userId, sessionId, question: message, answer: tierAnswer.text });
+    return res.status(201).json({
+      message: { ...savedTier, actions: null, products: tierAnswer.products.map(toCardProduct), vendors: [], showAllStoresButton: false, suggestedFollowUps: ["¿Cómo lo compro?"] },
+    });
   }
 
   const orderContext = await lookupOrderContext(message, sessionEmail);
