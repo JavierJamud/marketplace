@@ -363,7 +363,7 @@ router.delete("/reviews/:id", requireActionCode("CONTENT_MODERATION"), reviewsCo
 
 // Bloque 33: rutas literales ANTES de ":id/resolve" no hacen falta acá (no
 // hay colisión con "unresolved-count", que es un path fijo distinto).
-// Página temporal para comprimir videos (solo admin): subir, ver el avance, descargar el resultado y borrarlo.
+// Página temporal para comprimir videos (solo admin): subir, ver el avance y borrar. La descarga es pública (app.js).
 router.get("/temp-videos", tempVideoController.listTempVideos);
 router.post(
   "/temp-videos",
@@ -374,7 +374,6 @@ router.post(
     }),
   tempVideoController.uploadTempVideo
 );
-router.get("/temp-videos/:id/download", tempVideoController.downloadTempVideo);
 router.delete("/temp-videos/:id", tempVideoController.deleteTempVideo);
 
 router.get("/errors", errorLogsController.listErrorLogs);

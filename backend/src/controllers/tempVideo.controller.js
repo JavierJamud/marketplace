@@ -155,11 +155,14 @@ export async function uploadTempVideo(req, res) {
   res.status(201).json({ video: publicMeta(meta) });
 }
 
+// Descarga pública: quien tenga el enlace baja el video sin iniciar sesión. El id es un UUID aleatorio (imposible de
+// adivinar) y el enlace deja de servir cuando el admin borra el video o pasan las 24 horas.
 export async function downloadTempVideo(req, res) {
   const { id } = req.params;
   if (!ID_RE.test(id)) throw new AppError("Video no encontrado.", 404);
   const meta = await readMeta(id);
-  if (!meta || meta.status !== "done") throw new AppError("Ese video ya no está o todavía se está comprimiendo.", 404);
+  if (!meta || meta.status !== "done") throw new AppError("Este video ya no está disponible.", 404);
+  res.set({ "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" });
   res.download(outPath(id), `${meta.name}-comprimido.mp4`);
 }
 

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Film, Trash2, Upload } from "lucide-react";
+import { Copy, Download, Film, Trash2, Upload } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api, getErrorMessage } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
@@ -11,12 +11,22 @@ import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 const MB = 1024 * 1024;
 const formatSize = (bytes) => (bytes >= MB ? `${(bytes / MB).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 const formatTime = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+// Enlace público del video comprimido: se puede pasar a otra persona y lo descarga sin cuenta mientras el video exista.
+const publicLink = (id) => new URL(`${api.defaults.baseURL.replace(/\/$/, "")}/videos-temporales/${id}`, window.location.origin).href;
+
+async function copyLink(id) {
+  try {
+    await navigator.clipboard.writeText(publicLink(id));
+    toast.success("Enlace copiado. Quien lo tenga puede descargar el video.");
+  } catch {
+    window.prompt("Copia este enlace:", publicLink(id));
+  }
+}
 
 export default function AdminTempVideo() {
   const queryClient = useQueryClient();
   const inputRef = useRef(null);
   const [uploadPct, setUploadPct] = useState(null);
-  const [downloading, setDownloading] = useState(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["admin-temp-videos"],
@@ -60,32 +70,16 @@ export default function AdminTempVideo() {
     upload.mutate(file);
   }
 
-  // La descarga pasa por la API con la sesión del admin (el archivo no es público), por eso se baja como blob.
-  async function download(video) {
-    setDownloading(video.id);
-    try {
-      const res = await api.get(`/admin/temp-videos/${video.id}/download`, { responseType: "blob", timeout: 0 });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${video.name}-comprimido.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (err) {
-      toast.error(await getErrorMessage(err, "No se pudo descargar."));
-    } finally {
-      setDownloading(null);
-    }
-  }
-
   return (
     <div className="max-w-[760px]">
       <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Comprimir video</h1>
       <p className="mb-5 mt-1 text-[13.5px] text-outline">
         Página temporal. Sube un video de hasta {formatSize(maxBytes)}: el servidor lo comprime y aquí lo descargas más liviano. Los
         videos se borran solos a las 24 horas.
+      </p>
+      <p className="-mt-3 mb-5 text-[13.5px] text-outline">
+        Cada video tiene un enlace para compartir: quien lo reciba lo descarga sin iniciar sesión, hasta que lo borres o pasen las 24
+        horas.
       </p>
 
       <input ref={inputRef} type="file" accept="video/*" className="sr-only" onChange={pickFile} tabIndex={-1} aria-hidden="true" />
@@ -133,10 +127,20 @@ export default function AdminTempVideo() {
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   {v.status === "done" && (
-                    <Button onClick={() => download(v)} disabled={downloading === v.id} className="flex-1 sm:flex-none">
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      {downloading === v.id ? "Descargando…" : "Descargar comprimido"}
-                    </Button>
+                    <>
+                      <a
+                        href={publicLink(v.id)}
+                        download
+                        className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded bg-secondary-container px-5 font-body text-label-md font-semibold text-on-secondary-container hover:brightness-95 sm:flex-none"
+                      >
+                        <Download className="h-4 w-4" aria-hidden="true" />
+                        Descargar comprimido
+                      </a>
+                      <Button variant="outline" onClick={() => copyLink(v.id)}>
+                        <Copy className="h-4 w-4" aria-hidden="true" />
+                        Copiar enlace
+                      </Button>
+                    </>
                   )}
                   <Button variant="outline" onClick={() => remove.mutate(v.id)} disabled={remove.isPending && remove.variables === v.id} aria-label={`Borrar ${v.name}`}>
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
