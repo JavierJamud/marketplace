@@ -144,7 +144,6 @@ La cifra más defendible es el estudio de 411 Locals (solo 37.8% de llamadas ate
 - Zenoti (dato propio, 3,500+ locales): su recepcionista IA convierte 1 de cada 3 llamadas perdidas en cita. — [Zenoti: missed call to kept appointment](https://www.zenoti.com/blog/ai-agents-missed-call-salon-appointment)
 - Metropolitan Salon & Spa (Wisconsin): SMS automático personalizable ante llamada perdida para reservar sin esperar devolución. — [Zenoti](https://www.zenoti.com/thecheckin/how-ai-receptionists-are-revolutionizing-appointment-management-for-wellness-brands)
 - Clínica cosmética multi-sede (Flipbytes): problemas previos de llamadas perdidas, dobles reservas y nula cobertura fuera de horario; agente IA reserva directo en el software de la clínica (sin métricas publicadas en el fragmento). — [Flipbytes case study](https://www.flipbytes.com/blog/case-study-ai-voice-receptionist-handles-calls-and-booking-for-a-multi-location-cosmetic-clinic/)
-- Med spa Mirelle Institute (NJ, Smith.ai): atención 24/7, calificación de leads y reservas con reglas de depósito. — [Zenoti / Smith.ai via search](https://www.zenoti.com/blog/ai-agents-missed-call-salon-appointment)
 - Tatuajes: proveedores afirman que el 60% de llamadas a estudios se pierden durante sesiones (el artista tiene guantes puestos) — sin fuente. — [VoiceCharm](https://www.voicecharm.ai/blog/ai-receptionist-for-tattoo-shops); [Astucia](https://astucia.io/blog/ai-receptionist-for-tattoo-shops); [Agentzap tattoo](https://agentzap.ai/industries/tattoo); [Ainora tattoo & piercing](https://ainora.lt/blog/ai-receptionist-for-tattoo-piercing-studios)
 
 ### Inferences
@@ -153,6 +152,7 @@ La cifra más defendible es el estudio de 411 Locals (solo 37.8% de llamadas ate
 
 ### Gaps
 - Ningún caso de estudio de tatuajes con resultados medidos y nombre del estudio.
+- Un resultado de búsqueda mencionaba un caso de Smith.ai (med spa Mirelle Institute, Manasquan, NJ: atención 24/7, calificación de leads, reservas con reglas de depósito), pero no se obtuvo la URL exacta; verificar en smith.ai antes de usarlo.
 - No hay estadísticas de llamadas perdidas para Panamá/LatAm.
 
 ## 5. Buenas prácticas: diseño de conversación, guardarraíles, PCI, humano, grabación; y uso saliente (TCPA)
