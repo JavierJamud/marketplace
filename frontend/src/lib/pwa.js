@@ -218,27 +218,36 @@ export async function syncServiceWorker(enabled) {
   }
 }
 
-// El service worker de una versión nueva queda en espera (ver sw.js). Se activa cuando la página ya terminó de cargar y lleva
-// un momento quieta, o en cuanto pasa a segundo plano: así nunca reemplaza al anterior en medio de una descarga.
+// El service worker de una versión nueva queda en espera (ver sw.js) y solo se activa cuando la página se va: al cerrarla o
+// navegar a otro documento (pagehide) y justo antes de la recarga por versión nueva (VersionWatcher). Activarlo con la
+// página abierta, aunque ya hubiera cargado, cortaba los archivos que se bajan después (el chat, el carrusel) y en iPhone
+// salía "Importing a module script failed". Esperar no atrasa nada: las páginas se piden siempre al servidor y los archivos
+// llevan su versión en el nombre, así que el anterior sirve la versión nueva igual de bien.
 const watchedRegistrations = new WeakSet();
 function activateWaitingWhenSafe(reg) {
   if (watchedRegistrations.has(reg)) return;
   watchedRegistrations.add(reg);
-  let timer = null;
-  const activate = () => reg.waiting?.postMessage({ type: "SKIP_WAITING" });
-  const schedule = () => {
-    if (!reg.waiting) return;
-    clearTimeout(timer);
-    const run = () => (window.requestIdleCallback ? requestIdleCallback(activate, { timeout: 3000 }) : activate());
-    if (document.readyState === "complete") timer = setTimeout(run, 2500);
-    else window.addEventListener("load", () => (timer = setTimeout(run, 2500)), { once: true });
-  };
-  schedule();
-  reg.addEventListener("updatefound", () => {
-    const worker = reg.installing;
-    worker?.addEventListener("statechange", () => worker.state === "installed" && schedule());
-  });
-  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && activate());
+  window.addEventListener("pagehide", () => reg.waiting?.postMessage({ type: "SKIP_WAITING" }));
+}
+
+// Para la recarga por versión nueva: activa el service worker en espera y recarga cuando ya tomó el control (o a los 1,5 s
+// como mucho, para no quedarse esperando si no había ninguno).
+export async function reloadWithWaitingWorker() {
+  try {
+    const reg = registration ?? (await navigator.serviceWorker?.getRegistration());
+    const waiting = reg?.waiting;
+    if (waiting) {
+      await new Promise((resolve) => {
+        const done = () => resolve();
+        navigator.serviceWorker.addEventListener("controllerchange", done, { once: true });
+        setTimeout(done, 1500);
+        waiting.postMessage({ type: "SKIP_WAITING" });
+      });
+    }
+  } catch {
+    /* sin service worker: recarga normal */
+  }
+  window.location.reload();
 }
 
 // navigator.serviceWorker.ready no termina nunca si no hay service worker (PWA apagada o servidor de desarrollo): se espera

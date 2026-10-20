@@ -121,6 +121,9 @@ export async function reportClientCrash(req, res) {
     origin: "PAGINA",
     message: `Pantalla con error (${data.kind}${data.recovered ? ", se recargó sola" : ""}) en ${path || "?"}: ${data.message}`,
     context: { ...data, userId: req.user?.id ?? undefined, userAgent: String(req.get("user-agent") ?? "").slice(0, 300), reportedAt: new Date().toISOString() },
+    // Un archivo que no llegó y la página se recargó sola ya se resolvió para quien lo vio: queda en Admin > Errores pero no
+    // despierta al admin con un aviso.
+    notify: !(data.kind === "chunk" && data.recovered),
   });
   res.status(204).end();
 }

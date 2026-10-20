@@ -8,7 +8,8 @@ import { prisma } from "./prisma.js";
 // ESCRIBIR el log de error falla (ej. la base cayó justo en ese momento),
 // se traga en silencio — perder un registro de auditoría es aceptable,
 // romper la respuesta real al cliente por un problema del logging no lo es.
-export async function logError({ origin, message, context }) {
+// `notify: false` lo guarda en Admin > Errores sin avisar al teléfono del admin (un fallo que ya se arregló solo).
+export async function logError({ origin, message, context, notify = true }) {
   try {
     await prisma.errorLog.create({
       data: {
@@ -21,7 +22,7 @@ export async function logError({ origin, message, context }) {
     console.error("[errorLog] no se pudo registrar el error en ErrorLog:", err.message);
     return;
   }
-  void notifyAdminsOfError(origin, message, context).catch(() => {});
+  if (notify) void notifyAdminsOfError(origin, message, context).catch(() => {});
 }
 
 // Aviso al admin de cada error nuevo: en vivo si tiene el panel abierto y por push a la app instalada aunque el teléfono

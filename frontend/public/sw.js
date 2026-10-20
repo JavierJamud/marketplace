@@ -19,8 +19,8 @@ const MEDIA_MAX = 150;
 
 // Primera instalación: se activa enseguida (no hay otro service worker al que reemplazar). Al publicar una versión nueva, en
 // cambio, espera: si tomaba el control mientras una página cargaba sus archivos, cortaba esas descargas y la pantalla fallaba
-// ("Importing a module script failed" en iPhone). La página le avisa (SKIP_WAITING) cuando terminó de cargar o al pasar a
-// segundo plano, segundos después, así que la actualización no se atrasa.
+// ("Importing a module script failed" en iPhone). La página le avisa (SKIP_WAITING) solo cuando se va: al cerrarse o
+// cambiar de documento, y justo antes de recargarse por versión nueva (ver activateWaitingWhenSafe en lib/pwa.js).
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches

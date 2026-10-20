@@ -125,9 +125,6 @@ const VENDOR_NOTIF_URL = {
   VENDOR_STAFF_OUT_OF_STOCK: "/vendedor/usuarios", SUPPORT_CASE: "/vendedor/pedidos",
 };
 
-const lastErrorPush = new Map();
-const ERROR_PUSH_GAP_MS = 5 * 60_000;
-
 async function onCreated({ model, args, result }) {
   if (!result) return;
   switch (model) {
@@ -174,14 +171,8 @@ async function onCreated({ model, args, result }) {
       await prisma.vendorNotification.create({ data: { vendorId: result.vendorId, type: "NEW_CUSTOMER", title: "Cliente nuevo", body: `${result.name ?? v?.name ?? "Un cliente"} te compró por primera vez.` } });
       return;
     }
-    case "ErrorLog": {
-      const origin = String(result.origin ?? "ERROR");
-      const last = lastErrorPush.get(origin) ?? 0;
-      if (Date.now() - last < ERROR_PUSH_GAP_MS) return;
-      lastErrorPush.set(origin, Date.now());
-      const ai = /^(BOT|AI|IA|GEMINI|GROQ|NVIDIA)/i.test(origin);
-      return notifyAdmins({ category: "errors", title: ai ? "Error de la inteligencia artificial" : "Error en la plataforma", body: `${origin}: ${String(result.message ?? "").slice(0, 120)}`, url: "/admin/errores", tag: `err-${origin}`, urgency: "normal" });
-    }
+    // ErrorLog no avisa desde aquí: logError (lib/errorLog.js) ya avisa al admin de cada error nuevo, y los dos juntos
+    // mandaban dos alertas por el mismo fallo.
     default:
   }
 }

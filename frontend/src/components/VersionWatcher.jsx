@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import toast from "../lib/toast.jsx";
+import { reloadWithWaitingWorker } from "../lib/pwa.js";
 
 // Una pestaña que quedó abierta días (o que el teléfono restauró de memoria) sigue corriendo la versión con la que se abrió:
 // en el teléfono se veía un checkout viejo, sin "¿Quién recibe el pedido?" y con los avisos de antes. Esto no depende de la
@@ -27,7 +28,7 @@ export function VersionWatcher() {
         latest.current = build;
         if (noticeShown) return;
         noticeShown = true;
-        toast.action("Hay una versión nueva", "Actualiza para ver los últimos cambios de Baznova.", { label: "Actualizar", duration: Infinity, onClick: () => window.location.reload() });
+        toast.action("Hay una versión nueva", "Actualiza para ver los últimos cambios de Baznova.", { label: "Actualizar", duration: Infinity, onClick: () => reloadWithWaitingWorker() });
       } catch {
         /* sin conexión: se vuelve a intentar más tarde */
       }
@@ -58,7 +59,7 @@ export function VersionWatcher() {
     } catch {
       /* almacenamiento bloqueado */
     }
-    window.location.reload();
+    reloadWithWaitingWorker();
   }, [pathname]);
 
   return null;
