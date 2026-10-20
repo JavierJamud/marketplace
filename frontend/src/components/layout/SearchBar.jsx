@@ -25,12 +25,14 @@ function imgUrl(path) {
 // dropdown (fondo/borde/sombra) para no inventar uno nuevo.
 export function SearchBar() {
   const navigate = useNavigate();
-  const { zoneParams, zoneKey } = useZone();
+  const { zoneParams, zoneKey, zoneName } = useZone();
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [vendorResults, setVendorResults] = useState([]);
   const [categoryResults, setCategoryResults] = useState([]);
   const [hasMore, setHasMore] = useState(false);
+  // Sin coincidencias en la zona elegida: cuántas hay en otros lugares y dónde (lo manda el servidor solo en ese caso).
+  const [elsewhere, setElsewhere] = useState(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   // Bloque 30: "Solo verificadas" — filtra tanto el dropdown como, si se
@@ -77,6 +79,7 @@ export function SearchBar() {
       setResults([]);
       setVendorResults([]);
       setCategoryResults([]);
+      setElsewhere(null);
       setOpen(false);
       setLoading(false);
       return;
@@ -94,6 +97,7 @@ export function SearchBar() {
         setVendorResults(data.vendors ?? []);
         setCategoryResults(data.categories ?? []);
         setHasMore(data.hasMore);
+        setElsewhere(data.elsewhere ?? null);
         setOpen(true);
       } catch {
         if (requestId === requestIdRef.current) {
@@ -264,7 +268,19 @@ export function SearchBar() {
               )}
             </>
           ) : (
-            <p className="px-3.5 py-4 text-center text-[12.5px] text-outline">Sin resultados para &ldquo;{q.trim()}&rdquo;.</p>
+            elsewhere ? (
+              <div className="px-3.5 py-3.5 text-center">
+                <p className="text-[12.5px] text-on-surface-variant">
+                  No hay &ldquo;{q.trim()}&rdquo; en {zoneName}. {elsewhere.total === 1 ? "Hay 1 resultado" : `Hay ${elsewhere.total} resultados`} en{" "}
+                  {elsewhere.places.slice(0, 3).map((p) => p.name).join(", ")}{elsewhere.places.length > 3 ? " y otros lugares" : ""}.
+                </p>
+                <button type="button" onClick={goToFullSearch} className="mt-1.5 min-h-11 px-3 text-[12.5px] font-semibold text-tertiary-accent hover:underline">
+                  Ver dónde está
+                </button>
+              </div>
+            ) : (
+              <p className="px-3.5 py-4 text-center text-[12.5px] text-outline">Sin resultados para &ldquo;{q.trim()}&rdquo;.</p>
+            )
           )}
         </div>
       )}

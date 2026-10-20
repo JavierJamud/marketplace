@@ -108,7 +108,7 @@ api.interceptors.response.use(
         } catch (refreshError) {
           localStorage.removeItem("accessToken");
           localStorage.removeItem("refreshToken");
-          // "idle": el servidor la cerró por 60 minutos sin actividad (ver backend/src/lib/sessionPolicy.js).
+          // "idle": el servidor la cerró por 30 minutos sin actividad (ver backend/src/lib/sessionPolicy.js).
           sessionExpiredHandler?.(refreshError.response?.data?.details?.reason ?? error.response?.data?.details?.reason);
         }
       } else if (hadAuthHeader) {

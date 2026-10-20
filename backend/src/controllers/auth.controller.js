@@ -21,7 +21,7 @@ import { resolvePersonRegistrationLocation } from "../services/registrationLocat
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 import { TRUSTED_DEVICE_TTL_MS, isSessionIdle, revokeSession, IDLE_MESSAGE } from "../lib/sessionPolicy.js";
 
-// Tope absoluto de una sesión; en la práctica se cierra antes, a los 60 minutos sin actividad (ver lib/sessionPolicy.js).
+// Tope absoluto de una sesión; en la práctica se cierra antes, a los 30 minutos sin actividad (ver lib/sessionPolicy.js).
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Bloque 60: reemplaza el viejo signTokens(user) (JWT de refresco sin

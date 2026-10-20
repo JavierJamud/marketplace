@@ -96,7 +96,13 @@ export default function Stores() {
 
   const { data: businessCategories } = useQuery({
     queryKey: ["business-categories", zoneKey],
-    queryFn: async () => (await api.get("/business-categories", { params: zoneParams })).data.categories,
+    queryFn: async () => (await api.get("/business-categories", { params: { ...zoneParams, inUse: true } })).data.categories,
+    enabled: !zoneLoading,
+  });
+  // Opciones reales de cada filtro (monedas, pagos, verificadas, restaurantes...) según las tiendas del lugar elegido.
+  const { data: facets } = useQuery({
+    queryKey: ["filter-facets", "stores", zoneKey],
+    queryFn: async () => (await api.get("/search/facets", { params: { ...zoneParams, scope: "stores" } })).data,
     enabled: !zoneLoading,
   });
 
@@ -146,7 +152,7 @@ export default function Stores() {
   ].filter(Boolean);
 
   const title = filters.kind === "true" ? "Restaurantes con menú QR" : filters.verified === "true" ? "Tiendas verificadas" : filters.verified === "false" ? "Tiendas sin verificar" : "Todas las tiendas";
-  const panel = <StoreFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} businessCategories={businessCategories ?? []} />;
+  const panel = <StoreFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} businessCategories={businessCategories ?? []} facets={facets} />;
 
   return (
     <>

@@ -9,7 +9,7 @@ import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { ShopFilters, ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
 import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
-import { SlidersHorizontal, X } from "lucide-react";
+import { MapPin, SlidersHorizontal, X } from "lucide-react";
 import { useMediaQuery } from "../../lib/useMediaQuery.js";
 import { lockPageScroll } from "../../lib/scrollLock.js";
 
@@ -26,7 +26,7 @@ const list = (v) => (v ? v.split(",").filter(Boolean) : []);
 
 export default function Shop() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { zoneParams, zoneKey, zoneName, hasZoneFilter, waiting: zoneLoading, setProvince, setMunicipality, clearFilter: clearZone } = useZone();
+  const { zoneParams, zoneKey, zoneName, hasZoneFilter, countryId: zoneCountryId, waiting: zoneLoading, setProvince, setMunicipality, applyZone, clearFilter: clearZone } = useZone();
 
   const q = searchParams.get("q") ?? "";
   const categoryId = searchParams.get("categoryId") ?? "";
@@ -89,14 +89,15 @@ export default function Shop() {
 
   const { data: categories } = useQuery({
     queryKey: ["categories", zoneKey],
-    queryFn: async () => (await api.get("/categories", { params: zoneParams })).data.categories,
+    queryFn: async () => (await api.get("/categories", { params: { ...zoneParams, inUse: true } })).data.categories,
     enabled: !zoneLoading,
   });
-  const { data: siteSettings } = useQuery({
-    queryKey: ["site-settings"],
-    queryFn: async () => (await api.get("/settings")).data.settings,
+  // Opciones reales de cada filtro (monedas, pagos, etiquetas...) según lo que venden las tiendas del lugar elegido.
+  const { data: facets } = useQuery({
+    queryKey: ["filter-facets", "products", zoneKey],
+    queryFn: async () => (await api.get("/search/facets", { params: zoneParams })).data,
+    enabled: !zoneLoading,
   });
-  const badges = siteSettings?.availableProductBadges ?? [];
 
   const { data, isLoading } = useQuery({
     queryKey: ["shop-products", q, searchParams.toString(), zoneKey, sort],
@@ -127,6 +128,8 @@ export default function Shop() {
 
   const products = data?.products ?? [];
   const nearbyProvinces = data?.nearbyProvinces ?? [];
+  // Lo buscado no está en el lugar elegido pero sí en otros (el servidor solo lo manda cuando no hay nada en la zona).
+  const elsewhere = data?.elsewhere ?? null;
 
   function clearFilters() {
     setSort("relevance");
@@ -194,7 +197,7 @@ export default function Shop() {
                 <button type="button" onClick={clearFilters} className="min-h-9 text-[12.5px] font-semibold text-tertiary-accent hover:underline">Limpiar</button>
               )}
             </div>
-            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} />
+            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} facets={facets} />
           </aside>
           )}
 
@@ -238,10 +241,14 @@ export default function Shop() {
               </div>
             )}
 
-            {!isLoading && products.length === 0 && (
+            {!isLoading && products.length === 0 && elsewhere && (
+              <ElsewhereResults query={q.trim()} zoneName={zoneName} zoneCountryId={zoneCountryId} elsewhere={elsewhere} onPickPlace={applyZone} />
+            )}
+
+            {!isLoading && products.length === 0 && !elsewhere && (
               <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest py-16 text-center">
                 <div className="mb-1.5 text-title-lg font-semibold text-on-surface">
-                  {hasZoneFilter ? `Sin stock en ${zoneName}` : q.trim() ? `No encontramos productos con el nombre “${q.trim()}”` : "No hay productos que coincidan con estos filtros"}
+                  {hasZoneFilter && q.trim() ? `No encontramos “${q.trim()}” en ${zoneName}` : hasZoneFilter ? `Sin stock en ${zoneName}` : q.trim() ? `No encontramos productos con el nombre “${q.trim()}”` : "No hay productos que coincidan con estos filtros"}
                 </div>
                 {hasZoneFilter && (
                   <>
@@ -270,7 +277,7 @@ export default function Shop() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto bg-surface-container-lowest px-4">
-            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} badges={badges} />
+            <ShopFilters filters={filters} setFilter={setFilter} setMany={setMany} toggleInList={toggleInList} categories={categories ?? []} facets={facets} />
           </div>
           <div className="grid grid-cols-[auto_1fr] gap-2.5 border-t border-surface-container-high bg-surface-container-lowest p-3">
             <button type="button" onClick={clearFilters} disabled={!activeChips.length} className="min-h-12 rounded-xl border border-outline-variant px-5 text-[14px] font-semibold text-on-surface-variant disabled:opacity-40">Limpiar</button>
@@ -283,5 +290,43 @@ export default function Shop() {
 
       <MarketplaceChatGate />
     </>
+  );
+}
+
+// Lo buscado no está en la zona del cliente pero sí en otros lugares. Primero se dice claro que no es de su zona y dónde está;
+// tocar un lugar cambia la zona a ese lugar. Debajo se ven los productos, cada tarjeta con el municipio o provincia de su tienda.
+function ElsewhereResults({ query, zoneName, zoneCountryId, elsewhere, onPickPlace }) {
+  const placeLabel = (p) => (p.provinceId && p.countryId !== zoneCountryId ? `${p.name}, ${p.countryName}` : p.name);
+  const many = elsewhere.total !== 1;
+  return (
+    <div>
+      <section aria-labelledby="elsewhere-title" className="mb-5 rounded-xl border border-surface-container-high bg-surface-container-lowest p-4 md:p-5">
+        <h2 id="elsewhere-title" className="text-title-lg font-semibold text-on-surface">No encontramos “{query}” en {zoneName}</h2>
+        <p className="mt-1 text-[13.5px] text-on-surface-variant">
+          {many ? `Hay ${elsewhere.total} productos` : "Hay 1 producto"} en tiendas de otros lugares. Toca un lugar para comprar ahí, o mira {many ? "los productos" : "el producto"} aquí abajo.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {elsewhere.places.map((p) => (
+            <button
+              key={p.provinceId ?? p.countryId}
+              type="button"
+              onClick={() => onPickPlace({ countryId: p.countryId, provinceId: p.provinceId })}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-outline-variant bg-surface-container-lowest px-4 text-[13.5px] font-semibold text-on-surface hover:border-tertiary-accent"
+            >
+              <MapPin className="h-4 w-4 text-tertiary-accent" aria-hidden="true" />
+              {placeLabel(p)}
+              <span className="text-outline">({p.count})</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <h3 className="mb-3 text-[14px] font-bold text-on-surface">Fuera de tu zona</h3>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {elsewhere.products.map((p) => (
+          <ProductCard key={p.id} product={p} trackSource="search" />
+        ))}
+      </div>
+    </div>
   );
 }

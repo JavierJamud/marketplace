@@ -54,6 +54,10 @@ function resolveLucideIconName(name) {
 export async function listBusinessCategories(req, res) {
   // Con un lugar elegido, el conteo es de las tiendas de ese lugar y solo salen los tipos que tienen alguna.
   const zone = vendorZoneWhere(req.query);
+  // El registro y el perfil del vendedor necesitan todos los tipos. Los filtros públicos piden ?inUse=true: solo los tipos con
+  // alguna tienda que el cliente pueda ver, contando únicamente productos visibles (no ocultos ni fuera del cupo del plan).
+  const inUse = req.query.inUse === "true";
+  const visibleProducts = inUse ? { some: { isActive: true, hiddenFromStore: false, overQuota: false } } : { some: { isActive: true } };
   const categories = await prisma.businessCategory.findMany({
     where: { active: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -66,11 +70,11 @@ export async function listBusinessCategories(req, res) {
       name: true,
       slug: true,
       icon: true,
-      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", isPrivate: false, products: { some: { isActive: true } }, ...(zone ? { locations: zone } : {}) } } } },
+      _count: { select: { vendors: { where: { isBlocked: false, status: "ACTIVE", isPrivate: false, products: visibleProducts, ...(zone ? { locations: zone } : {}) } } } },
     },
   });
   const rows = categories.map(({ _count, ...c }) => ({ ...c, vendorCount: _count.vendors }));
-  res.json({ categories: zone ? rows.filter((c) => c.vendorCount > 0) : rows });
+  res.json({ categories: zone || inUse ? rows.filter((c) => c.vendorCount > 0) : rows });
 }
 
 // --- Admin -------------------------------------------------------------

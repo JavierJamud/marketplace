@@ -8,9 +8,11 @@ import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
 // Panel de filtros del catálogo. Todo lo que filtra es un dato real del producto o de su tienda: categoría, precio (por moneda),
 // tienda verificada, forma de coordinar el pago y métodos que acepta la tienda, descuento, precio por mayor, etiqueta, valoración y
 // provincia. El estado vive en la URL (lo maneja Shop.jsx), así se puede compartir el enlace con los filtros puestos.
+// Ninguna opción es fija: salen de /search/facets, que mira lo que de verdad tienen las tiendas del lugar elegido. Una sección
+// sin opciones no se muestra.
 
-const CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
-const RATINGS = [4, 3];
+// Lo disponible más lo que ya está elegido en el enlace (aunque haya dejado de existir), para que siempre se pueda quitar.
+export const withSelected = (available = [], selected = []) => [...available, ...selected.filter((v) => v && !available.includes(v))];
 
 export function Section({ title, count, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -152,68 +154,99 @@ export function PriceRange({ minPrice, maxPrice, currency, onApply }) {
   );
 }
 
-export function ShopFilters({ filters, setFilter, setMany, toggleInList, categories, badges }) {
-  const payment = filters.payment;
-  const accepts = filters.accepts;
+export function ShopFilters({ filters, setFilter, setMany, toggleInList, categories, facets }) {
+  // Mientras cargan las opciones reales no se muestra ninguna: mejor un momento sin filtros que filtros que no existen.
+  if (!facets) return null;
+  const currencies = withSelected(facets.currencies, [filters.currency]);
+  const payments = CHECKOUT_PAY_CHOICES.filter((o) => withSelected(facets.payment, filters.payment).includes(o.id));
+  const accepts = withSelected(facets.accepts, filters.accepts);
+  const badges = withSelected(facets.badges, [filters.badge]);
+  const ratings = withSelected(facets.ratings, filters.minRating ? [Number(filters.minRating)] : []);
+  const showVerified = facets.hasVerified || filters.onlyVerified;
+  const showDiscount = facets.hasDiscount || filters.discount;
+  const showWholesale = facets.hasWholesale || filters.wholesale;
   return (
     <div>
-      <Section title="Categoría" count={filters.categoryId ? 1 : 0}>
-        <CategoryTree categories={categories} value={filters.categoryId} onChange={(id) => setFilter("categoryId", id)} />
-      </Section>
+      {categories.length > 0 && (
+        <Section title="Categoría" count={filters.categoryId ? 1 : 0}>
+          <CategoryTree categories={categories} value={filters.categoryId} onChange={(id) => setFilter("categoryId", id)} />
+        </Section>
+      )}
 
       <Section title="Precio" count={(filters.minPrice || filters.maxPrice ? 1 : 0) + (filters.currency ? 1 : 0)}>
-        <div className="mb-2.5 flex flex-wrap gap-2">
-          <Chip active={!filters.currency} onClick={() => setFilter("currency", "")}>Todas</Chip>
-          {CURRENCIES.map((c) => (
-            <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{c}</Chip>
-          ))}
-        </div>
+        {currencies.length > 0 && (
+          <div className="mb-2.5 flex flex-wrap gap-2">
+            <Chip active={!filters.currency} onClick={() => setFilter("currency", "")}>Todas</Chip>
+            {currencies.map((c) => (
+              <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{c}</Chip>
+            ))}
+          </div>
+        )}
         <PriceRange minPrice={filters.minPrice} maxPrice={filters.maxPrice} currency={filters.currency} onApply={setMany} />
         {!filters.currency && (filters.minPrice || filters.maxPrice) && <p className="mt-1.5 text-[11.5px] text-outline">Elige una moneda para comparar precios con exactitud.</p>}
       </Section>
 
-      <Section title="Tienda" count={filters.onlyVerified ? 1 : 0}>
-        <Switch checked={filters.onlyVerified} onChange={(v) => setFilter("onlyVerified", v ? "true" : "")} label="Solo tiendas verificadas" hint="Con su identidad comprobada" />
-      </Section>
+      {showVerified && (
+        <Section title="Tienda" count={filters.onlyVerified ? 1 : 0}>
+          <Switch checked={filters.onlyVerified} onChange={(v) => setFilter("onlyVerified", v ? "true" : "")} label="Solo tiendas verificadas" hint="Con su identidad comprobada" />
+        </Section>
+      )}
 
-      <Section title="Cómo se coordina el pago" count={payment.length}>
-        <div className="flex flex-wrap gap-2">
-          {CHECKOUT_PAY_CHOICES.map((o) => (
-            <Chip key={o.id} active={payment.includes(o.id)} onClick={() => toggleInList("payment", o.id)}>{o.title}</Chip>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Métodos que acepta la tienda" count={accepts.length} defaultOpen={false}>
-        <div className="flex flex-wrap gap-2">
-          {PAYMENT_METHODS.map((m) => (
-            <Chip key={m.id} active={accepts.includes(m.id)} onClick={() => toggleInList("accepts", m.id)}>{m.label}</Chip>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Ofertas y etiquetas" count={(filters.discount ? 1 : 0) + (filters.wholesale ? 1 : 0) + (filters.badge ? 1 : 0)}>
-        <Switch checked={filters.discount} onChange={(v) => setFilter("discount", v ? "true" : "")} label="Con descuento" hint="Tienen un precio anterior más alto" />
-        <Switch checked={filters.wholesale} onChange={(v) => setFilter("wholesale", v ? "true" : "")} label="Precio por cantidad" hint="Bajan de precio al comprar más unidades" />
-        {badges.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {badges.map((b) => (
-              <Chip key={b} active={filters.badge === b} onClick={() => setFilter("badge", filters.badge === b ? "" : b)}>{b}</Chip>
+      {payments.length > 0 && (
+        <Section title="Cómo se coordina el pago" count={filters.payment.length}>
+          <div className="flex flex-wrap gap-2">
+            {payments.map((o) => (
+              <Chip key={o.id} active={filters.payment.includes(o.id)} onClick={() => toggleInList("payment", o.id)}>{o.title}</Chip>
             ))}
           </div>
-        )}
-      </Section>
+        </Section>
+      )}
 
-      <Section title="Valoración" count={filters.minRating ? 1 : 0} defaultOpen={false}>
-        <div className="flex flex-wrap gap-2">
-          {RATINGS.map((r) => (
-            <Chip key={r} active={Number(filters.minRating) === r} onClick={() => setFilter("minRating", Number(filters.minRating) === r ? "" : String(r))}>
-              <span className="inline-flex items-center gap-1">{r} <Star className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> o más</span>
-            </Chip>
-          ))}
-        </div>
-      </Section>
+      {accepts.length > 0 && (
+        <Section title="Métodos que acepta la tienda" count={filters.accepts.length} defaultOpen={false}>
+          <div className="flex flex-wrap gap-2">
+            {sortMethods(accepts).map((id) => (
+              <Chip key={id} active={filters.accepts.includes(id)} onClick={() => toggleInList("accepts", id)}>{methodLabel(id)}</Chip>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {(showDiscount || showWholesale || badges.length > 0) && (
+        <Section title="Ofertas y etiquetas" count={(filters.discount ? 1 : 0) + (filters.wholesale ? 1 : 0) + (filters.badge ? 1 : 0)}>
+          {showDiscount && <Switch checked={filters.discount} onChange={(v) => setFilter("discount", v ? "true" : "")} label="Con descuento" hint="Tienen un precio anterior más alto" />}
+          {showWholesale && <Switch checked={filters.wholesale} onChange={(v) => setFilter("wholesale", v ? "true" : "")} label="Precio por cantidad" hint="Bajan de precio al comprar más unidades" />}
+          {badges.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {badges.map((b) => (
+                <Chip key={b} active={filters.badge === b} onClick={() => setFilter("badge", filters.badge === b ? "" : b)}>{b}</Chip>
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {ratings.length > 0 && <RatingSection ratings={ratings} value={filters.minRating} onChange={(v) => setFilter("minRating", v)} />}
     </div>
+  );
+}
+
+// Métodos de pago: primero en el orden conocido de PAYMENT_METHODS, después los que una tienda haya escrito a mano.
+const METHOD_ORDER = PAYMENT_METHODS.map((m) => m.id);
+export const sortMethods = (ids) => [...ids].sort((a, b) => (METHOD_ORDER.indexOf(a) + 1 || 999) - (METHOD_ORDER.indexOf(b) + 1 || 999) || a.localeCompare(b));
+export const methodLabel = (id) => PAYMENT_METHODS.find((m) => m.id === id)?.label ?? id;
+
+export function RatingSection({ ratings, value, onChange }) {
+  return (
+    <Section title="Valoración" count={value ? 1 : 0} defaultOpen={false}>
+      <div className="flex flex-wrap gap-2">
+        {ratings.map((r) => (
+          <Chip key={r} active={Number(value) === r} onClick={() => onChange(Number(value) === r ? "" : String(r))}>
+            <span className="inline-flex items-center gap-1">{r} <Star className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> o más</span>
+          </Chip>
+        ))}
+      </div>
+    </Section>
   );
 }
 

@@ -156,7 +156,7 @@ export default function Home() {
 
   const { data: businessCategories, status: categoriesStatus } = useQuery({
     queryKey: ["business-categories", zoneKey],
-    queryFn: async () => (await api.get("/business-categories", { params: zoneParams })).data.categories,
+    queryFn: async () => (await api.get("/business-categories", { params: { ...zoneParams, inUse: true } })).data.categories,
     enabled: !zoneLoading,
   });
 

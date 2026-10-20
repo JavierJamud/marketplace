@@ -1,7 +1,7 @@
 import { Clock } from "lucide-react";
 
-// Aviso de "¿sigues ahí?" a los 55 minutos sin actividad: 5 minutos de cuenta regresiva y, sin el clic, la sesión se
-// cierra a los 60 (ver AuthContext.jsx).
+// Aviso de "¿sigues ahí?" a los 25 minutos sin actividad: 5 minutos de cuenta regresiva y, sin el clic, la sesión se
+// cierra a los 30 (ver AuthContext.jsx).
 // A diferencia de ConfirmModal, este SÍ es intencionalmente no descartable
 // haciendo clic afuera o con Escape: la única forma de seguir es el clic
 // explícito en "Sigo aquí" (tal como se pidió — actividad ambiente no

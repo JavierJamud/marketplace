@@ -13,10 +13,10 @@ const ACCESS_TOKEN_KEY = "accessToken";
 const REFRESH_TOKEN_KEY = "refreshToken";
 const LAST_ACTIVITY_KEY = "zeudin_last_activity";
 
-// 60 minutos sin actividad cierran la sesión de clientes, tiendas y admin (pedido explícito). A los 55 aparece el aviso
+// 30 minutos sin actividad cierran la sesión de clientes, tiendas y admin (pedido explícito). A los 25 aparece el aviso
 // "¿Sigues ahí?" con 5 minutos de cuenta regresiva; sin el clic en "Sigo aquí", se cierra. El servidor aplica el mismo
 // límite por su lado (backend/src/lib/sessionPolicy.js) para una pestaña cerrada o un teléfono apagado.
-const IDLE_WARNING_MS = 55 * 60 * 1000;
+const IDLE_WARNING_MS = 25 * 60 * 1000;
 const IDLE_COUNTDOWN_MS = 5 * 60 * 1000;
 const ACTIVITY_EVENTS = ["mousedown", "keydown", "scroll", "touchstart"];
 const ACTIVITY_THROTTLE_MS = 15 * 1000; // no escribir en localStorage en cada pixel de scroll
@@ -119,7 +119,7 @@ export function AuthProvider({ children }) {
       // Solo si estaba usando la cuenta en esta pestaña: quien vuelve al sitio al otro día no es mandado al ingreso.
       if (reason === "idle" && wasLoggedIn) {
         navigate(idleLoginPathFor(locationRef.current.pathname), { replace: true });
-        toast.info("Tu sesión se cerró porque pasaron 60 minutos sin actividad. Vuelve a iniciar sesión.");
+        toast.info("Tu sesión se cerró porque pasaron 30 minutos sin actividad. Vuelve a iniciar sesión.");
         return;
       }
       navigate(loginPathFor(locationRef.current.pathname), { replace: true });
@@ -170,7 +170,7 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("storage", onStorage);
   }, [clearLocalSession, navigate]);
 
-  // --- Expiración por inactividad (60 min, con aviso a los 55) para todos los roles ---
+  // --- Expiración por inactividad (30 min, con aviso a los 25) para todos los roles ---
   useEffect(() => {
     if (!user) return;
 

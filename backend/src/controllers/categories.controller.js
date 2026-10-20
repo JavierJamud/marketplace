@@ -36,7 +36,10 @@ export async function listCategories(req, res) {
       children: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true, isUserCreated: true } },
     },
   });
-  if (!zone) return res.json({ categories });
+  // El vendedor y el registro necesitan la lista completa. El filtro público del catálogo pide ?inUse=true y recibe solo las
+  // categorías con productos a la venta (en el lugar elegido, si hay uno).
+  const inUse = req.query.inUse === "true";
+  if (!zone && !inUse) return res.json({ categories });
 
   // Con un lugar elegido, solo las categorías que tienen productos a la venta de tiendas de ese lugar (con sus subcategorías).
   const used = await prisma.product.groupBy({
@@ -45,8 +48,9 @@ export async function listCategories(req, res) {
       isActive: true,
       hiddenFromStore: false,
       overQuota: false,
+      NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
       OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
-      vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false, locations: zone },
+      vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false, ...(zone ? { locations: zone } : {}) },
     },
   });
   const ids = new Set(used.map((u) => u.categoryId).filter(Boolean));

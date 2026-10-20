@@ -124,6 +124,76 @@ function reorderByIds(rows, ids) {
   return [...rows].sort((a, b) => order.get(a.id) - order.get(b.id));
 }
 
+// Tienda que el público puede ver en los listados.
+const PUBLIC_VENDOR_WHERE = { isBlocked: false, status: "ACTIVE", isPrivate: false };
+
+// Producto que el público puede ver en la portada, el catálogo y la búsqueda. Lo usan la búsqueda y las opciones de filtro,
+// para que un filtro nunca ofrezca algo que la búsqueda después no muestra.
+const PUBLIC_PRODUCT_WHERE = {
+  isActive: true,
+  // Bloque 157: "solo para pedido de mesa" — nunca aparece en Home ni en
+  // el catálogo, sin importar qué tan bien rankee.
+  hiddenFromStore: false,
+  // Bloque 208 y 304: un restaurante con menú oculto (solo se ve escaneando el QR de la mesa) no debe salir en el
+  // catálogo ni en la búsqueda, igual que ya no sale en su propia página.
+  NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
+  // Bloque 52: excedente del cupo de productos del plan — sigue existiendo
+  // para el vendedor, nunca en un listado público (ver planConfig.js).
+  overQuota: false,
+  // Bloque 82 (pedido explícito, bug real reportado en vivo): un producto
+  // agotado (sin `unlimitedStock`, `stock` 0) no debe aparecer en Home ni
+  // en el catálogo — solo se muestra en su propia tienda, en la sección
+  // "Próximamente disponibles" (Store.jsx, Bloque 23, que consulta
+  // getVendorBySlug directo, sin pasar por acá — a propósito no se toca).
+  OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
+};
+
+// Busca el texto fuera del lugar elegido. `where` es la misma condición de la búsqueda pero sin el lugar. Devuelve cuántos
+// productos hay, en qué lugares (provincia o estado; si la tienda no tiene, su país), ordenados por cantidad, y, si se pide
+// `include`, los primeros productos para mostrarlos. null si tampoco hay nada en otro lugar.
+const ELSEWHERE_SHOWN = 12;
+const placeSelect = {
+  country: { select: { id: true, name: true } },
+  province: { select: { id: true, name: true, country: { select: { id: true, name: true } } } },
+};
+async function searchElsewhere(q, where, include, findIds = findProductIdsByName) {
+  const matchIn = (ids) =>
+    ids.length ? prisma.product.findMany({ where: { ...where, id: { in: ids } }, select: { id: true, vendor: { select: { locations: { select: placeSelect, take: 1 } } } } }) : [];
+  let ids = await findIds(q);
+  let rows = await matchIn(ids);
+  if (!rows.length) {
+    ids = await findProductIdsByTrigram(q, 60);
+    rows = await matchIn(ids);
+  }
+  if (!rows.length) return null;
+
+  const places = new Map();
+  for (const r of rows) {
+    const loc = r.vendor.locations[0];
+    const country = loc?.country ?? loc?.province?.country;
+    if (!country) continue;
+    const key = loc.province?.id ?? country.id;
+    if (!places.has(key)) {
+      places.set(key, {
+        countryId: country.id,
+        provinceId: loc.province?.id ?? null,
+        name: loc.province?.name ?? country.name,
+        countryName: country.name,
+        count: 0,
+      });
+    }
+    places.get(key).count++;
+  }
+
+  const shownIds = reorderByIds(rows, ids).slice(0, ELSEWHERE_SHOWN).map((r) => r.id);
+  const shown = include ? reorderByIds(await prisma.product.findMany({ where: { id: { in: shownIds } }, include }), shownIds) : [];
+  return {
+    total: rows.length,
+    places: [...places.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "es")).slice(0, 6),
+    products: shown,
+  };
+}
+
 // Búsqueda estructurada (pills de categoría, selector de provincia/municipio,
 // sidebar de filtros de Shop, buscador de texto): la que consume el catálogo
 // y la Home.
@@ -293,9 +363,18 @@ export async function structuredSearch(req, res) {
     nearbyProvinces = adjacencies.map((a) => a.provinceB);
   }
 
+  // Si el texto buscado no está en el lugar elegido pero sí en otro, se le dice al cliente dónde (con los mismos filtros, solo
+  // sin el lugar), en vez de dejarlo con una pantalla vacía. Nunca se mezcla con resultados de su zona: solo cuando no hay ninguno.
+  let elsewhere = null;
+  if (products.length === 0 && cleanQ && vendorZoneWhere({ countryId, provinceId, municipalityId })) {
+    const anyZoneWhere = { ...baseWhere, vendor: { ...baseWhere.vendor, locations: undefined } };
+    elsewhere = await searchElsewhere(cleanQ, anyZoneWhere, includeOpts);
+    if (elsewhere) elsewhere.products = elsewhere.products.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) }));
+  }
+
   const withBestSeller = await attachBestSellerFlag(products);
   if (cleanQ) recordSearchTerm(cleanQ, withBestSeller.length);
-  res.json({ products: withBestSeller.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })), nearbyProvinces });
+  res.json({ products: withBestSeller.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })), nearbyProvinces, elsewhere });
 }
 
 // Lo más buscado por los clientes (ya filtrado y redactado por IA). Lo lee la portada.
@@ -443,9 +522,79 @@ export async function autocompleteSearch(req, res) {
   // filas, así que se filtra en memoria ignorando tildes y mayúsculas.
   const fold = (s) => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const foldedQ = fold(q);
-  const categories = (await prisma.businessCategory.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, icon: true } }))
+  // Solo los tipos que tienen alguna tienda visible en el lugar elegido: sugerir uno vacío llevaría a una página sin tiendas.
+  const categories = (await prisma.businessCategory.findMany({ where: { active: true, vendors: { some: vendorWhere } }, orderBy: { sortOrder: "asc" }, select: { id: true, name: true, icon: true } }))
     .filter((c) => fold(c.name).includes(foldedQ))
     .slice(0, 4);
 
-  res.json({ products, vendors: withComputedVendorFieldsList(vendors), categories, hasMore: ranked.length > AUTOCOMPLETE_LIMIT });
+  // Nada en el lugar elegido: se cuenta cuántos productos hay en otros lugares y dónde, para avisarlo en el desplegable.
+  let elsewhere = null;
+  const { locations: zoneOnly, ...anyZoneVendor } = vendorWhere;
+  if (zoneOnly && products.length === 0 && vendors.length === 0) {
+    // Mismas coincidencias que el desplegable: nombre, descripción y etiquetas.
+    const sameMatches = async (text) => [...new Set([...(await findProductIdsByNameOrDescription(text, 40)), ...(await findProductIdsByTag(text, 40))])];
+    elsewhere = await searchElsewhere(q, { ...PUBLIC_PRODUCT_WHERE, vendor: { ...PUBLIC_VENDOR_WHERE, ...anyZoneVendor } }, null, sameMatches);
+    if (elsewhere) delete elsewhere.products;
+  }
+
+  res.json({ products, vendors: withComputedVendorFieldsList(vendors), categories, hasMore: ranked.length > AUTOCOMPLETE_LIMIT, elsewhere });
+}
+
+// --- Opciones reales de los filtros -----------------------------------------
+// Los paneles de filtros del catálogo y de /tiendas solo muestran lo que de verdad existe entre las tiendas visibles del lugar
+// elegido: las monedas en que venden, las formas de pago que ofrecen, los métodos que aceptan, si hay verificadas,
+// restaurantes, descuentos, etiquetas y valoraciones. Así ningún filtro lleva a una pantalla vacía. Cuando una tienda nueva
+// se registra con algo distinto, la opción aparece sola.
+const FACET_CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
+const FACET_PAYMENTS = ["cod", "online", "cash"];
+const FACET_RATINGS = [4, 3];
+
+function unionOf(rows, field, allowed) {
+  const set = new Set(rows.flatMap((r) => r[field] ?? []));
+  return allowed ? allowed.filter((v) => set.has(v)) : [...set].sort();
+}
+
+export async function filterFacets(req, res) {
+  const zone = vendorZoneWhere(req.query);
+  const vendorWhere = { ...PUBLIC_VENDOR_WHERE, ...(zone ? { locations: zone } : {}) };
+  const vendorFields = { checkoutPaymentOptions: true, acceptedPaymentMethods: true, verificationStatus: true, isRestaurant: true, rating: true };
+
+  if (req.query.scope === "stores") {
+    // Mismo universo que listVendors: tiendas visibles con al menos un producto publicado (agotado o no).
+    const shownProduct = { isActive: true, hiddenFromStore: false, overQuota: false };
+    const [vendors, currencies] = await Promise.all([
+      prisma.vendor.findMany({ where: { ...vendorWhere, products: { some: shownProduct } }, select: vendorFields }),
+      prisma.product.groupBy({ by: ["currency"], where: { ...shownProduct, vendor: vendorWhere } }),
+    ]);
+    return res.json({
+      currencies: FACET_CURRENCIES.filter((c) => currencies.some((r) => r.currency === c)),
+      payment: unionOf(vendors, "checkoutPaymentOptions", FACET_PAYMENTS),
+      accepts: unionOf(vendors, "acceptedPaymentMethods"),
+      hasVerified: vendors.some((v) => v.verificationStatus === "VERIFIED"),
+      hasRestaurants: vendors.some((v) => v.isRestaurant),
+      hasShops: vendors.some((v) => !v.isRestaurant),
+      ratings: FACET_RATINGS.filter((r) => vendors.some((v) => Number(v.rating) >= r)),
+    });
+  }
+
+  // Catálogo: mismo universo que structuredSearch sin filtros (productos a la venta de tiendas visibles del lugar).
+  const productWhere = { ...PUBLIC_PRODUCT_WHERE, vendor: vendorWhere };
+  const [vendors, currencies, badges, discounts, wholesale, ratings] = await Promise.all([
+    prisma.vendor.findMany({ where: { ...vendorWhere, products: { some: PUBLIC_PRODUCT_WHERE } }, select: vendorFields }),
+    prisma.product.groupBy({ by: ["currency"], where: productWhere }),
+    prisma.product.groupBy({ by: ["badge"], where: { ...productWhere, badge: { not: null } } }),
+    prisma.product.count({ where: { ...productWhere, oldPrice: { not: null } } }),
+    prisma.product.count({ where: { ...productWhere, priceTiers: { some: {} } } }),
+    Promise.all(FACET_RATINGS.map((r) => prisma.product.count({ where: { ...productWhere, rating: { gte: r } } }))),
+  ]);
+  res.json({
+    currencies: FACET_CURRENCIES.filter((c) => currencies.some((r) => r.currency === c)),
+    payment: unionOf(vendors, "checkoutPaymentOptions", FACET_PAYMENTS),
+    accepts: unionOf(vendors, "acceptedPaymentMethods"),
+    hasVerified: vendors.some((v) => v.verificationStatus === "VERIFIED"),
+    hasDiscount: discounts > 0,
+    hasWholesale: wholesale > 0,
+    badges: badges.map((b) => b.badge).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")),
+    ratings: FACET_RATINGS.filter((_, i) => ratings[i] > 0),
+  });
 }

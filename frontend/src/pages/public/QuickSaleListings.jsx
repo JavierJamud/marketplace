@@ -39,6 +39,13 @@ export default function QuickSaleListings() {
       .filter((l) => !q || q.split(/\s+/).every((p) => [l.name, l.description, (l.tags ?? []).join(" "), l.locationNote, l.owner?.province?.name].join(" ").toLowerCase().includes(p)));
   }, [listings, search, condition]);
 
+  // Solo los estados que tiene algún anuncio publicado ("Todos" siempre va primero); sin ninguno, el filtro no se muestra.
+  const conditionFilters = useMemo(() => {
+    const present = new Set((listings ?? []).map((l) => l.condition).filter(Boolean));
+    const options = CONDITION_FILTERS.filter((c) => !c.id || present.has(c.id) || c.id === condition);
+    return options.length > 1 ? options : [];
+  }, [listings, condition]);
+
   return (
     <div className="container-app py-5 md:py-11">
       <h1 className="mb-1 text-headline-lg text-on-surface">Venta rápida</h1>
@@ -50,13 +57,13 @@ export default function QuickSaleListings() {
       {(listings?.length ?? 0) > 0 && (
         <div className="mb-6 flex flex-col gap-3">
           <SearchBox className="max-w-[520px]" value={search} onChange={setSearch} placeholder="Buscar por nombre, palabra clave o zona" resultText={search.trim() || condition ? `${shown.length} de ${listings.length} anuncios` : undefined} />
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Estado del artículo">
-            {CONDITION_FILTERS.map((c) => (
+          {conditionFilters.length > 0 && <div className="flex flex-wrap gap-2" role="group" aria-label="Estado del artículo">
+            {conditionFilters.map((c) => (
               <button key={c.id} type="button" onClick={() => setCondition(c.id)} aria-pressed={condition === c.id} className={`min-h-10 rounded-full border px-4 text-[13px] font-semibold ${condition === c.id ? "border-primary-container bg-primary-container text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"}`}>
                 {c.label}
               </button>
             ))}
-          </div>
+          </div>}
         </div>
       )}
       {!isLoading && (!listings || listings.length === 0) && (

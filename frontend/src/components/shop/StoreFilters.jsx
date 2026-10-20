@@ -1,19 +1,16 @@
 import { useMemo, useState } from "react";
-import { Check, Search, Star, Store as StoreIcon, UtensilsCrossed, LayoutGrid } from "lucide-react";
+import { Check, Search, Store as StoreIcon, UtensilsCrossed, LayoutGrid } from "lucide-react";
 import clsx from "clsx";
 import { matchesQuery } from "../ui/SearchBox.jsx";
 import { CategoryIcon } from "../ui/CategoryIcon.jsx";
-import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
 import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
-import { Section, Chip, Switch, PriceRange } from "./ShopFilters.jsx";
+import { Section, Chip, Switch, PriceRange, RatingSection, withSelected, sortMethods, methodLabel } from "./ShopFilters.jsx";
 
 // Filtros de la página de tiendas. Todos salen de datos reales de cada tienda: si es restaurante con menú QR o tienda, su tipo de
 // negocio, si está verificada, cómo coordina el pago, qué métodos acepta, el rango de precios de sus productos y su valoración.
 // El lugar (país, provincia, municipio) NO está aquí: es un filtro general del sitio (ver ZonePicker). El estado vive en la URL
-// (lo maneja Stores.jsx).
-
-const CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
-const RATINGS = [4, 3];
+// (lo maneja Stores.jsx). Ninguna opción es fija: salen de /search/facets?scope=stores, con lo que de verdad tienen las tiendas
+// registradas en el lugar elegido; una sección sin opciones no se muestra.
 
 const KINDS = [
   { value: "", label: "Todas", icon: LayoutGrid },
@@ -21,10 +18,11 @@ const KINDS = [
   { value: "true", label: "Restaurantes", icon: UtensilsCrossed },
 ];
 
-function KindSwitch({ value, onChange }) {
+// `kinds`: solo los tipos que existen entre las tiendas registradas ("Todas" siempre va primero).
+function KindSwitch({ value, onChange, kinds }) {
   return (
-    <div role="radiogroup" aria-label="Tipo de establecimiento" className="grid grid-cols-3 gap-1 rounded-xl bg-surface-container p-1">
-      {KINDS.map((k) => {
+    <div role="radiogroup" aria-label="Tipo de establecimiento" className={clsx("grid gap-1 rounded-xl bg-surface-container p-1", kinds.length === 3 ? "grid-cols-3" : "grid-cols-2")}>
+      {kinds.map((k) => {
         const Icon = k.icon;
         const active = value === k.value;
         return (
@@ -93,13 +91,25 @@ function BusinessTypes({ categories, selected, onToggle }) {
   );
 }
 
-export function StoreFilters({ filters, setFilter, setMany, toggleInList, businessCategories }) {
+export function StoreFilters({ filters, setFilter, setMany, toggleInList, businessCategories, facets }) {
+  // Mientras cargan las opciones reales no se muestra ninguna: mejor un momento sin filtros que filtros que no existen.
+  if (!facets) return null;
+  const currencies = withSelected(facets.currencies, [filters.currency]);
+  const payments = CHECKOUT_PAY_CHOICES.filter((o) => withSelected(facets.payment, filters.payment).includes(o.id));
+  const accepts = withSelected(facets.accepts, filters.accepts);
+  const ratings = withSelected(facets.ratings, filters.minRating ? [Number(filters.minRating)] : []);
+  // Tipos de establecimiento: solo los que hay registrados (o el que ya viene elegido en el enlace).
+  const kinds = KINDS.filter((k) => !k.value || k.value === filters.kind || (k.value === "true" ? facets.hasRestaurants : facets.hasShops));
+  const showKind = kinds.length > 1;
+  const showVerified = facets.hasVerified || !!filters.verified;
   return (
     <div>
-      <Section title="Tipo de establecimiento" count={filters.kind ? 1 : 0}>
-        <KindSwitch value={filters.kind} onChange={(v) => setFilter("isRestaurant", v)} />
-        <p className="mt-1.5 text-[11.5px] text-outline">Los restaurantes tienen menú digital con QR para pedir desde la mesa.</p>
-      </Section>
+      {showKind && (
+        <Section title="Tipo de establecimiento" count={filters.kind ? 1 : 0}>
+          <KindSwitch value={filters.kind} onChange={(v) => setFilter("isRestaurant", v)} kinds={kinds} />
+          {kinds.some((k) => k.value === "true") && <p className="mt-1.5 text-[11.5px] text-outline">Los restaurantes tienen menú digital con QR para pedir desde la mesa.</p>}
+        </Section>
+      )}
 
       {businessCategories.length > 0 && (
         <Section title="Tipo de negocio" count={filters.businessCategoryIds.length}>
@@ -107,46 +117,46 @@ export function StoreFilters({ filters, setFilter, setMany, toggleInList, busine
         </Section>
       )}
 
-      <Section title="Verificación" count={filters.verified ? 1 : 0}>
-        <Switch checked={filters.verified === "true"} onChange={(v) => setFilter("isVerified", v ? "true" : "")} label="Solo tiendas verificadas" hint="Con su identidad comprobada" />
-      </Section>
+      {showVerified && (
+        <Section title="Verificación" count={filters.verified ? 1 : 0}>
+          <Switch checked={filters.verified === "true"} onChange={(v) => setFilter("isVerified", v ? "true" : "")} label="Solo tiendas verificadas" hint="Con su identidad comprobada" />
+        </Section>
+      )}
 
       <Section title="Precio de sus productos" count={(filters.minPrice || filters.maxPrice ? 1 : 0) + (filters.currency ? 1 : 0)}>
-        <div className="mb-2.5 flex flex-wrap gap-2">
-          <Chip active={!filters.currency} onClick={() => setFilter("currency", "")}>Todas</Chip>
-          {CURRENCIES.map((c) => (
-            <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{c}</Chip>
-          ))}
-        </div>
+        {currencies.length > 0 && (
+          <div className="mb-2.5 flex flex-wrap gap-2">
+            <Chip active={!filters.currency} onClick={() => setFilter("currency", "")}>Todas</Chip>
+            {currencies.map((c) => (
+              <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{c}</Chip>
+            ))}
+          </div>
+        )}
         <PriceRange minPrice={filters.minPrice} maxPrice={filters.maxPrice} currency={filters.currency} onApply={setMany} />
         <p className="mt-1.5 text-[11.5px] text-outline">Muestra tiendas que tengan al menos un producto en ese rango.</p>
       </Section>
 
-      <Section title="Cómo se coordina el pago" count={filters.payment.length}>
-        <div className="flex flex-wrap gap-2">
-          {CHECKOUT_PAY_CHOICES.map((o) => (
-            <Chip key={o.id} active={filters.payment.includes(o.id)} onClick={() => toggleInList("payment", o.id)}>{o.title}</Chip>
-          ))}
-        </div>
-      </Section>
+      {payments.length > 0 && (
+        <Section title="Cómo se coordina el pago" count={filters.payment.length}>
+          <div className="flex flex-wrap gap-2">
+            {payments.map((o) => (
+              <Chip key={o.id} active={filters.payment.includes(o.id)} onClick={() => toggleInList("payment", o.id)}>{o.title}</Chip>
+            ))}
+          </div>
+        </Section>
+      )}
 
-      <Section title="Métodos que acepta" count={filters.accepts.length} defaultOpen={false}>
-        <div className="flex flex-wrap gap-2">
-          {PAYMENT_METHODS.map((m) => (
-            <Chip key={m.id} active={filters.accepts.includes(m.id)} onClick={() => toggleInList("accepts", m.id)}>{m.label}</Chip>
-          ))}
-        </div>
-      </Section>
+      {accepts.length > 0 && (
+        <Section title="Métodos que acepta" count={filters.accepts.length} defaultOpen={false}>
+          <div className="flex flex-wrap gap-2">
+            {sortMethods(accepts).map((id) => (
+              <Chip key={id} active={filters.accepts.includes(id)} onClick={() => toggleInList("accepts", id)}>{methodLabel(id)}</Chip>
+            ))}
+          </div>
+        </Section>
+      )}
 
-      <Section title="Valoración" count={filters.minRating ? 1 : 0} defaultOpen={false}>
-        <div className="flex flex-wrap gap-2">
-          {RATINGS.map((r) => (
-            <Chip key={r} active={Number(filters.minRating) === r} onClick={() => setFilter("minRating", Number(filters.minRating) === r ? "" : String(r))}>
-              <span className="inline-flex items-center gap-1">{r} <Star className="h-3.5 w-3.5 fill-current" aria-hidden="true" /> o más</span>
-            </Chip>
-          ))}
-        </div>
-      </Section>
+      {ratings.length > 0 && <RatingSection ratings={ratings} value={filters.minRating} onChange={(v) => setFilter("minRating", v)} />}
     </div>
   );
 }
