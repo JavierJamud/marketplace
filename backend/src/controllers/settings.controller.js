@@ -529,7 +529,13 @@ const cupPaymentSettingsSchema = z.object({
   cupSubscriptionPriceCup: z.number().int().positive().optional(),
   // Bloque 150: mismo formulario ("Datos de pago de la suscripción" en
   // AdminSubscriptions.jsx) — el precio CARD/Stripe se edita junto al CUP.
-  cardSubscriptionPriceUsd: z.number().int().positive().optional(),
+  // Admite centavos (4.99); se redondea a 2 decimales para que no se guarde ruido de coma flotante.
+  cardSubscriptionPriceUsd: z
+    .number()
+    .positive("El precio con tarjeta debe ser mayor que 0.")
+    .max(10000)
+    .transform((n) => Math.round(n * 100) / 100)
+    .optional(),
 });
 
 // Admin — datos bancarios de la transferencia CUP + precio mensual de la

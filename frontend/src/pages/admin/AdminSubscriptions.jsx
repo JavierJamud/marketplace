@@ -269,8 +269,18 @@ export function CupPaymentSettingsCard() {
     });
   }, [settings]);
 
+  // Los precios viven como texto mientras se escriben: con Number() en cada tecla un campo vacío volvía a 0 y no se podía borrar.
+  const cupPrice = Number(form.cupSubscriptionPriceCup);
+  const cardPrice = Number(String(form.cardSubscriptionPriceUsd).replace(",", "."));
+  const cupPriceError = form.cupSubscriptionPriceCup === "" || !Number.isInteger(cupPrice) || cupPrice <= 0 ? "Escribe un precio entero mayor que 0." : null;
+  const cardPriceError =
+    form.cardSubscriptionPriceUsd === "" || !Number.isFinite(cardPrice) || cardPrice <= 0 || !/^\d+([.,]\d{1,2})?$/.test(String(form.cardSubscriptionPriceUsd).trim())
+      ? "Escribe un precio mayor que 0, con hasta 2 decimales (ej.: 4.99)."
+      : null;
+
   const save = useMutation({
-    mutationFn: async () => (await api.patch("/admin/settings/cup-payment", form)).data,
+    mutationFn: async () =>
+      (await api.patch("/admin/settings/cup-payment", { ...form, cupSubscriptionPriceCup: cupPrice, cardSubscriptionPriceUsd: cardPrice })).data,
     onSuccess: () => {
       toast.success("Datos de pago de la suscripción actualizados.");
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
@@ -291,15 +301,17 @@ export function CupPaymentSettingsCard() {
       <div className="mb-3.5 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <Input
           label="Precio mensual — transferencia CUP"
-          type="number"
+          inputMode="numeric"
           value={form.cupSubscriptionPriceCup}
-          onChange={(e) => setForm({ ...form, cupSubscriptionPriceCup: Number(e.target.value) })}
+          error={cupPriceError}
+          onChange={(e) => setForm({ ...form, cupSubscriptionPriceCup: e.target.value.replace(/\D/g, "") })}
         />
         <Input
           label="Precio mensual — tarjeta (USD, Stripe)"
-          type="number"
+          inputMode="decimal"
           value={form.cardSubscriptionPriceUsd}
-          onChange={(e) => setForm({ ...form, cardSubscriptionPriceUsd: Number(e.target.value) })}
+          error={cardPriceError}
+          onChange={(e) => setForm({ ...form, cardSubscriptionPriceUsd: e.target.value.replace(/[^\d.,]/g, "") })}
         />
         <Input
           label="Número de cuenta"
@@ -326,7 +338,7 @@ export function CupPaymentSettingsCard() {
         placeholder="Ej.: incluir el nombre de la tienda como referencia..."
         className="mb-4 w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
       />
-      <Button className="rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
+      <Button className="rounded-xl font-bold" disabled={save.isPending || !!cupPriceError || !!cardPriceError} onClick={() => save.mutate()}>
         {save.isPending ? "Guardando..." : "Guardar cambios"}
       </Button>
     </div>

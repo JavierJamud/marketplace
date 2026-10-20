@@ -2665,7 +2665,8 @@ model SiteSettings {
   // antes una constante hardcodeada (SUBSCRIPTION_PRICE_USD = 25 en
   // lib/stripe.js), ahora editable junto al precio CUP desde el mismo lugar
   // del admin (AdminSubscriptions.jsx). Default 25 = mismo valor de siempre.
-  cardSubscriptionPriceUsd Int @default(25)
+  // Float: admite centavos (4.99). Stripe lo convierte a centavos con Math.round(x * 100).
+  cardSubscriptionPriceUsd Float @default(25)
   // Bloque 66 (pedido explícito): catálogo administrable de etiquetas que un
   // vendedor puede elegir para un producto (mismo patrón que
   // productPaymentMethods/availableCurrencies arriba) — "Nuevo" es un valor

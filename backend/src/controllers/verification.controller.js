@@ -1107,7 +1107,7 @@ export async function reactivateMySubscription(req, res) {
     const session = await createCardSubscriptionCheckout({ vendor, months, priceUsd: pricing.cardPricePerMonthUsd, purpose: "subscribe" });
     return res.json({ status: "needs_card", url: session.url });
   }
-  await activateFromCardSubscription(vendor.id, result.subscription, { purpose: "reactivate", months, amountUsd: pricing.cardPricePerMonthUsd * months });
+  await activateFromCardSubscription(vendor.id, result.subscription, { purpose: "reactivate", months, amountUsd: Math.round(pricing.cardPricePerMonthUsd * months * 100) / 100 });
   res.json({ status: "charged" });
 }
 
