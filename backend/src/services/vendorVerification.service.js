@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma.js";
 import { notifyVerificationEvent } from "./verificationNotify.service.js";
+import { recalcVendorProductQuota } from "../lib/planConfig.js";
 
 // Bloque 64 (fuente única de verdad — bug real reportado en vivo): antes el
 // badge/IA/destacado leían `Vendor.isVerified`, un booleano guardado APARTE
@@ -36,9 +37,17 @@ export async function transitionVendorVerification(vendorId, toStatus, { reason 
   if (!vendor) throw new Error(`Vendor ${vendorId} no encontrado (transitionVendorVerification)`);
 
   const fromStatus = vendor.verificationStatus;
+  // Pedido explícito: solo existen dos planes. Pro (pagado o prueba gratis) lleva la insignia y todas sus funciones; Regular,
+  // nada de eso. Por eso VERIFIED va siempre con planType BUSINESS y cualquier otro estado con REGULAR. Se fuerza acá, en el
+  // único punto que cambia el estado, para que ningún camino (vencimiento de la prueba, cobro fallido, decisión del admin)
+  // vuelva a dejar una tienda con insignia pero sin las funciones Pro.
+  const plan = extraData.planType ?? vendor.planType;
+  if (toStatus === "VERIFIED" && plan !== "BUSINESS") toStatus = "PLAN_ENDED";
+  const data = { ...extraData, verificationStatus: toStatus };
+  if (toStatus !== "VERIFIED") data.planType = "REGULAR";
 
   const [updatedVendor] = await prisma.$transaction([
-    prisma.vendor.update({ where: { id: vendorId }, data: { verificationStatus: toStatus, ...extraData } }),
+    prisma.vendor.update({ where: { id: vendorId }, data }),
     prisma.verificationStatusLog.create({
       data: { vendorId, fromStatus, toStatus, reason, actorId, source },
     }),
@@ -54,6 +63,9 @@ export async function transitionVendorVerification(vendorId, toStatus, { reason 
   // rompe la transición real.
   if (toStatus === "VERIFIED") await syncVerificationArchive(vendorId, { verifiedAt: new Date() }).catch(() => {});
   if (toStatus === "REJECTED") await syncVerificationArchive(vendorId, { rejectedAt: new Date(), notes: reason ?? undefined }).catch(() => {});
+
+  // El cupo de productos depende del plan: al cambiar, se recalcula qué productos quedan visibles.
+  if (updatedVendor.planType !== vendor.planType) await recalcVendorProductQuota(vendorId);
 
   if (notify) {
     await notifyVerificationEvent({ ...vendor, ...updatedVendor, user: vendor.user }, notify.type, { notes: reason, ctaHref: notify.ctaHref });
@@ -177,4 +189,46 @@ export async function syncVerificationArchive(vendorId, patch) {
   const verification = await prisma.verificationRequest.findUnique({ where: { vendorId }, select: { archiveId: true } });
   if (!verification?.archiveId) return;
   await prisma.verificationArchive.update({ where: { id: verification.archiveId }, data: patch });
+}
+
+// Corrige las tiendas que quedaron fuera de la regla "Pro activo <=> VERIFIED" (datos de antes de la regla, o un cambio hecho
+// a mano en la base). Se corre al arrancar el servidor y en la tarea diaria; si todo está bien, no toca nada.
+//  - Insignia con plan Regular: si tiene una prueba gratis o un periodo pagado en curso, recupera el plan Pro (le
+//    corresponde); si no, pierde la insignia (PLAN_ENDED).
+//  - Plan Business sin estar VERIFIED: no tiene ninguna función Pro, se deja en Regular.
+export async function reconcilePlanVerification() {
+  const now = new Date();
+  const badgeWithoutPlan = await prisma.vendor.findMany({
+    where: { verificationStatus: "VERIFIED", planType: { not: "BUSINESS" } },
+    select: { id: true, trialEndsAt: true, nextPaymentDueDate: true },
+  });
+  let restored = 0;
+  let ended = 0;
+  for (const v of badgeWithoutPlan) {
+    const inPeriod = (v.trialEndsAt && v.trialEndsAt > now) || (v.nextPaymentDueDate && v.nextPaymentDueDate > now);
+    if (inPeriod) {
+      await prisma.$transaction([
+        prisma.vendor.update({ where: { id: v.id }, data: { planType: "BUSINESS" } }),
+        prisma.verificationStatusLog.create({
+          data: { vendorId: v.id, fromStatus: "VERIFIED", toStatus: "VERIFIED", source: "CRON_EXPIRATION", reason: "Tenía la insignia en plan Regular con la prueba o el periodo pagado en curso: recupera el Plan Premium." },
+        }),
+      ]);
+      await recalcVendorProductQuota(v.id);
+      restored++;
+    } else {
+      await transitionVendorVerification(v.id, "PLAN_ENDED", {
+        source: "CRON_EXPIRATION",
+        reason: "Tenía la insignia en plan Regular: solo el Plan Premium lleva la insignia.",
+      });
+      ended++;
+    }
+  }
+  const planWithoutBadge = await prisma.vendor.findMany({ where: { verificationStatus: { not: "VERIFIED" }, planType: "BUSINESS" }, select: { id: true } });
+  for (const v of planWithoutBadge) {
+    await prisma.vendor.update({ where: { id: v.id }, data: { planType: "REGULAR" } });
+    await recalcVendorProductQuota(v.id);
+  }
+  const fixed = restored + ended + planWithoutBadge.length;
+  if (fixed) console.log(`[planes] corregidas: ${restored} recuperan Pro, ${ended} pierden la insignia, ${planWithoutBadge.length} pasan a Regular`);
+  return { restored, ended, toRegular: planWithoutBadge.length };
 }

@@ -32,11 +32,13 @@ export function planFromSettings(plans, planType) {
 // REJECTED en el medio.
 export const STAGE_META = {
   NOT_STARTED: { label: "Sin verificar todavía", color: "#65676c", bg: "rgba(117,119,124,0.1)", Icon: Clock },
-  PENDING_DOCS: { label: "Documentos enviados — esperando revisión", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
+  PENDING_DOCS: { label: "Documentos enviados, esperando revisión", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
   IN_REVIEW: { label: "Un admin está revisando tus documentos", color: "#8A5100", bg: "rgba(138,81,0,0.1)", Icon: Clock },
-  PENDING_PAYMENT: { label: "Documentos aprobados — falta el pago", color: "#337475", bg: "rgba(51,116,117,0.1)", Icon: Clock },
+  PENDING_PAYMENT: { label: "Documentos aprobados: falta el pago", color: "#337475", bg: "rgba(51,116,117,0.1)", Icon: Clock },
   VERIFIED: { label: "Tienda verificada", color: "#087A38", bg: "rgba(12,174,83,0.1)", Icon: CheckCircle2 },
   PAYMENT_FAILED: { label: "El cobro de tu suscripción falló", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: AlertTriangle },
   SUSPENDED: { label: "Tu suscripción fue suspendida", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: Ban },
   REJECTED: { label: "Documentos rechazados", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: XCircle },
+  // Tuvo Premium (pagado o prueba gratis) y volvió al plan Regular: no es un error ni un castigo, por eso no va en rojo.
+  PLAN_ENDED: { label: "Plan Regular", color: "#65676c", bg: "rgba(117,119,124,0.1)", Icon: Clock },
 };

@@ -135,7 +135,8 @@ export default function VendorVerification() {
   const showChooser =
     (status === "PENDING_PAYMENT" && (!data?.paymentMethod || changingMethod || (data?.paymentMethod === "CARD" && !data?.stripePaidAt))) ||
     status === "PAYMENT_FAILED" ||
-    status === "SUSPENDED";
+    status === "SUSPENDED" ||
+    status === "PLAN_ENDED";
   // Pago en CUP elegido (o un pago con tarjeta antiguo, de antes del cobro automático, que pedía comprobante).
   const awaitingProofClaim =
     status === "PENDING_PAYMENT" && (data?.paymentMethod === "CUP_TRANSFER" || (data?.paymentMethod === "CARD" && !!data?.stripePaidAt)) && !changingMethod;
@@ -175,6 +176,7 @@ export default function VendorVerification() {
               {status === "VERIFIED" && "Tu tienda tiene la insignia de verificada."}
               {status === "PAYMENT_FAILED" && "No pudimos cobrar tu plan. Resuélvelo abajo para recuperarlo, sin rehacer documentos."}
               {status === "SUSPENDED" && "Tu suscripción terminó. Reactívala abajo, sin rehacer documentos."}
+              {status === "PLAN_ENDED" && `Tu tienda está en el plan Regular, sin la insignia. Tus documentos siguen aprobados: vuelve a ${businessPlan?.name ?? "Premium"} pagando abajo.`}
               {status === "REJECTED" && (data?.notes || "Tu solicitud fue rechazada. Vuelve a capturar los documentos e intenta de nuevo.")}
             </div>
           </div>

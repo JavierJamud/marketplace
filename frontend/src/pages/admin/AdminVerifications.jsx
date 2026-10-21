@@ -49,6 +49,7 @@ const STATUS_BADGE = {
   PAYMENT_FAILED: { label: "Pago fallido", className: "bg-error/10 text-error" },
   SUSPENDED: { label: "Suspendida", className: "bg-error/10 text-error" },
   REJECTED: { label: "Rechazada", className: "bg-error/10 text-error" },
+  PLAN_ENDED: { label: "Volvió a Regular", className: "bg-surface-container text-on-surface-variant" },
 };
 
 function fmtDate(iso) {
@@ -736,7 +737,7 @@ export default function AdminVerifications() {
           // vendedor reclama el pago (paymentClaimedAt), aparece EL MISMO
           // bloque de revisión+confirmar que ya usaba CUP, con los datos que
           // corresponda a cada método.
-          const inPaymentPhase = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(v.verificationStatus);
+          const inPaymentPhase = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(v.verificationStatus);
           const showAwaitingClaim = inPaymentPhase && !!v.paymentMethod && !v.paymentClaimedAt;
           const showPaymentConfirm = inPaymentPhase && !!v.paymentMethod && !!v.paymentClaimedAt;
           const noMethodYet = v.verificationStatus === "PENDING_PAYMENT" && !v.paymentMethod;

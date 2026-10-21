@@ -2,12 +2,14 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Clock, Sparkles } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
-// Prueba gratis activa ("Free 30 días"): franja con los días que quedan, en todo el panel del dueño. Desde 7 días antes del
+// Prueba gratis activa: franja con los días que quedan, en todo el panel del dueño. Desde 7 días antes del
 // final cambia a aviso: qué pasa al terminar y dónde elegir cómo pagar (el mismo aviso llega por correo a los 7, 3 y 1 días).
 const DAY = 24 * 60 * 60 * 1000;
 
 export function TrialStatusBanner({ vendor }) {
+  const { planNames } = usePlatformSettings();
   const { data } = useQuery({
     queryKey: ["vendor-trial"],
     queryFn: async () => (await api.get("/vendors/me/trial")).data.trial,
@@ -31,14 +33,14 @@ export function TrialStatusBanner({ vendor }) {
         {ending ? <Clock className="mt-0.5 h-5 w-5 flex-shrink-0 text-error" aria-hidden="true" /> : <Sparkles className="mt-0.5 h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />}
         <div className="min-w-0">
           <p className="text-[13.5px] font-bold text-on-surface">
-            Free 30 días · {left}
+            Plan {planNames.BUSINESS} · Prueba gratis · {left}
           </p>
           {/* Mientras falta más de una semana, en el celular basta con la línea de arriba: el detalle ocupaba media pantalla en
               cada sección del panel. Cerca del final se muestra siempre, porque ahí sí hay que actuar. */}
           <p className={`text-[12.5px] leading-[18px] text-on-surface-variant ${ending ? "" : "hidden sm:block"}`}>
             {ending
-              ? `Tu Premium gratis termina el ${endLabel}. Elige cómo pagar para seguir en Premium; si no, tu tienda pasa sola a Regular y los productos que pasen de su límite quedan ocultos (no se borran).`
-              : `Tienes todas las funciones Premium gratis hasta el ${endLabel}.`}
+              ? `Tu prueba gratis termina el ${endLabel}. Elige cómo pagar para seguir en ${planNames.BUSINESS}; si no, tu tienda pasa sola a ${planNames.REGULAR}: pierde la insignia de verificada y los productos que pasen de su límite quedan ocultos (no se borran).`
+              : `Tienes todas las funciones ${planNames.BUSINESS} gratis hasta el ${endLabel}.`}
           </p>
         </div>
       </div>

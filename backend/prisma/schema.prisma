@@ -109,6 +109,9 @@ enum VendorVerificationStatus {
   PAYMENT_FAILED
   SUSPENDED
   REJECTED
+  // Tuvo el plan Pro (pagado o prueba gratis) y volvió al Regular: conserva sus documentos aprobados para volver a Pro
+  // pagando, pero no tiene insignia ni funciones Pro. Regla: plan Pro activo <=> VERIFIED (ver vendorVerification.service.js).
+  PLAN_ENDED
 }
 
 // Bloque 64: de dónde vino cada cambio de estado (VerificationStatusLog) —
@@ -2667,6 +2670,9 @@ model SiteSettings {
   // del admin (AdminSubscriptions.jsx). Default 25 = mismo valor de siempre.
   // Float: admite centavos (4.99). Stripe lo convierte a centavos con Math.round(x * 100).
   cardSubscriptionPriceUsd Float @default(25)
+  // Días de la prueba gratis del plan Pro. Se aplica a las pruebas que se activan desde que se cambia; las que ya están en
+  // curso conservan su fecha de fin.
+  trialDays Int @default(30)
   // Bloque 66 (pedido explícito): catálogo administrable de etiquetas que un
   // vendedor puede elegir para un producto (mismo patrón que
   // productPaymentMethods/availableCurrencies arriba) — "Nuevo" es un valor

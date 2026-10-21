@@ -1,8 +1,7 @@
 import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { sendTrialExpiringSoonEmail } from "../lib/email.js";
-import { transitionVendorVerification } from "../services/vendorVerification.service.js";
-import { recalcVendorProductQuota } from "../lib/planConfig.js";
+import { transitionVendorVerification, reconcilePlanVerification } from "../services/vendorVerification.service.js";
 import { applyScheduledDowngrades } from "../services/planDowngrade.service.js";
 
 // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
@@ -41,11 +40,9 @@ async function sendTrialExpiringSoonReminders() {
 }
 
 // --- 2: vencimiento real — nadie convirtió el trial a tiempo ---------------
-// Bloque 235 (pedido explícito — "no debe suspenderse ni perder el sello"):
-// a propósito NO pasa por SUSPENDED (eso es revokeBusinessPlan, una acción
-// punitiva de admin) — toStatus sigue siendo "VERIFIED" (ya lo era), solo
-// cambia planType en extraData. El sello de verificado queda intacto, solo
-// se pierden las funciones Premium (isPremiumActive exige AMBAS cosas).
+// No pasa por SUSPENDED (eso es revokeBusinessPlan, una acción punitiva de admin): vuelve al plan Regular (PLAN_ENDED). Pedido
+// explícito: el Regular no lleva insignia, así que al terminar la prueba la pierde junto con las funciones Pro. Conserva los
+// documentos aprobados para volver a Pro pagando.
 async function expireTrials() {
   const vendors = await prisma.vendor.findMany({
     // Con tarjeta, el final de la prueba lo resuelve Stripe (cobra el primer mes o avisa del fallo): este reloj no la toca.
@@ -54,13 +51,12 @@ async function expireTrials() {
 
   let expired = 0;
   for (const vendor of vendors) {
-    await transitionVendorVerification(vendor.id, "VERIFIED", {
+    await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "CRON_EXPIRATION",
-      reason: "Venció el trial gratuito de 30 días del Plan Premium.",
-      extraData: { planType: "REGULAR", trialEndsAt: null },
+      reason: "Venció la prueba gratis del Plan Premium.",
+      extraData: { trialEndsAt: null },
       notify: { type: "TRIAL_EXPIRED" },
     });
-    await recalcVendorProductQuota(vendor.id);
     expired++;
   }
   return expired;
@@ -73,6 +69,7 @@ export async function runTrialExpiryJob() {
   const downgraded = await applyScheduledDowngrades();
   const reminders = await sendTrialExpiringSoonReminders();
   const expired = await expireTrials();
+  await reconcilePlanVerification();
   console.log(`[trialExpiryJob] cambios-a-regular=${downgraded} recordatorios=${reminders} vencidos=${expired}`);
   return { downgraded, reminders, expired };
 }

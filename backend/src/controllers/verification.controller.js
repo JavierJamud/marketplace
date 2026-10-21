@@ -23,12 +23,12 @@ import {
   invoiceSubscriptionMetadata,
   cancelStripeSubscription,
 } from "../lib/stripe.js";
-import { getBrandSettings, getSubscriptionPricing } from "./settings.controller.js";
+import { getBrandSettings, getSubscriptionPricing, getTrialDays } from "./settings.controller.js";
 // Bloque 69: extraído a un lib compartido — reviews.controller.js es el
 // segundo consumidor real de este mismo "avisar al admin ya" (ver lib/adminNotify.js).
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
-import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete, TRIAL_DAYS } from "../services/trialEligibility.service.js";
+import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete } from "../services/trialEligibility.service.js";
 import { recalcVendorProductQuota, getPlanConfig, buildPlanIncludes } from "../lib/planConfig.js";
 import { resolveLegalLocation } from "../services/registrationLocation.service.js";
 import { applyPlanDowngrade } from "../services/planDowngrade.service.js";
@@ -420,7 +420,7 @@ export async function chooseMyPaymentMethod(req, res) {
   // elegir método de pago — su suscripción anterior ya no está vigente (o
   // venció su ciclo sin recuperarse), pero sus documentos ya aprobados
   // siguen valiendo, así que arranca un ciclo de pago nuevo sin rehacerlos.
-  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(vendor.verificationStatus)) {
+  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(vendor.verificationStatus)) {
     throw new AppError("Todavía no llegaste a la fase de cobro de la suscripción.", 409);
   }
 
@@ -488,7 +488,7 @@ export async function retryMyStripeCheckout(req, res) {
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const v = vendor.verification;
-  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(vendor.verificationStatus) || v?.paymentMethod !== "CARD" || !v?.paymentMonths) {
+  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(vendor.verificationStatus) || v?.paymentMethod !== "CARD" || !v?.paymentMonths) {
     throw new AppError("Elige tarjeta como método de pago antes de generar un link de Stripe.", 409);
   }
 
@@ -553,7 +553,7 @@ export async function uploadMyPaymentProof(req, res) {
   // PAYMENT_FAILED (ciclo vencido, ver verificationPayment.job.js) y
   // SUSPENDED (revocado a mano por un admin) — en los 3 casos renueva
   // reclamando el pago de nuevo, sin rehacer los documentos ya aprobados.
-  const canUploadProof = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(vendor.verificationStatus);
+  const canUploadProof = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(vendor.verificationStatus);
   if (!canUploadProof || !v?.paymentMethod) {
     throw new AppError("Elige un método de pago antes de reclamar el pago.", 409);
   }
@@ -634,7 +634,7 @@ export async function uploadMyPaymentProof(req, res) {
 export async function getMySubscription(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id }, include: { verification: true } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
-  const relevant = vendor.verificationStatus === "VERIFIED" || (["PAYMENT_FAILED", "SUSPENDED"].includes(vendor.verificationStatus) && (vendor.stripeCustomerId || vendor.nextPaymentDueDate));
+  const relevant = vendor.verificationStatus === "VERIFIED" || (["PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(vendor.verificationStatus) && (vendor.stripeCustomerId || vendor.nextPaymentDueDate));
   if (!relevant) return res.json({ subscription: null });
 
   const [plan, pricing, lastConfirmed, pending, history, firstVerified, card] = await Promise.all([
@@ -970,7 +970,7 @@ async function handleCheckoutCompleted(session) {
   // recibe el 200 a tiempo — sin este chequeo, un reintento repetiría el
   // aviso de "recibimos tu pago" sin ninguna necesidad.
   if (verification.stripePaidAt) return;
-  if (verification.paymentMethod !== "CARD" || !["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(verification.vendor.verificationStatus)) return;
+  if (verification.paymentMethod !== "CARD" || !["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(verification.vendor.verificationStatus)) return;
   // Un evento de una sesión VIEJA (el vendedor generó un link nuevo después
   // de que este venciera) no debe activar nada — solo cuenta la sesión
   // vigente guardada en la solicitud.
@@ -1026,7 +1026,7 @@ export async function startMyCardSubscription(req, res) {
   const { months } = cardCheckoutSchema.parse(req.body);
   const status = vendor.verificationStatus;
   const switching = status === "VERIFIED"; // ya verificada (pagaba en CUP o a mano) y pasa a cobro automático
-  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "VERIFIED"].includes(status)) {
+  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED", "VERIFIED"].includes(status)) {
     throw new AppError("Todavía no llegaste a la fase de pago de la suscripción.", 409);
   }
   if (switching && vendor.trialEndsAt) throw new AppError("Estás en la prueba gratis: el cobro empieza cuando termine.", 409);
@@ -1065,7 +1065,7 @@ export async function startMyTrialCard(req, res) {
   if (vendor.trialEndsAt || vendor.verificationStatus === "VERIFIED") throw new AppError("Tu prueba gratis ya está activa.", 409);
   if (!(await isTrialChecklistComplete(vendor.id))) throw new AppError("Completa todos los pasos de tu tienda antes de registrar la tarjeta.", 409);
   const pricing = await getSubscriptionPricing();
-  const session = await createCardSubscriptionCheckout({ vendor, months: 1, priceUsd: pricing.cardPricePerMonthUsd, purpose: "trial", trialDays: TRIAL_DAYS });
+  const session = await createCardSubscriptionCheckout({ vendor, months: 1, priceUsd: pricing.cardPricePerMonthUsd, purpose: "trial", trialDays: await getTrialDays() });
   res.json({ url: session.url });
 }
 
@@ -1133,7 +1133,7 @@ async function activateFromCardSubscription(vendorId, sub, { purpose, months, am
     await activateVendorTrial(vendor.id, {
       trialEndsAt,
       extraData: { ...stripeData, trialBilling: "CARD" },
-      reason: "Prueba gratis de 30 días activada al registrar la tarjeta en Stripe (se cobra al terminar si no cancela).",
+      reason: "Prueba gratis activada al registrar la tarjeta en Stripe (se cobra al terminar si no cancela).",
     });
     return;
   }
@@ -1228,7 +1228,7 @@ async function handleCardInvoicePaid(invoice) {
   const data = { ...(periodEnd ? { nextPaymentDueDate: periodEnd } : {}) };
   // Primer cobro después de la prueba gratis: deja de ser prueba y pasa a ser plan pagado.
   if (vendor.trialEndsAt && amount > 0) data.trialEndsAt = null;
-  if (["PAYMENT_FAILED", "SUSPENDED"].includes(vendor.verificationStatus) || (vendor.verificationStatus === "VERIFIED" && vendor.planType !== "BUSINESS" && amount > 0)) {
+  if (["PAYMENT_FAILED", "SUSPENDED"].includes(vendor.verificationStatus) || (vendor.verificationStatus === "PLAN_ENDED" && amount > 0)) {
     await transitionVendorVerification(vendor.id, "VERIFIED", {
       source: "STRIPE_WEBHOOK",
       reason: "Stripe cobró la suscripción con tarjeta.",
@@ -1248,15 +1248,14 @@ async function handleCardInvoiceFailed(invoice) {
   const vendor = await vendorForSubscription(subId, invoiceSubscriptionMetadata(invoice));
   if (!vendor || vendor.stripeSubscriptionId !== subId || vendor.verificationStatus !== "VERIFIED") return;
   if (vendor.trialEndsAt) {
-    // Terminó la prueba y la tarjeta no pasó: vuelve al plan gratis (conserva la insignia, como al vencer la prueba) hasta
-    // que ponga otra tarjeta; al cobrarse, recupera Premium.
-    await transitionVendorVerification(vendor.id, "VERIFIED", {
+    // Terminó la prueba y la tarjeta no pasó: vuelve al plan Regular, sin insignia, hasta que ponga otra tarjeta; al
+    // cobrarse, recupera Premium.
+    await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "STRIPE_WEBHOOK",
       reason: "Terminó la prueba gratis y Stripe no pudo cobrar la tarjeta.",
-      extraData: { planType: "REGULAR", trialEndsAt: null },
+      extraData: { trialEndsAt: null },
       notify: { type: "VERIFICATION_PAYMENT_FAILED" },
     });
-    await recalcVendorProductQuota(vendor.id);
     return;
   }
   await transitionVendorVerification(vendor.id, "PAYMENT_FAILED", {
@@ -1281,28 +1280,36 @@ async function handleCardSubscriptionUpdated(sub) {
 async function handleCardSubscriptionDeleted(sub) {
   const vendor = await prisma.vendor.findFirst({ where: { stripeSubscriptionId: sub.id } });
   if (!vendor) return;
-  // El admin había programado el paso a Regular al terminar el periodo: se aplica eso (conserva la insignia).
+  // El admin había programado el paso a Regular al terminar el periodo: se aplica eso.
   if (vendor.planDowngradeAt) {
     await prisma.vendor.update({ where: { id: vendor.id }, data: { stripeSubscriptionId: null } });
     await applyPlanDowngrade(vendor.id, { source: "STRIPE_WEBHOOK" });
     return;
   }
-  if (vendor.trialEndsAt || (vendor.verificationStatus === "VERIFIED" && vendor.planType === "REGULAR")) {
-    // Canceló durante la prueba (o la prueba no llegó a cobrarse): vuelve al plan gratis y conserva la insignia.
-    await transitionVendorVerification(vendor.id, "VERIFIED", {
+  if (vendor.trialEndsAt || vendor.verificationStatus === "PLAN_ENDED") {
+    // Canceló durante la prueba (o la prueba no llegó a cobrarse): vuelve al plan Regular, sin insignia.
+    await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "STRIPE_WEBHOOK",
       reason: "Terminó la suscripción de la prueba gratis.",
-      extraData: { planType: "REGULAR", trialEndsAt: null, stripeSubscriptionId: null, cancelAtPeriodEnd: false },
+      extraData: { trialEndsAt: null, stripeSubscriptionId: null, cancelAtPeriodEnd: false },
       notify: vendor.trialEndsAt ? { type: "TRIAL_EXPIRED" } : undefined,
     });
-    await recalcVendorProductQuota(vendor.id);
+    return;
+  }
+  // La tienda pidió cancelar y llegó el final de lo pagado: vuelve al plan Regular (no es una suspensión).
+  if (sub.cancellation_details?.reason === "cancellation_requested") {
+    await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
+      source: "STRIPE_WEBHOOK",
+      reason: "La tienda canceló la suscripción y llegó el final de lo pagado.",
+      extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false },
+    });
     return;
   }
   if (vendor.verificationStatus === "SUSPENDED") return;
   // stripeCustomerId se conserva: la tienda puede reactivar con su tarjeta guardada.
   await transitionVendorVerification(vendor.id, "SUSPENDED", {
     source: "STRIPE_WEBHOOK",
-    reason: sub.cancellation_details?.reason === "cancellation_requested" ? "La tienda canceló la suscripción y llegó el final de lo pagado." : "La suscripción con tarjeta terminó (Stripe no pudo cobrar).",
+    reason: "La suscripción con tarjeta terminó (Stripe no pudo cobrar).",
     extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false },
     notify: { type: "VERIFICATION_SUSPENDED" },
   });

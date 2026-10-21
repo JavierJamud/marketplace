@@ -45,6 +45,12 @@ export function usePlatformSettings() {
     timezone: data?.timezone || null,
     // Bloque 294: tope de mesas por plan ({ REGULAR: 10, BUSINESS: null }); null = sin tope.
     maxTablesByPlan: data?.maxTablesByPlan ?? {},
+    // Días de la prueba gratis de Premium (los configura el admin en Suscripciones) y el nombre visible de cada plan.
+    trialDays: data?.trialDays ?? 30,
+    planNames: {
+      REGULAR: data?.plans?.find((p) => p.planType === "REGULAR")?.displayName || "Regular",
+      BUSINESS: data?.plans?.find((p) => p.planType === "BUSINESS")?.displayName || "Premium",
+    },
     logoUrl: logo,
     // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del
     // vendedor bloqueado/suspendido — null si el admin nunca lo cargó.

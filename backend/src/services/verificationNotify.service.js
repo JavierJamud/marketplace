@@ -73,21 +73,21 @@ const EVENTS = {
     body: (notes) =>
       `El equipo activó el Plan Premium y el badge de verificación de tu tienda. Motivo: ${notes?.trim() || "sin especificar"}.`,
   },
-  // Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
-  // Premium): a diferencia de VERIFICATION_BUSINESS_GRANTED de arriba, acá
-  // nunca hay un admin detrás — lo disparó el propio vendedor al completar
-  // el checklist del trial (ver trialEligibility.service.js). TRIAL_EXPIRED
-  // aclara a propósito que el sello de verificado NO se pierde, solo las
-  // funciones Premium — para que no se sienta como una suspensión.
+  // Bloque 235: a diferencia de VERIFICATION_BUSINESS_GRANTED de arriba, acá nunca hay un admin detrás: lo disparó el propio
+  // vendedor al completar el checklist de la prueba (ver trialEligibility.service.js). Los días y la fecha de fin salen de la
+  // propia tienda (la duración la configura el admin). Al terminar la prueba vuelve al Regular y pierde también la insignia:
+  // el plan Regular no la lleva (pedido explícito).
   TRIAL_ACTIVATED: {
-    title: "¡Tu tienda pasó a Plan Premium — trial gratuito de 30 días!",
-    body: () =>
-      "Completaste todo lo necesario y tu tienda ya tiene el badge de verificación y el Plan Premium activo, sin costo, durante 30 días. Cuando falten pocos días te avisamos para que decidas si quieres seguir.",
+    title: "¡Tu tienda pasó a Plan Premium con la prueba gratis!",
+    body: (_notes, vendor) => {
+      const end = vendor?.trialEndsAt ? new Date(vendor.trialEndsAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", timeZone: "America/Havana" }) : null;
+      return `Completaste todo lo necesario y tu tienda ya tiene la insignia de verificación y el Plan Premium activo, sin costo${end ? `, hasta el ${end}` : ""}. Cuando falten pocos días te avisamos para que decidas si quieres seguir.`;
+    },
   },
   TRIAL_EXPIRED: {
-    title: "Tu trial Premium de 30 días terminó",
+    title: "Tu prueba gratis del Plan Premium terminó",
     body: () =>
-      "Tu tienda vuelve al Plan Regular — perdiste las funciones Premium (asistente con IA, destacado en la home, etc.), pero tu badge de verificación sigue activo, eso no se pierde. Puedes activar el Plan Premium cuando quieras desde tu panel.",
+      "Tu tienda vuelve al Plan Regular: pierde la insignia de verificación y las funciones Premium (asistente con IA, destacado en la página principal, etc.). Tus documentos siguen aprobados, así que puedes volver a Premium cuando quieras pagando desde tu panel, sin repetir la verificación.",
   },
   // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
   // nuevo reactiva sin rehacer documentos); SUSPENDED implica que la
@@ -95,12 +95,12 @@ const EVENTS = {
   VERIFICATION_PAYMENT_FAILED: {
     title: "No pudimos cobrar tu suscripción",
     body: () =>
-      "No pudimos cobrar tu plan. Si pagas con tarjeta, entra a Suscripción en tu panel y pon otra tarjeta: se cobra en el momento y recuperas todo. Si pagas en CUP, completa la transferencia desde el mismo lugar. No hace falta volver a subir tus documentos.",
+      "No pudimos cobrar tu plan y tu tienda pasó al Plan Regular por ahora. Si pagas con tarjeta, entra a Suscripción en tu panel y pon otra tarjeta: se cobra en el momento y recuperas todo. Si pagas en CUP, completa la transferencia desde el mismo lugar. No hace falta volver a subir tus documentos.",
   },
   VERIFICATION_SUSPENDED: {
     title: "Tu suscripción fue suspendida",
     body: () =>
-      "Tu suscripción del Plan Business ya no está activa — perdiste el badge de verificación. Puedes iniciar una suscripción nueva desde tu panel cuando quieras (tus documentos ya aprobados siguen valiendo).",
+      "Tu suscripción del Plan Premium ya no está activa y tu tienda pasó al Plan Regular, sin la insignia de verificación. Puedes iniciar una suscripción nueva desde tu panel cuando quieras (tus documentos ya aprobados siguen valiendo).",
   },
   // Bloque 153 (pedido explícito — "el admin debe aprobar los demás meses
   // pagos"): confirma una RENOVACIÓN (meses extra pagados mientras la
@@ -108,7 +108,7 @@ const EVENTS = {
   // es la primera activación.
   SUBSCRIPTION_RENEWAL_CONFIRMED: {
     title: "Renovación confirmada",
-    body: (notes) => `Confirmamos tu renovación — tu Plan Business sigue activo${notes ? ` ${notes}` : ""}.`,
+    body: (notes) => `Confirmamos tu renovación: tu Plan Premium sigue activo${notes ? ` ${notes}` : ""}.`,
   },
   // Bloque 153 (pedido explícito — "todos los datos de la tienda no se
   // pueden modificar después de estar verificadas sin aprobación del
@@ -125,7 +125,7 @@ const EVENTS = {
 
 export async function notifyVerificationEvent(vendor, type, { notes, ctaHref } = {}) {
   const meta = EVENTS[type];
-  const body = meta.body(notes);
+  const body = meta.body(notes, vendor);
 
   await Promise.all([
     prisma.vendorNotification.create({ data: { vendorId: vendor.id, type, title: meta.title, body } }),

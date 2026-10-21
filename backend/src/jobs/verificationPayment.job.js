@@ -53,9 +53,11 @@ async function processDeferredCancellations() {
 
   let processed = 0;
   for (const vendor of vendors) {
-    await transitionVendorVerification(vendor.id, "NOT_STARTED", {
+    // Vuelve al plan Regular (sin insignia) conservando los documentos aprobados: antes pasaba a NOT_STARTED y quedaba en
+    // plan Business sin funciones, y para volver tenía que rehacer la verificación.
+    await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "CRON_EXPIRATION",
-      reason: "Cancelación de suscripción efectiva — llegó la fecha de vencimiento del plan.",
+      reason: "Cancelación de suscripción efectiva: llegó la fecha de vencimiento del plan.",
       extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false },
     });
     processed++;

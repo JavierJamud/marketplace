@@ -42,9 +42,13 @@ const SUBSCRIPTION_STATUS_LABEL = {
 // SOLO verificationStatus (sin los includes de verification/locations que
 // esa lista sí necesita) y de todas formas compartir el mismo criterio de
 // conteo/MRR — nunca dos copias del cálculo.
-// Una tienda en su prueba gratis de 30 días está VERIFIED con Premium, pero todavía no paga: se cuenta aparte ("trial") y
+// Una tienda en su prueba gratis está VERIFIED con Premium, pero todavía no paga: se cuenta aparte ("trial") y
 // no suma al MRR.
 const inTrial = (v) => !!v.trialEndsAt && new Date(v.trialEndsAt) > new Date();
+// Tiendas que aparecen en Suscripciones: las que tienen Premium (pagado o prueba) y las que lo perdieron por un cobro
+// fallido o una suspensión. Con la regla "Premium activo <=> VERIFIED" estas últimas ya están en plan Regular, así que filtrar
+// solo por planType las escondería justo cuando hay que revisar su cobro.
+const SUBSCRIPTION_SCOPE = { deletedAt: null, OR: [{ planType: "BUSINESS" }, { verificationStatus: { in: ["PAYMENT_FAILED", "SUSPENDED"] } }] };
 function subscriptionStatusOf(v) {
   const status = SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment";
   return status === "active" && inTrial(v) ? "trial" : status;
@@ -75,6 +79,7 @@ const VERIFICATION_FUNNEL_STAGES = [
   "PAYMENT_FAILED",
   "SUSPENDED",
   "REJECTED",
+  "PLAN_ENDED",
 ];
 const VERIFICATION_STATUS_LABEL = {
   NOT_STARTED: "Sin iniciar",
@@ -85,6 +90,7 @@ const VERIFICATION_STATUS_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   SUSPENDED: "Suspendida",
   REJECTED: "Rechazada",
+  PLAN_ENDED: "Volvió a Regular",
 };
 
 export async function getDashboard(_req, res) {
@@ -232,7 +238,7 @@ export async function getDashboard(_req, res) {
 
   const [subscriptionMetrics, verificationFunnelRaw] = await Promise.all([
     computeSubscriptionMetrics(
-      await prisma.vendor.findMany({ where: { planType: "BUSINESS", deletedAt: null }, select: { verificationStatus: true, trialEndsAt: true } })
+      await prisma.vendor.findMany({ where: SUBSCRIPTION_SCOPE, select: { verificationStatus: true, trialEndsAt: true } })
     ),
     prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
   ]);
@@ -395,7 +401,7 @@ function vendorStatusWhere(status) {
     case "inprocess":
       return { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW", "PENDING_PAYMENT"] } };
     case "unverified":
-      return { verificationStatus: { in: ["NOT_STARTED", "REJECTED", "PAYMENT_FAILED"] } };
+      return { verificationStatus: { in: ["NOT_STARTED", "REJECTED", "PAYMENT_FAILED", "PLAN_ENDED"] } };
     case "business":
       return { planType: "BUSINESS" };
     case "inactive":
@@ -551,7 +557,8 @@ const updateVendorSchema = z.object({
   // vendedor lo ve en su panel (VendorLayout.jsx) y lo usa para escribirle a
   // soporte con contexto real, en vez de quedar sin ninguna explicación.
   blockReason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.").optional(),
-  planType: z.enum(["REGULAR", "BUSINESS"]).optional(),
+  // planType ya no se edita acá: cambiarlo solo dejaba una tienda Business sin insignia ni funciones, o Regular con insignia.
+  // El plan se cambia con "Dar Premium" (grant-business) o "Pasar a Regular" (downgrade), que mueven plan e insignia juntos.
   // Edición básica desde el admin (Bloque 12) — mismas reglas de forma que
   // el registro del vendedor.
   companyName: z.string().min(2).optional(),
@@ -625,14 +632,8 @@ export async function updateVendor(req, res) {
   }
 
   const updated = await prisma.vendor.update({ where: { id }, data: vendorData });
-  // Bloque 52: el cupo de productos depende del plan — si este guardado lo
-  // cambió, recalcula qué productos de ESTA tienda quedan dentro/fuera.
-  if (data.planType && data.planType !== vendor.planType) await recalcVendorProductQuota(id);
   if (data.isBlocked === true && !vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue bloqueada", `Motivo: ${vendorData.blockReason}. Escríbenos desde Mensajes si necesitas ayuda.`);
   else if (data.isBlocked === false && vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue desbloqueada", "Ya está visible otra vez y puedes vender con normalidad.");
-  if (data.planType && data.planType !== vendor.planType) {
-    await adminNoticeToVendor(id, "Cambió tu plan", data.planType === "BUSINESS" ? "Tu tienda pasó al Plan Premium." : "Tu tienda pasó al Plan Regular.");
-  }
   res.json({ vendor: updated });
 }
 
@@ -1238,7 +1239,7 @@ export async function confirmSubscriptionPayment(req, res) {
   const { id } = req.params;
   const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
   if (!verification) throw new AppError("Solicitud no encontrada.", 404);
-  const canConfirm = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(verification.vendor.verificationStatus);
+  const canConfirm = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(verification.vendor.verificationStatus);
   if (!canConfirm || !verification.paymentMethod) {
     throw new AppError("Esta solicitud no está esperando confirmación de pago.", 409);
   }
@@ -1293,7 +1294,7 @@ export async function registerManualPayment(req, res) {
   const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
   if (!verification) throw new AppError("Solicitud no encontrada.", 404);
   const status = verification.vendor.verificationStatus;
-  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(status)) {
+  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(status)) {
     throw new AppError("Solo se puede registrar un pago a una tienda en pago pendiente, vencida o suspendida.", 409);
   }
 
@@ -1379,7 +1380,7 @@ export async function resetVerificationPaymentMethod(req, res) {
   const { id } = req.params;
   const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
   if (!verification) throw new AppError("Solicitud no encontrada.", 404);
-  const canReset = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"].includes(verification.vendor.verificationStatus);
+  const canReset = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(verification.vendor.verificationStatus);
   if (!canReset || !verification.paymentMethod) {
     throw new AppError("Esta solicitud no tiene ningún método de pago elegido para restablecer.", 409);
   }
@@ -1544,7 +1545,7 @@ export async function decideVendorChangeRequest(req, res) {
 // --- Suscripciones Business (Bloque 46, recurrente desde Bloque 64) --------
 export async function listSubscriptions(_req, res) {
   const vendors = await prisma.vendor.findMany({
-    where: { planType: "BUSINESS", deletedAt: null },
+    where: SUBSCRIPTION_SCOPE,
     include: {
       verification: true,
       locations: { include: { province: true }, take: 1 },
@@ -2029,7 +2030,7 @@ export async function resolveSupportCase(req, res) {
 const NOTICE_WHERE = [
   ["new-vendor-", "Tiendas"],
   ["trial-accepted-", "Tiendas › Prueba gratis"],
-  ["trial-", "Suscripciones › Free 30 días"],
+  ["trial-", "Suscripciones › Prueba gratis"],
   ["support-", "Casos de soporte"],
   ["verification-", "Verificaciones › Documentos pendientes", "/admin/verificaciones?tab=docs"],
   ["message-", "Mensajes"],

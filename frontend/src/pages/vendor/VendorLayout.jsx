@@ -18,6 +18,7 @@ import { VendorSearchBar } from "../../components/vendor/VendorSearchBar.jsx";
 import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx";
 import { unlockAudioOnFirstInteraction } from "../../lib/orderNotificationSound.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { vendorPlanStatus } from "../../lib/planStatus.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
 import { ReportProblemButton } from "../../components/vendor/ReportProblemButton.jsx";
 import { DocsApprovedPopup } from "../../components/vendor/DocsApprovedPopup.jsx";
@@ -194,7 +195,7 @@ export default function VendorLayout() {
   // ProtectedRoute en App.jsx) — acá solo hace falta `user` para pedir la
   // tienda propia, nunca hay que volver a chequear si hay sesión.
   const { user, logout } = useAuth();
-  const { siteName, logoUrl, supportWhatsapp } = usePlatformSettings();
+  const { siteName, logoUrl, supportWhatsapp, planNames } = usePlatformSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -453,7 +454,11 @@ export default function VendorLayout() {
               </div>
               <div className="text-[11px] font-semibold text-secondary-container">
                 {vendor?.isRestaurant ? "Restaurante · " : ""}
-                Plan {vendor?.planType === "BUSINESS" ? "Business" : "Regular"}
+                {/* Solo dos planes: Regular o Premium. La prueba gratis es Premium completo y se marca con los días que quedan. */}
+                {vendor ? (() => {
+                  const plan = vendorPlanStatus(vendor, planNames);
+                  return `Plan ${plan.label}${plan.daysLabel ? ` · ${plan.daysLabel.toLowerCase()}` : ""}`;
+                })() : null}
               </div>
             </div>
           </div>

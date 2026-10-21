@@ -17,6 +17,8 @@ import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { SuspendedVendorsList, useSuspendedVendors } from "./AdminSuspendedVendors.jsx";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { vendorPlanStatus } from "../../lib/planStatus.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -283,12 +285,20 @@ const VERIFICATION_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   REJECTED: "Rechazada",
   SUSPENDED: "Verificación suspendida",
+  PLAN_ENDED: "Volvió a Regular",
 };
 
 function VendorRow({ v }) {
   const place = v.locations?.[0]?.province?.name ?? null;
   const hasSales = v.sales30 > 0;
   const pending = !!v.adminDeletionRequestedAt;
+  const { planNames } = usePlatformSettings();
+  const plan = vendorPlanStatus(v, planNames);
+  const planChip = (size) => (
+    <span className={`rounded-full px-2 py-0.5 ${size} font-bold ${plan.trial ? "bg-tertiary-accent/10 text-tertiary-accent" : plan.premium ? "bg-secondary-container/25 text-secondary" : "bg-surface-container text-on-surface-variant"}`}>
+      {plan.label}
+    </span>
+  );
   // Todas las acciones (editar, plan, bloquear, eliminar, responsable, usuarios, estadísticas) viven en la página Gestionar.
   const menu = (
     <Link
@@ -329,9 +339,8 @@ function VendorRow({ v }) {
 
       {/* Celular: plan, verificación y números en una sola línea de datos */}
       <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 pl-[52px] text-[12px] text-on-surface-variant md:hidden">
-        <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${v.planType === "BUSINESS" ? "bg-secondary-container/25 text-secondary" : "bg-surface-container text-on-surface-variant"}`}>
-          {v.planType === "BUSINESS" ? "Business" : "Regular"}
-        </span>
+        {planChip("text-[10.5px]")}
+        {plan.trial && <span className={plan.daysLeft <= 7 ? "font-semibold text-error" : ""}>{plan.daysLabel}</span>}
         {!v.isVerified && <span>{VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</span>}
         <span>{v.productCount} {v.productCount === 1 ? "producto" : "productos"}</span>
         <span>{v.orders30} {v.orders30 === 1 ? "pedido" : "pedidos"} (30 d)</span>
@@ -345,10 +354,10 @@ function VendorRow({ v }) {
       </div>
 
       <div className="hidden flex-col items-start gap-1 md:flex">
-        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${v.planType === "BUSINESS" ? "bg-secondary-container/25 text-secondary" : "bg-surface-container text-on-surface-variant"}`}>
-          {v.planType === "BUSINESS" ? "Business" : "Regular"}
+        {planChip("text-[11px]")}
+        <span className={`text-[11px] ${plan.trial && plan.daysLeft <= 7 ? "font-semibold text-error" : "text-outline"}`}>
+          {plan.trial ? plan.daysLabel : v.isVerified ? "Verificada" : VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}
         </span>
-        <span className="text-[11px] text-outline">{v.isVerified ? "Verificada" : VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</span>
       </div>
       <div className="hidden text-right text-[13px] text-on-surface md:block">{v.productCount}</div>
       <div className="hidden text-right text-[13px] text-on-surface md:block" title="Pedidos entregados y pedidos de mesa de los últimos 30 días">
@@ -426,6 +435,7 @@ export default function AdminVendors() {
   }, [data, params.page, setParams]);
 
   const kpis = data?.kpis;
+  const { planNames } = usePlatformSettings();
   const hasFilters = params.q || params.status !== "all" || params.province;
   const sortValue = `${params.sort}:${params.dir}`;
   const tiles = [
@@ -433,7 +443,7 @@ export default function AdminVendors() {
     { key: "verified", label: "Verificadas", value: kpis?.verified },
     { key: "inprocess", label: "En proceso", value: kpis?.inprocess, hint: "Verificación" },
     { key: "unverified", label: "Sin verificar", value: kpis?.unverified },
-    { key: "business", label: "Business", value: kpis?.business },
+    { key: "business", label: planNames.BUSINESS, value: kpis?.business, hint: "Pagado o en prueba" },
     { key: "inactive", label: "Inactivas", value: kpis?.inactive, hint: "30 días sin entrar", tone: "warn" },
     { key: "flagged", label: "Con alertas", value: kpis?.flagged, hint: "Ranking", tone: "danger" },
     { key: "suspended", label: "Suspendidas", value: suspended.data?.length, hint: "Bloqueadas o sin uso", tone: "danger" },

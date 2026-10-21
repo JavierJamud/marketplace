@@ -20,6 +20,7 @@ import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselL
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
 import vendorMockupImageMobile from "../../assets/images/hero-mobile-apps.webp";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Bloque 248 (auditoría 004 de la página principal, pedido explícito del
 // dueño: "revisa cada punto visual de estructura y posición; se usará más en
@@ -194,6 +195,7 @@ function featuredVisibility(index) {
 }
 
 export default function Home() {
+  const { planNames } = usePlatformSettings();
   const { zoneParams, zoneKey, zoneName, provinceName, hasZoneFilter, waiting: zoneLoading } = useZone();
   const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
   // Bloque 252: el slider de imágenes del hero va a la derecha en escritorio y,
@@ -508,7 +510,7 @@ export default function Home() {
             <EmptyState
               icon={ShieldCheck}
               title="Todavía no hay tiendas verificadas en tu zona"
-              description="Sé el primero en verificarte con el Plan Business."
+              description={`Sé el primero en verificarte con el Plan ${planNames.BUSINESS}.`}
               action={
                 <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
                   Crear mi tienda

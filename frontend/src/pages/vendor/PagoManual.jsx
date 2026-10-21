@@ -8,6 +8,7 @@ import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Bloque 52 (pedido explícito — "estos son datos que el cliente solo puede
 // copiar y pegarlos en otro lado"): mismo patrón que ya usa el admin para
@@ -40,7 +41,7 @@ function CopyRow({ label, value }) {
   );
 }
 
-const ELIGIBLE_STATUSES = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED"];
+const ELIGIBLE_STATUSES = ["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"];
 
 function fmtDateTime(iso) {
   return new Date(iso).toLocaleString("es-CU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -62,6 +63,7 @@ function fmtDateTime(iso) {
 // subscription` + `/verification/me/subscription/payment-proof`) — mismo
 // formulario, mismos campos, solo cambia a qué endpoint apunta.
 export default function PagoManual() {
+  const { planNames } = usePlatformSettings();
   const queryClient = useQueryClient();
   const { vendor } = useOutletContext();
   const [proofFile, setProofFile] = useState(null);
@@ -187,10 +189,10 @@ export default function PagoManual() {
         {isRenewal
           ? "Completa el pago de tu renovación y avisa para que el equipo la confirme."
           : data.verificationStatus === "PAYMENT_FAILED"
-            ? "Tu ciclo anterior venció — completa este aviso para recuperar el badge de verificación."
+            ? "Tu ciclo anterior venció: completa este aviso para recuperar la insignia de verificación."
             : isCup
-              ? "Completa la transferencia y sube el comprobante para activar tu Plan Business."
-              : "Sube la captura del pago (o indica que no pudiste) para que el equipo confirme y active tu Plan Business."}
+              ? `Completa la transferencia y sube el comprobante para activar tu Plan ${planNames.BUSINESS}.`
+              : `Sube la captura del pago (o indica que no pudiste) para que el equipo confirme y active tu Plan ${planNames.BUSINESS}.`}
       </p>
 
       <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">

@@ -9,8 +9,8 @@ import { adminNoticeToVendor } from "../lib/notify.js";
 //    borra la prueba gratis en curso.
 //  - Al terminar lo que ya tiene: conserva Premium hasta el final de la prueba gratis o del periodo pagado y no se renueva.
 //    Ese día la tarea diaria (trialExpiry.job.js) o el aviso de Stripe aplican el cambio con applyPlanDowngrade.
-// En los dos casos conserva la insignia de verificada si ya la tenía: el cambio es de plan, no un castigo (para eso está
-// "Quitar Premium" / revokeBusinessPlan, que suspende).
+// En los dos casos pierde la insignia (pedido explícito: el plan Regular no la lleva) y queda en PLAN_ENDED, con sus documentos
+// aprobados para volver a Pro pagando. No es un castigo: para eso está "Quitar Premium" / revokeBusinessPlan, que suspende.
 
 const fmt = (d) => new Date(d).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" });
 
@@ -25,7 +25,6 @@ export async function applyPlanDowngrade(vendorId, { actorId = null, source, rea
   if (!vendor) return null;
   if (vendor.stripeSubscriptionId) await cancelStripeSubscription(vendor.stripeSubscriptionId).catch(() => {});
   const extraData = {
-    planType: "REGULAR",
     trialEndsAt: null,
     nextPaymentDueDate: null,
     stripeSubscriptionId: null,
@@ -36,11 +35,11 @@ export async function applyPlanDowngrade(vendorId, { actorId = null, source, rea
   const finalReason = reason || vendor.planDowngradeReason || "El equipo pasó la tienda al plan Regular.";
   let updated;
   if (vendor.verificationStatus === "VERIFIED") {
-    updated = await transitionVendorVerification(vendorId, "VERIFIED", { actorId, source, reason: `Pasa al plan Regular: ${finalReason}`, extraData });
+    updated = await transitionVendorVerification(vendorId, "PLAN_ENDED", { actorId, source, reason: `Pasa al plan Regular: ${finalReason}`, extraData });
   } else {
-    updated = await prisma.vendor.update({ where: { id: vendorId }, data: extraData });
+    updated = await prisma.vendor.update({ where: { id: vendorId }, data: { ...extraData, planType: "REGULAR" } });
+    await recalcVendorProductQuota(vendorId);
   }
-  await recalcVendorProductQuota(vendorId);
   await adminNoticeToVendor(vendorId, "Tu tienda pasó al plan Regular", `Desde hoy tu tienda usa el plan Regular. Motivo: ${finalReason}. Puedes volver a Premium cuando quieras desde Suscripción.`).catch(() => {});
   return updated;
 }

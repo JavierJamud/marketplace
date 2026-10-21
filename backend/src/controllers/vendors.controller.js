@@ -16,7 +16,7 @@ import { getVendorInsights } from "../services/vendorInsights.service.js";
 import { searchVendorPanel } from "../services/vendorSearch.service.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { isAIAvailable } from "../lib/ai.js";
-import { getBrandSettings } from "./settings.controller.js";
+import { getBrandSettings, getTrialDays } from "./settings.controller.js";
 import { expireStaleStoreOffers, storeOfferSummarySelect } from "./storeOffers.controller.js";
 import { productPriceTiersInclude, expireNewBadges } from "./products.controller.js";
 import { rawSalesSeries, fillSeriesGaps, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
@@ -779,7 +779,7 @@ export async function updateMyVendor(req, res) {
       if (vendor.stripeSubscriptionId) await scheduleStripeSubscriptionCancellation(vendor.stripeSubscriptionId);
       updated = await prisma.vendor.update({ where: { id: vendor.id }, data: { cancelAtPeriodEnd: true } });
     }
-  } else if (data.planType === "REGULAR" && !["NOT_STARTED", "REJECTED"].includes(vendor.verificationStatus)) {
+  } else if (data.planType === "REGULAR" && !["NOT_STARTED", "REJECTED", "PLAN_ENDED"].includes(vendor.verificationStatus)) {
     // Bloque 64 (mismo criterio que revoke-business del admin): todavía en
     // documentos/pago (nunca llegó a VERIFIED) — no hay ciclo pago vigente
     // que honrar, así que cancelar acá sigue siendo inmediato: vuelve a
@@ -1013,7 +1013,7 @@ export async function acceptTrialOffer(req, res) {
     // revisión humana, así que este es el momento de mirar quién la pidió.
     void notifyAdminActionNeeded(
       `Tienda aceptó la prueba gratis: ${vendor.companyName}`,
-      `${vendor.companyName} aceptó la prueba gratis de 30 días del Plan Premium (después paga ${billing === "CARD" ? "con tarjeta, cobro automático" : "en CUP, a mano"}). Se activará cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado)${billing === "CARD" ? " y registre su tarjeta" : ""}.`,
+      `${vendor.companyName} aceptó la prueba gratis de ${await getTrialDays()} días del Plan Premium (después paga ${billing === "CARD" ? "con tarjeta, cobro automático" : "en CUP, a mano"}). Se activará cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado)${billing === "CARD" ? " y registre su tarjeta" : ""}.`,
       vendor.id,
       { url: `/admin/tiendas/${vendor.id}` }
     ).catch(() => {});

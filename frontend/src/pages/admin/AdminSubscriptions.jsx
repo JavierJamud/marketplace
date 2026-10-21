@@ -21,8 +21,8 @@ const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transfer
 // nuevos del cobro recurrente.
 const STATUS_META = {
   active: { label: "Activa", bg: "rgba(12,174,83,0.12)", color: "#087A38" },
-  // Prueba gratis de 30 días: Premium completo sin pagar todavía.
-  trial: { label: "Free 30 días", bg: "rgba(51,116,117,0.12)", color: "#245a5b" },
+  // Prueba gratis: Premium completo sin pagar todavía.
+  trial: { label: "Prueba gratis", bg: "rgba(51,116,117,0.12)", color: "#245a5b" },
   pending_payment: { label: "Pago pendiente", bg: "rgba(254,152,0,0.15)", color: "#8A5100" },
   rejected: { label: "Rechazada", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
   payment_failed: { label: "Pago fallido", bg: "rgba(186,26,26,0.12)", color: "#ba1a1a" },
@@ -171,7 +171,7 @@ function PlanConfigCard({ plan }) {
         <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Límites (vacío = sin límite)</div>
         {plan.planType === "REGULAR" && (
           <p className="mb-3 rounded-lg bg-tertiary-accent/[0.07] px-3 py-2 text-[12px] text-on-surface">
-            Estos límites se aplican también cuando una tienda termina su prueba gratis de 30 días o baja de Premium. Los productos que pasen
+            Estos límites se aplican también cuando una tienda termina su prueba gratis o baja de Premium. Los productos que pasen
             del límite quedan ocultos, nunca se borran: se quedan visibles los que más vendieron, mejor valorados y con la ficha más completa.
           </p>
         )}
@@ -256,6 +256,7 @@ export function CupPaymentSettingsCard() {
     cupBankPhone: "",
     cupSubscriptionPriceCup: 2500,
     cardSubscriptionPriceUsd: 25,
+    trialDays: 30,
   });
 
   useEffect(() => {
@@ -267,6 +268,7 @@ export function CupPaymentSettingsCard() {
       cupBankPhone: settings.cupBankPhone ?? "",
       cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup ?? 2500,
       cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd ?? 25,
+      trialDays: settings.trialDays ?? 30,
     });
   }, [settings]);
 
@@ -279,9 +281,12 @@ export function CupPaymentSettingsCard() {
       ? "Escribe un precio mayor que 0, con hasta 2 decimales (ej.: 4.99)."
       : null;
 
+  const trialDays = Number(form.trialDays);
+  const trialDaysError = form.trialDays === "" || !Number.isInteger(trialDays) || trialDays < 1 || trialDays > 365 ? "Escribe un número de días entre 1 y 365." : null;
+
   const save = useMutation({
     mutationFn: async () =>
-      (await api.patch("/admin/settings/cup-payment", { ...form, cupSubscriptionPriceCup: cupPrice, cardSubscriptionPriceUsd: cardPrice })).data,
+      (await api.patch("/admin/settings/cup-payment", { ...form, cupSubscriptionPriceCup: cupPrice, cardSubscriptionPriceUsd: cardPrice, trialDays })).data,
     onSuccess: () => {
       toast.success("Datos de pago de la suscripción actualizados.");
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
@@ -295,24 +300,32 @@ export function CupPaymentSettingsCard() {
         <Landmark className="h-5 w-5 text-tertiary-accent" /> Datos de pago de la suscripción
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Precios por mes en cada moneda — el vendedor elige cuántos meses paga (1 a 24) y el monto se calcula solo. Los datos de
-        transferencia CUP son lo que ve el vendedor en "Pago por transferencia" para copiar y pegar — vacío = le pedimos que
-        contacte al equipo en su lugar.
+        Precios por mes en cada moneda: el vendedor elige cuántos meses paga (1 a 24) y el monto se calcula solo. Los datos de
+        transferencia CUP son lo que ve el vendedor en "Pago por transferencia" para copiar y pegar; si están vacíos, le pedimos que
+        contacte al equipo. Los días de la prueba gratis valen para las pruebas que se activen desde que los cambias: las
+        que ya están en curso conservan su fecha de fin.
       </p>
       <div className="mb-3.5 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <Input
-          label="Precio mensual — transferencia CUP"
+          label="Precio mensual con transferencia CUP"
           inputMode="numeric"
           value={form.cupSubscriptionPriceCup}
           error={cupPriceError}
           onChange={(e) => setForm({ ...form, cupSubscriptionPriceCup: e.target.value.replace(/\D/g, "") })}
         />
         <Input
-          label="Precio mensual — tarjeta (USD, Stripe)"
+          label="Precio mensual con tarjeta (USD, Stripe)"
           inputMode="decimal"
           value={form.cardSubscriptionPriceUsd}
           error={cardPriceError}
           onChange={(e) => setForm({ ...form, cardSubscriptionPriceUsd: e.target.value.replace(/[^\d.,]/g, "") })}
+        />
+        <Input
+          label="Días de la prueba gratis de Premium"
+          inputMode="numeric"
+          value={form.trialDays}
+          error={trialDaysError}
+          onChange={(e) => setForm({ ...form, trialDays: e.target.value.replace(/\D/g, "") })}
         />
         <Input
           label="Número de cuenta"
@@ -339,7 +352,7 @@ export function CupPaymentSettingsCard() {
         placeholder="Ej.: incluir el nombre de la tienda como referencia..."
         className="mb-4 w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
       />
-      <Button className="rounded-xl font-bold" disabled={save.isPending || !!cupPriceError || !!cardPriceError} onClick={() => save.mutate()}>
+      <Button className="rounded-xl font-bold" disabled={save.isPending || !!cupPriceError || !!cardPriceError || !!trialDaysError} onClick={() => save.mutate()}>
         {save.isPending ? "Guardando..." : "Guardar cambios"}
       </Button>
     </div>
@@ -477,7 +490,7 @@ function SubscriptionsTab() {
   const FILTERS = [
     { id: "all", label: "Todas", match: () => true },
     { id: "active", label: "Pagando", match: (s) => s.status === "active" },
-    { id: "trial", label: "Free 30 días", match: (s) => s.status === "trial" },
+    { id: "trial", label: "Prueba gratis", match: (s) => s.status === "trial" },
     { id: "pending_payment", label: "Pago pendiente", match: (s) => s.status === "pending_payment" },
     { id: "problems", label: "Con problemas", match: (s) => ["payment_failed", "suspended", "rejected"].includes(s.status) },
   ];
@@ -489,7 +502,7 @@ function SubscriptionsTab() {
   const metrics = data
     ? [
         { label: "Pagando", value: String(data.metrics.active) },
-        { label: "Free 30 días", value: String(data.metrics.trial ?? 0), delta: "Prueba gratis, no suma al MRR" },
+        { label: "Prueba gratis", value: String(data.metrics.trial ?? 0), delta: "Premium completo, no suma al MRR" },
         { label: "Pago pendiente", value: String(data.metrics.pendingPayment) },
         { label: "Problemas de cobro", value: String(data.metrics.paymentFailed + data.metrics.suspended) },
         { label: "MRR estimado", value: fmtUsd(data.metrics.mrrUsd), delta: "USD, solo tiendas que pagan" },
@@ -501,8 +514,8 @@ function SubscriptionsTab() {
     <div>
       <div className="mb-6 rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
         El cobro es recurrente: Stripe cobra cada mes solo (factura fallida = "Pago fallido", suscripción cancelada = "Suspendida"); CUP se
-        renueva a mano cada ciclo, con recordatorio automático 7 días antes de vencer. Las tiendas en "Free 30 días" reciben aviso 7, 3 y 1
-        día antes de que termine la prueba; al terminar pasan solas a Regular con sus límites.
+        renueva a mano cada ciclo, con recordatorio automático 7 días antes de vencer. Las tiendas en "Prueba gratis" tienen todas las funciones
+        Premium, reciben aviso 7, 3 y 1 día antes de que termine la prueba y al terminar pasan solas a Regular, sin insignia y con sus límites.
       </div>
 
       <div className="mb-6">

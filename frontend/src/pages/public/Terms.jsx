@@ -16,7 +16,7 @@ const buildSections = (siteName) => [
   },
   {
     title: "4. Pagos",
-    body: `${siteName} no procesa pagos entre compradores y vendedores — el pago se coordina directamente entre ambas partes por el medio que la tienda tenga habilitado (efectivo, transferencia, pago contra entrega, etc.). La única excepción es la suscripción del Plan Business, que ${siteName} sí cobra directamente al vendedor para activar la verificación de su tienda.`,
+    body: `${siteName} no procesa pagos entre compradores y vendedores — el pago se coordina directamente entre ambas partes por el medio que la tienda tenga habilitado (efectivo, transferencia, pago contra entrega, etc.). La única excepción es la suscripción del plan de pago para tiendas, que ${siteName} sí cobra directamente al vendedor para activar la verificación de su tienda.`,
   },
   {
     title: "5. Verificación de tiendas",

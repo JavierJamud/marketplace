@@ -5,6 +5,7 @@ import { AlertTriangle, Archive, FileText, History, StickyNote, User, UserRound,
 import { api } from "../../lib/api.js";
 import { PrivateDocument } from "../PrivateDocument.jsx";
 import { Spinner } from "../ui/Spinner.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Bloque 277 (pedido explícito — "en la sección Tiendas del panel de administrador un botón para ver los
 // datos del responsable de la tienda: las fotos, su récord, las notas puestas a la tienda y los
@@ -14,7 +15,7 @@ import { Spinner } from "../ui/Spinner.jsx";
 
 const STATUS_LABEL = {
   NOT_STARTED: "Sin iniciar", PENDING_DOCS: "Documentos subidos", IN_REVIEW: "En revisión", PENDING_PAYMENT: "Falta el pago", VERIFIED: "Verificada",
-  PAYMENT_FAILED: "Pago fallido", SUSPENDED: "Suspendida", REJECTED: "Rechazada", ACTIVE: "Activa",
+  PAYMENT_FAILED: "Pago fallido", SUSPENDED: "Suspendida", REJECTED: "Rechazada", PLAN_ENDED: "Volvió a Regular", ACTIVE: "Activa",
   PENDING: "Pendiente", EVIDENCE_REQUESTED: "Evidencia solicitada", RESOLVED: "Resuelto", DISMISSED: "Descartado", APPROVED: "Aprobada",
 };
 const label = (s) => STATUS_LABEL[s] ?? s ?? "";
@@ -46,6 +47,7 @@ function Empty({ children }) {
 }
 
 export function RepresentativeFileModal({ vendor, onClose }) {
+  const { planNames } = usePlatformSettings();
   const vendorId = vendor.id ?? vendor.vendorId;
   const { data, isLoading, isError } = useQuery({
     queryKey: ["representative-file", vendorId],
@@ -98,7 +100,7 @@ export function RepresentativeFileModal({ vendor, onClose }) {
           <>
             <div className="mt-4 flex flex-wrap gap-2 text-[12px] font-semibold">
               <span className="rounded-full bg-surface-container px-2.5 py-1 text-on-surface">Verificación: {label(v.verificationStatus)}</span>
-              <span className="rounded-full bg-surface-container px-2.5 py-1 text-on-surface">Plan: {v.planType === "BUSINESS" ? "Business" : "Regular"}</span>
+              <span className="rounded-full bg-surface-container px-2.5 py-1 text-on-surface">Plan: {planNames[v.planType] ?? v.planType}</span>
               <span className={`rounded-full px-2.5 py-1 ${v.isBlocked || v.status === "SUSPENDED" ? "bg-error/10 text-error" : "bg-[#0CAE53]/15 text-[#087A38]"}`}>
                 {v.adminDeletionRequestedAt ? "Eliminación pendiente" : v.isBlocked ? "Bloqueada" : v.status === "SUSPENDED" ? "Suspendida" : "Activa"}
               </span>

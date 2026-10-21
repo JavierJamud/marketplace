@@ -124,6 +124,8 @@ export async function getSettings(_req, res) {
       // Bloque 150: precio mensual del cobro con tarjeta (Stripe) — antes
       // una constante hardcodeada, ahora editable junto al precio CUP.
       cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd,
+      // Días de la prueba gratis: los textos de la oferta y del panel lo muestran tal cual.
+      trialDays: settings.trialDays,
       // Bloque 66: catálogo de etiquetas que un vendedor puede elegir para
       // un producto — "Nuevo" es fijo del sistema, no viaja en esta lista
       // (ver assertBadgeAllowed en products.controller.js).
@@ -181,6 +183,13 @@ export async function getStoreOfferPolicy(planType) {
 // HTTP directa. Único lugar que resuelve "precio por mes" para calcular el
 // monto esperado de una suscripción — así nunca se desincroniza del precio
 // vigente que el admin edita en AdminSubscriptions.jsx.
+// Días de la prueba gratis del Plan Premium que edita el admin en Suscripciones. Se lee al activar cada prueba, así que un
+// cambio solo afecta a las pruebas que se activen después; las que ya corren conservan su fecha de fin.
+export async function getTrialDays() {
+  const settings = await getOrCreateSettings();
+  return settings.trialDays ?? 30;
+}
+
 export async function getSubscriptionPricing() {
   const settings = await getOrCreateSettings();
   return { cupPricePerMonth: settings.cupSubscriptionPriceCup, cardPricePerMonthUsd: settings.cardSubscriptionPriceUsd };
@@ -536,6 +545,7 @@ const cupPaymentSettingsSchema = z.object({
     .max(10000)
     .transform((n) => Math.round(n * 100) / 100)
     .optional(),
+  trialDays: z.number().int().min(1, "La prueba debe durar al menos 1 día.").max(365, "La prueba puede durar hasta 365 días.").optional(),
 });
 
 // Admin — datos bancarios de la transferencia CUP + precio mensual de la
@@ -552,6 +562,7 @@ export async function updateCupPaymentSettings(req, res) {
   if (data.cupBankPhone !== undefined) update.cupBankPhone = data.cupBankPhone || null;
   if (data.cupSubscriptionPriceCup !== undefined) update.cupSubscriptionPriceCup = data.cupSubscriptionPriceCup;
   if (data.cardSubscriptionPriceUsd !== undefined) update.cardSubscriptionPriceUsd = data.cardSubscriptionPriceUsd;
+  if (data.trialDays !== undefined) update.trialDays = data.trialDays;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
   res.json({
     settings: {
@@ -561,6 +572,7 @@ export async function updateCupPaymentSettings(req, res) {
       cupBankPhone: updated.cupBankPhone,
       cupSubscriptionPriceCup: updated.cupSubscriptionPriceCup,
       cardSubscriptionPriceUsd: updated.cardSubscriptionPriceUsd,
+      trialDays: updated.trialDays,
     },
   });
 }

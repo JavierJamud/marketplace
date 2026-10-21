@@ -9,7 +9,7 @@ const META = {
   VERIFICATION_DOCS_REJECTED: { label: "Documentos rechazados", color: "#ba1a1a" },
   VERIFICATION_PAYMENT_LINK_SENT: { label: "Link de pago enviado", color: "#8A5100" },
   VERIFICATION_VERIFIED: { label: "Tienda verificada", color: "#0CAE53" },
-  VERIFICATION_BUSINESS_REVOKED: { label: "Plan Business revocado", color: "#ba1a1a" },
+  VERIFICATION_BUSINESS_REVOKED: { label: "Plan Premium retirado", color: "#ba1a1a" },
   VERIFICATION_BUSINESS_GRANTED: { label: "Plan Premium activado", color: "#0CAE53" },
   // Bloque 64: cobro recurrente — PAYMENT_FAILED es recuperable (pagar de
   // nuevo reactiva sin rehacer documentos), SUSPENDED implica que la
@@ -17,18 +17,18 @@ const META = {
   VERIFICATION_PAYMENT_FAILED: { label: "Pago fallido", color: "#ba1a1a" },
   VERIFICATION_SUSPENDED: { label: "Suscripción suspendida", color: "#ba1a1a" },
   VERIFICATION_PAYMENT_REMINDER: { label: "Recordatorio de pago", color: "#8A5100" },
-  // Bloque 235 (trial gratuito de 30 días del Plan Premium): TRIAL_EXPIRED
+  // Bloque 235 (prueba gratis del Plan Premium): TRIAL_EXPIRED
   // a propósito NO es rojo como el resto de los "se acabó algo" de arriba
   // — el trial termina como se esperaba, no es un fallo ni una suspensión.
-  TRIAL_ACTIVATED: { label: "Trial Premium activado", color: "#0CAE53" },
-  TRIAL_EXPIRING_SOON: { label: "Tu trial Premium vence pronto", color: "#8A5100" },
-  TRIAL_EXPIRED: { label: "Tu trial Premium terminó", color: "#337475" },
+  TRIAL_ACTIVATED: { label: "Prueba gratis de Premium activada", color: "#0CAE53" },
+  TRIAL_EXPIRING_SOON: { label: "Tu prueba gratis de Premium termina pronto", color: "#8A5100" },
+  TRIAL_EXPIRED: { label: "Tu prueba gratis de Premium terminó", color: "#337475" },
 };
 
 export async function verificationUpdateEmail({ type, vendorName, title, message, ctaHref }) {
   const { siteName } = await getBrandSettings();
   const meta = META[type] ?? { label: "Actualización", color: "#337475" };
-  const subject = `${meta.label} — ${vendorName}`;
+  const subject = `${meta.label}: ${vendorName}`;
   const html = await emailShell({
     preview: `${vendorName}: ${meta.label.toLowerCase()}`,
     title,

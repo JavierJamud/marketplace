@@ -2,10 +2,12 @@ import { useMutation } from "@tanstack/react-query";
 import { CreditCard, Lock } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Último paso de la prueba gratis con tarjeta: registrar la tarjeta en la página de Stripe. Hoy se cobran 0 USD; al terminar
 // la prueba Stripe cobra el primer mes solo (salvo que cancele antes). La prueba se activa cuando Stripe lo confirma.
 export function RegisterTrialCard({ className = "" }) {
+  const { trialDays } = usePlatformSettings();
   const start = useMutation({
     mutationFn: async () => (await api.post("/verification/me/trial-card")).data,
     onSuccess: (d) => window.location.assign(d.url),
@@ -22,7 +24,7 @@ export function RegisterTrialCard({ className = "" }) {
             <h2 id="trial-card-title" className="font-display text-[16px] font-extrabold text-on-surface">
               Último paso: registra tu tarjeta
             </h2>
-            <p className="mt-0.5 text-[12.5px] text-on-surface-variant">Hoy no se cobra nada. Tu prueba gratis de 30 días empieza al registrarla y el día 31 se cobra el primer mes. Puedes cancelar antes desde Suscripción.</p>
+            <p className="mt-0.5 text-[12.5px] text-on-surface-variant">Hoy no se cobra nada. Tu prueba gratis de {trialDays} {trialDays === 1 ? "día" : "días"} empieza al registrarla y al terminar se cobra el primer mes. Puedes cancelar antes desde Suscripción.</p>
           </div>
         </div>
         <button type="button" onClick={() => start.mutate()} disabled={start.isPending} className="flex min-h-11 flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-[13.5px] font-bold text-white disabled:opacity-60">

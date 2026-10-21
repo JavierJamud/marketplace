@@ -286,7 +286,7 @@ export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue)
   return result;
 }
 
-// Bloque 235 (trial gratuito de 30 días del Plan Premium): mismo criterio
+// Bloque 235 (prueba gratis del Plan Premium): mismo criterio
 // EXACTO que sendVerificationPaymentReminderEmail de arriba — aviso
 // proactivo, no un cambio de estado, así que email-only, sin pasar por
 // notifyVerificationEvent ni dejar rastro en la campanita. Re-enviado desde
@@ -296,8 +296,8 @@ export async function sendTrialExpiringSoonEmail(vendor, daysLeft) {
   const { subject, html } = await verificationUpdateEmail({
     type: "TRIAL_EXPIRING_SOON",
     vendorName: vendor.companyName,
-    title: "Tu trial Premium vence pronto",
-    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} de Plan Premium gratis. Si te gustó, activa una suscripción desde tu panel antes de que venza para no perder las funciones Premium — tu badge de verificación nunca se pierde, pase lo que pase.`,
+    title: "Tu prueba gratis de Premium termina pronto",
+    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} de Plan Premium gratis. Si te gustó, activa una suscripción desde tu panel antes de que termine. Si no, tu tienda vuelve al Plan Regular y pierde la insignia de verificación y las funciones Premium.`,
     ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });

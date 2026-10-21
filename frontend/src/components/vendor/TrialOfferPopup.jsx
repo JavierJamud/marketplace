@@ -35,6 +35,7 @@ export function TrialOfferPopup({ vendor }) {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
   const business = settings?.plans?.find((p) => p.planType === "BUSINESS");
+  const trialDays = settings?.trialDays ?? 30;
 
   const accept = useMutation({
     mutationFn: async (billing) => (await api.post("/vendors/me/trial/accept", { billing })).data,
@@ -97,10 +98,10 @@ export function TrialOfferPopup({ vendor }) {
 
             <div className="p-6">
               <h2 className="mb-1 font-display text-[20px] font-bold text-on-surface">
-                30 días gratis de {business?.displayName ?? "Premium"}
+                {trialDays} {trialDays === 1 ? "día" : "días"} gratis de {business?.displayName ?? "Premium"}
               </h2>
               <p className="mb-4 text-[13px] text-on-surface-variant">
-                Prueba todo sin costo durante 30 días. Puedes seguir pagando o volver a Regular cuando quieras, sin compromiso.
+                Prueba todo sin costo durante {trialDays} {trialDays === 1 ? "día" : "días"}. Puedes seguir pagando o volver a Regular cuando quieras, sin compromiso.
               </p>
 
               {business?.includes?.length > 0 && (
