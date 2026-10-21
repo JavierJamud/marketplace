@@ -26,7 +26,7 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertVendorLocationComplete, needsAddress } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
-import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
+import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, planAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
 import { getTrialChecklist, maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
@@ -407,7 +407,8 @@ export async function getVendorBySlug(req, res) {
   // error 503 apenas el cliente escribiera algo. Solo se chequea para
   // tiendas verificadas (el widget nunca se monta si no lo está de todas
   // formas, ver Store.jsx/Product.jsx).
-  const aiAvailable = vendor.verificationStatus === "VERIFIED" ? await isAIAvailable() : false;
+  // También el plan: si no incluye el chat con IA, el chat respondería 403 a cada mensaje (caso real: tienda verificada en plan Regular).
+  const aiAvailable = vendor.verificationStatus === "VERIFIED" && (await planAllows(vendor.planType, "allowAiChatbot")) ? await isAIAvailable() : false;
 
   res.json({
     vendor: withComputedVendorFields({ ...publicVendor, isOpenNow: isOpen, nextOpenLabel, reviewStats: { total, breakdown }, aiAvailable }),

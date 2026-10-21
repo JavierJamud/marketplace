@@ -14,7 +14,7 @@ import { withComputedVendorFields } from "../services/vendorVerification.service
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { hashToken } from "../utils/hashToken.js";
-import { getPlanLimit, swapProductQuota } from "../lib/planConfig.js";
+import { getPlanLimit, planAllows, swapProductQuota } from "../lib/planConfig.js";
 import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -512,7 +512,8 @@ export async function getProductBySlug(req, res) {
   // Bloque 25: mismo flag que getVendorBySlug — StoreChatWidget se monta
   // acá con product.vendor, así que necesita su propio aiAvailable en vez
   // de depender de que el cliente haya pasado antes por Store.jsx.
-  const aiAvailable = product.vendor.verificationStatus === "VERIFIED" ? await isAIAvailable() : false;
+  // Mismo chequeo de plan que getVendorBySlug.
+  const aiAvailable = product.vendor.verificationStatus === "VERIFIED" && (await planAllows(vendor.planType, "allowAiChatbot")) ? await isAIAvailable() : false;
 
   // Bloque 254 (pedido explícito — "esa parte de la ficha era estática, pon
   // información real que facilite a los clientes"): datos reales de la tienda
