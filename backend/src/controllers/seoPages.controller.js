@@ -141,6 +141,7 @@ export async function renderStorePage(req, res) {
   const vendor = await prisma.vendor.findUnique({
     where: { slug },
     select: {
+      updatedAt: true,
       id: true,
       companyName: true,
       description: true,
@@ -168,7 +169,8 @@ export async function renderStorePage(req, res) {
   const description =
     clip(vendor.description, 200) ||
     `${vendor.companyName}${place ? ` en ${place}, Cuba` : " en Cuba"}: ${category.toLowerCase()} en ${siteName}. Mira sus productos y precios y haz tu pedido por WhatsApp o pago contra entrega.`;
-  const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.png`;
+  // `v`: cambia cuando cambia la tienda, para que WhatsApp y Facebook (que guardan la vista previa mucho tiempo) pidan la nueva.
+  const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.png?v=${new Date(vendor.updatedAt).getTime().toString(36)}`;
 
   const jsonLd = {
     "@context": "https://schema.org",

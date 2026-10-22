@@ -240,7 +240,7 @@ import {
 // tema genérico de bolsas y cajas, sin relación con la tienda. Ahora cada categoría tiene el suyo, y una categoría nueva que
 // cree el admin se reconoce por palabras de su nombre (KEYWORD_THEME); si no coincide ninguna, queda el genérico.
 // `isRestaurant` pesa más que la categoría (un restaurante es, ante todo, un negocio de comida).
-const THEMES = {
+export const THEMES = {
   food: [Utensils, UtensilsCrossed, ChefHat, Pizza, Sandwich, Soup, Salad, Coffee, CupSoda, Wine, IceCreamCone, Cake, Cookie, Donut, Croissant, Apple, Carrot, Fish, Beef, Drumstick, Egg, Popcorn, CookingPot, HandPlatter],
   bakery: [Croissant, Cake, CakeSlice, Cookie, Donut, Wheat, ChefHat, Egg, Milk, CookingPot, Coffee],
   sweets: [Candy, Lollipop, Cookie, Donut, Cake, CakeSlice, IceCreamCone, IceCreamBowl, Gift, Cherry],
@@ -309,7 +309,7 @@ const THEMES = {
   default: [ShoppingBag, Package, Tag, Gift, Store, Truck, Box, CreditCard, Wallet, Boxes],
 };
 
-const CATEGORY_THEME = {
+export const CATEGORY_THEME = {
   combos: "combos",
   "panaderia-y-reposteria": "bakery",
   variedades: "default",
@@ -381,7 +381,7 @@ const CATEGORY_THEME = {
 };
 
 // Para categorías que no estén arriba: palabras del slug o del nombre, sin tildes.
-const KEYWORD_THEME = [
+export const KEYWORD_THEME = [
   [/pan|reposter/, "bakery"],
   [/dulce|chocolat|confit/, "sweets"],
   [/carne|carnic|embutid/, "meat"],
