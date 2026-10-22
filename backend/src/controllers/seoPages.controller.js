@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { env } from "../config/env.js";
@@ -141,11 +142,21 @@ export async function renderStorePage(req, res) {
   const vendor = await prisma.vendor.findUnique({
     where: { slug },
     select: {
-      updatedAt: true,
       id: true,
       companyName: true,
       description: true,
       logoUrl: true,
+      // Lo que se dibuja en la imagen de vista previa: sirve para su versión (ver `image` más abajo).
+      color: true,
+      verificationStatus: true,
+      socialLinks: true,
+      rating: true,
+      reviewCount: true,
+      acceptedPaymentMethods: true,
+      storeShippingMode: true,
+      storeShippingLocal: true,
+      storeShippingOther: true,
+      storeShippingCurrency: true,
       isRestaurant: true,
       isBlocked: true,
       status: true,
@@ -169,8 +180,11 @@ export async function renderStorePage(req, res) {
   const description =
     clip(vendor.description, 200) ||
     `${vendor.companyName}${place ? ` en ${place}, Cuba` : " en Cuba"}: ${category.toLowerCase()} en ${siteName}. Mira sus productos y precios y haz tu pedido por WhatsApp o pago contra entrega.`;
-  // `v`: cambia cuando cambia la tienda, para que WhatsApp y Facebook (que guardan la vista previa mucho tiempo) pidan la nueva.
-  const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.png?v=${new Date(vendor.updatedAt).getTime().toString(36)}`;
+  // `v`: cambia cuando cambia algo de lo que se ve en la imagen, para que WhatsApp y Facebook (que guardan la vista previa
+  // mucho tiempo) pidan la nueva. Se calcula con esos mismos datos (la tienda no guarda una fecha de última edición).
+  const visible = [vendor.companyName, vendor.description, vendor.logoUrl, vendor.color, vendor.verificationStatus, vendor.businessCategory?.name, JSON.stringify(vendor.socialLinks), String(vendor.rating), vendor.reviewCount, (vendor.acceptedPaymentMethods ?? []).join(","), vendor.storeShippingMode, String(vendor.storeShippingLocal), String(vendor.storeShippingOther), vendor.storeShippingCurrency, vendor.products.length];
+  const version = crypto.createHash("sha1").update(visible.join("|")).digest("hex").slice(0, 10);
+  const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.png?v=${version}`;
 
   const jsonLd = {
     "@context": "https://schema.org",
