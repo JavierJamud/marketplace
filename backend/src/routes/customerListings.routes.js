@@ -26,5 +26,6 @@ router.delete("/:id/images", authenticate, requireRole("CUSTOMER", "ADMIN"), cus
 // Públicas
 router.get("/", publicCache(20_000), customerListingsController.listPublicListings);
 router.get("/:id", customerListingsController.getPublicListing);
+router.post("/:id/contact-click", customerListingsController.trackListingContact);
 
 export default router;

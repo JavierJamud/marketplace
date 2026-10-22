@@ -283,7 +283,8 @@ export async function addListingImages(req, res) {
     where: { id: req.uploadListing.id },
     data: {
       images: [...req.uploadListing.images, ...newUrls],
-      ...(wasEmpty ? { isActive: true, activatedAt: req.uploadListing.activatedAt ?? new Date() } : {}),
+      // Una venta rápida suspendida por un reporte no se reactiva subiendo fotos de nuevo.
+      ...(wasEmpty && !req.uploadListing.suspendedAt ? { isActive: true, activatedAt: req.uploadListing.activatedAt ?? new Date() } : {}),
     },
   });
   res.status(201).json({ listing });
@@ -327,6 +328,9 @@ export async function listPublicListings(req, res) {
       isActive: true,
       isSold: false,
       publicVisibleUntil: { gte: new Date() },
+      // Ni suspendidas por un reporte ni de una cuenta bloqueada o eliminada.
+      suspendedAt: null,
+      owner: { isSuspended: false, deletedAt: null },
       // Mismo lugar que eligió el comprador para todo el sitio, según el lugar propio de cada anuncio.
       ...listingZoneWhere(req.query),
     },
@@ -340,9 +344,17 @@ export async function listPublicListings(req, res) {
 export async function getPublicListing(req, res) {
   const { id } = req.params;
   const listing = await prisma.customerListing.findFirst({
-    where: { id, isActive: true, publicVisibleUntil: { gte: new Date() } },
+    where: { id, isActive: true, publicVisibleUntil: { gte: new Date() }, suspendedAt: null, owner: { isSuspended: false, deletedAt: null } },
     include: { owner: PUBLIC_OWNER, ...PUBLIC_LOCATION },
   });
   if (!listing) throw new AppError("Anuncio no encontrado.", 404);
+  // Analítica para el admin al revisar un reporte: visitas a la ficha (sin bloquear la respuesta).
+  void prisma.customerListing.update({ where: { id }, data: { viewCount: { increment: 1 } } }).catch(() => {});
   res.json({ listing: toPublicListing(listing) });
+}
+
+// Clic en "contactar" de la ficha pública (WhatsApp): analítica para el admin al revisar un reporte.
+export async function trackListingContact(req, res) {
+  await prisma.customerListing.updateMany({ where: { id: req.params.id, isActive: true }, data: { contactClickCount: { increment: 1 } } });
+  res.json({ ok: true });
 }

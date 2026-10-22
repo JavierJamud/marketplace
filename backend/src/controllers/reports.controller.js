@@ -5,6 +5,7 @@ import { unlink } from "node:fs/promises";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
+import { reportTargetSnapshot } from "../lib/moderation.js";
 
 // Feature B (pedido explícito): reportes de fraude sobre producto/tienda/
 // venta rápida — patrón "exactamente uno de estos 3 campos" (mismo criterio
@@ -69,6 +70,7 @@ export async function listMyReportsAgainstMe(req, res) {
   const reports = await prisma.report.findMany({
     where: {
       OR: [
+        { targetOwnerId: req.user.id },
         { vendor: { userId: req.user.id } },
         { product: { vendor: { userId: req.user.id } } },
         { customerListing: { ownerId: req.user.id } },
@@ -81,7 +83,8 @@ export async function listMyReportsAgainstMe(req, res) {
     },
     orderBy: { createdAt: "desc" },
   });
-  res.json({ reports });
+  // Al reportado no se le muestra quién lo reportó ni sus capturas (solo el motivo y en qué quedó).
+  res.json({ reports: reports.map(({ reporterId, images, screenshotUrl, ...r }) => r) });
 }
 
 // Reportes que hizo el usuario logueado (de fraude y de comentarios), con su estado. Solo lo que le toca saber a quien
@@ -91,7 +94,7 @@ export async function listMyReportsMade(req, res) {
     prisma.report.findMany({
       where: { reporterId: req.user.id },
       select: {
-        id: true, status: true, message: true, createdAt: true, resolvedAt: true,
+        id: true, status: true, message: true, createdAt: true, resolvedAt: true, resolutionNote: true, targetLabel: true,
         product: { select: { name: true, slug: true, vendor: { select: { slug: true } } } },
         vendor: { select: { companyName: true, slug: true } },
         customerListing: { select: { id: true, name: true } },
@@ -113,9 +116,15 @@ export async function listMyReportsMade(req, res) {
   res.json({ reports, reviewReports: reviews });
 }
 
+// Archivos subidos en este pedido (capturas del reporte o de la apelación).
+const uploadedFiles = (req) => [...(req.files?.images ?? []), ...(req.files?.screenshot ?? []), ...(Array.isArray(req.files) ? req.files : [])];
+
+// Reportar: cualquier cuenta con sesión, menos el dueño. El motivo es obligatorio; las capturas son opcionales (pedido
+// del dueño), solo imágenes y hasta 4. Se guarda quién es el dueño en ese momento (targetOwnerId/targetVendorId) para
+// contar avisos aunque el objetivo se borre después. Mientras el admin revisa, el objetivo sigue publicado.
 export async function createReport(req, res) {
+  const files = uploadedFiles(req);
   try {
-    if (!req.file) throw new AppError("La captura de pantalla es obligatoria.", 400);
     const data = createReportSchema.parse(req.body);
     const target = await resolveReportTarget(data);
 
@@ -124,34 +133,65 @@ export async function createReport(req, res) {
     }
 
     const existing = await prisma.report.findFirst({
-      where: { [target.field]: data[target.field], status: { in: ["PENDING", "EVIDENCE_REQUESTED"] } },
+      where: { [target.field]: data[target.field], reporterId: req.user.id, status: { in: ["PENDING", "EVIDENCE_REQUESTED"] } },
     });
-    if (existing) throw new AppError("Este objetivo ya tiene un reporte en revisión — el admin lo está evaluando.", 409);
+    if (existing) throw new AppError("Ya reportaste esto y lo estamos revisando. Te avisaremos por correo.", 409);
 
+    const images = files.map((f) => `/uploads/reports/${f.filename}`);
+    const snapshot = await reportTargetSnapshot(data);
     const report = await prisma.report.create({
       data: {
         reporterId: req.user.id,
         productId: data.productId ?? null,
         vendorId: data.vendorId ?? null,
         customerListingId: data.customerListingId ?? null,
-        screenshotUrl: `/uploads/reports/${req.file.filename}`,
+        screenshotUrl: images[0] ?? null,
+        images,
         message: data.message,
+        ...snapshot,
       },
     });
     const reporter = await prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true, role: true } });
     void notifyAdminActionNeeded(
-      "Reporte de fraude nuevo",
-      `${reporter?.fullName ?? "Un usuario"} (${reporter?.role === "VENDOR" ? "tienda" : reporter?.role === "ADMIN" ? "admin" : "cliente"}) reportó el ${target.label}: "${data.message.slice(0, 300)}"`,
+      "Reporte nuevo",
+      `${reporter?.fullName ?? "Un usuario"} (${reporter?.role === "VENDOR" ? "tienda" : reporter?.role === "ADMIN" ? "admin" : "cliente"}) reportó el ${target.label}${images.length ? ` con ${images.length} ${images.length === 1 ? "captura" : "capturas"}` : ""}: "${data.message.slice(0, 300)}"`,
       target.vendorId ?? undefined,
       { url: `/admin/reportes-fraude?report=${report.id}` }
     ).catch(() => {});
     res.status(201).json({ report });
   } catch (err) {
-    // Igual criterio que reviews.controller.js/createReview: Multer ya
-    // escribió el archivo a disco antes de que corriera este handler — si
-    // algo falla después (validación, auto-reporte, duplicado, objetivo
-    // inexistente) no debe quedar huérfano.
-    if (req.file) unlink(join(REPORT_UPLOAD_DIR, req.file.filename)).catch(() => {});
+    // Multer ya escribió los archivos: si algo falla después no deben quedar huérfanos.
+    for (const f of files) unlink(join(REPORT_UPLOAD_DIR, f.filename)).catch(() => {});
+    throw err;
+  }
+}
+
+const appealSchema = z.object({ appealMessage: z.string().trim().min(10, "Cuéntanos por qué debería volver a publicarse (mínimo 10 caracteres).").max(2000) });
+
+// Apelación del dueño tras una suspensión: mensaje y, si tiene, capturas. Solo dentro del plazo (itemDeleteAt) y una
+// vez. El admin la acepta (se vuelve a publicar) o la rechaza (se elimina), ver adminReports.controller.js.
+export async function submitAppeal(req, res) {
+  const files = uploadedFiles(req);
+  try {
+    const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+    if (!report || report.targetOwnerId !== req.user.id) throw new AppError("Reporte no encontrado.", 404);
+    if (report.status !== "RESOLVED_SUSPENDED" || !report.itemDeleteAt) throw new AppError("Esta suspensión no admite apelación.", 400);
+    if (report.appealSentAt) throw new AppError("Ya enviaste tu apelación. Te avisaremos por correo cuando la revisemos.", 409);
+    if (report.itemDeleteAt < new Date()) throw new AppError("Venció el plazo para apelar.", 400);
+    const { appealMessage } = appealSchema.parse(req.body);
+    const updated = await prisma.report.update({
+      where: { id: report.id },
+      data: { appealMessage, appealImages: files.map((f) => `/uploads/reports/${f.filename}`), appealSentAt: new Date(), appealStatus: "PENDING" },
+    });
+    void notifyAdminActionNeeded(
+      "Apelación de una suspensión",
+      `El dueño de ${report.targetLabel ?? "una publicación suspendida"} envió su apelación: "${appealMessage.slice(0, 300)}"`,
+      report.targetVendorId ?? undefined,
+      { url: `/admin/reportes-fraude?report=${report.id}` }
+    ).catch(() => {});
+    res.json({ report: updated });
+  } catch (err) {
+    for (const f of files) unlink(join(REPORT_UPLOAD_DIR, f.filename)).catch(() => {});
     throw err;
   }
 }

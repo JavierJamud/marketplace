@@ -1,14 +1,28 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { notifyEvidenceRequested, notifyDismissed, notifySuspended } from "../services/fraudReportNotify.service.js";
+import { notifyEvidenceRequested } from "../services/fraudReportNotify.service.js";
+import {
+  getModerationSettings,
+  suspendReportTarget,
+  applyStrikes,
+  notifyReportOutcome,
+  restoreAfterAppeal,
+  deleteSuspendedItem,
+  countCustomerStrikes,
+  countVendorStrikes,
+  clearCustomerFraudBlock,
+  clearVendorFraudBlock,
+  deleteAndBlacklistCustomer,
+  deleteAndBlacklistVendor,
+} from "../lib/moderation.js";
+import { sendModerationEmail } from "../lib/email.js";
+import { esc } from "../templates/_shared.js";
+import { env } from "../config/env.js";
 
-// Feature B (pedido explícito): acciones de admin sobre un reporte de
-// fraude. No reimplementa suspender/editar/eliminar producto/tienda — para
-// eso ya existen los endpoints de adminProducts.controller.js/
-// admin.controller.js; acá solo vive lo propio del reporte (pedir
-// evidencia, cerrar sin acción, confirmar fraude) más la consecuencia
-// automática mínima que pidió el usuario cuando se confirma fraude.
+// Reportes de producto, tienda o venta rápida, y la moderación que sigue (ver lib/moderation.js para las reglas):
+// pedir evidencia, mantener o suspender (con correo al dueño y a quien reportó), apelaciones, cuentas y tiendas
+// sancionadas por avisos acumulados y la lista negra.
 
 const REPORT_INCLUDE = {
   reporter: { select: { id: true, fullName: true, email: true } },
@@ -20,24 +34,65 @@ const REPORT_INCLUDE = {
 
 export async function listFraudReports(req, res) {
   const { status } = req.query;
-  const reports = await prisma.report.findMany({
-    where: status ? { status: String(status) } : undefined,
-    include: REPORT_INCLUDE,
-    orderBy: { createdAt: "desc" },
-  });
+  const where = status === "APPEALS" ? { appealStatus: "PENDING" } : status ? { status: String(status) } : undefined;
+  const reports = await prisma.report.findMany({ where, include: REPORT_INCLUDE, orderBy: { createdAt: "desc" }, take: 300 });
   res.json({ reports });
 }
 
-// Mismo criterio que getUnresolvedErrorCount (errorLogs.controller.js) —
-// badge de la campanita/nav del admin, consumido con refetchInterval corto.
+// Insignia del menú: reportes abiertos y apelaciones sin revisar.
 export async function getFraudReportsPendingCount(_req, res) {
-  const count = await prisma.report.count({ where: { status: { in: ["PENDING", "EVIDENCE_REQUESTED"] } } });
+  const count = await prisma.report.count({ where: { OR: [{ status: { in: ["PENDING", "EVIDENCE_REQUESTED"] } }, { appealStatus: "PENDING" }] } });
   res.json({ count });
 }
 
-async function getDeadlineDays() {
-  const settings = await prisma.siteSettings.findFirst({ select: { fraudReportEvidenceDeadlineDays: true } });
-  return settings?.fraudReportEvidenceDeadlineDays ?? 5;
+// Detalle para decidir: quién reportó (con sus datos y cuántos reportes hizo), el dueño (con sus avisos y el límite),
+// todas las imágenes (reporte, evidencia y apelación) y la analítica del producto o la venta rápida.
+export async function getFraudReportDetail(req, res) {
+  const report = await prisma.report.findUnique({ where: { id: req.params.id }, include: REPORT_INCLUDE });
+  if (!report) throw new AppError("Reporte no encontrado.", 404);
+  const m = await getModerationSettings();
+
+  const [reporter, owner, vendor, otherReports] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: report.reporterId },
+      select: { id: true, fullName: true, email: true, phone: true, role: true, createdAt: true, lastLoginAt: true, _count: { select: { reportsMade: true } } },
+    }),
+    report.targetOwnerId ? prisma.user.findUnique({ where: { id: report.targetOwnerId }, select: { id: true, fullName: true, email: true, phone: true, createdAt: true, isSuspended: true, fraudBlockedAt: true, fraudClaimDueAt: true, deletedAt: true } }) : null,
+    report.targetVendorId ? prisma.vendor.findUnique({ where: { id: report.targetVendorId }, select: { id: true, companyName: true, slug: true, whatsapp: true, isBlocked: true, fraudSuspendedAt: true, fraudContactDueAt: true, fraudDeleteAt: true, verificationStatus: true } }) : null,
+    prisma.report.count({
+      where: { id: { not: report.id }, OR: [report.targetVendorId ? { targetVendorId: report.targetVendorId } : { targetOwnerId: report.targetOwnerId ?? "-" }] },
+    }),
+  ]);
+
+  let analytics = null;
+  if (report.customerListingId) {
+    const l = await prisma.customerListing.findUnique({
+      where: { id: report.customerListingId },
+      select: { name: true, price: true, currency: true, images: true, createdAt: true, activatedAt: true, isActive: true, isSold: true, viewCount: true, contactClickCount: true, suspendedAt: true, publicVisibleUntil: true },
+    });
+    if (l) analytics = { kind: "LISTING", ...l };
+  } else if (report.productId) {
+    const p = await prisma.product.findUnique({
+      where: { id: report.productId },
+      select: { name: true, price: true, currency: true, images: true, createdAt: true, isActive: true, viewCount: true, clickCount: true, searchClickCount: true, salesCount: true, rating: true, reviewCount: true, suspendedAt: true },
+    });
+    if (p) {
+      const since = new Date(Date.now() - 30 * 86400000);
+      const orders30 = await prisma.orderItem.count({ where: { productId: report.productId, order: { createdAt: { gte: since } } } });
+      analytics = { kind: "PRODUCT", ...p, orders30 };
+    }
+  }
+
+  const strikes = report.targetVendorId ? await countVendorStrikes(report.targetVendorId) : report.targetOwnerId ? await countCustomerStrikes(report.targetOwnerId) : 0;
+  res.json({
+    report,
+    reporter,
+    owner,
+    vendor,
+    otherReports,
+    strikes: { count: strikes, limit: report.targetVendorId ? m.vendorStrikeLimit : m.customerStrikeLimit, kind: report.targetVendorId ? "VENDOR" : "CUSTOMER" },
+    analytics,
+  });
 }
 
 export async function requestEvidence(req, res) {
@@ -46,85 +101,176 @@ export async function requestEvidence(req, res) {
   if (!report) throw new AppError("Reporte no encontrado.", 404);
   if (report.status !== "PENDING") throw new AppError("Este reporte ya no está pendiente.", 400);
 
-  const deadlineDays = await getDeadlineDays();
+  const { evidenceDays } = await getModerationSettings();
   const now = new Date();
   const updated = await prisma.report.update({
     where: { id },
-    data: {
-      status: "EVIDENCE_REQUESTED",
-      evidenceRequestedAt: now,
-      evidenceDueAt: new Date(now.getTime() + deadlineDays * 86400000),
-    },
+    data: { status: "EVIDENCE_REQUESTED", evidenceRequestedAt: now, evidenceDueAt: new Date(now.getTime() + evidenceDays * 86400000) },
   });
-  await notifyEvidenceRequested(updated, deadlineDays);
+  await notifyEvidenceRequested(updated, evidenceDays);
   res.json({ report: updated });
 }
 
-const dismissSchema = z.object({ resolutionNote: z.string().trim().max(500).optional() });
+const decisionSchema = z.object({ resolutionNote: z.string().trim().min(5, "Escribe el motivo (mínimo 5 caracteres): se envía al dueño y a quien reportó.").max(1000) });
 
-// Cierra sin tomar ninguna acción — desde PENDING (el admin lo descarta sin
-// pedir evidencia, reporte inválido a primera vista) queda DISMISSED; desde
-// EVIDENCE_REQUESTED (el reportado ya respondió y su explicación convence)
-// queda RESOLVED_NO_ACTION. Mismo endpoint, el estado de origen decide cuál.
+// Mantener: no se toca nada y se avisa al dueño y a quien reportó, con el motivo.
 export async function dismissFraudReport(req, res) {
-  const { id } = req.params;
-  const { resolutionNote } = dismissSchema.parse(req.body ?? {});
-  const report = await prisma.report.findUnique({ where: { id } });
+  const { resolutionNote } = decisionSchema.parse(req.body ?? {});
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report) throw new AppError("Reporte no encontrado.", 404);
-  if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) {
-    throw new AppError("Este reporte ya fue resuelto.", 400);
-  }
+  if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) throw new AppError("Este reporte ya fue resuelto.", 400);
 
-  const finalStatus = report.status === "EVIDENCE_REQUESTED" ? "RESOLVED_NO_ACTION" : "DISMISSED";
   const updated = await prisma.report.update({
-    where: { id },
-    data: { status: finalStatus, resolvedById: req.user.id, resolvedAt: new Date(), resolutionNote: resolutionNote || null },
+    where: { id: report.id },
+    data: { status: report.status === "EVIDENCE_REQUESTED" ? "RESOLVED_NO_ACTION" : "DISMISSED", resolvedById: req.user.id, resolvedAt: new Date(), resolutionNote },
   });
-  await notifyDismissed(updated);
+  await notifyReportOutcome(updated, { suspended: false, reason: resolutionNote });
   res.json({ report: updated });
 }
 
-const resolveSchema = z.object({ resolutionNote: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.") });
-
-// Aplica la consecuencia mínima que pidió el usuario, una por tipo real de
-// objetivo — reusa los campos que YA existen para suspender (nunca borra
-// nada de verdad, ver Vendor.isBlocked/Product.isActive y el criterio de
-// "no reimplementar" del comentario de arriba). Exportada aparte de
-// resolveFraudReport para que fraudReports.job.js la reuse tal cual cuando
-// vence el plazo de evidencia sin respuesta — misma consecuencia sin
-// importar si la decide un admin a mano o el cron solo.
-export async function applyFraudConsequence(report, reason) {
-  if (report.productId) {
-    await prisma.product.update({ where: { id: report.productId }, data: { isActive: false } });
-  } else if (report.vendorId) {
-    await prisma.vendor.update({ where: { id: report.vendorId }, data: { isBlocked: true, blockReason: reason, blockedAt: new Date() } });
-  } else {
-    const listing = await prisma.customerListing.findUnique({ where: { id: report.customerListingId }, select: { ownerId: true } });
-    await prisma.$transaction([
-      prisma.customerListing.update({ where: { id: report.customerListingId }, data: { isActive: false } }),
-      prisma.user.update({ where: { id: listing.ownerId }, data: { isSuspended: true } }),
-    ]);
-  }
+// Confirmar y suspender. Lo usa también la tarea diaria cuando vence el plazo de evidencia sin respuesta.
+export async function confirmAndSuspend(report, { reason, adminId = null, autoResolved = false }) {
+  const deleteAt = await suspendReportTarget(report, reason);
+  const updated = await prisma.report.update({
+    where: { id: report.id },
+    data: { status: "RESOLVED_SUSPENDED", resolvedById: adminId, resolvedAt: new Date(), resolutionNote: reason, autoResolved, itemDeleteAt: deleteAt },
+  });
+  await notifyReportOutcome(updated, { suspended: true, reason, deleteAt });
+  const strikes = await applyStrikes(updated);
+  return { report: updated, strikes };
 }
 
-// Confirma el fraude a mano (el cron de FB-5 es quien confirma solo, sin
-// admin, cuando vence el plazo sin respuesta).
 export async function resolveFraudReport(req, res) {
-  const { id } = req.params;
-  const { resolutionNote } = resolveSchema.parse(req.body);
+  const { resolutionNote } = decisionSchema.parse(req.body);
+  const report = await prisma.report.findUnique({ where: { id: req.params.id } });
+  if (!report) throw new AppError("Reporte no encontrado.", 404);
+  if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) throw new AppError("Este reporte ya fue resuelto.", 400);
+  res.json(await confirmAndSuspend(report, { reason: resolutionNote, adminId: req.user.id }));
+}
+
+const appealDecisionSchema = z.object({ note: z.string().trim().min(5, "Escribe el motivo (mínimo 5 caracteres): se envía al dueño.").max(1000) });
+
+async function appealReport(id) {
   const report = await prisma.report.findUnique({ where: { id } });
   if (!report) throw new AppError("Reporte no encontrado.", 404);
-  if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) {
-    throw new AppError("Este reporte ya fue resuelto.", 400);
-  }
+  if (report.appealStatus !== "PENDING") throw new AppError("No hay una apelación pendiente en este reporte.", 400);
+  return report;
+}
 
-  const reason = `Fraude confirmado por reporte de un cliente: ${resolutionNote}`;
-  await applyFraudConsequence(report, reason);
+async function emailAppealResult(report, accepted, note) {
+  const owner = report.targetOwnerId ? await prisma.user.findUnique({ where: { id: report.targetOwnerId } }) : null;
+  if (!owner) return;
+  await sendModerationEmail({
+    to: owner.email,
+    fullName: owner.fullName,
+    vendorId: report.targetVendorId,
+    subject: accepted ? `Volvimos a publicar tu ${report.targetLabel ?? "publicación"}` : `Revisamos tu apelación sobre ${report.targetLabel ?? "tu publicación"}`,
+    title: accepted ? "Apelación aceptada" : "Apelación rechazada",
+    badge: accepted ? { label: "Publicado de nuevo", color: "#0CAE53" } : { label: "Eliminado", color: "#ba1a1a" },
+    paragraphs: [
+      accepted
+        ? `Revisamos tu evidencia y tu <strong>${esc(report.targetLabel ?? "publicación")}</strong> vuelve a estar publicada.`
+        : `Revisamos tu evidencia, pero no fue suficiente: tu <strong>${esc(report.targetLabel ?? "publicación")}</strong> se eliminó.`,
+      `Motivo: ${esc(note)}`,
+    ],
+    cta: { label: "Ir a mi panel", href: `${env.frontendUrl}${report.targetVendorId ? "/vendedor/reportes" : "/cuenta/panel?tab=reports"}` },
+  }).catch(() => {});
+}
 
-  const updated = await prisma.report.update({
-    where: { id },
-    data: { status: "RESOLVED_SUSPENDED", resolvedById: req.user.id, resolvedAt: new Date(), resolutionNote },
-  });
-  await notifySuspended(updated, reason);
+export async function acceptAppeal(req, res) {
+  const { note } = appealDecisionSchema.parse(req.body);
+  const report = await appealReport(req.params.id);
+  const updated = await restoreAfterAppeal(report, note);
+  await emailAppealResult(report, true, note);
   res.json({ report: updated });
+}
+
+export async function rejectAppeal(req, res) {
+  const { note } = appealDecisionSchema.parse(req.body);
+  const report = await appealReport(req.params.id);
+  await prisma.report.update({ where: { id: report.id }, data: { appealStatus: "REJECTED", appealResolvedAt: new Date(), appealNote: note } });
+  await deleteSuspendedItem(report);
+  await emailAppealResult(report, false, note);
+  res.json({ ok: true });
+}
+
+// --- Cuentas y tiendas sancionadas por avisos -------------------------------------------------------------------------
+
+export async function listSanctioned(_req, res) {
+  const [customers, vendors] = await Promise.all([
+    prisma.user.findMany({
+      where: { fraudBlockedAt: { not: null }, deletedAt: null },
+      select: { id: true, fullName: true, email: true, phone: true, fraudBlockedAt: true, fraudClaimDueAt: true },
+      orderBy: { fraudBlockedAt: "desc" },
+    }),
+    prisma.vendor.findMany({
+      where: { fraudSuspendedAt: { not: null }, deletedAt: null },
+      select: { id: true, companyName: true, slug: true, whatsapp: true, fraudSuspendedAt: true, fraudContactDueAt: true, fraudDeleteAt: true, user: { select: { email: true, fullName: true } } },
+      orderBy: { fraudSuspendedAt: "desc" },
+    }),
+  ]);
+  res.json({ customers, vendors });
+}
+
+const reasonSchema = z.object({ reason: z.string().trim().min(5, "Escribe el motivo (mínimo 5 caracteres).").max(1000) });
+
+// Reactivar: se levanta el bloqueo, se limpian los plazos y los avisos anteriores dejan de contar.
+export async function reactivateSanctionedCustomer(req, res) {
+  const { reason } = reasonSchema.parse(req.body);
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user?.fraudBlockedAt) throw new AppError("Esta cuenta no está bloqueada por avisos.", 400);
+  await clearCustomerFraudBlock(user.id);
+  await sendModerationEmail({ to: user.email, fullName: user.fullName, subject: "Tu cuenta está activa de nuevo", title: "Cuenta reactivada", badge: { label: "Activa", color: "#0CAE53" }, paragraphs: [`Revisamos tu caso y tu cuenta vuelve a estar activa. ${esc(reason)}`] }).catch(() => {});
+  res.json({ ok: true });
+}
+
+export async function reactivateSanctionedVendor(req, res) {
+  const { reason } = reasonSchema.parse(req.body);
+  const vendor = await prisma.vendor.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!vendor?.fraudSuspendedAt) throw new AppError("Esta tienda no está suspendida por avisos.", 400);
+  await clearVendorFraudBlock(vendor.id);
+  await sendModerationEmail({ to: vendor.user?.email, fullName: vendor.ownerName ?? vendor.user?.fullName, vendorId: vendor.id, subject: `Tu tienda ${vendor.companyName} está activa de nuevo`, title: "Tienda reactivada", badge: { label: "Activa", color: "#0CAE53" }, paragraphs: [`Revisamos tu caso y <strong>${esc(vendor.companyName)}</strong> vuelve a estar activa. ${esc(reason)}`] }).catch(() => {});
+  res.json({ ok: true });
+}
+
+// Ya contactó a soporte: se detiene el plazo (no se elimina sola) mientras el admin revisa.
+export async function pauseSanctionDeadline(req, res) {
+  const { kind, id } = req.params;
+  if (kind === "customers") await prisma.user.update({ where: { id }, data: { fraudClaimDueAt: null } });
+  else if (kind === "vendors") await prisma.vendor.update({ where: { id }, data: { fraudContactDueAt: null, fraudDeleteAt: null } });
+  else throw new AppError("Tipo no válido.", 400);
+  res.json({ ok: true });
+}
+
+export async function deleteSanctionedNow(req, res) {
+  const { reason } = reasonSchema.parse(req.body);
+  const { kind, id } = req.params;
+  if (kind === "customers") await deleteAndBlacklistCustomer(id, reason, req.user.id);
+  else if (kind === "vendors") await deleteAndBlacklistVendor(id, reason, req.user.id);
+  else throw new AppError("Tipo no válido.", 400);
+  res.json({ ok: true });
+}
+
+// --- Lista negra ------------------------------------------------------------------------------------------------------
+
+export async function listBlacklist(req, res) {
+  const q = String(req.query.q ?? "").trim();
+  const entries = await prisma.blacklistEntry.findMany({
+    where: {
+      removedAt: req.query.removed === "1" ? { not: null } : null,
+      ...(q
+        ? { OR: ["email", "phone", "idNumber", "fullName", "storeName"].map((f) => ({ [f]: { contains: q, mode: "insensitive" } })) }
+        : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  res.json({ entries });
+}
+
+export async function removeFromBlacklist(req, res) {
+  const entry = await prisma.blacklistEntry.findUnique({ where: { id: req.params.id } });
+  if (!entry || entry.removedAt) throw new AppError("No está en la lista negra.", 404);
+  await prisma.blacklistEntry.update({ where: { id: entry.id }, data: { removedAt: new Date(), removedById: req.user.id } });
+  res.json({ ok: true });
 }

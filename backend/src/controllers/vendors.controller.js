@@ -1,4 +1,5 @@
 import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
+import { assertNotBlacklisted } from "../lib/blacklist.js";
 import { Prisma } from "@prisma/client";
 import { normalizeSocialLinks } from "../lib/socialLinks.js";
 import { ratingSummary, ratingScore } from "../lib/ratings.js";
@@ -188,6 +189,8 @@ export async function createVendor(req, res) {
 
   const existing = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (existing) throw new AppError("Este usuario ya tiene una tienda registrada.", 409);
+  // Lista negra: ni con el correo, el WhatsApp ni el documento de alguien eliminado por fraude.
+  await assertNotBlacklisted({ email: data.email ?? req.user.email, phone: data.whatsapp, idNumber: data.ownerIdNumber });
   await assertVendorUnique({ companyName: data.companyName, whatsapp: data.whatsapp, email: data.email, ownerIdNumber: data.ownerIdNumber });
 
   const businessCategory = await prisma.businessCategory.findUnique({ where: { id: data.businessCategoryId } });

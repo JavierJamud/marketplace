@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { moderationNoticeEmail } from "../templates/moderationNotice.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma.js";
 import { env } from "../config/env.js";
@@ -491,6 +492,15 @@ export async function sendFraudReportSuspendedEmail(user, vendorId, { targetLabe
   const { subject, html } = await fraudReportSuspendedEmail({ fullName: user.fullName, targetLabel, reason });
   const result = await sendViaResend({ to: user.email, subject, html });
   await logEmail({ vendorId, orderId: null, type: "FRAUD_REPORT_SUSPENDED", to: user.email, subject, result });
+  return result;
+}
+
+// Avisos de moderación (ver templates/moderationNotice.js y lib/moderation.js).
+export async function sendModerationEmail({ to, fullName, vendorId = null, subject, title, badge, paragraphs, note, cta }) {
+  if (!to) return { ok: false, error: "Sin correo" };
+  const { html } = await moderationNoticeEmail({ fullName, subject, title, badge, paragraphs, note, cta });
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId, orderId: null, type: "FRAUD_MODERATION", to, subject, result });
   return result;
 }
 

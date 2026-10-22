@@ -213,6 +213,7 @@ enum EmailType {
   FRAUD_REPORT_EVIDENCE_REQUESTED
   FRAUD_REPORT_DISMISSED
   FRAUD_REPORT_SUSPENDED
+  FRAUD_MODERATION
   // Bloque 183: aviso al usuario de sistema recién creado (ver
   // vendorStaff.controller.js) de que ya tiene una cuenta esperándolo.
   VENDOR_STAFF_INVITE
@@ -526,6 +527,10 @@ model Product {
   paymentMethods String[] @default([]) // whatsapp | cod | prepaid
   isFeatured  Boolean  @default(false)
   isActive    Boolean  @default(true)
+  // Suspendido por un reporte confirmado: fuera del sitio y la tienda no lo puede reactivar; si no apela a tiempo, se
+  // borra (ver Report.itemDeleteAt y lib/moderation.js).
+  suspendedAt     DateTime?
+  suspendedReason String?
   // Bloque 16: independiente de isActive/paymentMethods — un producto puede
   // vender en la tienda normal, en el menú QR de mesa, en ambos o en ninguno.
   availableForTableMenu Boolean @default(false)
@@ -813,6 +818,12 @@ model User {
   municipalityOther String?
   country      String? // ISO 3166-1 alpha-2 (ej. "CU"), usado para el código de marcado del teléfono
   isSuspended  Boolean  @default(false)
+  // Bloqueo por avisos (ventas rápidas suspendidas por reportes confirmados, ver lib/moderation.js). fraudClaimDueAt:
+  // si no reclama antes, la cuenta se elimina y entra en la lista negra. fraudStrikesResetAt: las suspensiones anteriores
+  // dejan de contar (el admin la reactivó).
+  fraudBlockedAt      DateTime?
+  fraudClaimDueAt     DateTime?
+  fraudStrikesResetAt DateTime?
   // Bloque 12: soft-delete — nunca se borra la fila (los pedidos históricos
   // necesitan customerId intacto). isSuspended:true en simultáneo es lo que
   // realmente bloquea el login (ver auth.controller.js); deletedAt es solo
@@ -1213,6 +1224,13 @@ model Vendor {
   // suspendidas" (AdminSuspendedVendors.jsx) igual que ya hace suspendedAt
   // para el caso automático — se setea/limpia junto con blockReason.
   blockedAt   DateTime?
+  // Suspensión por avisos (productos o la tienda suspendidos por reportes confirmados, ver lib/moderation.js):
+  // fraudContactDueAt = plazo para contactar a soporte; vencido, fraudDeleteAt = fin de la suspensión extra, tras la cual
+  // la tienda se elimina y entra en la lista negra. fraudStrikesResetAt: el admin la reactivó, lo anterior deja de contar.
+  fraudSuspendedAt    DateTime?
+  fraudContactDueAt   DateTime?
+  fraudDeleteAt       DateTime?
+  fraudStrikesResetAt DateTime?
   // Bloque 77 (pedido explícito): tienda privada — sigue 100% funcional por
   // su link directo (/tienda/:slug, productos, checkout, reseñas, etc., sin
   // ningún cambio) pero desaparece de TODO punto de descubrimiento público
@@ -2728,6 +2746,16 @@ model SiteSettings {
   // a un reporte de fraude antes de que fraudReports.job.js lo suspenda
   // solo — editable sin redeploy, mismo patrón que newBadgeDurationDays.
   fraudReportEvidenceDeadlineDays Int @default(5)
+  // Moderación por reportes (todo editable por el admin, ver settings.controller.js updateModerationSettings):
+  // días para apelar un producto o venta rápida suspendido antes de que se borre; cuántas suspensiones confirmadas
+  // bloquean la cuenta de un cliente y cuántos días tiene para reclamar antes de eliminarse; cuántas suspensiones
+  // confirmadas suspenden una tienda, días para contactar a soporte y días más de suspensión antes de eliminarla.
+  suspendedItemAppealDays  Int @default(30)
+  customerStrikeLimit      Int @default(3)
+  customerClaimDays        Int @default(30)
+  vendorStrikeLimit        Int @default(5)
+  vendorSupportContactDays Int @default(30)
+  vendorFraudSuspensionDays Int @default(90)
   // Bloque 85 (pedido explícito): zona horaria IANA (ej. "America/Havana"),
   // editable desde "Marca de la plataforma" en el admin — hoy solo la usa
   // aiHealthCheck.job.js para saber cuándo son las 3:00am de verdad para
@@ -3178,6 +3206,12 @@ model CustomerListing {
   // El dueño lo marca manualmente al vender — no borra el cupo de 5 hasta
   // que además lo elimina (puede querer dejarlo un tiempo como referencia).
   isSold      Boolean         @default(false)
+  // Suspendida por un reporte confirmado (igual que Product.suspendedAt). Analítica para el admin al revisar un reporte:
+  // visitas a la ficha y clics en "contactar".
+  suspendedAt       DateTime?
+  suspendedReason   String?
+  viewCount         Int @default(0)
+  contactClickCount Int @default(0)
   // Palabras clave para que lo encuentren (hasta 8).
   tags        String[]        @default([])
   // Estado del artículo: NEW (nuevo), USED (usado) o REFURBISHED (reacondicionado). Opcional.
@@ -3259,8 +3293,15 @@ model Report {
   // Obligatorios los dos al crear (ver reports.controller.js) — es lo que
   // permite al admin decidir sin tener que pedirle más datos al reportante
   // antes de poder evaluar.
-  screenshotUrl String
+  // Capturas del que reporta: opcionales y solo imágenes (hasta 4). screenshotUrl queda para los reportes viejos.
+  screenshotUrl String?
+  images        String[] @default([])
   message       String @db.Text
+  // Foto del objetivo al reportar: dueño (cuenta) y tienda, para contar avisos aunque el objetivo se borre después, y
+  // su nombre para seguir mostrándolo.
+  targetOwnerId  String?
+  targetVendorId String?
+  targetLabel    String?
 
   status ReportStatus @default(PENDING)
 
@@ -3282,13 +3323,24 @@ model Report {
   resolvedAt     DateTime?
   resolutionNote String?   @db.Text
 
+  // Apelación del dueño tras una suspensión: itemDeleteAt = el producto o la venta rápida se borra si para entonces no
+  // apeló (o el admin rechazó la apelación). appealStatus: PENDING | ACCEPTED | REJECTED.
+  itemDeleteAt     DateTime?
+  appealMessage    String?   @db.Text
+  appealImages     String[]  @default([])
+  appealSentAt     DateTime?
+  appealStatus     String?
+  appealResolvedAt DateTime?
+  appealNote       String?   @db.Text
+
   createdAt DateTime @default(now())
 
   reporter         User             @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
   resolvedBy       User?            @relation("ReportsResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
-  product          Product?         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  vendor           Vendor?          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  customerListing  CustomerListing? @relation(fields: [customerListingId], references: [id], onDelete: Cascade)
+  // SetNull: el reporte sobrevive al borrado de su objetivo (historial y conteo de avisos).
+  product          Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  vendor           Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  customerListing  CustomerListing? @relation(fields: [customerListingId], references: [id], onDelete: SetNull)
 
   @@index([reporterId])
   @@index([status])
@@ -3296,6 +3348,32 @@ model Report {
   @@index([vendorId])
   @@index([customerListingId])
   @@index([evidenceDueAt])
+  @@index([targetOwnerId])
+  @@index([targetVendorId])
+  @@index([itemDeleteAt])
+}
+
+// Lista negra: personas eliminadas por avisos acumulados (o que el admin agregó). Bloquea registrarse de nuevo con ese
+// correo, teléfono o documento (ver lib/blacklist.js). removedAt = el admin la sacó de la lista.
+model BlacklistEntry {
+  id          String    @id @default(cuid())
+  kind        String    // "CUSTOMER" | "VENDOR"
+  email       String?
+  phone       String?
+  idNumber    String?
+  fullName    String?
+  storeName   String?
+  reason      String    @db.Text
+  userId      String?
+  vendorId    String?
+  addedById   String?
+  removedAt   DateTime?
+  removedById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([email])
+  @@index([phone])
+  @@index([idNumber])
 }
 
 // Bloque 21: chatbot IA por tienda verificada. Sin login — el cliente se

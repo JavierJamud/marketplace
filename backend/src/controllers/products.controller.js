@@ -871,6 +871,10 @@ export async function updateProduct(req, res) {
   else await assertPaymentMethodsAllowed(data.paymentMethods);
   if (data.badge !== undefined) await assertBadgeAllowed(data.badge);
   await applyProductShipping(data, vendor, existing);
+  // Suspendido por un reporte confirmado: la tienda no lo puede volver a publicar (solo apelando, ver lib/moderation.js).
+  if (existing.suspendedAt && data.isActive === true) {
+    throw new AppError("Este producto está suspendido por un reporte. Para volver a publicarlo, envía tu apelación desde Reportes.", 400);
+  }
 
   const basePrice = data.price ?? existing.price;
 
@@ -963,7 +967,8 @@ export async function addProductImages(req, res) {
     where: { id: req.uploadProduct.id },
     data: {
       images: [...req.uploadProduct.images, ...newUrls],
-      ...(wasEmpty ? { isActive: true, activatedAt: req.uploadProduct.activatedAt ?? new Date() } : {}),
+      // Un producto suspendido por un reporte no se reactiva subiendo fotos de nuevo.
+      ...(wasEmpty && !req.uploadProduct.suspendedAt ? { isActive: true, activatedAt: req.uploadProduct.activatedAt ?? new Date() } : {}),
     },
   });
   // Bloque 235: si esta fue la foto que sacó al producto de la pausa
@@ -1054,7 +1059,7 @@ export async function addProductImageLink(req, res) {
     where: { id },
     data: {
       images: [...existing.images, storedUrl],
-      ...(wasEmpty ? { isActive: true, activatedAt: existing.activatedAt ?? new Date() } : {}),
+      ...(wasEmpty && !existing.suspendedAt ? { isActive: true, activatedAt: existing.activatedAt ?? new Date() } : {}),
     },
   });
   // Bloque 235: mismo criterio que addProductImages — este es el punto

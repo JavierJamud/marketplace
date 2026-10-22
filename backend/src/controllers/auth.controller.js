@@ -1,4 +1,5 @@
 import { CODE_TTL_MINUTES } from "../lib/codeTtl.js";
+import { assertNotBlacklisted } from "../lib/blacklist.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -154,6 +155,8 @@ export async function register(req, res) {
   if (existing) {
     throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
   }
+  // Lista negra (personas eliminadas por reportes de fraude confirmados): no pueden volver a registrarse.
+  await assertNotBlacklisted({ email: data.email, phone: data.phone });
 
   // El país del teléfono tiene que estar habilitado en el panel del admin (la pantalla solo ofrece esos; esto cubre llamadas directas).
   const phoneCountry = await prisma.country.findFirst({ where: { code: data.country.toUpperCase(), isActive: true }, select: { id: true } });
@@ -221,6 +224,8 @@ export async function verifyRegistration(req, res) {
   // medio mientras este código estaba pendiente.
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
+  // Por si entró en la lista negra mientras el código estaba pendiente.
+  await assertNotBlacklisted({ email, phone: pending.phone });
 
   const { user, linkedOrdersCount } = await prisma.$transaction(async (tx) => {
     // Bloque 62: completar el registro ya es un "login" real (se emite

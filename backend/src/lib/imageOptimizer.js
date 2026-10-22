@@ -47,7 +47,8 @@ function makeOptimizer({ dir, maxWidth, quality, thumbWidth }) {
   return async function optimizeImages(req, _res, next) {
     // `.single()` deja req.file; `.array()` deja req.files. Se normalizan a
     // una sola lista para no duplicar el cuerpo del bucle.
-    const files = req.files?.length ? req.files : req.file ? [req.file] : [];
+    // `.fields()` deja req.files como objeto { campo: [archivos] }.
+    const files = Array.isArray(req.files) ? req.files : req.files ? Object.values(req.files).flat() : req.file ? [req.file] : [];
     if (!files.length) return next();
 
     try {
@@ -111,5 +112,6 @@ export function createImageUpload({ dir, maxWidth, quality = 80, thumbWidth = nu
   return {
     single: (field) => [upload.single(field), optimize],
     array: (field, maxCount) => [upload.array(field, maxCount), optimize],
+    fields: (list) => [upload.fields(list), optimize],
   };
 }

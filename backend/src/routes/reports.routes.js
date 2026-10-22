@@ -9,7 +9,8 @@ const router = Router();
 // Cualquier usuario logueado (cliente, vendedor o admin) puede reportar —
 // el botón vive en páginas públicas de producto/tienda/venta rápida, sin
 // login redirige a /cuenta (mismo patrón que agregar a favoritos).
-router.post("/", authenticate, reportRateLimit, reportUpload.single("screenshot"), reportsController.createReport);
+// Capturas opcionales: "images" (hasta 4); "screenshot" sigue aceptándose para la versión anterior de la web.
+router.post("/", authenticate, reportRateLimit, reportUpload.fields([{ name: "images", maxCount: 4 }, { name: "screenshot", maxCount: 1 }]), reportsController.createReport);
 
 // Reportes donde YO soy el reportado — antes de "/:id/evidence" por
 // convención (aunque acá no hay colisión real de path, "/me/list" no
@@ -23,5 +24,7 @@ router.get("/me/made", authenticate, reportsController.listMyReportsMade);
 // llama es realmente el dueño real detrás del objetivo reportado, sin
 // depender de un rol fijo (puede ser CUSTOMER o VENDOR según el caso).
 router.post("/:id/evidence", authenticate, reportUpload.array("evidence", 4), reportsController.submitEvidence);
+// Apelación del dueño tras una suspensión (mensaje y capturas opcionales).
+router.post("/:id/appeal", authenticate, reportRateLimit, reportUpload.array("images", 4), reportsController.submitAppeal);
 
 export default router;

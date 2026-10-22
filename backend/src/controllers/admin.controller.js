@@ -631,6 +631,8 @@ export async function updateVendor(req, res) {
   if (data.isBlocked === false) {
     vendorData.blockReason = null;
     vendorData.blockedAt = null;
+    // Desbloquear una tienda suspendida por avisos de fraude: se detienen sus plazos y lo anterior deja de contar.
+    if (vendor.fraudSuspendedAt) Object.assign(vendorData, { fraudSuspendedAt: null, fraudContactDueAt: null, fraudDeleteAt: null, fraudStrikesResetAt: new Date() });
   }
 
   const updated = await prisma.vendor.update({ where: { id }, data: vendorData });
@@ -1839,7 +1841,9 @@ export async function updateCustomer(req, res) {
     if (existing && existing.id !== id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
   }
 
-  const updated = await prisma.user.update({ where: { id }, data });
+  // Reactivar a un cliente bloqueado por avisos de fraude: se detiene el plazo y lo anterior deja de contar.
+  const fraudReset = data.isSuspended === false && user.fraudBlockedAt ? { fraudBlockedAt: null, fraudClaimDueAt: null, fraudStrikesResetAt: new Date() } : {};
+  const updated = await prisma.user.update({ where: { id }, data: { ...data, ...fraudReset } });
   res.json({ customer: { id: updated.id, fullName: updated.fullName, email: updated.email, phone: updated.phone, isSuspended: updated.isSuspended } });
 }
 

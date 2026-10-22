@@ -120,6 +120,19 @@ router.get("/reports", adminReportsController.listFraudReports);
 router.post("/reports/:id/request-evidence", adminReportsController.requestEvidence);
 router.post("/reports/:id/dismiss", requireActionCode("FRAUD_DECISION"), adminReportsController.dismissFraudReport);
 router.post("/reports/:id/resolve", requireActionCode("FRAUD_DECISION"), adminReportsController.resolveFraudReport);
+router.get("/reports/:id", adminReportsController.getFraudReportDetail);
+router.post("/reports/:id/appeal/accept", requireActionCode("FRAUD_DECISION"), adminReportsController.acceptAppeal);
+router.post("/reports/:id/appeal/reject", requireActionCode("FRAUD_DECISION"), adminReportsController.rejectAppeal);
+// Cuentas y tiendas sancionadas por avisos acumulados, y la lista negra (ver lib/moderation.js).
+router.get("/moderation/sanctioned", adminReportsController.listSanctioned);
+router.post("/moderation/customers/:id/reactivate", requireActionCode("FRAUD_DECISION"), adminReportsController.reactivateSanctionedCustomer);
+router.post("/moderation/vendors/:id/reactivate", requireActionCode("FRAUD_DECISION"), adminReportsController.reactivateSanctionedVendor);
+router.post("/moderation/:kind/:id/pause", adminReportsController.pauseSanctionDeadline);
+router.post("/moderation/:kind/:id/delete", requireActionCode("FRAUD_DECISION"), adminReportsController.deleteSanctionedNow);
+router.get("/blacklist", adminReportsController.listBlacklist);
+router.post("/blacklist/:id/remove", requireActionCode("FRAUD_DECISION"), adminReportsController.removeFromBlacklist);
+router.get("/settings/moderation", settingsController.getModerationSettingsAdmin);
+router.patch("/settings/moderation", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateModerationSettings);
 
 // Bloque 229 (Fase 2 del blindaje del ranking — pedido explícito): cola de
 // anomalías detectadas por reviewAnomaly.job.js/clickAnomaly.job.js. Mismo

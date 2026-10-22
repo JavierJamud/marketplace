@@ -423,6 +423,31 @@ export async function updateListingPolicy(req, res) {
   });
 }
 
+// Reglas de moderación por reportes (ver lib/moderation.js). Solo el admin las ve: no se publican en /settings para que
+// nadie calcule cuánto puede abusar antes de un bloqueo.
+const MODERATION_FIELDS = ["fraudReportEvidenceDeadlineDays", "suspendedItemAppealDays", "customerStrikeLimit", "customerClaimDays", "vendorStrikeLimit", "vendorSupportContactDays", "vendorFraudSuspensionDays"];
+const moderationSchema = z.object({
+  fraudReportEvidenceDeadlineDays: z.number().int().min(1).max(60),
+  suspendedItemAppealDays: z.number().int().min(1).max(365),
+  customerStrikeLimit: z.number().int().min(1).max(50),
+  customerClaimDays: z.number().int().min(1).max(365),
+  vendorStrikeLimit: z.number().int().min(1).max(50),
+  vendorSupportContactDays: z.number().int().min(1).max(365),
+  vendorFraudSuspensionDays: z.number().int().min(1).max(730),
+});
+const pickModeration = (s) => Object.fromEntries(MODERATION_FIELDS.map((f) => [f, s[f]]));
+
+export async function getModerationSettingsAdmin(_req, res) {
+  res.json({ settings: pickModeration(await getOrCreateSettings()) });
+}
+
+export async function updateModerationSettings(req, res) {
+  const data = moderationSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
+  res.json({ settings: pickModeration(updated) });
+}
+
 // Uso INTERNO (customerListings.controller.js) — mismo criterio que
 // getOfferPolicy de arriba.
 export async function getListingPolicy() {

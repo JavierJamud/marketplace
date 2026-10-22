@@ -1,7 +1,8 @@
 import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
-import { notifyEvidenceRequested, notifySuspended } from "../services/fraudReportNotify.service.js";
-import { applyFraudConsequence } from "../controllers/adminReports.controller.js";
+import { notifyEvidenceRequested } from "../services/fraudReportNotify.service.js";
+import { confirmAndSuspend } from "../controllers/adminReports.controller.js";
+import { runModerationDeadlines } from "../lib/moderation.js";
 
 // Feature B (pedido explícito): "si no se envía evidencia dentro del plazo,
 // la tienda se suspende por fraude" — mismo criterio de reloj único que
@@ -56,13 +57,9 @@ async function autoResolveExpiredReports() {
 
   let resolved = 0;
   for (const report of reports) {
-    const reason = "No respondió al pedido de evidencia dentro del plazo — suspendido automáticamente por fraude.";
-    await applyFraudConsequence(report, reason);
-    const updated = await prisma.report.update({
-      where: { id: report.id },
-      data: { status: "RESOLVED_SUSPENDED", autoResolved: true, resolvedById: null, resolvedAt: new Date(), resolutionNote: reason },
-    });
-    await notifySuspended(updated, reason);
+    // Mismo camino que la decisión del admin (suspensión con plazo para apelar, correos y avisos acumulados).
+    const reason = "No respondió al pedido de evidencia dentro del plazo, así que se suspendió automáticamente.";
+    await confirmAndSuspend(report, { reason, autoResolved: true });
     resolved++;
   }
   return resolved;
@@ -74,8 +71,10 @@ async function autoResolveExpiredReports() {
 export async function runFraudReportsJob() {
   const reminders = await sendEvidenceReminders();
   const resolved = await autoResolveExpiredReports();
-  console.log(`[fraudReportsJob] recordatorios=${reminders} auto-suspendidos=${resolved}`);
-  return { reminders, resolved };
+  // Plazos de la moderación: borrar lo suspendido sin apelar, eliminar cuentas sin reclamo, avanzar tiendas suspendidas.
+  const deadlines = await runModerationDeadlines();
+  console.log(`[fraudReportsJob] recordatorios=${reminders} auto-suspendidos=${resolved} plazos=${JSON.stringify(deadlines)}`);
+  return { reminders, resolved, deadlines };
 }
 
 // 9:00am hora Cuba — después de los otros 3 crons diarios (7:00/8:00/8:30),
