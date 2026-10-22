@@ -13,8 +13,7 @@ import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { StoreFilters } from "../../components/shop/StoreFilters.jsx";
 import { ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
-import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutLabel, resolvePaymentMethod } from "../../lib/catalog.js";
 import { lockPageScroll } from "../../lib/scrollLock.js";
 
 // Página de tiendas. El lugar donde se compra (país, provincia o estado, municipio) es un filtro general del sitio que se elige
@@ -146,8 +145,8 @@ export default function Stores() {
       remove: () => setMany({ minPrice: "", maxPrice: "" }),
     },
     filters.currency && !(filters.minPrice || filters.maxPrice) && { key: "cur", label: `Productos en ${filters.currency}`, remove: () => setFilter("currency", "") },
-    ...filters.payment.map((id) => ({ key: `pay-${id}`, label: CHECKOUT_PAY_CHOICES.find((o) => o.id === id)?.title ?? id, remove: () => toggleInList("payment", id) })),
-    ...filters.accepts.map((id) => ({ key: `acc-${id}`, label: `Acepta ${PAYMENT_METHODS.find((m) => m.id === id)?.label ?? id}`, remove: () => toggleInList("accepts", id) })),
+    ...filters.payment.map((id) => ({ key: `pay-${id}`, label: checkoutLabel(id), remove: () => toggleInList("payment", id) })),
+    ...filters.accepts.map((id) => ({ key: `acc-${id}`, label: `Acepta ${resolvePaymentMethod(id).label}`, remove: () => toggleInList("accepts", id) })),
     filters.minRating && { key: "rate", label: `${filters.minRating}★ o más`, remove: () => setFilter("minRating", "") },
     q && { key: "q", label: `“${q}”`, remove: () => setFilter("q", "") },
   ].filter(Boolean);

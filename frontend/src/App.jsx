@@ -7,6 +7,7 @@ import { isNoindexPath, isDynamicSeoPath, staticSeoFor } from "./lib/seoRoutes.j
 
 import { PublicLayout } from "./components/layout/PublicLayout.jsx";
 import { RouteLoader } from "./components/layout/RouteLoader.jsx";
+import { useCatalog } from "./lib/catalog.js";
 import { PwaManager } from "./components/pwa/PwaManager.jsx";
 import { VersionWatcher } from "./components/VersionWatcher.jsx";
 import { ProtectedRoute } from "./components/ProtectedRoute.jsx";
@@ -178,6 +179,9 @@ function AdminMaintenanceBar({ mode }) {
 
 export default function App() {
   useRouteSeo();
+  // Nombres de monedas y formas de pago (lib/catalog.js). Al cambiar en el admin, App se vuelve a pintar y con ella todas las
+  // pantallas, así los precios y formas de pago muestran el nombre nuevo sin recargar.
+  useCatalog();
   const { pathname: currentPath } = useLocation();
   const maintenance = useMaintenance();
   const { user } = useAuth();

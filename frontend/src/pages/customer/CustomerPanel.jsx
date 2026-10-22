@@ -31,6 +31,7 @@ import { MyPoints } from "../../components/customer/MyPoints.jsx";
 import { EmailPreferencesCard } from "../../components/customer/EmailPreferencesCard.jsx";
 import { ReportsCenter } from "../../components/reports/ReportsCenter.jsx";
 import { CardListSkeleton, FormSkeleton } from "../../components/ui/Skeleton.jsx";
+import { channelLabel, currencyCodesFor, currencyLabel } from "../../lib/catalog.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -41,7 +42,6 @@ function fmtCUP(n) {
 const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#087A38", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
-const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
 // BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).
 const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel", BOTH: "Aviso por WhatsApp y Panel" };
 
@@ -233,6 +233,8 @@ export default function CustomerPanel() {
     // El lugar del anuncio arranca con el del perfil; se puede cambiar si el artículo está en otra provincia, estado o país.
     setListingForm({
       ...LISTING_EMPTY_FORM,
+      // La primera moneda activa del admin, si el USD de siempre ya no está disponible.
+      currency: currencyCodesFor().includes("USD") ? "USD" : currencyCodesFor()[0] ?? "USD",
       countryId: customer?.registrationCountryId ?? customer?.province?.countryId ?? "",
       provinceId: customer?.provinceId ?? "",
       municipalityId: customer?.municipalityId ?? "",
@@ -501,7 +503,7 @@ export default function CustomerPanel() {
                         {o.code} · {o.vendor.companyName}
                       </div>
                       <div className="mt-0.5 text-[12.5px] text-outline">
-                        {new Date(o.createdAt).toLocaleString("es-CU")} · {CHANNEL_LABEL[o.channel] ?? o.channel}
+                        {new Date(o.createdAt).toLocaleString("es-CU")} · {channelLabel(o.channel)}
                         {NOTIFICATION_LABEL[o.notificationChannel] && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
                       </div>
                     </div>
@@ -762,8 +764,8 @@ export default function CustomerPanel() {
                     <div className="grid grid-cols-[1fr_110px] gap-3">
                       <Input label="Precio por unidad" type="number" min={1} value={listingForm.price} onChange={(e) => setListingForm({ ...listingForm, price: e.target.value })} />
                       <Select label="Moneda" value={listingForm.currency} onChange={(e) => setListingForm({ ...listingForm, currency: e.target.value })}>
-                        {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                        {currencyCodesFor(listingForm.currency).map((c) => (
+                          <option key={c} value={c}>{currencyLabel(c)}</option>
                         ))}
                       </Select>
                     </div>

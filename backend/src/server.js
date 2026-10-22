@@ -20,6 +20,7 @@ import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { reconcilePlanVerification } from "./services/vendorVerification.service.js";
 import { tidyVendorSlugs } from "./lib/vendorSlug.js";
 import { reconcileRatings } from "./lib/ratings.js";
+import { warmCatalog } from "./lib/catalog.js";
 import { startChatRetentionJob } from "./jobs/chatRetention.job.js";
 import { startSupportTicketRetentionJob } from "./jobs/supportTicketRetention.job.js";
 import { installNotifyHooks } from "./lib/notify.js";
@@ -128,6 +129,8 @@ reconcilePlanVerification().catch((err) => console.error("[planes] no se pudo re
 tidyVendorSlugs().catch((err) => console.error("[enlaces] no se pudo revisar:", err));
 // Promedio y cantidad de reseñas de tiendas y productos según sus reseñas reales (ver lib/ratings.js).
 reconcileRatings().catch((err) => console.error("[calificaciones] no se pudo revisar:", err));
+// Nombres de monedas y formas de pago en memoria desde el arranque (textos de pedidos, PDF, correos).
+warmCatalog();
 // Conversaciones de los chatbots: se borran a las 24 h sin actividad; el registro del admin dura 90 días.
 startChatRetentionJob();
 // Tickets de errores visuales: se borran (con su captura) a los 90 días.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import crypto from "node:crypto";
+import { activeCodes, assertActiveCurrency, currencyLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
@@ -7,14 +8,9 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 
-const CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
-
-// Solo las monedas que el admin tiene habilitadas (las mismas que se ofrecen al cargar un producto).
-async function assertCurrencyAvailable(currency) {
-  const s = await prisma.siteSettings.findFirst({ select: { availableCurrencies: true } });
-  const allowed = s?.availableCurrencies ?? CURRENCIES;
-  if (!allowed.includes(currency)) throw new AppError(`La moneda "${currency}" no está disponible actualmente.`, 400);
-}
+// Solo las monedas que el admin tiene activas (las mismas que se ofrecen al cargar un producto).
+const assertCurrencyAvailable = (currency) => assertActiveCurrency(currency);
+const currencyField = z.string().trim().min(1).max(12);
 
 // Bloque 52: códigos de descuento del vendedor, aplicables por el cliente en
 // el carrito (ver resolveDiscountForOrder/createOrder en orders.controller.js).
@@ -74,7 +70,7 @@ const createDiscountCodeSchema = z
     code: z.string().trim().min(2).max(24).optional(),
     type: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]),
     value: z.number().positive(),
-    currency: z.enum(CURRENCIES).default("CUP"),
+    currency: currencyField.optional(),
     minPurchase: z.number().nonnegative().optional(),
     maxPurchase: z.number().positive().optional(),
     maxUses: z.number().int().positive().optional(),
@@ -108,6 +104,7 @@ export async function createDiscountCode(req, res) {
     if (currentCount >= maxDiscountCodes) throw new AppError(`Tu plan permite hasta ${maxDiscountCodes} código(s) de descuento.`, 403);
   }
   const data = createDiscountCodeSchema.parse(req.body);
+  data.currency = data.currency ?? vendor.currency ?? (await activeCodes("CURRENCY"))[0];
   await assertCurrencyAvailable(data.currency);
 
   const code = await uniqueCodeForVendor(vendor.id, data.code);
@@ -143,7 +140,7 @@ const updateDiscountCodeSchema = z
   .object({
     type: z.enum(["PERCENTAGE", "FIXED_AMOUNT"]).optional(),
     value: z.number().positive().optional(),
-    currency: z.enum(CURRENCIES).optional(),
+    currency: currencyField.optional(),
     minPurchase: z.number().nonnegative().optional().nullable(),
     maxPurchase: z.number().positive().optional().nullable(),
     maxUses: z.number().int().positive().optional().nullable(),
@@ -253,10 +250,10 @@ export async function resolveDiscountForOrder(client, { vendorId, code, items })
   }
   const subtotal = matching.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
   if (discountCode.minPurchase != null && subtotal < Number(discountCode.minPurchase)) {
-    throw new AppError(`Este código requiere una compra mínima de ${Number(discountCode.minPurchase).toLocaleString("es-CU")} ${cur} en productos en ${cur}.`, 409);
+    throw new AppError(`Este código requiere una compra mínima de ${Number(discountCode.minPurchase).toLocaleString("es-CU")} ${currencyLabel(cur)} en productos en ${currencyLabel(cur)}.`, 409);
   }
   if (discountCode.maxPurchase != null && subtotal > Number(discountCode.maxPurchase)) {
-    throw new AppError(`Este código no aplica a compras mayores a ${Number(discountCode.maxPurchase).toLocaleString("es-CU")} ${cur}.`, 409);
+    throw new AppError(`Este código no aplica a compras mayores a ${Number(discountCode.maxPurchase).toLocaleString("es-CU")} ${currencyLabel(cur)}.`, 409);
   }
 
   const rawAmount =

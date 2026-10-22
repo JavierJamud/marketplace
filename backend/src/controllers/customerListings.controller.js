@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
 import { deleteUploadedImages } from "../lib/uploadFiles.js";
+import { activeCodes, assertActiveCurrency } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
@@ -42,7 +43,7 @@ export const customerListingSchema = z.object({
       .max(LISTING_DESCRIPTION_MAX, `La descripción admite hasta ${LISTING_DESCRIPTION_MAX} caracteres.`)
   ),
   price: z.number().positive(),
-  currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
+  currency: z.string().trim().min(1).max(12).optional(),
   tags: z
     .array(z.string().trim().min(2).max(24))
     .max(LISTING_TAGS_MAX, `Máximo ${LISTING_TAGS_MAX} palabras clave.`)
@@ -113,17 +114,7 @@ export function toPublicListing(l) {
   };
 }
 
-async function getAvailableCurrencies() {
-  const s = await prisma.siteSettings.findFirst({ select: { availableCurrencies: true } });
-  return s?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"];
-}
-
-async function assertCurrencyAllowed(currency) {
-  const allowed = await getAvailableCurrencies();
-  if (!allowed.includes(currency)) {
-    throw new AppError(`La moneda "${currency}" no está disponible actualmente.`, 400);
-  }
-}
+const assertCurrencyAllowed = (currency) => assertActiveCurrency(currency);
 
 // --- Panel de cliente: mis anuncios -----------------------------------------
 
@@ -159,6 +150,7 @@ export async function listMyListings(req, res) {
 
 export async function createListing(req, res) {
   const { countryId: _c, provinceId: _p, municipalityId: _m, municipalityOther: _mo, stateOther: _s, ...data } = customerListingSchema.parse(req.body);
+  data.currency = data.currency ?? (await activeCodes("CURRENCY"))[0];
   await assertCurrencyAllowed(data.currency);
 
   // Los compradores contactan por WhatsApp con el teléfono de la cuenta: sin teléfono el anuncio no serviría de nada.
@@ -212,7 +204,7 @@ export async function updateListing(req, res) {
   if (!existing || existing.ownerId !== req.user.id) throw new AppError("Anuncio no encontrado.", 404);
 
   const { countryId: _c, provinceId: _p, municipalityId: _m, municipalityOther: _mo, stateOther: _s, ...data } = customerListingSchema.partial().parse(req.body);
-  if (data.currency) await assertCurrencyAllowed(data.currency);
+  if (data.currency && data.currency !== existing.currency) await assertCurrencyAllowed(data.currency);
   // Si cambia el lugar, se valida completo (país, provincia o estado, municipio) y se guardan los cuatro campos juntos.
   let location = null;
   if (LOCATION_KEYS.some((k) => req.body?.[k] !== undefined)) {

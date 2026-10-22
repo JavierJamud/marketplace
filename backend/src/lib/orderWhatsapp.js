@@ -1,10 +1,11 @@
+import { currencyLabel } from "./catalog.js";
 // Mensaje de WhatsApp de un pedido recién creado. Es el mismo texto que arma el checkout web
 // (frontend Checkout.jsx, buildOrderWhatsAppText) para que un pedido hecho por la API de un socio
 // le llegue al vendedor con el mismo formato que uno hecho en Baznova.
 const SEPARATOR = "──────────────────";
 const PAY_TITLE = { cod: "Pago contra entrega", online: "Pago en línea con el vendedor", cash: "Efectivo" };
 
-const price = (amount, currency = "CUP") => `${Number(amount).toLocaleString("es-CU")} ${currency}`;
+const price = (amount, currency = "CUP") => `${Number(amount).toLocaleString("es-CU")} ${currencyLabel(currency)}`;
 
 export function orderWhatsAppText({ code, vendorName, items, discount, totalLabel, shippingText, customerName, customerPhone, address, channel }) {
   const lines = [

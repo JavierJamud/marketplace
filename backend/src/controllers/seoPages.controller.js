@@ -1,3 +1,4 @@
+import { currencyLabel } from "../lib/catalog.js";
 import crypto from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
@@ -129,7 +130,7 @@ function notFound(res, siteName) {
     .send(`<!doctype html><html lang="es"><head><meta charset="UTF-8" /><title>No encontrado | ${esc(siteName)}</title><meta name="robots" content="noindex" /></head><body><h1>No encontrado</h1><p><a href="${esc(ORIGIN)}/">Ir a ${esc(siteName)}</a></p></body></html>`);
 }
 
-const money = (n, cur) => `${Number(n).toLocaleString("es-CU")} ${cur}`;
+const money = (n, cur) => `${Number(n).toLocaleString("es-CU")} ${currencyLabel(cur)}`;
 
 export async function renderStorePage(req, res) {
   // Enlace anterior de la tienda: redirección permanente al actual (es otra dirección, no hay bucle).

@@ -2,6 +2,7 @@ import { z } from "zod";
 import jwt from "jsonwebtoken";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { storePaymentLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
@@ -181,21 +182,6 @@ function cleanFollowUp(s) {
 // íconos, acá no hacen falta) — mantener sincronizados si se agrega un
 // método ahí. Un valor no listado es texto libre que cargó el vendedor
 // ("otro"), se muestra tal cual.
-const PAYMENT_METHOD_LABELS = {
-  zelle: "Zelle",
-  visa: "Visa",
-  mastercard: "Mastercard",
-  usdt: "USDT",
-  tropipay: "Tropipay",
-  card: "Tarjeta de crédito/débito",
-  bizum: "Bizum",
-  postepay: "Postepay",
-  iban: "IBAN / Transferencia",
-  paypal: "PayPal",
-  cashapp: "Cash App",
-  venmo: "Venmo",
-};
-
 // 0 = domingo .. 6 = sábado — mismo orden que Prisma (VendorSchedule.dayOfWeek).
 const DAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -347,7 +333,7 @@ Países donde entrega: ${[...byCountry.keys()].join(", ")}.${vendor.companyAddre
 
 function paymentMethodsText(ids) {
   if (!ids?.length) return "Métodos de pago: no cargados en el sistema — si preguntan, sugiere confirmar por WhatsApp.";
-  return `Métodos de pago que acepta: ${ids.map((id) => PAYMENT_METHOD_LABELS[id] ?? id).join(", ")}`;
+  return `Métodos de pago que acepta: ${ids.map(storePaymentLabel).join(", ")}`;
 }
 
 // Bloque 30: "¿cómo va mi pedido?" — se detecta un email o un número de

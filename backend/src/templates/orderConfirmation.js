@@ -1,10 +1,7 @@
+import { channelLabel } from "../lib/catalog.js";
 import { env } from "../config/env.js";
 import { emailShell, ctaButton, itemsTable, totalRow, metaList, paragraph, smallNote, resolveAssetUrl, esc, orderProgress } from "./_shared.js";
 import { orderCurrency, money, orderShippingText, orderGrandTotal, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
-
-// Bloque 14: valores de OrderChannel consolidados (COD/TABLE sin cambios,
-// antes WHATSAPP/TRANSFER — ver comentario en schema.prisma).
-const CHANNEL_PAY_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Pedido de mesa" };
 
 // Comprobante del pedido para el cliente. Lleva todo lo que necesita para seguirlo sin abrir la web: productos con su precio en
 // la moneda del pedido, descuentos y puntos usados, quién recibe (si es otra persona, con su documento), dónde y cómo se paga,
@@ -46,7 +43,7 @@ export async function orderConfirmationEmail(order) {
       ${metaList([
         ["Número", esc(order.code)],
         order.createdAt ? ["Fecha", new Date(order.createdAt).toLocaleString("es-CU", { dateStyle: "long", timeStyle: "short", timeZone: "America/Havana" })] : null,
-        ["Pago", CHANNEL_PAY_LABEL[order.channel] ?? order.channel],
+        ["Pago", channelLabel(order.channel)],
         ["Tus datos", [esc(order.customerName), esc(order.customerPhone), esc(order.customerEmail)].filter(Boolean).join(" · ")],
       ])}
       ${ctaButton("Ver mi pedido", `${env.frontendUrl}/cuenta/panel?tab=orders`)}

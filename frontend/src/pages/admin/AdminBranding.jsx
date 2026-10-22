@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Sparkles, X, MessageCircle, Wallet, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
+import { Sparkles, X, MessageCircle, Share2, Plus, Tag, LifeBuoy, Clock } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { HeroImagesCard } from "../../components/admin/HeroImagesCard.jsx";
 import { Button } from "../../components/ui/Button.jsx";
-import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
+import { CatalogOptionsManager } from "../../components/admin/CatalogOptionsManager.jsx";
 // Bloque 46 (pedido explícito): el logo de la plataforma ya no se sube ni
 // se pega por link desde acá — ver el comentario largo en
 // usePlatformSettings.js sobre por qué. Esta página deja de tener ningún
@@ -157,53 +157,6 @@ export default function AdminBranding({ mode = "brand" }) {
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
-
-  // Bloque 52: cuáles de los métodos de pago OPCIONALES ("cod"/"prepaid")
-  // puede ofrecer un vendedor al cargar un producto — "whatsapp" es fijo,
-  // siempre disponible, no vive en esta lista (ver products.controller.js).
-  // Bloque 199: mismas etiquetas que lib/productPaymentMethods.js (antes
-  // decía "Transferencia" acá, distinto de "Transferencia CUP" en
-  // Product.jsx/Shop.jsx — ninguno el significado real: pago anticipado).
-  const OPTIONAL_METHODS = [
-    { id: "cod", label: PRODUCT_PAYMENT_METHOD_LABEL.cod },
-    { id: "prepaid", label: PRODUCT_PAYMENT_METHOD_LABEL.prepaid },
-  ];
-  const toggleProductPaymentMethods = useMutation({
-    mutationFn: async (next) => (await api.patch("/admin/settings/product-payment-methods", { productPaymentMethods: next })).data,
-    onSuccess: () => {
-      toast.success("Métodos de pago de producto actualizados.");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
-  });
-  function toggleMethod(id) {
-    const current = settings?.productPaymentMethods ?? ["cod", "prepaid"];
-    const next = current.includes(id) ? current.filter((m) => m !== id) : [...current, id];
-    toggleProductPaymentMethods.mutate(next);
-  }
-
-  // Bloque 65 (pedido explícito): de qué conjunto fijo puede elegir una
-  // tienda su moneda operativa única, en el registro o al cambiarla después
-  // (VendorOnboarding.jsx/VendorSettings.jsx) — mismo patrón que los
-  // métodos de pago de arriba, nunca puede quedar vacío.
-  const ALL_CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
-  const toggleAvailableCurrencies = useMutation({
-    mutationFn: async (next) => (await api.patch("/admin/settings/available-currencies", { availableCurrencies: next })).data,
-    onSuccess: () => {
-      toast.success("Monedas disponibles actualizadas.");
-      queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
-  });
-  function toggleCurrency(id) {
-    const current = settings?.availableCurrencies ?? ALL_CURRENCIES;
-    if (current.length === 1 && current.includes(id)) {
-      toast.error("Tiene que quedar al menos una moneda disponible.");
-      return;
-    }
-    const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
-    toggleAvailableCurrencies.mutate(next);
-  }
 
   // Bloque 66 (pedido explícito): catálogo de etiquetas de producto — "Nuevo"
   // es fijo del sistema (no vive acá, ver assertBadgeAllowed en
@@ -421,55 +374,7 @@ export default function AdminBranding({ mode = "brand" }) {
 
       {mode === "catalog" && (
         <>
-      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
-          <Wallet className="h-4 w-4 text-tertiary-accent" /> Métodos de pago de producto
-        </div>
-        <p className="mb-4 text-[12.5px] text-outline">
-          Cuáles puede ofrecer un vendedor al cargar un producto (VendorProducts.jsx). "WhatsApp" es el canal universal, siempre
-          disponible por default y no se puede apagar.
-        </p>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-2.5 text-body-md text-on-surface">
-            <input type="checkbox" checked disabled />
-            WhatsApp <span className="text-label-sm text-outline">(siempre activo)</span>
-          </label>
-          {OPTIONAL_METHODS.map((m) => (
-            <label key={m.id} className="flex items-center gap-2.5 text-body-md text-on-surface">
-              <input
-                type="checkbox"
-                checked={(settings?.productPaymentMethods ?? ["cod", "prepaid"]).includes(m.id)}
-                disabled={toggleProductPaymentMethods.isPending}
-                onChange={() => toggleMethod(m.id)}
-              />
-              {m.label}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
-          <Wallet className="h-4 w-4 text-tertiary-accent" /> Monedas disponibles para productos
-        </div>
-        <p className="mb-4 text-[12.5px] text-outline">
-          Qué monedas pueden elegir los vendedores al publicar cada producto. Por defecto siempre USD.
-          Tiene que quedar al menos una activa.
-        </p>
-        <div className="flex flex-col gap-2">
-          {ALL_CURRENCIES.map((c) => (
-            <label key={c} className="flex items-center gap-2.5 text-body-md text-on-surface">
-              <input
-                type="checkbox"
-                checked={(settings?.availableCurrencies ?? ALL_CURRENCIES).includes(c)}
-                disabled={toggleAvailableCurrencies.isPending}
-                onChange={() => toggleCurrency(c)}
-              />
-              {c}
-            </label>
-          ))}
-        </div>
-      </div>
+      <CatalogOptionsManager />
 
       <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">

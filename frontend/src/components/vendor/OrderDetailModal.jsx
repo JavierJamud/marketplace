@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { orderTotalLabel, orderShippingText, orderLineShippingText } from "../../lib/shipping.js";
+import { channelLabel } from "../../lib/catalog.js";
 
 function fmtCUP(n, currency = "CUP") {
   return `${Number(n).toLocaleString("es-CU")} ${currency}`;
@@ -24,7 +25,6 @@ const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino
 const POS_STATUS_LABEL = { PREPARING: "Preparando", READY: "Listo para recoger", DELIVERED: "Recogido", CANCELLED: "Anulado" };
 const METHOD_LABEL = { CASH: "Efectivo", CARD: "Tarjeta", TRANSFER: "Transferencia" };
 const timeOf = (d) => (d ? new Date(d).toLocaleTimeString("es-CU", { hour: "2-digit", minute: "2-digit" }) : null);
-const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
 
 // Bloque 175 (pedido explícito — "habrá un botón en cada pedido para ver
 // pedido y ver los detalles de cada pedido"): equivalente de
@@ -46,7 +46,7 @@ export function OrderDetailModal({ order, onClose }) {
           <div>
             <h3 className="text-title-lg font-bold text-on-surface">Pedido {o.code}</h3>
             <p className="text-[12.5px] text-outline">
-              {(o.pos ? POS_STATUS_LABEL[o.status] : null) ?? STATUS_LABEL[o.status] ?? o.status} · {o.pos ? `Caja ${o.pos.code}` : CHANNEL_LABEL[o.channel] ?? o.channel} · {new Date(o.createdAt).toLocaleString("es-CU")}
+              {(o.pos ? POS_STATUS_LABEL[o.status] : null) ?? STATUS_LABEL[o.status] ?? o.status} · {o.pos ? `Caja ${o.pos.code}` : channelLabel(o.channel)} · {new Date(o.createdAt).toLocaleString("es-CU")}
             </p>
           </div>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">

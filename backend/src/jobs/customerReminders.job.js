@@ -1,3 +1,4 @@
+import { currencyLabel } from "../lib/catalog.js";
 import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { sendCartReminderEmail, sendStoreReminderEmail } from "../lib/email.js";
@@ -56,7 +57,7 @@ async function activeOffer(vendorId, now) {
   return {
     title: offer.title,
     code: dc.code,
-    discountLabel: dc.type === "PERCENTAGE" ? `${Number(dc.value)} % de descuento` : `${Number(dc.value).toLocaleString("es-CU")} ${dc.currency} de descuento`,
+    discountLabel: dc.type === "PERCENTAGE" ? `${Number(dc.value)} % de descuento` : `${Number(dc.value).toLocaleString("es-CU")} ${currencyLabel(dc.currency)} de descuento`,
     expiresAt: offer.isLimitedTime ? offer.expiresAt : null,
   };
 }

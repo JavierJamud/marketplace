@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Search, Star, X } from "lucide-react";
 import clsx from "clsx";
 import { matchesQuery } from "../ui/SearchBox.jsx";
-import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutChoices, storePaymentMethods, resolvePaymentMethod, currencyLabel } from "../../lib/catalog.js";
 
 // Panel de filtros del catálogo. Todo lo que filtra es un dato real del producto o de su tienda: categoría, precio (por moneda),
 // tienda verificada, forma de coordinar el pago y métodos que acepta la tienda, descuento, precio por mayor, etiqueta, valoración y
@@ -158,7 +157,7 @@ export function ShopFilters({ filters, setFilter, setMany, toggleInList, categor
   // Mientras cargan las opciones reales no se muestra ninguna: mejor un momento sin filtros que filtros que no existen.
   if (!facets) return null;
   const currencies = withSelected(facets.currencies, [filters.currency]);
-  const payments = CHECKOUT_PAY_CHOICES.filter((o) => withSelected(facets.payment, filters.payment).includes(o.id));
+  const payments = checkoutChoices({ activeOnly: false }).filter((o) => withSelected(facets.payment, filters.payment).includes(o.id));
   const accepts = withSelected(facets.accepts, filters.accepts);
   const badges = withSelected(facets.badges, [filters.badge]);
   const ratings = withSelected(facets.ratings, filters.minRating ? [Number(filters.minRating)] : []);
@@ -178,7 +177,7 @@ export function ShopFilters({ filters, setFilter, setMany, toggleInList, categor
           <div className="mb-2.5 flex flex-wrap gap-2">
             <Chip active={!filters.currency} onClick={() => setFilter("currency", "")}>Todas</Chip>
             {currencies.map((c) => (
-              <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{c}</Chip>
+              <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{currencyLabel(c)}</Chip>
             ))}
           </div>
         )}
@@ -231,10 +230,12 @@ export function ShopFilters({ filters, setFilter, setMany, toggleInList, categor
   );
 }
 
-// Métodos de pago: primero en el orden conocido de PAYMENT_METHODS, después los que una tienda haya escrito a mano.
-const METHOD_ORDER = PAYMENT_METHODS.map((m) => m.id);
-export const sortMethods = (ids) => [...ids].sort((a, b) => (METHOD_ORDER.indexOf(a) + 1 || 999) - (METHOD_ORDER.indexOf(b) + 1 || 999) || a.localeCompare(b));
-export const methodLabel = (id) => PAYMENT_METHODS.find((m) => m.id === id)?.label ?? id;
+// Métodos de pago: primero en el orden del catálogo del admin (lib/catalog.js), después los que una tienda haya escrito a mano.
+export const sortMethods = (ids) => {
+  const order = storePaymentMethods({ activeOnly: false }).map((m) => m.id);
+  return [...ids].sort((a, b) => (order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999) || a.localeCompare(b));
+};
+export const methodLabel = (id) => resolvePaymentMethod(id).label;
 
 export function RatingSection({ ratings, value, onChange }) {
   return (

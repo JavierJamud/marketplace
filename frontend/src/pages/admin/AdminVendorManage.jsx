@@ -6,7 +6,7 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
 import { formatPrice } from "../../lib/format.js";
-import { resolvePaymentMethod } from "../../lib/paymentMethods.js";
+import { resolvePaymentMethod } from "../../lib/catalog.js";
 import { sectionForPath } from "../../lib/vendorSections.js";
 import { StatusChip } from "../../components/admin/AdminSupportTickets.jsx";
 import { CARD } from "../../components/dashboard/DashboardCard.jsx";

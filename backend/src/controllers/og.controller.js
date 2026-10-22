@@ -1,3 +1,4 @@
+import { currencyLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { env } from "../config/env.js";
@@ -22,7 +23,7 @@ const imageCache = new Map();
 
 // Envío de toda la tienda para la franja (igual que la cabecera): solo si la tienda tiene envío propio.
 function storeShippingText(v) {
-  const money = (n) => `${Number(n).toLocaleString("es-CU")} ${v.storeShippingCurrency}`;
+  const money = (n) => `${Number(n).toLocaleString("es-CU")} ${currencyLabel(v.storeShippingCurrency)}`;
   if (v.storeShippingMode === "COORDINATE") return "Envío a coordinar";
   if (v.storeShippingMode !== "FIXED") return null;
   const local = Number(v.storeShippingLocal);

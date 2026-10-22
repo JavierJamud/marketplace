@@ -12,6 +12,7 @@ import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KYC_UPLOAD_DIR } from "./verification.controller.js";
+import { activeCodes, allCodes, assertActiveCurrency, assertActiveCheckoutPayments } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
@@ -49,17 +50,8 @@ export const VENDOR_AI_DOC_DIR = join(__dirname, "..", "..", "uploads", "vendor-
 // carpeta que VENDOR_AI_DOC_DIR de arriba.
 export const VENDOR_BRANDING_DIR = join(__dirname, "..", "..", "uploads", "vendor-branding");
 
-// Bloque 65: mismo criterio que assertPaymentMethodsAllowed (products.controller.js)
-// — sin esto, una tienda podría quedar (o cambiarse) a una moneda que el
-// admin ya desactivó desde "Marca de la plataforma".
-async function assertCurrencyAllowed(currency) {
-  if (!currency) return;
-  const settings = await prisma.siteSettings.findFirst();
-  const allowed = settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"];
-  if (!allowed.includes(currency)) {
-    throw new AppError(`La moneda "${currency}" ya no está disponible en la plataforma.`, 400);
-  }
-}
+// Moneda de la tienda o de su envío: solo las que el admin tiene activas (lib/catalog.js).
+const assertCurrencyAllowed = (currency) => assertActiveCurrency(currency);
 
 // Bloque 171 (pedido explícito — "al crear una cuenta se debe ingresar los
 // horarios de la tienda... si hay varios horarios un mismo día"): mismo
@@ -125,7 +117,7 @@ const createVendorSchema = z.object({
   // La moneda de la tienda ahora es opcional en el registro — cada producto
   // tiene su propia moneda. Se mantiene en el modelo para referencia y
   // reportes, pero ya no controla los precios. Por defecto USD.
-  currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
+  currency: z.string().trim().min(1).max(12).optional(),
   // Bloque 114 (pedido explícito): countryId siempre requerido (antes se
   // inferría de provinceId, pero fuera de Cuba ya no hay provincia real de
   // la que inferirlo) — provinceId/municipalityId solo aplican a Cuba,
@@ -232,8 +224,8 @@ export async function createVendor(req, res) {
     throw new AppError("Indica la dirección de tu tienda.", 400);
   }
 
-  if (data.currency) await assertCurrencyAllowed(data.currency);
-  data.currency = data.currency ?? "USD";
+  data.currency = data.currency ?? (await activeCodes("CURRENCY"))[0];
+  await assertCurrencyAllowed(data.currency);
 
   // Nombre limpio; si se repite, -2, -3... (antes un código de la hora, ver lib/vendorSlug.js).
   const slug = await pickVendorSlug(data.companyName);
@@ -432,9 +424,9 @@ export async function listVendors(req, res) {
 
   const list = (v, max = 12) => (v ? [...new Set(String(v).split(",").map((s) => s.trim()).filter(Boolean))].slice(0, max) : []);
   const businessCategoryIds = list(businessCategoryId);
-  const checkoutOptions = list(payment).filter((m) => ["cod", "online", "cash"].includes(m));
+  const checkoutOptions = list(payment).filter((m) => /^[a-z0-9_]{1,40}$/.test(m));
   const acceptedMethods = list(accepts);
-  const currencyFilter = ["CUP", "USD", "EUR", "MXN"].includes(String(currency)) ? String(currency) : undefined;
+  const currencyFilter = (await allCodes("CURRENCY")).includes(String(currency)) ? String(currency) : undefined;
   const min = Number(minPrice) > 0 ? Number(minPrice) : undefined;
   const max = Number(maxPrice) > 0 ? Number(maxPrice) : undefined;
   const ratingMin = Number(minRating) > 0 ? Math.min(5, Number(minRating)) : undefined;
@@ -613,13 +605,13 @@ const updateVendorSchema = z.object({
   orderDestination: z.enum(["WHATSAPP", "PANEL", "BOTH"]).optional(),
   // Bloque 302: correo a la tienda por cada pedido nuevo (web o API de un socio).
   notifyNewOrderEmail: z.boolean().optional(),
-  checkoutPaymentOptions: z.array(z.enum(["cod", "online", "cash"])).min(1, "Deja al menos una forma de coordinar el pago.").optional(),
+  checkoutPaymentOptions: z.array(z.string().trim().min(1).max(40)).min(1, "Deja al menos una forma de coordinar el pago.").optional(),
   acceptedPaymentMethods: z.array(z.string().trim().min(1)).optional(),
   // Bloque 65: cambiar la moneda operativa de la tienda DESPUÉS del registro
   // — a propósito nunca convierte los precios de los productos ya cargados
   // (VendorSettings.jsx avisa esto explícito), solo cambia la etiqueta de
   // los productos nuevos/editados en adelante (ver products.controller.js).
-  currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional(),
+  currency: z.string().trim().min(1).max(12).optional(),
   provinceId: z.string().optional(),
   municipalityId: z.string().optional().nullable(),
   // Bloque 18: el vendedor puede cambiar su tipo de negocio después del
@@ -640,7 +632,7 @@ const updateVendorSchema = z.object({
   storeShippingMode: z.enum(["FIXED", "COORDINATE"]).nullable().optional(),
   storeShippingLocal: z.number().min(0).max(1_000_000).nullable().optional(),
   storeShippingOther: z.number().min(0).max(1_000_000).nullable().optional(),
-  storeShippingCurrency: z.enum(["CUP", "USD", "EUR", "MXN"]).nullable().optional(),
+  storeShippingCurrency: z.string().trim().min(1).max(12).nullable().optional(),
   shippingOriginProvinceId: z.string().min(1).nullable().optional(),
   // Redes de la tienda: texto libre por red, se valida y normaliza en normalizeSocialLinks.
   socialLinks: z.record(z.object({ url: z.string().max(300), enabled: z.boolean().optional() })).nullable().optional(),
@@ -648,7 +640,7 @@ const updateVendorSchema = z.object({
 
 // Envío de tienda al guardar la configuración: el fijo exige los dos precios y una moneda habilitada; "a coordinar" y "por
 // producto" no guardan precios. Activarlo suspende el envío de cada producto (sin borrarlo).
-async function storeShippingData(data) {
+async function storeShippingData(data, vendor = null) {
   const out = {};
   if (data.shippingOriginProvinceId !== undefined) {
     if (data.shippingOriginProvinceId && !(await prisma.province.findUnique({ where: { id: data.shippingOriginProvinceId }, select: { id: true } }))) {
@@ -661,7 +653,7 @@ async function storeShippingData(data) {
   if (mode !== "FIXED") return { ...out, storeShippingMode: mode, storeShippingLocal: null, storeShippingOther: null, storeShippingCurrency: null };
   const error = fixedShippingError({ mode, local: data.storeShippingLocal, other: data.storeShippingOther, currency: data.storeShippingCurrency });
   if (error) throw new AppError(error, 400);
-  await assertCurrencyAllowed(data.storeShippingCurrency);
+  if (data.storeShippingCurrency !== vendor?.storeShippingCurrency) await assertCurrencyAllowed(data.storeShippingCurrency);
   return { ...out, storeShippingMode: mode, storeShippingLocal: data.storeShippingLocal, storeShippingOther: data.storeShippingOther, storeShippingCurrency: data.storeShippingCurrency };
 }
 
@@ -680,7 +672,12 @@ export async function updateMyVendor(req, res) {
     if (!businessCategory) throw new AppError("Ese tipo de negocio no existe.", 400);
   }
 
-  if (data.currency) await assertCurrencyAllowed(data.currency);
+  if (data.currency && data.currency !== vendor.currency) await assertCurrencyAllowed(data.currency);
+  // Formas de cobro: las nuevas tienen que estar activas; las que la tienda ya tenía se pueden conservar.
+  if (data.checkoutPaymentOptions) {
+    const kept = new Set(vendor.checkoutPaymentOptions ?? []);
+    await assertActiveCheckoutPayments(data.checkoutPaymentOptions.filter((c) => !kept.has(c)));
+  }
 
   // Nombre, WhatsApp, correo y documento del responsable no pueden ser los de otra tienda. Solo se comprueba lo que cambia: el
   // formulario manda todo en cada guardado y una coincidencia vieja no debe impedir guardar otra cosa.
@@ -797,7 +794,7 @@ export async function updateMyVendor(req, res) {
       warrantyTerms: data.warrantyTerms,
       warrantyDefaultDays: data.warrantyDefaultDays,
       isPrivate,
-      ...(await storeShippingData(data)),
+      ...(await storeShippingData(data, vendor)),
       socialLinks: data.socialLinks === undefined ? undefined : normalizeSocialLinks(data.socialLinks, vendor.socialLinks) ?? Prisma.DbNull,
     },
   });

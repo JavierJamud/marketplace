@@ -1,3 +1,4 @@
+import { checkoutLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getPlanConfig } from "../lib/planConfig.js";
@@ -9,7 +10,6 @@ import { ticketsForVendor } from "./supportTickets.controller.js";
 // menú de tres puntos de la lista. Solo lectura; las acciones (editar, plan, bloquear, eliminar) usan las rutas de siempre.
 const DAY = 24 * 60 * 60 * 1000;
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const CHECKOUT_LABEL = { cod: "Pago contra entrega", online: "Pago en línea con el vendedor", cash: "Efectivo" };
 
 // Horario en una línea legible: "Lun a Vie 09:00-18:00 · Sáb 09:00-13:00 · Dom cerrado". Días seguidos con el mismo
 // horario se agrupan.
@@ -142,7 +142,7 @@ export async function getVendorManage(req, res) {
   // Lo que ayuda a vender aunque no lo exija el plan.
   const extras = [
     { key: "schedules", label: "Horario de atención", done: vendor.schedules.length > 0, value: scheduleSummary(vendor.schedules) },
-    { key: "checkout", label: "Formas de pago en el checkout", done: !!vendor.checkoutPaymentOptions?.length, value: (vendor.checkoutPaymentOptions ?? []).map((k) => CHECKOUT_LABEL[k] ?? k).join(", ") || null },
+    { key: "checkout", label: "Formas de pago en el checkout", done: !!vendor.checkoutPaymentOptions?.length, value: (vendor.checkoutPaymentOptions ?? []).map(checkoutLabel).join(", ") || null },
     // Cómo cobra la tienda a SUS clientes (Transfermóvil, Zelle, efectivo...), elegido en su Configuración. No es el pago de
     // la suscripción: antes se llamaba "Métodos de pago aceptados" y se confundía con eso.
     {

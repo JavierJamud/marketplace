@@ -1,3 +1,4 @@
+import { channelLabel, currencyLabel } from "./catalog.js";
 import PDFDocument from "pdfkit";
 import { orderShippingText } from "./orderSummary.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
@@ -23,7 +24,7 @@ const SOFT = "#f4f5f6";
 const tz = "America/Havana";
 
 function fmtMoney(n, currency = "CUP") {
-  return `${Number(n).toLocaleString("es-CU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${currency}`;
+  return `${Number(n).toLocaleString("es-CU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${currencyLabel(currency)}`;
 }
 function fmtDate(d) {
   return new Date(d).toLocaleDateString("es-CU", { year: "numeric", month: "long", day: "numeric", timeZone: tz });
@@ -292,7 +293,6 @@ function withBaseEvents(order, events) {
   return list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 }
 
-const CHANNEL_LABEL = { COD: "Pago contra entrega", ONLINE: "Pago en línea con la tienda", CASH: "Efectivo", TABLE: "Pedido de mesa" };
 const STATUS_LABEL = { NEW: "Recibido", PREPARING: "En preparación", READY: "Listo", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 
 function orderRows(order, province, deliveredAt) {
@@ -301,7 +301,7 @@ function orderRows(order, province, deliveredAt) {
     ["Fecha del pedido", fmtDateTime(order.createdAt)],
     ["Estado actual", STATUS_LABEL[order.status] ?? order.status],
     ["Entregado", deliveredAt ? fmtDateTime(deliveredAt) : order.status === "DELIVERED" ? "Entregado (sin hora registrada)" : "Aún sin entregar"],
-    ["Forma de pago", CHANNEL_LABEL[order.channel] ?? null],
+    ["Forma de pago", channelLabel(order.channel) || null],
     ["Lugar de entrega", [order.shippingAddress, province?.name].filter(Boolean).join(", ") || null],
   ];
 }

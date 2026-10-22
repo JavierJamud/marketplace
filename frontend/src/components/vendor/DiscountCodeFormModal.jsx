@@ -1,3 +1,4 @@
+import { currencyCodesFor, currencyLabel } from "../../lib/catalog.js";
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -34,7 +35,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
   const { data: myVendor } = useQuery({ queryKey: ["my-vendor"], queryFn: async () => (await api.get("/vendors/me")).data.vendor });
   const [pickedCurrency, setPickedCurrency] = useState(isEdit ? code.currency ?? "CUP" : null);
   const currency = pickedCurrency ?? myVendor?.currency ?? "CUP";
-  const currencies = siteSettings?.availableCurrencies ?? ["CUP", "USD"];
+  const currencies = siteSettings ? currencyCodesFor(isEdit ? code.currency : null) : [];
   const [minPurchase, setMinPurchase] = useState(isEdit && code.minPurchase != null ? String(code.minPurchase) : "");
   const [maxPurchase, setMaxPurchase] = useState(isEdit && code.maxPurchase != null ? String(code.maxPurchase) : "");
   const [maxUses, setMaxUses] = useState(isEdit && code.maxUses != null ? String(code.maxUses) : "");
@@ -166,7 +167,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
                     currency === c ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface-variant"
                   }`}
                 >
-                  {c}
+                  {currencyLabel(c)}
                 </button>
               ))}
             </div>

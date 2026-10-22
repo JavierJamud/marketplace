@@ -1,3 +1,4 @@
+import { currencyCodesFor, currencyLabel, universalProductPayment } from "../../lib/catalog.js";
 import { useEffect, useRef, useState } from "react";
 import { ProductShippingSection } from "../../components/vendor/ShippingFields.jsx";
 import { useOutletContext, useSearchParams } from "react-router-dom";
@@ -17,7 +18,6 @@ import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
-import { PRODUCT_PAYMENT_METHOD_LABEL } from "../../lib/productPaymentMethods.js";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { productMatches } from "../../lib/textMatch.js";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
@@ -25,15 +25,6 @@ import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 // Bloque 52: presets rápidos de tallas de ropa — un click para agregar/quitar,
 // además del input libre (numéricas de calzado, "Talla única", etc.).
 const PRESET_SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
-// Bloque 52: "whatsapp" ya no está hardcodeado en esta lista — es el único
-// canal que products.controller.js permite SIEMPRE (universal, no
-// desactivable); "cod"/"prepaid" recién se muestran si el admin los activó
-// (SiteSettings.productPaymentMethods, ver AdminBranding.jsx).
-// Bloque 199: etiquetas movidas a lib/productPaymentMethods.js (única fuente
-// compartida — antes "prepaid" decía "Transferencia" acá pero "Transferencia
-// CUP" en Product.jsx/Shop.jsx, ninguno el significado real del campo:
-// "pago anticipado" acordado directo con el vendedor).
-const PAYMENT_METHOD_LABEL = PRODUCT_PAYMENT_METHOD_LABEL;
 
 // Bloque 49: `path` puede ser un link externo pegado por el vendedor (no solo
 // un archivo subido a nuestro server) — si ya es absoluto, se usa tal cual.
@@ -194,7 +185,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
           shippingCurrency: product.shippingCurrency ?? product.currency ?? "USD",
           shippingPerUnit: product.shippingPerUnit ?? false,
         }
-      : { ...EMPTY_FORM, currency: vendorCurrency ?? "CUP", shippingCurrency: vendorCurrency ?? "CUP" }
+      : { ...EMPTY_FORM, currency: vendorCurrency ?? "CUP", shippingCurrency: vendorCurrency ?? "CUP", paymentMethods: [universalProductPayment()] }
   );
   const [tagInput, setTagInput] = useState("");
   const [sizeInput, setSizeInput] = useState("");
@@ -540,13 +531,13 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             <Input label="Precio" type="number" min={1} required value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
             <Input label="Precio anterior (opcional)" type="number" min={1} value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })} />
             <Select label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
-              {(siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]).map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {currencyCodesFor(form.currency).map((c) => (
+                <option key={c} value={c}>{currencyLabel(c)}</option>
               ))}
             </Select>
           </div>
 
-          <ProductShippingSection form={form} setForm={setForm} vendor={myVendor} currencies={siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]} />
+          <ProductShippingSection form={form} setForm={setForm} vendor={myVendor} currencies={currencyCodesFor(form.shippingCurrency)} />
 
           {/* Bloque 230 (pedido explícito — "una mejor experiencia... más
               sencilla y se irán habilitando opciones si va configurando

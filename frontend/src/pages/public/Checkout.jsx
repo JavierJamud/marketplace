@@ -13,7 +13,7 @@ import { waLink } from "../../lib/whatsapp.js";
 import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutChoices, useCatalog } from "../../lib/catalog.js";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { ID_TYPES, ID_TYPE_LABEL, idError, isValidId } from "../../lib/idDocument.js";
 import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
@@ -35,7 +35,6 @@ function singleCurrencySubtotal(items) {
   return items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
 }
 
-const PAY_OPTIONS = CHECKOUT_PAY_CHOICES;
 
 // Bloque 68 (pedido explícito): mensaje de WhatsApp del pedido YA
 // confirmado (con datos reales del cliente, siempre completados en el
@@ -147,12 +146,15 @@ export default function Checkout() {
   // al default silenciosamente.
   const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
 
-  // Solo las formas de pago que la tienda dejó activas (por defecto, las tres).
+  // Solo las formas de pago que la tienda dejó activas (por defecto, todas las activas).
+  const catalog = useCatalog();
   const payOptions = useMemo(() => {
-    const allowed = vendor?.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : PAY_OPTIONS.map((p) => p.id);
-    const list = PAY_OPTIONS.filter((p) => allowed.includes(p.id));
-    return list.length ? list : PAY_OPTIONS;
-  }, [vendor]);
+    // Las formas de cobro activas en la plataforma (lib/catalog.js) que esta tienda ofrece.
+    const all = checkoutChoices();
+    const allowed = vendor?.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : all.map((p) => p.id);
+    const list = all.filter((p) => allowed.includes(p.id));
+    return list.length ? list : all;
+  }, [vendor, catalog]);
   useEffect(() => {
     if (!payOptions.some((p) => p.id === pay)) setPay(payOptions[0].id);
   }, [payOptions, pay]);
@@ -347,7 +349,7 @@ export default function Checkout() {
           ? { name: form.recipientName.trim(), phone: form.recipientPhone, idLabel: ID_TYPE_LABEL[form.recipientIdType], idNumber: form.recipientIdNumber.replace(/\s+/g, "").toUpperCase() }
           : null,
         address: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — "),
-        payTitle: PAY_OPTIONS.find((p) => p.id === pay)?.title ?? pay,
+        payTitle: checkoutChoices({ activeOnly: false }).find((p) => p.id === pay)?.title ?? pay,
       });
       clearCart();
       setDone(true);

@@ -3,7 +3,7 @@ import { Check, Search, Store as StoreIcon, UtensilsCrossed, LayoutGrid } from "
 import clsx from "clsx";
 import { matchesQuery } from "../ui/SearchBox.jsx";
 import { CategoryIcon } from "../ui/CategoryIcon.jsx";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutChoices, currencyLabel } from "../../lib/catalog.js";
 import { Section, Chip, Switch, PriceRange, RatingSection, withSelected, sortMethods, methodLabel } from "./ShopFilters.jsx";
 
 // Filtros de la página de tiendas. Todos salen de datos reales de cada tienda: si es restaurante con menú QR o tienda, su tipo de
@@ -95,7 +95,7 @@ export function StoreFilters({ filters, setFilter, setMany, toggleInList, busine
   // Mientras cargan las opciones reales no se muestra ninguna: mejor un momento sin filtros que filtros que no existen.
   if (!facets) return null;
   const currencies = withSelected(facets.currencies, [filters.currency]);
-  const payments = CHECKOUT_PAY_CHOICES.filter((o) => withSelected(facets.payment, filters.payment).includes(o.id));
+  const payments = checkoutChoices({ activeOnly: false }).filter((o) => withSelected(facets.payment, filters.payment).includes(o.id));
   const accepts = withSelected(facets.accepts, filters.accepts);
   const ratings = withSelected(facets.ratings, filters.minRating ? [Number(filters.minRating)] : []);
   // Tipos de establecimiento: solo los que hay registrados (o el que ya viene elegido en el enlace).
@@ -128,7 +128,7 @@ export function StoreFilters({ filters, setFilter, setMany, toggleInList, busine
           <div className="mb-2.5 flex flex-wrap gap-2">
             <Chip active={!filters.currency} onClick={() => setFilter("currency", "")}>Todas</Chip>
             {currencies.map((c) => (
-              <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{c}</Chip>
+              <Chip key={c} active={filters.currency === c} onClick={() => setFilter("currency", c)}>{currencyLabel(c)}</Chip>
             ))}
           </div>
         )}

@@ -1,3 +1,4 @@
+import { currencyLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
@@ -42,7 +43,7 @@ async function ordersAndSales(where, { includeTables = false, tableWhere = {} } 
 // ---------------------------------------------------------------------------
 const LEVEL_LABEL = { green: "bueno", yellow: "regular", red: "bajo" };
 const plural = (n, one, many) => `${n.toLocaleString("es-CU")} ${n === 1 ? one : many}`;
-const fmtMoney = (n, currency) => `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currency ?? ""}`.trim();
+const fmtMoney = (n, currency) => `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currencyLabel(currency)}`.trim();
 function trend(cur, prev) {
   if (prev == null) return "";
   if (prev === 0) return cur > 0 ? " (la semana anterior no hubo ninguno)" : "";

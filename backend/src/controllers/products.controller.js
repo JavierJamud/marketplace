@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deleteUploadedImages } from "../lib/uploadFiles.js";
+import { activeCodes, assertActiveCurrency, assertActiveProductPayments, withUniversalPayment } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
@@ -58,7 +59,8 @@ export const productSchema = z.object({
   // sembrado. Sin esto en el enum, guardar CUALQUIER edición de un ítem de
   // menú fallaba 400 porque el payload reenvía el paymentMethods existente
   // tal cual, y ese array ya incluye "table".
-  paymentMethods: z.array(z.enum(["whatsapp", "cod", "prepaid", "table"])).min(1),
+  // Códigos del catálogo del admin (lib/catalog.js), validados contra los activos en assertPaymentMethodsAllowed.
+  paymentMethods: z.array(z.string().trim().min(1).max(40)).min(1),
   isFeatured: z.boolean().optional(),
   isActive: z.boolean().optional(),
   // Bloque 16: independiente de todo lo anterior — si el producto aparece en
@@ -108,14 +110,13 @@ export const productSchema = z.object({
     )
     .max(10, "Máximo 10 precios por cantidad.")
     .optional(),
-  // Moneda del producto — elegida por el vendedor al publicar, validada
-  // contra SiteSettings.availableCurrencies. Por defecto USD.
-  currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
+  // Moneda del producto: código del catálogo del admin, validado contra las activas (lib/catalog.js).
+  currency: z.string().trim().min(1).max(12).optional(),
   // Envío del producto (ver lib/shipping.js). Solo se usa si la tienda no tiene envío propio.
   shippingMode: z.enum(["FREE", "FIXED", "COORDINATE"]).optional(),
   shippingLocal: z.number().min(0).max(1_000_000).nullable().optional(),
   shippingOther: z.number().min(0).max(1_000_000).nullable().optional(),
-  shippingCurrency: z.enum(["CUP", "USD", "EUR", "MXN"]).nullable().optional(),
+  shippingCurrency: z.string().trim().min(1).max(12).nullable().optional(),
   shippingPerUnit: z.boolean().optional(),
   // Código de barras para la caja (letras, números, guion o punto). Vacío = sin código.
   barcode: z.preprocess(
@@ -142,9 +143,7 @@ async function applyProductShipping(data, vendor, existing = null) {
   }
   const error = fixedShippingError({ mode, local: merged.shippingLocal, other: merged.shippingOther, currency: merged.shippingCurrency });
   if (error) throw new AppError(error, 400);
-  if (!(await getAvailableCurrencies()).includes(merged.shippingCurrency)) {
-    throw new AppError(`La moneda "${merged.shippingCurrency}" no está disponible actualmente.`, 400);
-  }
+  if (merged.shippingCurrency !== existing?.shippingCurrency) await assertActiveCurrency(merged.shippingCurrency);
   Object.assign(data, merged, { shippingMode: "FIXED", shippingPerUnit: !!merged.shippingPerUnit });
 }
 
@@ -230,12 +229,6 @@ function assertTableRestrictionConsistent(finalTableRestricted, finalRestrictedT
   }
 }
 
-// Devuelve las monedas habilitadas por el admin (SiteSettings).
-async function getAvailableCurrencies() {
-  const s = await prisma.siteSettings.findFirst({ select: { availableCurrencies: true } });
-  return s?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"];
-}
-
 // Reglas de negocio (no expresables limpio en zod): cantidades únicas y
 // crecientes, con el precio bajando estrictamente a medida que sube la
 // cantidad — nunca igual o mayor al escalón anterior (ni al precio base).
@@ -308,20 +301,9 @@ export function assertStockModeConsistent(finalSizes, finalUnlimitedStock) {
   }
 }
 
-// Bloque 52: "whatsapp" y "table" son fijos (siempre disponibles / solo
-// vienen del menú QR sembrado, nunca elegibles a mano) — "cod"/"prepaid" son
-// los ÚNICOS que el admin puede prender/apagar globalmente desde AdminOffers-
-// adyacente (settings.controller.js → productPaymentMethods). Sin esto, un
-// vendedor podría guardar un canal que el admin ya desactivó para todo el
-// sitio (ej. si dejó de tener sentido "transferencia CUP" en algún momento).
+// Formas de pago del producto: solo las que el admin tiene activas (lib/catalog.js); "table" la pone el menú de mesas.
 export async function assertPaymentMethodsAllowed(paymentMethods) {
-  if (!paymentMethods) return;
-  const settings = await prisma.siteSettings.findFirst();
-  const allowed = new Set(["whatsapp", "table", ...(settings?.productPaymentMethods ?? ["cod", "prepaid"])]);
-  const rejected = paymentMethods.filter((m) => !allowed.has(m));
-  if (rejected.length) {
-    throw new AppError(`El método de pago "${rejected[0]}" ya no está disponible en la plataforma.`, 400);
-  }
+  await assertActiveProductPayments(paymentMethods);
 }
 
 // Bloque 66 (pedido explícito): catálogo de etiquetas administrable, mismo
@@ -780,11 +762,8 @@ export async function createProduct(req, res) {
   data.isActive = false;
   // Moneda: la elige el vendedor por producto, validada contra las
   // monedas habilitadas por el admin en SiteSettings.
-  const allowedCurrencies = await getAvailableCurrencies();
-  const requestedCurrency = data.currency ?? "USD";
-  if (!allowedCurrencies.includes(requestedCurrency)) {
-    throw new AppError(`La moneda "${requestedCurrency}" no está disponible actualmente.`, 400);
-  }
+  const requestedCurrency = data.currency ?? vendor.currency ?? (await activeCodes("CURRENCY"))[0];
+  await assertActiveCurrency(requestedCurrency);
   data.currency = requestedCurrency;
   await applyProductShipping(data, vendor);
   // Bloque 66 (pedido explícito): todo producto nuevo sale con "Nuevo" —
@@ -801,12 +780,9 @@ export async function createProduct(req, res) {
       );
     }
   }
-  if (vendor.planType === "REGULAR") {
-    // Plan Regular: solo WhatsApp como canal de pedido.
-    data.paymentMethods = ["whatsapp"];
-  } else {
-    await assertPaymentMethodsAllowed(data.paymentMethods);
-  }
+  // Plan Regular: solo la forma de pago universal. Premium: las que elija, y la universal siempre incluida.
+  if (vendor.planType !== "REGULAR") await assertPaymentMethodsAllowed(data.paymentMethods);
+  data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal: vendor.planType === "REGULAR" });
 
   let slug = slugify(data.name);
   const slugTaken = await prisma.product.findUnique({ where: { vendorId_slug: { vendorId: vendor.id, slug } } });
@@ -861,14 +837,14 @@ export async function updateProduct(req, res) {
   // distinta (ej. la tienda la cambió después) se normaliza solo la próxima
   // vez que el vendedor lo edite y guarde, sin tocar nada en una migración.
   // Moneda: el vendedor puede cambiarla al editar, validada igual.
-  if (data.currency) {
-    const allowedCurrencies = await getAvailableCurrencies();
-    if (!allowedCurrencies.includes(data.currency)) {
-      throw new AppError(`La moneda "${data.currency}" no está disponible actualmente.`, 400);
-    }
+  // Una moneda desactivada después se puede conservar en el producto que ya la tenía; solo no se puede elegir de nuevo.
+  if (data.currency && data.currency !== existing.currency) await assertActiveCurrency(data.currency);
+  if (data.paymentMethods) {
+    // Igual que al crear; se aceptan las que el producto ya tenía aunque el admin las haya desactivado después.
+    const kept = new Set(existing.paymentMethods ?? []);
+    if (vendor.planType !== "REGULAR") await assertPaymentMethodsAllowed(data.paymentMethods.filter((m) => !kept.has(m)));
+    data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal: vendor.planType === "REGULAR" });
   }
-  if (vendor.planType === "REGULAR" && data.paymentMethods) data.paymentMethods = ["whatsapp"];
-  else await assertPaymentMethodsAllowed(data.paymentMethods);
   if (data.badge !== undefined) await assertBadgeAllowed(data.badge);
   await applyProductShipping(data, vendor, existing);
   // Suspendido por un reporte confirmado: la tienda no lo puede volver a publicar (solo apelando, ver lib/moderation.js).

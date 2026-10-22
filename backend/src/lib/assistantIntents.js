@@ -1,3 +1,4 @@
+import { currencyLabel } from "./catalog.js";
 import { prisma } from "./prisma.js";
 import { plansAnswer, sellAnswer, buyAnswer, registerAnswer, loginAnswer, verificationAnswer, ASSISTANT_LINKS } from "./platformFacts.js";
 
@@ -75,9 +76,9 @@ export async function orderStatusAnswer({ code, name, sessionEmail }) {
   const date = new Date(order.createdAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" });
   const units = order.items.reduce((s, i) => s + i.quantity, 0);
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-  const itemLines = order.items.map((i) => `  - ${i.quantity} × ${i.name}${i.size ? ` (talla ${i.size})` : ""}: ${Number(i.price).toLocaleString("es-CU")} ${i.currency} c/u`);
+  const itemLines = order.items.map((i) => `  - ${i.quantity} × ${i.name}${i.size ? ` (talla ${i.size})` : ""}: ${Number(i.price).toLocaleString("es-CU")} ${currencyLabel(i.currency)} c/u`);
   const currencies = new Set(order.items.map((i) => i.currency));
-  const totalText = currencies.size === 1 ? `${Number(order.total).toLocaleString("es-CU")} ${[...currencies][0]}` : money(order.total);
+  const totalText = currencies.size === 1 ? `${Number(order.total).toLocaleString("es-CU")} ${currencyLabel([...currencies][0])}` : money(order.total);
   const channel = { COD: "Pago contra entrega", ONLINE: "Pago en línea con la tienda", CASH: "Efectivo", TABLE: "Pedido de mesa" }[order.channel];
   const text = [
     `Pedido **${order.code}** de ${order.vendor.companyName}:`,

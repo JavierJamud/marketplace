@@ -1,9 +1,9 @@
+import { channelLabel } from "../lib/catalog.js";
 import { env } from "../config/env.js";
 import { emailShell, ctaButton, smallNote, paragraph, itemsTable, totalRow, metaList, esc, resolveAssetUrl } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { orderCurrency, money, orderShippingText, orderGrandTotal, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
 
-const PAY_LABEL = { COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", CASH: "Efectivo", TABLE: "Pedido de mesa" };
 
 // Aviso a la TIENDA de que recibió un pedido nuevo (web de Baznova o API de un socio). Va al correo de la tienda, nunca al
 // administrador. Lleva todo lo necesario para atenderlo sin abrir el panel: productos y total en la moneda del pedido,
@@ -44,7 +44,7 @@ export async function newOrderVendorEmail({ order, partnerName }) {
         order.recipientName && order.recipientIdNumber ? [ID_TYPE_LABEL[order.recipientIdType] ?? "Documento", `${esc(order.recipientIdNumber)} (compruébalo al entregar)`] : null,
         ["Dirección", esc(order.shippingAddress)],
         place ? ["Provincia", esc(place)] : null,
-        ["Pago", esc(PAY_LABEL[order.channel] ?? order.channel)],
+        ["Pago", esc(channelLabel(order.channel))],
       ])}
       ${ctaButton("Ver el pedido en mi panel", `${env.frontendUrl}/vendedor/pedidos?ver=${order.id}&tipo=orden`)}
       ${smallNote("Recibes este correo porque tienes activado el aviso de pedidos nuevos. Puedes apagarlo en Configuración de tu tienda.")}

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { computeShipping, shippingZone } from "../lib/shipping.js";
 import jwt from "jsonwebtoken";
+import { activeCodes } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
@@ -39,11 +40,10 @@ const PERSON_NAME_REGEX = /^[\p{L}\p{M} '’.-]+$/u;
 
 // La tienda necesita poder contactar al cliente sí o sí — todos los campos
 // de contacto/entrega son obligatorios, sin excepción (Bloque 6).
-// Bloque 14: 3 opciones de checkout (antes whatsapp/cod/transfer) — ver
-// CHANNEL_MAP y el comentario en schema.prisma sobre el enum OrderChannel.
+// Forma de cobro: código del catálogo del admin (cod, online, cash o las que agregue) o "table" para los pedidos de mesa.
 export const createOrderSchema = z.object({
   vendorId: z.string(),
-  channel: z.enum(["cod", "online", "cash", "table"]),
+  channel: z.string().trim().regex(/^[a-z0-9_]{1,40}$/, "Elige una forma de pago."),
   // Nombre de persona: letras, espacios, apóstrofo, guion y punto (mismo filtro que el formulario).
   customerName: z.string().trim().min(2, "Falta el nombre del cliente.").max(80).regex(PERSON_NAME_REGEX, "El nombre solo puede llevar letras."),
   customerPhone: z.string().regex(E164_REGEX, "Falta un teléfono válido con código de país."),
@@ -78,7 +78,8 @@ export const createOrderSchema = z.object({
   loyaltyPoints: z.number().int().min(1).max(10_000_000).optional(),
 });
 
-export const CHANNEL_MAP = { cod: "COD", online: "ONLINE", cash: "CASH", table: "TABLE" };
+// En el pedido se guarda en mayúsculas (COD, ONLINE, CASH, TABLE...), como siempre.
+export const channelFor = (code) => code.toUpperCase();
 
 // Sin Stripe/PayPal ni ninguna pasarela: el pago se coordina siempre directo
 // entre cliente y vendedor (contra entrega, en línea con la tienda, o
@@ -223,8 +224,13 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
   }
 
   // La forma de coordinar el pago la define la tienda: no se acepta una que la tienda no ofrece.
-  if (data.channel !== "table" && !(vendor.checkoutPaymentOptions ?? ["cod", "online", "cash"]).includes(data.channel)) {
-    throw new AppError("Esta tienda no ofrece esa forma de pago. Elige otra de las disponibles.", 400);
+  // Y tiene que seguir activa en la plataforma (el admin puede desactivar una forma de cobro para todas las tiendas).
+  if (data.channel !== "table") {
+    const active = await activeCodes("CHECKOUT_PAYMENT");
+    const offered = vendor.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : active;
+    if (!offered.includes(data.channel) || !active.includes(data.channel)) {
+      throw new AppError("Esta tienda no ofrece esa forma de pago. Elige otra de las disponibles.", 400);
+    }
   }
 
   const productIds = data.items.map((i) => i.productId);
@@ -359,7 +365,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         shippingAddress: data.shippingAddress,
         shippingProvinceId: data.shippingProvinceId,
         shippingMunicipalityId: data.shippingMunicipalityId,
-        channel: CHANNEL_MAP[data.channel],
+        channel: channelFor(data.channel),
         // Se toma del vendedor server-side (nunca del body del cliente) para
         // que no se pueda falsear qué canal de aviso usó el pedido.
         notificationChannel: vendor.orderDestination,

@@ -8,11 +8,11 @@
 // real. Este helper es para cuando el monto SÍ tiene una moneda propia clara
 // (el precio de UN producto, un ítem de carrito/pedido).
 import { resolveUnitPrice } from "./pricing.js";
-
-const CURRENCY_LABEL = { CUP: "CUP", USD: "USD", EUR: "EUR", MXN: "MXN" };
+import { currencyLabel } from "./catalog.js";
 
 export function formatPrice(amount, currency = "CUP") {
-  const symbol = CURRENCY_LABEL[currency] ?? currency;
+  // El nombre corto que le dio el admin a la moneda (lib/catalog.js).
+  const symbol = currencyLabel(currency);
   return `${Number(amount).toLocaleString("es-CU")} ${symbol}`;
 }
 

@@ -1,3 +1,4 @@
+import { currencyLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getPlanConfig } from "../lib/planConfig.js";
@@ -94,7 +95,7 @@ export async function redeemForOrder(tx, { vendor, customerId, requestedPoints, 
   const program = await activeProgramFor(vendor);
   if (!program) throw new AppError("Esta tienda ya no tiene programa de puntos. Quita los puntos e intenta de nuevo.", 409);
   if (!allInStoreCurrency(items, vendor.currency)) {
-    throw new AppError(`Los puntos solo se pueden usar en pedidos con precios en ${vendor.currency ?? "CUP"}.`, 400);
+    throw new AppError(`Los puntos solo se pueden usar en pedidos con precios en ${currencyLabel(vendor.currency ?? "CUP")}.`, 400);
   }
   const account = await tx.loyaltyAccount.findUnique({ where: { vendorId_userId: { vendorId: vendor.id, userId: customerId } } });
   const max = maxRedeemablePoints(program, account?.balance ?? 0, payable);

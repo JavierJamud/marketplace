@@ -1,3 +1,4 @@
+import { currencyLabel } from "../lib/catalog.js";
 import crypto from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -78,7 +79,7 @@ async function addProductToSale({ vendor, saleId, product, quantity, userId }) {
 
 async function addToLockedSale(tx, sale, product, quantity) {
   if (sale.items.length > 0 && product.currency !== sale.currency) {
-    throw new AppError(`"${product.name}" tiene precio en ${product.currency} y esta venta está en ${sale.currency}. Cóbralo en otra venta.`, 409);
+    throw new AppError(`"${product.name}" tiene precio en ${currencyLabel(product.currency)} y esta venta está en ${currencyLabel(sale.currency)}. Cóbralo en otra venta.`, 409);
   }
   const items = [...sale.items];
   const line = items.find((i) => i.productId === product.id);
@@ -258,7 +259,7 @@ export async function pay(req, res) {
     if (!sale.items.length) throw new AppError("La venta no tiene productos.", 400);
     total = money(sale.total);
     if (method === "CASH" && (cashReceived == null || cashReceived < total)) {
-      throw new AppError(`El efectivo recibido no alcanza: faltan ${money(total - (cashReceived ?? 0))} ${sale.currency}.`, 400);
+      throw new AppError(`El efectivo recibido no alcanza: faltan ${money(total - (cashReceived ?? 0))} ${currencyLabel(sale.currency)}.`, 400);
     }
     change = method === "CASH" ? money(cashReceived - total) : null;
     await tx.posSale.update({ where: { id: sale.id }, data: { status: "PAID" } });
@@ -402,7 +403,7 @@ export async function addCashEntry(req, res) {
       type: z.enum(["DEPOSIT", "WITHDRAWAL"]),
       amount: z.number().positive("Escribe un monto mayor que 0.").max(1e9),
       note: z.string().trim().min(3, "Escribe el motivo.").max(200),
-      currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional(),
+      currency: z.string().trim().min(1).max(12).optional(),
     })
     .parse(req.body);
   const entry = await prisma.cashEntry.create({
@@ -534,7 +535,7 @@ async function showcaseFor(vendorId) {
         title: o.title,
         description: shortText(o.description, 170),
         code: o.discountCode.code,
-        discount: o.discountCode.type === "PERCENTAGE" ? `${Number(o.discountCode.value)} %` : `${Number(o.discountCode.value).toLocaleString("es-CU")} ${o.discountCode.currency}`,
+        discount: o.discountCode.type === "PERCENTAGE" ? `${Number(o.discountCode.value)} %` : `${Number(o.discountCode.value).toLocaleString("es-CU")} ${currencyLabel(o.discountCode.currency)}`,
         expiresAt: o.expiresAt,
       })),
   };

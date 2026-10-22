@@ -1,3 +1,4 @@
+import { currencyLabel } from "./catalog.js";
 import { prisma } from "./prisma.js";
 
 // Resumen de un pedido para avisos (push, en vivo) y correos: total en la moneda real del pedido (no siempre CUP), productos,
@@ -10,8 +11,9 @@ export function orderCurrency(order) {
   return order.items?.find((i) => i.currency)?.currency ?? order.currency ?? "CUP";
 }
 
+// La moneda se muestra con el nombre corto que le dio el admin (lib/catalog.js), no con el código guardado.
 export function money(n, currency) {
-  return `${Number(n ?? 0).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currency}`;
+  return `${Number(n ?? 0).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currencyLabel(currency)}`;
 }
 
 // "2× Panel solar 625 W, 1× Moto GN125 y 2 más"

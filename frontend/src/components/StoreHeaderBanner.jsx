@@ -8,7 +8,7 @@ import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { copyToClipboard } from "../lib/clipboard.js";
 import { waLink } from "../lib/whatsapp.js";
-import { resolvePaymentMethod } from "../lib/paymentMethods.js";
+import { resolvePaymentMethod } from "../lib/catalog.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { CategoryIcon } from "./ui/CategoryIcon.jsx";

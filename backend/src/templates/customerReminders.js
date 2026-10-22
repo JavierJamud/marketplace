@@ -1,8 +1,9 @@
+import { currencyLabel } from "../lib/catalog.js";
 import { env } from "../config/env.js";
 import { emailShell, ctaButton, paragraph, smallNote, resolveAssetUrl, pickVariant, esc } from "./_shared.js";
 
 // Recordatorios automáticos al cliente (jobs/customerReminders.job.js). Los dos llevan al pie el enlace para no recibir más.
-const fmt = (n, currency) => `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currency ?? "CUP"}`;
+const fmt = (n, currency) => `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currencyLabel(currency ?? "CUP")}`;
 
 function unsubscribeFooter(url) {
   return `Te escribimos porque tienes cuenta y miraste esta tienda. <a href="${url}" style="color:#75777c;text-decoration:underline;">No quiero recibir estos recordatorios</a>.`;

@@ -30,6 +30,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { api } from "../../lib/api.js";
 import { CARD, CARD_SHADOW, IconCircle, ArrowLink, CardHeader } from "../../components/dashboard/DashboardCard.jsx";
 import { TodayTodo, InsightsTiles, InsightsGrid, useVendorInsights } from "../../components/vendor/DashboardInsights.jsx";
+import { channelLabel } from "../../lib/catalog.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -71,7 +72,6 @@ const STATUS_COLOR = {
   RECEIVED: "#65676c",
 };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
-const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
 
 // Bloque 230 (Fase 3, pedido explícito — "score de salud de tienda para el
 // vendedor (semáforo)"): 3 niveles reales de vuelta del backend
@@ -564,7 +564,7 @@ export default function VendorDashboard() {
                         <div className="min-w-0">
                           <div className="truncate text-[13px] font-semibold text-on-surface">{o.customer}</div>
                           <div className="truncate text-[11px] text-outline">
-                            {o.id} · {CHANNEL_LABEL[o.channel] ?? o.channel}
+                            {o.id} · {channelLabel(o.channel)}
                           </div>
                         </div>
                       </div>

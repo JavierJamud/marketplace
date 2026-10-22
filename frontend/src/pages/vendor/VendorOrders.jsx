@@ -22,6 +22,7 @@ import { DocumentModal } from "../../components/DocumentModal.jsx";
 import { TableOrderDetailModal } from "../../components/vendor/TableOrderDetailModal.jsx";
 import { OrderDetailModal } from "../../components/vendor/OrderDetailModal.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
+import { channelLabel } from "../../lib/catalog.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -34,9 +35,8 @@ function fmtCUP(n) {
 const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
 const STATUS_COLOR = { NEW: "#8A5100", PREPARING: "#087A38", READY: "#337475", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
-const CHANNEL_LABEL = { CASH: "Efectivo", COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", TABLE: "Mesa" };
 const CHANNEL_COLOR = { CASH: "#128C7E", COD: "#337475", ONLINE: "#003435", TABLE: "#8A5100" };
-// Distinto del método de pago (CHANNEL_LABEL de arriba): esto es a dónde le
+// Distinto del método de pago (channelLabel, lib/catalog.js): esto es a dónde le
 // llegó el AVISO del pedido al vendedor, según su preferencia en Configuración.
 // BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).
 const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel", BOTH: "Aviso por WhatsApp y Panel" };
@@ -508,7 +508,7 @@ export default function VendorOrders() {
                     className="rounded-full px-2.5 py-0.5 text-[10.5px] font-bold"
                     style={{ background: `${CHANNEL_COLOR[o.channel]}1a`, color: CHANNEL_COLOR[o.channel] }}
                   >
-                    {CHANNEL_LABEL[o.channel]}
+                    {channelLabel(o.channel)}
                   </span>
                   {o.pos && (
                     <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10.5px] font-bold text-primary" title="Venta cobrada en la caja">

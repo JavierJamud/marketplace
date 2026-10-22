@@ -14,7 +14,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutChoices, checkoutLabel } from "../../lib/catalog.js";
 import { PackageSearch } from "lucide-react";
 import { GatedStoreChat } from "../../components/GatedStoreChat.jsx";
 import { ProductCard, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
@@ -616,9 +616,9 @@ export default function Product() {
                 VendorProducts.jsx) ni algo que el cliente entienda al
                 leerlo tal cual. Se filtra en vez de traducirlo — no
                 corresponde mostrarlo como si fuera un método de pago. */}
-            {(store?.checkoutPaymentOptions?.length ? store.checkoutPaymentOptions : CHECKOUT_PAY_CHOICES.map((o) => o.id)).map((id) => (
+            {(store?.checkoutPaymentOptions?.length ? store.checkoutPaymentOptions : checkoutChoices().map((o) => o.id)).filter((id) => checkoutChoices().some((o) => o.id === id)).map((id) => (
               <span key={id} className="rounded-full bg-surface-container px-3 py-1.5 text-[12px] font-semibold text-on-surface-variant">
-                {CHECKOUT_PAY_CHOICES.find((o) => o.id === id)?.title ?? id}
+                {checkoutLabel(id)}
               </span>
             ))}
             {/* Pedido explícito: en vez de dejar ese espacio con el valor

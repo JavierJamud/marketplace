@@ -1,3 +1,4 @@
+import { currencyOption } from "../../lib/catalog.js";
 import { Link } from "react-router-dom";
 import { Truck } from "lucide-react";
 import { Input } from "../ui/Input.jsx";
@@ -33,7 +34,7 @@ export function FixedFeeFields({ local, other, currency, currencies, onChange })
       <Select label="Moneda del envío" value={currency} onChange={(e) => onChange({ currency: e.target.value })}>
         {currencies.map((c) => (
           <option key={c} value={c}>
-            {c}
+            {currencyOption(c)}
           </option>
         ))}
       </Select>

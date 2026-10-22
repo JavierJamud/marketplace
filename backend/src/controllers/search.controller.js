@@ -1,3 +1,4 @@
+import { allCodes } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { correctSearchQuery } from "../lib/ai.js";
@@ -215,11 +216,11 @@ export async function structuredSearch(req, res) {
   // Forma de coordinar el pago que ofrece la TIENDA (contra entrega, en línea, efectivo). Acepta también los nombres antiguos de
   // los enlaces del chat: "prepaid" es pago en línea y "whatsapp" no restringe nada (toda tienda coordina por WhatsApp).
   const checkoutOptions = payment
-    ? [...new Set(String(payment).split(",").map((m) => (m === "prepaid" ? "online" : m)).filter((m) => ["cod", "online", "cash"].includes(m)))]
+    ? [...new Set(String(payment).split(",").map((m) => (m === "prepaid" ? "online" : m)).filter((m) => /^[a-z0-9_]{1,40}$/.test(m)))]
     : [];
   // Métodos de pago que la tienda dice aceptar (Zelle, Tropipay, tarjeta...), tal como los carga en su configuración.
   const acceptedMethods = accepts ? String(accepts).split(",").map((m) => m.trim()).filter(Boolean).slice(0, 12) : [];
-  const currencyFilter = ["CUP", "USD", "EUR", "MXN"].includes(String(currency)) ? String(currency) : undefined;
+  const currencyFilter = (await allCodes("CURRENCY")).includes(String(currency)) ? String(currency) : undefined;
   const ratingMin = Number(minRating) > 0 ? Math.min(5, Number(minRating)) : undefined;
 
   // Todo lo que NO es el texto libre de búsqueda — se reusa igual en los 3
@@ -547,8 +548,6 @@ export async function autocompleteSearch(req, res) {
 // elegido: las monedas en que venden, las formas de pago que ofrecen, los métodos que aceptan, si hay verificadas,
 // restaurantes, descuentos, etiquetas y valoraciones. Así ningún filtro lleva a una pantalla vacía. Cuando una tienda nueva
 // se registra con algo distinto, la opción aparece sola.
-const FACET_CURRENCIES = ["CUP", "USD", "EUR", "MXN"];
-const FACET_PAYMENTS = ["cod", "online", "cash"];
 const FACET_RATINGS = [4, 3];
 
 function unionOf(rows, field, allowed) {
@@ -557,6 +556,8 @@ function unionOf(rows, field, allowed) {
 }
 
 export async function filterFacets(req, res) {
+  // En el orden del catálogo del admin (lib/catalog.js).
+  const [FACET_CURRENCIES, FACET_PAYMENTS] = await Promise.all([allCodes("CURRENCY"), allCodes("CHECKOUT_PAYMENT")]);
   const zone = vendorZoneWhere(req.query);
   const vendorWhere = { ...PUBLIC_VENDOR_WHERE, ...(zone ? { locations: zone } : {}) };
   const vendorFields = { checkoutPaymentOptions: true, acceptedPaymentMethods: true, verificationStatus: true, isRestaurant: true, rating: true };

@@ -7,8 +7,7 @@ import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { ProductCard, ProductGridSkeleton } from "../../components/ProductCard.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { ShopFilters, ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
-import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutLabel, resolvePaymentMethod } from "../../lib/catalog.js";
 import { MapPin, SlidersHorizontal, X } from "lucide-react";
 import { useMediaQuery } from "../../lib/useMediaQuery.js";
 import { lockPageScroll } from "../../lib/scrollLock.js";
@@ -158,8 +157,8 @@ export default function Shop() {
     },
     filters.currency && { key: "cur", label: `Moneda ${filters.currency}`, remove: () => setFilter("currency", "") },
     filters.onlyVerified && { key: "ver", label: "Tiendas verificadas", remove: () => setFilter("onlyVerified", "") },
-    ...filters.payment.map((id) => ({ key: `pay-${id}`, label: CHECKOUT_PAY_CHOICES.find((o) => o.id === id)?.title ?? id, remove: () => toggleInList("payment", id) })),
-    ...filters.accepts.map((id) => ({ key: `acc-${id}`, label: `Acepta ${PAYMENT_METHODS.find((m) => m.id === id)?.label ?? id}`, remove: () => toggleInList("accepts", id) })),
+    ...filters.payment.map((id) => ({ key: `pay-${id}`, label: checkoutLabel(id), remove: () => toggleInList("payment", id) })),
+    ...filters.accepts.map((id) => ({ key: `acc-${id}`, label: `Acepta ${resolvePaymentMethod(id).label}`, remove: () => toggleInList("accepts", id) })),
     filters.discount && { key: "disc", label: "Con descuento", remove: () => setFilter("discount", "") },
     filters.wholesale && { key: "whole", label: "Precio por cantidad", remove: () => setFilter("wholesale", "") },
     filters.badge && { key: "badge", label: filters.badge, remove: () => setFilter("badge", "") },

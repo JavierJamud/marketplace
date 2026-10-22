@@ -35,24 +35,6 @@ enum PlanType {
   BUSINESS
 }
 
-// Bloque 14: consolidado de 4 valores a 3 opciones claras en el checkout
-// (antes WHATSAPP/COD/TRANSFER/TABLE). COD y TABLE quedan igual. WHATSAPP
-// (el catch-all viejo "coordinar por WhatsApp") pasa a llamarse CASH
-// ("Efectivo" — en la práctica siempre terminaba siendo pago en efectivo
-// coordinado por chat). TRANSFER (antes específico de CUP/Transfermóvil) se
-// generaliza a ONLINE ("Pago en línea con el vendedor" — cualquier método
-// electrónico que el cliente arregle directo con la tienda: transferencia,
-// Zelle, USDT, etc., ligado a Vendor.acceptedPaymentMethods del Bloque 14).
-// Los pedidos históricos con los valores viejos se migran automáticamente
-// vía ALTER TYPE ... RENAME VALUE (ver migración) — el valor se guarda por
-// OID interno, no por texto, así que ningún pedido existente pierde datos.
-enum OrderChannel {
-  CASH
-  COD
-  ONLINE
-  TABLE
-}
-
 // Preferencia del vendedor: a dónde llegan los pedidos que hace un cliente.
 // Bloque 68 (pedido explícito): el checkout con formulario completo ya
 // SIEMPRE crea el Order real y cae en /vendedor/pedidos, sin importar este
@@ -481,14 +463,14 @@ model Product {
   // (no hay conversión/tipo de cambio en el sistema), el vendedor elige una
   // sola por producto al cargarlo. Default CUP para no alterar el
   // comportamiento de los productos ya cargados al desplegar la migración.
-  currency    ProductCurrency @default(CUP)
+  currency    String @default("CUP")
   // Envío del producto. Solo cuenta si la tienda está en "envío por producto" (Vendor.storeShippingMode nulo): con envío de
   // tienda activo queda suspendido, sin borrarse (ver lib/shipping.js). FREE por defecto. FIXED: shippingLocal dentro de las
   // provincias donde opera la tienda, shippingOther fuera; shippingPerUnit = se multiplica por la cantidad.
   shippingMode     ShippingMode     @default(FREE)
   shippingLocal    Decimal?         @db.Decimal(12, 2)
   shippingOther    Decimal?         @db.Decimal(12, 2)
-  shippingCurrency ProductCurrency?
+  shippingCurrency String?
   shippingPerUnit  Boolean          @default(false)
   stock       Int      @default(0)
   // Bloque 56 (pedido explícito): hay vendedores que no tienen un stock
@@ -1304,13 +1286,13 @@ model Vendor {
   // esta tienda usa esta moneda —
   // createProduct/updateProduct la fuerzan server-side, nunca se acepta un
   // valor de currency distinto mandado por el cliente (ver products.controller.js).
-  currency ProductCurrency @default(CUP)
+  currency String @default("CUP")
   // Envío de toda la tienda. Nulo = cada producto define el suyo. FIXED (una vez por pedido: storeShippingLocal dentro de
   // las provincias donde opera, storeShippingOther fuera) o COORDINATE (a coordinar). Activo, manda sobre el de los productos.
   storeShippingMode     ShippingMode?
   storeShippingLocal    Decimal?         @db.Decimal(12, 2)
   storeShippingOther    Decimal?         @db.Decimal(12, 2)
-  storeShippingCurrency ProductCurrency?
+  storeShippingCurrency String?
   // Provincia desde donde envía la tienda: el precio fijo "dentro" (Local) es para entregas en esta provincia; cualquier otra
   // provincia o país cobra el de "fuera". Vale para el envío de tienda y para el de cada producto. Nula = la provincia de su
   // primera ubicación.
@@ -1841,7 +1823,8 @@ model Order {
   // queda visible tanto en el panel del vendedor como en "Mis pedidos" del
   // cliente.
   cancelReason           String?
-  channel                OrderChannel
+  // Código de la forma de cobro en mayúsculas (COD, ONLINE, CASH, TABLE o una agregada por el admin, ver CatalogOption).
+  channel                String
   // Snapshot de Vendor.orderDestination al momento del pedido — distinto del
   // método de pago (channel): esto es "a dónde le llega el aviso al
   // vendedor" (WhatsApp o su panel), no "cómo paga el cliente".
@@ -2050,11 +2033,11 @@ model OrderItem {
   // campo propio (no reusar selectedOptions, que ya es de ProductOption/menú)
   // para poder decrementar sizeStock[size] puntualmente al confirmar la venta.
   size            String?
-  currency        ProductCurrency @default(CUP)
+  currency        String @default("CUP")
   // Envío de esta línea (solo con envío por producto): modo, monto ya multiplicado si es por unidad, y su moneda.
   shippingMode     ShippingMode?
   shippingAmount   Decimal?         @db.Decimal(12, 2)
-  shippingCurrency ProductCurrency?
+  shippingCurrency String?
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -3196,7 +3179,7 @@ model CustomerListing {
   name        String
   description String
   price       Decimal         @db.Decimal(12, 2)
-  currency    ProductCurrency @default(USD)
+  currency    String @default("USD")
   images      String[]        @default([])
   // Igual semántica que Product.isActive: false hasta que suba la primera
   // foto (ver activatedAt); también se pone en false si el admin lo
@@ -3576,17 +3559,6 @@ enum OfferOrientation {
   HORIZONTAL
 }
 
-// Bloque 65: se reusa el mismo enum para Vendor.currency (moneda operativa
-// única de la tienda, elegida en el registro) — mismo concepto que
-// Product.currency (en qué moneda está expresado un precio puntual), nunca
-// dos enums paralelos para la misma idea. MXN nuevo a pedido explícito.
-enum ProductCurrency {
-  CUP
-  USD
-  EUR
-  MXN
-}
-
 // Envío: gratis, fijo (con precio) o a coordinar con la tienda según el lugar de entrega.
 enum ShippingMode {
   FREE
@@ -3678,7 +3650,7 @@ model DiscountCode {
   value    Decimal      @db.Decimal(12, 2)
   // Moneda del código: solo descuenta los productos del carrito en esta moneda (un monto en CUP no se resta de un
   // precio en USD). El monto fijo y el mínimo/máximo de compra se leen en esta moneda.
-  currency ProductCurrency @default(CUP)
+  currency String @default("CUP")
   // Mínimo/máximo de SUBTOTAL del carrito (de los productos de ESTA tienda)
   // para que el código aplique — ambos opcionales, validados en el
   // formulario (max > min si los dos están presentes).
@@ -4326,4 +4298,32 @@ model UsageInsight {
   scope     String   @id
   data      Json
   updatedAt DateTime @updatedAt
+}
+
+// Monedas y formas de pago editables por el admin (Admin > Marca > Tiendas y productos). Productos, tiendas y pedidos guardan
+// `code`, que no cambia nunca; el nombre visible (`label`) se puede renombrar y se ve al instante en todo el sitio. Una opción
+// en uso no se puede eliminar, solo renombrar o desactivar (deja de ofrecerse para lo nuevo). Ver lib/catalog.js.
+enum CatalogKind {
+  CURRENCY         // moneda de los precios
+  PRODUCT_PAYMENT  // forma de pago de un producto
+  CHECKOUT_PAYMENT // forma de cobro al terminar la compra
+  STORE_PAYMENT    // métodos que acepta una tienda (Zelle, Visa...)
+}
+
+model CatalogOption {
+  id          String      @id @default(cuid())
+  kind        CatalogKind
+  code        String
+  label       String
+  // Moneda: nombre largo ("Dólar estadounidense"). Formas de cobro: la explicación que ve el cliente.
+  description String?
+  icon        String?
+  isActive    Boolean     @default(true)
+  // Solo formas de pago de producto: la que siempre está disponible en todos los productos (una sola a la vez).
+  isUniversal Boolean     @default(false)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
+
+  @@unique([kind, code])
 }

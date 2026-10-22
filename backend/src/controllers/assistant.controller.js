@@ -1,3 +1,4 @@
+import { productPaymentLabel } from "../lib/catalog.js";
 import { routeZoneChange, routeZoneFlow } from "../lib/assistantZone.js";
 import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { effectiveShipping } from "../lib/shipping.js";
@@ -446,7 +447,6 @@ function buildProductsHref({ terms, verification, payment, priceMax, province, m
   const qs = p.toString();
   return `/catalogo${qs ? `?${qs}` : ""}`;
 }
-const PAYMENT_LABEL = { prepaid: "con pago anticipado", cod: "con pago contra entrega" };
 
 // Bug real reportado en vivo: "Verificar tiendas por zona" deja como
 // términos ["verificar","zona"] (ninguno es stopword de producto) — sin
@@ -1389,7 +1389,7 @@ export async function postMarketplaceChatMessage(req, res) {
       actions.products = { label: `Ver todos los productos de ${searchMeta.poolStoreName} (${poolSize})`, href: `/tienda/${searchMeta.poolStoreSlug}` };
     } else {
       actions.products = {
-        label: `Ver todos los productos${verifiedLabel ? " de tiendas verificadas" : ""}${searchMeta?.payment ? ` ${PAYMENT_LABEL[searchMeta.payment]}` : ""} (${poolSize})`,
+        label: `Ver todos los productos${verifiedLabel ? " de tiendas verificadas" : ""}${searchMeta?.payment ? ` con ${productPaymentLabel(searchMeta.payment).toLowerCase()}` : ""} (${poolSize})`,
         href: buildProductsHref(searchMeta ?? {}),
       };
     }

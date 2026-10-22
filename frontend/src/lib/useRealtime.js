@@ -29,8 +29,15 @@ export function useRealtime(enabled) {
       }, REFRESH_DEBOUNCE_MS);
     };
 
+    // El admin cambió una moneda o forma de pago: primero los nombres nuevos, después todo lo demás para que se vean.
+    const catalogChanged = async () => {
+      await queryClient.refetchQueries({ queryKey: ["site-settings"] }).catch(() => {});
+      queryClient.invalidateQueries({ predicate: (q) => !SKIP_KEYS.has(String(q.queryKey[0])), refetchType: "active" });
+    };
+
     const handle = (event, data) => {
       if (event === "refresh") refresh();
+      else if (event === "catalog") catalogChanged();
       else if (event === "notify") window.dispatchEvent(new CustomEvent(NOTICE_EVENT, { detail: data }));
     };
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { join, dirname } from "node:path";
 import { unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { publicCatalog } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
@@ -71,7 +72,7 @@ export async function updateMaintenance(req, res) {
 // También expone los límites por plan (Bloque 19): el panel de vendedor los
 // necesita para deshabilitar "+ Agregar" al llegar al tope y mostrar "X/Y".
 export async function getSettings(_req, res) {
-  const settings = await getOrCreateSettings();
+  const [settings, catalog] = await Promise.all([getOrCreateSettings(), publicCatalog()]);
   // Bloque 52 (pedido explícito — "debe haber una concordancia con todo...
   // vamos a poder ver toda la configuración real que pueden y que van a
   // tener los vendedores"): los 2 planes completos (límites, interruptores,
@@ -107,10 +108,11 @@ export async function getSettings(_req, res) {
       vendorsCanReview: settings.vendorsCanReview,
       showChatWidget: settings.showChatWidget,
       pwaEnabled: settings.pwaEnabled,
-      productPaymentMethods: settings.productPaymentMethods,
-      // Bloque 65: de qué conjunto puede elegir una tienda su moneda
-      // operativa única al registrarse o cambiarla después.
-      availableCurrencies: settings.availableCurrencies,
+      // Monedas y formas de pago con su nombre visible (ver lib/catalog.js). Las dos listas de abajo son las activas, para
+      // las pantallas que solo ofrecen opciones; `catalog` trae todas para mostrar el nombre de cualquier valor guardado.
+      catalog,
+      productPaymentMethods: catalog.productPayments.filter((o) => o.isActive).map((o) => o.code),
+      availableCurrencies: catalog.currencies.filter((o) => o.isActive).map((o) => o.code),
       // Bloque 64: datos de la transferencia CUP para la suscripción del
       // Plan Business — VendorVerification.jsx/PagoManual.jsx los muestran
       // tal cual, nunca un dato inventado (null = "contacta al equipo").
@@ -339,36 +341,6 @@ export async function updateCustomerRemindersSettings(req, res) {
   const settings = await getOrCreateSettings();
   await prisma.siteSettings.update({ where: { id: settings.id }, data: { customerRemindersEnabled: enabled } });
   res.json({ enabled });
-}
-
-// Solo "cod"/"prepaid" son togglables acá — "whatsapp" es el canal
-// universal (products.controller.js lo permite siempre, no forma parte de
-// esta lista) y "table" nunca es elegible a mano (solo lo trae el menú QR
-// sembrado). Ver assertPaymentMethodsAllowed en products.controller.js.
-const productPaymentMethodsSchema = z.object({
-  productPaymentMethods: z.array(z.enum(["cod", "prepaid"])),
-});
-
-export async function updateProductPaymentMethods(req, res) {
-  const data = productPaymentMethodsSchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
-  res.json({ settings: { productPaymentMethods: updated.productPaymentMethods } });
-}
-
-// Bloque 65: de qué conjunto fijo (CUP/USD/EUR/MXN) puede elegir una tienda
-// su moneda operativa única, en el registro o al cambiarla después (ver
-// assertCurrencyAllowed en vendors.controller.js) — nunca puede quedar
-// vacío, dejaría el registro de tiendas nuevas sin ninguna opción.
-const availableCurrenciesSchema = z.object({
-  availableCurrencies: z.array(z.enum(["CUP", "USD", "EUR", "MXN"])).min(1, "Deja al menos una moneda disponible."),
-});
-
-export async function updateAvailableCurrencies(req, res) {
-  const data = availableCurrenciesSchema.parse(req.body);
-  const settings = await getOrCreateSettings();
-  const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data });
-  res.json({ settings: { availableCurrencies: updated.availableCurrencies } });
 }
 
 const offerPolicySchema = z.object({

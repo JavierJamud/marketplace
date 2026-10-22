@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { orderShippingText } from "../lib/orderSummary.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
+import { activeCodes, checkoutLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { placeOrder } from "./orders.controller.js";
@@ -22,7 +23,7 @@ const idLike = z.string().min(1).max(60);
 const orderBody = z
   .object({
     storeSlug: z.string().trim().min(1).max(120),
-    channel: z.enum(["cod", "online", "cash"]),
+    channel: z.string().trim().regex(/^[a-z0-9_]{1,40}$/, "Forma de pago inválida."),
     customerName: z.string().trim().min(2, "Falta el nombre del cliente.").max(120),
     customerPhone: z.string().regex(E164, "El teléfono debe llevar el código de país, por ejemplo +5355512345."),
     customerEmail: z.string().trim().email("Falta un correo válido.").max(160),
@@ -98,11 +99,10 @@ export async function getCheckoutRequirements(req, res) {
         "El stock se confirma cuando el vendedor acepta el pedido.",
         "Cada pedido necesita una cabecera Idempotency-Key única (8 a 64 caracteres) para que un reintento no duplique el pedido.",
       ],
-      channels: [
-        { id: "cod", title: "Pago contra entrega" },
-        { id: "online", title: "Pago en línea con el vendedor" },
-        { id: "cash", title: "Efectivo" },
-      ],
+      // Las formas de cobro activas que ofrece esta tienda, con el nombre que les dio el admin (lib/catalog.js).
+      channels: (await activeCodes("CHECKOUT_PAYMENT"))
+        .filter((code) => !store.checkoutPaymentOptions?.length || store.checkoutPaymentOptions.includes(code))
+        .map((code) => ({ id: code, title: checkoutLabel(code) })),
       fields: [
         { name: "customerName", required: true, min: 2, max: 120, label: "Nombre del cliente" },
         { name: "customerPhone", required: true, format: "E.164 con código de país, ej. +5355512345", label: "Teléfono" },

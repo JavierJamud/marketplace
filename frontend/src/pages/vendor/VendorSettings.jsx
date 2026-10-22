@@ -13,8 +13,7 @@ import { CashCloseSettingsPanel } from "./VendorUsers.jsx";
 import { Mail, Users, X, Plus, Trash2, Globe2, MapPin, FileText, Settings2, CheckCircle2, Wallet, ShieldCheck, MessageCircle, LayoutDashboard, Layers, Lock, Globe, Copy, QrCode, Clock } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { QRCodeSVG } from "qrcode.react";
-import { PAYMENT_METHODS } from "../../lib/paymentMethods.js";
-import { CHECKOUT_PAY_CHOICES } from "../../lib/checkoutPayment.js";
+import { checkoutChoices, storePaymentMethods, currencyCodesFor, currencyOption } from "../../lib/catalog.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
@@ -319,7 +318,7 @@ export default function VendorSettings() {
     // directo (mismo /tienda/:slug de siempre, ver el card de abajo).
     isPrivate: false,
     acceptedPaymentMethods: [],
-    checkoutPaymentOptions: ["cod", "online", "cash"],
+    checkoutPaymentOptions: [],
     currency: "CUP",
     warrantyTerms: "",
     warrantyDefaultDays: "",
@@ -396,7 +395,7 @@ export default function VendorSettings() {
       notifyNewOrderEmail: vendor.notifyNewOrderEmail ?? true,
       isPrivate: vendor.isPrivate ?? false,
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
-      checkoutPaymentOptions: vendor.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : ["cod", "online", "cash"],
+      checkoutPaymentOptions: vendor.checkoutPaymentOptions?.length ? vendor.checkoutPaymentOptions : checkoutChoices().map((o) => o.id),
       currency: vendor.currency ?? "CUP",
       warrantyTerms: vendor.warrantyTerms ?? "",
       warrantyDefaultDays: vendor.warrantyDefaultDays != null ? String(vendor.warrantyDefaultDays) : "",
@@ -739,8 +738,8 @@ export default function VendorSettings() {
           onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
           className="max-w-xs"
         >
-          {(settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"]).map((c) => (
-            <option key={c} value={c}>{c}</option>
+          {currencyCodesFor(vendor?.currency).map((c) => (
+            <option key={c} value={c}>{currencyOption(c)}</option>
           ))}
         </Select>
         {form.currency !== (vendor?.currency ?? "CUP") && (
@@ -816,7 +815,8 @@ export default function VendorSettings() {
           Son las opciones que ve tu cliente al completar su pedido. Aplican a toda tu tienda. Deja marcadas solo las que aceptas.
         </p>
         <div className="flex flex-col gap-2">
-          {CHECKOUT_PAY_CHOICES.map((o) => {
+          {/* Las activas en la plataforma y, si la tienda ya tenía una que el admin desactivó, esa también para poder quitarla. */}
+          {checkoutChoices({ activeOnly: false }).filter((o) => o.active || form.checkoutPaymentOptions.includes(o.id)).map((o) => {
             const checked = form.checkoutPaymentOptions.includes(o.id);
             const onlyOne = checked && form.checkoutPaymentOptions.length === 1;
             return (
@@ -844,7 +844,7 @@ export default function VendorSettings() {
         {form.checkoutPaymentOptions.length === 1 && <p className="mt-2 text-[12px] text-outline">Debe quedar al menos una opción.</p>}
       </div>
 
-      <StoreShippingCard form={form} setForm={setForm} vendor={vendor} currencies={settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"]} />
+      <StoreShippingCard form={form} setForm={setForm} vendor={vendor} currencies={currencyCodesFor(form.storeShippingCurrency)} />
 
       {/* Bloque 47: Métodos de pago (chips — el selector nunca se había
           terminado de conectar: el estado/endpoint ya existían pero no
@@ -866,7 +866,7 @@ export default function VendorSettings() {
         <div className="mb-5">
           <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Métodos de pago que aceptas</div>
           <div className="flex flex-wrap gap-2">
-            {PAYMENT_METHODS.map((m) => {
+            {storePaymentMethods({ activeOnly: false }).filter((m) => m.active || form.acceptedPaymentMethods.includes(m.id)).map((m) => {
               const active = form.acceptedPaymentMethods.includes(m.id);
               const Icon = m.icon;
               return (
@@ -890,7 +890,7 @@ export default function VendorSettings() {
               );
             })}
             {form.acceptedPaymentMethods
-              .filter((id) => !PAYMENT_METHODS.some((m) => m.id === id))
+              .filter((id) => !storePaymentMethods({ activeOnly: false }).some((m) => m.id === id))
               .map((custom) => (
                 <button
                   key={custom}
