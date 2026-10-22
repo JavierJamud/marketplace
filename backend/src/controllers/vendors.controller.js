@@ -1,5 +1,5 @@
 import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
-import { assertNotBlacklisted } from "../lib/blacklist.js";
+import { assertNotBlacklisted, findBlacklisted } from "../lib/blacklist.js";
 import { Prisma } from "@prisma/client";
 import { normalizeSocialLinks } from "../lib/socialLinks.js";
 import { ratingSummary, ratingScore } from "../lib/ratings.js";
@@ -16,7 +16,8 @@ import { activeCodes, allCodes, assertActiveCurrency, assertActiveCheckoutPaymen
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
-import { pickVendorSlug, resolveVendorSlug } from "../lib/vendorSlug.js";
+import { resolveVendorSlug } from "../lib/vendorSlug.js";
+import { normalizeUsername, suggestUsername, usernameTaken, usernameFormatError } from "../lib/username.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getVendorInsights } from "../services/vendorInsights.service.js";
 import { searchVendorPanel } from "../services/vendorSearch.service.js";
@@ -91,6 +92,8 @@ function flattenScheduleDays(days) {
 
 const createVendorSchema = z.object({
   companyName: z.string().min(2),
+  // Nombre de usuario = enlace de la tienda (lib/username.js). Si no viene, se arma con el nombre.
+  username: z.string().trim().max(40).optional(),
   // Código del socio de la API (enlace baznova.com/vender?socio=CODIGO). Opcional; un código
   // desconocido o de un socio suspendido se ignora sin bloquear el registro.
   partnerCode: z.string().trim().toUpperCase().max(24).optional(),
@@ -182,8 +185,9 @@ export async function createVendor(req, res) {
   const existing = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (existing) throw new AppError("Este usuario ya tiene una tienda registrada.", 409);
   // Lista negra: ni con el correo, el WhatsApp ni el documento de alguien eliminado por fraude.
-  await assertNotBlacklisted({ email: data.email ?? req.user.email, phone: data.whatsapp, idNumber: data.ownerIdNumber });
-  await assertVendorUnique({ companyName: data.companyName, whatsapp: data.whatsapp, email: data.email, ownerIdNumber: data.ownerIdNumber });
+  // También el nombre de la tienda y el usuario de una tienda que está en la lista negra.
+  await assertNotBlacklisted({ email: data.email ?? req.user.email, phone: data.whatsapp, idNumber: data.ownerIdNumber, storeName: data.companyName, username: data.username }, { userId: req.user.id });
+  await assertVendorUnique({ companyName: data.companyName, whatsapp: data.whatsapp, email: data.email, ownerIdNumber: data.ownerIdNumber, username: data.username || undefined, ownerUserId: req.user.id });
 
   const businessCategory = await prisma.businessCategory.findUnique({ where: { id: data.businessCategoryId } });
   if (!businessCategory) throw new AppError("Ese tipo de negocio no existe.", 400);
@@ -227,8 +231,9 @@ export async function createVendor(req, res) {
   data.currency = data.currency ?? (await activeCodes("CURRENCY"))[0];
   await assertCurrencyAllowed(data.currency);
 
-  // Nombre limpio; si se repite, -2, -3... (antes un código de la hora, ver lib/vendorSlug.js).
-  const slug = await pickVendorSlug(data.companyName);
+  // El enlace es el nombre de usuario que eligió (ya validado arriba) o uno armado con el nombre de la tienda.
+  const slug = data.username ? normalizeUsername(data.username) : await suggestUsername(data.companyName);
+  delete data.username;
 
   // Restaurantes arrancan con el Panel de vendedor como destino de pedidos
   // (no WhatsApp) — pueden cambiarlo después desde VendorSettings.jsx.
@@ -568,6 +573,7 @@ export async function searchMyVendor(req, res) {
 // link de WhatsApp en Store.jsx/Product.jsx más adelante sin ningún aviso.
 const updateVendorSchema = z.object({
   companyName: z.string().min(2).optional(),
+  username: z.string().trim().max(40).optional(),
   ownerName: z.string().min(2).optional(),
   // Bloque 29: ver nota en createVendorSchema — opcional acá también, por
   // la misma razón (PATCH parciales existentes como cancelPlan no deben
@@ -682,14 +688,28 @@ export async function updateMyVendor(req, res) {
   // Nombre, WhatsApp, correo y documento del responsable no pueden ser los de otra tienda. Solo se comprueba lo que cambia: el
   // formulario manda todo en cada guardado y una coincidencia vieja no debe impedir guardar otra cosa.
   const changed = (key) => data[key] != null && String(data[key]).trim() !== String(vendor[key] ?? "").trim();
+  const newUsername = data.username !== undefined && normalizeUsername(data.username) !== vendor.slug ? normalizeUsername(data.username) : undefined;
   await assertVendorUnique(
     {
       companyName: changed("companyName") ? data.companyName : undefined,
       whatsapp: changed("whatsapp") ? data.whatsapp : undefined,
       email: changed("email") ? data.email : undefined,
       ownerIdNumber: changed("ownerIdNumber") ? data.ownerIdNumber : undefined,
+      username: newUsername,
+      ownerUserId: vendor.userId,
     },
     vendor.id
+  );
+  // Lo que cambia tampoco puede ser un dato de la lista negra (de otra persona).
+  await assertNotBlacklisted(
+    {
+      email: changed("email") ? data.email : undefined,
+      phone: changed("whatsapp") ? data.whatsapp : undefined,
+      idNumber: changed("ownerIdNumber") ? data.ownerIdNumber : undefined,
+      storeName: changed("companyName") ? data.companyName : undefined,
+      username: newUsername,
+    },
+    { userId: vendor.userId, vendorId: vendor.id }
   );
 
   // Bloque 153 (pedido explícito — "todos los datos de la tienda no se
@@ -795,6 +815,8 @@ export async function updateMyVendor(req, res) {
       warrantyDefaultDays: data.warrantyDefaultDays,
       isPrivate,
       ...(await storeShippingData(data, vendor)),
+      // Usuario nuevo: pasa a ser el enlace y el anterior sigue llevando a la tienda.
+      ...(newUsername ? { slug: newUsername, previousSlugs: [...new Set([...(vendor.previousSlugs ?? []), vendor.slug])].filter((x) => x !== newUsername) } : {}),
       socialLinks: data.socialLinks === undefined ? undefined : normalizeSocialLinks(data.socialLinks, vendor.socialLinks) ?? Prisma.DbNull,
     },
   });
@@ -1902,10 +1924,31 @@ export async function removeAiDocument(req, res) {
 // correo ya los usa otra tienda, para no crear una cuenta que después no pueda abrir su tienda.
 export async function checkVendorAvailability(req, res) {
   const data = z
-    .object({ companyName: z.string().trim().max(120).optional(), whatsapp: z.string().trim().max(30).optional(), email: z.string().trim().max(200).optional() })
+    .object({ companyName: z.string().trim().max(120).optional(), whatsapp: z.string().trim().max(30).optional(), email: z.string().trim().max(200).optional(), username: z.string().trim().max(40).optional() })
     .parse(req.body ?? {});
   // Si el correo ya es de una cuenta, se avisa antes que nada: no se crea otra cuenta ni se toca la de antes (la pantalla
   // lleva a iniciar sesión). Es el mismo dato que ya revela el registro al intentarlo.
   const accountExists = data.email?.trim() ? !!(await prisma.user.findFirst({ where: { email: { equals: data.email.trim(), mode: "insensitive" } }, select: { id: true } })) : false;
-  res.json({ conflicts: await findVendorConflicts(data), accountExists });
+  // Lista negra: se avisa sin decir qué dato coincidió. Y una propuesta de usuario a partir del nombre.
+  const conflicts = await findVendorConflicts({ ...data, username: data.username || undefined, ownerUserId: req.user?.id ?? null });
+  if (await findBlacklisted({ email: data.email, phone: data.whatsapp, storeName: data.companyName, username: data.username })) {
+    conflicts.blacklisted = "No podemos usar estos datos en la plataforma. Si crees que es un error, escribe a soporte.";
+  }
+  const suggestedUsername = data.companyName?.trim() ? await suggestUsername(data.companyName) : null;
+  res.json({ conflicts, accountExists, suggestedUsername });
+}
+
+// Revisión en vivo del nombre de usuario mientras se escribe (registro y Perfil). ?u=usuario y/o ?name=nombre de la tienda
+// (para proponer uno). Con sesión de tienda, su propio usuario actual no cuenta como ocupado.
+export async function checkUsername(req, res) {
+  const { u, name } = z.object({ u: z.string().trim().max(40).optional(), name: z.string().trim().max(120).optional() }).parse(req.query);
+  const own = req.user ? await prisma.vendor.findUnique({ where: { userId: req.user.id }, select: { id: true } }) : null;
+  const suggestion = name ? await suggestUsername(name, own?.id ?? null) : null;
+  if (!u) return res.json({ suggestion });
+  const username = normalizeUsername(u);
+  let message = null;
+  if (await usernameTaken(username, own?.id ?? null)) message = "Ese nombre de usuario ya lo usa otra tienda. Elige otro.";
+  else if (usernameFormatError(username)) message = usernameFormatError(username);
+  else if (await findBlacklisted({ username }, own ? { vendorId: own.id } : {})) message = "Ese nombre de usuario no está disponible.";
+  res.json({ available: !message, message, suggestion });
 }

@@ -52,7 +52,7 @@ async function finalizeDueDeletions() {
     // El correo final va a la dirección REAL — finalizeUserDeletion() la
     // reescribe por la anonimizada, así que el orden acá importa.
     await sendAccountDeletionCompletedEmail(user);
-    await finalizeUserDeletion(user.id);
+    await finalizeUserDeletion(user.id, { source: "CUSTOMER_REQUEST", reason: "Pidió eliminar su cuenta y pasaron los días de gracia sin reactivarla." });
     finalized++;
   }
   return finalized;

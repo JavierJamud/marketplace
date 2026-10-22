@@ -1,3 +1,6 @@
+import { addToBlacklist } from "../lib/blacklist.js";
+import { assertPhoneFree } from "../lib/phoneUniqueness.js";
+import { normalizeUsername } from "../lib/username.js";
 import { assertVendorUnique } from "../services/vendorUniqueness.service.js";
 import { ratingSummary } from "../lib/ratings.js";
 import { z } from "zod";
@@ -559,6 +562,9 @@ const updateVendorSchema = z.object({
   // vendedor lo ve en su panel (VendorLayout.jsx) y lo usa para escribirle a
   // soporte con contexto real, en vez de quedar sin ninguna explicación.
   blockReason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.").optional(),
+  // Al bloquear: también a la lista negra (lib/blacklist.js). Sus datos no se pueden volver a usar en ningún registro.
+  addToBlacklist: z.boolean().optional(),
+  username: z.string().trim().max(40).optional(),
   // planType ya no se edita acá: cambiarlo solo dejaba una tienda Business sin insignia ni funciones, o Regular con insignia.
   // El plan se cambia con "Dar Premium" (grant-business) o "Pasar a Regular" (downgrade), que mueven plan e insignia juntos.
   // Edición básica desde el admin (Bloque 12) — mismas reglas de forma que
@@ -613,17 +619,24 @@ export async function updateVendor(req, res) {
     throw new AppError("Escribe el motivo del bloqueo.", 400);
   }
   const changed = (key) => data[key] != null && String(data[key]).trim() !== String(vendor[key] ?? "").trim();
+  const newUsername = data.username !== undefined && normalizeUsername(data.username) !== vendor.slug ? normalizeUsername(data.username) : undefined;
   await assertVendorUnique(
     {
       companyName: changed("companyName") ? data.companyName : undefined,
       whatsapp: changed("whatsapp") ? data.whatsapp : undefined,
       email: changed("email") ? data.email : undefined,
       ownerIdNumber: changed("ownerIdNumber") ? data.ownerIdNumber : undefined,
+      username: newUsername,
+      ownerUserId: vendor.userId,
     },
     vendor.id
   );
+  if (data.addToBlacklist && data.isBlocked !== true) throw new AppError("La lista negra se aplica al bloquear la tienda.", 400);
   const vendorData = { ...data };
   delete vendorData.blockReason;
+  delete vendorData.addToBlacklist;
+  delete vendorData.username;
+  if (newUsername) Object.assign(vendorData, { slug: newUsername, previousSlugs: [...new Set([...(vendor.previousSlugs ?? []), vendor.slug])].filter((x) => x !== newUsername) });
   if (data.isBlocked === true) {
     vendorData.blockReason = data.blockReason ?? vendor.blockReason;
     vendorData.blockedAt = vendor.blockedAt ?? new Date();
@@ -636,6 +649,15 @@ export async function updateVendor(req, res) {
   }
 
   const updated = await prisma.vendor.update({ where: { id }, data: vendorData });
+  // Bloqueada por incumplir las normas y marcada para la lista negra: su correo, teléfonos, documento, nombre y usuario
+  // no se pueden volver a usar en otra cuenta ni tienda. Una sola vez por tienda.
+  if (data.addToBlacklist) {
+    const already = await prisma.blacklistEntry.findFirst({ where: { vendorId: id, removedAt: null }, select: { id: true } });
+    if (!already) {
+      const owner = await prisma.user.findUnique({ where: { id: vendor.userId } });
+      await addToBlacklist({ kind: "VENDOR", user: owner, vendor: updated, reason: vendorData.blockReason, addedById: req.user.id });
+    }
+  }
   if (data.isBlocked === true && !vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue bloqueada", `Motivo: ${vendorData.blockReason}. Escríbenos desde Mensajes si necesitas ayuda.`);
   else if (data.isBlocked === false && vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue desbloqueada", "Ya está visible otra vez y puedes vender con normalidad.");
   res.json({ vendor: updated });
@@ -810,7 +832,7 @@ export async function permanentlyDeleteVendor(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
   if (!vendor.adminDeletionRequestedAt) throw new AppError("Primero elimina la tienda (queda pendiente) y luego podrás eliminarla definitivamente.", 400);
-  await finalizeUserDeletion(vendor.userId);
+  await finalizeUserDeletion(vendor.userId, { source: "ADMIN", byId: req.user.id, reason: vendor.blockReason ?? null });
   res.status(204).end();
 }
 
@@ -1824,6 +1846,9 @@ export async function listCustomers(req, res) {
 
 const updateCustomerSchema = z.object({
   isSuspended: z.boolean().optional(),
+  // Al suspender por incumplir las normas: también a la lista negra, con el motivo (lib/blacklist.js).
+  addToBlacklist: z.boolean().optional(),
+  blacklistReason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.").max(500).optional(),
   fullName: z.string().min(2).optional(),
   email: z.string().email().optional(),
   phone: z.string().min(8).optional(),
@@ -1831,10 +1856,13 @@ const updateCustomerSchema = z.object({
 
 export async function updateCustomer(req, res) {
   const { id } = req.params;
-  const data = updateCustomerSchema.parse(req.body);
+  const { addToBlacklist: blacklist, blacklistReason, ...data } = updateCustomerSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || user.role !== "CUSTOMER" || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
+  if (blacklist && data.isSuspended !== true) throw new AppError("La lista negra se aplica al suspender al cliente.", 400);
+  if (blacklist && !blacklistReason) throw new AppError("Escribe el motivo para la lista negra.", 400);
+  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id });
 
   if (data.email) {
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
@@ -1844,6 +1872,10 @@ export async function updateCustomer(req, res) {
   // Reactivar a un cliente bloqueado por avisos de fraude: se detiene el plazo y lo anterior deja de contar.
   const fraudReset = data.isSuspended === false && user.fraudBlockedAt ? { fraudBlockedAt: null, fraudClaimDueAt: null, fraudStrikesResetAt: new Date() } : {};
   const updated = await prisma.user.update({ where: { id }, data: { ...data, ...fraudReset } });
+  if (blacklist) {
+    const already = await prisma.blacklistEntry.findFirst({ where: { userId: id, removedAt: null }, select: { id: true } });
+    if (!already) await addToBlacklist({ kind: "CUSTOMER", user: updated, reason: blacklistReason, addedById: req.user.id });
+  }
   res.json({ customer: { id: updated.id, fullName: updated.fullName, email: updated.email, phone: updated.phone, isSuspended: updated.isSuspended } });
 }
 
@@ -1855,7 +1887,7 @@ export async function deleteCustomer(req, res) {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || user.role !== "CUSTOMER") throw new AppError("Cliente no encontrado.", 404);
 
-  await finalizeUserDeletion(id);
+  await finalizeUserDeletion(id, { source: "ADMIN", byId: req.user.id });
   res.status(204).end();
 }
 

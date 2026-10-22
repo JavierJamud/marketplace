@@ -19,6 +19,7 @@ import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { capturePartnerRef, getPartnerCode, clearPartnerRef } from "../../lib/partnerRef.js";
 import { preloadPanel } from "../../lib/panelPreload.js";
+import { UsernameField } from "../../components/UsernameField.jsx";
 
 function BrandStat({ value, label }) {
   return (
@@ -288,6 +289,8 @@ const emptyRegisterForm = {
 // como la ubicación de registro de la persona (ver buildRegisterPayload).
 const emptyStoreForm = {
   companyName: "",
+  // Nombre de usuario = enlace de la tienda (UsernameField).
+  username: "",
   description: "",
   countryId: "",
   // Bloque 244: país escrito a mano cuando no está en la lista del admin.
@@ -683,7 +686,7 @@ export default function Account({ mode = "customer" }) {
       }
       // Antes de crear la cuenta: si el nombre, el WhatsApp o el correo ya son de otra tienda, se avisa aquí y no se sigue.
       try {
-        const { data } = await api.post("/vendors/check-availability", { companyName: storeForm.companyName, whatsapp: form.phone, email: form.email });
+        const { data } = await api.post("/vendors/check-availability", { companyName: storeForm.companyName, whatsapp: form.phone, email: form.email, username: storeForm.username || undefined });
         if (data.accountExists && !completingStore) {
           toast.warning("Ya tienes una cuenta con este correo", "Inicia sesión para entrar a tu tienda. Si no recuerdas la contraseña, toca «¿Olvidaste tu contraseña?».");
           setLoginForm((f) => ({ ...f, email: form.email, password: "" }));
@@ -746,6 +749,7 @@ export default function Account({ mode = "customer" }) {
     await api.post("/vendors", {
       partnerCode: getPartnerCode(),
       companyName: storeForm.companyName,
+      username: storeForm.username || undefined,
       // Bloque 113/114 (pedido explícito): ya no se piden de nuevo en
       // el paso de la tienda — son los mismos que la persona cargó en
       // el paso 1 (Nombre+Apellidos/email/phone), con el aviso de que
@@ -1370,6 +1374,11 @@ export default function Account({ mode = "customer" }) {
                     required
                     value={storeForm.companyName}
                     onChange={(e) => setStoreForm({ ...storeForm, companyName: e.target.value })}
+                  />
+                  <UsernameField
+                    value={storeForm.username}
+                    suggestFrom={storeForm.companyName}
+                    onChange={(username) => setStoreForm((f) => ({ ...f, username }))}
                   />
                   {/* Bloque 113 (pedido explícito): ya no se pide de nuevo un
                       "nombre del responsable" — es el mismo nombre y

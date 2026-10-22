@@ -21,6 +21,8 @@ import { reconcilePlanVerification } from "./services/vendorVerification.service
 import { tidyVendorSlugs } from "./lib/vendorSlug.js";
 import { reconcileRatings } from "./lib/ratings.js";
 import { warmCatalog } from "./lib/catalog.js";
+import { recoverDeletedAccountEmails } from "./lib/accountDeletion.js";
+import { backfillBlacklistStoreKeys } from "./lib/blacklist.js";
 import { startChatRetentionJob } from "./jobs/chatRetention.job.js";
 import { startSupportTicketRetentionJob } from "./jobs/supportTicketRetention.job.js";
 import { installNotifyHooks } from "./lib/notify.js";
@@ -131,6 +133,9 @@ tidyVendorSlugs().catch((err) => console.error("[enlaces] no se pudo revisar:", 
 reconcileRatings().catch((err) => console.error("[calificaciones] no se pudo revisar:", err));
 // Nombres de monedas y formas de pago en memoria desde el arranque (textos de pedidos, PDF, correos).
 warmCatalog();
+// Correo real de cuentas eliminadas antes de que se guardara (ver lib/accountDeletion.js).
+recoverDeletedAccountEmails().catch((err) => console.error("[cuentas eliminadas] no se pudo revisar:", err));
+backfillBlacklistStoreKeys().catch((err) => console.error("[lista negra] no se pudo completar:", err));
 // Conversaciones de los chatbots: se borran a las 24 h sin actividad; el registro del admin dura 90 días.
 startChatRetentionJob();
 // Tickets de errores visuales: se borran (con su captura) a los 90 días.

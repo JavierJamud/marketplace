@@ -1,3 +1,4 @@
+import { BlacklistCheckbox } from "../../components/admin/BlacklistCheckbox.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -163,6 +164,9 @@ export default function AdminCustomers() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [suspending, setSuspending] = useState(null); // cliente a suspender, para el modal de confirmación
+  // Lista negra al suspender (opcional): casilla y motivo, ver BlacklistCheckbox.
+  const [blacklist, setBlacklist] = useState(false);
+  const [blacklistReason, setBlacklistReason] = useState("");
 
   const commitSearch = useCallback((q) => setParams({ q }), [setParams]);
   const [searchText, setSearchText] = useDebouncedSearch(params.q, commitSearch);
@@ -192,10 +196,13 @@ export default function AdminCustomers() {
   });
 
   const toggle = useMutation({
-    mutationFn: async ({ id, isSuspended }) => (await api.patch(`/admin/customers/${id}`, { isSuspended })).data,
-    onSuccess: () => {
+    mutationFn: async ({ id, isSuspended, addToBlacklist, blacklistReason }) => (await api.patch(`/admin/customers/${id}`, { isSuspended, addToBlacklist, blacklistReason })).data,
+    onSuccess: (_res, vars) => {
       queryClient.invalidateQueries({ queryKey: ["admin-list-customers"] });
+      if (vars.addToBlacklist) toast.success("Cliente suspendido y agregado a la lista negra.");
       setSuspending(null);
+      setBlacklist(false);
+      setBlacklistReason("");
     },
     onError: (err) => {
       toast.error(err.response?.data?.error ?? "No se pudo actualizar el cliente.");
@@ -384,9 +391,25 @@ export default function AdminCustomers() {
         message="La cuenta no va a poder iniciar sesión hasta que la reactives."
         confirmLabel={toggle.isPending ? "Suspendiendo..." : "Sí, suspender"}
         danger
-        onConfirm={() => toggle.mutate({ id: suspending.id, isSuspended: true })}
-        onCancel={() => setSuspending(null)}
-      />
+        confirmDisabled={toggle.isPending || (blacklist && blacklistReason.trim().length < 5)}
+        onConfirm={() => toggle.mutate({ id: suspending.id, isSuspended: true, addToBlacklist: blacklist || undefined, blacklistReason: blacklist ? blacklistReason.trim() : undefined })}
+        onCancel={() => {
+          setSuspending(null);
+          setBlacklist(false);
+          setBlacklistReason("");
+        }}
+      >
+        <BlacklistCheckbox checked={blacklist} onChange={setBlacklist} />
+        {blacklist && (
+          <textarea
+            value={blacklistReason}
+            onChange={(e) => setBlacklistReason(e.target.value)}
+            placeholder="Motivo para la lista negra (obligatorio): qué norma incumplió..."
+            rows={3}
+            className="mt-2 w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+          />
+        )}
+      </ConfirmModal>
     </div>
   );
 }

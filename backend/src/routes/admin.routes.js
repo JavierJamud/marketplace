@@ -12,6 +12,7 @@ import * as businessAssistantController from "../controllers/businessAssistant.c
 import { assistantRateLimit } from "../middleware/rateLimit.js";
 import * as settingsController from "../controllers/settings.controller.js";
 import * as catalogController from "../controllers/adminCatalog.controller.js";
+import * as userHistoryController from "../controllers/adminUserHistory.controller.js";
 import * as suggestionsController from "../controllers/suggestions.controller.js";
 import * as locationsController from "../controllers/locations.controller.js";
 import * as businessCategoriesController from "../controllers/businessCategories.controller.js";
@@ -316,6 +317,8 @@ router.patch("/settings/branding", requireActionCode("PLATFORM_BRANDING"), setti
 router.patch("/settings/cup-payment", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateCupPaymentSettings);
 // Monedas y formas de pago editables (ver lib/catalog.js).
 router.get("/catalog", catalogController.listCatalog);
+// Historial de una cuenta (también eliminadas), para valorar una eliminación o un reclamo.
+router.get("/users/:id/history", userHistoryController.getUserHistory);
 router.post("/catalog", requireActionCode("PLATFORM_SETTINGS"), catalogController.createCatalogOption);
 router.patch("/catalog/:id", requireActionCode("PLATFORM_SETTINGS"), catalogController.updateCatalogOption);
 router.delete("/catalog/:id", requireActionCode("PLATFORM_SETTINGS"), catalogController.deleteCatalogOption);

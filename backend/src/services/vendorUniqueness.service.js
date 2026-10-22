@@ -1,6 +1,8 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { slugify } from "../utils/slugify.js";
+import { normalizeUsername, usernameFormatError, usernameTaken } from "../lib/username.js";
+import { findPhoneOwner } from "../lib/phoneUniqueness.js";
 
 // Una tienda no puede repetir el nombre, el WhatsApp ni el correo de otra, y una persona (por su número de documento) solo
 // puede ser responsable de una tienda. Cada cuenta ya tiene como mucho una tienda (Vendor.userId es único); esto evita que la
@@ -10,7 +12,9 @@ import { slugify } from "../utils/slugify.js";
 const digits = (v) => String(v ?? "").replace(/\D/g, "");
 const docKey = (v) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-export async function findVendorConflicts({ companyName, whatsapp, email, ownerIdNumber }, exceptVendorId = null) {
+// `ownerUserId`: el dueño (o quien se está registrando), para que su propio teléfono de cuenta no choque con el WhatsApp de su
+// tienda. `username`: el nombre de usuario (= enlace) que elige; se valida su forma y que nadie más lo tenga.
+export async function findVendorConflicts({ companyName, whatsapp, email, ownerIdNumber, username, ownerUserId = null }, exceptVendorId = null) {
   const not = exceptVendorId ? { id: { not: exceptVendorId } } : {};
   const conflicts = {};
 
@@ -29,6 +33,15 @@ export async function findVendorConflicts({ companyName, whatsapp, email, ownerI
     const d = digits(whatsapp);
     const found = await prisma.vendor.findFirst({ where: { ...not, deletedAt: null, OR: [{ whatsapp: `+${d}` }, { whatsapp: d }] }, select: { id: true } });
     if (found) conflicts.whatsapp = "Ese WhatsApp ya está registrado en otra tienda.";
+    // Tampoco el teléfono de la cuenta de otra persona.
+    else if (await findPhoneOwner(whatsapp, { userId: ownerUserId, vendorId: exceptVendorId })) conflicts.whatsapp = "Ese número ya lo usa otra cuenta. Usa un WhatsApp tuyo distinto.";
+  }
+
+  if (username !== undefined && username !== null) {
+    const u = normalizeUsername(username);
+    // Primero si ya es de otra tienda (también los enlaces viejos con guiones), después si cumple las reglas.
+    if (await usernameTaken(u, exceptVendorId)) conflicts.username = "Ese nombre de usuario ya lo usa otra tienda. Elige otro.";
+    else if (usernameFormatError(u)) conflicts.username = usernameFormatError(u);
   }
 
   if (email?.trim()) {

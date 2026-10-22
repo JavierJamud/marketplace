@@ -1,3 +1,4 @@
+import { assertPhoneFree } from "../lib/phoneUniqueness.js";
 import { CODE_TTL_MINUTES } from "../lib/codeTtl.js";
 import { assertNotBlacklisted } from "../lib/blacklist.js";
 import { z } from "zod";
@@ -157,6 +158,8 @@ export async function register(req, res) {
   }
   // Lista negra (personas eliminadas por reportes de fraude confirmados): no pueden volver a registrarse.
   await assertNotBlacklisted({ email: data.email, phone: data.phone });
+  // Un teléfono es de una sola persona: no puede ser el de otra cuenta ni el WhatsApp de la tienda de otro.
+  await assertPhoneFree(data.phone);
 
   // El país del teléfono tiene que estar habilitado en el panel del admin (la pantalla solo ofrece esos; esto cubre llamadas directas).
   const phoneCountry = await prisma.country.findFirst({ where: { code: data.country.toUpperCase(), isActive: true }, select: { id: true } });
@@ -226,6 +229,7 @@ export async function verifyRegistration(req, res) {
   if (existing) throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
   // Por si entró en la lista negra mientras el código estaba pendiente.
   await assertNotBlacklisted({ email, phone: pending.phone });
+  await assertPhoneFree(pending.phone);
 
   const { user, linkedOrdersCount } = await prisma.$transaction(async (tx) => {
     // Bloque 62: completar el registro ya es un "login" real (se emite
@@ -821,6 +825,8 @@ export async function requestMyEmailChange(req, res) {
   // cuentas con el mismo correo.
   const existing = await prisma.user.findUnique({ where: { email: newEmail } });
   if (existing && existing.id !== user.id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+  // Tampoco un correo que está en la lista negra (de otra persona).
+  await assertNotBlacklisted({ email: newEmail }, { userId: user.id });
 
   // Bloque 275: para el administrador, antes de iniciar el cambio de correo se confirma con un código.
   if (user.role === "ADMIN" && !(await confirmActionCode(req, res, "ADMIN_EMAIL_CHANGE"))) return;

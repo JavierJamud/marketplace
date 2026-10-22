@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import toast from "../../lib/toast.jsx";
-import { Zap } from "lucide-react";
+import { Zap, History } from "lucide-react";
+import { UserHistoryModal } from "../../components/admin/UserHistoryModal.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
@@ -20,6 +21,7 @@ function fmtDate(iso) {
 export default function AdminCustomerListings() {
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [historyUserId, setHistoryUserId] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-customer-listings"],
@@ -87,17 +89,29 @@ export default function AdminCustomerListings() {
             <div className="flex flex-wrap items-center justify-between gap-2 bg-surface-container-low px-[22px] py-3">
               <div className="min-w-0">
                 <span className="text-[14px] font-bold text-on-surface">{owner.fullName ?? owner.email}</span>
-                <span className="block break-all text-[12px] text-outline sm:ml-2 sm:inline">{owner.email} · {owner.phone}</span>
+                {/* Cuenta eliminada: su correo real (el de la cuenta pasa a deleted+...@zeudin.invalid). */}
+                <span className="block break-all text-[12px] text-outline sm:ml-2 sm:inline">
+                  {owner.deletedAt ? owner.deletedEmail ?? "Correo no guardado" : owner.email} · {owner.phone}
+                </span>
                 {(owner.deletedAt || owner.isSuspended) && (
                   <span className="mt-1 inline-block rounded-full bg-error/10 px-2 py-0.5 text-[11px] font-bold text-error sm:ml-2">
                     {owner.deletedAt ? "Cuenta eliminada" : "Cuenta bloqueada"}
                   </span>
                 )}
               </div>
+              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setHistoryUserId(owner.id)}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[12px] font-semibold text-on-surface hover:bg-surface-container md:min-h-9"
+              >
+                <History className="h-3.5 w-3.5" /> Ver historial
+              </button>
               <span className="text-[12px] font-semibold text-outline">
                 {owner.customerListings.length}
                 {maxListings ? `/${maxListings}` : ""} anuncios
               </span>
+              </div>
             </div>
             {/* En el celular cada anuncio es una tarjeta (antes era una tabla de 700px que escondía el estado y los botones). */}
             <div className="hidden grid-cols-[1.6fr_1fr_1fr_1fr_1.2fr] gap-3 px-[22px] py-2.5 text-[11px] font-bold uppercase tracking-wide text-outline md:grid">
@@ -154,6 +168,7 @@ export default function AdminCustomerListings() {
         ))}
       </div>
 
+      {historyUserId && <UserHistoryModal userId={historyUserId} onClose={() => setHistoryUserId(null)} />}
       <ConfirmModal
         open={!!deleteTarget}
         title={`¿Eliminar "${deleteTarget?.name}"?`}

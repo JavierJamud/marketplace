@@ -292,7 +292,7 @@ export async function deleteAndBlacklistCustomer(userId, reason, adminId = null)
     await deleteUploadedImages(l.images ?? []);
     await prisma.customerListing.delete({ where: { id: l.id } }).catch(() => {});
   }
-  await finalizeUserDeletion(userId);
+  await finalizeUserDeletion(userId, { source: "MODERATION", byId: adminId, reason });
 }
 
 export async function deleteAndBlacklistVendor(vendorId, reason, adminId = null) {
@@ -308,7 +308,7 @@ export async function deleteAndBlacklistVendor(vendorId, reason, adminId = null)
     badge: SUSPENDED,
     paragraphs: [`Tu tienda <strong>${esc(vendor.companyName)}</strong> se eliminó: ${esc(reason)}`, "No se puede volver a crear una cuenta o tienda con estos datos."],
   }).catch(() => {});
-  await finalizeUserDeletion(vendor.userId);
+  await finalizeUserDeletion(vendor.userId, { source: "MODERATION", byId: adminId, reason });
 }
 
 // Tarea diaria (fraudReports.job.js): borra lo suspendido sin apelar, elimina cuentas que no reclamaron y avanza las

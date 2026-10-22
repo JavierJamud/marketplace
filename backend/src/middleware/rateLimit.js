@@ -23,6 +23,16 @@ export const registerRateLimit = rateLimit({
   message: { error: "Demasiados registros desde este origen. Prueba de nuevo en unos minutos." },
 });
 
+// Revisión del nombre de usuario mientras se escribe (con espera de 400 ms entre teclas): 60 por minuto alcanza para escribir
+// con calma y no deja usarla para recorrer todos los nombres.
+export const usernameCheckRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas consultas. Espera un momento." },
+});
+
 // Consulta del stock real de los productos del carrito (POST /products/stock). El carrito la repite al abrirse, al volver a
 // la pestaña y cada 30 s mientras está a la vista: 120 por minuto da margen a varias pestañas sin dejar que un script la use
 // para recorrer el catálogo.

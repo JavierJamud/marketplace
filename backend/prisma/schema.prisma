@@ -822,6 +822,12 @@ model User {
   // deletedAt de verdad, vía el mismo finalizeUserDeletion() que usa el
   // borrado manual de un admin.
   deletionRequestedAt   DateTime?
+  // Registro de la eliminación, solo para el admin (ver lib/accountDeletion.js): el correo real (email pasa a
+  // deleted+id@zeudin.invalid), cómo se eliminó (CUSTOMER_REQUEST, ADMIN, ADMIN_PENDING, MODERATION), quién y por qué.
+  deletedEmail          String?
+  deletionSource        String?
+  deletedById           String?
+  deletionReason        String?
   // Marca de "ya se mandó el aviso de 7 días antes" — evita mandarlo 2 veces
   // si el cron se cae un día y corre tarde (mismo criterio que
   // vendorLifecycle.job.js/lowStock.job.js).
@@ -3346,6 +3352,9 @@ model BlacklistEntry {
   idNumber    String?
   fullName    String?
   storeName   String?
+  // Nombre de la tienda normalizado (para comparar) y su nombre de usuario: tampoco se pueden volver a usar.
+  storeKey    String?
+  username    String?
   reason      String    @db.Text
   userId      String?
   vendorId    String?
@@ -3357,6 +3366,8 @@ model BlacklistEntry {
   @@index([email])
   @@index([phone])
   @@index([idNumber])
+  @@index([storeKey])
+  @@index([username])
 }
 
 // Bloque 21: chatbot IA por tienda verificada. Sin login — el cliente se

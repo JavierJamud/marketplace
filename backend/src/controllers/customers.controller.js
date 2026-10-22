@@ -1,3 +1,5 @@
+import { assertPhoneFree } from "../lib/phoneUniqueness.js";
+import { assertNotBlacklisted } from "../lib/blacklist.js";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -53,6 +55,14 @@ export function profileLocationMissing(user) {
 export async function updateMe(req, res) {
   const { registrationCountryId, registrationCountryOther, municipalityId, municipalityOther, stateOther, country, ...basic } = updateSchema.parse(req.body);
   const data = { ...basic };
+  // Teléfono nuevo: ni de otra persona ni en la lista negra.
+  if (basic.phone) {
+    const current = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true } });
+    if (basic.phone !== current?.phone) {
+      await assertNotBlacklisted({ phone: basic.phone }, { userId: req.user.id });
+      await assertPhoneFree(basic.phone, { userId: req.user.id });
+    }
+  }
   if (country) {
     const phoneCountry = await prisma.country.findFirst({ where: { code: country.toUpperCase(), isActive: true }, select: { id: true } });
     if (!phoneCountry) throw new AppError("Ese país todavía no está habilitado. Contacta a soporte para pedir que lo activen.", 400);

@@ -39,10 +39,10 @@ async function finalizeDue(days) {
   const dueThreshold = new Date(Date.now() - days * DAY_MS);
   const vendors = await prisma.vendor.findMany({
     where: { deletedAt: null, adminDeletionRequestedAt: { lte: dueThreshold } },
-    select: { id: true, userId: true, companyName: true },
+    select: { id: true, userId: true, companyName: true, adminDeletionRequestedById: true, blockReason: true },
   });
   for (const v of vendors) {
-    await finalizeUserDeletion(v.userId);
+    await finalizeUserDeletion(v.userId, { source: "ADMIN_PENDING", byId: v.adminDeletionRequestedById, reason: v.blockReason ?? `Eliminación pendiente vencida a los ${days} días.` });
     await notifyAdminActionNeeded(`Tienda eliminada definitivamente: ${v.companyName}`, `Pasaron ${days} días sin que se restaurara y la tienda "${v.companyName}" se eliminó definitivamente.`);
   }
   return vendors.length;

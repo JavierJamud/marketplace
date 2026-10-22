@@ -18,6 +18,8 @@ export async function listCustomerListingsByOwner(_req, res) {
       email: true,
       phone: true,
       ...LISTING_OWNER_VISIBILITY_SELECT,
+      // Correo real de una cuenta eliminada (el de `email` pasa a deleted+id@zeudin.invalid).
+      deletedEmail: true,
       customerListings: { orderBy: { createdAt: "desc" } },
     },
     orderBy: { fullName: "asc" },

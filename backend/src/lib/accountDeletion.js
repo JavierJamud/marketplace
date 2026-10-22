@@ -12,7 +12,9 @@ import { releaseVendorSlugData } from "./vendorSlug.js";
 // Order.customerId/Review.userId son SetNull, pero se mantiene el mismo
 // criterio de anonimizado en los 3 roles por consistencia. El email se
 // reescribe para liberar la columna @unique para un futuro registro nuevo.
-export async function finalizeUserDeletion(userId) {
+// `record`: cómo se eliminó, para el admin. source: CUSTOMER_REQUEST (lo pidió el cliente), ADMIN (un admin, al momento),
+// ADMIN_PENDING (eliminación pendiente de una tienda que venció), MODERATION (reportes confirmados). byId: el admin, si hubo.
+export async function finalizeUserDeletion(userId, record = {}) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { vendor: true, vendorStaffProfile: true },
@@ -25,7 +27,16 @@ export async function finalizeUserDeletion(userId) {
   await prisma.$transaction([
     prisma.user.update({
       where: { id: user.id },
-      data: { deletedAt: now, isSuspended: true, email: anonymizedEmail },
+      // El correo real queda en deletedEmail, visible solo para el admin (decisión del dueño de la plataforma).
+      data: {
+        deletedAt: now,
+        isSuspended: true,
+        email: anonymizedEmail,
+        deletedEmail: user.deletedEmail ?? (user.email.endsWith("@zeudin.invalid") ? null : user.email),
+        deletionSource: record.source ?? null,
+        deletedById: record.byId ?? null,
+        deletionReason: record.reason ?? null,
+      },
     }),
     ...(user.vendor
       ? // La tienda suelta su enlace (/tienda/<slug>): una nueva con el mismo nombre lo puede usar (ver lib/vendorSlug.js).
@@ -43,4 +54,34 @@ export async function finalizeUserDeletion(userId) {
     // al desactivar personal).
     prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: now } }),
   ]);
+}
+
+// Cuentas eliminadas antes de guardar deletedEmail: se recupera el correo real solo de fuentes seguras, en este orden:
+// la lista negra (moderación), el correo que dejó en sus pedidos, o el aviso de "cuenta eliminada" que se le mandó en el
+// mismo minuto en que se borró (solo si hubo uno). Si nada coincide, queda sin correo: mejor vacío que uno equivocado.
+export async function recoverDeletedAccountEmails() {
+  const users = await prisma.user.findMany({
+    where: { deletedAt: { not: null }, deletedEmail: null },
+    select: { id: true, deletedAt: true, deletionRequestedAt: true, deletionSource: true },
+  });
+  let recovered = 0;
+  for (const u of users) {
+    const fromBlacklist = await prisma.blacklistEntry.findFirst({ where: { userId: u.id, email: { not: null } }, select: { email: true } });
+    const fromOrders = fromBlacklist ? null : await prisma.order.findFirst({ where: { customerId: u.id, customerEmail: { not: null } }, orderBy: { createdAt: "desc" }, select: { customerEmail: true } });
+    let fromEmail = null;
+    if (!fromBlacklist && !fromOrders) {
+      const sent = await prisma.emailLog.findMany({
+        where: { type: "ACCOUNT_DELETION_COMPLETED", createdAt: { gte: new Date(u.deletedAt.getTime() - 10 * 60_000), lte: new Date(u.deletedAt.getTime() + 60_000) } },
+        select: { to: true },
+        take: 2,
+      });
+      if (sent.length === 1) fromEmail = sent[0].to;
+    }
+    const email = fromBlacklist?.email ?? fromOrders?.customerEmail ?? fromEmail;
+    const source = u.deletionSource ?? (fromBlacklist ? "MODERATION" : u.deletionRequestedAt ? "CUSTOMER_REQUEST" : null);
+    if (!email && source === u.deletionSource) continue;
+    await prisma.user.update({ where: { id: u.id }, data: { deletedEmail: email ?? undefined, deletionSource: source } });
+    if (email) recovered++;
+  }
+  if (recovered) console.log(`[cuentas eliminadas] correos reales recuperados: ${recovered}`);
 }

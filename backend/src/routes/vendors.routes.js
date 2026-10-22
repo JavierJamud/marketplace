@@ -5,20 +5,22 @@ import * as vendorsController from "../controllers/vendors.controller.js";
 import * as reviewsController from "../controllers/reviews.controller.js";
 import * as chatController from "../controllers/chat.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
-import { authenticate } from "../middleware/auth.js";
+import { authenticate, optionalAuth } from "../middleware/auth.js";
 import * as usageController from "../controllers/usage.controller.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 import * as vendorCustomersController from "../controllers/vendorCustomers.controller.js";
 import { vendorAiDocUpload } from "../middleware/vendorAiDocUpload.js";
 import { vendorBrandingUpload } from "../middleware/vendorBrandingUpload.js";
-import { chatRateLimit, assistantRateLimit, registerRateLimit } from "../middleware/rateLimit.js";
+import { chatRateLimit, assistantRateLimit, registerRateLimit, usernameCheckRateLimit } from "../middleware/rateLimit.js";
 import { kycUpload } from "../middleware/kycUpload.js";
 
 const router = Router();
 
 router.get("/", publicCache(20_000, { skip: (req) => !!req.query.q }), vendorsController.listVendors);
 router.post("/check-availability", registerRateLimit, vendorsController.checkVendorAvailability);
+// Nombre de usuario en vivo (se consulta mientras se escribe, por eso su propio límite).
+router.get("/username-check", usernameCheckRateLimit, optionalAuth, vendorsController.checkUsername);
 // Auditoría de seguridad: estas 4 eran las únicas rutas "/me/*" de este
 // archivo sin requireRole("VENDOR") explícito — hoy no eran explotables
 // porque resolveMyVendor() ya devuelve 404 a quien no tenga fila en Vendor,

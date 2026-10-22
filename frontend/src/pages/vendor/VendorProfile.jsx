@@ -1,3 +1,4 @@
+import { UsernameField } from "../../components/UsernameField.jsx";
 import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { useEffect, useRef, useState } from "react";
@@ -338,7 +339,7 @@ function KycDocumentsCard() {
 function StoreInfoCard() {
   const queryClient = useQueryClient();
   const { vendor } = useOutletContext();
-  const [form, setForm] = useState({ companyName: "", description: "", whatsapp: "", businessCategoryId: "" });
+  const [form, setForm] = useState({ companyName: "", username: "", description: "", whatsapp: "", businessCategoryId: "" });
 
   const { data: businessCategories } = useQuery({
     queryKey: ["business-categories"],
@@ -349,6 +350,7 @@ function StoreInfoCard() {
     if (!vendor) return;
     setForm({
       companyName: vendor.companyName,
+      username: vendor.slug ?? "",
       description: vendor.description ?? "",
       whatsapp: vendor.whatsapp,
       businessCategoryId: vendor.businessCategory?.id ?? "",
@@ -361,7 +363,13 @@ function StoreInfoCard() {
   const selectedBusinessCategory = businessCategoryOptions?.find((c) => c.id === form.businessCategoryId);
 
   const save = useMutation({
-    mutationFn: async () => (await api.patch("/vendors/me", form)).data,
+    // Solo lo que cambió: una tienda con una descripción de antes del límite de 200 caracteres no queda sin poder guardar
+    // su nombre, WhatsApp, rubro o usuario.
+    mutationFn: async () => {
+      const original = { companyName: vendor.companyName, username: vendor.slug ?? "", description: vendor.description ?? "", whatsapp: vendor.whatsapp, businessCategoryId: vendor.businessCategory?.id ?? "" };
+      const changes = Object.fromEntries(Object.entries(form).filter(([k, v]) => v !== original[k]));
+      return (await api.patch("/vendors/me", changes)).data;
+    },
     onSuccess: () => {
       toast.success("Datos de la tienda actualizados.");
       queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
@@ -374,6 +382,7 @@ function StoreInfoCard() {
   const dirty =
     !!vendor &&
     (form.companyName !== vendor.companyName ||
+      form.username !== (vendor.slug ?? "") ||
       form.description !== (vendor.description ?? "") ||
       form.whatsapp !== vendor.whatsapp ||
       form.businessCategoryId !== (vendor.businessCategory?.id ?? ""));
@@ -401,6 +410,12 @@ function StoreInfoCard() {
           onChange={(e) => setForm({ ...form, companyName: e.target.value })}
           disabled={vendor?.verificationStatus === "VERIFIED"}
         />
+        <div>
+          <UsernameField value={form.username} current={vendor?.slug ?? null} onChange={(username) => setForm((f) => ({ ...f, username }))} />
+          {vendor && form.username !== vendor.slug && (
+            <p className="mt-1 text-[12px] text-on-surface-variant">Tu enlace anterior seguirá llevando a tu tienda, así no se pierde lo que ya compartiste.</p>
+          )}
+        </div>
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-label-md font-semibold text-on-surface-variant">Descripción de la tienda (mínimo 30 caracteres)</span>

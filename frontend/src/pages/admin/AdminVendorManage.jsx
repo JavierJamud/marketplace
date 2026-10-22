@@ -1,3 +1,4 @@
+import { BlacklistCheckbox } from "../../components/admin/BlacklistCheckbox.jsx";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -71,6 +72,7 @@ export default function AdminVendorManage() {
   const [downgradeWhen, setDowngradeWhen] = useState("period_end");
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(false);
+  const [blacklist, setBlacklist] = useState(false);
   const { planNames } = usePlatformSettings();
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["admin-vendor-manage", id], queryFn: async () => (await api.get(`/admin/vendors/${id}/manage`)).data });
 
@@ -162,6 +164,7 @@ export default function AdminVendorManage() {
             <h1 className="flex items-center gap-1.5 truncate font-display text-[24px] font-extrabold tracking-tight text-on-surface">
               {v.companyName} {v.verificationStatus === "VERIFIED" && <VerifiedBadge size="sm" />}
             </h1>
+            {v.slug && <p className="text-[12.5px] font-semibold text-on-surface-variant">@{v.slug}</p>}
             <p className="text-[12.5px] text-outline">{[v.category, v.locations.join(", ")].filter(Boolean).join(" · ") || "Sin rubro ni provincia"}</p>
             <p className="text-[12.5px] text-on-surface-variant">
               Registró la tienda el <strong className="font-semibold text-on-surface">{exactDateTime(v.createdAt)}</strong> ({timeAgo(v.createdAt).toLowerCase()})
@@ -400,11 +403,15 @@ export default function AdminVendorManage() {
         confirmLabel={update.isPending ? "Bloqueando..." : "Sí, bloquear"}
         danger
         confirmDisabled={reason.trim().length < 5 || update.isPending}
-        onConfirm={() => update.mutate({ payload: { isBlocked: true, blockReason: reason.trim() }, notify })}
-        onCancel={() => setModal(null)}
+        onConfirm={() => update.mutate({ payload: { isBlocked: true, blockReason: reason.trim(), addToBlacklist: blacklist || undefined }, notify })}
+        onCancel={() => {
+          setModal(null);
+          setBlacklist(false);
+        }}
       >
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo del bloqueo (obligatorio, lo verá el vendedor)..." rows={3} className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent" />
         <NotifyVendorCheckbox checked={notify} onChange={setNotify} />
+        <BlacklistCheckbox kind="tienda" checked={blacklist} onChange={setBlacklist} />
       </ConfirmModal>
 
       <ConfirmModal

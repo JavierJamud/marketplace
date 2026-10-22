@@ -1,3 +1,5 @@
+import { assertPhoneFree } from "../lib/phoneUniqueness.js";
+import { assertNotBlacklisted } from "../lib/blacklist.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
@@ -133,6 +135,8 @@ export async function createMyStaff(req, res) {
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw new AppError("Ya existe una cuenta con ese correo.", 409);
+  await assertNotBlacklisted({ email, phone: data.phone });
+  if (data.phone?.trim()) await assertPhoneFree(data.phone, {}, "Ese teléfono ya lo usa otra cuenta.");
 
   // Bloque 183: nunca null (la columna sigue siendo NOT NULL) — un hash de
   // 32 bytes random es, en la práctica, un password que nadie puede
@@ -233,6 +237,11 @@ export async function updateMyStaff(req, res) {
     const email = data.email.trim().toLowerCase();
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing && existing.id !== staff.userId) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+    await assertNotBlacklisted({ email }, { userId: staff.userId });
+  }
+  if (data.phone?.trim()) {
+    await assertNotBlacklisted({ phone: data.phone }, { userId: staff.userId });
+    await assertPhoneFree(data.phone, { userId: staff.userId }, "Ese teléfono ya lo usa otra cuenta.");
   }
 
   // Bloque 200: si esta llamada cambia (o por primera vez fija) el tipo,
