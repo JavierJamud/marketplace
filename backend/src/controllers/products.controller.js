@@ -447,6 +447,8 @@ export async function getProductBySlug(req, res) {
           verificationStatus: true,
           whatsapp: true,
           color: true,
+          // El chat de la tienda en la ficha muestra su logo, igual que en la página de la tienda (sin esto, solo el color).
+          logoUrl: true,
           orderDestination: true,
           locations: { include: { province: true, municipality: true }, take: 1 },
         },
