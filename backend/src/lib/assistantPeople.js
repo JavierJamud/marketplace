@@ -171,7 +171,8 @@ export async function quickSales() {
   const now = new Date();
   const [active, publicNow, sold, expired, inactive, recent, reported, owners] = await Promise.all([
     prisma.customerListing.count({ where: { isActive: true, expiresAt: { gt: now } } }),
-    prisma.customerListing.count({ where: { isActive: true, isSold: false, publicVisibleUntil: { gt: now } } }),
+    // Mismo filtro que la página pública (customerListings.controller.js listPublicListings).
+    prisma.customerListing.count({ where: { isActive: true, isSold: false, publicVisibleUntil: { gt: now }, suspendedAt: null, owner: { isSuspended: false, deletedAt: null } } }),
     prisma.customerListing.count({ where: { isSold: true } }),
     prisma.customerListing.count({ where: { expiresAt: { lte: now } } }),
     prisma.customerListing.count({ where: { isActive: false } }),

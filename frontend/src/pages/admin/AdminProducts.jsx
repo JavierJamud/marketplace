@@ -359,16 +359,23 @@ function ProductRow({ p, open, onToggleOpen, onTogglePause, onEdit, onDelete }) 
             <div className="truncate text-[11.5px] text-outline">
               {p.vendor?.companyName} · {p.category?.name ?? "Sin categoría"}
             </div>
+            {/* Por qué el público no lo ve aunque no esté en pausa (backend lib/publicVisibility.js). */}
+            {p.isActive && p.visibility && !p.visibility.visible && (
+              <div className="mt-0.5 text-[11.5px] font-semibold text-error">Oculto al público: {p.visibility.hidden.join(" · ")}</div>
+            )}
+            {p.visibility?.visible && p.visibility.partial.length > 0 && (
+              <div className="mt-0.5 truncate text-[11.5px] text-outline">{p.visibility.partial.join(" · ")}</div>
+            )}
           </div>
           {/* Celular: el estado es solo una etiqueta (pausar/activar vive en
               el detalle, donde el botón tiene 44px) — así la fila no gasta
               una línea entera en un botón. */}
           <span
             className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold md:hidden ${
-              p.isActive ? "bg-verified/10 text-verified-dark" : "bg-surface-container-high text-on-surface-variant"
+              !p.isActive ? "bg-surface-container-high text-on-surface-variant" : p.visibility?.visible === false ? "bg-error/10 text-error" : "bg-verified/10 text-verified-dark"
             }`}
           >
-            {p.isActive ? "Activo" : "Pausado"}
+            {!p.isActive ? "Pausado" : p.visibility?.visible === false ? "Oculto" : "Activo"}
           </span>
           <ChevronDown className={`h-4 w-4 flex-shrink-0 text-outline transition-transform md:hidden ${open ? "rotate-180" : ""}`} />
         </button>
@@ -498,6 +505,7 @@ export default function AdminProducts() {
     { key: "all", label: "Todos", value: kpis?.all },
     { key: "active", label: "Activos", value: kpis?.active },
     { key: "paused", label: "Pausados", value: kpis?.paused },
+    { key: "hidden", label: "Ocultos al público", value: kpis?.hidden, tone: "danger", hint: "Tienda bloqueada, suspendidos..." },
     { key: "out", label: "Sin stock", value: kpis?.out, tone: "danger" },
     { key: "low", label: "Stock bajo", value: kpis?.low, tone: "warn", hint: "3 o menos" },
     { key: "noimage", label: "Sin foto", value: kpis?.noimage, tone: "warn" },

@@ -1,3 +1,4 @@
+import { listingVisibility, LISTING_OWNER_VISIBILITY_SELECT } from "../lib/publicVisibility.js";
 import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -16,11 +17,16 @@ export async function listCustomerListingsByOwner(_req, res) {
       fullName: true,
       email: true,
       phone: true,
+      ...LISTING_OWNER_VISIBILITY_SELECT,
       customerListings: { orderBy: { createdAt: "desc" } },
     },
     orderBy: { fullName: "asc" },
   });
-  res.json({ owners });
+  // Cada anuncio con `visibility`: si el público lo ve y, si no, por qué (cuenta eliminada, período vencido, suspendido...).
+  const now = new Date();
+  res.json({
+    owners: owners.map((o) => ({ ...o, customerListings: o.customerListings.map((l) => ({ ...l, visibility: listingVisibility(l, o, now) })) })),
+  });
 }
 
 export async function updateAdminCustomerListing(req, res) {

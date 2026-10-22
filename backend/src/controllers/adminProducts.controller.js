@@ -1,3 +1,4 @@
+import { productVisibility, VENDOR_VISIBILITY_SELECT } from "../lib/publicVisibility.js";
 import { productSalesHistory } from "../lib/productSales.js";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -37,15 +38,28 @@ const listQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
   vendorId: z.string().optional(),
   categoryId: z.string().optional(),
-  status: z.enum(["all", "active", "paused", "out", "low", "noimage", "featured"]).default("all"),
+  status: z.enum(["all", "active", "paused", "hidden", "out", "low", "noimage", "featured"]).default("all"),
   sort: z.enum(["recent", "sales", "views", "clicks", "rating", "stock", "price"]).default("recent"),
   dir: z.enum(["asc", "desc"]).default("desc"),
 });
 
+// Oculto al público aunque no esté en pausa: lo mismo que filtran las páginas públicas (ver lib/publicVisibility.js).
+const HIDDEN_WHERE = {
+  OR: [
+    { suspendedAt: { not: null } },
+    { overQuota: true },
+    { hiddenFromStore: true },
+    { vendor: { OR: [{ isBlocked: true }, { deletedAt: { not: null } }, { status: { not: "ACTIVE" } }] } },
+  ],
+};
+
 function statusWhere(status) {
   switch (status) {
+    // "Activos" = los que el público de verdad puede ver (antes contaba también los de tiendas bloqueadas o eliminadas).
     case "active":
-      return { isActive: true };
+      return { isActive: true, NOT: HIDDEN_WHERE };
+    case "hidden":
+      return { isActive: true, ...HIDDEN_WHERE };
     case "paused":
       return { isActive: false };
     case "out":
@@ -94,11 +108,11 @@ export async function listAllProducts(req, res) {
   // Los contadores de la tira de resumen respetan la tienda y el rubro, pero
   // NO el estado ni la búsqueda: cada tarjeta es a la vez un filtro, así que
   // su número tiene que quedarse quieto mientras se cambia de filtro.
-  const [products, total, kpiTotal, kpiActive, kpiPaused, kpiOut, kpiLow, kpiNoImage, kpiFeatured] = await Promise.all([
+  const [products, total, kpiTotal, kpiActive, kpiPaused, kpiHidden, kpiOut, kpiLow, kpiNoImage, kpiFeatured] = await Promise.all([
     prisma.product.findMany({
       where,
       include: {
-        vendor: { select: { id: true, companyName: true, slug: true, verificationStatus: true, currency: true } },
+        vendor: { select: { id: true, companyName: true, slug: true, verificationStatus: true, currency: true, ...VENDOR_VISIBILITY_SELECT } },
         category: { select: { id: true, name: true } },
         ...productPriceTiersInclude,
       },
@@ -109,6 +123,7 @@ export async function listAllProducts(req, res) {
     prisma.product.count({ where: scope }),
     prisma.product.count({ where: { ...scope, ...statusWhere("active") } }),
     prisma.product.count({ where: { ...scope, ...statusWhere("paused") } }),
+    prisma.product.count({ where: { ...scope, ...statusWhere("hidden") } }),
     prisma.product.count({ where: { ...scope, ...statusWhere("out") } }),
     prisma.product.count({ where: { ...scope, ...statusWhere("low") } }),
     prisma.product.count({ where: { ...scope, ...statusWhere("noimage") } }),
@@ -116,8 +131,9 @@ export async function listAllProducts(req, res) {
   ]);
 
   res.json({
-    products: products.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })),
-    kpis: { all: kpiTotal, active: kpiActive, paused: kpiPaused, out: kpiOut, low: kpiLow, noimage: kpiNoImage, featured: kpiFeatured },
+    // `visibility`: si el público lo ve y, si no, por qué (el admin ya no ve "Activo" en algo que nadie puede ver).
+    products: products.map((p) => ({ ...p, visibility: productVisibility(p, p.vendor), vendor: withComputedVendorFields(p.vendor) })),
+    kpis: { all: kpiTotal, active: kpiActive, paused: kpiPaused, hidden: kpiHidden, out: kpiOut, low: kpiLow, noimage: kpiNoImage, featured: kpiFeatured },
     ...pageMeta(query, total),
   });
 }

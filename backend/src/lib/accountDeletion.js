@@ -31,6 +31,9 @@ export async function finalizeUserDeletion(userId) {
       ? // La tienda suelta su enlace (/tienda/<slug>): una nueva con el mismo nombre lo puede usar (ver lib/vendorSlug.js).
         [prisma.vendor.update({ where: { id: user.vendor.id }, data: { deletedAt: now, isBlocked: true, ...releaseVendorSlugData(user.vendor.id) } })]
       : []),
+    // Sus anuncios de venta rápida dejan de estar activos: el sitio ya los ocultaba por la cuenta eliminada, pero en el
+    // admin seguían marcados "Activo" (ver lib/publicVisibility.js).
+    prisma.customerListing.updateMany({ where: { ownerId: user.id, isActive: true }, data: { isActive: false } }),
     ...(user.vendorStaffProfile
       ? [prisma.vendorStaff.update({ where: { id: user.vendorStaffProfile.id }, data: { isActive: false } })]
       : []),
