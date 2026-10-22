@@ -1,4 +1,5 @@
 import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
+import { orderTotalLabel } from "../../lib/shipping.js";
 import { useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
@@ -567,7 +568,7 @@ export default function VendorDashboard() {
                       <div className="hidden w-[118px] text-[12px] text-on-surface-variant sm:block">
                         {new Date(o.date).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" })}
                       </div>
-                      <div className="w-[104px] text-[13px] font-bold text-on-surface">{fmtCUP(o.total)}</div>
+                      <div className="w-[104px] text-[13px] font-bold text-on-surface">{orderTotalLabel(o)}</div>
                       <div className="flex w-[96px] items-center gap-1.5 text-[12px] font-semibold" style={{ color }}>
                         <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: color }} />
                         <span className="truncate">{STATUS_LABEL[o.status] ?? o.status}</span>

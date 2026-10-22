@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
+import { fixedShippingError } from "../lib/shipping.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import jwt from "jsonwebtoken";
 import { join, dirname } from "node:path";
@@ -109,12 +111,42 @@ export const productSchema = z.object({
   // Moneda del producto — elegida por el vendedor al publicar, validada
   // contra SiteSettings.availableCurrencies. Por defecto USD.
   currency: z.enum(["CUP", "USD", "EUR", "MXN"]).optional().default("USD"),
+  // Envío del producto (ver lib/shipping.js). Solo se usa si la tienda no tiene envío propio.
+  shippingMode: z.enum(["FREE", "FIXED", "COORDINATE"]).optional(),
+  shippingLocal: z.number().min(0).max(1_000_000).nullable().optional(),
+  shippingOther: z.number().min(0).max(1_000_000).nullable().optional(),
+  shippingCurrency: z.enum(["CUP", "USD", "EUR", "MXN"]).nullable().optional(),
+  shippingPerUnit: z.boolean().optional(),
   // Código de barras para la caja (letras, números, guion o punto). Vacío = sin código.
   barcode: z.preprocess(
     (v) => (typeof v === "string" ? v.trim() || null : v),
     z.string().regex(/^[A-Za-z0-9.-]{3,40}$/, "El código de barras admite de 3 a 40 letras o números.").nullable().optional()
   ),
 });
+
+// Envío del producto al guardarlo. Con envío de tienda activo, lo que mande el formulario no se toca: el del producto queda
+// suspendido tal como estaba (y vuelve si la tienda pasa a "por producto"). Un fijo exige los dos precios y una moneda
+// habilitada; gratis o a coordinar no guardan precios.
+async function applyProductShipping(data, vendor, existing = null) {
+  const fields = ["shippingMode", "shippingLocal", "shippingOther", "shippingCurrency", "shippingPerUnit"];
+  if (vendor.storeShippingMode) {
+    for (const f of fields) delete data[f];
+    return;
+  }
+  if (!fields.some((f) => data[f] !== undefined)) return;
+  const merged = Object.fromEntries(fields.map((f) => [f, data[f] !== undefined ? data[f] : existing?.[f] ?? null]));
+  const mode = merged.shippingMode ?? "FREE";
+  if (mode !== "FIXED") {
+    Object.assign(data, { shippingMode: mode, shippingLocal: null, shippingOther: null, shippingCurrency: null, shippingPerUnit: false });
+    return;
+  }
+  const error = fixedShippingError({ mode, local: merged.shippingLocal, other: merged.shippingOther, currency: merged.shippingCurrency });
+  if (error) throw new AppError(error, 400);
+  if (!(await getAvailableCurrencies()).includes(merged.shippingCurrency)) {
+    throw new AppError(`La moneda "${merged.shippingCurrency}" no está disponible actualmente.`, 400);
+  }
+  Object.assign(data, merged, { shippingMode: "FIXED", shippingPerUnit: !!merged.shippingPerUnit });
+}
 
 // Un código de barras identifica un solo producto dentro de la tienda (la caja lo busca por ese código).
 export async function assertBarcodeFree(vendorId, barcode, exceptProductId = null) {
@@ -449,6 +481,7 @@ export async function getProductBySlug(req, res) {
           color: true,
           // El chat de la tienda en la ficha muestra su logo, igual que en la página de la tienda (sin esto, solo el color).
           logoUrl: true,
+          ...VENDOR_SHIPPING_SELECT,
           orderDestination: true,
           locations: { include: { province: true, municipality: true }, take: 1 },
         },
@@ -485,6 +518,7 @@ export async function getProductBySlug(req, res) {
         verificationStatus: true,
         whatsapp: true,
         color: true,
+        ...VENDOR_SHIPPING_SELECT,
         orderDestination: true,
         locations: { include: { province: true, municipality: true }, take: 1 },
       },
@@ -752,6 +786,7 @@ export async function createProduct(req, res) {
     throw new AppError(`La moneda "${requestedCurrency}" no está disponible actualmente.`, 400);
   }
   data.currency = requestedCurrency;
+  await applyProductShipping(data, vendor);
   // Bloque 66 (pedido explícito): todo producto nuevo sale con "Nuevo" —
   // ignora cualquier valor que mande el cliente en este campo al crear.
   data.badge = "Nuevo";
@@ -835,6 +870,7 @@ export async function updateProduct(req, res) {
   if (vendor.planType === "REGULAR" && data.paymentMethods) data.paymentMethods = ["whatsapp"];
   else await assertPaymentMethodsAllowed(data.paymentMethods);
   if (data.badge !== undefined) await assertBadgeAllowed(data.badge);
+  await applyProductShipping(data, vendor, existing);
 
   const basePrice = data.price ?? existing.price;
 

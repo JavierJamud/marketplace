@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ProductShippingSection } from "../../components/vendor/ShippingFields.jsx";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -125,6 +126,12 @@ const EMPTY_FORM = {
   sizeStock: {},
   priceTiers: [],
   barcode: "",
+  // Envío del producto (ver ProductShippingSection): gratis por defecto.
+  shippingMode: "FREE",
+  shippingLocal: "",
+  shippingOther: "",
+  shippingCurrency: "USD",
+  shippingPerUnit: false,
 };
 
 export function ProductModal({ product, planType, isRestaurant, categories, onClose, vendorCurrency }) {
@@ -154,6 +161,8 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
   // que el tile "Subir" vuelva a mostrarse vacío en vez de quedarse pegado
   // mostrando la última foto recortada.
   const [cropResetKey, setCropResetKey] = useState(0);
+  // Envío de la tienda: si tiene uno propio activo, el del producto queda bloqueado (ver ProductShippingSection).
+  const { data: myVendor } = useQuery({ queryKey: ["my-vendor"], queryFn: async () => (await api.get("/vendors/me")).data.vendor });
   const [form, setForm] = useState(
     product
       ? {
@@ -176,8 +185,13 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
           sizeStock: product.sizeStock ?? {},
           priceTiers: (product.priceTiers ?? []).map((t) => ({ minQty: String(t.minQty), price: String(t.price) })),
           barcode: product.barcode ?? "",
+          shippingMode: product.shippingMode ?? "FREE",
+          shippingLocal: product.shippingLocal != null ? String(Number(product.shippingLocal)) : "",
+          shippingOther: product.shippingOther != null ? String(Number(product.shippingOther)) : "",
+          shippingCurrency: product.shippingCurrency ?? product.currency ?? "USD",
+          shippingPerUnit: product.shippingPerUnit ?? false,
         }
-      : { ...EMPTY_FORM, currency: vendorCurrency ?? "CUP" }
+      : { ...EMPTY_FORM, currency: vendorCurrency ?? "CUP", shippingCurrency: vendorCurrency ?? "CUP" }
   );
   const [tagInput, setTagInput] = useState("");
   const [sizeInput, setSizeInput] = useState("");
@@ -326,6 +340,16 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
               .map((t) => ({ minQty: Number(t.minQty), price: Number(t.price) }))
           : [],
         currency: form.currency,
+        // Con envío de tienda activo no se manda: el del producto queda suspendido tal como estaba.
+        ...(myVendor?.storeShippingMode
+          ? {}
+          : {
+              shippingMode: form.shippingMode,
+              shippingLocal: form.shippingMode === "FIXED" && form.shippingLocal !== "" ? Number(form.shippingLocal) : null,
+              shippingOther: form.shippingMode === "FIXED" && form.shippingOther !== "" ? Number(form.shippingOther) : null,
+              shippingCurrency: form.shippingMode === "FIXED" ? form.shippingCurrency : null,
+              shippingPerUnit: form.shippingMode === "FIXED" && form.shippingPerUnit,
+            }),
       };
       if (savedProduct) return (await api.patch(`/products/${savedProduct.id}`, payload)).data;
       return (await api.post("/products", payload)).data;
@@ -518,6 +542,8 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
               ))}
             </Select>
           </div>
+
+          <ProductShippingSection form={form} setForm={setForm} vendor={myVendor} currencies={siteSettings?.availableCurrencies ?? ["USD", "CUP", "EUR", "MXN"]} />
 
           {/* Bloque 230 (pedido explícito — "una mejor experiencia... más
               sencilla y se irán habilitando opciones si va configurando

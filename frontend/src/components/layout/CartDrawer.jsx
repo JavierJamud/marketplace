@@ -1,10 +1,12 @@
 import { CartQtyInput } from "../CartQtyInput.jsx";
+import { useShippingQuote } from "../../lib/useShippingQuote.js";
+import { itemsTotalsByCurrency, combineTotalsLabel, shippingRowText } from "../../lib/shipping.js";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "react-router-dom";
-import { X, Minus, Plus, Trash2, ShoppingBag, Tag, ImageOff } from "lucide-react";
+import { X, Minus, Plus, Trash2, ShoppingBag, Tag, ImageOff, Truck } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { formatPrice, formatMixedTotal } from "../../lib/format.js";
+import { formatPrice } from "../../lib/format.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../ui/VerifiedBadge.jsx";
@@ -29,6 +31,7 @@ function imgUrl(path) {
 export function CartDrawer() {
   const {
     items,
+    vendorId: cartVendorId,
     vendorName,
     vendorSlug,
     vendorColor,
@@ -64,6 +67,12 @@ export function CartDrawer() {
   const isVerified = vendor?.isVerified ?? vendorVerified;
   const count = items.reduce((a, i) => a + i.quantity, 0);
   const subtotal = items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
+  // Envío (servidor), solo con el carrito abierto. Sin provincia, un fijo queda "según tu provincia".
+  const shippingQuote = useShippingQuote({ vendorId: isDrawerOpen ? cartVendorId : null, items });
+  const shippingText = shippingQuote.data ? shippingRowText(shippingQuote.data) : null;
+  const productTotals = discount
+    ? { [discount.currency]: Math.max(0, subtotal - discount.amount) }
+    : itemsTotalsByCurrency(items, (i) => resolveUnitPrice(i.price, i.priceTiers, i.quantity));
 
   return (
     <>
@@ -307,9 +316,17 @@ export function CartDrawer() {
                   <span>-{formatPrice(discount.amount, discount.currency)}</span>
                 </div>
               )}
-              <div className="mb-3 flex justify-between text-title-md font-bold text-on-surface">
+              {shippingText && (
+                <div className="mb-1.5 flex justify-between gap-3 text-[12.5px] text-on-surface-variant">
+                  <span className="flex items-center gap-1">
+                    <Truck className="h-3.5 w-3.5" aria-hidden="true" /> Envío
+                  </span>
+                  <span className={`text-right font-semibold ${shippingText === "Gratis" ? "text-tertiary-accent" : "text-on-surface"}`}>{shippingText}</span>
+                </div>
+              )}
+              <div className="mb-3 flex justify-between gap-3 text-title-md font-bold text-on-surface">
                 <span>Total</span>
-                <span>{discount ? formatPrice(Math.max(0, subtotal - discount.amount), discount.currency) : formatMixedTotal(items)}</span>
+                <span className="text-right">{combineTotalsLabel(productTotals, shippingQuote.data?.pending ? [] : shippingQuote.data?.fees ?? [])}</span>
               </div>
 
               {/* Bloque 231 (pedido explícito — "el botón de completar

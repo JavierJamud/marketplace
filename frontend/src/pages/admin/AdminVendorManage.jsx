@@ -516,6 +516,15 @@ function PlanUsageSection({ v, plan, usage, counts }) {
           ["Productos activos", `${counts.activeProducts} de ${counts.products}`, usage.productsCreated ? `${usage.productsCreated} nuevos` : null],
           ["Reseñas recibidas", `${usage.reviews}`, null],
           ["Moneda", v.currency, null],
+          [
+            "Envío",
+            v.shipping?.mode === "FIXED" ? "Fijo por pedido" : v.shipping?.mode === "COORDINATE" ? "A coordinar" : "Por producto",
+            v.shipping?.mode === "FIXED"
+              ? `${formatPrice(v.shipping.local, v.shipping.currency)} en su provincia, ${formatPrice(v.shipping.other, v.shipping.currency)} fuera`
+              : v.shipping?.mode === "COORDINATE"
+              ? "No se cobra al pedir"
+              : "Gratis salvo que el producto diga otra cosa",
+          ],
         ].map(([k, val, sub]) => (
           <div key={k} className="min-w-0 rounded-xl bg-surface-container/60 px-3 py-2">
             <dt className="text-[11.5px] text-outline">{k}</dt>

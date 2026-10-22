@@ -1,11 +1,14 @@
 import { CartQtyInput } from "../../components/CartQtyInput.jsx";
+import { useShippingQuote } from "../../lib/useShippingQuote.js";
+import { itemsTotalsByCurrency, combineTotalsLabel, lineShippingText } from "../../lib/shipping.js";
+import { ShippingSummary } from "../../components/checkout/ShippingSummary.jsx";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { Minus, Plus, Trash2, ShoppingBag, Tag, X, ImageOff } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { formatPrice, formatMixedTotal } from "../../lib/format.js";
+import { formatPrice } from "../../lib/format.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -35,6 +38,12 @@ export default function Cart() {
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const subtotal = singleCurrencySubtotal(items);
+  // Envío (servidor). Sin provincia todavía: el fijo se muestra como "según tu provincia" y se calcula en el checkout.
+  const shippingQuote = useShippingQuote({ vendorId, items });
+  const quote = shippingQuote.data;
+  const lineFor = (productId) => (quote?.source === "PRODUCT" ? quote.lines.find((l) => l.productId === productId) : null);
+  const unitPriceOf = (i) => resolveUnitPrice(i.price, i.priceTiers, i.quantity);
+  const productTotals = discount && subtotal != null ? { [discount.currency]: Math.max(0, subtotal - discount.amount) } : itemsTotalsByCurrency(items, unitPriceOf);
 
   const applyDiscount = useMutation({
     mutationFn: async () =>
@@ -160,6 +169,11 @@ export default function Cart() {
                     {savings > 0 && (
                       <div className="mt-0.5 text-[11.5px] font-semibold text-tertiary-accent">Ahorras {formatPrice(savings, it.currency)} por mayoreo</div>
                     )}
+                    {lineShippingText(lineFor(it.productId)) && (
+                      <div className={`mt-0.5 text-[12px] font-semibold ${lineFor(it.productId).mode === "FREE" ? "text-tertiary-accent" : "text-on-surface-variant"}`}>
+                        {lineShippingText(lineFor(it.productId))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex w-full items-center justify-between gap-3.5 sm:w-auto sm:justify-end">
                     <div className="flex items-center rounded border border-outline-variant">
@@ -210,14 +224,6 @@ export default function Cart() {
         {/* RESUMEN */}
         <div className="rounded-lg border border-surface-container-high bg-surface-container-lowest p-[22px] lg:sticky lg:top-6">
           <div className="mb-4 font-display text-title-lg text-on-surface">Resumen del pedido</div>
-          <div className="mb-2.5 flex justify-between text-[13.5px] text-on-surface-variant">
-            <span>Subtotal</span>
-            <span>{formatMixedTotal(items)}</span>
-          </div>
-          <div className="mb-2.5 flex justify-between text-[13.5px] text-on-surface-variant">
-            <span>Envío</span>
-            <span className="text-tertiary-accent">A coordinar</span>
-          </div>
 
           {/* Bloque 52: código de descuento — solo con un subtotal de una
               sola moneda (ver singleCurrencySubtotal), aplica solo a los
@@ -263,10 +269,13 @@ export default function Cart() {
             </div>
           )}
 
-          <div className="mb-[18px] flex justify-between border-t border-surface-container-high pt-3 text-title-lg font-bold text-on-surface">
-            <span>Total</span>
-            <span>{discount && subtotal != null ? formatPrice(Math.max(0, subtotal - discount.amount), discount.currency) : formatMixedTotal(items)}</span>
-          </div>
+          <ShippingSummary
+            productTotals={productTotals}
+            productsLabel={combineTotalsLabel(productTotals)}
+            shipping={quote}
+            loading={shippingQuote.isLoading}
+            isError={shippingQuote.isError}
+          />
           {/* Bloque 231 (pedido explícito — mismo cambio que CartDrawer.jsx:
               siempre navy de marca + ícono de compra, nunca el verde de
               WhatsApp — el checkout es una pantalla de este sitio, no de

@@ -62,7 +62,9 @@ export async function orderNoticeDetail(order) {
     kind: "order",
     code: order.code,
     store: order.vendor?.companyName ?? null,
-    total: money(order.total, currency),
+    // Total a pagar con el envío incluido (si hay envío fijo); el envío va aparte en `shipping`.
+    total: orderGrandTotal(order),
+    shipping: orderShippingText(order),
     units: (order.items ?? []).reduce((n, i) => n + i.quantity, 0),
     items: (order.items ?? []).slice(0, 4).map((i) => ({ name: i.name, quantity: i.quantity, size: i.size ?? null })),
     more: Math.max(0, (order.items?.length ?? 0) - 4),
@@ -71,4 +73,23 @@ export async function orderNoticeDetail(order) {
     place,
     image: firstImage,
   };
+}
+
+// Envío de un pedido ya creado (ver lib/shipping.js): texto para avisos, correos y PDF.
+export function orderShippingText(order) {
+  const fees = Array.isArray(order.shippingFees) ? order.shippingFees : [];
+  const feeText = fees.map((f) => money(f.amount, f.currency)).join(" + ");
+  if (fees.length && order.shippingCoordinate) return `${feeText} + parte a coordinar`;
+  if (fees.length) return feeText;
+  if (order.shippingCoordinate) return "A coordinar con la tienda";
+  return "Gratis";
+}
+
+// Total a pagar: productos (order.total, en la moneda del pedido) + envío, sumado por moneda sin mezclar monedas.
+export function orderGrandTotal(order) {
+  const totals = { [orderCurrency(order)]: Number(order.total ?? 0) };
+  for (const f of Array.isArray(order.shippingFees) ? order.shippingFees : []) totals[f.currency] = (totals[f.currency] ?? 0) + Number(f.amount);
+  return Object.entries(totals)
+    .map(([c, n]) => money(Math.round(n * 100) / 100, c))
+    .join(" + ");
 }

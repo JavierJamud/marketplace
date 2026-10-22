@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Share2, MessageCircle, ShieldAlert, Heart, MapPin, Package, CalendarDays } from "lucide-react";
+import { formatPrice } from "../lib/format.js";
+import { Share2, MessageCircle, ShieldAlert, Heart, MapPin, Package, CalendarDays, Truck } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
 import { copyToClipboard } from "../lib/clipboard.js";
@@ -328,6 +329,26 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                 <CalendarDays className="h-3.5 w-3.5 text-white/60" aria-hidden="true" />
                 Desde <span className="font-bold text-white">{joinedYear}</span>
               </span>
+
+              {/* Envío de toda la tienda (si lo tiene): manda sobre el de cada producto, ver lib/shipping.js. */}
+              {v.storeShippingMode && (
+                <span className="inline-flex items-center gap-1.5 text-[12.5px] text-white/75">
+                  <Truck className="h-3.5 w-3.5 text-white/60" aria-hidden="true" />
+                  {v.storeShippingMode === "FIXED" ? (
+                    <>
+                      Envío{" "}
+                      <span className="font-bold text-white">
+                        {Number(v.storeShippingLocal) === Number(v.storeShippingOther)
+                          ? formatPrice(v.storeShippingLocal, v.storeShippingCurrency)
+                          : `desde ${formatPrice(Math.min(Number(v.storeShippingLocal), Number(v.storeShippingOther)), v.storeShippingCurrency)}`}
+                      </span>{" "}
+                      por pedido
+                    </>
+                  ) : (
+                    "Envío a coordinar"
+                  )}
+                </span>
+              )}
 
               {v.acceptedPaymentMethods?.length > 0 && (
                 <>

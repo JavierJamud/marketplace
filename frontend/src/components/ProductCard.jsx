@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MapPin, Flame } from "lucide-react";
+import { MapPin, Flame, Truck } from "lucide-react";
 import { api } from "../lib/api.js";
 import { imgUrl, thumbUrl } from "../lib/imgUrl.js";
 import { formatPrice } from "../lib/format.js";
@@ -7,6 +7,7 @@ import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
 import { AddToCartControl } from "./AddToCartControl.jsx";
 import { Skeleton, SkeletonGroup } from "./ui/Skeleton.jsx";
+import { shippingLabel } from "../lib/shipping.js";
 
 // Mismo umbral que LOW_STOCK_THRESHOLD en VendorProducts.jsx/vendors.controller.js.
 const LOW_STOCK_THRESHOLD = 3;
@@ -98,6 +99,8 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
   const isOutOfStock = !product.unlimitedStock && product.stock === 0;
   const isLowStock = !product.unlimitedStock && !isOutOfStock && product.stock != null && product.stock <= LOW_STOCK_THRESHOLD;
   const productHref = `/producto/${v?.slug}/${product.slug}`;
+  // Envío vigente (el de la tienda manda sobre el del producto, ver lib/shipping.js).
+  const shipping = shippingLabel(product, v);
   // Cualquier cosa que no sea el <Link> de la tarjeta (carrito, corazón,
   // pedir producto) corta el clic antes de que navegue — ver el comentario
   // largo del Bloque 155 más abajo.
@@ -219,6 +222,11 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
             ¡Últimas {product.stock} unidades!
           </span>
         )}
+        {/* Envío: gratis en verde azulado; con costo o a coordinar en gris, para que el cliente lo sepa antes de abrir el producto. */}
+        <span className={`mb-1 flex items-center gap-1 text-[11px] font-semibold ${shipping.kind === "free" ? "text-tertiary-accent" : "text-on-surface-variant"}`} title={shipping.text}>
+          <Truck className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+          <span className="truncate">{shipping.short}</span>
+        </span>
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 pt-1">
           {/* Bloque 155 (bug real reportado en vivo, con captura): antes el
               precio anterior iba al lado del precio real dentro del mismo

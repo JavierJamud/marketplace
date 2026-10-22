@@ -106,6 +106,12 @@ const PRODUCT_SELECT_FIELDS = {
   images: true,
   tags: true,
   options: { select: { name: true, values: true } },
+  // Envío del producto: el bot lo conoce (solo cuenta si la tienda no tiene envío propio, ver shippingPolicyText).
+  shippingMode: true,
+  shippingLocal: true,
+  shippingOther: true,
+  shippingCurrency: true,
+  shippingPerUnit: true,
 };
 
 // Bloque 39/40: unaccent() de los dos lados (Postgres, ya habilitado desde
@@ -515,7 +521,36 @@ function cartText(products, cartQuantities) {
   return `TU CARRITO ACTUAL (en esta tienda, dato real y actual — única fuente de verdad, nunca lo contradigas):\n${lines.join("\n")}`;
 }
 
-function catalogText(products, cartQuantities) {
+// Envío para el bot (ver lib/shipping.js): con envío de tienda manda ese; si no, cada producto dice el suyo en el catálogo.
+function originProvinceName(vendor) {
+  const loc = (vendor.locations ?? []).find((l) => l.provinceId && l.provinceId === vendor.shippingOriginProvinceId) ?? (vendor.locations ?? []).find((l) => l.provinceId);
+  return loc?.province?.name ?? null;
+}
+
+function fixedFeeText(local, other, currency, vendor) {
+  const prov = originProvinceName(vendor);
+  if (Number(local) === Number(other)) return fmtPrice(local, currency);
+  return `${fmtPrice(local, currency)} en ${prov ?? "la provincia de la tienda"} y ${fmtPrice(other, currency)} fuera de ella`;
+}
+
+function shippingPolicyText(vendor) {
+  if (vendor.storeShippingMode === "FIXED") {
+    return `Envío: fijo de ${fixedFeeText(vendor.storeShippingLocal, vendor.storeShippingOther, vendor.storeShippingCurrency, vendor)}, una sola vez por pedido, aparte del precio de los productos.`;
+  }
+  if (vendor.storeShippingMode === "COORDINATE") {
+    return "Envío: se coordina con la tienda según el lugar de entrega; no se cobra al hacer el pedido.";
+  }
+  return "Envío: lo define cada producto (campo \"envío\" del catálogo). Los gratis no cobran; los de precio fijo se suman aparte del precio; los \"a coordinar\" se acuerdan con la tienda según el lugar de entrega.";
+}
+
+function productShippingText(p, vendor) {
+  if (vendor.storeShippingMode) return "";
+  if (p.shippingMode === "FIXED") return ` · envío: ${fixedFeeText(p.shippingLocal, p.shippingOther, p.shippingCurrency, vendor)}${p.shippingPerUnit ? " por unidad" : " por pedido"}`;
+  if (p.shippingMode === "COORDINATE") return " · envío: a coordinar";
+  return " · envío: gratis";
+}
+
+function catalogText(products, cartQuantities, vendor) {
   if (!products.length) return "(Sin productos publicados.)";
   return products
     .map((p, i) => {
@@ -539,7 +574,7 @@ function catalogText(products, cartQuantities) {
       // completa, sin cambios.
       const descText = p.description?.length > 150 ? `${p.description.slice(0, 150)}…` : p.description;
       const desc = descText ? ` — ${descText}` : "";
-      return `[${i + 1}] ${p.name} · ${price} · ${stock}${tags}${options}${desc}`;
+      return `[${i + 1}] ${p.name} · ${price} · ${stock}${productShippingText(p, vendor)}${tags}${options}${desc}`;
     })
     .join("\n");
 }
@@ -578,11 +613,12 @@ async function buildSystemParts(vendor, cartQuantities, orderContext, purchaseHi
 DATOS DEL NEGOCIO (única fuente — nunca inventes ni cambies nada):
 ${scheduleText(vendor.schedules)}
 ${deliveryCoverageText(vendor)}
+${shippingPolicyText(vendor)}
 ${paymentMethodsText(vendor.acceptedPaymentMethods)}
 WhatsApp: ${vendor.whatsapp}
 
 CATÁLOGO (único válido, número de catálogo entre corchetes al principio de cada línea; "disponible para agregar" ya descuenta lo que el cliente tiene en su carrito ahora mismo):
-${catalogText(vendor.products, cartQuantities)}
+${catalogText(vendor.products, cartQuantities, vendor)}
 
 REGLAS (en orden de importancia):
 1. Datos: usa solo lo de arriba (carrito, consulta de pedido, datos del negocio, cobertura, catálogo, documento). Nunca inventes productos, precios, stock, variantes, horarios, ubicación, pagos ni políticas (envíos, devoluciones, garantías), ni excepciones para quedar bien. Si no lo sabes, dilo y sugiere WhatsApp (${vendor.whatsapp}). Si no se entiende qué pide y no hay dato real que responda, pide que lo explique con otras palabras.

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { orderTotalLabel } from "../../lib/shipping.js";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -124,7 +125,7 @@ export function NewRegularOrderPopup({ vendor, enabled = true, staffSectionPermi
 
         <div className="mb-5 flex items-center justify-between border-t border-surface-container-high pt-3.5">
           <span className="text-[13px] font-semibold text-on-surface-variant">Total</span>
-          <span className="text-[18px] font-bold text-primary">{fmtCUP(order.total)}</span>
+          <span className="text-right text-[18px] font-bold text-primary">{orderTotalLabel(order)}</span>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">

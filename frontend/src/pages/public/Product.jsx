@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { shippingLabel } from "../../lib/shipping.js";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, X as XIcon } from "lucide-react";
+import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, Truck, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -350,6 +351,8 @@ export default function Product() {
   const areasText = areas.length > 3 ? `${areas.slice(0, 3).join(", ")} y ${areas.length - 3} más` : areas.join(", ");
   const infoRows = [
     { key: "stock", Icon: CheckCircle2, text: stockText },
+    // Envío vigente: el de la tienda manda sobre el del producto (ver lib/shipping.js).
+    { key: "shipping", Icon: Truck, text: shippingLabel(product, v).text },
     product.salesCount > 0 && { key: "sales", Icon: TrendingUp, text: `${product.salesCount} ${product.salesCount === 1 ? "vendido" : "vendidos"}` },
     store?.isOpenNow === true && { key: "open", Icon: Clock, text: "Tienda abierta ahora" },
     store?.isOpenNow === false && { key: "closed", Icon: Clock, text: store.nextOpenLabel ? `Tienda cerrada ahora. ${store.nextOpenLabel}` : "Tienda cerrada ahora" },

@@ -1,10 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
+import { useShippingQuote } from "../../lib/useShippingQuote.js";
+import { itemsTotalsByCurrency, combineTotalsLabel, shippingRowText, lineShippingText } from "../../lib/shipping.js";
+import { ShippingSummary } from "../../components/checkout/ShippingSummary.jsx";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CheckCircle2, MessageCircle, Globe2, MapPin, Store, Tag, X } from "lucide-react";
 import { api } from "../../lib/api.js";
-import { formatPrice, formatMixedTotal } from "../../lib/format.js";
+import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { resolveUnitPrice } from "../../lib/pricing.js";
@@ -59,6 +62,7 @@ function buildOrderWhatsAppText(info) {
   if (info.loyaltyPoints) {
     lines.push(`⭐ Puntos usados (${info.loyaltyPoints}): -${formatPrice(info.loyaltyDiscount, info.loyaltyCurrency)}`);
   }
+  if (info.shippingText) lines.push(`🚚 Envío: ${info.shippingText}`);
   lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`);
   if (info.recipient) lines.push(`Recibe: ${info.recipient.name} (${info.recipient.phone})`, `${info.recipient.idLabel}: ${info.recipient.idNumber}`);
   lines.push(`Entrega: ${info.address}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
@@ -263,6 +267,19 @@ export default function Checkout() {
       (form.recipientName.trim().length >= 2 && /^\+\d{7,15}$/.test(form.recipientPhone) && isValidId(form.recipientIdType, form.recipientIdNumber)));
   const recipientIdError = form.forSomeoneElse ? idError(form.recipientIdType, form.recipientIdNumber) : null;
 
+  // Envío (servidor): cambia con los productos, las cantidades y la provincia de entrega.
+  const shippingQuote = useShippingQuote({ vendorId, items, provinceId: form.provinceId || null });
+  const quote = shippingQuote.data;
+  const lineFor = (productId) => (quote?.source === "PRODUCT" ? quote.lines.find((l) => l.productId === productId) : null);
+  // Productos por moneda, ya con descuento o puntos (que solo existen con una sola moneda).
+  const unitPriceOf = (i) => resolveUnitPrice(i.price, i.priceTiers, i.quantity);
+  const productTotals = loyalty.used
+    ? { [loyalty.program.currency]: loyalty.total }
+    : discount
+    ? { [discount.currency]: Math.max(0, items.reduce((s, i) => s + unitPriceOf(i) * i.quantity, 0) - discount.amount) }
+    : itemsTotalsByCurrency(items, unitPriceOf);
+  const productsLabel = combineTotalsLabel(productTotals);
+
   const placeOrder = useMutation({
     mutationFn: async () =>
       (
@@ -289,14 +306,11 @@ export default function Checkout() {
       // Bloque 68: se captura todo lo necesario para armar el mensaje de
       // WhatsApp bien formateado (con los datos reales que el cliente
       // ACABA de completar en el formulario) sin tener que reconsultar nada.
-      const totalLabel = loyalty.used
-        ? formatPrice(Number(order.total), loyalty.program.currency)
-        : discount
-        ? formatPrice(
-            Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount),
-            discount.currency
-          )
-        : formatMixedTotal(items);
+      // El envío sale del pedido ya creado (lo que cobró el servidor), no de la cotización previa.
+      const orderTotals = loyalty.used ? { [loyalty.program.currency]: Number(order.total) } : productTotals;
+      const shippingFees = order.shippingFees ?? [];
+      const totalLabel = combineTotalsLabel(orderTotals, shippingFees);
+      const shippingText = shippingRowText({ fees: shippingFees, coordinate: order.shippingCoordinate });
       setConfirmedInfo({
         vendorName,
         // Bug real preexistente (encontrado de paso): `vendorSlug` del
@@ -320,6 +334,9 @@ export default function Checkout() {
           currency: i.currency,
         })),
         totalLabel,
+        productsLabel: combineTotalsLabel(orderTotals),
+        shippingText,
+        shippingCoordinate: order.shippingCoordinate,
         discount,
         loyaltyPoints: loyalty.used,
         loyaltyDiscount: loyalty.discount,
@@ -423,6 +440,15 @@ export default function Checkout() {
                   <span>-{formatPrice(confirmedInfo.loyaltyDiscount, confirmedInfo.loyaltyCurrency)}</span>
                 </div>
               )}
+              <div className="mt-2 flex justify-between gap-3 border-t border-dashed border-surface-container-high pt-2 text-[12px] text-on-surface-variant">
+                <span>Productos</span>
+                <span className="text-right font-semibold text-on-surface">{confirmedInfo.productsLabel}</span>
+              </div>
+              <div className="mt-1 flex justify-between gap-3 text-[12px] text-on-surface-variant">
+                <span>Envío</span>
+                <span className="text-right font-semibold text-on-surface">{confirmedInfo.shippingText}</span>
+              </div>
+              {confirmedInfo.shippingCoordinate && <p className="mt-1 text-[11px] text-outline">El envío a coordinar no está en el total: lo acuerdas con la tienda.</p>}
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 text-[12.5px] text-on-surface sm:grid-cols-2">
               <div>
@@ -782,6 +808,11 @@ export default function Checkout() {
                       <div className="text-body-sm text-outline">
                         {item.quantity} x {formatPrice(unitPrice, item.currency)}
                       </div>
+                      {lineShippingText(lineFor(item.productId)) && (
+                        <div className={`text-[12px] font-semibold ${lineFor(item.productId).mode === "FREE" ? "text-tertiary-accent" : "text-on-surface-variant"}`}>
+                          {lineShippingText(lineFor(item.productId))}
+                        </div>
+                      )}
                     </div>
                     <div className="font-bold text-on-surface">{formatPrice(unitPrice * item.quantity, item.currency)}</div>
                   </div>
@@ -832,15 +863,15 @@ export default function Checkout() {
                 <span>-{formatPrice(loyalty.discount, loyalty.program.currency)}</span>
               </div>
             )}
-            <div className="mb-6 flex justify-between border-t border-surface-container-high pt-4 text-title-md font-bold text-on-surface">
-              <span>Total estimado</span>
-              <span className="text-title-lg font-extrabold text-tertiary-accent">
-                {loyalty.used
-                  ? formatPrice(loyalty.total, loyalty.program.currency)
-                  : discount
-                  ? formatPrice(Math.max(0, items.reduce((s, i) => s + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0) - discount.amount), discount.currency)
-                  : formatMixedTotal(items)}
-              </span>
+            <div className="mb-2">
+              <ShippingSummary
+                productTotals={productTotals}
+                productsLabel={productsLabel}
+                shipping={quote}
+                loading={shippingQuote.isLoading}
+                isError={shippingQuote.isError}
+                totalLabel="Total estimado"
+              />
             </div>
 
             <button

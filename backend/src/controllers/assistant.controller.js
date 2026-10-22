@@ -1,4 +1,6 @@
 import { routeZoneChange, routeZoneFlow } from "../lib/assistantZone.js";
+import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
+import { effectiveShipping } from "../lib/shipping.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
@@ -154,6 +156,7 @@ const CANDIDATE_VENDOR_SELECT = {
   slug: true,
   color: true,
   verificationStatus: true,
+  ...VENDOR_SHIPPING_SELECT,
   locations: { include: { province: true, municipality: true }, take: 1 },
 };
 const CANDIDATE_INCLUDE = {
@@ -788,6 +791,17 @@ function buildZoneContext({ terms, priceMin, priceMax, products, requestedProvin
 // Bloque 32: suma zona real (provincia/municipio de la tienda) y variantes
 // reales (options/tags) — antes solo alcanzaba con precio/stock/tienda
 // porque no había ni pregunta de ubicación ni de atributo progresiva.
+// Envío vigente del producto (el de la tienda manda sobre el del producto, ver lib/shipping.js).
+function candidateShippingText(p) {
+  const s = effectiveShipping(p, p.vendor);
+  if (s.mode === "COORDINATE") return "envío: a coordinar con la tienda";
+  if (s.mode === "FIXED") {
+    const amount = s.local === s.other ? fmtPrice(s.local, s.currency) : `${fmtPrice(s.local, s.currency)} en la provincia de la tienda, ${fmtPrice(s.other, s.currency)} fuera`;
+    return `envío: ${amount}${s.source === "STORE" ? " por pedido" : s.perUnit ? " por unidad" : " por pedido"}`;
+  }
+  return "envío: gratis";
+}
+
 function candidatesText(products) {
   if (!products.length) return "(Sin resultados para esta búsqueda.)";
   return products
@@ -799,7 +813,7 @@ function candidatesText(products) {
       const zone = loc?.province ? ` · zona: ${loc.municipality?.name ? `${loc.municipality.name}, ` : ""}${loc.province.name}` : "";
       const options = p.options?.length ? ` · variantes: ${p.options.map((o) => `${o.name}(${o.values.join("/")})`).join("; ")}` : "";
       const tags = p.tags?.length ? ` · tags: ${p.tags.join(", ")}` : "";
-      return `[${i + 1}] ${p.name} · ${price} · ${stock} · tienda: ${p.vendor.companyName}${verified}${zone}${options}${tags}`;
+      return `[${i + 1}] ${p.name} · ${price} · ${stock} · ${candidateShippingText(p)} · tienda: ${p.vendor.companyName}${verified}${zone}${options}${tags}`;
     })
     .join("\n");
 }

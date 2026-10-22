@@ -481,6 +481,14 @@ model Product {
   // sola por producto al cargarlo. Default CUP para no alterar el
   // comportamiento de los productos ya cargados al desplegar la migración.
   currency    ProductCurrency @default(CUP)
+  // Envío del producto. Solo cuenta si la tienda está en "envío por producto" (Vendor.storeShippingMode nulo): con envío de
+  // tienda activo queda suspendido, sin borrarse (ver lib/shipping.js). FREE por defecto. FIXED: shippingLocal dentro de las
+  // provincias donde opera la tienda, shippingOther fuera; shippingPerUnit = se multiplica por la cantidad.
+  shippingMode     ShippingMode     @default(FREE)
+  shippingLocal    Decimal?         @db.Decimal(12, 2)
+  shippingOther    Decimal?         @db.Decimal(12, 2)
+  shippingCurrency ProductCurrency?
+  shippingPerUnit  Boolean          @default(false)
   stock       Int      @default(0)
   // Bloque 56 (pedido explícito): hay vendedores que no tienen un stock
   // acotado real (servicios, productos que siempre reponen al toque, etc.) —
@@ -1273,6 +1281,16 @@ model Vendor {
   // createProduct/updateProduct la fuerzan server-side, nunca se acepta un
   // valor de currency distinto mandado por el cliente (ver products.controller.js).
   currency ProductCurrency @default(CUP)
+  // Envío de toda la tienda. Nulo = cada producto define el suyo. FIXED (una vez por pedido: storeShippingLocal dentro de
+  // las provincias donde opera, storeShippingOther fuera) o COORDINATE (a coordinar). Activo, manda sobre el de los productos.
+  storeShippingMode     ShippingMode?
+  storeShippingLocal    Decimal?         @db.Decimal(12, 2)
+  storeShippingOther    Decimal?         @db.Decimal(12, 2)
+  storeShippingCurrency ProductCurrency?
+  // Provincia desde donde envía la tienda: el precio fijo "dentro" (Local) es para entregas en esta provincia; cualquier otra
+  // provincia o país cobra el de "fuera". Vale para el envío de tienda y para el de cada producto. Nula = la provincia de su
+  // primera ubicación.
+  shippingOriginProvinceId String?
   // Sección "Garantías" (VendorSettings.jsx): condiciones propias de cada
   // negocio que se imprimen en el certificado de garantía (ver
   // generateWarrantyPdf en lib/pdf.js). Ambos campos son obligatorios para
@@ -1828,6 +1846,14 @@ model Order {
   loyaltyDiscount       Decimal? @db.Decimal(12, 2)
   loyaltyPointsEarned   Int?
 
+  // Envío del pedido, aparte de `total` (que sigue siendo solo productos). shippingFees: [{ currency, amount }] porque el
+  // envío puede ir en otra moneda; shippingCoordinate: algún envío queda a coordinar con la tienda. shippingSource:
+  // "STORE" | "PRODUCT"; shippingZone: "LOCAL" | "OTHER" (provincia de entrega dentro o fuera de donde opera la tienda).
+  shippingFees       Json?
+  shippingCoordinate Boolean @default(false)
+  shippingSource     String?
+  shippingZone       String?
+
   vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   partner  Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   customer User?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -2001,6 +2027,10 @@ model OrderItem {
   // para poder decrementar sizeStock[size] puntualmente al confirmar la venta.
   size            String?
   currency        ProductCurrency @default(CUP)
+  // Envío de esta línea (solo con envío por producto): modo, monto ya multiplicado si es por unidad, y su moneda.
+  shippingMode     ShippingMode?
+  shippingAmount   Decimal?         @db.Decimal(12, 2)
+  shippingCurrency ProductCurrency?
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -3467,6 +3497,13 @@ enum ProductCurrency {
   USD
   EUR
   MXN
+}
+
+// Envío: gratis, fijo (con precio) o a coordinar con la tienda según el lugar de entrega.
+enum ShippingMode {
+  FREE
+  FIXED
+  COORDINATE
 }
 
 model Offer {

@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { correctSearchQuery } from "../lib/ai.js";
 import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from "./products.controller.js";
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
@@ -267,6 +268,7 @@ export async function structuredSearch(req, res) {
         isBlocked: true,
         color: true,
         whatsapp: true,
+        ...VENDOR_SHIPPING_SELECT,
         locations: { include: { province: true, municipality: true }, take: 1 },
       },
     },

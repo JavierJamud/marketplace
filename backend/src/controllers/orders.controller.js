@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
+import { computeShipping, shippingZone } from "../lib/shipping.js";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
@@ -116,6 +118,53 @@ export async function createOrder(req, res) {
 
 // Bloque 300: el registro del pedido vive aquí para que la web de Baznova y la API de socios
 // (POST /partner/v1/orders) pasen por exactamente las mismas reglas, avisos y descuentos.
+// Envío de un pedido (ver lib/shipping.js). Completa el envío de cada línea en `orderItems` (solo con envío por producto)
+// y devuelve los campos del pedido. Se usa al crearlo y al cambiar sus productos: siempre con la configuración actual.
+async function applyShipping(vendor, orderItems, productById, zone) {
+  const shipping = computeShipping({
+    vendor,
+    items: orderItems.map((i) => ({ productId: i.productId, quantity: i.quantity, product: productById[i.productId] })),
+    zone,
+  });
+  shipping.lines.forEach((line, idx) => {
+    orderItems[idx].shippingMode = shipping.source === "PRODUCT" ? line.mode : null;
+    orderItems[idx].shippingAmount = shipping.source === "PRODUCT" ? line.amount : null;
+    orderItems[idx].shippingCurrency = shipping.source === "PRODUCT" ? line.currency : null;
+  });
+  return {
+    shippingFees: shipping.fees.length ? shipping.fees : Prisma.DbNull,
+    shippingCoordinate: shipping.coordinate,
+    shippingSource: shipping.source,
+    shippingZone: shipping.zone,
+  };
+}
+
+// Provincia desde donde envía la tienda: la que eligió en su configuración, o la de su primera ubicación.
+async function vendorZone(vendorId, provinceId) {
+  const v = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { shippingOriginProvinceId: true } });
+  const origin = v?.shippingOriginProvinceId ?? (await prisma.vendorLocation.findFirst({ where: { vendorId, provinceId: { not: null } }, select: { provinceId: true } }))?.provinceId;
+  return shippingZone(origin, provinceId);
+}
+
+// POST /orders/shipping-quote: el envío que se cobraría por este carrito, calculado igual que al crear el pedido
+// (carrito y checkout lo muestran con esto, nunca con un cálculo propio). Sin provincia, el fijo queda "pending".
+const shippingQuoteSchema = z.object({
+  vendorId: z.string().min(1),
+  provinceId: z.string().min(1).nullish(),
+  items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().min(1).max(999) })).min(1).max(100),
+});
+
+export async function quoteShipping(req, res) {
+  const data = shippingQuoteSchema.parse(req.body);
+  const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+  const products = await prisma.product.findMany({ where: { id: { in: data.items.map((i) => i.productId) }, vendorId: vendor.id } });
+  const productById = Object.fromEntries(products.map((p) => [p.id, p]));
+  const items = data.items.filter((i) => productById[i.productId]).map((i) => ({ productId: i.productId, quantity: i.quantity, product: productById[i.productId] }));
+  const shipping = computeShipping({ vendor, items, zone: await vendorZone(vendor.id, data.provinceId ?? null) });
+  res.json({ shipping });
+}
+
 export async function placeOrder(data, { customerId, partnerId = null, idempotencyKey = null } = {}) {
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
@@ -248,6 +297,10 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
   });
   const subtotal = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
 
+  // Envío (ver lib/shipping.js): aparte de `total`, que sigue siendo solo productos. Se calcula aquí con los datos
+  // guardados de la tienda y los productos, nunca con lo que mande el cliente.
+  const shippingData = await applyShipping(vendor, orderItems, productById, await vendorZone(data.vendorId, data.shippingProvinceId));
+
   // Bloque 29: ya NO se descuenta stock acá — el pedido queda registrado
   // como NEW ("Pendiente") sin tocar Product.stock. El descuento real recién
   // pasa cuando el vendedor confirma la venta desde su panel
@@ -318,6 +371,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         discountAmount,
         loyaltyPointsRedeemed: redemption?.points ?? null,
         loyaltyDiscount: redemption?.discount ?? null,
+        ...shippingData,
         items: { create: orderItems },
       },
       include: {
@@ -359,6 +413,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         `${order.code} · ${order.customerName ?? "Un cliente"}`,
         itemsLine(order.items),
         [notice.place && `Entrega: ${notice.place}`, notice.recipient && `Recibe: ${notice.recipient.name}`].filter(Boolean).join(" · "),
+        `Envío: ${notice.shipping}`,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -793,10 +848,12 @@ export async function updateOrderItems(req, res) {
   // Antes el total se recalculaba sin ellos y el cliente perdía el descuento si la tienda tocaba el pedido.
   const subtotal = orderItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
   const total = Math.max(0, subtotal - Number(order.discountAmount ?? 0) - Number(order.loyaltyDiscount ?? 0));
+  // El envío se recalcula con los productos nuevos (un producto con envío fijo por unidad cambia con la cantidad).
+  const shippingData = await applyShipping(vendor, orderItems, productById, await vendorZone(vendor.id, order.shippingProvinceId));
 
   const updated = await prisma.$transaction(async (tx) => {
     await tx.orderItem.deleteMany({ where: { orderId: id } });
-    return tx.order.update({ where: { id }, data: { total, items: { create: orderItems } }, include: { items: true } });
+    return tx.order.update({ where: { id }, data: { total, ...shippingData, items: { create: orderItems } }, include: { items: true } });
   });
 
   res.json({ order: updated });
@@ -990,9 +1047,11 @@ export async function editOrderItemsForCustomer(order, rawItems, via = "su cuent
     };
   });
   const total = newItems.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
+  const shopVendor = await prisma.vendor.findUnique({ where: { id: order.vendorId } });
+  const shippingData = await applyShipping(shopVendor, newItems, byId, await vendorZone(order.vendorId, order.shippingProvinceId));
 
   const updated = await prisma.$transaction(async (tx) => {
-    const claimed = await tx.order.updateMany({ where: { id: order.id, status: "NEW" }, data: { total } });
+    const claimed = await tx.order.updateMany({ where: { id: order.id, status: "NEW" }, data: { total, ...shippingData } });
     if (claimed.count === 0) throw new AppError("La tienda acaba de atender este pedido y ya no se puede modificar.", 409);
     await tx.orderItem.deleteMany({ where: { orderId: order.id } });
     await tx.orderItem.createMany({ data: newItems.map((i) => ({ ...i, orderId: order.id })) });

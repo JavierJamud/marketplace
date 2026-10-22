@@ -211,6 +211,13 @@ export async function getVendorManage(req, res) {
       status: vendor.status,
       isRestaurant: vendor.isRestaurant,
       currency: vendor.currency,
+      // Regla de envío de la tienda (ver lib/shipping.js): nulo = cada producto define el suyo.
+      shipping: {
+        mode: vendor.storeShippingMode ?? null,
+        local: vendor.storeShippingLocal != null ? Number(vendor.storeShippingLocal) : null,
+        other: vendor.storeShippingOther != null ? Number(vendor.storeShippingOther) : null,
+        currency: vendor.storeShippingCurrency ?? null,
+      },
       createdAt: vendor.createdAt,
       ownerRegisteredAt: vendor.user.createdAt,
       adminDeletionRequestedAt: vendor.adminDeletionRequestedAt ?? null,

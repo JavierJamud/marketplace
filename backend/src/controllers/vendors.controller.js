@@ -1,4 +1,5 @@
 import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
+import { fixedShippingError } from "../lib/shipping.js";
 import { touchStoreVisit } from "../services/loyalty.service.js";
 import { toPublicVendor } from "../lib/publicVendor.js";
 import { z } from "zod";
@@ -628,7 +629,32 @@ const updateVendorSchema = z.object({
   // público/buscador/recomendaciones de IA (ver los ~9 puntos filtrados en
   // vendors/search/businessCategories/assistant.controller.js).
   isPrivate: z.boolean().optional(),
+  // Envío de toda la tienda (ver lib/shipping.js). null = cada producto define el suyo.
+  storeShippingMode: z.enum(["FIXED", "COORDINATE"]).nullable().optional(),
+  storeShippingLocal: z.number().min(0).max(1_000_000).nullable().optional(),
+  storeShippingOther: z.number().min(0).max(1_000_000).nullable().optional(),
+  storeShippingCurrency: z.enum(["CUP", "USD", "EUR", "MXN"]).nullable().optional(),
+  shippingOriginProvinceId: z.string().min(1).nullable().optional(),
 });
+
+// Envío de tienda al guardar la configuración: el fijo exige los dos precios y una moneda habilitada; "a coordinar" y "por
+// producto" no guardan precios. Activarlo suspende el envío de cada producto (sin borrarlo).
+async function storeShippingData(data) {
+  const out = {};
+  if (data.shippingOriginProvinceId !== undefined) {
+    if (data.shippingOriginProvinceId && !(await prisma.province.findUnique({ where: { id: data.shippingOriginProvinceId }, select: { id: true } }))) {
+      throw new AppError("La provincia desde donde envías no existe.", 400);
+    }
+    out.shippingOriginProvinceId = data.shippingOriginProvinceId;
+  }
+  if (data.storeShippingMode === undefined) return out;
+  const mode = data.storeShippingMode;
+  if (mode !== "FIXED") return { ...out, storeShippingMode: mode, storeShippingLocal: null, storeShippingOther: null, storeShippingCurrency: null };
+  const error = fixedShippingError({ mode, local: data.storeShippingLocal, other: data.storeShippingOther, currency: data.storeShippingCurrency });
+  if (error) throw new AppError(error, 400);
+  await assertCurrencyAllowed(data.storeShippingCurrency);
+  return { ...out, storeShippingMode: mode, storeShippingLocal: data.storeShippingLocal, storeShippingOther: data.storeShippingOther, storeShippingCurrency: data.storeShippingCurrency };
+}
 
 export async function updateMyVendor(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
@@ -762,6 +788,7 @@ export async function updateMyVendor(req, res) {
       warrantyTerms: data.warrantyTerms,
       warrantyDefaultDays: data.warrantyDefaultDays,
       isPrivate,
+      ...(await storeShippingData(data)),
     },
   });
 

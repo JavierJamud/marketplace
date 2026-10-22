@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { orderTotalLabel } from "../../lib/shipping.js";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -526,7 +527,7 @@ export default function VendorOrders() {
                   {o.isTable && ` · ${o.clearedAt ? `Duró ${formatElapsed(o.date, o.clearedAt)}` : `En mesa hace ${formatElapsed(o.date)}`}`}
                 </div>
               </div>
-              <div className={`text-[15px] font-bold text-on-surface ${isVoided ? "line-through opacity-60" : ""}`}>{fmtCUP(o.total)}</div>
+              <div className={`text-[15px] font-bold text-on-surface ${isVoided ? "line-through opacity-60" : ""}`}>{o.isTable ? fmtCUP(o.total) : orderTotalLabel(o.raw)}</div>
 
               {/* Bloque 175 (pedido explícito — "habrá un botón en cada
                   pedido para ver pedido y ver los detalles de cada pedido

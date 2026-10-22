@@ -8,6 +8,8 @@ import { ordersRateLimit } from "../middleware/rateLimit.js";
 const router = Router();
 
 router.post("/", ordersRateLimit, ordersController.createOrder);
+// Envío que se cobraría por un carrito (carrito y checkout). Público, igual que crear el pedido.
+router.post("/shipping-quote", ordersController.quoteShipping);
 
 // Panel de vendedor — Bloque 183: sección "pedidos" (ver tables.routes.js,
 // mismo criterio). Bloque 185: listar/ver es solo acceso a la sección; el

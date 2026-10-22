@@ -1,6 +1,6 @@
 import { env } from "../config/env.js";
 import { emailShell, ctaButton, itemsTable, totalRow, metaList, paragraph, smallNote, resolveAssetUrl, esc, orderProgress } from "./_shared.js";
-import { orderCurrency, money, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
+import { orderCurrency, money, orderShippingText, orderGrandTotal, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
 
 // Bloque 14: valores de OrderChannel consolidados (COD/TABLE sin cambios,
 // antes WHATSAPP/TRANSFER — ver comentario en schema.prisma).
@@ -18,7 +18,7 @@ export async function orderConfirmationEmail(order) {
   const subtotal = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
   const whatsapp = order.vendor.whatsapp ? String(order.vendor.whatsapp).replace(/\D/g, "") : null;
   const html = await emailShell({
-    preview: `Recibimos tu pedido ${order.code}: ${money(order.total, currency)} en ${order.vendor.companyName}`,
+    preview: `Recibimos tu pedido ${order.code}: ${orderGrandTotal(order)} en ${order.vendor.companyName}`,
     title: `¡Gracias por tu pedido en ${esc(order.vendor.companyName)}!`,
     storeName: esc(order.vendor.companyName),
     storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
@@ -30,7 +30,10 @@ export async function orderConfirmationEmail(order) {
       ${Number(order.discountAmount) > 0 || Number(order.loyaltyDiscount) > 0 ? totalRow("Subtotal", money(subtotal, currency)) : ""}
       ${Number(order.discountAmount) > 0 ? totalRow("Código de descuento", `-${money(order.discountAmount, currency)}`) : ""}
       ${Number(order.loyaltyDiscount) > 0 ? totalRow(`Puntos usados (${order.loyaltyPointsRedeemed})`, `-${money(order.loyaltyDiscount, currency)}`) : ""}
-      ${totalRow("Total", money(order.total, currency))}
+      ${totalRow("Productos", money(order.total, currency))}
+      ${totalRow("Envío", orderShippingText(order))}
+      ${totalRow("Total", orderGrandTotal(order))}
+      ${order.shippingCoordinate ? smallNote("El envío a coordinar no está incluido en el total: se acuerda entre la tienda y el cliente según el lugar de entrega.") : ""}
       ${paragraph("<strong>Entrega</strong>", { padding: "16px 0 0" })}
       ${metaList([
         order.recipientName ? ["Recibe", esc(order.recipientName)] : ["Recibe", `${esc(order.customerName)} (tú)`],

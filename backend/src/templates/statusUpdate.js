@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { orderShippingText, orderGrandTotal } from "../lib/orderSummary.js";
 import { emailShell, ctaButton, itemsTable, totalRow, paragraph, fmtCUP, resolveAssetUrl, pickVariant, esc, orderProgress } from "./_shared.js";
 
 // Mismos labels/colores que VendorOrders.jsx y CustomerPanel.jsx — una sola
@@ -30,7 +31,8 @@ export async function statusUpdateEmail(order) {
       ${order.status === "CANCELLED" ? "" : orderProgress(order.status)}
       ${order.status === "CANCELLED" && order.cancelReason ? paragraph(`<strong>Motivo de la cancelación:</strong> ${esc(order.cancelReason.replace(/^Cancelado por el cliente: /, ""))}`) : ""}
       ${itemsWithImages.length > 0 ? itemsTable(itemsWithImages) : ""}
-      ${order.total != null ? totalRow("Total", fmtCUP(order.total)) : ""}
+      ${order.total != null ? totalRow("Envío", orderShippingText(order)) : ""}
+      ${order.total != null ? totalRow("Total", orderGrandTotal(order)) : ""}
       ${ctaButton("Ver detalles", `${env.frontendUrl}/cuenta/panel`)}
     `,
   });

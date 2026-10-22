@@ -21,6 +21,7 @@ import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
+import { StoreShippingCard } from "../../components/vendor/ShippingFields.jsx";
 
 // Bloque 68 (pedido explícito): 3 opciones reales de Vendor.orderDestination
 // — el checkout con formulario completo SIEMPRE crea el pedido de verdad
@@ -325,6 +326,12 @@ export default function VendorSettings() {
     isRestaurant: false,
     tableCount: "",
     menuPublic: true,
+    // Envío de toda la tienda ("" = cada producto define el suyo), ver StoreShippingCard.
+    storeShippingMode: "",
+    storeShippingLocal: "",
+    storeShippingOther: "",
+    storeShippingCurrency: "CUP",
+    shippingOriginProvinceId: "",
   });
   // Bloque 174 (bug real reportado en vivo — "no encuentro esa función,
   // verifica que esté y que funcione"): esta pantalla SÍ tenía el estado y
@@ -396,6 +403,11 @@ export default function VendorSettings() {
       isRestaurant: vendor.isRestaurant ?? false,
       tableCount: vendor.tableCount != null ? String(vendor.tableCount) : "",
       menuPublic: vendor.menuPublic ?? true,
+      storeShippingMode: vendor.storeShippingMode ?? "",
+      storeShippingLocal: vendor.storeShippingLocal != null ? String(Number(vendor.storeShippingLocal)) : "",
+      storeShippingOther: vendor.storeShippingOther != null ? String(Number(vendor.storeShippingOther)) : "",
+      storeShippingCurrency: vendor.storeShippingCurrency ?? vendor.currency ?? "CUP",
+      shippingOriginProvinceId: vendor.shippingOriginProvinceId ?? vendor.locations?.find((l) => l.provinceId)?.provinceId ?? "",
     });
     if (vendor.schedules?.length) {
       setDays(
@@ -430,6 +442,11 @@ export default function VendorSettings() {
           warrantyTerms: form.warrantyTerms.trim() || null,
           warrantyDefaultDays: form.warrantyDefaultDays === "" ? null : Number(form.warrantyDefaultDays),
           tableCount: form.tableCount === "" ? undefined : Number(form.tableCount),
+          storeShippingMode: form.storeShippingMode || null,
+          storeShippingLocal: form.storeShippingMode === "FIXED" && form.storeShippingLocal !== "" ? Number(form.storeShippingLocal) : null,
+          storeShippingOther: form.storeShippingMode === "FIXED" && form.storeShippingOther !== "" ? Number(form.storeShippingOther) : null,
+          storeShippingCurrency: form.storeShippingMode === "FIXED" ? form.storeShippingCurrency : null,
+          shippingOriginProvinceId: form.shippingOriginProvinceId || null,
         })
       ).data,
   });
@@ -826,6 +843,8 @@ export default function VendorSettings() {
         </div>
         {form.checkoutPaymentOptions.length === 1 && <p className="mt-2 text-[12px] text-outline">Debe quedar al menos una opción.</p>}
       </div>
+
+      <StoreShippingCard form={form} setForm={setForm} vendor={vendor} currencies={settings?.availableCurrencies ?? ["CUP", "USD", "EUR", "MXN"]} />
 
       {/* Bloque 47: Métodos de pago (chips — el selector nunca se había
           terminado de conectar: el estado/endpoint ya existían pero no

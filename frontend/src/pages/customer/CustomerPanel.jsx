@@ -1,4 +1,5 @@
 import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
+import { orderTotalLabel, orderShippingText, orderLineShippingText } from "../../lib/shipping.js";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -504,7 +505,7 @@ export default function CustomerPanel() {
                         {NOTIFICATION_LABEL[o.notificationChannel] && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
                       </div>
                     </div>
-                    <div className="text-[14px] font-bold text-on-surface">{fmtCUP(o.total)}</div>
+                    <div className="text-[14px] font-bold text-on-surface">{orderTotalLabel(o)}</div>
                     <span
                       className="rounded-full px-3 py-1.5 text-[11.5px] font-bold"
                       style={{ background: `${STATUS_COLOR[o.status]}1f`, color: STATUS_COLOR[o.status] }}
@@ -522,11 +523,21 @@ export default function CustomerPanel() {
                   )}
                   <div className="mt-3 flex flex-col gap-1 border-t border-surface-container pt-3">
                     {o.items.map((it) => (
-                      <div key={it.id} className="flex justify-between text-[12.5px] text-on-surface-variant">
-                        <span>{it.quantity}× {it.name}</span>
-                        <span>{fmtCUP(Number(it.price) * it.quantity)}</span>
+                      <div key={it.id} className="flex justify-between gap-3 text-[12.5px] text-on-surface-variant">
+                        <span>
+                          {it.quantity}× {it.name}
+                          {orderLineShippingText(it) && <span className="block text-[11.5px] text-outline">{orderLineShippingText(it)}</span>}
+                        </span>
+                        <span>{formatPrice(Number(it.price) * it.quantity, it.currency)}</span>
                       </div>
                     ))}
+                    {o.shippingSource && (
+                      <div className="flex justify-between gap-3 text-[12.5px] text-on-surface-variant">
+                        <span>Envío</span>
+                        <span className="text-right font-semibold text-on-surface">{orderShippingText(o)}</span>
+                      </div>
+                    )}
+                    {o.shippingCoordinate && <p className="text-[11.5px] text-outline">El envío a coordinar lo acuerdas con la tienda: no está en el total.</p>}
                   </div>
                   {(o.loyaltyPointsRedeemed > 0 || o.loyaltyPointsEarned > 0) && (
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-semibold text-verified-dark">

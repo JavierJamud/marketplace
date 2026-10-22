@@ -6,7 +6,7 @@ const PAY_TITLE = { cod: "Pago contra entrega", online: "Pago en línea con el v
 
 const price = (amount, currency = "CUP") => `${Number(amount).toLocaleString("es-CU")} ${currency}`;
 
-export function orderWhatsAppText({ code, vendorName, items, discount, totalLabel, customerName, customerPhone, address, channel }) {
+export function orderWhatsAppText({ code, vendorName, items, discount, totalLabel, shippingText, customerName, customerPhone, address, channel }) {
   const lines = [
     `🛍️ *Pedido ${code}* — ${vendorName}`,
     SEPARATOR,
@@ -15,6 +15,7 @@ export function orderWhatsAppText({ code, vendorName, items, discount, totalLabe
     SEPARATOR,
   ];
   if (discount) lines.push(`🏷️ Descuento (${discount.code}): -${price(discount.amount)}`);
+  if (shippingText) lines.push(`🚚 Envío: ${shippingText}`);
   lines.push(`💰 *Total:* ${totalLabel}`, SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${customerName}`, `Teléfono: ${customerPhone}`, `Entrega: ${address}`, SEPARATOR, `💳 Pago: ${PAY_TITLE[channel] ?? channel}`);
   return lines.join("\n");
 }
@@ -25,10 +26,12 @@ export function whatsappUrl(phone, text) {
 }
 
 // Suma por moneda sin mezclar monedas distintas en un solo número ("1,200 CUP + 25 USD").
-export function mixedTotalLabel(items, discountAmount = 0) {
+// `fees`: envío del pedido por moneda ([{ currency, amount }]), se suma a la moneda que corresponda.
+export function mixedTotalLabel(items, discountAmount = 0, fees = []) {
   const byCurrency = {};
   for (const it of items) byCurrency[it.currency ?? "CUP"] = (byCurrency[it.currency ?? "CUP"] ?? 0) + Number(it.unitPrice) * it.quantity;
   const currencies = Object.keys(byCurrency);
   if (discountAmount && currencies.length === 1) byCurrency[currencies[0]] = Math.max(0, byCurrency[currencies[0]] - Number(discountAmount));
+  for (const f of fees ?? []) byCurrency[f.currency] = (byCurrency[f.currency] ?? 0) + Number(f.amount);
   return Object.entries(byCurrency).map(([c, sum]) => price(sum, c)).join(" + ");
 }

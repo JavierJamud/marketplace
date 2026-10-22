@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { emailShell, ctaButton, smallNote, paragraph, itemsTable, totalRow, metaList, esc, resolveAssetUrl } from "./_shared.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
-import { orderCurrency, money, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
+import { orderCurrency, money, orderShippingText, orderGrandTotal, deliveryPlace, ID_TYPE_LABEL } from "../lib/orderSummary.js";
 
 const PAY_LABEL = { COD: "Pago contra entrega", ONLINE: "Pago en línea con el vendedor", CASH: "Efectivo", TABLE: "Pedido de mesa" };
 
@@ -13,11 +13,11 @@ export async function newOrderVendorEmail({ order, partnerName }) {
   const { siteName } = await getBrandSettings();
   const currency = orderCurrency(order);
   const place = await deliveryPlace(order);
-  const subject = `Pedido nuevo ${order.code} · ${money(order.total, currency)}`;
+  const subject = `Pedido nuevo ${order.code} · ${orderGrandTotal(order)}`;
   const items = order.items.map((i) => ({ name: i.name, size: i.size, quantity: i.quantity, price: i.price, currency, imageUrl: resolveAssetUrl(i.product?.images?.[0]) }));
   const subtotal = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
   const html = await emailShell({
-    preview: `${order.customerName ?? "Un cliente"} hizo el pedido ${order.code} por ${money(order.total, currency)}`,
+    preview: `${order.customerName ?? "Un cliente"} hizo el pedido ${order.code} por ${orderGrandTotal(order)}`,
     title: "Recibiste un pedido nuevo",
     badge: { label: "Pedido nuevo", color: "#0CAE53" },
     storeName: siteName,
@@ -27,7 +27,10 @@ export async function newOrderVendorEmail({ order, partnerName }) {
       ${Number(order.discountAmount) > 0 || Number(order.loyaltyDiscount) > 0 ? totalRow("Subtotal", money(subtotal, currency)) : ""}
       ${Number(order.discountAmount) > 0 ? totalRow("Código de descuento", `-${money(order.discountAmount, currency)}`) : ""}
       ${Number(order.loyaltyDiscount) > 0 ? totalRow(`Puntos del cliente (${order.loyaltyPointsRedeemed})`, `-${money(order.loyaltyDiscount, currency)}`) : ""}
-      ${totalRow("Total a cobrar", money(order.total, currency))}
+      ${totalRow("Productos", money(order.total, currency))}
+      ${totalRow("Envío", orderShippingText(order))}
+      ${totalRow("Total a cobrar", orderGrandTotal(order))}
+      ${order.shippingCoordinate ? smallNote("El envío a coordinar no está incluido en el total: se acuerda entre la tienda y el cliente según el lugar de entrega.") : ""}
       ${paragraph("<strong>Quién compra</strong>", { padding: "16px 0 0" })}
       ${metaList([
         ["Nombre", esc(order.customerName)],

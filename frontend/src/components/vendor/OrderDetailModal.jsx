@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { orderTotalLabel, orderShippingText, orderLineShippingText } from "../../lib/shipping.js";
 
 function fmtCUP(n, currency = "CUP") {
   return `${Number(n).toLocaleString("es-CU")} ${currency}`;
@@ -113,6 +114,7 @@ export function OrderDetailModal({ order, onClose }) {
               <span className="text-on-surface">
                 {it.quantity} × {it.name}
                 {it.size && ` (${it.size})`}
+                {orderLineShippingText(it) && <span className="block text-[11.5px] text-outline">{orderLineShippingText(it)}</span>}
               </span>
               <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity, it.currency)}</span>
             </div>
@@ -133,9 +135,18 @@ export function OrderDetailModal({ order, onClose }) {
         )}
         {o.loyaltyPointsEarned > 0 && <p className="mt-1.5 text-[12px] text-verified-dark">El cliente ganó {o.loyaltyPointsEarned} puntos con este pedido.</p>}
 
-        <div className="mt-3 flex items-center justify-between border-t border-surface-container-high pt-3">
+        {/* Envío aparte de los productos (ver lib/shipping.js); el total ya lo incluye si es fijo. */}
+        {o.shippingSource && (
+          <div className="mt-1.5 flex items-center justify-between gap-3 text-[12.5px] text-on-surface-variant">
+            <span>Envío{o.shippingSource === "STORE" && o.shippingFees?.length ? " (por pedido)" : ""}</span>
+            <span className="text-right font-semibold text-on-surface">{orderShippingText(o)}</span>
+          </div>
+        )}
+        {o.shippingCoordinate && <p className="mt-1 text-[12px] text-outline">Hay envío a coordinar con el cliente: no está incluido en el total.</p>}
+
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-container-high pt-3">
           <span className="text-[13px] font-semibold text-on-surface-variant">Total</span>
-          <span className="text-[18px] font-bold text-primary">{fmtCUP(o.total, o.items[0]?.currency)}</span>
+          <span className="text-right text-[18px] font-bold text-primary">{orderTotalLabel(o)}</span>
         </div>
 
         {/* Historial con fecha y hora: lo que le pasó al pedido y los documentos que se enviaron al cliente. */}

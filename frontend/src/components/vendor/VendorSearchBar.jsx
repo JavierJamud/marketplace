@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { orderTotalLabel } from "../../lib/shipping.js";
 import { searchSections } from "../../lib/sectionSearch.js";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -266,7 +267,7 @@ export function VendorSearchBar({ vendor, staffSections }) {
                     {o.code}
                     {o.customerName && ` · ${o.customerName}`}
                   </span>
-                  <span className="flex-shrink-0 text-[12px] font-semibold text-outline">{fmtCUP(o.total)}</span>
+                  <span className="flex-shrink-0 text-[12px] font-semibold text-outline">{orderTotalLabel(o)}</span>
                 </button>
               ))}
             </div>

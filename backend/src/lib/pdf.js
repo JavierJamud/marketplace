@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { orderShippingText } from "./orderSummary.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { env } from "../config/env.js";
 import { ORDER_EVENT_LABEL } from "./orderEvents.js";
@@ -153,7 +154,8 @@ function companyRows(vendor, province) {
   ];
 }
 
-function drawItemsTable(doc, items, ctx, { discount } = {}) {
+// `shipping`: envío del pedido ({ fees, coordinate, text }); los montos se suman al TOTAL de su moneda.
+function drawItemsTable(doc, items, ctx, { discount, shipping } = {}) {
   const tableW = contentWidth(doc);
   const cols = { name: tableW * 0.48, qty: tableW * 0.1, price: tableW * 0.21, subtotal: tableW * 0.21 };
   const header = () => {
@@ -204,7 +206,7 @@ function drawItemsTable(doc, items, ctx, { discount } = {}) {
   }
 
   const units = items.reduce((s, i) => s + i.quantity, 0);
-  ensureSpace(doc, 24 + totals.size * 18 + (discount ? 18 : 0), ctx);
+  ensureSpace(doc, 24 + (totals.size + (shipping?.fees?.length ?? 0)) * 18 + (discount ? 18 : 0) + (shipping ? 18 : 0), ctx);
   doc.y += 8;
   doc.font("Helvetica").fontSize(9).fillColor(MUTED).text(`${items.length} ${items.length === 1 ? "producto" : "productos"} · ${units} ${units === 1 ? "unidad" : "unidades"}`, MARGIN, doc.y, { width: tableW * 0.5, lineBreak: false });
   let ty = doc.y;
@@ -213,8 +215,16 @@ function drawItemsTable(doc, items, ctx, { discount } = {}) {
     doc.font("Helvetica").fontSize(10).fillColor("#2a7a4b").text(`Descuento${discount.code ? ` (${discount.code})` : ""}: -${fmtMoney(discount.amount, cur)}`, MARGIN + tableW * 0.45, ty, { width: tableW * 0.55, align: "right", lineBreak: false });
     ty += 16;
   }
+  if (shipping) {
+    doc.font("Helvetica").fontSize(10).fillColor(INK).text(`Envío: ${shipping.text}`, MARGIN + tableW * 0.3, ty, { width: tableW * 0.7, align: "right", lineBreak: false });
+    ty += 16;
+  }
+  // El descuento solo aplica con una sola moneda de productos: se decide antes de sumar monedas del envío.
+  const discountOn = discount && totals.size === 1 ? [...totals.keys()][0] : null;
+  const fees = new Map((shipping?.fees ?? []).map((f) => [f.currency, Number(f.amount)]));
+  for (const cur of fees.keys()) if (!totals.has(cur)) totals.set(cur, 0);
   for (const [cur, sum] of totals) {
-    const final = discount && totals.size === 1 ? Math.max(0, sum - Number(discount.amount ?? 0)) : sum;
+    const final = (cur === discountOn ? Math.max(0, sum - Number(discount.amount ?? 0)) : sum) + (fees.get(cur) ?? 0);
     doc.font("Helvetica-Bold").fontSize(12).fillColor(INK).text(`TOTAL ${fmtMoney(final, cur)}`, MARGIN + tableW * 0.45, ty, { width: tableW * 0.55, align: "right", lineBreak: false });
     ty += 18;
   }
@@ -331,7 +341,10 @@ export async function generateInvoicePdf({ vendor, order, items, customer, event
     doc.y = y0 + Math.max(h1, h2) + 6;
 
     sectionTitle(doc, "Productos", ctx);
-    drawItemsTable(doc, items, ctx, { discount: order.discountAmount ? { amount: order.discountAmount, code: order.discountCode?.code } : null });
+    drawItemsTable(doc, items, ctx, {
+      discount: order.discountAmount ? { amount: order.discountAmount, code: order.discountCode?.code } : null,
+      shipping: { fees: Array.isArray(order.shippingFees) ? order.shippingFees : [], coordinate: order.shippingCoordinate, text: orderShippingText(order) },
+    });
 
     drawTimeline(doc, timeline, ctx);
 

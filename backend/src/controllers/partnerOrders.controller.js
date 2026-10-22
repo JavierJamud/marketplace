@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { orderShippingText } from "../lib/orderSummary.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -136,7 +137,8 @@ function orderDto(order, store, extra = {}) {
     vendorName: store.companyName,
     items,
     discount: discount ? { code: extra.discountCode ?? "descuento", amount: discount.amount } : null,
-    totalLabel: mixedTotalLabel(items, discount?.amount ?? 0),
+    totalLabel: mixedTotalLabel(items, discount?.amount ?? 0, order.shippingFees ?? []),
+    shippingText: orderShippingText(order),
     customerName: order.customerName,
     customerPhone: order.customerPhone,
     address: order.shippingAddress,
@@ -151,6 +153,8 @@ function orderDto(order, store, extra = {}) {
     channel,
     total: Number(order.total),
     discount,
+    // Envío aparte de `total` (que es solo productos): montos por moneda y si queda algo a coordinar con la tienda.
+    shipping: { fees: (order.shippingFees ?? []).map((f) => ({ currency: f.currency, amount: Number(f.amount) })), toCoordinate: order.shippingCoordinate },
     items,
     customer: { name: order.customerName, phone: order.customerPhone, email: order.customerEmail, address: order.shippingAddress },
     store: { slug: store.slug, name: store.companyName },
