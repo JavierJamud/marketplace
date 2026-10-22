@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatPrice } from "../lib/format.js";
@@ -13,7 +13,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
 import { ReportFraudModal } from "./ReportFraudModal.jsx";
-import { getBannerIconPattern } from "../lib/vendorBannerIcons.js";
+import { BannerIcons } from "./BannerIcons.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -101,9 +101,6 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
   const nameWords = v.companyName.trim().split(/\s+/);
   const nameLast = nameWords.pop();
   const joinedYear = new Date(v.createdAt).getFullYear();
-  // Bloque 207: patrón fijo por tienda (mismo id -> mismo patrón siempre),
-  // nunca recalculado al azar en cada render.
-  const iconPattern = useMemo(() => getBannerIconPattern(v), [v.id, v.isRestaurant, v.businessCategory?.slug]);
 
   return (
     <>
@@ -159,16 +156,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
             de portada (retirada del panel de vendedor) por íconos de
             lucide-react (la misma librería de toda la app) temáticos al
             rubro de la tienda, ver vendorBannerIcons.js. */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          {iconPattern.map(({ key, Icon, top, left, size, rotate, opacity, strokeWidth }) => (
-            <Icon
-              key={key}
-              strokeWidth={strokeWidth}
-              className="absolute text-white"
-              style={{ top, left, width: size, height: size, transform: `translate(-50%, -50%) rotate(${rotate}deg)`, opacity }}
-            />
-          ))}
-        </div>
+        <BannerIcons vendor={v} />
         {/* Círculo decorativo de fondo — profundidad */}
         <div
           className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full opacity-10"
@@ -257,7 +245,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               </div>
             )}
             {/* Redes de la tienda: solo las que la tienda puso (ver SocialLinks.jsx). */}
-            <StoreSocialLinks links={v.socialLinks} whatsapp={v.whatsapp} storeName={v.companyName} className="mt-2 -ml-1 sm:ml-[108px]" />
+            <StoreSocialLinks links={v.socialLinks} storeName={v.companyName} className="mt-2 -ml-1 sm:ml-[108px]" />
           </div>
 
           {/* Botones de acción — alineados a la derecha */}

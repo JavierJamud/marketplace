@@ -14,7 +14,7 @@ import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
-import { SOCIAL_NETWORKS } from "../../components/SocialLinks.jsx";
+import { SOCIAL_NETWORKS, InstagramGradient } from "../../components/SocialLinks.jsx";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
@@ -441,30 +441,41 @@ function StoreInfoCard() {
   );
 }
 
-// Redes de la tienda: cada una se muestra como ícono en la página pública solo si tiene enlace. Se acepta el enlace completo
-// o el usuario ("@mitienda"); el servidor comprueba que sea de esa red y lo guarda como enlace.
-const EMPTY_SOCIAL = Object.fromEntries(SOCIAL_NETWORKS.map((n) => [n.key, ""]));
+// Redes de la tienda (decisión del dueño): WhatsApp, Facebook/Messenger, Instagram, TikTok, YouTube y Telegram. Cada una
+// tiene su enlace y su interruptor: al guardar un enlace nuevo se enciende sola, y apagarla la esconde de la tienda sin
+// borrar el enlace. El interruptor se guarda al tocarlo; los enlaces, con el botón.
+const toForm = (stored) =>
+  Object.fromEntries(SOCIAL_NETWORKS.map((n) => [n.key, { url: stored?.[n.key]?.url ?? "", enabled: stored?.[n.key]?.enabled !== false }]));
 
 function SocialLinksCard() {
   const queryClient = useQueryClient();
   const { vendor } = useOutletContext();
-  const empty = EMPTY_SOCIAL;
-  const [links, setLinks] = useState(empty);
+  const [links, setLinks] = useState(() => toForm(null));
   useEffect(() => {
-    if (vendor) setLinks({ ...empty, ...(vendor.socialLinks ?? {}) });
-  }, [vendor, empty]);
+    if (vendor) setLinks(toForm(vendor.socialLinks));
+  }, [vendor]);
+
   const save = useMutation({
-    mutationFn: async () => (await api.patch("/vendors/me", { socialLinks: links })).data,
-    onSuccess: ({ vendor: updated }) => {
-      toast.success("Redes guardadas.");
-      if (updated?.socialLinks !== undefined) setLinks({ ...empty, ...(updated.socialLinks ?? {}) });
+    mutationFn: async ({ data }) => (await api.patch("/vendors/me", { socialLinks: data })).data,
+    onSuccess: ({ vendor: updated }, { message }) => {
+      toast.success(message);
+      setLinks(toForm(updated?.socialLinks));
       queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
       queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar las redes."),
   });
-  const dirty = !!vendor && SOCIAL_NETWORKS.some((n) => (links[n.key] ?? "") !== (vendor.socialLinks?.[n.key] ?? ""));
-  useUnsavedGuard(dirty, () => save.mutateAsync());
+  const payload = (state) => Object.fromEntries(Object.entries(state).filter(([, e]) => e.url.trim()).map(([k, e]) => [k, { url: e.url.trim(), enabled: e.enabled }]));
+  const saved = toForm(vendor?.socialLinks);
+  const dirty = !!vendor && SOCIAL_NETWORKS.some((n) => links[n.key].url.trim() !== saved[n.key].url);
+  useUnsavedGuard(dirty, () => save.mutateAsync({ data: payload(links), message: "Enlaces guardados." }));
+
+  // El interruptor solo existe para una red con enlace ya guardado; se guarda al instante con lo que ya estaba guardado.
+  const toggle = (key, enabled) => {
+    const next = { ...saved, [key]: { ...saved[key], enabled } };
+    setLinks((l) => ({ ...l, [key]: { ...l[key], enabled } }));
+    save.mutate({ data: payload(next), message: enabled ? "Ahora se ve en tu tienda." : "Oculto en tu tienda." });
+  };
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
@@ -472,29 +483,48 @@ function SocialLinksCard() {
         <Link2 className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Redes de tu tienda
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Pon el enlace o tu usuario. En tu tienda solo aparece el ícono de las redes que llenes, y al tocarlo el cliente va directo a tu perfil.
+        Pon el enlace o tu usuario y guarda: el ícono aparece en tu tienda y el cliente va directo a tu perfil. Con el interruptor lo escondes sin borrar el enlace.
       </p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {SOCIAL_NETWORKS.map(({ key, label, Icon, placeholder }) => (
-          <label key={key} className="block">
-            <span className="mb-1 flex items-center gap-1.5 text-label-md text-on-surface-variant">
-              <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {label}
-            </span>
-            <input
-              value={links[key] ?? ""}
-              onChange={(e) => setLinks((l) => ({ ...l, [key]: e.target.value }))}
-              placeholder={placeholder}
-              inputMode="url"
-              autoCapitalize="off"
-              autoCorrect="off"
-              maxLength={300}
-              className="w-full rounded border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-body-md text-on-surface outline-none placeholder:text-outline focus:border-primary-container"
-            />
-          </label>
-        ))}
+      <div className="flex flex-col gap-3">
+        {SOCIAL_NETWORKS.map(({ key, label, Icon, placeholder, color }) => {
+          const hasSaved = !!saved[key].url;
+          const on = links[key].enabled;
+          return (
+            <div key={key} className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:gap-3">
+              <label className="block min-w-0 flex-1">
+                <span className="mb-1 flex items-center gap-1.5 text-label-md text-on-surface-variant">
+                  <Icon className="h-4 w-4" style={{ stroke: color }} aria-hidden="true" /> {label}
+                </span>
+                <input
+                  value={links[key].url}
+                  onChange={(e) => setLinks((l) => ({ ...l, [key]: { ...l[key], url: e.target.value } }))}
+                  placeholder={placeholder}
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  maxLength={300}
+                  className="w-full rounded border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-body-md text-on-surface outline-none placeholder:text-outline focus:border-primary-container"
+                />
+              </label>
+              <label className={`flex min-h-11 items-center gap-2 text-[12.5px] font-semibold ${hasSaved ? "cursor-pointer text-on-surface" : "cursor-not-allowed text-outline"}`}>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={hasSaved && on}
+                  checked={hasSaved && on}
+                  disabled={!hasSaved || save.isPending}
+                  onChange={(e) => toggle(key, e.target.checked)}
+                  className="h-5 w-9 cursor-pointer accent-tertiary-accent disabled:cursor-not-allowed"
+                />
+                {!hasSaved ? "Sin enlace" : on ? "Visible" : "Oculto"}
+              </label>
+            </div>
+          );
+        })}
       </div>
-      <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>
-        {save.isPending ? "Guardando..." : "Guardar redes"}
+      <InstagramGradient />
+      <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending || !dirty} onClick={() => save.mutate({ data: payload(links), message: "Enlaces guardados." })}>
+        {save.isPending ? "Guardando..." : "Guardar enlaces"}
       </Button>
     </div>
   );

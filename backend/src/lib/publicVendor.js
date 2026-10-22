@@ -1,3 +1,4 @@
+import { publicSocialLinks } from "./socialLinks.js";
 // Campos de la fila Vendor que nunca deben salir en un endpoint público ni hacia otro cliente:
 // datos legales/KYC del dueño, ids de facturación, estado interno de moderación y ciclo de vida.
 // Se usa una lista de exclusión porque estos endpoints devuelven `include` de Prisma (fila completa)
@@ -49,5 +50,7 @@ export function toPublicVendor(vendor) {
   if (!vendor || typeof vendor !== "object") return vendor;
   const safe = { ...vendor };
   for (const field of PRIVATE_VENDOR_FIELDS) delete safe[field];
+  // Redes: al público solo le llegan las encendidas (ver lib/socialLinks.js).
+  if ("socialLinks" in safe) safe.socialLinks = publicSocialLinks(safe.socialLinks);
   return safe;
 }

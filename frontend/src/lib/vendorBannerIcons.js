@@ -448,7 +448,7 @@ const KEYWORD_THEME = [
 
 const fold = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/-/g, " ");
 
-function themeFor(vendor) {
+export function themeFor(vendor) {
   if (vendor?.isRestaurant) return THEMES.food;
   const category = vendor?.businessCategory;
   const direct = CATEGORY_THEME[category?.slug];
@@ -460,12 +460,12 @@ function themeFor(vendor) {
 
 // Hash simple del id — semilla determinística: la misma tienda siempre
 // muestra el mismo patrón (no cambia en cada render/recarga).
-function seedFrom(id) {
+export function seedFrom(id) {
   let hash = 0;
   for (const ch of String(id ?? "")) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return hash || 1;
 }
-function mulberry32(seed) {
+export function mulberry32(seed) {
   let a = seed;
   return function rand() {
     a |= 0;
@@ -476,68 +476,5 @@ function mulberry32(seed) {
   };
 }
 
-// "Bolsa" barajada (Fisher-Yates con la misma semilla) en vez de un sorteo
-// independiente por celda — un sorteo puro repite el mismo ícono seguido
-// tarde o temprano (más probable todavía con pocas celdas por tema chico).
-// Barajando y consumiendo en orden, NINGÚN ícono se repite hasta que
-// aparecieron todos los demás una vez — mucha más variedad a simple vista
-// dentro de un mismo banner (pedido explícito).
-function shuffledBag(icons, rand) {
-  const bag = icons.slice();
-  for (let i = bag.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [bag[i], bag[j]] = [bag[j], bag[i]];
-  }
-  return bag;
-}
-
-// Grilla con jitter (en vez de posiciones 100% al azar) — reparte los
-// íconos por todo el contenedor sin que el azar los amontone en una esquina
-// y deje otra vacía, pero el jitter + rotación por ícono igual se ve
-// orgánico, no como una grilla prolija.
-// Bloque 207 (ajuste, pedido explícito — "más finos y más claros, un
-// efecto único"): trazo fino (strokeWidth bajo, el default de lucide es 2)
-// + opacidad más alta que la primera versión, MISMOS valores en cualquier
-// lugar que use este patrón (banner grande de Store.jsx, tarjetas chicas de
-// Shop.jsx) — "un efecto único" es un solo estilo consistente en toda la
-// plataforma, no uno distinto por componente. `cols`/`rows` sí varían por
-// tamaño real del contenedor (una tarjeta de 104px no entra la misma
-// densidad que el banner completo de Store.jsx).
-const STROKE_WIDTH = 1.25;
-const MIN_OPACITY = 0.16;
-const MAX_OPACITY = 0.28;
-
-export function getBannerIconPattern(vendor, { cols = 9, rows = 5, minSize = 20, maxSize = 44 } = {}) {
-  const icons = themeFor(vendor);
-  const rand = mulberry32(seedFrom(vendor?.id));
-  let bag = shuffledBag(icons, rand);
-  let bagIndex = 0;
-  function nextIcon() {
-    if (bagIndex >= bag.length) {
-      bag = shuffledBag(icons, rand);
-      bagIndex = 0;
-    }
-    return bag[bagIndex++];
-  }
-
-  const cells = [];
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const cellW = 100 / cols;
-      const cellH = 100 / rows;
-      const jitterX = (rand() - 0.5) * cellW * 0.7;
-      const jitterY = (rand() - 0.5) * cellH * 0.7;
-      cells.push({
-        key: `${row}-${col}`,
-        Icon: nextIcon(),
-        top: `${row * cellH + cellH / 2 + jitterY}%`,
-        left: `${col * cellW + cellW / 2 + jitterX}%`,
-        size: minSize + rand() * (maxSize - minSize),
-        rotate: Math.floor(rand() * 360),
-        opacity: MIN_OPACITY + rand() * (MAX_OPACITY - MIN_OPACITY),
-        strokeWidth: STROKE_WIDTH,
-      });
-    }
-  }
-  return cells;
-}
+// La disposición en el banner (sin solapes, sin huecos, sin vecinos iguales) vive en components/BannerIcons.jsx, que
+// mide el contenedor real.

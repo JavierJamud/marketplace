@@ -640,7 +640,7 @@ const updateVendorSchema = z.object({
   storeShippingCurrency: z.enum(["CUP", "USD", "EUR", "MXN"]).nullable().optional(),
   shippingOriginProvinceId: z.string().min(1).nullable().optional(),
   // Redes de la tienda: texto libre por red, se valida y normaliza en normalizeSocialLinks.
-  socialLinks: z.record(z.string().max(300)).nullable().optional(),
+  socialLinks: z.record(z.object({ url: z.string().max(300), enabled: z.boolean().optional() })).nullable().optional(),
 });
 
 // Envío de tienda al guardar la configuración: el fijo exige los dos precios y una moneda habilitada; "a coordinar" y "por
@@ -795,7 +795,7 @@ export async function updateMyVendor(req, res) {
       warrantyDefaultDays: data.warrantyDefaultDays,
       isPrivate,
       ...(await storeShippingData(data)),
-      socialLinks: data.socialLinks === undefined ? undefined : normalizeSocialLinks(data.socialLinks) ?? Prisma.DbNull,
+      socialLinks: data.socialLinks === undefined ? undefined : normalizeSocialLinks(data.socialLinks, vendor.socialLinks) ?? Prisma.DbNull,
     },
   });
 

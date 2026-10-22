@@ -1,8 +1,9 @@
-import { Facebook, Instagram, Youtube, Send, Globe, MessageCircle } from "lucide-react";
-import { waLink } from "../lib/whatsapp.js";
+import { Facebook, Instagram, Youtube, Send, MessageCircle } from "lucide-react";
 
-// Redes de la tienda (Vendor.socialLinks, enlaces ya validados por el servidor, ver backend lib/socialLinks.js).
-// TikTok y X no están en la librería de íconos: van como SVG propios con el mismo trazo.
+// Redes de la tienda (decisión del dueño: solo estas seis; Facebook y Messenger son el mismo botón). En la tienda se
+// muestran solo las que tienen enlace guardado y el interruptor encendido (el servidor ya filtra, ver backend
+// lib/socialLinks.js). Las líneas de cada ícono van en el color de su plataforma, sobre el círculo gris translúcido de
+// la cabecera; Instagram usa su degradado.
 function TikTokIcon(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -11,30 +12,18 @@ function TikTokIcon(props) {
     </svg>
   );
 }
-function XIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M4 4l16 16M20 4L4 20" />
-    </svg>
-  );
-}
 
-// `color`: el trazo del ícono en el color de cada plataforma (pedido del dueño). Instagram usa su degradado (IG_GRADIENT).
 export const SOCIAL_NETWORKS = [
-  { key: "facebook", label: "Facebook", Icon: Facebook, placeholder: "facebook.com/mitienda", color: "#1877F2" },
+  { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle, placeholder: "+5351234567 o wa.me/5351234567", color: "#25D366" },
+  { key: "facebook", label: "Facebook / Messenger", Icon: Facebook, placeholder: "facebook.com/mitienda o m.me/mitienda", color: "#1877F2" },
   { key: "instagram", label: "Instagram", Icon: Instagram, placeholder: "@mitienda", color: "url(#baznova-ig-gradient)" },
-  { key: "tiktok", label: "TikTok", Icon: TikTokIcon, placeholder: "@mitienda", color: "#000000" },
+  { key: "tiktok", label: "TikTok", Icon: TikTokIcon, placeholder: "@mitienda", color: "#FE2C55" },
   { key: "youtube", label: "YouTube", Icon: Youtube, placeholder: "@mitienda", color: "#FF0000" },
-  { key: "telegram", label: "Telegram", Icon: Send, placeholder: "t.me/mitienda", color: "#229ED9" },
-  { key: "x", label: "X (Twitter)", Icon: XIcon, placeholder: "@mitienda", color: "#000000" },
-  { key: "website", label: "Sitio web", Icon: Globe, placeholder: "mitienda.com", color: "#337475" },
+  { key: "telegram", label: "Telegram", Icon: Send, placeholder: "t.me/mitienda", color: "#29A9EB" },
 ];
 
-// WhatsApp no se carga aquí: sale del número de la tienda (Vendor.whatsapp).
-const WHATSAPP = { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle, color: "#25D366" };
-
-// Degradado de Instagram, definido una vez para que los íconos lo usen como trazo.
-function InstagramGradient() {
+// Degradado de Instagram, definido una vez para que el ícono lo use como trazo.
+export function InstagramGradient() {
   return (
     <svg width="0" height="0" className="absolute" aria-hidden="true" focusable="false">
       <defs>
@@ -49,27 +38,25 @@ function InstagramGradient() {
   );
 }
 
-// Íconos de las redes puestas (y WhatsApp, si la tienda tiene número); sin ninguna, no se muestra nada. Círculo blanco
-// para que el color de cada red se lea sobre cualquier color de cabecera. Botones de 36 px con un área táctil de 44 px.
-export function StoreSocialLinks({ links, whatsapp, storeName, className = "" }) {
-  const present = SOCIAL_NETWORKS.filter((n) => links?.[n.key]).map((n) => ({ ...n, href: links[n.key] }));
-  const wa = whatsapp ? waLink(whatsapp, `Hola ${storeName}, tengo una consulta sobre sus productos.`) : null;
-  if (wa) present.unshift({ ...WHATSAPP, href: wa });
+// Íconos de la cabecera de la tienda. `links`: { red: url } con solo las encendidas; sin ninguna, no se muestra nada.
+// Círculo de 36 px con un área táctil de 44 px.
+export function StoreSocialLinks({ links, storeName, className = "" }) {
+  const present = SOCIAL_NETWORKS.filter((n) => typeof links?.[n.key] === "string");
   if (!present.length) return null;
   return (
     <div className={`flex flex-wrap items-center gap-1 ${className}`}>
       {present.some((n) => n.key === "instagram") && <InstagramGradient />}
-      {present.map(({ key, label, Icon, color, href }) => (
+      {present.map(({ key, label, Icon, color }) => (
         <a
           key={key}
-          href={href}
+          href={links[key]}
           target="_blank"
           rel="noopener noreferrer nofollow"
           aria-label={`${storeName} en ${label}`}
           title={label}
           className="flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-white"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm transition-transform hover:scale-105">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 transition-colors hover:bg-white/25">
             <Icon className="h-[18px] w-[18px]" style={{ stroke: color }} aria-hidden="true" />
           </span>
         </a>
