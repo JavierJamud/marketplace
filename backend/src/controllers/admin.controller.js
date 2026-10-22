@@ -2125,7 +2125,8 @@ export async function listAdminNotifications(_req, res) {
     // Pruebas gratis de 30 días activadas en las últimas 48 h (la prueba vence a los 30 días de activarse).
     prisma.vendor.findMany({ where: { trialEndsAt: { gte: new Date(Date.now() + 28 * DAY) }, deletedAt: null }, select: { id: true, companyName: true, trialEndsAt: true }, take: 5 }),
     // Tiendas que aceptaron la prueba en las últimas 48 h y todavía no completaron los requisitos para que se active.
-    prisma.vendor.findMany({ where: { trialStartedAt: { gte: new Date(Date.now() - 2 * DAY) }, trialEndsAt: null, deletedAt: null }, select: { id: true, companyName: true, trialStartedAt: true }, orderBy: { trialStartedAt: "desc" }, take: 5 }),
+    // Sin las que ya están en Premium: ahí aceptar la oferta no cambia nada y el aviso confunde.
+    prisma.vendor.findMany({ where: { trialStartedAt: { gte: new Date(Date.now() - 2 * DAY) }, trialEndsAt: null, deletedAt: null, verificationStatus: { not: "VERIFIED" } }, select: { id: true, companyName: true, trialStartedAt: true }, orderBy: { trialStartedAt: "desc" }, take: 5 }),
     // Reportes de problemas (tickets) que el admin todavía no abrió.
     prisma.supportTicket.findMany({ where: { status: "NEW" }, select: { id: true, number: true, section: true, pagePath: true, reporterName: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5 }),
   ]);

@@ -28,7 +28,7 @@ import { getBrandSettings, getSubscriptionPricing, getTrialDays } from "./settin
 // segundo consumidor real de este mismo "avisar al admin ya" (ver lib/adminNotify.js).
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
-import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete } from "../services/trialEligibility.service.js";
+import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete, hasHadPremium } from "../services/trialEligibility.service.js";
 import { recalcVendorProductQuota, getPlanConfig, buildPlanIncludes } from "../lib/planConfig.js";
 import { resolveLegalLocation } from "../services/registrationLocation.service.js";
 import { applyPlanDowngrade } from "../services/planDowngrade.service.js";
@@ -1063,6 +1063,7 @@ export async function startMyTrialCard(req, res) {
   const vendor = await loadMyVendor(req);
   if (!vendor.trialStartedAt || vendor.trialBilling !== "CARD") throw new AppError("Primero acepta la prueba gratis con tarjeta.", 409);
   if (vendor.trialEndsAt || vendor.verificationStatus === "VERIFIED") throw new AppError("Tu prueba gratis ya está activa.", 409);
+  if (await hasHadPremium(vendor.id)) throw new AppError("La prueba gratis es solo para tiendas que nunca tuvieron Premium.", 409);
   if (!(await isTrialChecklistComplete(vendor.id))) throw new AppError("Completa todos los pasos de tu tienda antes de registrar la tarjeta.", 409);
   const pricing = await getSubscriptionPricing();
   const session = await createCardSubscriptionCheckout({ vendor, months: 1, priceUsd: pricing.cardPricePerMonthUsd, purpose: "trial", trialDays: await getTrialDays() });

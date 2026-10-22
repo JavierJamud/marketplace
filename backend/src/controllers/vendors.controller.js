@@ -28,7 +28,7 @@ import { recordLocationSuggestions } from "../services/locationSuggestions.servi
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, planAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
-import { getTrialChecklist, maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
+import { getTrialChecklist, maybeAutoActivateTrial, hasHadPremium } from "../services/trialEligibility.service.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { completenessScore } from "../lib/productRanking.js";
 
@@ -970,8 +970,10 @@ export async function getMyTrial(req, res) {
   // eligibleForOffer: nunca aceptó el trial todavía, Y (nunca lo rechazó, O
   // lo rechazó antes de hoy) — "se vuelve a mostrar, pero como mucho 1 vez
   // por día", pedido explícito.
+  // Una tienda que ya tiene o tuvo Premium (pagado o de prueba) nunca ve la oferta.
+  const hadPremium = await hasHadPremium(vendor.id);
   const eligibleForOffer =
-    !vendor.trialStartedAt && (!vendor.trialOfferDismissedAt || vendor.trialOfferDismissedAt < startOfToday);
+    !hadPremium && !vendor.trialStartedAt && (!vendor.trialOfferDismissedAt || vendor.trialOfferDismissedAt < startOfToday);
 
   const checklist = await getTrialChecklist(vendor.id);
   res.json({
@@ -985,7 +987,7 @@ export async function getMyTrial(req, res) {
       checklist,
       checklistComplete: checklist.length > 0 && checklist.every((item) => item.done),
       // Prueba con tarjeta y todos los pasos hechos: falta registrar la tarjeta en Stripe para activarla.
-      needsCard: vendor.trialBilling === "CARD" && !vendor.trialEndsAt && vendor.verificationStatus !== "VERIFIED" && checklist.length > 0 && checklist.every((item) => item.done),
+      needsCard: !hadPremium && vendor.trialBilling === "CARD" && !vendor.trialEndsAt && vendor.verificationStatus !== "VERIFIED" && checklist.length > 0 && checklist.every((item) => item.done),
     },
   });
 }
@@ -1005,6 +1007,8 @@ export async function acceptTrialOffer(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
   const { billing } = acceptTrialSchema.parse(req.body ?? {});
+  // Una pestaña vieja con la oferta abierta no puede aceptarla si la tienda ya tiene o tuvo Premium.
+  if (await hasHadPremium(vendor.id)) throw new AppError("Tu tienda ya tiene o tuvo el plan Premium: la prueba gratis es solo para tiendas nuevas.", 409);
   // Idempotente a propósito — un doble clic/doble request nunca pisa un
   // trialStartedAt que ya existía.
   if (!vendor.trialStartedAt) {

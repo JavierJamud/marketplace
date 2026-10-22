@@ -76,6 +76,23 @@ export async function missingBeforeVerification(vendorOrId) {
   return checklist.filter((item) => !item.done && !KYC_FORM_KEYS.has(item.key));
 }
 
+// La prueba gratis es para tiendas que nunca tuvieron Premium. Una que ya pagó (o ya usó su prueba) no la puede pedir ni
+// recibir: antes se le ofrecía a cualquiera sin trialStartedAt, aunque estuviera pagando, y al vencer una prueba
+// (trialEndsAt vuelve a null) el siguiente guardado de perfil la volvía a activar gratis.
+const PREMIUM_HISTORY_STATUSES = new Set(["VERIFIED", "PLAN_ENDED"]);
+
+export async function hasHadPremium(vendorId) {
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: vendorId },
+    select: { verificationStatus: true, planType: true, nextPaymentDueDate: true, stripeSubscriptionId: true, verification: { select: { paymentConfirmedAt: true } } },
+  });
+  if (!vendor) return false;
+  if (PREMIUM_HISTORY_STATUSES.has(vendor.verificationStatus) || vendor.planType === "BUSINESS") return true;
+  if (vendor.nextPaymentDueDate || vendor.stripeSubscriptionId || vendor.verification?.paymentConfirmedAt) return true;
+  const everVerified = await prisma.verificationStatusLog.findFirst({ where: { vendorId, toStatus: "VERIFIED" }, select: { id: true } });
+  return !!everVerified;
+}
+
 export async function isTrialChecklistComplete(vendorOrId) {
   const checklist = await getTrialChecklist(vendorOrId);
   return checklist.length > 0 && checklist.every((item) => item.done);
@@ -98,6 +115,7 @@ export async function maybeAutoActivateTrial(vendorId) {
   // Prueba con tarjeta: no se activa sola al completar los pasos. Falta registrar la tarjeta en Stripe (0 USD hoy) y la
   // activa el aviso de Stripe (ver activateFromCardSubscription en verification.controller.js).
   if (vendor.trialBilling === "CARD") return false;
+  if (await hasHadPremium(vendor.id)) return false;
   const complete = await isTrialChecklistComplete(vendor);
   if (!complete) return false;
   await activateVendorTrial(vendor);
