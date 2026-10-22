@@ -129,7 +129,11 @@ export function StoreCard({ vendor }) {
         )}
         <div className="mt-auto flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <StarRating value={Number(vendor.rating ?? 0)} size="h-3 w-3" showValue />
+            {vendor.reviewCount > 0 ? (
+              <StarRating value={Number(vendor.rating ?? 0)} size="h-3 w-3" showValue count={vendor.reviewCount} />
+            ) : (
+              <span className="text-[11.5px] text-outline">Sin reseñas todavía</span>
+            )}
             <span className="flex items-center gap-1 text-[12.5px] font-bold text-tertiary-accent">
               Ver <ArrowRight className="h-3.5 w-3.5" />
             </span>

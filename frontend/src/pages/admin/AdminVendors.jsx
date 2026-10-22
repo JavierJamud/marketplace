@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RatingBreakdown } from "../../components/RatingBreakdown.jsx";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -220,13 +221,17 @@ export function StatsModal({ vendorName, onClose }) {
               ["Pedidos", String(data.orderCount)],
               ["Ticket promedio", fmtCUP(Math.round(data.avgTicket))],
               ["Producto más vendido", data.topProduct ?? "Sin datos todavía"],
-              ["Calificación promedio", `${data.rating.toFixed(1)} ★`],
+              ["Calificación promedio", data.reviews?.count ? `${data.rating.toFixed(1)} ★ (${data.reviews.count} ${data.reviews.count === 1 ? "reseña" : "reseñas"})` : "Sin reseñas todavía"],
             ].map(([label, value]) => (
               <div key={label} className="flex items-center justify-between border-b border-surface-container pb-2.5 last:border-b-0">
                 <span className="text-[13px] text-outline">{label}</span>
                 <span className="text-[13.5px] font-bold text-on-surface">{value}</span>
               </div>
             ))}
+            <div className="border-t border-surface-container pt-3">
+              <h3 className="mb-2 text-[12.5px] font-bold uppercase tracking-wide text-outline">Reseñas por estrellas</h3>
+              <RatingBreakdown summary={data.reviews} />
+            </div>
           </div>
         )}
 
@@ -345,9 +350,9 @@ function VendorRow({ v }) {
         <span>{v.productCount} {v.productCount === 1 ? "producto" : "productos"}</span>
         <span>{v.orders30} {v.orders30 === 1 ? "pedido" : "pedidos"} (30 d)</span>
         {hasSales && <span className="font-semibold text-on-surface">{formatPrice(v.sales30, v.currency)}</span>}
-        {Number(v.rating) > 0 && (
+        {v.reviewCount > 0 && (
           <span className="flex items-center gap-0.5">
-            <Star className="h-3 w-3 fill-secondary-container text-secondary-container" /> {Number(v.rating).toFixed(1)}
+            <Star className="h-3 w-3 fill-secondary-container text-secondary-container" /> {Number(v.rating).toFixed(1)} ({v.reviewCount})
           </span>
         )}
         <span>{v.lastLoginAt ? `Entró ${timeAgo(v.lastLoginAt).toLowerCase()}` : "Nunca entró"}</span>
@@ -365,12 +370,13 @@ function VendorRow({ v }) {
       </div>
       <div className="hidden text-right text-[13px] font-semibold text-on-surface md:block">{hasSales ? formatPrice(v.sales30, v.currency) : <span className="font-normal text-outline">—</span>}</div>
       <div className="hidden text-right text-[13px] text-on-surface-variant md:block">
-        {Number(v.rating) > 0 ? (
-          <span className="inline-flex items-center gap-0.5">
+        {v.reviewCount > 0 ? (
+          <span className="inline-flex items-center gap-0.5" title={`${v.reviewCount} ${v.reviewCount === 1 ? "reseña" : "reseñas"}`}>
             <Star className="h-3 w-3 fill-secondary-container text-secondary-container" /> {Number(v.rating).toFixed(1)}
+            <span className="text-[11px] text-outline">({v.reviewCount})</span>
           </span>
         ) : (
-          "—"
+          <span className="text-[11.5px] text-outline">Sin reseñas</span>
         )}
       </div>
       <div className="hidden text-[13px] text-on-surface-variant md:block" title={exactDate(v.lastLoginAt)}>

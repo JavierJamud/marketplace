@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatPrice } from "../lib/format.js";
+import { StoreSocialLinks } from "./SocialLinks.jsx";
 import { Share2, MessageCircle, ShieldAlert, Heart, MapPin, Package, CalendarDays, Truck } from "lucide-react";
 import toast from "../lib/toast.jsx";
 import { api } from "../lib/api.js";
@@ -54,6 +55,8 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [reportFraudOpen, setReportFraudOpen] = useState(false);
+  // Reseñas con estrellas visibles: el desglose de la página de la tienda o, si no viene, el contador guardado.
+  const reviewTotal = v.reviewStats?.total ?? v.reviewCount ?? 0;
 
   const { data: favorites } = useQuery({
     queryKey: ["my-favorites"],
@@ -245,9 +248,16 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               </div>
             </div>
 
+            {/* Descripción en un bloque con el mismo fondo que la franja de datos de abajo (bg-black/25), redondeado como el
+                resto de las tarjetas del sitio. */}
             {v.description && (
-              <p className="mt-3 line-clamp-3 max-w-[680px] text-[13px] leading-relaxed text-white/75 sm:ml-[112px]">{v.description}</p>
+              <div className="mt-3 max-w-[680px] rounded-2xl bg-black/25 px-4 py-3 sm:ml-[112px]">
+                {/* El recorte va en el texto, no en la caja: con el relleno en el mismo elemento asomaba media cuarta línea. */}
+                <p className="line-clamp-3 text-[13px] leading-relaxed text-white/90">{v.description}</p>
+              </div>
             )}
+            {/* Redes de la tienda: solo las que la tienda puso (ver SocialLinks.jsx). */}
+            <StoreSocialLinks links={v.socialLinks} storeName={v.companyName} className="mt-2 -ml-1 sm:ml-[108px]" />
           </div>
 
           {/* Botones de acción — alineados a la derecha */}
@@ -304,12 +314,17 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
           <div className="relative border-t border-white/10 bg-black/25 pb-[52px] pt-3.5">
             <div className="container-app flex flex-wrap items-center gap-x-5 gap-y-2.5">
               {/* Rating */}
+              {/* Promedio real de las reseñas visibles; sin reseñas no se muestran estrellas (antes salía 5.0 sin ninguna). */}
               <div className="flex items-center gap-1.5">
-                <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue className="text-white" />
-                {v.reviewStats?.total > 0 && (
-                  <span className="text-[12px] text-white/90">
-                    ({v.reviewStats.total} reseña{v.reviewStats.total === 1 ? "" : "s"})
-                  </span>
+                {reviewTotal > 0 ? (
+                  <>
+                    <StarRating value={Number(v.rating)} size="h-3.5 w-3.5" showValue className="text-white" />
+                    <span className="text-[12px] text-white/90">
+                      ({reviewTotal} reseña{reviewTotal === 1 ? "" : "s"})
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[12.5px] text-white/75">Sin reseñas todavía</span>
                 )}
               </div>
 

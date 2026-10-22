@@ -14,6 +14,7 @@ import { Select } from "../../components/ui/Select.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
+import { SOCIAL_NETWORKS } from "../../components/SocialLinks.jsx";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
@@ -440,6 +441,65 @@ function StoreInfoCard() {
   );
 }
 
+// Redes de la tienda: cada una se muestra como ícono en la página pública solo si tiene enlace. Se acepta el enlace completo
+// o el usuario ("@mitienda"); el servidor comprueba que sea de esa red y lo guarda como enlace.
+const EMPTY_SOCIAL = Object.fromEntries(SOCIAL_NETWORKS.map((n) => [n.key, ""]));
+
+function SocialLinksCard() {
+  const queryClient = useQueryClient();
+  const { vendor } = useOutletContext();
+  const empty = EMPTY_SOCIAL;
+  const [links, setLinks] = useState(empty);
+  useEffect(() => {
+    if (vendor) setLinks({ ...empty, ...(vendor.socialLinks ?? {}) });
+  }, [vendor, empty]);
+  const save = useMutation({
+    mutationFn: async () => (await api.patch("/vendors/me", { socialLinks: links })).data,
+    onSuccess: ({ vendor: updated }) => {
+      toast.success("Redes guardadas.");
+      if (updated?.socialLinks !== undefined) setLinks({ ...empty, ...(updated.socialLinks ?? {}) });
+      queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
+      queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar las redes."),
+  });
+  const dirty = !!vendor && SOCIAL_NETWORKS.some((n) => (links[n.key] ?? "") !== (vendor.socialLinks?.[n.key] ?? ""));
+  useUnsavedGuard(dirty, () => save.mutateAsync());
+
+  return (
+    <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <Link2 className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Redes de tu tienda
+      </div>
+      <p className="mb-4 text-[12.5px] text-outline">
+        Pon el enlace o tu usuario. En tu tienda solo aparece el ícono de las redes que llenes, y al tocarlo el cliente va directo a tu perfil.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {SOCIAL_NETWORKS.map(({ key, label, Icon, placeholder }) => (
+          <label key={key} className="block">
+            <span className="mb-1 flex items-center gap-1.5 text-label-md text-on-surface-variant">
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {label}
+            </span>
+            <input
+              value={links[key] ?? ""}
+              onChange={(e) => setLinks((l) => ({ ...l, [key]: e.target.value }))}
+              placeholder={placeholder}
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              maxLength={300}
+              className="w-full rounded border border-outline-variant bg-surface-container-lowest px-4 py-2.5 text-body-md text-on-surface outline-none placeholder:text-outline focus:border-primary-container"
+            />
+          </label>
+        ))}
+      </div>
+      <Button className="mt-4 rounded-xl font-bold" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>
+        {save.isPending ? "Guardando..." : "Guardar redes"}
+      </Button>
+    </div>
+  );
+}
+
 function resolveVendorImg(path) {
   if (!path) return null;
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
@@ -598,6 +658,7 @@ export default function VendorProfile() {
       <PasswordCard />
       <OwnerNameCard />
       <StoreInfoCard />
+      <SocialLinksCard />
       <StoreBrandingCard />
       <ChangeRequestCard />
       <KycDocumentsCard />

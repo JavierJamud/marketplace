@@ -68,8 +68,9 @@ export function ReviewCard({ r, vendorName, vendorSlug, showContext = false, onI
       </Link>
     ) : (
       <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-surface-container px-2.5 py-1 text-[12px] font-semibold text-on-surface-variant">
-        {r.product ? <Package className="h-3 w-3 flex-shrink-0" aria-hidden="true" /> : <Store className="h-3 w-3 flex-shrink-0" aria-hidden="true" />}
-        <span className="truncate">{r.product ? r.product.name : "Sobre la tienda"}</span>
+        {r.product || r.productName ? <Package className="h-3 w-3 flex-shrink-0" aria-hidden="true" /> : <Store className="h-3 w-3 flex-shrink-0" aria-hidden="true" />}
+        {/* Producto ya borrado: la reseña sigue contando para la tienda, con el nombre que tenía. */}
+        <span className="truncate">{r.product ? r.product.name : r.productName ? `${r.productName} (ya no está a la venta)` : "Sobre la tienda"}</span>
       </span>
     )
   ) : null;

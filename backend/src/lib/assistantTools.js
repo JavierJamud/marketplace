@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ratingSummary } from "./ratings.js";
 import { prisma } from "./prisma.js";
 import { rawSalesSeries, fillSeriesGaps, resolveSeriesRange } from "./salesSeries.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
@@ -192,19 +193,24 @@ const VENDOR_TOOLS = {
     },
   },
   resenas: {
-    description: "Valoración de TU tienda y sus últimas reseñas visibles.",
+    description: "Valoración de TU tienda: promedio, cuántas reseñas hay de cada estrella, las últimas y las de 1 a 3 estrellas que bajan el promedio (con su producto y si ya las respondiste).",
     args: '{ "limite": 1-8 }',
     schema: z.object({ limite: limitSchema(8, 5) }),
     async run({ limite }, { vendorId }) {
       const where = { vendorId, rating: { not: null }, isHidden: false };
-      const [agg, latest] = await Promise.all([
-        prisma.review.aggregate({ where, _avg: { rating: true }, _count: { rating: true } }),
-        prisma.review.findMany({ where, orderBy: { createdAt: "desc" }, take: limite, select: { rating: true, comment: true, createdAt: true, vendorReply: true } }),
+      const select = { rating: true, comment: true, createdAt: true, vendorReply: true, productName: true, product: { select: { name: true } } };
+      const toRow = (r) => ({ estrellas: r.rating, producto: r.product?.name ?? r.productName ?? "la tienda en general", comentario: clip(r.comment, 200), respondida: !!r.vendorReply, fecha: r.createdAt.toISOString().slice(0, 10) });
+      const [summary, latest, low] = await Promise.all([
+        ratingSummary({ vendorId }),
+        prisma.review.findMany({ where, orderBy: { createdAt: "desc" }, take: limite, select }),
+        prisma.review.findMany({ where: { ...where, rating: { lte: 3, not: null } }, orderBy: { createdAt: "desc" }, take: limite, select }),
       ]);
       return {
-        promedio: agg._avg.rating ? Math.round(agg._avg.rating * 100) / 100 : null,
-        total: agg._count.rating,
-        ultimas: latest.map((r) => ({ estrellas: r.rating, comentario: clip(r.comment, 200), respondida: !!r.vendorReply, fecha: r.createdAt.toISOString().slice(0, 10) })),
+        promedio: summary.count ? summary.average : null,
+        total: summary.count,
+        porEstrellas: summary.breakdown,
+        ultimas: latest.map(toRow),
+        queBajanElPromedio: low.map(toRow),
       };
     },
   },

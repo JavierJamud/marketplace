@@ -1,4 +1,5 @@
 import { assertVendorUnique } from "../services/vendorUniqueness.service.js";
+import { ratingSummary } from "../lib/ratings.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
@@ -420,7 +421,8 @@ function vendorsOrderBy(sort, dir) {
     recent: [{ createdAt: dir }],
     name: [{ companyName: dir }],
     products: [{ products: { _count: dir } }],
-    rating: [{ rating: dir }],
+    // A igual promedio, primero la que tiene más reseñas.
+    rating: [{ rating: dir }, { reviewCount: dir }],
     lastLogin: [{ user: { lastLoginAt: { sort: dir, nulls: "last" } } }],
   };
   return [...map[sort], { id: "asc" }];
@@ -843,6 +845,8 @@ export async function getVendorStats(req, res) {
       avgTicket: orderCount > 0 ? salesTotal / orderCount : 0,
       topProduct: topItems[0]?.name ?? null,
       rating: Number(vendor.rating),
+      // Calificación real: cantidad y desglose de 5 a 1 estrellas (ver lib/ratings.js).
+      reviews: await ratingSummary({ vendorId: vendor.id }),
     },
   });
 }

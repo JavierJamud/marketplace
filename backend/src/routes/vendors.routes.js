@@ -61,6 +61,8 @@ router.get("/me/change-request", authenticate, requireRole("VENDOR"), vendorsCon
 router.get("/change-request/:id/file/:type", authenticate, vendorsController.getVendorChangeRequestFile);
 // Bloque 183: sección "resumen" (dashboard).
 router.get("/me/dashboard", authenticate, requireVendorAccess("resumen"), vendorsController.getDashboard);
+// Calificación de la tienda y las reseñas que la bajan (inicio del panel).
+router.get("/me/rating", authenticate, requireVendorAccess("resumen"), vendorsController.getMyRating);
 // Bloque 194: gráficas/analíticas ampliadas del Dashboard — endpoint
 // separado del de arriba a propósito (ver el comentario largo en
 // getDashboardAnalytics, vendors.controller.js).

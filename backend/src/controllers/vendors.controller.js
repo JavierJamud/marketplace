@@ -1,4 +1,7 @@
 import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
+import { Prisma } from "@prisma/client";
+import { normalizeSocialLinks } from "../lib/socialLinks.js";
+import { ratingSummary, ratingScore } from "../lib/ratings.js";
 import { fixedShippingError } from "../lib/shipping.js";
 import { touchStoreVisit } from "../services/loyalty.service.js";
 import { toPublicVendor } from "../lib/publicVendor.js";
@@ -481,7 +484,8 @@ export async function listVendors(req, res) {
   // en la propia query (es un enum de 8 valores, no un booleano), se
   // reordena acá con el mismo criterio de siempre. Dentro de cada grupo manda el orden elegido (el de base es "recientes").
   const verifiedFirst = (a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0);
-  const secondary = sortBy === "rating" ? (a, b) => Number(b.rating) - Number(a.rating) : sortBy === "products" ? (a, b) => b._count.products - a._count.products : () => 0;
+  // "Mejor valoradas": puntaje ponderado (promedio + cantidad de reseñas), no el promedio a secas (ver lib/ratings.js).
+  const secondary = sortBy === "rating" ? (a, b) => ratingScore(b.rating, b.reviewCount) - ratingScore(a.rating, a.reviewCount) : sortBy === "products" ? (a, b) => b._count.products - a._count.products : () => 0;
   vendors.sort((a, b) => verifiedFirst(a, b) || secondary(a, b));
 
   // ownerName es privado — ver nota en getVendorBySlug.
@@ -635,6 +639,8 @@ const updateVendorSchema = z.object({
   storeShippingOther: z.number().min(0).max(1_000_000).nullable().optional(),
   storeShippingCurrency: z.enum(["CUP", "USD", "EUR", "MXN"]).nullable().optional(),
   shippingOriginProvinceId: z.string().min(1).nullable().optional(),
+  // Redes de la tienda: texto libre por red, se valida y normaliza en normalizeSocialLinks.
+  socialLinks: z.record(z.string().max(300)).nullable().optional(),
 });
 
 // Envío de tienda al guardar la configuración: el fijo exige los dos precios y una moneda habilitada; "a coordinar" y "por
@@ -789,6 +795,7 @@ export async function updateMyVendor(req, res) {
       warrantyDefaultDays: data.warrantyDefaultDays,
       isPrivate,
       ...(await storeShippingData(data)),
+      socialLinks: data.socialLinks === undefined ? undefined : normalizeSocialLinks(data.socialLinks) ?? Prisma.DbNull,
     },
   });
 
@@ -988,6 +995,22 @@ export async function uploadVendorLogo(req, res) {
 // Premium): 4 endpoints nuevos para el ciclo de vida del trial, todos
 // "/me/trial*" — mismo criterio de auth que uploadVendorLogo (solo el
 // dueño/admin de la tienda, nunca un usuario de sistema, ver vendors.routes.js).
+// GET /vendors/me/rating: calificación real de la tienda (promedio, cantidad, desglose) y las últimas reseñas de 1 a 3
+// estrellas, que son las que bajan el promedio, para que la tienda sepa qué responder o mejorar.
+export async function getMyRating(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  const [summary, low] = await Promise.all([
+    ratingSummary({ vendorId: vendor.id }),
+    prisma.review.findMany({
+      where: { vendorId: vendor.id, isHidden: false, rating: { lte: 3, not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: { id: true, rating: true, title: true, comment: true, createdAt: true, vendorReply: true, productName: true, product: { select: { name: true } } },
+    }),
+  ]);
+  res.json({ rating: { ...summary, low: low.map((r) => ({ ...r, productName: r.product?.name ?? r.productName ?? null, product: undefined })) } });
+}
+
 export async function getMyTrial(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);

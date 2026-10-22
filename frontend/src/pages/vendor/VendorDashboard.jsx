@@ -1,4 +1,5 @@
 import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
+import { RatingBreakdown } from "../../components/RatingBreakdown.jsx";
 import { orderTotalLabel } from "../../lib/shipping.js";
 import { useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
@@ -537,6 +538,8 @@ export default function VendorDashboard() {
         </div>
       )}
 
+      <StoreRatingCard />
+
       {/* ── Fila 2: tabla de pedidos (2 columnas) + métrica grande con tarjeta anidada ── */}
       <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">
         <div className={`${CARD} p-6`}>
@@ -872,6 +875,56 @@ export default function VendorDashboard() {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Calificación real de la tienda (promedio, cantidad y desglose) y las últimas reseñas de 1 a 3 estrellas, que son las que
+// bajan el promedio. Ver lib/ratings.js en el servidor.
+function StoreRatingCard() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["vendor-rating"],
+    queryFn: async () => (await api.get("/vendors/me/rating")).data.rating,
+    staleTime: 60_000,
+  });
+  return (
+    <div className={`${CARD} mb-5 p-6`}>
+      <CardHeader icon={Star} tone="orange" title="Calificación de tu tienda" subtitle="Lo que ven tus clientes, según sus reseñas" to="/vendedor/resenas" linkLabel="Ver reseñas" />
+      <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+        {isLoading ? (
+          <p className="text-[12.5px] text-on-surface-variant">Cargando...</p>
+        ) : isError ? (
+          <p className="text-[12.5px] text-error">No se pudo cargar tu calificación.</p>
+        ) : (
+          <>
+            <RatingBreakdown summary={data} />
+            <div>
+              <div className="mb-2 text-[12px] font-bold text-on-surface-variant">Reseñas que bajan tu promedio</div>
+              {data?.low?.length ? (
+                <ul className="flex flex-col gap-2">
+                  {data.low.map((r) => (
+                    <li key={r.id} className="rounded-xl bg-surface-container/60 p-3 text-[12.5px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-on-surface">{r.rating} de 5</span>
+                        <span className="text-[11px] text-outline">{new Date(r.createdAt).toLocaleDateString("es-CU")}</span>
+                      </div>
+                      {r.productName && <div className="text-[11.5px] text-outline">{r.productName}</div>}
+                      {r.comment && <p className="mt-1 line-clamp-2 text-on-surface-variant">{r.comment}</p>}
+                      {!r.vendorReply && (
+                        <Link to={`/vendedor/resenas#resena-${r.id}`} className="mt-1 inline-block text-[12px] font-semibold text-tertiary-accent underline">
+                          Responder
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12.5px] text-on-surface-variant">{data?.count ? "Ninguna reseña de 3 estrellas o menos. Buen trabajo." : "Cuando tengas reseñas, aquí verás las que bajan tu promedio."}</p>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

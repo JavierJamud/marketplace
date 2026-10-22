@@ -1261,6 +1261,12 @@ model Vendor {
   // llegar a los 90 días de suspensión automática).
   lastInactivityEmailAt DateTime?
   rating      Decimal  @default(0) @db.Decimal(2, 1)
+  // Cantidad de reseñas con estrellas visibles (las mismas del promedio `rating`). Sin reseñas no se muestran estrellas:
+  // antes una tienda podía quedar con 5.0 y ninguna reseña (ver lib/ratings.js).
+  reviewCount Int      @default(0)
+  // Redes de la tienda ({ facebook, instagram, tiktok, youtube, telegram, x, website }, enlaces https ya validados, ver
+  // lib/socialLinks.js). Solo las puestas se muestran como íconos en la cabecera de la tienda.
+  socialLinks Json?
   salesCount  Int      @default(0)
   timezone    String   @default("America/Havana")
   // Bloque 21: aiDocument pasa a ser el nombre generado por el servidor
@@ -3101,7 +3107,11 @@ model Review {
   reportResolvedById String?
   reportResolvedAt   DateTime?
 
-  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Nombre del producto al reseñarlo: si el producto se borra, la reseña sigue contando para la tienda (antes se borraba
+  // en cascada y una tienda podía hacer desaparecer sus reseñas malas borrando el producto).
+  productName String?
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   reportedBy       User? @relation("ReviewReportedBy", fields: [reportedById], references: [id], onDelete: SetNull)

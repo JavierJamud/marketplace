@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recalcVendorRating, recalcProductRating } from "../lib/ratings.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
@@ -104,11 +105,14 @@ export async function createReview(req, res) {
     });
 
     const images = (req.files ?? []).map((f) => `/uploads/reviews/${f.filename}`);
+    // Nombre del producto en la reseña: sigue mostrándose aunque después se borre el producto.
+    const reviewedProduct = data.productId ? await prisma.product.findUnique({ where: { id: data.productId }, select: { name: true } }) : null;
 
     const review = await prisma.review.create({
       data: {
         vendorId: data.vendorId,
         productId: data.productId,
+        productName: reviewedProduct?.name ?? null,
         userId: req.user.id,
         authorName: author?.fullName ?? `Cliente ${siteName}`,
         rating: data.rating,
@@ -123,15 +127,8 @@ export async function createReview(req, res) {
     // sobre reseñas visibles — una oculta por el admin no debe seguir
     // empujando el promedio público).
     if (data.rating) {
-      const agg = await prisma.review.aggregate({
-        where: { vendorId: data.vendorId, rating: { not: null }, isHidden: false },
-        _avg: { rating: true },
-      });
-      await prisma.vendor.update({
-        where: { id: data.vendorId },
-        data: { rating: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0 },
-      });
-      if (data.productId) await recalculateProductRating(data.productId);
+      await recalcVendorRating(data.vendorId);
+      if (data.productId) await recalcProductRating(data.productId);
     }
 
     logActivity({
@@ -341,36 +338,9 @@ export async function listAllReviews(_req, res) {
   res.json({ reviews });
 }
 
-async function recalculateVendorRating(vendorId) {
-  const agg = await prisma.review.aggregate({
-    where: { vendorId, rating: { not: null }, isHidden: false },
-    _avg: { rating: true },
-  });
-  await prisma.vendor.update({
-    where: { id: vendorId },
-    data: { rating: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0 },
-  });
-}
-
-// Bloque 116 (pedido explícito): mismo criterio que recalculateVendorRating
-// de arriba, pero acotado a las reseñas de ESTE producto puntual (no todas
-// las de la tienda) — es lo que alimenta las estrellas + "(N)" de
-// ProductCard.jsx. También guarda reviewCount (a diferencia del rating de
-// tienda, acá la tarjeta necesita mostrar la cantidad, no solo el promedio).
-async function recalculateProductRating(productId) {
-  const agg = await prisma.review.aggregate({
-    where: { productId, rating: { not: null }, isHidden: false },
-    _avg: { rating: true },
-    _count: { rating: true },
-  });
-  await prisma.product.update({
-    where: { id: productId },
-    data: {
-      rating: agg._avg.rating ? Math.round(agg._avg.rating * 10) / 10 : 0,
-      reviewCount: agg._count.rating,
-    },
-  });
-}
+// Promedio y cantidad de reseñas: un solo cálculo para todo el sitio (ver lib/ratings.js).
+const recalculateVendorRating = recalcVendorRating;
+const recalculateProductRating = recalcProductRating;
 
 const toggleHiddenSchema = z.object({ isHidden: z.boolean() });
 
