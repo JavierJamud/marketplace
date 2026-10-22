@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { env } from "../config/env.js";
 import { renderStoreOgImage } from "../lib/ogImage.js";
 
@@ -19,7 +20,7 @@ const IMAGE_CACHE_MAX = 200;
 const imageCache = new Map();
 
 export async function renderStoreOgImagePng(req, res) {
-  const { slug } = req.params;
+  const slug = await resolveVendorSlug(req.params.slug);
   const cached = imageCache.get(slug);
   let png = cached && cached.expires > Date.now() ? cached.png : null;
 

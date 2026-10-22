@@ -80,6 +80,12 @@ export default function Product() {
     refetchOnWindowFocus: true,
   });
 
+  // Enlace anterior de la tienda: la dirección pasa al enlace actual (mismo criterio que Store.jsx).
+  const currentVendorSlug = data?.product?.vendor?.slug;
+  useEffect(() => {
+    if (currentVendorSlug && currentVendorSlug !== vendorSlug) navigate(`/producto/${currentVendorSlug}/${productSlug}${window.location.search}${window.location.hash}`, { replace: true });
+  }, [currentVendorSlug, vendorSlug, productSlug, navigate]);
+
   // Reinicia la miniatura seleccionada al navegar a otro producto (ej. desde
   // "También te puede interesar") — la ruta cambia pero el componente no se
   // remonta, así que el índice viejo podía apuntar a otra foto. La talla

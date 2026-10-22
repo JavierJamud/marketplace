@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
@@ -85,7 +86,7 @@ async function buildProductWhere(partnerId, f, opts = {}) {
     currency: f.currency,
     paymentMethods: f.payment ? { hasSome: f.payment.split(",").map((s) => s.trim()).filter(Boolean) } : undefined,
   };
-  if (f.storeSlug) where.vendor = { ...base.vendor, slug: f.storeSlug };
+  if (f.storeSlug) where.vendor = { ...base.vendor, slug: await resolveVendorSlug(f.storeSlug) };
   if (f.onlyVerified) where.vendor = { ...where.vendor, verificationStatus: "VERIFIED" };
   return where;
 }
@@ -231,7 +232,9 @@ export async function listStores(req, res) {
   res.json({ data: rows.map((v) => storeDto(v, { productCount: v._count.products })), meta: meta(f, total) });
 }
 
-async function findStore(partnerId, slug) {
+async function findStore(partnerId, requestedSlug) {
+  // Un socio puede tener guardado un enlace anterior de la tienda: se acepta y la respuesta trae el actual.
+  const slug = await resolveVendorSlug(requestedSlug);
   const store = await prisma.vendor.findFirst({
     where: { ...storeWhere(partnerId), slug },
     include: { ...storeInclude, ...productCountSelect, schedules: true },

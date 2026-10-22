@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { releaseVendorSlugData } from "./vendorSlug.js";
 
 // Bloque 211: un solo lugar para el estado final de "cuenta eliminada" —
 // reusado por el borrado instantáneo que dispara un admin
@@ -27,7 +28,8 @@ export async function finalizeUserDeletion(userId) {
       data: { deletedAt: now, isSuspended: true, email: anonymizedEmail },
     }),
     ...(user.vendor
-      ? [prisma.vendor.update({ where: { id: user.vendor.id }, data: { deletedAt: now, isBlocked: true } })]
+      ? // La tienda suelta su enlace (/tienda/<slug>): una nueva con el mismo nombre lo puede usar (ver lib/vendorSlug.js).
+        [prisma.vendor.update({ where: { id: user.vendor.id }, data: { deletedAt: now, isBlocked: true, ...releaseVendorSlugData(user.vendor.id) } })]
       : []),
     ...(user.vendorStaffProfile
       ? [prisma.vendorStaff.update({ where: { id: user.vendorStaffProfile.id }, data: { isActive: false } })]

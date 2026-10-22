@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import jwt from "jsonwebtoken";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -422,7 +423,9 @@ export async function getCartStock(req, res) {
 }
 
 export async function getProductBySlug(req, res) {
-  const { vendorSlug, productSlug } = req.params;
+  const { productSlug } = req.params;
+  // Enlace anterior de la tienda: el producto se encuentra igual (la página pasa la dirección al enlace actual).
+  const vendorSlug = await resolveVendorSlug(req.params.vendorSlug);
 
   const vendor = await prisma.vendor.findUnique({ where: { slug: vendorSlug }, include: { schedules: true } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Producto no encontrado.", 404);

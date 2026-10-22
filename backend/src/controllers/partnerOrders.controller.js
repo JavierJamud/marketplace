@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { placeOrder } from "./orders.controller.js";
@@ -56,7 +57,8 @@ function consumeOrderSlot(keyId) {
   return true;
 }
 
-async function visibleStore(partnerId, slug) {
+async function visibleStore(partnerId, requestedSlug) {
+  const slug = await resolveVendorSlug(requestedSlug);
   const store = await prisma.vendor.findFirst({
     where: { slug, ...visibleVendorWhere(partnerId) },
     include: { locations: { select: { provinceId: true, countryId: true } }, deliveryCountries: { select: { countryId: true } }, schedules: true },

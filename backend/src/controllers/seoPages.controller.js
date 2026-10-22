@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { env } from "../config/env.js";
 import { getBrandSettings } from "./settings.controller.js";
 
@@ -130,7 +131,9 @@ function notFound(res, siteName) {
 const money = (n, cur) => `${Number(n).toLocaleString("es-CU")} ${cur}`;
 
 export async function renderStorePage(req, res) {
-  const { slug } = req.params;
+  // Enlace anterior de la tienda: redirección permanente al actual (es otra dirección, no hay bucle).
+  const slug = await resolveVendorSlug(req.params.slug);
+  if (slug !== req.params.slug) return res.redirect(301, `${ORIGIN}/tienda/${encodeURIComponent(slug)}`);
   const brand = await getBrandSettings();
   const siteName = brand.siteName || "Baznova";
   const canonical = `${ORIGIN}/tienda/${encodeURIComponent(slug)}`;
@@ -203,7 +206,9 @@ ${items ? `<h2>Productos de ${esc(vendor.companyName)}</h2>\n<ul>\n${items}\n</u
 }
 
 export async function renderProductPage(req, res) {
-  const { vendorSlug, productSlug } = req.params;
+  const { productSlug } = req.params;
+  const vendorSlug = await resolveVendorSlug(req.params.vendorSlug);
+  if (vendorSlug !== req.params.vendorSlug) return res.redirect(301, `${ORIGIN}/producto/${encodeURIComponent(vendorSlug)}/${encodeURIComponent(productSlug)}`);
   const brand = await getBrandSettings();
   const siteName = brand.siteName || "Baznova";
   const canonical = `${ORIGIN}/producto/${encodeURIComponent(vendorSlug)}/${encodeURIComponent(productSlug)}`;

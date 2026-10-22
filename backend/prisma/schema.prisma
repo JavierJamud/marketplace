@@ -1115,6 +1115,9 @@ model Vendor {
   // nunca se expone en los endpoints públicos de tienda (ver vendors.controller.js).
   ownerName   String?
   slug        String   @unique
+  // Enlaces anteriores de la tienda (/tienda/<slug>): siguen funcionando y llevan al actual. Hoy se llenan al limpiar los
+  // enlaces que quedaron con un código al final (ver lib/vendorSlug.js).
+  previousSlugs String[] @default([])
   description String?
   whatsapp    String
   email       String?

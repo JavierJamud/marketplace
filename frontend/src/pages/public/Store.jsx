@@ -344,6 +344,12 @@ export default function Store() {
     queryFn: async () => (await api.get(`/vendors/${slug}`)).data.vendor,
   });
 
+  // Enlace anterior de la tienda (el servidor la encontró igual): la dirección pasa al enlace actual, sin sumar un paso al
+  // botón de volver.
+  useEffect(() => {
+    if (data?.slug && data.slug !== slug) navigate(`/tienda/${data.slug}${window.location.search}${window.location.hash}`, { replace: true });
+  }, [data?.slug, slug, navigate]);
+
   // Tracking mínimo para "clientes potenciales" del dashboard de vendedor —
   // solo clientes logueados, una vez por visita a la tienda, sin bloquear la
   // UI si falla.

@@ -10,7 +10,7 @@ import { KYC_UPLOAD_DIR } from "./verification.controller.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
-import { slugify } from "../utils/slugify.js";
+import { pickVendorSlug, resolveVendorSlug } from "../lib/vendorSlug.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getVendorInsights } from "../services/vendorInsights.service.js";
 import { searchVendorPanel } from "../services/vendorSearch.service.js";
@@ -228,9 +228,8 @@ export async function createVendor(req, res) {
   if (data.currency) await assertCurrencyAllowed(data.currency);
   data.currency = data.currency ?? "USD";
 
-  let slug = slugify(data.companyName);
-  const slugTaken = await prisma.vendor.findUnique({ where: { slug } });
-  if (slugTaken) slug = `${slug}-${Date.now().toString(36)}`;
+  // Nombre limpio; si se repite, -2, -3... (antes un código de la hora, ver lib/vendorSlug.js).
+  const slug = await pickVendorSlug(data.companyName);
 
   // Restaurantes arrancan con el Panel de vendedor como destino de pedidos
   // (no WhatsApp) — pueden cambiarlo después desde VendorSettings.jsx.
@@ -287,7 +286,8 @@ export async function createVendor(req, res) {
 }
 
 export async function getVendorBySlug(req, res) {
-  const { slug } = req.params;
+  // Un enlace anterior de la tienda trae la tienda igual; la página cambia la dirección al enlace actual.
+  const slug = await resolveVendorSlug(req.params.slug);
   // Bloque 52: chequeo perezoso ANTES de leer — mismo criterio que
   // expireStaleOffers en offers.controller.js, así la sección "Ofertas" de
   // Store.jsx nunca muestra una vencida que todavía no pasó por este check.
