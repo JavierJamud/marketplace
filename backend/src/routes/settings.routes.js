@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as settingsController from "../controllers/settings.controller.js";
+import { publicCache } from "../middleware/publicCache.js";
 
 const router = Router();
 
@@ -8,5 +9,8 @@ router.get("/", settingsController.getSettings);
 
 // Público: estado del modo mantenimiento (siempre disponible, también durante el mantenimiento).
 router.get("/maintenance", settingsController.getMaintenance);
+
+// Público: países activos y categorías disponibles (pantalla de ingreso). Cambia poco: 5 minutos en memoria.
+router.get("/stats", publicCache(5 * 60 * 1000), settingsController.getPublicStats);
 
 export default router;

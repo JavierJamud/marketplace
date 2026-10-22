@@ -148,8 +148,10 @@ function RegisterAppStep({ onDone }) {
   );
 }
 
-function AccountShell({ provinceCount, mode = "customer", children }) {
+function AccountShell({ mode = "customer", children }) {
   const { siteName, logoUrl } = usePlatformSettings();
+  // Cifras reales (backend getPublicStats): países activos en el admin y categorías para abrir tiendas y comprar.
+  const { data: stats } = useQuery({ queryKey: ["public-stats"], queryFn: async () => (await api.get("/settings/stats")).data, staleTime: 5 * 60 * 1000 });
   const copy = SHELL_COPY[mode];
   return (
     <div className="min-h-dvh animate-fade-up bg-background lg:grid lg:grid-cols-2">
@@ -171,11 +173,9 @@ function AccountShell({ provinceCount, mode = "customer", children }) {
         <p className="mb-8 max-w-sm text-body-md text-white/60">{copy.subtitle}</p>
         {copy.showStats && (
           <div className="flex gap-8">
-            <BrandStat value={provinceCount ?? "…"} label="provincias" />
-            {/* comisión y vendedores: todavía no hay un endpoint de estadísticas
-                públicas — valores de referencia, conectar a datos reales cuando exista. */}
+            <BrandStat value={stats?.countries ?? "…"} label={stats?.countries === 1 ? "país" : "países"} />
             <BrandStat value="0%" label="comisión por venta" />
-            <BrandStat value="300+" label="vendedores" />
+            <BrandStat value={stats?.categories ?? "…"} label={stats?.categories === 1 ? "categoría" : "categorías"} />
           </div>
         )}
       </div>
@@ -433,13 +433,6 @@ export default function Account({ mode = "customer" }) {
   // ubicación.
   // Bloque 293: la tienda se registra en 4 pasos (datos, contraseña, tienda, ubicación) para que el formulario no sea tan largo.
   const totalSteps = accountType === "vendor" ? 4 : 3;
-
-  // Bloque 20: siempre habilitada (no solo para el paso de ubicación) — el
-  // panel de marca usa provinces.length como stat real de "provincias".
-  const { data: provinces } = useQuery({
-    queryKey: ["provinces"],
-    queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
-  });
 
   // Bloque 244: los selectores de país → provincia → municipio (y el texto
   // manual cuando no aparece el suyo) viven en LocationPicker, compartido por
@@ -980,7 +973,7 @@ export default function Account({ mode = "customer" }) {
   // mismo patrón visual que el paso "forgot-code" de abajo.
   if (view === "two-factor") {
     return (
-      <AccountShell provinceCount={provinces?.length} mode={mode}>
+      <AccountShell mode={mode}>
         <div key={view} className="animate-step-in">
           <h1 className="mb-2 text-headline-md text-on-surface">Verificación en dos pasos</h1>
           {twoFactorMethod === "totp" ? (
@@ -1043,7 +1036,7 @@ export default function Account({ mode = "customer" }) {
   // patrón visual que "two-factor"/"forgot-code" de arriba/abajo.
   if (view === "register-app") {
     return (
-      <AccountShell provinceCount={provinces?.length} mode={mode}>
+      <AccountShell mode={mode}>
         <RegisterAppStep onDone={() => navigate(isSafeNextPath ? nextPath : "/cuenta/panel")} />
       </AccountShell>
     );
@@ -1051,7 +1044,7 @@ export default function Account({ mode = "customer" }) {
 
   if (view === "register-verify") {
     return (
-      <AccountShell provinceCount={provinces?.length} mode={mode}>
+      <AccountShell mode={mode}>
         <div key={view} className="animate-step-in">
           <h1 className="mb-2 text-headline-md text-on-surface">{accountCreated ? "Falta crear tu tienda" : "Confirma tu correo"}</h1>
           {accountCreated ? (
@@ -1113,7 +1106,7 @@ export default function Account({ mode = "customer" }) {
 
   if (view.startsWith("forgot-")) {
     return (
-      <AccountShell provinceCount={provinces?.length} mode={mode}>
+      <AccountShell mode={mode}>
         <div key={view} className="animate-step-in">
           {view === "forgot-email" && (
             <>
@@ -1182,7 +1175,7 @@ export default function Account({ mode = "customer" }) {
   }
 
   return (
-    <AccountShell provinceCount={provinces?.length} mode={mode}>
+    <AccountShell mode={mode}>
       {/* /admin/ingresar es la única que nunca ofrece registro (ver
           comentario arriba del componente) — ahí no tiene sentido mostrar
           este toggle. */}

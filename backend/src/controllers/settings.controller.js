@@ -658,3 +658,13 @@ export async function getAdminAiProviderHealth(req, res) {
   const health = await getModelHealthRows();
   res.json({ health });
 }
+
+// Cifras públicas del panel de bienvenida (Account.jsx): países activos en el admin (todos, tengan tiendas o no) y
+// categorías de negocio disponibles para abrir una tienda y comprar. Solo números reales de la base, nada escrito a mano.
+export async function getPublicStats(_req, res) {
+  const [countries, categories] = await Promise.all([
+    prisma.country.count({ where: { isActive: true } }),
+    prisma.businessCategory.count({ where: { active: true } }),
+  ]);
+  res.json({ countries, categories });
+}
