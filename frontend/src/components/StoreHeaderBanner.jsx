@@ -257,7 +257,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               </div>
             )}
             {/* Redes de la tienda: solo las que la tienda puso (ver SocialLinks.jsx). */}
-            <StoreSocialLinks links={v.socialLinks} storeName={v.companyName} className="mt-2 -ml-1 sm:ml-[108px]" />
+            <StoreSocialLinks links={v.socialLinks} whatsapp={v.whatsapp} storeName={v.companyName} className="mt-2 -ml-1 sm:ml-[108px]" />
           </div>
 
           {/* Botones de acción — alineados a la derecha */}

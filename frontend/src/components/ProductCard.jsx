@@ -1,4 +1,3 @@
-import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Flame, Truck } from "lucide-react";
 import { api } from "../lib/api.js";
@@ -125,7 +124,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
       className="group flex h-full flex-col overflow-hidden rounded-[22px] bg-surface-container-lowest shadow-[0_1px_3px_rgba(27,27,29,0.07),0_1px_2px_rgba(27,27,29,0.05)] transition-shadow hover:shadow-lg"
     >
       <div className="p-[2px] pb-0">
-        <NotchedFrame category={product.category?.name}>
+        <div className="relative aspect-[7/4] w-full overflow-hidden rounded-[20px] border border-dashed border-outline-variant bg-surface-container">
           {/* Agotado: el aviso va sobre la foto (misma esquina del descuento,
               que ahí no tiene sentido) y la foto se pasa a grises. */}
           {isOutOfStock ? (
@@ -177,10 +176,11 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
           ) : (
             <div className="flex h-full w-full items-center justify-center text-label-sm text-outline">Sin foto</div>
           )}
-        </NotchedFrame>
+        </div>
       </div>
       <div className="flex flex-1 flex-col p-3 pt-2">
-        {/* La categoría ya no va aquí (le quitaba espacio a la tienda y al nombre): va en la muesca de la foto. */}
+        {/* Decisión del dueño: la categoría del producto no va en la tarjeta (le quitaba espacio al nombre); se ve al abrir
+            el producto. */}
         {!hideVendor && (
           <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[11.5px] font-bold text-tertiary-accent">{v?.companyName}</span>
@@ -257,69 +257,5 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
         </div>
       </div>
     </Link>
-  );
-}
-
-// Marco de la foto con muesca (Modelo Muesca, elegido por el dueño): la esquina inferior derecha de la foto tiene un hueco
-// donde va la categoría, fuera de la imagen pero a su altura. El borde derecho baja hasta la categoría, pasa recto por
-// encima de ella, baja y vuelve al borde de la foto: 6 esquinas redondeadas. El contorno se calcula con el tamaño real del
-// marco y de la etiqueta. Sin categoría es el marco de siempre. Si el navegador no recorta con path(), la etiqueta lleva el
-// fondo de la tarjeta y tapa esa esquina de la foto, así que se ve igual.
-const NOTCH_OUTER = 20;
-const NOTCH_INNER = 8;
-
-function notchPath(w, h, nw, nh) {
-  const R = NOTCH_OUTER, r = NOTCH_INNER;
-  return `M ${R} 0 H ${w - R} Q ${w} 0 ${w} ${R} V ${h - nh - r} Q ${w} ${h - nh} ${w - r} ${h - nh} H ${w - nw + r} Q ${w - nw} ${h - nh} ${w - nw} ${h - nh + r} V ${h - r} Q ${w - nw} ${h} ${w - nw - r} ${h} H ${R} Q 0 ${h} 0 ${h - R} V ${R} Q 0 0 ${R} 0 Z`;
-}
-
-const supportsPathClip = typeof CSS !== "undefined" && CSS.supports?.("clip-path", 'path("M0 0")');
-
-function NotchedFrame({ category, children }) {
-  const frameRef = useRef(null);
-  const labelRef = useRef(null);
-  const [path, setPath] = useState(null);
-
-  useLayoutEffect(() => {
-    const frame = frameRef.current;
-    const label = labelRef.current;
-    if (!category || !frame || !label || typeof ResizeObserver === "undefined") return undefined;
-    const measure = () => {
-      const w = frame.clientWidth, h = frame.clientHeight;
-      if (!w || !h) return;
-      setPath(notchPath(w, h, label.offsetWidth, label.offsetHeight));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(frame);
-    ro.observe(label);
-    return () => ro.disconnect();
-  }, [category]);
-
-  if (!category) {
-    return <div className="relative aspect-[7/4] w-full overflow-hidden rounded-[20px] border border-dashed border-outline-variant bg-surface-container">{children}</div>;
-  }
-  return (
-    <div ref={frameRef} className="relative aspect-[7/4] w-full">
-      <div
-        className={`absolute inset-0 overflow-hidden bg-surface-container ${path && supportsPathClip ? "" : "rounded-[20px]"}`}
-        style={path && supportsPathClip ? { clipPath: `path("${path}")` } : undefined}
-      >
-        {children}
-      </div>
-      {/* Contorno punteado con la forma de la muesca (mismo borde que el marco sin categoría). */}
-      {path && (
-        <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
-          <path d={path} fill="none" className="stroke-outline-variant" strokeWidth="1" strokeDasharray="3 3" />
-        </svg>
-      )}
-      <span
-        ref={labelRef}
-        title={category}
-        className="absolute bottom-0 right-0 z-10 max-w-[62%] truncate rounded-tl-[8px] bg-surface-container-lowest py-[3px] pl-2.5 pr-1.5 text-[10px] font-semibold leading-[14px] text-on-surface-variant sm:text-[10.5px]"
-      >
-        {category}
-      </span>
-    </div>
   );
 }
