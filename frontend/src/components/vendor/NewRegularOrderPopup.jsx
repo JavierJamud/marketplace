@@ -3,16 +3,14 @@ import { orderTotalLabel } from "../../lib/shipping.js";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { ShoppingBag, CheckCircle2, Eye } from "lucide-react";
+import { ShoppingBag, CheckCircle2, Eye, XCircle } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatElapsed } from "../../lib/duration.js";
 import { playNewOrderSound } from "../../lib/orderNotificationSound.js";
 import { Button } from "../ui/Button.jsx";
+import { ConfirmModal } from "../ConfirmModal.jsx";
+import { formatPrice } from "../../lib/format.js";
 import { canWriteSection } from "../../lib/vendorSections.js";
-
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
 
 // Bloque 231 (bug real reportado en vivo — "cuando entra un pedido nuevo el
 // panel de vendedor no suena ni muestra la notificación"): NewOrderPopup.jsx
@@ -41,6 +39,9 @@ export function NewRegularOrderPopup({ vendor, enabled = true, staffSectionPermi
   // panel — nunca cambia nada en el backend, solo evita que el MISMO aviso
   // vuelva a taparle la pantalla hasta que llegue uno realmente nuevo.
   const [dismissedIds, setDismissedIds] = useState(() => new Set());
+  // Rechazar el pedido desde el mismo aviso, con motivo obligatorio (el cliente lo ve), igual que en Pedidos.
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   // Mismo queryKey/endpoint que ya usa VendorOrders.jsx (GET /orders/me) —
   // comparten una sola consulta cacheada en vez de 2 fuentes de verdad
@@ -72,6 +73,21 @@ export function NewRegularOrderPopup({ vendor, enabled = true, staffSectionPermi
       queryClient.invalidateQueries({ queryKey: ["my-orders"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo confirmar el pedido."),
+  });
+
+  const cancel = useMutation({
+    mutationFn: async ({ id, reason }) => (await api.patch(`/orders/${id}/status`, { status: "CANCELLED", reason })).data,
+    onSuccess: (_res, { id }) => {
+      toast.success("Pedido rechazado. Le avisamos al cliente con tu motivo.");
+      setDismissedIds((prev) => new Set(prev).add(id));
+      setConfirmCancel(false);
+      setCancelReason("");
+      queryClient.invalidateQueries({ queryKey: ["my-orders"] });
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo rechazar el pedido.");
+      queryClient.invalidateQueries({ queryKey: ["my-orders"] });
+    },
   });
 
   const pendingOrders = (data?.orders ?? []).filter((o) => o.status === "NEW" && !dismissedIds.has(o.id));
@@ -118,7 +134,7 @@ export function NewRegularOrderPopup({ vendor, enabled = true, staffSectionPermi
                 {it.quantity} × {it.name}
                 {it.size && ` (${it.size})`}
               </span>
-              <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity)}</span>
+              <span className="flex-shrink-0 pl-3 font-semibold text-on-surface-variant">{formatPrice(it.price * it.quantity, it.currency ?? vendor.currency)}</span>
             </div>
           ))}
         </div>
@@ -128,11 +144,12 @@ export function NewRegularOrderPopup({ vendor, enabled = true, staffSectionPermi
           <span className="text-right text-[18px] font-bold text-primary">{orderTotalLabel(order)}</span>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
+        {/* En columna los botones llevan su alto fijo (h-11): flex-1 solo en fila, en columna los aplastaba. */}
+        <div className="flex flex-col gap-2">
           {canManage && (
             <Button
-              className="flex-1"
-              disabled={confirm.isPending}
+              className="w-full"
+              disabled={confirm.isPending || cancel.isPending}
               onClick={() => {
                 confirm.mutate(order.id);
                 dismiss();
@@ -141,11 +158,40 @@ export function NewRegularOrderPopup({ vendor, enabled = true, staffSectionPermi
               <CheckCircle2 className="h-4 w-4" /> {confirm.isPending ? "Confirmando..." : "Confirmar pedido"}
             </Button>
           )}
-          <Button variant="outline" className="flex-1" onClick={goToOrders}>
-            <Eye className="h-3.5 w-3.5" /> Ver en Pedidos
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1 whitespace-nowrap px-3" onClick={goToOrders}>
+              <Eye className="h-3.5 w-3.5" /> Ver en Pedidos
+            </Button>
+            {canManage && (
+              <Button variant="danger" className="flex-1 whitespace-nowrap px-3" disabled={confirm.isPending || cancel.isPending} onClick={() => setConfirmCancel(true)}>
+                <XCircle className="h-3.5 w-3.5" /> Rechazar
+              </Button>
+            )}
+          </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmCancel}
+        title={`¿Rechazar el pedido ${order.code}?`}
+        message="El pedido pasa a Rechazado y queda en tu historial de Pedidos. El cliente recibe un aviso con este motivo. No se puede deshacer."
+        confirmLabel={cancel.isPending ? "Rechazando..." : "Sí, rechazar"}
+        confirmDisabled={cancelReason.trim().length < 3 || cancel.isPending}
+        danger
+        onConfirm={() => cancel.mutate({ id: order.id, reason: cancelReason.trim() })}
+        onCancel={() => {
+          setConfirmCancel(false);
+          setCancelReason("");
+        }}
+      >
+        <textarea
+          value={cancelReason}
+          onChange={(e) => setCancelReason(e.target.value)}
+          placeholder="Motivo (obligatorio), por ejemplo: sin stock, pedido duplicado..."
+          rows={3}
+          className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
+        />
+      </ConfirmModal>
     </div>
   );
 }

@@ -12,6 +12,12 @@ export function formatElapsed(fromIso, toIso = null) {
   const totalMinutes = Math.floor(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
+  // Más de un día: "4 días 14 h" en vez de "110h 0min".
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const rest = hours % 24;
+    return `${days} ${days === 1 ? "día" : "días"}${rest ? ` ${rest} h` : ""}`;
+  }
   if (hours > 0) return `${hours}h ${minutes}min`;
   return `${minutes}min`;
 }

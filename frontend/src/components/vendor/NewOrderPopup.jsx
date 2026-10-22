@@ -6,14 +6,14 @@ import { api } from "../../lib/api.js";
 import { formatElapsed } from "../../lib/duration.js";
 import { playNewOrderSound } from "../../lib/orderNotificationSound.js";
 import { Button } from "../ui/Button.jsx";
+import { formatPrice } from "../../lib/format.js";
 import { ConfirmModal } from "../ConfirmModal.jsx";
 import { EditTableOrderModal } from "../EditTableOrderModal.jsx";
 import { TableOrderDetailModal } from "./TableOrderDetailModal.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
+// En la moneda de la tienda (antes decía siempre CUP).
+const money = (n, currency) => formatPrice(n, currency ?? "CUP");
 
 // Bloque 185 (pedido explícito — "todo será en tiempo real"): bajado de
 // 5000 a 2500 — sigue siendo polling (no WebSockets), pero a la mitad del
@@ -198,7 +198,7 @@ export function NewOrderPopup({ vendor, enabled = true, staffSectionPermissions 
                 <span className="text-on-surface">
                   {it.quantity} × {it.name}
                 </span>
-                <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity)}</span>
+                <span className="font-semibold text-on-surface-variant">{money(it.price * it.quantity, it.currency ?? vendor.currency)}</span>
               </div>
             );
           })}
@@ -206,7 +206,7 @@ export function NewOrderPopup({ vendor, enabled = true, staffSectionPermissions 
 
         <div className="mb-5 flex items-center justify-between border-t border-surface-container-high pt-3.5">
           <span className="text-[13px] font-semibold text-on-surface-variant">Monto a pagar</span>
-          <span className="text-[18px] font-bold text-primary">{fmtCUP(order.total)}</span>
+          <span className="text-[18px] font-bold text-primary">{money(order.total, order.items?.[0]?.currency ?? vendor.currency)}</span>
         </div>
 
         {needsAccept ? (
@@ -235,11 +235,11 @@ export function NewOrderPopup({ vendor, enabled = true, staffSectionPermissions 
           </div>
         ) : (
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="outline" className="flex-1" onClick={() => setViewingFull(true)}>
+            <Button variant="outline" className="w-full sm:flex-1" onClick={() => setViewingFull(true)}>
               <Eye className="h-3.5 w-3.5" /> Ver cuenta completa
             </Button>
             {canManage && (
-              <Button className="flex-1" disabled={ack.isPending} onClick={() => ack.mutate(order.id)}>
+              <Button className="w-full sm:flex-1" disabled={ack.isPending} onClick={() => ack.mutate(order.id)}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> {ack.isPending ? "..." : "OK, visto"}
               </Button>
             )}
