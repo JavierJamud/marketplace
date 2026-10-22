@@ -2,6 +2,7 @@ import "./lib/safeStorage.js";
 import { installInputGuards } from "./lib/inputGuards.js";
 import { installAspectRatioFallback } from "./lib/aspectRatioFallback.js";
 import { installDiagnostics } from "./lib/diagnostics.js";
+import { installImageStates } from "./lib/imageStates.js";
 
 // Copia de la consola y de lo último que hizo la persona, para los reportes de errores visuales (ver lib/diagnostics.js).
 // Va primero para no perderse los mensajes del arranque.
@@ -11,6 +12,8 @@ installDiagnostics();
 installInputGuards();
 // Alto de las cajas aspect-* en navegadores viejos sin aspect-ratio (ver lib/aspectRatioFallback.js).
 installAspectRatioFallback();
+// Fondo de carga en las imágenes en vez de su nombre (ver lib/imageStates.js).
+installImageStates();
 import ReportErrorModal from "./components/ReportErrorModal.jsx";
 import React from "react";
 import ReactDOM from "react-dom/client";

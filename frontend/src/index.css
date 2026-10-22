@@ -6,6 +6,28 @@
   html {
     @apply scroll-smooth;
   }
+  /* Imágenes (ver lib/imageStates.js): el texto alternativo no se pinta (aparecía el nombre de la foto en la esquina mientras
+     cargaba); mientras carga se ve el mismo gris con brillo de los esqueletos, y si falla, un ícono neutro de imagen. Van en
+     la capa base para que un fondo puesto a propósito en la imagen (bg-white en un logo, por ejemplo) siga mandando. */
+  img {
+    color: transparent;
+  }
+  img:not([data-img]) {
+    background-color: #eae7e9;
+    animation: imgLoading 1.3s ease-in-out infinite;
+  }
+  img[data-img="error"] {
+    background: #eae7e9
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a29da0' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E")
+      center / min(40%, 40px) no-repeat;
+    /* Chrome y Safari dibujan además su propio ícono de "imagen rota" en la esquina: se reemplaza por un cuadro vacío. */
+    content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E");
+  }
+  @media (prefers-reduced-motion: reduce) {
+    img:not([data-img]) {
+      animation: none;
+    }
+  }
   /* Ninguna página puede quedar más ancha que la pantalla: si algún contenido se pasa (un video de la cámara con su ancho
      real de 1280 px, una tabla), se recorta en vez de dejar mover la página de lado o achicarla en el celular. `clip` no rompe
      los elementos sticky (overflow:hidden sí); los navegadores viejos que no lo entienden usan hidden. */
@@ -257,6 +279,16 @@
 /* Galería de producto: crossfade suave con ligero zoom-in al entrar.
    imgFadeIn: imagen nueva aparece desde 0→1 opacity con scale 1.04→1.
    imgFadeOut: imagen anterior desaparece de 1→0 opacity con scale 1→1.02. */
+@keyframes imgLoading {
+  0%,
+  100% {
+    background-color: #eae7e9;
+  }
+  50% {
+    background-color: #f8f6f7;
+  }
+}
+
 @keyframes imgFadeIn {
   from {
     opacity: 0;
