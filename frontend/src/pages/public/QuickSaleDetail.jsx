@@ -125,6 +125,7 @@ export default function QuickSaleDetail() {
             <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <a
                 href={waLink(listing.owner.phone, message)}
+                onClick={() => api.post(`/customer-listings/${listing.id}/contact-click`).catch(() => {})}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-95"
@@ -139,10 +140,10 @@ export default function QuickSaleDetail() {
             </div>
           </div>
 
-          {/* Solo visible para clientes con sesión. */}
-          {user?.role === "CUSTOMER" && (
-            <button onClick={() => setReportFraudOpen(true)} className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-[12.5px] font-semibold text-outline hover:text-error">
-              <ShieldAlert className="h-4 w-4" /> Reportar estafa
+          {/* Reportar: cualquier cuenta con sesión (el servidor no deja reportar lo propio). Botón discreto, a pedido del dueño. */}
+          {user && (
+            <button onClick={() => setReportFraudOpen(true)} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container">
+              <ShieldAlert className="h-4 w-4" aria-hidden="true" /> Reportar esta venta rápida
             </button>
           )}
         </div>
@@ -153,7 +154,7 @@ export default function QuickSaleDetail() {
         onClose={() => setReportFraudOpen(false)}
         targetField="customerListingId"
         targetId={listing.id}
-        targetLabel={`el anuncio "${listing.name}"`}
+        targetLabel={`la venta rápida "${listing.name}"`}
       />
     </div>
   );

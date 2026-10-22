@@ -678,7 +678,9 @@ export default function CustomerPanel() {
                     {/* Bloque 237: 3 motivos distintos de "no visible al
                         público" — mutuamente excluyentes, se muestra solo
                         el de mayor prioridad para no amontonar insignias. */}
-                    {l.isSold ? (
+                    {l.suspendedAt ? (
+                      <span className="absolute left-2 top-2 rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">Suspendida por un reporte</span>
+                    ) : l.isSold ? (
                       <span className="absolute left-2 top-2 rounded-full bg-inverse-surface/80 px-2.5 py-1 text-[10.5px] font-bold text-white">Vendido</span>
                     ) : !l.isActive ? (
                       <span className="absolute left-2 top-2 rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">Sin foto — no visible</span>

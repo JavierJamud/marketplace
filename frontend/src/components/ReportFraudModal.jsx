@@ -1,18 +1,15 @@
 import { useEffect, useState } from "react";
-import { X, ShieldAlert, Camera } from "lucide-react";
+import { X, ShieldAlert, Camera, Trash2 } from "lucide-react";
 import { api, getErrorMessage } from "../lib/api.js";
 import toast from "../lib/toast.jsx";
 import { lockPageScroll } from "../lib/scrollLock.js";
 
 const MAX_SCREENSHOT_MB = 6;
+const MAX_IMAGES = 4;
 
 /**
- * ReportFraudModal — Feature B (pedido explícito): reportar una posible
- * estafa en un producto, tienda o anuncio de venta rápida. Captura de
- * pantalla y mensaje son los dos obligatorios (mismo criterio que el
- * backend, ver reports.controller.js) — el botón que abre este modal debe
- * resolver el login ANTES de abrirlo (mismo patrón que goToReviewLogin en
- * Product.jsx), acá se asume que ya hay sesión.
+ * ReportFraudModal: reportar un producto, una tienda o una venta rápida. El motivo es obligatorio; las capturas son
+ * opcionales (pedido del dueño), solo imágenes y hasta 4. El botón que lo abre solo se muestra con sesión iniciada.
  *
  * Props:
  *   open        {boolean}
@@ -23,15 +20,13 @@ const MAX_SCREENSHOT_MB = 6;
  */
 export function ReportFraudModal({ open, onClose, targetField, targetId, targetLabel = "esto" }) {
   const [message, setMessage] = useState("");
-  const [screenshot, setScreenshot] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [files, setFiles] = useState([]); // [{ file, url }]
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setMessage("");
-      setScreenshot(null);
-      setPreview(null);
+      setFiles([]);
     }
   }, [open]);
 
@@ -50,30 +45,35 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
 
   if (!open) return null;
 
-  function handleFile(e) {
-    const file = e.target.files?.[0];
+  function handleFiles(e) {
+    const picked = [...(e.target.files ?? [])];
     e.target.value = "";
-    if (!file) return;
-    if (file.size > MAX_SCREENSHOT_MB * 1024 * 1024) {
-      toast.error(`La captura no puede pesar más de ${MAX_SCREENSHOT_MB}MB.`);
-      return;
+    const next = [];
+    for (const file of picked) {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Solo se pueden subir imágenes.");
+        continue;
+      }
+      if (file.size > MAX_SCREENSHOT_MB * 1024 * 1024) {
+        toast.error(`Cada imagen puede pesar hasta ${MAX_SCREENSHOT_MB} MB.`);
+        continue;
+      }
+      next.push({ file, url: URL.createObjectURL(file) });
     }
-    setScreenshot(file);
-    setPreview(URL.createObjectURL(file));
+    setFiles((prev) => [...prev, ...next].slice(0, MAX_IMAGES));
   }
 
   async function handleSubmit() {
-    if (!screenshot) return toast.error("La captura de pantalla es obligatoria.");
-    if (message.trim().length < 10) return toast.error("Cuéntanos qué pasó (mínimo 10 caracteres).");
+    if (message.trim().length < 10) return toast.error("Cuéntanos el motivo (mínimo 10 caracteres)."); 
 
     setSubmitting(true);
     try {
       const form = new FormData();
       form.append(targetField, targetId);
       form.append("message", message.trim());
-      form.append("screenshot", screenshot);
+      for (const f of files) form.append("images", f.file);
       await api.post("/reports", form, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Reporte enviado — el equipo lo va a revisar.");
+      toast.success("Reporte enviado. Lo revisamos y te avisamos por correo.");
       onClose?.();
     } catch (err) {
       toast.error(await getErrorMessage(err, "No se pudo enviar el reporte."));
@@ -100,31 +100,50 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
           <ShieldAlert className="h-6 w-6 text-error" />
         </div>
 
-        <h2 className="mb-1 text-[16px] font-bold text-on-surface">Reportar estafa</h2>
+        <h2 className="mb-1 text-[16px] font-bold text-on-surface">Reportar</h2>
         <p className="mb-4 text-[13.5px] leading-relaxed text-on-surface-variant">
-          Cuéntanos qué pasó con {targetLabel}. Un admin revisa cada reporte — captura y mensaje son obligatorios para poder evaluarlo.
+          Cuéntanos qué pasa con {targetLabel}. Lo revisamos y te avisamos por correo lo que decidimos. Mientras lo revisamos, sigue publicado.
         </p>
 
-        <label className="mb-3 flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-outline-variant p-4 text-center hover:bg-surface-variant/40">
-          {preview ? (
-            <img src={preview} alt="Captura" className="h-28 w-full rounded-lg object-cover" />
-          ) : (
-            <>
-              <Camera className="h-6 w-6 text-outline" />
-              <span className="text-[12.5px] font-semibold text-on-surface-variant">Subir captura de pantalla (obligatorio)</span>
-            </>
-          )}
-          <input type="file" accept="image/jpeg,image/jpg,image/png,image/webp" className="hidden" onChange={handleFile} />
+        <label htmlFor="report-message" className="mb-1 block text-[12.5px] font-semibold text-on-surface">
+          Motivo del reporte
         </label>
-
         <textarea
+          id="report-message"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           rows={4}
           maxLength={1000}
-          placeholder="Explica qué pasó (mínimo 10 caracteres)..."
+          placeholder="Por ejemplo: pagué y nunca lo entregaron, o las fotos son de otro producto."
           className="mb-4 w-full resize-none rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13.5px] text-on-surface outline-none focus:border-primary"
         />
+
+        <div className="mb-1 text-[12.5px] font-semibold text-on-surface">Capturas o fotos (opcional)</div>
+        <p className="mb-2 text-[12px] text-on-surface-variant">Si tienes pruebas, súbelas: solo imágenes, hasta {MAX_IMAGES}.</p>
+        {files.length > 0 && (
+          <div className="mb-2 grid grid-cols-4 gap-2">
+            {files.map((f, i) => (
+              <div key={f.url} className="relative aspect-square overflow-hidden rounded-lg bg-surface-container">
+                <img src={f.url} alt={`Captura ${i + 1}`} className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={`Quitar captura ${i + 1}`}
+                  className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {files.length < MAX_IMAGES && (
+          <label className="mb-4 flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-outline-variant p-3 text-center hover:bg-surface-variant/40">
+            <Camera className="h-5 w-5 text-outline" aria-hidden="true" />
+            <span className="text-[12.5px] font-semibold text-on-surface-variant">{files.length ? "Agregar otra imagen" : "Subir imágenes"}</span>
+            <input type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
+          </label>
+        )}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button

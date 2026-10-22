@@ -18,7 +18,7 @@ const NAV = [
   { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck, badge: "verificaciones", group: "tiendas" },
   { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard, group: "tiendas" },
   { to: "/admin/ventas-manuales", label: "Agentes de Ventas", icon: Wallet, group: "tiendas" },
-  { to: "/admin/reportes-fraude", label: "Reportes de fraude", icon: ShieldAlert, badge: "fraudReportsCount", group: "tiendas" },
+  { to: "/admin/reportes-fraude", label: "Reportes y moderación", icon: ShieldAlert, badge: "fraudReportsCount", group: "tiendas" },
   { to: "/admin/anomalias-ranking", label: "Anomalías del ranking", icon: Radar, badge: "rankingAnomaliesCount", group: "tiendas" },
   { to: "/admin/productos", label: "Productos", icon: Package, group: "catalogo" },
   { to: "/admin/ventas-rapidas", label: "Venta rápida", icon: Zap, group: "catalogo" },

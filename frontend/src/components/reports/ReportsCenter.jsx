@@ -36,15 +36,22 @@ const RECEIVED_STATUS = {
   PENDING: { label: "En revisión del equipo", tone: TONE.wait },
   EVIDENCE_REQUESTED: { label: "Necesitamos tu respuesta", tone: TONE.alert },
   RESOLVED_NO_ACTION: { label: "Cerrado sin acción contra ti", tone: TONE.ok },
-  RESOLVED_SUSPENDED: { label: "Suspendido por fraude", tone: TONE.alert },
+  RESOLVED_SUSPENDED: { label: "Suspendido", tone: TONE.alert },
   DISMISSED: { label: "Descartado", tone: TONE.ok },
+};
+
+// Apelación de una suspensión, contada desde el lado del dueño.
+const APPEAL_STATUS = {
+  PENDING: { label: "Apelación en revisión", tone: TONE.wait },
+  ACCEPTED: { label: "Apelación aceptada: publicado de nuevo", tone: TONE.ok },
+  REJECTED: { label: "Apelación rechazada: se eliminó", tone: TONE.alert },
 };
 
 // Reportes hechos: el estado contado desde el lado de quien reportó.
 const MADE_STATUS = {
   PENDING: { label: "Recibido, en revisión", tone: TONE.wait },
   EVIDENCE_REQUESTED: { label: "En revisión: se pidió una explicación", tone: TONE.wait },
-  RESOLVED_NO_ACTION: { label: "Revisado: no se encontró fraude", tone: TONE.neutral },
+  RESOLVED_NO_ACTION: { label: "Revisado: se mantiene publicado", tone: TONE.neutral },
   RESOLVED_SUSPENDED: { label: "Confirmado: se suspendió", tone: TONE.ok },
   DISMISSED: { label: "Revisado: descartado", tone: TONE.neutral },
 };
@@ -58,7 +65,8 @@ function receivedTarget(r) {
   if (r.product) return `Producto: ${r.product.name}`;
   if (r.vendor) return `Tu tienda: ${r.vendor.companyName}`;
   if (r.customerListing) return `Tu venta rápida: ${r.customerListing.name}`;
-  return "Ya no existe";
+  // Ya se borró: se muestra el nombre que tenía.
+  return r.targetLabel ? `${r.targetLabel.charAt(0).toUpperCase()}${r.targetLabel.slice(1)} (ya no existe)` : "Ya no existe";
 }
 
 function madeTarget(r) {
@@ -118,6 +126,26 @@ export function ReceivedReports({ emptyText }) {
     onError: async (err) => toast.error(await getErrorMessage(err, "No se pudo enviar tu respuesta.")),
   });
 
+  // Apelación tras una suspensión: mensaje y capturas opcionales, dentro del plazo.
+  const submitAppeal = useMutation({
+    mutationFn: async ({ id, message, files }) => {
+      const form = new FormData();
+      form.append("appealMessage", message);
+      files.forEach((f) => form.append("images", f));
+      return (await api.post(`/reports/${id}/appeal`, form, { headers: { "Content-Type": "multipart/form-data" } })).data;
+    },
+    onSuccess: (_, { id }) => {
+      toast.success("Apelación enviada", "Te avisamos por correo cuando la revisemos.");
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[`appeal-${id}`];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["my-fraud-reports"] });
+    },
+    onError: async (err) => toast.error(await getErrorMessage(err, "No se pudo enviar tu apelación.")),
+  });
+
   const reports = data ?? [];
   const updateDraft = (id, patch) => setDrafts((prev) => ({ ...prev, [id]: { message: "", files: [], ...prev[id], ...patch } }));
 
@@ -129,6 +157,8 @@ export function ReceivedReports({ emptyText }) {
       {reports.map((r) => {
         const needsResponse = r.status === "EVIDENCE_REQUESTED" && !r.evidenceSentAt;
         const draft = drafts[r.id] ?? { message: "", files: [] };
+        const canAppeal = r.status === "RESOLVED_SUSPENDED" && r.itemDeleteAt && !r.appealSentAt && new Date(r.itemDeleteAt) > new Date();
+        const appealDraft = drafts[`appeal-${r.id}`] ?? { message: "", files: [] };
         return (
           <li key={r.id} className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 sm:p-5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -137,9 +167,6 @@ export function ReceivedReports({ emptyText }) {
             </div>
             <p className="mb-1 text-[13px] text-on-surface-variant">"{r.message}"</p>
             <p className="mb-2 text-[11.5px] text-outline">Reportado el {exactDateTime(r.createdAt)}</p>
-            <a href={imgUrl(r.screenshotUrl)} target="_blank" rel="noreferrer" className="mb-2 inline-flex min-h-11 items-center text-[12.5px] font-semibold text-tertiary-accent hover:underline">
-              Ver la captura del reporte
-            </a>
 
             {needsResponse && r.evidenceDueAt && (
               <p className="mb-3 flex items-center gap-1.5 text-[12.5px] font-semibold text-error">
@@ -167,6 +194,56 @@ export function ReceivedReports({ emptyText }) {
 
             {r.resolutionNote && ["RESOLVED_NO_ACTION", "RESOLVED_SUSPENDED", "DISMISSED"].includes(r.status) && (
               <p className="mb-3 rounded-lg bg-surface-container p-3 text-[12.5px] text-on-surface-variant">Nota del equipo: {r.resolutionNote}</p>
+            )}
+
+            {r.appealStatus && (
+              <div className="mb-3 rounded-lg bg-surface-container p-3">
+                <Pill meta={APPEAL_STATUS[r.appealStatus] ?? APPEAL_STATUS.PENDING} />
+                {r.appealNote && <p className="mt-2 text-[12.5px] text-on-surface-variant">Nota del equipo: {r.appealNote}</p>}
+              </div>
+            )}
+
+            {canAppeal && (
+              <div className="mt-2 border-t border-surface-container pt-3">
+                <p className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-error">
+                  <Clock className="h-3.5 w-3.5" aria-hidden="true" /> Si no apelas antes del {exactDateTime(r.itemDeleteAt)}, se elimina.
+                </p>
+                <label htmlFor={`appeal-${r.id}`} className="mb-1 block text-[12.5px] font-semibold text-on-surface">
+                  Tu apelación
+                </label>
+                <textarea
+                  id={`appeal-${r.id}`}
+                  value={appealDraft.message}
+                  onChange={(e) => updateDraft(`appeal-${r.id}`, { message: e.target.value })}
+                  rows={3}
+                  placeholder="Explica por qué debería volver a publicarse y adjunta tus pruebas si las tienes."
+                  className="mb-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[14px] text-on-surface outline-none focus:border-tertiary-accent"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-outline-variant px-3 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-variant/40">
+                    <Camera className="h-4 w-4" aria-hidden="true" />
+                    {appealDraft.files.length > 0 ? `${appealDraft.files.length} ${appealDraft.files.length === 1 ? "imagen" : "imágenes"}` : "Adjuntar pruebas (opcional)"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="sr-only"
+                      onChange={(e) => updateDraft(`appeal-${r.id}`, { files: Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/")).slice(0, 4) })}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (appealDraft.message.trim().length < 10) return toast.error("Cuéntanos por qué (mínimo 10 caracteres).");
+                      submitAppeal.mutate({ id: r.id, message: appealDraft.message.trim(), files: appealDraft.files });
+                    }}
+                    disabled={submitAppeal.isPending}
+                    className="min-h-11 rounded-lg bg-tertiary-accent px-4 text-[13px] font-bold text-white disabled:opacity-50"
+                  >
+                    {submitAppeal.isPending ? "Enviando..." : "Enviar apelación"}
+                  </button>
+                </div>
+              </div>
             )}
 
             {needsResponse && (
@@ -217,7 +294,7 @@ export function ReceivedReports({ emptyText }) {
 
 // --- Hechos --------------------------------------------------------------------------------------------------------------
 
-function MadeCard({ title, href, status, text, date, resolvedAt }) {
+function MadeCard({ title, href, status, text, date, resolvedAt, note }) {
   return (
     <li className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 sm:p-5">
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
@@ -231,6 +308,7 @@ function MadeCard({ title, href, status, text, date, resolvedAt }) {
         <Pill meta={status} />
       </div>
       {text && <p className="line-clamp-3 text-[13px] text-on-surface-variant">"{text}"</p>}
+      {note && <p className="mt-2 rounded-lg bg-surface-container p-2.5 text-[12.5px] text-on-surface-variant">Respuesta del equipo: {note}</p>}
       <p className="mt-1 text-[11.5px] text-outline">
         Lo reportaste el {exactDateTime(date)}
         {resolvedAt ? ` · revisado el ${exactDateTime(resolvedAt)}` : ""}
@@ -259,7 +337,7 @@ export function MadeReports({ withTickets }) {
     <ul className="flex flex-col gap-3">
       {fraud.map((r) => {
         const t = madeTarget(r);
-        return <MadeCard key={r.id} title={t.label} href={t.href} status={MADE_STATUS[r.status] ?? MADE_STATUS.PENDING} text={r.message} date={r.createdAt} resolvedAt={r.resolvedAt} />;
+        return <MadeCard key={r.id} title={t.label === "Ya no existe" && r.targetLabel ? `${r.targetLabel} (ya no existe)` : t.label} href={t.href} status={MADE_STATUS[r.status] ?? MADE_STATUS.PENDING} text={r.message} date={r.createdAt} resolvedAt={r.resolvedAt} note={r.resolutionNote} />;
       })}
     </ul>
   );

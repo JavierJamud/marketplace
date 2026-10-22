@@ -72,6 +72,8 @@ const ROW_TINT = {
 // el backend (ver createProduct/removeProductImage) — se distingue de un
 // "Pausado" común para que el vendedor sepa exactamente qué le falta.
 function stockStatus(p) {
+  // Suspendido por un reporte confirmado: no se puede reactivar desde aquí, solo apelando en Reportes.
+  if (p.suspendedAt) return "suspended";
   if (!p.isActive) return p.images?.length > 0 ? "paused" : "no-photos";
   if (p.unlimitedStock) return "unlimited";
   if (p.stock <= 0) return "out";
@@ -93,6 +95,7 @@ const TAGS = {
   out: { label: "Sin stock", meaning: "Agotado: tus clientes no lo ven en el Home ni en el catálogo, solo en tu tienda como \"próximamente\".", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
   unlimited: { label: "Siempre disponible", meaning: "No lleva control de stock: siempre se puede pedir.", style: { background: "rgba(0,105,181,0.12)", color: "#005A9C" } },
   paused: { label: "Pausado", meaning: "Tus clientes no lo ven hasta que lo actives.", style: { background: "rgba(90,92,96,0.14)", color: "#4A4C50" } },
+  suspended: { label: "Suspendido por un reporte", meaning: "Lo suspendimos tras revisar un reporte. Puedes apelar desde Reportes antes de que se elimine.", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
   "no-photos": { label: "Sin fotos (pausado)", meaning: "Un producto necesita al menos una foto para publicarse.", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
   active: { label: "En venta", meaning: "Publicado y con stock suficiente.", style: { background: "rgba(12,174,83,0.12)", color: "#0A7A3A" } },
 };
@@ -1067,7 +1070,7 @@ export default function VendorProducts() {
   }
   function groupOf(p) {
     const status = stockStatus(p);
-    if (status === "paused" || status === "no-photos") return "paused";
+    if (status === "paused" || status === "no-photos" || status === "suspended") return "paused";
     if (topSellerIds.has(p.id)) return "top";
     return status;
   }
