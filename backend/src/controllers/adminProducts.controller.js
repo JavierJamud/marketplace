@@ -1,3 +1,4 @@
+import { productSalesHistory } from "../lib/productSales.js";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -169,6 +170,13 @@ export async function getAdminProductStats(req, res) {
       slug: product.slug,
     },
   });
+}
+
+// Ventas de cualquier producto (mismo historial que ve su tienda).
+export async function getAdminProductSales(req, res) {
+  const history = await productSalesHistory(req.params.id);
+  if (!history) throw new AppError("Producto no encontrado.", 404);
+  res.json(history);
 }
 
 // Mismo schema/reglas de forma que el propio vendedor (products.controller.js),

@@ -531,6 +531,16 @@ async function decrementSizeStock(tx, productId, size, quantity) {
   return true;
 }
 
+// Cancelar una venta ya confirmada también la resta de "ventas" (salesCount, lo que ordena "Más vendidos"); sin esto un
+// pedido cancelado seguía contando como vendido. Nunca baja de 0 (productos con ventas anteriores a este contador).
+async function revertSalesCount(tx, items) {
+  for (const item of items) {
+    if (!item.productId) continue;
+    const r = await tx.product.updateMany({ where: { id: item.productId, salesCount: { gte: item.quantity } }, data: { salesCount: { decrement: item.quantity } } });
+    if (r.count === 0) await tx.product.updateMany({ where: { id: item.productId }, data: { salesCount: 0 } });
+  }
+}
+
 async function incrementSizeStock(tx, productId, size, quantity) {
   const rows = await tx.$queryRaw`SELECT "sizeStock" FROM "Product" WHERE id = ${productId} FOR UPDATE`;
   const current = Number(rows[0]?.sizeStock?.[size] ?? 0);
@@ -631,6 +641,7 @@ export async function updateOrderStatus(req, res) {
         if (item.size) await incrementSizeStock(tx, item.productId, item.size, item.quantity);
         else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
+      await revertSalesCount(tx, order.items);
     }
     if (status === "CANCELLED") await reverseOrderLoyalty(id, tx);
     return tx.order.update({
@@ -978,6 +989,7 @@ export async function cancelOrderForCustomer(order, reason, via = "su cuenta") {
         if (item.size) await incrementSizeStock(tx, item.productId, item.size, item.quantity);
         else await tx.product.updateMany({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
+      await revertSalesCount(tx, items);
     }
     return tx.order.findUnique({ where: { id: order.id }, include: ORDER_EMAIL_INCLUDE });
   });

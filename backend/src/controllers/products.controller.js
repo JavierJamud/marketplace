@@ -1,3 +1,4 @@
+import { productSalesHistory } from "../lib/productSales.js";
 import { z } from "zod";
 import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { fixedShippingError } from "../lib/shipping.js";
@@ -699,6 +700,14 @@ export async function trackProductDwell(req, res) {
 
 // --- Panel de vendedor: CRUD de MIS productos (vendorId siempre resuelto
 // desde el usuario autenticado, nunca desde el body/params del cliente) -----
+
+// Ventas de un producto propio: pedidos donde aparece, cuándo se vendió por última vez y el historial de cada pedido.
+export async function getMyProductSales(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  const product = await prisma.product.findUnique({ where: { id: req.params.id }, select: { vendorId: true } });
+  if (!product || product.vendorId !== vendor.id) throw new AppError("Producto no encontrado.", 404);
+  res.json(await productSalesHistory(req.params.id));
+}
 
 export async function listMyProducts(req, res) {
   const vendor = await resolveMyVendor(req.user.id);

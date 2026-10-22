@@ -5,7 +5,8 @@ import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CategoryPicker } from "../../components/CategoryPicker.jsx";
-import { Pencil, Trash2, X, ArrowUpDown, Star, Ruler, Layers, Package, ChevronDown } from "lucide-react";
+import { Pencil, Trash2, X, ArrowUpDown, Star, Ruler, Layers, Package, ChevronDown, Receipt } from "lucide-react";
+import { ProductSalesModal } from "../../components/ProductSalesModal.jsx";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
@@ -974,6 +975,8 @@ export default function VendorProducts() {
   const { vendor } = useOutletContext();
   const queryClient = useQueryClient();
   const [modalState, setModalState] = useState(null); // null | { mode: "new" } | { mode: "edit", product }
+  // Producto cuyas ventas se están viendo (ProductSalesModal).
+  const [salesTarget, setSalesTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null); // producto a eliminar, para el modal de confirmación
   const [searchParams, setSearchParams] = useSearchParams();
   // El buscador del panel llega con ?q= (texto) o ?filtro= (estado: low, out, paused, top).
@@ -1245,10 +1248,18 @@ export default function VendorProducts() {
                   </div>
                   <div className="flex justify-end gap-1">
                     <button
+                      onClick={() => setSalesTarget(p)}
+                      aria-label={`Ver ventas de ${p.name}`}
+                      title="Ver ventas"
+                      className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container md:h-8 md:w-8"
+                    >
+                      <Receipt className="h-4 w-4" />
+                    </button>
+                    <button
                       onClick={() => setModalState({ mode: "edit", product: p })}
                       aria-label={`Editar ${p.name}`}
                       title="Editar producto"
-                      className="flex h-10 w-10 items-center justify-center rounded-full text-tertiary-accent hover:bg-tertiary-accent/10 md:h-8 md:w-8"
+                      className="flex h-11 w-11 items-center justify-center rounded-full text-tertiary-accent hover:bg-tertiary-accent/10 md:h-8 md:w-8"
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -1256,7 +1267,7 @@ export default function VendorProducts() {
                       onClick={() => setDeleteTarget(p)}
                       aria-label={`Eliminar ${p.name}`}
                       title="Eliminar producto"
-                      className="flex h-10 w-10 items-center justify-center rounded-full text-error hover:bg-error/10 md:h-8 md:w-8"
+                      className="flex h-11 w-11 items-center justify-center rounded-full text-error hover:bg-error/10 md:h-8 md:w-8"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -1301,6 +1312,9 @@ export default function VendorProducts() {
         />
       )}
 
+      {salesTarget && (
+        <ProductSalesModal productName={salesTarget.name} endpoint={`/products/me/${salesTarget.id}/sales`} onClose={() => setSalesTarget(null)} />
+      )}
       {deleteTarget && (
         <ConfirmDeleteModal
           title={`¿Eliminar "${deleteTarget.name}"?`}

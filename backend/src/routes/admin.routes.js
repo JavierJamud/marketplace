@@ -146,6 +146,7 @@ router.post("/ranking-anomalies/:id/action", adminRankingAnomaliesController.act
 // Bloque 52: supervisión/edición de productos de cualquier vendedor.
 router.get("/products", adminProductsController.listAllProducts);
 router.get("/products/:id/stats", adminProductsController.getAdminProductStats);
+router.get("/products/:id/sales", adminProductsController.getAdminProductSales);
 router.patch("/products/:id", requireActionCode("VENDOR_CHANGE"), adminProductsController.updateAdminProduct);
 router.delete("/products/:id", requireActionCode("VENDOR_CHANGE"), adminProductsController.deleteAdminProduct);
 

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { X, Pencil, Trash2, PackageSearch, Ruler, Package, Star, ChevronDown, ExternalLink } from "lucide-react";
+import { X, Pencil, Trash2, PackageSearch, Ruler, Package, Star, ChevronDown, ExternalLink, Receipt } from "lucide-react";
+import { ProductSalesModal } from "../../components/ProductSalesModal.jsx";
 import { IconCircle, CARD } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
@@ -234,6 +235,7 @@ function StatLine({ label, value, sub }) {
 // Detalle de un producto: se pide solo al abrir la fila (no para las 25 de la
 // página). Todo dato sale de columnas o de pedidos entregados reales.
 function ProductDetail({ product, onTogglePause, onEdit, onDelete }) {
+  const [showSales, setShowSales] = useState(false);
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["admin-list-product-stats", product.id],
     queryFn: async () => (await api.get(`/admin/products/${product.id}/stats`)).data.stats,
@@ -293,6 +295,13 @@ function ProductDetail({ product, onTogglePause, onEdit, onDelete }) {
             </button>
             <button
               type="button"
+              onClick={() => setShowSales(true)}
+              className="flex h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container md:h-9"
+            >
+              <Receipt className="h-4 w-4" /> Ver ventas
+            </button>
+            <button
+              type="button"
               onClick={onEdit}
               className="flex h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-tertiary-accent hover:bg-surface-container md:h-9"
             >
@@ -308,6 +317,7 @@ function ProductDetail({ product, onTogglePause, onEdit, onDelete }) {
           </div>
         </>
       )}
+      {showSales && <ProductSalesModal productName={product.name} endpoint={`/admin/products/${product.id}/sales`} onClose={() => setShowSales(false)} />}
     </div>
   );
 }

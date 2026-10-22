@@ -23,6 +23,7 @@ router.post("/stock", cartStockRateLimit, productsController.getCartStock);
 // mientras que crear/editar/borrar productos de verdad (de acá para abajo)
 // sigue exigiendo "productos" en modo escritura.
 router.get("/me/list", authenticate, requireVendorAccess("productos", "mesas"), productsController.listMyProducts);
+router.get("/me/:id/sales", authenticate, requireVendorAccess("productos"), productsController.getMyProductSales);
 router.post("/", authenticate, requireVendorWrite("productos"), productsController.createProduct);
 router.patch("/:id", authenticate, requireVendorWrite("productos"), productsController.updateProduct);
 router.delete("/:id", authenticate, requireVendorWrite("productos"), productsController.deleteProduct);
