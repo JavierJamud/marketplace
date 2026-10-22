@@ -1,5 +1,5 @@
 import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
@@ -18,6 +18,7 @@ import { PlanComparisonModal } from "../../components/PlanComparisonModal.jsx";
 import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { capturePartnerRef, getPartnerCode, clearPartnerRef } from "../../lib/partnerRef.js";
+import { preloadPanel } from "../../lib/panelPreload.js";
 
 function BrandStat({ value, label }) {
   return (
@@ -407,6 +408,9 @@ export default function Account({ mode = "customer" }) {
   const [resendingCode, setResendingCode] = useState(false);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  // Sesión ya aceptada y bajando el panel: el formulario sigue bloqueado hasta que el panel aparece.
+  const [entering, setEntering] = useState(false);
+  const enteringRef = useRef(false);
 
   const [loginForm, setLoginForm] = useState({ email: pending2fa?.email ?? "", password: "" });
   const [form, setForm] = useState(emptyRegisterForm);
@@ -495,9 +499,25 @@ export default function Account({ mode = "customer" }) {
     return true;
   }
 
+  // El panel se pide antes de cambiar de página y el aviso de bienvenida sale cuando ya está en pantalla, no antes.
+  async function enterPanel(role) {
+    enteringRef.current = true;
+    setEntering(true);
+    if (!(role === "CUSTOMER" && isSafeNextPath)) await preloadPanel(role);
+    navigate(destinationAfterLogin(role));
+    requestAnimationFrame(() => requestAnimationFrame(() => toast.success("¡Bienvenido de vuelta!")));
+  }
+
+  function panelRoleForMode() {
+    return mode === "admin" ? "ADMIN" : mode === "vendor" ? "VENDOR" : mode === "partner" ? "PARTNER" : "CUSTOMER";
+  }
+
   async function handleLogin(e) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
+    // Se empieza a bajar el panel mientras el servidor revisa la contraseña: así casi siempre ya está listo al terminar.
+    preloadPanel(panelRoleForMode());
     try {
       await withMinDelay(async () => {
         const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
@@ -542,19 +562,20 @@ export default function Account({ mode = "customer" }) {
           startStoreCompletion(result);
           return;
         }
-        toast.success("¡Bienvenido de vuelta!");
-        navigate(destinationAfterLogin(result.role));
+        await enterPanel(result.role);
       });
     } catch (err) {
       toast.error(err.response?.data?.error ?? "Algo salió mal. Intenta de nuevo.");
     } finally {
-      setLoading(false);
+      if (!enteringRef.current) setLoading(false);
     }
   }
 
   async function handleVerifyTwoFactor(e) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
+    preloadPanel(panelRoleForMode());
     try {
       await withMinDelay(async () => {
         const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined, challengeToken);
@@ -570,15 +591,14 @@ export default function Account({ mode = "customer" }) {
           startStoreCompletion(user);
           return;
         }
-        toast.success("¡Bienvenido de vuelta!");
-        navigate(destinationAfterLogin(user.role));
+        await enterPanel(user.role);
       });
     } catch (err) {
       // El código se borra para volver a escribirlo y se explica debajo de las casillas.
       setTwoFactorCode("");
       setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
     } finally {
-      setLoading(false);
+      if (!enteringRef.current) setLoading(false);
     }
   }
 
@@ -983,7 +1003,7 @@ export default function Account({ mode = "customer" }) {
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
             <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={(v) => { setTwoFactorCode(v); setCodeError(""); }} error={codeError || undefined} />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || twoFactorCode.length !== 6}>
-              {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar e ingresar"}
+              {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Verificar e ingresar"}
             </Button>
           </form>
           {twoFactorMethod === "totp" ? (
@@ -1196,7 +1216,9 @@ export default function Account({ mode = "customer" }) {
                 ? "Ingresa con tu cuenta de vendedor para gestionar tu tienda."
                 : "Ingresa para comprar o gestionar tu tienda."}
             </p>
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} aria-busy={loading}>
+              {/* Mientras se revisa la cuenta y se abre el panel no se puede escribir ni volver a enviar. */}
+              <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
               <Input label="Correo" type="email" required value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} />
               {/* Bloque 183 (pedido explícito — "el usuario podrá solo
                   ingresar su correo... el sistema automáticamente detecte
@@ -1217,13 +1239,14 @@ export default function Account({ mode = "customer" }) {
                 ¿Olvidaste tu contraseña?
               </button>
               <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading}>
-                {loading ? (<><Spinner className="text-white" /> Entrando...</>) : "Entrar"}
+                {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Entrar"}
               </Button>
               {mode === "partner" && (
                 <p className="text-center text-label-sm text-outline">
                   ¿Aún no tienes cuenta de socio? <Link to="/socios/solicitar" className="font-semibold text-tertiary-accent hover:underline">Solicita acceso a la API</Link>
                 </p>
               )}
+              </fieldset>
             </form>
           </>
         ) : (
