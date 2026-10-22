@@ -11,6 +11,7 @@ import { waLink } from "../lib/whatsapp.js";
 import { resolvePaymentMethod } from "../lib/paymentMethods.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
+import { CategoryIcon } from "./ui/CategoryIcon.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
 import { ReportFraudModal } from "./ReportFraudModal.jsx";
 import { BannerIcons } from "./BannerIcons.jsx";
@@ -204,10 +205,12 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
 
               {/* Sello a la vista (más claro que el ícono solo) · estado · categoría · mesa */}
               <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                {v.isVerified && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-extrabold text-verified-dark shadow-sm">
-                    <VerifiedBadge size="sm" title="" />
-                    Tienda verificada
+                {/* Rubro de la tienda con su ícono, en la pastilla blanca (antes decía "Tienda verificada"; el sello ya va junto
+                    al nombre). */}
+                {v.businessCategory?.name && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-extrabold text-primary shadow-sm">
+                    <CategoryIcon name={v.businessCategory.icon} className="h-3.5 w-3.5 text-tertiary-accent" />
+                    {v.businessCategory.name}
                   </span>
                 )}
                 <span

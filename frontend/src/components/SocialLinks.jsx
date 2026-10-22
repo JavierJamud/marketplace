@@ -2,8 +2,8 @@ import { Facebook, Instagram, Youtube, Send, MessageCircle } from "lucide-react"
 
 // Redes de la tienda (decisión del dueño: solo estas seis; Facebook y Messenger son el mismo botón). En la tienda se
 // muestran solo las que tienen enlace guardado y el interruptor encendido (el servidor ya filtra, ver backend
-// lib/socialLinks.js). Las líneas de cada ícono van en el color de su plataforma, sobre el círculo gris translúcido de
-// la cabecera; Instagram usa su degradado.
+// lib/socialLinks.js). Las líneas de cada ícono van en el color de su plataforma, sobre un círculo negro al 50 % de
+// opacidad (pedido del dueño); Instagram usa su degradado.
 function TikTokIcon(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -56,7 +56,7 @@ export function StoreSocialLinks({ links, storeName, className = "" }) {
           title={label}
           className="flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-white"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 transition-colors hover:bg-white/25">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 transition-colors hover:bg-black/60">
             <Icon className="h-[18px] w-[18px]" style={{ stroke: color }} aria-hidden="true" />
           </span>
         </a>
