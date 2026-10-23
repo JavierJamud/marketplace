@@ -5,6 +5,7 @@ import { getPlanConfig } from "../lib/planConfig.js";
 import { describeUserAgent } from "../lib/userAgent.js";
 import { getTrialChecklist } from "../services/trialEligibility.service.js";
 import { ticketsForVendor } from "./supportTickets.controller.js";
+import { describeVendorZones } from "../lib/vendorZone.js";
 
 // Página "Gestionar" de una tienda en el admin (/admin/tiendas/:id): todo lo de esa tienda en un solo lugar. Reemplaza el
 // menú de tres puntos de la lista. Solo lectura; las acciones (editar, plan, bloquear, eliminar) usan las rutas de siempre.
@@ -40,9 +41,10 @@ export async function getVendorManage(req, res) {
     include: {
       user: { select: { id: true, fullName: true, email: true, phone: true, lastLoginAt: true, createdAt: true } },
       verification: { select: { paymentMethod: true, paymentConfirmedAt: true, idPhotoFrontUrl: true, selfieUrl: true, createdAt: true, reviewedAt: true } },
-      locations: { include: { province: true, country: true } },
+      locations: { include: { province: { select: { id: true, name: true, type: true, countryId: true } }, country: true, municipality: { select: { id: true, name: true } } } },
       registrationCountry: { select: { name: true } },
       legalProvince: { select: { name: true } },
+      legalMunicipality: { select: { name: true } },
       schedules: { select: { dayOfWeek: true, opensAt: true, closesAt: true, isClosed: true } },
       category: { select: { name: true } },
       businessCategory: { select: { name: true } },
@@ -114,6 +116,7 @@ export async function getVendorManage(req, res) {
   // Cada requisito del plan Premium con el dato real con el que la tienda lo completó (o vacío si le falta). Las fotos de
   // identidad nunca se mandan aquí: solo si se subieron y cuándo (se ven en Verificaciones).
   const ver = vendor.verification;
+  const zones = describeVendorZones(vendor.locations, { pendingMark: " · municipio por aprobar" });
   const valueFor = {
     companyName: vendor.companyName,
     ownerName: vendor.ownerName,
@@ -121,10 +124,11 @@ export async function getVendorManage(req, res) {
     email: vendor.email,
     businessCategoryId: vendor.businessCategory?.name ?? null,
     description: short(vendor.description),
-    locations: [...new Set(vendor.locations.map((l) => l.province?.name ?? l.stateOther ?? l.country?.name).filter(Boolean))].join(", ") || null,
+    locations: zones.join(" · ") || null,
     companyAddress: vendor.companyAddress,
     registrationCountryId: vendor.registrationCountry?.name ?? vendor.registrationCountryOther ?? null,
-    legalProvinceId: vendor.legalProvince?.name ?? vendor.legalProvinceOther ?? null,
+    // Municipio y provincia legales juntos ("Segundo Frente, Santiago de Cuba"): antes solo se veía la provincia.
+    legalProvinceId: [vendor.legalMunicipality?.name ?? vendor.legalMunicipalityOther, vendor.legalProvince?.name ?? vendor.legalProvinceOther].filter(Boolean).join(", ") || null,
     idDocument: ver?.idPhotoFrontUrl ? "Foto subida" : null,
     selfie: ver?.selfieUrl ? "Selfie subida" : null,
     logoUrl: vendor.logoUrl ? "Logo cargado" : null,
@@ -202,7 +206,9 @@ export async function getVendorManage(req, res) {
       companyAddress: vendor.companyAddress ?? null,
       description: vendor.description ?? null,
       category: vendor.businessCategory?.name ?? vendor.category?.name ?? null,
-      locations: [...new Set(vendor.locations.map((l) => l.province?.name ?? l.stateOther ?? l.country?.name).filter(Boolean))],
+      locations: zones,
+      // Zonas tal como están guardadas, para editarlas desde "Editar tienda".
+      zoneLocations: vendor.locations.map((l) => ({ id: l.id, provinceId: l.provinceId, municipalityId: l.municipalityId, province: l.province, municipality: l.municipality })),
       planType: vendor.planType,
       planName: plan?.displayName ?? vendor.planType,
       verificationStatus: vendor.verificationStatus,

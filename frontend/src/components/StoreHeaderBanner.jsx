@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { vendorZoneLabel } from "../lib/zoneLabel.js";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatPrice } from "../lib/format.js";
@@ -97,9 +98,8 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
     toggleFavorite.mutate();
   }
 
-  const location = v.locations?.[0];
-  // Sin municipio salía ", Santiago de Cuba" con la coma suelta: solo se unen las partes que existen.
-  const locationLabel = location ? [location.municipality?.name, location.province?.name ?? location.stateOther].filter(Boolean).join(", ") || "Cuba" : "Cuba";
+  // Todos los municipios donde presta servicio, no solo el primero (antes una tienda de varios municipios mostraba uno solo).
+  const locationLabel = vendorZoneLabel(v.locations) || "Cuba";
   // El sello va pegado a la última palabra del nombre: así nunca queda solo en otra línea ni flotando a la derecha.
   const nameWords = v.companyName.trim().split(/\s+/);
   const nameLast = nameWords.pop();

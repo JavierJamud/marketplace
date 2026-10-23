@@ -22,6 +22,8 @@ import { computeVendorHealthScore } from "./vendors.controller.js";
 import { rawSalesSeries, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
 import { recalcVendorProductQuota } from "../lib/planConfig.js";
 import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
+import { vendorZoneWhere, describeVendorZones } from "../lib/vendorZone.js";
+import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -392,6 +394,8 @@ const vendorsQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
   plan: z.enum(["REGULAR", "BUSINESS"]).optional(),
   provinceId: z.string().optional(),
+  // Con municipio salen las tiendas de ese municipio y las que atienden toda su provincia (misma regla que los filtros públicos).
+  municipalityId: z.string().optional(),
   status: z.enum(["all", "verified", "inprocess", "unverified", "business", "inactive", "flagged", "deletion"]).default("all"),
   sort: z.enum(["recent", "name", "products", "rating", "lastLogin"]).default("recent"),
   dir: z.enum(["asc", "desc"]).default("desc"),
@@ -433,7 +437,8 @@ function vendorsOrderBy(sort, dir) {
 
 export async function listVendors(req, res) {
   const query = vendorsQuerySchema.parse(req.query);
-  const { q, plan, provinceId, status, sort, dir } = query;
+  const { q, plan, provinceId, municipalityId, status, sort, dir } = query;
+  const zone = vendorZoneWhere({ provinceId, municipalityId: provinceId ? municipalityId : undefined });
 
   // Las bloqueadas y suspendidas viven aparte (AdminSuspendedVendors).
   // Bloque 272: las de "eliminación pendiente" (bloqueadas a propósito) solo se ven con
@@ -443,7 +448,7 @@ export async function listVendors(req, res) {
     deletedAt: null,
     ...(pendingView ? { adminDeletionRequestedAt: { not: null } } : { isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null }),
     planType: plan || undefined,
-    locations: provinceId ? { some: { provinceId } } : undefined,
+    locations: zone,
   };
   const where = {
     AND: [
@@ -460,7 +465,7 @@ export async function listVendors(req, res) {
         : {},
     ],
   };
-  const baseScope = { deletedAt: null, isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null, planType: plan || undefined, locations: provinceId ? { some: { provinceId } } : undefined };
+  const baseScope = { deletedAt: null, isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null, planType: plan || undefined, locations: zone };
   const deletionDays = await getVendorDeletionDays();
   const countFor = (s) => prisma.vendor.count({ where: { AND: [baseScope, vendorStatusWhere(s)] } });
   const countPending = () => prisma.vendor.count({ where: { deletedAt: null, adminDeletionRequestedAt: { not: null } } });
@@ -469,7 +474,7 @@ export async function listVendors(req, res) {
     prisma.vendor.findMany({
       where,
       include: {
-        locations: { include: { province: true }, take: 1 },
+        locations: { include: { province: true, municipality: true }, take: 30 },
         category: true,
         user: { select: { lastLoginAt: true, email: true } },
         _count: { select: { products: true } },
@@ -544,6 +549,8 @@ export async function listVendors(req, res) {
       return withComputedVendorFields({
         ...v,
         productCount: v._count.products,
+        // "Segundo Frente (Santiago de Cuba)": dónde presta servicio, con municipio (antes solo la provincia).
+        zones: describeVendorZones(v.locations),
         orders30: s.orders30,
         sales30: s.sales30,
         pendingAnomalies: anomaliesByVendor.get(v.id) ?? 0,
@@ -661,6 +668,36 @@ export async function updateVendor(req, res) {
   if (data.isBlocked === true && !vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue bloqueada", `Motivo: ${vendorData.blockReason}. Escríbenos desde Mensajes si necesitas ayuda.`);
   else if (data.isBlocked === false && vendor.isBlocked) await adminNoticeToVendor(id, "Tu tienda fue desbloqueada", "Ya está visible otra vez y puedes vender con normalidad.");
   res.json({ vendor: updated });
+}
+
+// Zona de servicio de la tienda (provincia y municipios donde presta servicio), editable desde "Editar tienda" del admin.
+// Misma regla que usa la propia tienda en Configuración (services/vendorZoneSync.service.js), sin el tope de provincias del
+// plan: el admin corrige datos. Nunca deja a la tienda sin ninguna zona, porque sin zona no aparece en los filtros por lugar.
+const adminZoneSchema = z.object({
+  provinceId: z.string().min(1),
+  municipalityIds: z.array(z.string().min(1)).max(2000).nullable(),
+});
+
+export async function adminSyncVendorZone(req, res) {
+  const { provinceId, municipalityIds } = adminZoneSchema.parse(req.body);
+  const vendor = await prisma.vendor.findUnique({ where: { id: req.params.id } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (municipalityIds?.length === 0) {
+    const others = await prisma.vendorLocation.count({ where: { vendorId: vendor.id, NOT: { provinceId } } });
+    if (others === 0) throw new AppError("La tienda tiene que quedar con al menos una zona. Agrega otra antes de quitar esta.", 400);
+  }
+  const locations = await syncVendorProvinceZone(vendor, { provinceId, municipalityIds }, { enforcePlan: false });
+  const zone = describeVendorZones(locations).join(" · ") || "sin zona";
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: vendor.id,
+    action: "admin_update_vendor_zone",
+    description: `Un admin cambió la zona de servicio de "${vendor.companyName}": ${zone}`,
+    meta: { vendorId: vendor.id, provinceId, municipalityIds },
+  });
+  await adminNoticeToVendor(vendor.id, "Actualizamos tu zona de servicio", `Ahora apareces en: ${zone}. Puedes revisarla en Configuración.`);
+  res.json({ locations, zones: describeVendorZones(locations) });
 }
 
 // Bloque 165 (pedido explícito — "poder editar datos en tiendas... como

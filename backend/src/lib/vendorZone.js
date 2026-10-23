@@ -24,3 +24,28 @@ export function listingZoneWhere({ countryId, provinceId, municipalityId } = {})
   if (countryId) return { countryId: String(countryId) };
   return {};
 }
+
+// Zona de servicio de una tienda en texto, una entrada por provincia o estado: "Segundo Frente (Santiago de Cuba)",
+// "Segundo Frente, Songo-La Maya (Santiago de Cuba)" o "Santiago de Cuba (toda la provincia)". Un municipio escrito a mano
+// por la tienda (todavía sin aprobar en el catálogo) se muestra con su nombre; si se pasa `pendingMark`, se agrega al final de
+// esa provincia (ej. " · municipio por aprobar").
+// Espera ubicaciones con `province` y `municipality` incluidos (y `country` para las de un país sin provincia).
+export function describeVendorZones(locations = [], { pendingMark = "" } = {}) {
+  const groups = new Map();
+  for (const l of locations) {
+    const place = l.province?.name ?? l.stateOther ?? l.country?.name ?? l.countryOther ?? null;
+    if (!place) continue;
+    const key = l.provinceId ?? `otro:${place}`;
+    if (!groups.has(key)) groups.set(key, { place, isState: l.province?.type === "STATE", whole: false, towns: [], pending: false });
+    const g = groups.get(key);
+    const town = l.municipality?.name ?? l.municipalityOther ?? null;
+    if (!l.municipality && l.municipalityOther) g.pending = true;
+    if (town) g.towns.push(town);
+    else g.whole = true;
+  }
+  return [...groups.values()].map((g) =>
+    g.whole || !g.towns.length
+      ? `${g.place} (${g.isState ? "todo el estado" : "toda la provincia"})`
+      : `${[...new Set(g.towns)].sort((a, b) => a.localeCompare(b, "es")).join(", ")} (${g.place})${g.pending ? pendingMark : ""}`
+  );
+}

@@ -16,6 +16,7 @@ import { activeCodes, allCodes, assertActiveCurrency, assertActiveCheckoutPaymen
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
+import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { normalizeUsername, suggestUsername, usernameTaken, usernameFormatError } from "../lib/username.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
@@ -1773,7 +1774,7 @@ export async function addMyLocation(req, res) {
   res.status(201).json({ location: created });
 }
 
-const syncProvinceSchema = z.object({
+export const syncProvinceSchema = z.object({
   provinceId: z.string().min(1),
   municipalityIds: z.array(z.string()).nullable(),
 });
@@ -1783,77 +1784,8 @@ export async function syncProvinceLocations(req, res) {
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
 
   const { provinceId, municipalityIds } = syncProvinceSchema.parse(req.body);
-
-  const province = await prisma.province.findUnique({ where: { id: provinceId } });
-  
-  const isDeletingAll = municipalityIds !== null && municipalityIds.length === 0;
-  if (!isDeletingAll) {
-    if (!province || !province.isActive) throw new AppError("Provincia/Estado no disponible.", 404);
-  }
-
-  const existingLocations = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id } });
-  const distinctProvinceCount = new Set(existingLocations.map((l) => l.provinceId)).size;
-  const isNewProvince = !existingLocations.some((l) => l.provinceId === provinceId);
-
-  if (isNewProvince && (municipalityIds === null || municipalityIds.length > 0)) {
-    const planConfig = await getPlanConfig(vendor.planType);
-    const max = planConfig?.maxProvinces ?? null;
-    if (max !== null && distinctProvinceCount >= max) {
-      throw new AppError(
-        `Tu Plan ${planConfig.displayName} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
-        403
-      );
-    }
-  }
-
-  // Handle syncing
-  if (municipalityIds === null) {
-    // "Todos los municipios"
-    await prisma.vendorLocation.deleteMany({ where: { vendorId: vendor.id, provinceId } });
-    await prisma.vendorLocation.create({
-      data: { vendorId: vendor.id, provinceId, countryId: province.countryId ?? null, municipalityId: null },
-    });
-  } else {
-    // Especificar municipios
-    if (municipalityIds.length === 0) {
-      await prisma.vendorLocation.deleteMany({ where: { vendorId: vendor.id, provinceId } });
-      if (province?.countryId) {
-        const remainingInCountry = await prisma.vendorLocation.count({
-          where: { vendorId: vendor.id, province: { countryId: province.countryId } },
-        });
-        if (remainingInCountry === 0) {
-          await prisma.vendorDeliveryCountry.deleteMany({ where: { vendorId: vendor.id, countryId: province.countryId } });
-        }
-      }
-    } else {
-      const validMunicipalities = await prisma.municipality.findMany({
-        where: { id: { in: municipalityIds }, provinceId, isActive: true },
-      });
-      const validIds = new Set(validMunicipalities.map((m) => m.id));
-      // Si ninguna de las elegidas existe o sigue activa, se avisa: antes se borraba la zona entera sin decir nada.
-      if (validIds.size === 0) throw new AppError("Ninguno de los municipios o ciudades elegidos está disponible. Vuelve a elegirlos.", 400);
-
-      await prisma.vendorLocation.deleteMany({
-        where: { vendorId: vendor.id, provinceId, OR: [{ municipalityId: null }, { municipalityId: { notIn: [...validIds] } }] },
-      });
-
-      const currentLocs = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id, provinceId } });
-      const currentMunIds = new Set(currentLocs.map((l) => l.municipalityId));
-
-      // En un solo paso (un estado puede tener cientos de ciudades elegidas).
-      const toCreate = [...validIds].filter((mId) => !currentMunIds.has(mId));
-      if (toCreate.length) {
-        await prisma.vendorLocation.createMany({
-          data: toCreate.map((mId) => ({ vendorId: vendor.id, provinceId, countryId: province.countryId ?? null, municipalityId: mId })),
-        });
-      }
-    }
-  }
-
-  const updatedLocations = await prisma.vendorLocation.findMany({
-    where: { vendorId: vendor.id },
-    include: { province: { include: { country: true } }, municipality: true },
-  });
+  // La lógica vive en services/vendorZoneSync.service.js: el admin la reusa desde "Editar tienda".
+  const updatedLocations = await syncVendorProvinceZone(vendor, { provinceId, municipalityIds });
 
   // Elegir dónde opera puede ser lo último que faltaba para la prueba gratis.
   await maybeAutoActivateTrial(vendor.id).catch(() => {});

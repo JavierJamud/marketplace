@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RatingBreakdown } from "../../components/RatingBreakdown.jsx";
 import { Link, useSearchParams } from "react-router-dom";
-import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { ManageVendorMunicipalitiesModal } from "../../components/ZoneMunicipalitiesModal.jsx";
 import toast from "../../lib/toast.jsx";
 import { X, Store, Radar, Star } from "lucide-react";
 import { IconCircle, CARD } from "../../components/dashboard/DashboardCard.jsx";
@@ -23,6 +24,109 @@ import { vendorPlanStatus } from "../../lib/planStatus.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
+}
+
+// Zona de servicio de la tienda (provincia y municipios), dentro de "Editar tienda". Antes el admin solo veía la provincia y
+// no podía corregirla. Cada cambio se guarda al momento, con su código de acción, como la contraseña y el correo de acceso:
+// no forma parte del "Guardar" del formulario. Usa el mismo selector de municipios que la tienda en Configuración.
+function VendorZoneEditor({ vendor }) {
+  const queryClient = useQueryClient();
+  const [managing, setManaging] = useState(null);
+  const zoneLocations = vendor.zoneLocations ?? [];
+  const { data: provinces } = useQuery({
+    queryKey: ["locations-provinces"],
+    queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
+  });
+
+  // Una fila por provincia: sus municipios, o "toda la provincia" si tiene la zona sin municipio.
+  const groups = [];
+  for (const l of zoneLocations) {
+    if (!l.province) continue;
+    let g = groups.find((x) => x.province.id === l.provinceId);
+    if (!g) groups.push((g = { province: l.province, whole: false, towns: [] }));
+    if (l.municipality) g.towns.push(l.municipality.name);
+    else g.whole = true;
+  }
+  // Solo provincias del país (o países) donde ya opera la tienda; sin zona, las de Cuba. La lista completa traía cientos de
+  // provincias de todos los países, con nombres repetidos entre países.
+  const { data: countries } = useQuery({
+    queryKey: ["locations-countries"],
+    queryFn: async () => (await api.get("/locations/countries")).data.countries,
+  });
+  const zoneCountryIds = new Set(groups.map((g) => g.province.countryId).filter(Boolean));
+  if (!zoneCountryIds.size) {
+    const cuba = countries?.find((c) => c.code === "CU");
+    if (cuba) zoneCountryIds.add(cuba.id);
+  }
+  const available = (provinces ?? []).filter((p) => zoneCountryIds.has(p.countryId) && !groups.some((g) => g.province.id === p.id));
+
+  const save = useMutation({
+    mutationFn: async ({ provinceId, municipalityIds }) => (await api.post(`/admin/vendors/${vendor.id}/zone`, { provinceId, municipalityIds })).data,
+    onSuccess: () => {
+      toast.success("Zona de servicio actualizada.");
+      setManaging(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-vendor-manage", vendor.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar la zona."),
+  });
+
+  return (
+    <div className="mt-5 border-t border-surface-container-high pt-3">
+      <p className="text-label-sm font-bold text-on-surface-variant">Zona de servicio</p>
+      <p className="mt-0.5 text-[12px] text-outline">Dónde presta servicio. Decide en qué filtros por lugar aparece la tienda. Se guarda al momento.</p>
+      {groups.length === 0 ? (
+        <p className="mt-2.5 rounded-lg bg-error/5 px-3 py-2 text-[12.5px] text-error">Sin zona: no aparece al filtrar por provincia o municipio.</p>
+      ) : (
+        <ul className="mt-2.5 flex flex-col gap-2">
+          {groups.map((g) => (
+            <li key={g.province.id} className="flex items-center gap-2 rounded-lg border border-surface-container-high px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold text-on-surface">{g.province.name}</p>
+                <p className="text-[12.5px] text-on-surface-variant">
+                  {g.whole ? (g.province.type === "STATE" ? "Todo el estado" : "Toda la provincia") : [...g.towns].sort((a, b) => a.localeCompare(b, "es")).join(", ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManaging(g.province)}
+                className="h-11 flex-shrink-0 rounded-md bg-surface-container px-3.5 text-label-sm font-bold text-on-surface-variant hover:bg-surface-container-high"
+              >
+                Cambiar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {available.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => {
+            const p = available.find((x) => x.id === e.target.value);
+            if (p) setManaging(p);
+          }}
+          aria-label="Agregar otra provincia a la zona de servicio"
+          className="mt-2.5 h-11 w-full rounded-md border border-outline-variant bg-surface-container-lowest px-3 text-[13px] text-on-surface"
+        >
+          <option value="">Agregar otra provincia...</option>
+          {available.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {managing && (
+        <ManageVendorMunicipalitiesModal
+          province={managing}
+          vendorLocations={zoneLocations}
+          isPending={save.isPending}
+          onClose={() => setManaging(null)}
+          onSave={({ provinceId, municipalityIds }) => save.mutate({ provinceId, municipalityIds })}
+        />
+      )}
+    </div>
+  );
 }
 
 // Bloque 165 (pedido explícito — "poder editar datos en tiendas y corregir
@@ -130,6 +234,8 @@ export function EditVendorModal({ vendor, onSave, onCancel, saving }) {
             {saving ? "Guardando..." : "Guardar"}
           </Button>
         </div>
+
+        <VendorZoneEditor vendor={vendor} />
 
         <p className="mt-5 border-t border-surface-container-high pt-3 text-label-sm font-bold text-on-surface-variant">
           Acceso a la cuenta
@@ -269,7 +375,7 @@ export function StatsModal({ vendorName, onClose }) {
 // vistazo": plan, verificación, productos, pedidos, ventas de 30 días,
 // valoración, último acceso y alertas de ranking pendientes. Las acciones
 // pasan al menú "⋮" (antes 6 botones por fila).
-const LIST_DEFAULTS = { q: "", status: "all", province: "", sort: "recent", dir: "desc", page: 1, pageSize: 25 };
+const LIST_DEFAULTS = { q: "", status: "all", province: "", municipality: "", sort: "recent", dir: "desc", page: 1, pageSize: 25 };
 
 const SORT_OPTIONS = [
   { value: "recent:desc", label: "Más recientes" },
@@ -294,7 +400,8 @@ const VERIFICATION_LABEL = {
 };
 
 function VendorRow({ v }) {
-  const place = v.locations?.[0]?.province?.name ?? null;
+  // Provincia y municipios donde presta servicio ("Segundo Frente (Santiago de Cuba)"), armado en el servidor.
+  const place = v.zones?.length ? v.zones.join(" · ") : null;
   const hasSales = v.sales30 > 0;
   const pending = !!v.adminDeletionRequestedAt;
   const { planNames } = usePlatformSettings();
@@ -332,7 +439,7 @@ function VendorRow({ v }) {
               </Link>
             )}
           </div>
-          <div className="truncate text-[11.5px] text-outline">{[v.category?.name, place].filter(Boolean).join(" · ") || "Sin rubro ni provincia"}</div>
+          <div className="truncate text-[11.5px] text-outline" title={place ?? undefined}>{[v.category?.name, place].filter(Boolean).join(" · ") || "Sin rubro ni zona"}</div>
           {pending && v.deletionScheduledFor && (
             <div className="mt-0.5 text-[11.5px] font-semibold text-error">
               Se elimina definitivamente el {new Date(v.deletionScheduledFor).toLocaleDateString("es-CU", { day: "numeric", month: "short", year: "numeric" })}
@@ -412,6 +519,7 @@ export default function AdminVendors() {
             q: params.q || undefined,
             status: listStatus,
             provinceId: params.province || undefined,
+            municipalityId: (params.province && params.municipality) || undefined,
             sort: params.sort,
             dir: params.dir,
             page: params.page,
@@ -443,6 +551,12 @@ export default function AdminVendors() {
   const kpis = data?.kpis;
   const { planNames } = usePlatformSettings();
   const hasFilters = params.q || params.status !== "all" || params.province;
+  // Municipios de la provincia elegida, para filtrar más fino (Santiago de Cuba > Segundo Frente).
+  const { data: municipalities } = useQuery({
+    queryKey: ["admin-municipalities", params.province],
+    queryFn: async () => (await api.get(`/locations/provinces/${params.province}/municipalities`)).data.municipalities,
+    enabled: !!params.province,
+  });
   const sortValue = `${params.sort}:${params.dir}`;
   const tiles = [
     { key: "all", label: "Todas", value: kpis?.all },
@@ -483,11 +597,11 @@ export default function AdminVendors() {
         <SuspendedVendorsList />
       ) : (
       <>
-      <div className="mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className={`mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${params.province ? "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]"}`}>
         <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por nombre, enlace o correo" className="sm:col-span-2 lg:col-span-1" />
         <select
           value={params.province}
-          onChange={(e) => setParams({ province: e.target.value })}
+          onChange={(e) => setParams({ province: e.target.value, municipality: "" })}
           aria-label="Filtrar por provincia"
           className="h-11 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13px] md:h-10"
         >
@@ -498,6 +612,21 @@ export default function AdminVendors() {
             </option>
           ))}
         </select>
+        {params.province && (
+          <select
+            value={params.municipality}
+            onChange={(e) => setParams({ municipality: e.target.value })}
+            aria-label="Filtrar por municipio"
+            className="h-11 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13px] md:h-10"
+          >
+            <option value="">Todos los municipios</option>
+            {municipalities?.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           value={sortValue}
           onChange={(e) => {
@@ -548,7 +677,7 @@ export default function AdminVendors() {
             <Store className="h-6 w-6 text-outline" />
             <p className="text-body-md text-on-surface-variant">{hasFilters ? "Ninguna tienda coincide con estos filtros." : "Todavía no hay tiendas registradas."}</p>
             {hasFilters && (
-              <Button variant="outline" onClick={() => setParams({ q: "", status: "all", province: "" })}>
+              <Button variant="outline" onClick={() => setParams({ q: "", status: "all", province: "", municipality: "" })}>
                 Limpiar filtros
               </Button>
             )}

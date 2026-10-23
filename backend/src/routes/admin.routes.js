@@ -77,6 +77,8 @@ router.get("/vendors", adminController.listVendors);
 router.get("/vendors/new", vendorManage.listNewVendors);
 router.get("/vendors/:id/manage", vendorManage.getVendorManage);
 router.patch("/vendors/:id", requireActionCode(vendorChangeAction), adminController.updateVendor);
+// Zona de servicio (provincia y municipios) desde "Editar tienda": mismo código de acción que modificar una tienda.
+router.post("/vendors/:id/zone", requireActionCode("VENDOR_CHANGE"), adminController.adminSyncVendorZone);
 // Bloque 165: acciones de cuenta directas desde el admin — contraseña y
 // correo de LOGIN del vendedor (distinto de Vendor.email, ya cubierto por
 // updateVendor de arriba).

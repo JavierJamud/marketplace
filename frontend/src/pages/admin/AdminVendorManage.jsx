@@ -165,7 +165,7 @@ export default function AdminVendorManage() {
               {v.companyName} {v.verificationStatus === "VERIFIED" && <VerifiedBadge size="sm" />}
             </h1>
             {v.slug && <p className="text-[12.5px] font-semibold text-on-surface-variant">@{v.slug}</p>}
-            <p className="text-[12.5px] text-outline">{[v.category, v.locations.join(", ")].filter(Boolean).join(" · ") || "Sin rubro ni provincia"}</p>
+            <p className="text-[12.5px] text-outline">{[v.category, ...v.locations].filter(Boolean).join(" · ") || "Sin rubro ni zona"}</p>
             <p className="text-[12.5px] text-on-surface-variant">
               Registró la tienda el <strong className="font-semibold text-on-surface">{exactDateTime(v.createdAt)}</strong> ({timeAgo(v.createdAt).toLowerCase()})
             </p>
