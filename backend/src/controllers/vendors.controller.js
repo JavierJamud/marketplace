@@ -235,9 +235,9 @@ export async function createVendor(req, res) {
   const slug = data.username ? normalizeUsername(data.username) : await suggestUsername(data.companyName);
   delete data.username;
 
-  // Restaurantes arrancan con el Panel de vendedor como destino de pedidos
-  // (no WhatsApp) — pueden cambiarlo después desde VendorSettings.jsx.
-  const orderDestination = data.isRestaurant ? "PANEL" : "WHATSAPP";
+  // El pedido entra siempre al panel. Los restaurantes arrancan sin el botón de WhatsApp (atienden en el local); las demás
+  // tiendas con él. Se cambia en Configuración (VendorSettings.jsx).
+  const orderDestination = data.isRestaurant ? "PANEL" : "BOTH";
 
   // Atribución a un socio de la API: queda fija de por vida en la tienda.
   const partner = data.partnerCode
@@ -608,7 +608,8 @@ const updateVendorSchema = z.object({
   // Bloque 68: 3ra opción — BOTH (WhatsApp + panel). Ver el enum en
   // schema.prisma para lo que decide cada valor ahora (ya no gatea si se
   // crea el Order, eso siempre pasa; solo qué le ofrece la confirmación).
-  orderDestination: z.enum(["WHATSAPP", "PANEL", "BOTH"]).optional(),
+  // WHATSAPP era "Solo WhatsApp"; si llega de una pantalla vieja se guarda como BOTH (el pedido igual entra al panel).
+  orderDestination: z.enum(["WHATSAPP", "PANEL", "BOTH"]).transform((v) => (v === "WHATSAPP" ? "BOTH" : v)).optional(),
   // Bloque 302: correo a la tienda por cada pedido nuevo (web o API de un socio).
   notifyNewOrderEmail: z.boolean().optional(),
   checkoutPaymentOptions: z.array(z.string().trim().min(1).max(40)).min(1, "Deja al menos una forma de coordinar el pago.").optional(),
@@ -778,15 +779,9 @@ export async function updateMyVendor(req, res) {
   const planConfig = await getPlanConfig(planType ?? vendor.planType);
   const isPrivate = data.isPrivate !== undefined ? (planConfig?.allowPublicProfile ? data.isPrivate : false) : undefined;
   let orderDestination = data.orderDestination;
-  if (orderDestination !== undefined) {
-    const allowedDestinations = [
-      ...(planConfig?.allowWhatsappOrders ? ["WHATSAPP"] : []),
-      ...(planConfig?.allowPanelOrders ? ["PANEL"] : []),
-    ];
-    if (planConfig?.allowWhatsappOrders && planConfig?.allowPanelOrders) allowedDestinations.push("BOTH");
-    if (!allowedDestinations.includes(orderDestination)) {
-      throw new AppError(`Tu Plan ${planConfig?.displayName ?? vendor.planType} no permite ese destino de pedidos.`, 403);
-    }
+  // El panel lo tiene toda tienda; el plan solo decide si puede ofrecer además el botón de WhatsApp.
+  if (orderDestination === "BOTH" && planConfig && !planConfig.allowWhatsappOrders) {
+    throw new AppError(`Tu Plan ${planConfig.displayName ?? vendor.planType} no incluye el botón para enviar el pedido por WhatsApp.`, 403);
   }
 
   let updated = await prisma.vendor.update({

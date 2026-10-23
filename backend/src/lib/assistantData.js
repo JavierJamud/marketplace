@@ -422,7 +422,7 @@ export async function storeProfile(vendorId) {
   if (!v.aiDocument) missing.push("documento de conocimiento para el chat de la tienda");
   return {
     tienda: v.companyName,
-    destinoDePedidos: v.orderDestination,
+    destinoDePedidos: v.orderDestination === "PANEL" ? "solo en el panel" : "en el panel y, si el cliente quiere, también por WhatsApp",
     esRestaurante: v.isRestaurant,
     menuPublico: v.menuPublic,
     tiendaPrivada: v.isPrivate,

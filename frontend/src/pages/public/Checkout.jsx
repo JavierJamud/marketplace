@@ -45,14 +45,21 @@ function singleCurrencySubtotal(items) {
 // eliminados de Product.jsx/Cart.jsx/CartDrawer.jsx).
 const WA_SEPARATOR = "──────────────────";
 
+// El pedido ya quedó en el panel de la tienda; este mensaje es una copia que el cliente puede mandarle por WhatsApp si
+// quiere. Lleva el número del pedido y el enlace al panel para que la tienda lo busque ahí y lo confirme o lo cancele.
 function buildOrderWhatsAppText(info) {
   const lines = [
-    `🛍️ *Pedido ${info.orderCode}* — ${info.vendorName}`,
+    `🛍️ *Pedido ${info.orderCode}*`,
+    `Tienda: ${info.vendorName}`,
+    `Fecha: ${new Date(info.createdAt ?? Date.now()).toLocaleString("es-CU", { dateStyle: "short", timeStyle: "short" })}`,
+    `Ya está en tu panel: ${info.panelUrl}`,
     WA_SEPARATOR,
     "📦 *Productos*",
-    ...info.items.map(
-      (it) => `• ${it.quantity}× ${it.name}${it.size ? ` (talla ${it.size})` : ""} — ${formatPrice(it.unitPrice, it.currency)} c/u`
-    ),
+    ...info.items.map((it) => {
+      const each = formatPrice(it.unitPrice, it.currency);
+      const line = it.quantity > 1 ? `${each} c/u, ${formatPrice(it.unitPrice * it.quantity, it.currency)}` : each;
+      return `• ${it.quantity} × ${it.name}${it.size ? ` (talla ${it.size})` : ""}: ${line}`;
+    }),
     WA_SEPARATOR,
   ];
   if (info.discount) {
@@ -62,9 +69,10 @@ function buildOrderWhatsAppText(info) {
     lines.push(`⭐ Puntos usados (${info.loyaltyPoints}): -${formatPrice(info.loyaltyDiscount, info.loyaltyCurrency)}`);
   }
   if (info.shippingText) lines.push(`🚚 Envío: ${info.shippingText}`);
-  lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Datos del cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`);
+  lines.push(`💰 *Total:* ${info.totalLabel}`, WA_SEPARATOR, "👤 *Cliente*", `Nombre: ${info.customerName}`, `Teléfono: ${info.customerPhone}`);
+  if (info.customerEmail) lines.push(`Correo: ${info.customerEmail}`);
   if (info.recipient) lines.push(`Recibe: ${info.recipient.name} (${info.recipient.phone})`, `${info.recipient.idLabel}: ${info.recipient.idNumber}`);
-  lines.push(`Entrega: ${info.address}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
+  lines.push(`📍 Entrega: ${[info.address, info.provinceName].filter(Boolean).join(", ")}`, WA_SEPARATOR, `💳 Pago: ${info.payTitle}`);
   return lines.join("\n");
 }
 
@@ -144,7 +152,8 @@ export default function Checkout() {
   // porque `clearCart()` resetea el vendedor del contexto (`vendorSlug`
   // queda null), lo que apagaría esta query y volvería `orderDestination`
   // al default silenciosamente.
-  const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
+  // Todo pedido entra al panel; BOTH (o el viejo WHATSAPP) suma el botón opcional para mandárselo por WhatsApp.
+  const orderDestination = vendor?.orderDestination ?? "BOTH";
 
   // Solo las formas de pago que la tienda dejó activas (por defecto, todas las activas).
   const catalog = useCatalog();
@@ -323,7 +332,8 @@ export default function Checkout() {
         // tienda vive en `/tienda/:slug`, ver App.jsx). Se captura acá,
         // antes de limpiar el carrito.
         vendorSlug,
-        provinceName: selectedProvince?.name ?? "tu provincia/estado",
+        provinceName: selectedProvince?.name ?? "",
+        panelUrl: `${window.location.origin}/vendedor/pedidos?ver=${order.id}&tipo=orden`,
         orderDestination,
         vendorWhatsapp: vendor?.whatsapp,
         orderCode: order.code,
@@ -348,7 +358,8 @@ export default function Checkout() {
         recipient: form.forSomeoneElse
           ? { name: form.recipientName.trim(), phone: form.recipientPhone, idLabel: ID_TYPE_LABEL[form.recipientIdType], idNumber: form.recipientIdNumber.replace(/\s+/g, "").toUpperCase() }
           : null,
-        address: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — "),
+        customerEmail: form.customerEmail?.trim() || null,
+        address: [form.address, form.municipalityId ? selectedMunicipalityName : form.cityOther].filter(Boolean).join(", "),
         payTitle: checkoutChoices({ activeOnly: false }).find((p) => p.id === pay)?.title ?? pay,
       });
       clearCart();
@@ -377,7 +388,7 @@ export default function Checkout() {
 
   if (done && confirmedInfo) {
     const showWhatsappCta = confirmedInfo.orderDestination !== "PANEL";
-    const href = showWhatsappCta ? waLink(confirmedInfo.vendorWhatsapp, buildOrderWhatsAppText(confirmedInfo)) : null;
+    const href = showWhatsappCta && confirmedInfo.vendorWhatsapp ? waLink(confirmedInfo.vendorWhatsapp, buildOrderWhatsAppText(confirmedInfo)) : null;
 
     return (
       <div className="mx-auto max-w-md px-4 py-14">
@@ -455,7 +466,7 @@ export default function Checkout() {
             <div className="mt-4 grid grid-cols-1 gap-3 text-[12.5px] text-on-surface sm:grid-cols-2">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Entrega en</div>
-                <div className="mt-0.5 font-semibold">{confirmedInfo.address || confirmedInfo.provinceName}</div>
+                <div className="mt-0.5 font-semibold">{[confirmedInfo.address, confirmedInfo.provinceName].filter(Boolean).join(", ") || "Por coordinar con la tienda"}</div>
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wide text-outline">Forma de pago</div>
@@ -487,31 +498,22 @@ export default function Checkout() {
           </div>
         </div>
 
-        {/* Bloque 68: los 2 bloques de abajo ya no son mutuamente
-            excluyentes — con orderDestination:"BOTH" se muestran los dos
-            (WhatsApp + panel), con "WHATSAPP"/"PANEL" solo el que corresponde.
-            Bloque 231: mismo radio (rounded-2xl) que la tarjeta de arriba —
-            antes era rounded-lg, un nivel distinto sin motivo. */}
-        {showWhatsappCta && (
+        {/* El pedido ya está en el panel de la tienda. Si la tienda ofrece WhatsApp (y tiene número), el cliente puede además
+            mandarle una copia con todos los datos; es opcional y no cambia nada del pedido. */}
+        {href && (
           <div className="mt-6 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-left">
             <p className="text-body-md text-on-surface-variant">
-              Envíale tu pedido a <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> por WhatsApp para
-              ultimar la entrega en {confirmedInfo.provinceName}.
+              Tu pedido ya está en el panel de <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span>. Si quieres,
+              también puedes enviárselo por WhatsApp con todos los datos.
             </p>
-            {href ? (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-lg font-bold text-primary shadow hover:opacity-90"
-              >
-                <MessageCircle className="h-5 w-5" /> Enviar pedido por WhatsApp
-              </a>
-            ) : (
-              <p className="mt-3 text-body-sm text-outline">
-                (La tienda todavía no configuró su número de WhatsApp en el perfil.)
-              </p>
-            )}
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-lg font-bold text-primary shadow hover:opacity-90"
+            >
+              <MessageCircle className="h-5 w-5" aria-hidden="true" /> Enviar también por WhatsApp
+            </a>
           </div>
         )}
         <div className="mt-6 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-left">
@@ -519,11 +521,18 @@ export default function Checkout() {
           <ul className="mt-2 flex flex-col gap-2 text-body-md text-on-surface-variant">
             <li>
               Un empleado de <span className="font-semibold text-on-surface">{confirmedInfo.vendorName}</span> revisará tu pedido y te contactará
-              por WhatsApp o por teléfono al <span className="font-semibold text-on-surface">{confirmedInfo.customerPhone}</span>.
+              {showWhatsappCta ? " por WhatsApp o por teléfono" : ""} al <span className="font-semibold text-on-surface">{confirmedInfo.customerPhone}</span>.
             </li>
             <li>La tienda atiende los pedidos en el orden en que van llegando. Te pedimos paciencia: te van a contactar.</li>
           </ul>
         </div>
+
+        <Link
+          to={`/rastrear-pedido?pedido=${encodeURIComponent(confirmedInfo.orderCode)}`}
+          className="mt-6 flex h-12 w-full items-center justify-center rounded-xl border border-outline-variant bg-surface-container-lowest text-label-lg font-bold text-on-surface hover:border-tertiary-accent"
+        >
+          Rastrear este pedido
+        </Link>
 
         <div className="mt-8 text-center">
           <Link to={`/tienda/${confirmedInfo.vendorSlug}`} className="text-label-lg font-bold text-tertiary-accent hover:underline">

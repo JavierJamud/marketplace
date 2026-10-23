@@ -36,10 +36,9 @@ const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino
 const STATUS_COLOR = { NEW: "#8A5100", PREPARING: "#087A38", READY: "#337475", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
 // Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
 const CHANNEL_COLOR = { CASH: "#128C7E", COD: "#337475", ONLINE: "#003435", TABLE: "#8A5100" };
-// Distinto del método de pago (channelLabel, lib/catalog.js): esto es a dónde le
-// llegó el AVISO del pedido al vendedor, según su preferencia en Configuración.
-// BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).
-const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel", BOTH: "Aviso por WhatsApp y Panel" };
+// Distinto del método de pago (channelLabel, lib/catalog.js). Todo pedido llega al panel; esto solo dice si al cliente se le ofreció también mandarlo por WhatsApp. WHATSAPP es de
+// pedidos viejos ("Solo WhatsApp", que igual entraba al panel) y se muestra como BOTH.
+const NOTIFICATION_LABEL = { WHATSAPP: "Panel y WhatsApp", PANEL: "Solo panel", BOTH: "Panel y WhatsApp" };
 // Bloque 29: NEW ya no está acá — la única forma de pasar de Pendiente a
 // Vendido es la acción dedicada "Confirmar pedido" (Bloque 231, antes decía
 // "Confirmar venta" — descuenta stock real), nunca este loop genérico de

@@ -35,6 +35,7 @@ const Privacy = lazyRetry(() => import("./pages/public/Privacy.jsx"));
 const Faq = lazyRetry(() => import("./pages/public/Faq.jsx"));
 const Ayuda = lazyRetry(() => import("./pages/public/Ayuda.jsx"));
 const Contacto = lazyRetry(() => import("./pages/public/Contacto.jsx"));
+const OrderTracking = lazyRetry(() => import("./pages/public/OrderTracking.jsx"));
 const EmailUnsubscribe = lazyRetry(() => import("./pages/public/EmailUnsubscribe.jsx"));
 import NotFound from "./pages/public/NotFound.jsx";
 
@@ -244,6 +245,7 @@ export default function App() {
         <Route path="/faq" element={<Faq />} />
         <Route path="/ayuda" element={<Ayuda />} />
         <Route path="/contacto" element={<Contacto />} />
+        <Route path="/rastrear-pedido" element={<OrderTracking />} />
         <Route path="/correos/baja" element={<EmailUnsubscribe />} />
         <Route path="/api-socios" element={<ApiSocios />} />
         <Route path="/socios/solicitar" element={<SolicitudSocio />} />

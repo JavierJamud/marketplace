@@ -12,6 +12,7 @@ import { newOrderVendorEmail } from "../templates/newOrderVendor.js";
 import { partnerApplicationReceivedEmail, partnerApprovedEmail, partnerKeyChangedEmail, partnerRejectedEmail } from "../templates/partnerNotices.js";
 import { statusUpdateEmail } from "../templates/statusUpdate.js";
 import { orderCancelledVendorEmail } from "../templates/orderCancelledVendor.js";
+import { orderOverdueVendorEmail } from "../templates/orderOverdueVendor.js";
 import { orderCancelHelpEmail } from "../templates/orderCancelHelp.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
@@ -158,6 +159,19 @@ export async function sendNewOrderVendorEmail(order, { partnerName } = {}) {
   const { subject, html } = await newOrderVendorEmail({ order, partnerName });
   const result = await sendViaResend({ to, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "NEW_ORDER_VENDOR", to, subject, result });
+  return result;
+}
+
+// Aviso a la tienda de un pedido que lleva `waited` sin confirmar. Mismo destinatario e interruptor que el de pedido nuevo.
+// `order` trae items (con la foto del producto) y vendor.companyName. Best-effort.
+export async function sendOrderOverdueVendorEmail(order, { waited }) {
+  const vendor = await prisma.vendor.findUnique({ where: { id: order.vendorId }, select: { email: true, notifyNewOrderEmail: true, user: { select: { email: true } } } });
+  if (!vendor?.notifyNewOrderEmail) return { ok: false, skipped: true };
+  const to = vendor.email || vendor.user?.email;
+  if (!to) return { ok: false, error: "La tienda no tiene correo" };
+  const { subject, html } = await orderOverdueVendorEmail({ order, waited });
+  const result = await sendViaResend({ to, subject, html, fromName: order.vendor.companyName });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_OVERDUE_VENDOR", to, subject, result });
   return result;
 }
 

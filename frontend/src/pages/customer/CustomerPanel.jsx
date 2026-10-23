@@ -41,9 +41,6 @@ function fmtCUP(n) {
 // los controles de gestión (ese panel es del vendedor, este es de lectura).
 const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#087A38", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
-// Bloque 14: valores consolidados de OrderChannel (antes WHATSAPP/TRANSFER).
-// BOTH = la tienda recibe el aviso por WhatsApp y por el panel (Vendor.orderDestination).
-const NOTIFICATION_LABEL = { WHATSAPP: "Aviso por WhatsApp", PANEL: "Aviso por Panel", BOTH: "Aviso por WhatsApp y Panel" };
 
 const TABS = [
   { id: "orders", label: "Mis pedidos" },
@@ -504,7 +501,6 @@ export default function CustomerPanel() {
                       </div>
                       <div className="mt-0.5 text-[12.5px] text-outline">
                         {new Date(o.createdAt).toLocaleString("es-CU")} · {channelLabel(o.channel)}
-                        {NOTIFICATION_LABEL[o.notificationChannel] && ` · ${NOTIFICATION_LABEL[o.notificationChannel]}`}
                       </div>
                     </div>
                     <div className="text-[14px] font-bold text-on-surface">{orderTotalLabel(o)}</div>

@@ -80,6 +80,7 @@ export function Footer() {
                 <Link to="/tiendas" className={LINK}>Tiendas</Link>
                 <Link to="/tiendas?isRestaurant=true" className={LINK}>Menú QR restaurantes</Link>
                 <Link to="/ventas-rapidas" className={LINK}>Ventas rápidas</Link>
+                <Link to="/rastrear-pedido" className={LINK}>Rastrear pedido</Link>
               </div>
             </nav>
             <nav aria-label="Vender">

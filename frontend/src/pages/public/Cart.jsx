@@ -71,7 +71,7 @@ export default function Cart() {
   // después de confirmar (ver Checkout.jsx, que arma el mensaje real de
   // WhatsApp recién con los datos ya completos). Bloque 231: ya NO decide
   // el color/ícono del botón — ver el comentario junto al <Link> de abajo.
-  const orderDestination = vendor?.orderDestination ?? "WHATSAPP";
+  const orderDestination = vendor?.orderDestination ?? "BOTH";
 
   if (items.length === 0) {
     return (
@@ -289,10 +289,8 @@ export default function Cart() {
           </Link>
           <p className="mt-3.5 text-center text-[11.5px] leading-4 text-outline">
             {orderDestination === "PANEL"
-              ? "Esta tienda gestiona sus pedidos desde su panel. Completa tus datos y te contactarán para coordinar."
-              : orderDestination === "BOTH"
-              ? "Completa tus datos — la tienda recibe tu pedido en su panel y también te puede coordinar por WhatsApp."
-              : `Completa tus datos — al confirmar te ofrecemos mandarle el pedido a ${vendorName} por WhatsApp.`}
+              ? `Completa tus datos y ${vendorName} recibe tu pedido en su panel. Te contactarán para coordinar.`
+              : `Completa tus datos y ${vendorName} recibe tu pedido en su panel. Al terminar, si quieres, también se lo puedes enviar por WhatsApp.`}
           </p>
         </div>
       </div>

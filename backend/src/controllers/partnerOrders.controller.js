@@ -158,8 +158,8 @@ function orderDto(order, store, extra = {}) {
     items,
     customer: { name: order.customerName, phone: order.customerPhone, email: order.customerEmail, address: order.shippingAddress },
     store: { slug: store.slug, name: store.companyName },
-    // El pedido ya está en el panel del vendedor cuando el destino es PANEL o BOTH.
-    notifiedInPanel: order.notificationChannel !== "WHATSAPP",
+    // Todo pedido entra al panel del vendedor (también los viejos marcados WHATSAPP).
+    notifiedInPanel: true,
     // Cuando el destino incluye WhatsApp, el cliente abre este enlace para mandar el pedido al vendedor.
     whatsapp: usesWhatsapp ? { url: whatsappUrl(store.whatsapp, text), message: text } : null,
     ...(extra.replayed ? { replayed: true } : {}),

@@ -44,6 +44,7 @@ const STATIC_PAGES = [
   ["/faq", 0.7, "weekly"],
   ["/ayuda", 0.6, "monthly"],
   ["/contacto", 0.5, "monthly"],
+  ["/rastrear-pedido", 0.4, "monthly"],
   ["/api-socios", 0.5, "monthly"],
   ["/socios/solicitar", 0.4, "monthly"],
   ["/terminos", 0.3, "yearly"],

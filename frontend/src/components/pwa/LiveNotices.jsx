@@ -17,8 +17,9 @@ export function LiveNotices() {
     const shown = new Map(); // tag -> id del aviso, para reemplazar en vez de apilar avisos del mismo tema
     const onNotice = (e) => {
       const n = e.detail ?? {};
-      // Los pedidos nuevos ya tienen su propia ventana con sonido en el panel de la tienda.
-      if (n.category === "orders" && String(n.tag ?? "").startsWith("vn-") && /^\/vendedor/.test(window.location.pathname)) return;
+      // Los pedidos nuevos ya tienen su propia ventana con sonido en el panel de la tienda. Los demás avisos de pedidos (atrasado,
+      // cancelado o cambiado por el cliente) no la tienen y se muestran aquí.
+      if (n.type === "NEW_ORDER" && /^\/vendedor/.test(window.location.pathname)) return;
       if (n.tag && shown.has(n.tag)) toast.dismiss(shown.get(n.tag));
       const url = n.url && n.url !== window.location.pathname ? n.url : null;
       // Pedido (nuevo para la tienda, recibido para el cliente): tarjeta con el detalle en lugar de una línea de texto.
@@ -33,9 +34,11 @@ export function LiveNotices() {
         if (n.tag) shown.set(n.tag, id);
         return;
       }
+      // Un pedido que lleva rato esperando se queda más tiempo en pantalla: es el que más importa no perderse.
+      const duration = n.type === "ORDER_OVERDUE" ? 20000 : DURATION_MS;
       const id = url
-        ? toast.action(n.title ?? "Aviso", n.body, { label: "Ver", duration: DURATION_MS, onClick: () => nav.current(url) })
-        : toast.info(n.title ?? "Aviso", n.body, { icon: "bell", duration: DURATION_MS });
+        ? toast.action(n.title ?? "Aviso", n.body, { label: "Ver", duration, onClick: () => nav.current(url) })
+        : toast.info(n.title ?? "Aviso", n.body, { icon: "bell", duration });
       if (n.tag) shown.set(n.tag, id);
     };
     window.addEventListener(NOTICE_EVENT, onNotice);

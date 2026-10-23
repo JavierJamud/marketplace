@@ -22,29 +22,21 @@ import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import { StoreShippingCard } from "../../components/vendor/ShippingFields.jsx";
 
-// Bloque 68 (pedido explícito): 3 opciones reales de Vendor.orderDestination
-// — el checkout con formulario completo SIEMPRE crea el pedido de verdad
-// (queda en /vendedor/pedidos pase lo que pase), así que esto ya no decide
-// si el pedido existe, solo qué le mostramos al cliente después de que lo
-// confirma.
+// Vendor.orderDestination: todo pedido entra siempre a "Mis pedidos" (con aviso en vivo, push y correo). La tienda solo
+// elige si al cliente, después de enviarlo, se le ofrece además mandárselo por WhatsApp. "Solo WhatsApp" se quitó porque
+// daba a entender que el pedido no llegaba al panel y las tiendas no lo confirmaban ahí.
 const ORDER_DESTINATIONS = [
-  {
-    id: "WHATSAPP",
-    icon: MessageCircle,
-    label: "Solo WhatsApp",
-    description: "Al cliente le mostramos un botón para mandarte el pedido por WhatsApp apenas lo confirma.",
-  },
   {
     id: "PANEL",
     icon: LayoutDashboard,
-    label: "Solo mi panel",
-    description: "No le mostramos al cliente ninguna opción de WhatsApp — gestionas el pedido directo desde tu panel.",
+    label: "Solo en mi panel",
+    description: "Recibes el pedido en Mis pedidos. Al cliente no le mostramos WhatsApp.",
   },
   {
     id: "BOTH",
     icon: Layers,
-    label: "WhatsApp y panel",
-    description: "Le mostramos el botón de WhatsApp y también le avisamos que ya quedó guardado en tu panel.",
+    label: "En mi panel y por WhatsApp",
+    description: "Recibes el pedido en Mis pedidos y, si el cliente quiere, también te lo manda por WhatsApp con todos los datos.",
   },
 ];
 
@@ -311,7 +303,7 @@ export default function VendorSettings() {
   const [form, setForm] = useState({
     ownerIdNumber: "",
     companyAddress: "",
-    orderDestination: "WHATSAPP",
+    orderDestination: "BOTH",
     notifyNewOrderEmail: true,
     // Bloque 77 (pedido explícito): tienda privada — no aparece en el
     // catálogo público/buscador, sigue funcionando 100% normal por su link
@@ -391,7 +383,7 @@ export default function VendorSettings() {
     setForm({
       ownerIdNumber: vendor.ownerIdNumber ?? "",
       companyAddress: vendor.companyAddress ?? "",
-      orderDestination: vendor.orderDestination ?? "WHATSAPP",
+      orderDestination: vendor.orderDestination === "PANEL" ? "PANEL" : "BOTH",
       notifyNewOrderEmail: vendor.notifyNewOrderEmail ?? true,
       isPrivate: vendor.isPrivate ?? false,
       acceptedPaymentMethods: vendor.acceptedPaymentMethods ?? [],
@@ -927,19 +919,15 @@ export default function VendorSettings() {
         </div>
       </div>
 
-      {/* Bloque 68 (pedido explícito): este control no existía en el
-          frontend — Vendor.orderDestination ya vivía en el backend/DB pero
-          quedaba fijo en lo que decidió el registro (WhatsApp para tiendas
-          normales, Panel para restaurantes), sin forma de cambiarlo. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
           <MessageCircle className="h-5 w-5 text-tertiary-accent" /> Cómo quieres recibir tus pedidos
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Todo pedido queda siempre disponible en "Mis pedidos" — el cliente completa sus datos antes de enviarlo, sin importar
-          la opción que elijas aquí. Esto solo decide qué le mostramos después de que lo confirma.
+          Todos los pedidos llegan a Mis pedidos, con aviso en la pantalla, en el celular y por correo. Confírmalos o cancélalos ahí
+          para que el cliente vea en qué va su pedido.
         </p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {ORDER_DESTINATIONS.map((opt) => {
             const active = form.orderDestination === opt.id;
             const Icon = opt.icon;
@@ -947,6 +935,7 @@ export default function VendorSettings() {
               <button
                 key={opt.id}
                 type="button"
+                aria-pressed={active}
                 onClick={() => setForm((f) => ({ ...f, orderDestination: opt.id }))}
                 className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition ${
                   active ? "border-tertiary-accent bg-tertiary-accent/[0.06]" : "border-outline-variant hover:border-tertiary-accent/50"
@@ -977,7 +966,7 @@ export default function VendorSettings() {
             checked={!!form.notifyNewOrderEmail}
             onChange={(e) => setForm((f) => ({ ...f, notifyNewOrderEmail: e.target.checked }))}
           />
-          Quiero recibir un correo por cada pedido nuevo
+          Quiero un correo por cada pedido nuevo y cuando uno lleve 30 minutos sin confirmar
         </label>
       </div>
 

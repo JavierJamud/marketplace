@@ -207,8 +207,9 @@ export function buildPlanIncludes(config) {
   lines.push(c.maxProducts == null ? "Productos ilimitados" : `Hasta ${plural(c.maxProducts, "producto publicado", "productos publicados")}`);
   lines.push(c.maxProvinces == null ? "Vende en todas las provincias" : `Vende en hasta ${plural(c.maxProvinces, "provincia", "provincias")}`);
   if (c.maxDeliveryCountries != null) lines.push(`Envíos a hasta ${plural(c.maxDeliveryCountries, "país", "países")}`);
-  if (c.allowWhatsappOrders) lines.push("Pedidos por WhatsApp");
-  if (c.allowPanelOrders) lines.push("Pedidos en tu panel");
+  // Todo pedido entra al panel en cualquier plan; WhatsApp es la copia opcional que el cliente puede mandar.
+  lines.push("Pedidos en tu panel");
+  if (c.allowWhatsappOrders) lines.push("Pedido también por WhatsApp");
   if (c.allowPos) lines.push("Caja con código de barras");
   if (c.allowAiChatbot) lines.push("Chat con IA en tu tienda");
   if (c.allowStaffUsers) lines.push(c.maxStaffUsers == null ? "Usuarios del sistema ilimitados" : `Hasta ${plural(c.maxStaffUsers, "usuario del sistema", "usuarios del sistema")}`);

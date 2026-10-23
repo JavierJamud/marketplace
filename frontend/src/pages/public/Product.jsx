@@ -343,10 +343,8 @@ export default function Product() {
     : "Sin stock por ahora";
   const orderText =
     v.orderDestination === "PANEL"
-      ? "El pedido llega directo a la tienda desde esta página"
-      : v.orderDestination === "BOTH"
-      ? "Pides desde esta página o por WhatsApp con la tienda"
-      : "Haces el pedido por WhatsApp con la tienda";
+      ? "Pides desde esta página y llega directo a la tienda"
+      : "Pides desde esta página y llega directo a la tienda. Si quieres, también se lo envías por WhatsApp";
   const areas = store?.serviceAreas ?? [];
   const areasText = areas.length > 3 ? `${areas.slice(0, 3).join(", ")} y ${areas.length - 3} más` : areas.join(", ");
   const infoRows = [

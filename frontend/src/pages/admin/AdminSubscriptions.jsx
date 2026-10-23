@@ -105,9 +105,8 @@ const PLAN_LIMIT_FIELDS = [
 // Bloque 52: interruptores de función de PlanConfig. allowPublicProfile
 // decide si la tienda puede ELEGIR ponerse privada (true = puede elegir;
 // false = siempre pública, no puede ocultarse) — no al revés.
-// allowWhatsappOrders/allowPanelOrders son el destino de pedidos que puede
-// ofrecer la tienda; al menos uno de los dos queda siempre obligatorio (lo
-// valida el backend).
+// allowWhatsappOrders: si la tienda puede ofrecer el botón para que el cliente le mande el pedido por WhatsApp. El panel
+// lo tienen todos los planes (todo pedido entra ahí), por eso allowPanelOrders ya no aparece.
 const PLAN_TOGGLE_FIELDS = [
   { key: "allowAiChatbot", label: "Chatbot con IA para clientes" },
   { key: "allowStoreOffers", label: "Ofertas dentro de su tienda" },
@@ -118,8 +117,7 @@ const PLAN_TOGGLE_FIELDS = [
   { key: "allowReviewPhotos", label: "Clientes pueden adjuntar fotos en reseñas" },
   { key: "allowSchedules", label: "Horarios de atención" },
   { key: "allowPublicProfile", label: "Puede poner su perfil privado" },
-  { key: "allowWhatsappOrders", label: "Pedidos por WhatsApp" },
-  { key: "allowPanelOrders", label: "Pedidos por el panel" },
+  { key: "allowWhatsappOrders", label: "Botón para enviar el pedido también por WhatsApp" },
   { key: "featuredInHome", label: "Destacada en la Home / búsqueda" },
   { key: "allowLoyalty", label: "Programa de fidelidad (puntos) para sus clientes" },
   { key: "allowPos", label: "Caja con código de barras" },

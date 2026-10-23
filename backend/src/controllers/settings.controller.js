@@ -252,18 +252,14 @@ export async function listPlanConfigs(_req, res) {
 
 export async function updatePlanConfig(req, res) {
   const { planType, ...data } = planConfigSchema.parse(req.body);
-  // Al menos un destino de pedido tiene que seguir habilitado — un plan sin
-  // WhatsApp NI panel dejaría a sus tiendas sin ninguna forma de recibir
-  // pedidos, un estado roto que ningún formulario debería poder guardar.
-  const current = await getPlanConfig(planType);
-  const nextWhatsapp = data.allowWhatsappOrders ?? current?.allowWhatsappOrders ?? true;
-  const nextPanel = data.allowPanelOrders ?? current?.allowPanelOrders ?? true;
-  if (!nextWhatsapp && !nextPanel) {
-    throw new AppError("Un plan necesita al menos un destino de pedidos habilitado (WhatsApp o panel).", 400);
-  }
-
+  // allowPanelOrders ya no se usa: todo pedido entra al panel en cualquier plan. Solo allowWhatsappOrders decide si las
+  // tiendas del plan pueden ofrecer el botón de WhatsApp; si se apaga, las que lo tenían pasan a solo panel.
+  delete data.allowPanelOrders;
   const updated = await prisma.planConfig.update({ where: { planType }, data });
   invalidatePlanConfigCache();
+  if (data.allowWhatsappOrders === false) {
+    await prisma.vendor.updateMany({ where: { planType, orderDestination: { not: "PANEL" } }, data: { orderDestination: "PANEL" } });
+  }
 
   // Bloque 52 (pedido explícito — al bajar maxProducts, "se muestran solo
   // los últimos productos del límite... los demás quedan en el panel"):

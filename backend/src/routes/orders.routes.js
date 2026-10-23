@@ -3,11 +3,14 @@ import * as ordersController from "../controllers/orders.controller.js";
 import * as invoicesController from "../controllers/invoices.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
-import { ordersRateLimit } from "../middleware/rateLimit.js";
+import { ordersRateLimit, trackOrderRateLimit } from "../middleware/rateLimit.js";
+import { trackOrder } from "../controllers/orderTracking.controller.js";
 
 const router = Router();
 
 router.post("/", ordersRateLimit, ordersController.createOrder);
+// Rastreo público: correo + número del pedido (página /rastrear-pedido).
+router.post("/track", trackOrderRateLimit, trackOrder);
 // Envío que se cobraría por un carrito (carrito y checkout). Público, igual que crear el pedido.
 router.post("/shipping-quote", ordersController.quoteShipping);
 

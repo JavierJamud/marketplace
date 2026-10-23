@@ -51,7 +51,7 @@ export async function planFactsForPrompt() {
   const { regular, business, pricing } = await getPlansFacts();
   const line = (p, price) =>
     p
-      ? `- ${p.displayName} (${price}): productos ${limit(p.maxProducts)}; provincias ${limit(p.maxProvinces)}; mesas QR ${p.allowQrTables ? limit(p.maxTables) : "no"}; usuarios de equipo ${p.allowStaffUsers ? limit(p.maxStaffUsers) : "no"}; pedidos por WhatsApp ${yesNo(p.allowWhatsappOrders)}, por panel ${yesNo(p.allowPanelOrders)}; destacada en la Home ${yesNo(p.featuredInHome)}; asistente de IA ${yesNo(p.allowAiChatbot)}; caja ${yesNo(p.allowPos)}; fidelidad ${yesNo(p.allowLoyalty)}; correos a clientes ${yesNo(p.allowCustomerEmails)}${p.features?.length ? `; beneficios: ${p.features.join(", ")}` : ""}.`
+      ? `- ${p.displayName} (${price}): productos ${limit(p.maxProducts)}; provincias ${limit(p.maxProvinces)}; mesas QR ${p.allowQrTables ? limit(p.maxTables) : "no"}; usuarios de equipo ${p.allowStaffUsers ? limit(p.maxStaffUsers) : "no"}; pedidos en el panel sí, copia del pedido por WhatsApp ${yesNo(p.allowWhatsappOrders)}; destacada en la Home ${yesNo(p.featuredInHome)}; asistente de IA ${yesNo(p.allowAiChatbot)}; caja ${yesNo(p.allowPos)}; fidelidad ${yesNo(p.allowLoyalty)}; correos a clientes ${yesNo(p.allowCustomerEmails)}${p.features?.length ? `; beneficios: ${p.features.join(", ")}` : ""}.`
       : null;
   return [line(regular, "gratis"), line(business, businessPriceText(pricing))].filter(Boolean).join("\n");
 }
@@ -68,8 +68,8 @@ export async function plansAnswer() {
     ["Precio", "Gratis", b ? businessPriceText(pricing) : "—"],
     ["Productos publicados", limit(r?.maxProducts), limit(b?.maxProducts)],
     ["Provincias donde vendes", limit(r?.maxProvinces), limit(b?.maxProvinces)],
-    ["Pedidos por WhatsApp", yesNo(r?.allowWhatsappOrders), yesNo(b?.allowWhatsappOrders)],
-    ["Pedidos por el panel", yesNo(r?.allowPanelOrders), yesNo(b?.allowPanelOrders)],
+    ["Pedidos en tu panel", "Sí", b ? "Sí" : "—"],
+    ["Pedido también por WhatsApp", yesNo(r?.allowWhatsappOrders), yesNo(b?.allowWhatsappOrders)],
     ["Mesas con QR (restaurantes)", r?.allowQrTables ? limit(r?.maxTables) : "No", b?.allowQrTables ? limit(b?.maxTables) : "No"],
     ["Usuarios de equipo", r?.allowStaffUsers ? limit(r?.maxStaffUsers) : "No", b?.allowStaffUsers ? limit(b?.maxStaffUsers) : "No"],
     ["Ofertas de tienda activas", r?.allowStoreOffers ? limit(r?.maxActiveStoreOffers) : "No", b?.allowStoreOffers ? limit(b?.maxActiveStoreOffers) : "No"],

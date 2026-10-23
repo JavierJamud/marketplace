@@ -20,7 +20,7 @@ export async function vendorMessageEmail({ order, subject, message }) {
     bodyMjml: `
       ${paragraph(`Mensaje de <strong style="color:#1b1b1d;">${esc(order.vendor.companyName)}</strong> sobre tu pedido ${esc(order.code)}`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
       ${paragraph(esc(message).replace(/\n/g, "<br/>"), { color: "#44474c", size: "14px", lineHeight: "22px" })}
-      ${ctaButton("Ver mi pedido", `${env.frontendUrl}/cuenta/panel`)}
+      ${ctaButton("Ver mi pedido", `${env.frontendUrl}/rastrear-pedido?pedido=${encodeURIComponent(order.code)}`)}
     `,
   });
   return { subject: finalSubject, html };

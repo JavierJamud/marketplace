@@ -368,7 +368,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         channel: channelFor(data.channel),
         // Se toma del vendedor server-side (nunca del body del cliente) para
         // que no se pueda falsear qué canal de aviso usó el pedido.
-        notificationChannel: vendor.orderDestination,
+        notificationChannel: vendor.orderDestination === "WHATSAPP" ? "BOTH" : vendor.orderDestination,
         tableNumber: data.tableNumber,
         partnerId,
         idempotencyKey,

@@ -33,7 +33,7 @@ export async function statusUpdateEmail(order) {
       ${itemsWithImages.length > 0 ? itemsTable(itemsWithImages) : ""}
       ${order.total != null ? totalRow("Envío", orderShippingText(order)) : ""}
       ${order.total != null ? totalRow("Total", orderGrandTotal(order)) : ""}
-      ${ctaButton("Ver detalles", `${env.frontendUrl}/cuenta/panel`)}
+      ${ctaButton("Ver el avance del pedido", `${env.frontendUrl}/rastrear-pedido?pedido=${encodeURIComponent(order.code)}`)}
     `,
   });
   return { subject, html };

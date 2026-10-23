@@ -44,6 +44,15 @@ export const cartStockRateLimit = rateLimit({
   message: { error: "Demasiadas consultas de stock. Prueba de nuevo en un momento." },
 });
 
+// Rastreo público de pedidos (correo + número): alcanza para equivocarse varias veces, no para probar números a ciegas.
+export const trackOrderRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Hiciste muchas búsquedas seguidas. Espera unos minutos y vuelve a intentarlo." },
+});
+
 export const ordersRateLimit = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 60,

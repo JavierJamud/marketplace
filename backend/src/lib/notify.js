@@ -49,10 +49,11 @@ export async function vendorUserIds(vendorId) {
 // `detail` (opcional): datos para la tarjeta del aviso en pantalla (p. ej. un pedido). `app` (CLIENT, VENDOR, ADMIN): a qué app
 // instalada va el push si la persona tiene varias en el mismo dispositivo (si no, se elige por la categoría).
 // `image`: foto para el aviso del teléfono (Android la muestra grande; iOS no muestra imágenes en avisos web).
-export async function notifyUsers(userIds, { category, title, body, url = "/", tag, ttl, urgency, detail, app, image } = {}) {
+// `type`: el tipo de aviso de la tienda (NEW_ORDER, ORDER_OVERDUE...), para que la página decida cómo mostrarlo.
+export async function notifyUsers(userIds, { category, title, body, url = "/", tag, ttl, urgency, detail, app, image, type } = {}) {
   const ids = [...new Set(userIds.filter(Boolean))];
   if (!ids.length) return;
-  for (const id of ids) sendToUser(id, "notify", { category, title, body, url, tag, detail, at: Date.now() });
+  for (const id of ids) sendToUser(id, "notify", { category, title, body, url, tag, detail, type, at: Date.now() });
   refreshUsers(ids);
   await pushToUsers(ids, { category, title, body, url, tag, ttl, urgency, app: app ?? APP_FOR_AUDIENCE[PUSH_CATEGORIES[category]?.audience], image });
 }
@@ -147,7 +148,10 @@ async function onCreated({ model, args, result }) {
           image = detail.image ?? undefined;
         }
       }
-      return notifyVendor(result.vendorId, { category: cat, app: "VENDOR", title: result.title, body: result.body, url, tag: `vn-${result.refCode ?? result.id}`, urgency: cat === "orders" ? "high" : "normal", detail, image });
+      // El de pedido atrasado lleva su propia etiqueta: si usara la del pedido nuevo, el sistema lo trataría como el mismo aviso.
+      const tag = result.type === "ORDER_OVERDUE" ? `overdue-${result.refCode}` : `vn-${result.refCode ?? result.id}`;
+      const link = result.type === "ORDER_OVERDUE" && result.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(result.refCode)}` : url;
+      return notifyVendor(result.vendorId, { category: cat, app: "VENDOR", title: result.title, body: result.body, url: link, tag, urgency: cat === "orders" ? "high" : "normal", detail, image, type: result.type });
     }
     case "Vendor": {
       return notifyAdmins({ category: "vendors", title: "Nueva tienda registrada", body: result.companyName ?? "Una tienda nueva se registró.", url: "/admin/tiendas", tag: `vendor-${result.id}` });

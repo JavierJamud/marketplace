@@ -35,16 +35,11 @@ enum PlanType {
   BUSINESS
 }
 
-// Preferencia del vendedor: a dónde llegan los pedidos que hace un cliente.
-// Bloque 68 (pedido explícito): el checkout con formulario completo ya
-// SIEMPRE crea el Order real y cae en /vendedor/pedidos, sin importar este
-// valor (antes WHATSAPP dejaba saltarse el formulario entero con un atajo
-// directo a wa.me que nunca creaba pedido — ese atajo se eliminó). Ahora
-// este campo solo decide qué le ofrece la pantalla de confirmación al
-// cliente DESPUÉS de crear el pedido: WHATSAPP = solo ofrece mandarlo por
-// WhatsApp; PANEL = no menciona WhatsApp, el vendedor lo gestiona desde su
-// panel; BOTH = ofrece las dos cosas (WhatsApp + aviso de que ya quedó en
-// su panel).
+// Preferencia del vendedor sobre sus pedidos. Todo pedido entra SIEMPRE a su panel (/vendedor/pedidos) con aviso en vivo,
+// push y correo; esto solo decide si al cliente, después de enviarlo, se le ofrece además mandárselo por WhatsApp.
+// PANEL = solo panel; BOTH = panel y botón de WhatsApp. WHATSAPP ya no se elige (era "Solo WhatsApp" y daba a entender
+// que el pedido no llegaba al panel): se conserva solo porque Order.notificationChannel de pedidos viejos lo guarda,
+// y se lee como BOTH.
 enum OrderDestination {
   WHATSAPP
   PANEL
@@ -199,6 +194,8 @@ enum EmailType {
   // Bloque 183: aviso al usuario de sistema recién creado (ver
   // vendorStaff.controller.js) de que ya tiene una cuenta esperándolo.
   VENDOR_STAFF_INVITE
+  // Aviso a la tienda de un pedido que lleva 30 minutos sin confirmar (jobs/orderOverdue.job.js).
+  ORDER_OVERDUE_VENDOR
   // Aviso al cliente de que la tienda o la plataforma respondió a su comentario.
   REVIEW_REPLY
   // Bloque 194 (pedido explícito — "notificación por correo... para
@@ -1177,7 +1174,7 @@ model Vendor {
   // el menú completo sin importar este valor.
   menuPublic Boolean @default(true)
   planType    PlanType @default(REGULAR)
-  orderDestination OrderDestination @default(WHATSAPP)
+  orderDestination OrderDestination @default(BOTH)
   // Cómo puede el cliente coordinar el pago al terminar su compra en esta tienda (cod = contra entrega, online = pago en línea
   // coordinado por WhatsApp, cash = efectivo). Por tienda, no por producto. Por defecto están las tres.
   checkoutPaymentOptions String[] @default(["cod", "online", "cash"])
@@ -1834,7 +1831,7 @@ model Order {
   // Snapshot de Vendor.orderDestination al momento del pedido — distinto del
   // método de pago (channel): esto es "a dónde le llega el aviso al
   // vendedor" (WhatsApp o su panel), no "cómo paga el cliente".
-  notificationChannel    OrderDestination @default(WHATSAPP)
+  notificationChannel    OrderDestination @default(BOTH)
   tableNumber            Int?
   createdAt              DateTime     @default(now())
 

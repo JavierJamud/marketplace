@@ -46,7 +46,7 @@ export async function orderConfirmationEmail(order) {
         ["Pago", channelLabel(order.channel)],
         ["Tus datos", [esc(order.customerName), esc(order.customerPhone), esc(order.customerEmail)].filter(Boolean).join(" · ")],
       ])}
-      ${ctaButton("Ver mi pedido", `${env.frontendUrl}/cuenta/panel?tab=orders`)}
+      ${ctaButton("Rastrear mi pedido", `${env.frontendUrl}/rastrear-pedido?pedido=${encodeURIComponent(order.code)}`)}
       ${whatsapp ? smallNote(`¿Dudas sobre la entrega? Escribe a la tienda por WhatsApp: <a href="https://wa.me/${whatsapp}" style="color:#337475;">+${whatsapp}</a>`) : ""}
     `,
   });
