@@ -8,7 +8,7 @@ import { touchStoreVisit } from "../services/loyalty.service.js";
 import { toPublicVendor } from "../lib/publicVendor.js";
 import { z } from "zod";
 import { unlink, readFile } from "node:fs/promises";
-import { deleteUploadedImages } from "../lib/uploadFiles.js";
+import { deleteUploadedImages, brandingLogoDiskPath, BRANDING_LOGO_PATTERN } from "../lib/uploadFiles.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KYC_UPLOAD_DIR } from "./verification.controller.js";
@@ -589,7 +589,15 @@ const updateVendorSchema = z.object({
   description: z.string().max(200, "La descripción de la tienda admite hasta 200 caracteres.").optional().nullable(),
   whatsapp: z.string().regex(E164_REGEX, "El WhatsApp debe incluir código de país (ej. +5355512345).").optional(),
   email: z.string().email().optional(),
-  logoUrl: z.string().optional().nullable(),
+  // Solo un enlace https externo o un logo ya subido a /uploads/vendor-branding: cualquier otra ruta del servidor
+  // terminaría tratada como "el logo anterior" al subir uno nuevo (auditoría run-2).
+  logoUrl: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((v) => v === "" || BRANDING_LOGO_PATTERN.test(v) || /^https:\/\/[^\s/]+\.[^\s/]+/.test(v), "El logo debe ser un enlace https o un archivo subido.")
+    .optional()
+    .nullable(),
   // Bloque 222 (pedido explícito — "elimina que los vendedores puedan
   // cambiar el color de su tienda... ese color lo define el sistema
   // automáticamente y solo el admin puede cambiar el color de una tienda"):
@@ -1000,8 +1008,8 @@ export async function uploadVendorLogo(req, res) {
     where: { id: vendor.id },
     data: { logoUrl: `/uploads/vendor-branding/${req.file.filename}` },
   });
-  // El logo anterior ya no se usa: se borra del disco.
-  void deleteUploadedImages([vendor.logoUrl]);
+  // El logo anterior ya no se usa: se borra del disco, pero solo si de verdad era un logo subido por la tienda.
+  if (brandingLogoDiskPath(vendor.logoUrl)) void deleteUploadedImages([vendor.logoUrl]);
   // Bloque 235: el logo es un requisito del checklist del trial (ver
   // trialEligibility.service.js) — podría ser justo lo último que faltaba.
   await maybeAutoActivateTrial(vendor.id).catch(() => {});

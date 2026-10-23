@@ -4,12 +4,11 @@ import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { effectiveShipping } from "../lib/shipping.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { z } from "zod";
-import jwt from "jsonwebtoken";
+import { resolveSessionUser } from "../middleware/auth.js";
 import { readFile, unlink } from "node:fs/promises";
 import { join, dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prisma } from "../lib/prisma.js";
-import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { chatWithStoreAssistant } from "../lib/ai.js";
 import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
@@ -89,6 +88,28 @@ function tierLines(p) {
   return rows.map((r) => `- ${r.to == null ? `${r.from} o más` : r.from === r.to ? `${r.from}` : `${r.from} a ${r.to}`}: ${fmtPrice(r.price, p.currency)}`);
 }
 
+// Bloque 32: se agrega "locations" (provincia/municipio real de cada
+// tienda) — antes esto solo hacía falta para mostrar la tarjeta, ahora
+// también es la base del filtrado geográfico progresivo (ver
+// summarizeZones más abajo). take:1 porque una tienda puede cargar más de
+// una ubicación de venta, pero alcanza con una representativa para el
+// resumen de zonas (mismo criterio que search.controller.js).
+// Van antes de answerTierQuestion porque esa función ya los usa.
+const CANDIDATE_VENDOR_SELECT = {
+  id: true,
+  companyName: true,
+  slug: true,
+  color: true,
+  verificationStatus: true,
+  ...VENDOR_SHIPPING_SELECT,
+  locations: { include: { province: true, municipality: true }, take: 1 },
+};
+const CANDIDATE_INCLUDE = {
+  vendor: { select: CANDIDATE_VENDOR_SELECT },
+  options: { select: { name: true, values: true } },
+  priceTiers: { orderBy: { minQty: "asc" }, select: { minQty: true, price: true } },
+};
+
 // Si la pregunta de precios por cantidad no nombra otro producto, habla de los últimos que mostró el asistente. La respuesta
 // sale de la base de datos tal cual (sin IA): son cifras de dinero y el modelo las omitía para cumplir con respuestas cortas.
 async function answerTierQuestion(message, history) {
@@ -145,26 +166,7 @@ export async function deleteAssistantDocument(req, res) {
 
 // --- Búsqueda de catálogo cross-tienda --------------------------------------
 
-// Bloque 32: se agrega "locations" (provincia/municipio real de cada
-// tienda) — antes esto solo hacía falta para mostrar la tarjeta, ahora
-// también es la base del filtrado geográfico progresivo (ver
-// summarizeZones más abajo). take:1 porque una tienda puede cargar más de
-// una ubicación de venta, pero alcanza con una representativa para el
-// resumen de zonas (mismo criterio que search.controller.js).
-const CANDIDATE_VENDOR_SELECT = {
-  id: true,
-  companyName: true,
-  slug: true,
-  color: true,
-  verificationStatus: true,
-  ...VENDOR_SHIPPING_SELECT,
-  locations: { include: { province: true, municipality: true }, take: 1 },
-};
-const CANDIDATE_INCLUDE = {
-  vendor: { select: CANDIDATE_VENDOR_SELECT },
-  options: { select: { name: true, values: true } },
-  priceTiers: { orderBy: { minQty: "asc" }, select: { minQty: true, price: true } },
-};
+// (CANDIDATE_VENDOR_SELECT y CANDIDATE_INCLUDE están definidos más arriba, antes de answerTierQuestion, que también los usa.)
 // Cuántos productos como máximo se traen de la base para ANALIZAR zonas —
 // más ancho que CANDIDATE_LIMIT (lo que de verdad se muestra como tarjeta),
 // porque hace falta ver el panorama completo (todas las provincias/
@@ -1095,16 +1097,9 @@ SALIDA (solo JSON): {"text": "...", "productIds": ["N"], "vendorIds": ["N"], "sh
 
 // --- Endpoint principal ------------------------------------------------------
 
-function resolveOptionalUserId(req) {
-  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
-  if (!token) return null;
-  try {
-    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
-    // el algoritmo esperado en vez de confiar en el "alg" del propio token.
-    return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }).sub;
-  } catch {
-    return null;
-  }
+async function resolveOptionalUserId(req) {
+  // Solo una sesión viva cuenta (ver resolveSessionUser): nunca el token de reto 2FA ni uno de una sesión cerrada.
+  return (await resolveSessionUser(req))?.id ?? null;
 }
 
 const postMessageSchema = z.object({
@@ -1138,7 +1133,7 @@ async function describeChatZone({ countryId, provinceId, municipalityId }) {
 export async function postMarketplaceChatMessage(req, res) {
   const { sessionId, message, countryId, provinceId, municipalityId, zoneFlow } = postMessageSchema.parse(req.body);
   const chatZone = provinceId || countryId ? { countryId, provinceId, municipalityId } : null;
-  const userId = resolveOptionalUserId(req);
+  const userId = await resolveOptionalUserId(req);
 
   const recent = await prisma.marketplaceChatMessage.findMany({ where: { sessionId }, orderBy: { createdAt: "desc" }, take: MEMORY_FETCH_LIMIT });
   const history = isSessionExpired(recent[0]) ? [] : recent.reverse();
@@ -1458,7 +1453,7 @@ const orderStatusSchema = z.object({
 // Estado de un pedido con el número y el nombre de quien compró. Sin IA: lee la base y responde al instante.
 export async function postOrderStatus(req, res) {
   const { code, name } = orderStatusSchema.parse(req.body);
-  const sessionEmail = await resolveSessionEmail(resolveOptionalUserId(req));
+  const sessionEmail = await resolveSessionEmail(await resolveOptionalUserId(req));
   const result = await orderStatusAnswer({ code, name, sessionEmail });
   if (!result.ok) return res.json({ ok: false, text: ORDER_FAIL });
   res.json({ ok: true, text: result.text, links: result.links });
@@ -1474,7 +1469,7 @@ const cancelOrderSchema = z.object({
 // mismo motivo que se anota para la tienda y se le avisa a la tienda al momento.
 export async function postCancelOrder(req, res) {
   const { code, name, reason } = cancelOrderSchema.parse(req.body);
-  const sessionEmail = await resolveSessionEmail(resolveOptionalUserId(req));
+  const sessionEmail = await resolveSessionEmail(await resolveOptionalUserId(req));
   const order = await findOrderForCustomer({ code, name, sessionEmail });
   if (!order) return res.json({ ok: false, text: ORDER_FAIL });
 

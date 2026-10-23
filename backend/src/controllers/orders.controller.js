@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { computeShipping, shippingZone } from "../lib/shipping.js";
-import jwt from "jsonwebtoken";
+import { resolveSessionUser } from "../middleware/auth.js";
 import { activeCodes } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
-import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { orderNoticeDetail, itemsLine, isValidIdNumber } from "../lib/orderSummary.js";
@@ -99,19 +98,9 @@ export async function createOrder(req, res) {
     }
   }
 
-  // Autenticación opcional: si viene un token válido, asocia el pedido al cliente.
-  let customerId;
-  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
-  if (token) {
-    try {
-      // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
-      // el algoritmo esperado en vez de confiar en el "alg" del propio token.
-      const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
-      customerId = payload.sub;
-    } catch {
-      // token inválido/expirado: seguimos como pedido de invitado
-    }
-  }
+  // Autenticación opcional: si viene una sesión viva, asocia el pedido al cliente (ver resolveSessionUser: el token
+  // de reto 2FA o el de una sesión cerrada no cuentan, así nadie gasta puntos ajenos sin el segundo factor).
+  const customerId = (await resolveSessionUser(req))?.id;
 
   const order = await placeOrder(data, { customerId });
   res.status(201).json({ order });

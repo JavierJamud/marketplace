@@ -46,24 +46,29 @@ export async function authenticate(req, _res, next) {
   next();
 }
 
-// Identifica a la persona SI trae una sesión válida, y sigue sin ella (visitante). Mismo chequeo que `authenticate`
-// (firma, vencimiento y sesión viva en la base), pero nunca responde 401.
-export async function optionalAuth(req, _res, next) {
+// Devuelve { id, role } si la petición trae un token de acceso de una sesión viva, o null (visitante).
+// Mismo chequeo que `authenticate`: firma HS256, claim sid y sesión no revocada, no vencida, no inactiva y de
+// esa misma cuenta. Los controladores con identidad opcional DEBEN usar esto y no jwt.verify directo: el token
+// de reto 2FA y el de una sesión ya cerrada están firmados con el mismo secreto y no son una sesión.
+export async function resolveSessionUser(req) {
   try {
     const header = req.headers.authorization;
     const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
-    if (token) {
-      const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
-      if (payload.sid) {
-        const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { id: true, revokedAt: true, expiresAt: true, lastUsedAt: true } });
-        if (session && !session.revokedAt && session.expiresAt.getTime() > Date.now() && !isSessionIdle(session)) {
-          req.user = { id: payload.sub, role: payload.role };
-          touchSession(session, payload.sub);
-        }
-      }
-    }
+    if (!token) return null;
+    const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
+    if (!payload.sid || payload.purpose) return null;
+    const session = await prisma.session.findUnique({ where: { id: payload.sid }, select: { id: true, userId: true, revokedAt: true, expiresAt: true, lastUsedAt: true } });
+    if (!session || session.userId !== payload.sub || session.revokedAt || session.expiresAt.getTime() <= Date.now() || isSessionIdle(session)) return null;
+    touchSession(session, payload.sub);
+    return { id: payload.sub, role: payload.role };
   } catch {
-    // token inválido o vencido: se trata como visitante
+    return null; // token inválido o vencido: se trata como visitante
   }
+}
+
+// Identifica a la persona SI trae una sesión válida, y sigue sin ella (visitante). Nunca responde 401.
+export async function optionalAuth(req, _res, next) {
+  const user = await resolveSessionUser(req);
+  if (user) req.user = user;
   next();
 }

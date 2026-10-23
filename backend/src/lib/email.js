@@ -19,7 +19,7 @@ import { passwordResetEmail } from "../templates/passwordReset.js";
 import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
 import { tableOrderStatusEmail } from "../templates/tableOrderStatus.js";
 import { twoFactorCodeEmail } from "../templates/twoFactorCode.js";
-import { emailChangeCodeEmail } from "../templates/emailChangeCode.js";
+import { emailChangeCodeEmail, emailChangeNoticeEmail } from "../templates/emailChangeCode.js";
 import { registrationCodeEmail } from "../templates/registrationCode.js";
 import { adminDirectEmail } from "../templates/adminDirectEmail.js";
 import { supportTicketAdminEmail, supportTicketReceiptEmail, supportTicketUpdateEmail } from "../templates/supportTicket.js";
@@ -353,14 +353,19 @@ export async function sendTwoFactorCodeEmail(user, code) {
   return result;
 }
 
-// El resultado SÍ importa (mismo criterio que sendPasswordResetEmail/
-// sendTwoFactorCodeEmail): sin el código en el correo, el cambio de correo
-// queda trabado. Va SIEMPRE a `user.email` (el correo VIEJO, ya en la
-// cuenta) — nunca a `newEmail`, ver la nota en emailChangeCode.js.
+// El resultado SÍ importa: sin el código el cambio queda trabado. El código va al correo NUEVO (prueba de que
+// se controla esa dirección) y el correo actual recibe un aviso sin código para reconocer un cambio que no pidió.
 export async function sendEmailChangeCodeEmail(user, code, newEmail) {
   const { subject, html } = await emailChangeCodeEmail({ fullName: user.fullName, code, newEmail });
-  const result = await sendViaResend({ to: user.email, subject, html });
-  await logEmail({ vendorId: null, orderId: null, type: "EMAIL_CHANGE_CODE", to: user.email, subject, result });
+  const result = await sendViaResend({ to: newEmail, subject, html });
+  await logEmail({ vendorId: null, orderId: null, type: "EMAIL_CHANGE_CODE", to: newEmail, subject, result });
+  try {
+    const notice = await emailChangeNoticeEmail({ fullName: user.fullName, newEmail });
+    const noticeResult = await sendViaResend({ to: user.email, subject: notice.subject, html: notice.html });
+    await logEmail({ vendorId: null, orderId: null, type: "EMAIL_CHANGE_CODE", to: user.email, subject: notice.subject, result: noticeResult });
+  } catch (err) {
+    console.error("[email] aviso de cambio de correo:", err.message);
+  }
   return result;
 }
 

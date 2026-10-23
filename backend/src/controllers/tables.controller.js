@@ -1,5 +1,5 @@
 import { z } from "zod";
-import jwt from "jsonwebtoken";
+import { resolveSessionUser } from "../middleware/auth.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -7,7 +7,6 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { sendTableOrderStatusEmail } from "../lib/email.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
-import { env } from "../config/env.js";
 import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
 
 // Bloque 185 (pedido explícito — "se podrán identificar tanto para el
@@ -134,17 +133,8 @@ function tableOrderLevel(tableOrder) {
 // `authenticate`) para distinguir un caso del otro; si no hay token válido,
 // o no pertenece a ESTE vendedor, se trata como cliente y se oculta.
 async function resolveOptionalRequester(req) {
-  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
-  if (!token) return null;
-  try {
-    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
-    // el algoritmo esperado en vez de confiar en el "alg" que declare el
-    // propio token.
-    const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] });
-    return { id: payload.sub, role: payload.role };
-  } catch {
-    return null;
-  }
+  // Solo una sesión viva cuenta (ver resolveSessionUser): nunca un token de una sesión ya cerrada.
+  return resolveSessionUser(req);
 }
 
 async function isVendorSideRequester(req, vendorId) {

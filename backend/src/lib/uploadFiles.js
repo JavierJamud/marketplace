@@ -29,6 +29,15 @@ function toDiskPath(url) {
   return full.startsWith(UPLOADS_ROOT + sep) ? full : null;
 }
 
+// Logo de tienda subido al servidor: solo "/uploads/vendor-branding/<archivo>", sin subcarpetas. Devuelve la ruta del disco o
+// null. Borrar o leer un logo pasa por aquí porque logoUrl lo escribe la tienda, y una ruta de otra carpeta de uploads
+// (fotos de otras tiendas, documentos de identidad) nunca es su logo (auditoría run-2).
+export const BRANDING_LOGO_PATTERN = /^\/uploads\/vendor-branding\/[A-Za-z0-9._-]+$/;
+export function brandingLogoDiskPath(url) {
+  if (typeof url !== "string" || !BRANDING_LOGO_PATTERN.test(url) || url.includes("..")) return null;
+  return toDiskPath(url);
+}
+
 // Borra las fotos (con miniatura y variantes) de una lista de URLs. No falla nunca: lo que ya no existe se ignora.
 export async function deleteUploadedImages(urls) {
   const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);

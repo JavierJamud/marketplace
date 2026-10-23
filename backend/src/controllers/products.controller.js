@@ -3,7 +3,7 @@ import { z } from "zod";
 import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { fixedShippingError } from "../lib/shipping.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
-import jwt from "jsonwebtoken";
+import { resolveSessionUser } from "../middleware/auth.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deleteUploadedImages } from "../lib/uploadFiles.js";
@@ -12,7 +12,6 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { slugify } from "../utils/slugify.js";
-import { env } from "../config/env.js";
 import { importRemoteImage } from "../lib/importRemoteImage.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
@@ -563,7 +562,7 @@ export async function getProductBySlug(req, res) {
   // la ficha). Si el cliente está logueado y ya tiene una solicitud
   // pendiente de este producto, el botón de RequestProductButton.jsx la
   // muestra como ya enviada en vez de dejarlo mandar otra.
-  const optionalUserId = resolveOptionalUserId(req);
+  const optionalUserId = await resolveOptionalUserId(req);
   const alreadyRequested = optionalUserId
     ? Boolean(await prisma.productRequest.findFirst({ where: { productId: product.id, customerId: optionalUserId } }))
     : false;
@@ -584,16 +583,9 @@ export async function getProductBySlug(req, res) {
 // Bloque 109: mismo mecanismo opcional que assistant/chat/orders.controller.js
 // (resolveOptionalUserId) — nunca obligatorio, una ruta pública sigue
 // funcionando igual sin login, solo que sin poder saber "¿ya lo pidió?".
-function resolveOptionalUserId(req) {
-  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
-  if (!token) return null;
-  try {
-    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
-    // el algoritmo esperado en vez de confiar en el "alg" del propio token.
-    return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }).sub;
-  } catch {
-    return null;
-  }
+async function resolveOptionalUserId(req) {
+  // Solo una sesión viva cuenta (ver resolveSessionUser): nunca el token de reto 2FA ni uno de una sesión cerrada.
+  return (await resolveSessionUser(req))?.id ?? null;
 }
 
 // Bloque 98 (pedido explícito): señales reales para el algoritmo de

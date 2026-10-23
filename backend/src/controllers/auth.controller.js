@@ -650,6 +650,10 @@ const GRACE_PERIOD_DAYS = 30;
 
 const deleteAccountSchema = z.object({ password: z.string().min(1, "Escribe tu contraseña.") });
 
+// Motivo que pone la baja propia. Al cancelarla solo se desbloquea la tienda si el bloqueo tiene ESTE motivo: un bloqueo del
+// admin, una suspensión por fraude o una eliminación pendiente del admin se conservan (auditoría run-2).
+const SELF_DELETION_BLOCK_REASON = "El vendedor solicitó eliminar su cuenta.";
+
 export async function requestAccountDeletion(req, res) {
   const { password } = deleteAccountSchema.parse(req.body);
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { vendor: true } });
@@ -671,7 +675,7 @@ export async function requestAccountDeletion(req, res) {
             where: { id: user.vendor.id },
             data: {
               isBlocked: true,
-              blockReason: user.vendor.blockReason ?? "El vendedor solicitó eliminar su cuenta.",
+              blockReason: user.vendor.blockReason ?? SELF_DELETION_BLOCK_REASON,
               blockedAt: user.vendor.blockedAt ?? now,
               deletionRequestedAt: now,
             },
@@ -691,14 +695,16 @@ export async function cancelAccountDeletion(req, res) {
 
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { deletionRequestedAt: null, deletionReminderSentAt: null } }),
-    // Solo se desbloquea la tienda si el bloqueo lo causó esta misma baja —
-    // si un admin la había bloqueado por otro motivo real, deletionRequestedAt
-    // de Vendor nunca se llegó a setear y esta rama ni se toca.
+    // Solo se desbloquea la tienda si el bloqueo lo causó esta misma baja. Si ya estaba bloqueada por el admin o por
+    // moderación, se limpia la marca de baja y el bloqueo sigue.
     ...(user.vendor?.deletionRequestedAt
       ? [
           prisma.vendor.update({
             where: { id: user.vendor.id },
-            data: { isBlocked: false, blockReason: null, blockedAt: null, deletionRequestedAt: null },
+            data:
+              user.vendor.blockReason === SELF_DELETION_BLOCK_REASON && !user.vendor.fraudSuspendedAt && !user.vendor.adminDeletionRequestedAt
+                ? { isBlocked: false, blockReason: null, blockedAt: null, deletionRequestedAt: null }
+                : { deletionRequestedAt: null },
           }),
         ]
       : []),
@@ -810,7 +816,7 @@ function generateEmailChangeCode() {
   return code;
 }
 
-const requestEmailChangeSchema = z.object({ newEmail: z.string().email(), currentPassword: z.string().min(1) });
+const requestEmailChangeSchema = z.object({ newEmail: z.string().trim().toLowerCase().email(), currentPassword: z.string().min(1) });
 
 export async function requestMyEmailChange(req, res) {
   const { newEmail, currentPassword } = requestEmailChangeSchema.parse(req.body);
@@ -823,7 +829,9 @@ export async function requestMyEmailChange(req, res) {
 
   // Mismo criterio que admin.controller.js updateCustomer: nunca dejar dos
   // cuentas con el mismo correo.
-  const existing = await prisma.user.findUnique({ where: { email: newEmail } });
+  // Sin distinguir mayúsculas: la propiedad de pedidos compara correos así (customers.controller.js), y una
+  // variante en mayúsculas de un correo ajeno no puede pasar como libre.
+  const existing = await prisma.user.findFirst({ where: { email: { equals: newEmail, mode: "insensitive" } } });
   if (existing && existing.id !== user.id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
   // Tampoco un correo que está en la lista negra (de otra persona).
   await assertNotBlacklisted({ email: newEmail }, { userId: user.id });

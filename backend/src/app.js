@@ -64,7 +64,7 @@ import { renderStoreOgImagePng } from "./controllers/og.controller.js";
 import { clearPublicCache } from "./middleware/publicCache.js";
 import { maintenanceGate } from "./middleware/maintenance.js";
 import { trackVendorActions } from "./lib/vendorUsage.js";
-import { renderStorePage, renderProductPage, sitemapXml, heroPreload } from "./controllers/seoPages.controller.js";
+import { renderStorePage, renderProductPage, sitemapXml, heroPreload, seoHome } from "./controllers/seoPages.controller.js";
 
 export const app = express();
 
@@ -193,6 +193,7 @@ app.get("/og/tienda/:slug", renderStorePage);
 app.get("/og/producto/:vendorSlug/:productSlug", renderProductPage);
 app.get("/sitemap.xml", sitemapXml);
 app.get("/hero-preload", heroPreload);
+app.get("/seo-home", seoHome);
 app.get("/og/tienda/:slug/imagen.png", renderStoreOgImagePng);
 
 // Modo mantenimiento: con todo el sitio en mantenimiento, la API pública responde 503 (ver middleware/maintenance.js).

@@ -178,12 +178,11 @@ function iconPattern(vendor, { cell = 92, minSize = 26, maxSize = 52 } = {}) {
   return out.join("");
 }
 
-async function logoBuffer(logoUrl, size) {
-  if (!logoUrl) return null;
+// logoPath es una ruta del disco ya validada (brandingLogoDiskPath); nunca una URL.
+async function logoBuffer(logoPath, size) {
+  if (!logoPath) return null;
   try {
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) return null;
-    const input = Buffer.from(await res.arrayBuffer());
+    const input = await fs.promises.readFile(logoPath);
     const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}"/></svg>`);
     return await sharp(input)
       .resize(size, size, { fit: "cover", background: "#ffffff" })

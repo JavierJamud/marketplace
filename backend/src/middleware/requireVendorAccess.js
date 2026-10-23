@@ -11,6 +11,19 @@ async function assertStaffPlan(staff) {
   }
 }
 
+// Estado de la tienda en el servidor (auditoría run-2): antes el bloqueo solo lo aplicaba VendorLayout.jsx en pantalla.
+// Tienda eliminada: nadie del panel entra. Bloqueada o suspendida: solo las rutas sin sección (las que carga la pantalla
+// de bloqueo, como /vendors/me o los avisos); las secciones con datos y toda escritura quedan cerradas.
+async function assertVendorUsable(req, staff, { strict }) {
+  const where = staff ? { id: staff.vendorId } : { userId: req.user.id };
+  const vendor = await prisma.vendor.findUnique({ where, select: { deletedAt: true, isBlocked: true, status: true } });
+  if (!vendor) return; // el controlador responde "no tienes tienda"
+  if (vendor.deletedAt) throw new AppError("Esta tienda fue eliminada.", 403, { vendorState: "deleted" });
+  if (strict && (vendor.isBlocked || vendor.status === "SUSPENDED")) {
+    throw new AppError("Tu tienda está bloqueada. Revisa el aviso en tu panel.", 403, { vendorState: "blocked" });
+  }
+}
+
 // Bloque 183 (pedido explícito — "solo le va a salir la sección de pedidos
 // o la que él designe... las demás secciones él no las verá"): reemplaza
 // requireRole("VENDOR","ADMIN") en las rutas del panel de vendedor que
@@ -34,12 +47,17 @@ export function requireVendorAccess(...sections) {
   return async (req, _res, next) => {
     if (!req.user) throw new AppError("No autenticado.", 401);
 
-    if (req.user.role === "VENDOR" || req.user.role === "ADMIN") return next();
+    if (req.user.role === "ADMIN") return next();
+    if (req.user.role === "VENDOR") {
+      await assertVendorUsable(req, null, { strict: sections.length > 0 });
+      return next();
+    }
 
     if (req.user.role === "VENDOR_STAFF") {
       const staff = await prisma.vendorStaff.findUnique({ where: { userId: req.user.id } });
       const hasAccess = sections.length === 0 || sections.some((s) => staff?.allowedSections.includes(s));
       if (staff?.isActive && hasAccess) {
+        await assertVendorUsable(req, staff, { strict: sections.length > 0 });
         await assertStaffPlan(staff);
         req.vendorStaff = staff; // Disponible para quien lo necesite (ver vendorStaff.controller.js).
         return next();
@@ -71,10 +89,15 @@ export function requireVendorWrite(...sections) {
   return async (req, _res, next) => {
     if (!req.user) throw new AppError("No autenticado.", 401);
 
-    if (req.user.role === "VENDOR" || req.user.role === "ADMIN") return next();
+    if (req.user.role === "ADMIN") return next();
+    if (req.user.role === "VENDOR") {
+      await assertVendorUsable(req, null, { strict: true });
+      return next();
+    }
 
     if (req.user.role === "VENDOR_STAFF") {
       const staff = await prisma.vendorStaff.findUnique({ where: { userId: req.user.id } });
+      if (staff?.isActive) await assertVendorUsable(req, staff, { strict: true });
       const hasWriteAccess =
         sections.length === 0
           ? staff?.allowedSections.length > 0

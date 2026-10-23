@@ -4,3 +4,9 @@ node_modules/
 !.env.example
 /backups/
 uploads/
+
+# Scripts de depuración locales: leen datos reales de la base (hashes, cuentas). Nunca van al repositorio ni al servidor.
+/check_passwords.cjs
+/find_b22.cjs
+/find_recent_vendors.cjs
+/update_admin_email.mjs

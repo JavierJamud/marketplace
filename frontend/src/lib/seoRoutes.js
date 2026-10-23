@@ -19,7 +19,7 @@ export function staticSeoFor(path, siteName) {
   const table = {
     "/": {
       title: `${n} | Marketplace de tiendas y restaurantes en Cuba`,
-      description: `Compra cerca de ti en ${n}: tiendas locales y restaurantes de toda Cuba con productos, comida y servicios. Pide directo por WhatsApp, paga contra entrega o por transferencia.`,
+      description: `${n}, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia.`,
       keywords: [...common, "comida a domicilio Cuba", "restaurantes La Habana", "tiendas verificadas", "comprar productos en Cuba", "vender en Cuba"],
     },
     "/tiendas": {

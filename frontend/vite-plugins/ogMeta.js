@@ -20,7 +20,7 @@
 // nombre de la plataforma cambia algún día.
 const FALLBACK_SITE_NAME = "Baznova";
 const DEFAULT_DESCRIPTION =
-  "Compra cerca de ti en Baznova: tiendas locales y restaurantes de toda Cuba con productos, comida y servicios. Pide directo por WhatsApp, paga contra entrega o por transferencia.";
+  "Baznova, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia.";
 
 const STORE_RE = /^\/tienda\/([^/?#]+)\/?$/;
 const PRODUCT_RE = /^\/producto\/([^/?#]+)\/([^/?#]+)\/?$/;

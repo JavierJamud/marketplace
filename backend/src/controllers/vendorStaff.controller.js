@@ -233,11 +233,14 @@ export async function updateMyStaff(req, res) {
   const staff = await findMyStaffOr404(vendor.id, req.params.id);
   const data = updateStaffSchema.parse(req.body);
 
+  let emailChanged = false;
   if (data.email) {
     const email = data.email.trim().toLowerCase();
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
     if (existing && existing.id !== staff.userId) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
     await assertNotBlacklisted({ email }, { userId: staff.userId });
+    const current = await prisma.user.findUnique({ where: { id: staff.userId }, select: { email: true } });
+    emailChanged = current?.email.toLowerCase() !== email;
   }
   if (data.phone?.trim()) {
     await assertNotBlacklisted({ phone: data.phone }, { userId: staff.userId });
@@ -264,6 +267,9 @@ export async function updateMyStaff(req, res) {
       data: {
         ...(data.fullName ? { fullName: data.fullName.trim() } : {}),
         ...(data.email ? { email: data.email.trim().toLowerCase() } : {}),
+        // Un correo nuevo no está verificado: el próximo ingreso exige crear la contraseña con un código
+        // enviado a esa dirección (mismo flujo que el alta), así nadie hereda pedidos ligados a un correo ajeno.
+        ...(emailChanged ? { mustSetPassword: true } : {}),
       },
     }),
     prisma.vendorStaff.update({
@@ -282,9 +288,10 @@ export async function updateMyStaff(req, res) {
   // Bloque 183: si se lo desactiva, se le corta el acceso YA — no alcanza
   // con que el próximo login falle (authenticate() valida la Session
   // contra la DB en cada request, mismo criterio que isSuspended en User).
-  if (data.isActive === false) {
+  if (data.isActive === false || emailChanged) {
     await prisma.session.updateMany({ where: { userId: staff.userId, revokedAt: null }, data: { revokedAt: new Date() } });
   }
+  if (emailChanged) await prisma.trustedDevice.deleteMany({ where: { userId: staff.userId } });
 
   logActivity({
     actorId: req.user.id,

@@ -57,7 +57,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
           <>
             <h2 className="mb-1 text-title-lg font-bold text-on-surface">Cambiar correo</h2>
             <p className="mb-4 text-[12.5px] text-outline">
-              Te mandamos un código a tu correo actual ({currentEmail}) para confirmar que eres tú.
+              Te mandamos un código al correo nuevo para confirmar que es tuyo. A {currentEmail} le llega un aviso del cambio.
             </p>
             <div className="flex flex-col gap-3.5">
               <Input label="Correo nuevo" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
@@ -78,7 +78,7 @@ export function ChangeEmailModal({ currentEmail, onClose }) {
           <>
             <h2 className="mb-1 text-title-lg font-bold text-on-surface">Confirma el código</h2>
             <p className="mb-4 text-[12.5px] text-outline">
-              Revisa {currentEmail} y escribe el código que te mandamos (vence en {CODE_TTL_MINUTES} minutos).
+              Revisa {newEmail} y escribe el código que te mandamos (vence en {CODE_TTL_MINUTES} minutos).
             </p>
             <OtpInput label="Código" length={8} charset="alphanumeric" autoFocus value={code} onChange={(v) => { setCode(v); setCodeError(""); }} onComplete={(v) => confirmCode.mutate(v)} error={codeError || undefined} />
             <div className="mt-5 flex gap-2.5">

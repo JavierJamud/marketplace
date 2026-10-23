@@ -24,6 +24,11 @@ function slugify(text) {
 }
 
 async function main() {
+  // Datos de prueba con una contraseña compartida y una cuenta ADMIN: nunca en producción (auditoría run-2).
+  if (process.env.NODE_ENV === "production") {
+    console.error("seed.js es solo para desarrollo: no se ejecuta con NODE_ENV=production.");
+    process.exit(1);
+  }
   const devPasswordHash = await bcrypt.hash(DEV_PASSWORD, 10);
 
   // --- País (Cuba) ------------------------------------------------------------

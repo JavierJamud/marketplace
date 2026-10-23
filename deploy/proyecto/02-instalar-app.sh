@@ -251,6 +251,17 @@ server {
         proxy_intercept_errors on;      # un error de la API (500...) tampoco debe colarse dentro del HTML
         error_page 500 502 503 504 = @sin_precarga;
     }
+    # Texto real de la portada para Google y los asistentes de IA (SSI dentro de <div id="root">, ver index.html). Mismo tope que
+    # la precarga: si la API tarda, la portada sale igual, sin ese texto.
+    location = /api/seo-home {
+        proxy_pass http://127.0.0.1:$PUERTO_API/seo-home;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_connect_timeout 1s;
+        proxy_read_timeout 1s;
+        proxy_intercept_errors on;
+        error_page 500 502 503 504 = @sin_precarga;
+    }
     location @sin_precarga {
         default_type text/html;
         return 200 '';

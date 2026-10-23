@@ -304,6 +304,161 @@ ${images.map((i) => `<img src="${esc(i)}" alt="${esc(product.name)}" width="400"
   );
 }
 
+// ---------------------------------------------------------------- contenido de la portada
+
+// Texto real de la portada dentro del HTML inicial. Nginx lo inserta (SSI, ver index.html) dentro de <div id="root">, así
+// Google, su resumen con IA y los asistentes que no ejecutan JavaScript leen qué es Baznova, qué tiendas y productos hay y
+// cómo se compra, en vez de una página casi vacía. React lo reemplaza al montar; mientras tanto lo tapa el preloader.
+// Todo sale de la base: cifras, tiendas, productos y preguntas frecuentes. Nada inventado.
+const SEO_HOME_TTL_MS = 10 * 60 * 1000;
+let seoHomeCache = { html: null, expires: 0 };
+
+// Las respuestas de la FAQ pueden traer HTML: aquí van como texto plano (luego se escapan).
+const plainText = (html) =>
+  String(html ?? "")
+    .replace(/<\/?(p|br|li|ul|ol|div|h[1-6])\b[^>]*>/gi, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .replace(/ ([,.;:!?])/g, "$1")
+    .trim();
+
+const plural = (n, one, many) => `${n.toLocaleString("es-CU")} ${n === 1 ? one : many}`;
+
+async function buildSeoHome() {
+  const brand = await getBrandSettings();
+  const siteName = brand.siteName || "Baznova";
+  const listedVendorWhere = { ...publicVendorWhere, products: { some: visibleProductWhere } };
+
+  const [storeCount, productCount, restaurantCount, vendors, products, categories, provinceRows, faqs, settings] = await Promise.all([
+    prisma.vendor.count({ where: listedVendorWhere }),
+    prisma.product.count({ where: { ...visibleProductWhere, vendor: publicVendorWhere } }),
+    prisma.vendor.count({ where: { ...listedVendorWhere, isRestaurant: true } }),
+    prisma.vendor.findMany({
+      where: listedVendorWhere,
+      orderBy: [{ salesCount: "desc" }, { reviewCount: "desc" }, { createdAt: "asc" }],
+      take: 12,
+      select: {
+        slug: true,
+        companyName: true,
+        isRestaurant: true,
+        verificationStatus: true,
+        businessCategory: { select: { name: true } },
+        locations: { take: 1, select: { stateOther: true, province: { select: { name: true } }, municipality: { select: { name: true } } } },
+      },
+    }),
+    prisma.product.findMany({
+      where: { ...visibleProductWhere, vendor: publicVendorWhere },
+      orderBy: [{ salesCount: "desc" }, { createdAt: "desc" }],
+      take: 12,
+      select: { name: true, slug: true, price: true, currency: true, vendor: { select: { slug: true, companyName: true } } },
+    }),
+    prisma.businessCategory.findMany({
+      where: { active: true, vendors: { some: listedVendorWhere } },
+      orderBy: { sortOrder: "asc" },
+      select: { name: true },
+    }),
+    prisma.province.findMany({
+      where: { vendorLocations: { some: { vendor: listedVendorWhere } } },
+      orderBy: { name: "asc" },
+      select: { name: true },
+    }),
+    prisma.faqItem.findMany({ where: { audience: "CUSTOMER" }, orderBy: { createdAt: "asc" }, take: 6, select: { question: true, answer: true } }),
+    prisma.siteSettings.findFirst({ select: { facebookUrl: true, instagramUrl: true } }),
+  ]);
+
+  const provinces = provinceRows.map((p) => p.name);
+  const placeOf = (v) => {
+    const loc = v.locations[0];
+    return loc?.municipality?.name ?? loc?.province?.name ?? loc?.stateOther ?? null;
+  };
+
+  // Resumen con cifras reales. Si todavía no hay datos de algo, esa parte no se dice.
+  const facts = [
+    storeCount > 0 && plural(storeCount, "tienda activa", "tiendas activas"),
+    restaurantCount > 0 && plural(restaurantCount, "restaurante", "restaurantes"),
+    productCount > 0 && plural(productCount, "producto publicado", "productos publicados"),
+    provinces.length > 0 && `negocios en ${plural(provinces.length, "provincia", "provincias")}`,
+  ].filter(Boolean);
+
+  const faqItems = faqs.map((f) => ({ q: plainText(f.question), a: clip(plainText(f.answer), 400) })).filter((f) => f.q && f.a);
+
+  const storeLinks = vendors
+    .map((v) => {
+      const kind = v.businessCategory?.name ?? (v.isRestaurant ? "Restaurante" : "Tienda");
+      const place = placeOf(v);
+      const verified = v.verificationStatus === "VERIFIED" ? ", verificada" : "";
+      return `<li><a href="${esc(`${ORIGIN}/tienda/${encodeURIComponent(v.slug)}`)}">${esc(v.companyName)}</a> · ${esc(kind)}${place ? ` en ${esc(place)}` : ""}${verified}</li>`;
+    })
+    .join("\n");
+  const productLinks = products
+    .map((p) => `<li><a href="${esc(`${ORIGIN}/producto/${encodeURIComponent(p.vendor.slug)}/${encodeURIComponent(p.slug)}`)}">${esc(p.name)}</a> · ${esc(money(p.price, p.currency))} en ${esc(p.vendor.companyName)}</li>`)
+    .join("\n");
+
+  const sameAs = [settings?.facebookUrl, settings?.instagramUrl].filter((u) => typeof u === "string" && /^https:\/\//i.test(u));
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${ORIGIN}/#organization`,
+        name: siteName,
+        url: `${ORIGIN}/`,
+        ...(sameAs.length ? { sameAs } : {}),
+      },
+      ...(vendors.length
+        ? [
+            {
+              "@type": "ItemList",
+              name: `Tiendas y restaurantes en ${siteName}`,
+              itemListElement: vendors.map((v, i) => ({ "@type": "ListItem", position: i + 1, url: `${ORIGIN}/tienda/${encodeURIComponent(v.slug)}`, name: v.companyName })),
+            },
+          ]
+        : []),
+      ...(faqItems.length
+        ? [{ "@type": "FAQPage", mainEntity: faqItems.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) }]
+        : []),
+    ],
+  };
+
+  const name = esc(siteName);
+  return `<div id="seo-portada">
+<style>#seo-portada{max-width:960px;margin:0 auto;padding:24px 16px;background:#0e1a28;color:#f4f6f8;font:16px/1.6 Inter,system-ui,sans-serif}#seo-portada a{color:#fe9800}#seo-portada h1{font-size:28px;line-height:1.25;margin:0 0 12px}#seo-portada h2{font-size:20px;margin:28px 0 8px}#seo-portada li{margin:4px 0}</style>
+<h1>${name}: marketplace de tiendas y restaurantes en Cuba</h1>
+<p>${name} reúne tiendas locales y restaurantes de Cuba en un solo sitio. Busca productos, comida y servicios cerca de ti, haz tu pedido a la tienda y coordina con ella el pago y la entrega: efectivo, pago contra entrega, transferencia o por WhatsApp.</p>
+${facts.length ? `<p>Hoy en ${name}: ${esc(facts.join(", "))}.</p>` : ""}
+${provinces.length ? `<p>Provincias con tiendas: ${esc(provinces.join(", "))}.</p>` : ""}
+${categories.length ? `<h2>Tipos de negocio</h2>\n<p>${esc(categories.map((c) => c.name).join(", "))}.</p>` : ""}
+${storeLinks ? `<h2>Tiendas y restaurantes en ${name}</h2>\n<ul>\n${storeLinks}\n</ul>\n<p><a href="${esc(ORIGIN)}/tiendas">Ver todas las tiendas</a></p>` : ""}
+${productLinks ? `<h2>Productos más pedidos</h2>\n<ul>\n${productLinks}\n</ul>\n<p><a href="${esc(ORIGIN)}/catalogo">Ver el catálogo completo</a></p>` : ""}
+<h2>Cómo comprar en ${name}</h2>
+<ol>
+<li>Busca en el catálogo o entra a una tienda de tu provincia.</li>
+<li>Agrega lo que quieres al carrito. Cada pedido va a una sola tienda.</li>
+<li>Envía el pedido y acuerda con la tienda el pago y la entrega, también por WhatsApp.</li>
+<li>Sigue el estado de tu pedido en <a href="${esc(ORIGIN)}/rastrear-pedido">Rastrear pedido</a>.</li>
+</ol>
+<h2>Vende en ${name}</h2>
+<p>Abre tu tienda gratis, publica tu catálogo con fotos y precios y recibe los pedidos en tu panel. Los restaurantes pueden usar un menú con código QR para pedir desde la mesa. <a href="${esc(ORIGIN)}/vendedor/ingresar?tab=registro">Registrar mi negocio</a>.</p>
+${faqItems.length ? `<h2>Preguntas frecuentes</h2>\n${faqItems.map((f) => `<h3>${esc(f.q)}</h3>\n<p>${esc(f.a)}</p>`).join("\n")}\n<p><a href="${esc(ORIGIN)}/faq">Más preguntas frecuentes</a></p>` : ""}
+<p><a href="${esc(ORIGIN)}/ayuda">Centro de ayuda</a> · <a href="${esc(ORIGIN)}/contacto">Contacto</a> · <a href="${esc(ORIGIN)}/terminos">Términos</a> · <a href="${esc(ORIGIN)}/privacidad">Privacidad</a></p>
+<script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>
+</div>`;
+}
+
+export async function seoHome(_req, res) {
+  if (!seoHomeCache.html || seoHomeCache.expires < Date.now()) {
+    seoHomeCache = { html: await buildSeoHome(), expires: Date.now() + SEO_HOME_TTL_MS };
+  }
+  res.set({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  res.send(seoHomeCache.html);
+}
+
 // Precarga de la primera imagen del encabezado. Nginx la inserta en el HTML de la portada (SSI, ver index.html) para que
 // el navegador empiece a bajarla desde el primer momento, sin esperar a la aplicación ni a /settings.
 export async function heroPreload(_req, res) {

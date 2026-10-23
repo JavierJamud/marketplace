@@ -23,6 +23,11 @@ export async function finalizeUserDeletion(userId, record = {}) {
 
   const now = new Date();
   const anonymizedEmail = `deleted+${user.id}@zeudin.invalid`;
+  // El personal de la tienda eliminada también pierde el acceso al momento: antes seguía activo y con sesión, leyendo
+  // pedidos y clientes de una tienda que ya no existe (auditoría run-2).
+  const staffUserIds = user.vendor
+    ? (await prisma.vendorStaff.findMany({ where: { vendorId: user.vendor.id }, select: { userId: true } })).map((s) => s.userId)
+    : [];
 
   await prisma.$transaction([
     prisma.user.update({
@@ -53,6 +58,12 @@ export async function finalizeUserDeletion(userId, record = {}) {
     // esperar a que expire sola (mismo criterio que vendorStaff.controller.js
     // al desactivar personal).
     prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: now } }),
+    ...(staffUserIds.length
+      ? [
+          prisma.vendorStaff.updateMany({ where: { vendorId: user.vendor.id }, data: { isActive: false } }),
+          prisma.session.updateMany({ where: { userId: { in: staffUserIds }, revokedAt: null }, data: { revokedAt: now } }),
+        ]
+      : []),
   ]);
 }
 

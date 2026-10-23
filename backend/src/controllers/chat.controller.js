@@ -1,10 +1,9 @@
 import { z } from "zod";
-import jwt from "jsonwebtoken";
+import { resolveSessionUser } from "../middleware/auth.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { storePaymentLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
-import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { chatWithStoreAssistant } from "../lib/ai.js";
 import { compactHistory, MEMORY_FETCH_LIMIT } from "../lib/chatMemory.js";
@@ -411,16 +410,9 @@ async function lookupOrderContext(vendorId, message, userId) {
 // funcionando exactamente igual, sin historial. El frontend (lib/api.js) ya
 // manda el Bearer token en TODOS los requests si el cliente está logueado,
 // así que esto no necesita ningún cambio del lado del widget.
-function resolveOptionalUserId(req) {
-  const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : null;
-  if (!token) return null;
-  try {
-    // Mismo criterio que middleware/auth.js (auditoría de seguridad): fija
-    // el algoritmo esperado en vez de confiar en el "alg" del propio token.
-    return jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }).sub;
-  } catch {
-    return null;
-  }
+async function resolveOptionalUserId(req) {
+  // Solo una sesión viva cuenta (ver resolveSessionUser): nunca el token de reto 2FA ni uno de una sesión cerrada.
+  return (await resolveSessionUser(req))?.id ?? null;
 }
 
 const PURCHASE_HISTORY_LIMIT = 5;
@@ -720,7 +712,7 @@ export async function postChatMessage(req, res) {
 
   // Bloque 39 (Parte 1): sin login, esto da null y el resto sigue exactamente
   // igual que siempre (nunca obligatorio).
-  const userId = resolveOptionalUserId(req);
+  const userId = await resolveOptionalUserId(req);
 
   // Bloque 33: de acá para abajo es todo lo que puede fallar por un
   // problema técnico real (proveedor de IA caído, timeout, etc.) — nunca se
