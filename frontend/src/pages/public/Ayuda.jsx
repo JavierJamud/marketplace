@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ShoppingBag, Store, Wallet, UserCircle, UtensilsCrossed, ShieldCheck, ArrowRight } from "lucide-react";
 import { useStaticPage } from "../../lib/useStaticPage.js";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 const CATEGORIES = [
   {
@@ -50,6 +51,8 @@ export default function Ayuda() {
   if (htmlContent) {
     return (
       <div className="container-app max-w-[960px] py-14">
+        {/* El texto editado desde el admin también lleva la ruta para volver al inicio. */}
+        <Breadcrumbs className="mb-4" items={[{ label: "Centro de ayuda" }]} />
         <div className="prose-static" dangerouslySetInnerHTML={{ __html: htmlContent }} />
       </div>
     );
@@ -57,7 +60,7 @@ export default function Ayuda() {
 
   return (
     <div className="container-app max-w-[960px] py-14">
-      <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Ayuda</p>
+      <Breadcrumbs className="mb-2" items={[{ label: "Centro de ayuda" }]} />
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Centro de ayuda</h1>
       <p className="mb-10 text-body-md text-on-surface-variant">Elige el tema que te interesa.</p>
 

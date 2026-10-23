@@ -8,6 +8,7 @@ import { CartConflictModal } from "../CartConflictModal.jsx";
 import { AnnouncementPopup } from "../AnnouncementPopup.jsx";
 import { TargetedOfferPopup } from "../TargetedOfferPopup.jsx";
 import { ZoneWelcome } from "../ZoneWelcome.jsx";
+import { BackTopButton } from "./BackTopButton.jsx";
 import { useFlow } from "../../context/FlowContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 
@@ -46,6 +47,8 @@ export function PublicLayout() {
           "/mesa/..." (mismo motivo que el Header, arriba). */}
       {!isTableOrder && canShowPopups && <TargetedOfferPopup enabled={!!user} />}
       {!isTableOrder && <ZoneWelcome />}
+      {/* Atrás o subir, según dónde esté la persona en la página. Nunca en "/mesa/..." (flujo cerrado de la mesa). */}
+      {!isTableOrder && <BackTopButton />}
     </div>
   );
 }

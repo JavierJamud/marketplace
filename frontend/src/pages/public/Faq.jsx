@@ -9,6 +9,7 @@ import { faqJsonLd } from "../../lib/seoBuilders.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Bloque 53: antes esto era copy hardcodeado (buildCustomerFaqs/
 // buildVendorFaqs) que además podía reemplazarse entero por un bloque de
@@ -66,7 +67,7 @@ export default function Faq() {
 
   return (
     <div className="container-app max-w-[820px] py-14">
-      <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Ayuda</p>
+      <Breadcrumbs className="mb-2" items={[{ label: "Centro de ayuda", to: "/ayuda" }, { label: "Preguntas frecuentes" }]} />
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Preguntas frecuentes</h1>
       <p className="mb-8 text-body-md text-on-surface-variant">Elige la sección que te interesa.</p>
 

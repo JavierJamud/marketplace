@@ -15,6 +15,8 @@ import { ActiveFilterChips } from "../../components/shop/ShopFilters.jsx";
 import { MarketplaceChatGate } from "../../components/MarketplaceChatGate.jsx";
 import { checkoutLabel, resolvePaymentMethod } from "../../lib/catalog.js";
 import { lockPageScroll } from "../../lib/scrollLock.js";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
+import toast from "../../lib/toast.jsx";
 
 // Página de tiendas. El lugar donde se compra (país, provincia o estado, municipio) es un filtro general del sitio que se elige
 // en la portada o con el botón de arriba (ver ZonePicker); aquí solo se filtra por lo propio de cada tienda: tipo de
@@ -73,11 +75,14 @@ export default function Stores() {
       else p.delete(key);
       return p;
     }, { replace: true });
-  const clearFilters = () =>
+  const clearFilters = () => {
     setSearchParams((p) => {
       [...FILTER_KEYS, "sort"].forEach((k) => p.delete(k));
       return p;
     });
+    // Mismo aviso que en el catálogo: confirma que se limpiaron.
+    toast.success("Filtros limpiados.");
+  };
 
   // El texto de búsqueda se escribe sin esperar a la red: pasa a la URL (y a la consulta) cuando el visitante hace una pausa.
   const [text, setText] = useState(q);
@@ -157,6 +162,7 @@ export default function Stores() {
   return (
     <>
       <div className="container-app py-5 md:py-9">
+        <Breadcrumbs className="mb-2" items={[{ label: "Tiendas" }]} />
         <h1 className="mb-1 text-headline-lg-mobile text-on-surface md:text-headline-lg">{title}</h1>
         <p className="mb-3 text-body-md text-on-surface-variant">
           {isLoading || zoneLoading ? <Skeleton width={260} /> : <>{total} {noun} {hasZoneFilter ? `en ${zoneName}` : "en total"} · las verificadas se muestran primero.</>}

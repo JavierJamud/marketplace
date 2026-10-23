@@ -7,6 +7,7 @@ import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { useStaticPage } from "../../lib/useStaticPage.js";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Bloque 48: nueva página (sumada a Términos/Privacidad/FAQ/Ayuda). El
 // formulario manda un correo real al admin (GET /contact, reusa la misma
@@ -34,7 +35,7 @@ export default function Contacto() {
 
   return (
     <div className="container-app max-w-[960px] py-14">
-      <p className="mb-1.5 text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Ayuda</p>
+      <Breadcrumbs className="mb-2" items={[{ label: "Contacto" }]} />
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Contacto</h1>
       <p className="mb-10 text-body-md text-on-surface-variant">Escríbenos y te respondemos por correo.</p>
 

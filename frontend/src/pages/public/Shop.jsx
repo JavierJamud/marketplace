@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
@@ -11,6 +11,8 @@ import { checkoutLabel, resolvePaymentMethod } from "../../lib/catalog.js";
 import { MapPin, SlidersHorizontal, X } from "lucide-react";
 import { useMediaQuery } from "../../lib/useMediaQuery.js";
 import { lockPageScroll } from "../../lib/scrollLock.js";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
+import toast from "../../lib/toast.jsx";
 
 const SORT_OPTIONS = [
   { value: "relevance", label: "Más relevantes" },
@@ -130,12 +132,17 @@ export default function Shop() {
   // Lo buscado no está en el lugar elegido pero sí en otros (el servidor solo lo manda cuando no hay nada en la zona).
   const elsewhere = data?.elsewhere ?? null;
 
+  // "Limpiar todo" quita todo lo que se ve como filtro, también la búsqueda y el lugar. Antes la búsqueda no salía como
+  // filtro (tras buscar "Red" no había nada que limpiar) y el lugar seguía puesto aunque se mostraba entre los filtros.
   function clearFilters() {
     setSort("relevance");
+    if (hasZoneFilter) clearZone();
     setSearchParams((p) => {
       ["categoryId", "q", "minPrice", "maxPrice", "currency", "payment", "accepts", "onlyVerified", "discount", "wholesale", "badge", "minRating"].forEach((k) => p.delete(k));
       return p;
     });
+    // Aviso de que se limpió: sin él parecía que el botón no hacía nada (pedido del dueño).
+    toast.success("Filtros limpiados.");
   }
 
   const categoryName = useMemo(() => {
@@ -149,6 +156,7 @@ export default function Shop() {
 
   // Un chip por cada filtro puesto, con su "x".
   const activeChips = [
+    q && { key: "q", label: `Búsqueda: “${q}”`, remove: () => setFilter("q", "") },
     categoryId && { key: "cat", label: categoryName, remove: () => setFilter("categoryId", "") },
     (filters.minPrice || filters.maxPrice) && {
       key: "price",
@@ -172,9 +180,7 @@ export default function Shop() {
         {/* PAGE HEADER */}
         <div className="border-b border-surface-container-high bg-surface-container-lowest">
           <div className="container-app py-7">
-            <div className="mb-2 text-label-sm text-outline">
-              <Link to="/" className="text-outline hover:text-primary-container">Inicio</Link> / <span className="text-on-surface">Catálogo</span>
-            </div>
+            <Breadcrumbs className="mb-2" items={[{ label: "Catálogo" }]} />
             <h1 className="font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">
               {hasZoneFilter ? `Catálogo en ${zoneName}` : "Catálogo completo"}
             </h1>

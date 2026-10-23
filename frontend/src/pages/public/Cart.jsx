@@ -14,6 +14,7 @@ import { resolveUnitPrice, calcSavings } from "../../lib/pricing.js";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ShareCartButton } from "../../components/ShareCartButton.jsx";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Bloque 147: mismo patrón que CartDrawer.jsx/ProductCard.jsx/SharedCart.jsx.
 function imgUrl(path) {
@@ -76,6 +77,7 @@ export default function Cart() {
   if (items.length === 0) {
     return (
       <div className="container-app max-w-[1080px] py-9">
+        <Breadcrumbs className="mb-2" items={[{ label: "Carrito" }]} />
         <h1 className="mb-6 font-display text-headline-lg text-on-surface">Tu carrito</h1>
         <div className="mx-auto max-w-[480px] rounded-lg border border-surface-container-high bg-surface-container-lowest py-16 text-center">
           <div className="mb-3.5 text-4xl">🛒</div>
@@ -91,6 +93,7 @@ export default function Cart() {
 
   return (
     <div className="container-app max-w-[1080px] py-9">
+      <Breadcrumbs className="mb-2" items={[{ label: "Carrito" }]} />
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-headline-lg text-on-surface">Tu carrito</h1>
         <div className="flex flex-wrap items-center gap-2">

@@ -10,6 +10,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Rastreo de un pedido sin cuenta: correo + número del pedido (POST /orders/track, que exige que los dos coincidan). Muestra
 // el avance en 4 pasos, el historial con fecha y hora de cada movimiento, la tienda, los productos, el total y la entrega.
@@ -60,6 +61,7 @@ export default function OrderTracking() {
 
   return (
     <div className="container-app max-w-[1040px] py-10 md:py-14">
+      <Breadcrumbs className="mb-2" items={[{ label: "Rastrear pedido" }]} />
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">Rastrear pedido</h1>
       <p className="mb-6 max-w-[620px] text-body-md text-on-surface-variant">
         Escribe el correo con el que compraste y el número del pedido. El número aparece al terminar la compra y en el correo de

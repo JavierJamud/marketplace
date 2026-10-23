@@ -26,6 +26,7 @@ import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
 import { useSeo } from "../../lib/seo.js";
 import { productSeo } from "../../lib/seoBuilders.js";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Bloque 69 (pedido explícito): "los productos también pueden llevar
 // reseñas" — mismas fotos que Store.jsx (solo tiendas verificadas).
@@ -411,11 +412,7 @@ export default function Product() {
   return (
     <div>
       <div className="container-app pt-6">
-        <div className="text-label-sm text-outline">
-          <Link to="/" className="text-outline hover:text-primary-container">Inicio</Link> /{" "}
-          <Link to="/catalogo" className="text-outline hover:text-primary-container">Catálogo</Link> /{" "}
-          <span className="text-on-surface">{product.name}</span>
-        </div>
+        <Breadcrumbs items={[{ label: "Catálogo", to: "/catalogo" }, { label: product.name }]} />
       </div>
 
       {/* Bloque 54 (fix de tamaño): antes `lg:grid-cols-2` partía la sección

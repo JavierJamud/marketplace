@@ -16,6 +16,7 @@ import { CategoryIcon } from "./ui/CategoryIcon.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
 import { ReportFraudModal } from "./ReportFraudModal.jsx";
 import { BannerIcons } from "./BannerIcons.jsx";
+import { Breadcrumbs } from "./Breadcrumbs.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -176,7 +177,12 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
             largo más arriba) tiene que vivir acá en ese caso, como
             pb extra sobre el degradado base (sin ninguna capa oscura de
             por medio, así que no hay costura de color posible). */}
-        <div className={`container-app relative flex flex-col gap-4 pt-5 sm:flex-row sm:items-start sm:justify-between sm:pt-6 ${minimal ? "pb-[60px]" : "pb-5"}`}>
+        {!minimal && (
+          <div className="container-app relative pt-4">
+            <Breadcrumbs tone="dark" items={[{ label: "Tiendas", to: "/tiendas" }, { label: v.companyName }]} />
+          </div>
+        )}
+        <div className={`container-app relative flex flex-col gap-4 ${minimal ? "pt-5 sm:pt-6 pb-[60px]" : "pt-3 pb-5"} sm:flex-row sm:items-start sm:justify-between`}>
           {/* Logo delante del nombre en una sola fila y la descripción debajo a todo el ancho: en el celular el logo ya no
               queda centrado contra un bloque de texto largo. */}
           <div className="min-w-0 flex-1">

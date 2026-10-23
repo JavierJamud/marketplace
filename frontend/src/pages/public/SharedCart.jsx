@@ -9,6 +9,7 @@ import { useCart } from "../../context/CartContext.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -119,10 +120,7 @@ export default function SharedCart() {
 
   return (
     <div className="container-app max-w-[640px] py-14">
-      <div className="mb-2 flex items-center gap-2">
-        <ShoppingBag className="h-5 w-5 text-tertiary-accent" />
-        <p className="text-label-sm font-semibold uppercase tracking-wide text-tertiary-accent">Carrito compartido</p>
-      </div>
+      <Breadcrumbs className="mb-2" items={[{ label: "Carrito compartido" }]} />
       <h1 className="mb-2 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{data.vendor.companyName}</h1>
       <p className="mb-8 text-body-md text-on-surface-variant">
         {committed ? "Estos productos ya se agregaron a tu carrito:" : "Alguien compartió este carrito contigo."}

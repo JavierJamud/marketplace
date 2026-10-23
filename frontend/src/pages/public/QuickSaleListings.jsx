@@ -9,6 +9,7 @@ import { SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ZoneChip } from "../../components/ZonePicker.jsx";
 import { EmptyState } from "../../components/ui/EmptyState.jsx";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Listado público de anuncios de venta rápida de clientes SIN tienda.
 // Deliberadamente separado de Shop.jsx (esa query ya es compleja — plan/
@@ -49,6 +50,7 @@ export default function QuickSaleListings() {
 
   return (
     <div className="container-app py-5 md:py-11">
+      <Breadcrumbs className="mb-2" items={[{ label: "Venta rápida" }]} />
       <h1 className="mb-1 text-headline-lg text-on-surface">Venta rápida</h1>
       <p className="mb-7 text-body-md text-on-surface-variant">
         Productos publicados directamente por clientes — sin tienda, se coordina todo por WhatsApp.

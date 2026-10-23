@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircle, Package, ChevronLeft, ShieldAlert, MapPin, Phone } from "lucide-react";
+import { MessageCircle, Package, ShieldAlert, MapPin, Phone } from "lucide-react";
 import { ListingGallery } from "../../components/ListingGallery.jsx";
 import { conditionLabel } from "../../components/customer/ListingFormFields.jsx";
 import { api } from "../../lib/api.js";
@@ -11,6 +11,7 @@ import { Skeleton, SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 
 // Detalle público de un anuncio de venta rápida. A diferencia de Product.jsx
 // (que exige pasar por carrito/checkout, ver Bloque 68), acá el pedido es
@@ -68,9 +69,7 @@ export default function QuickSaleDetail() {
 
   return (
     <div className="container-app py-4 md:py-9">
-      <Link to="/ventas-rapidas" className="mb-3 inline-flex min-h-11 items-center gap-1 text-[13px] font-semibold text-on-surface-variant hover:text-on-surface">
-        <ChevronLeft className="h-4 w-4" /> Volver a venta rápida
-      </Link>
+      <Breadcrumbs className="mb-4" items={[{ label: "Venta rápida", to: "/ventas-rapidas" }, { label: listing.name }]} />
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <ListingGallery images={images.map((u) => `${api.defaults.baseURL}${u}`)} alt={listing.name} />
