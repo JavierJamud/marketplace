@@ -301,6 +301,18 @@ export async function detachPush() {
   if (sub) await api.post("/push/unsubscribe", { endpoint: sub.endpoint }).catch(() => {});
 }
 
+// Dirección push de este navegador, sin tocar la red. Al cerrar sesión viaja junto con el logout, así que no hace falta
+// una llamada aparte; si el navegador tarda más de 800 ms en responder, se cierra igual sin ella.
+export async function currentPushEndpoint() {
+  if (!pushSupported()) return null;
+  const lookup = navigator.serviceWorker
+    .getRegistration()
+    .then((reg) => reg?.pushManager.getSubscription())
+    .then((sub) => sub?.endpoint ?? null)
+    .catch(() => null);
+  return Promise.race([lookup, new Promise((resolve) => setTimeout(() => resolve(null), 800))]);
+}
+
 export async function disablePush() {
   await detachPush();
   const reg = await navigator.serviceWorker?.getRegistration().catch(() => null);

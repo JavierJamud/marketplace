@@ -606,7 +606,7 @@ export async function refresh(req, res) {
   res.json({ accessToken });
 }
 
-const logoutSchema = z.object({ refreshToken: z.string().optional() });
+const logoutSchema = z.object({ refreshToken: z.string().optional(), pushEndpoint: z.string().url().max(1000).nullish().catch(null) });
 
 // Bloque 60 (pedido explícito): "se debe limpiar bien cuando se cierra la
 // sesión" — antes cerrar sesión solo borraba el token del lado del
@@ -616,12 +616,18 @@ const logoutSchema = z.object({ refreshToken: z.string().optional() });
 // `authenticate` (mismo criterio que refresh(): tener el refresh token ES
 // la credencial) — así funciona incluso si el access token ya venció.
 export async function logout(req, res) {
-  const { refreshToken } = logoutSchema.parse(req.body);
+  const { refreshToken, pushEndpoint } = logoutSchema.parse(req.body);
   if (refreshToken) {
-    await prisma.session.updateMany({
+    const session = await prisma.session.findFirst({
       where: { refreshTokenHash: hashToken(refreshToken), revokedAt: null },
-      data: { revokedAt: new Date() },
+      select: { id: true, userId: true },
     });
+    if (session) {
+      await prisma.session.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
+      // Este dispositivo deja de recibir los avisos de esa persona. Solo se borra si la suscripción es suya: quien no
+      // tiene su refresh token no puede quitarle avisos a nadie.
+      if (pushEndpoint) await prisma.pushSubscription.deleteMany({ where: { endpoint: pushEndpoint, userId: session.userId } });
+    }
   }
   res.status(204).send();
 }

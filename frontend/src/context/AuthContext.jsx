@@ -4,7 +4,7 @@ import { api, setSessionExpiredHandler } from "../lib/api.js";
 import { getBrowserId, getDeviceToken, setDeviceToken } from "../lib/deviceId.js";
 import { IdleWarningModal } from "../components/IdleWarningModal.jsx";
 import { queryClient, queryPersister } from "../lib/queryClient.js";
-import { detachPush } from "../lib/pwa.js";
+import { detachPush, currentPushEndpoint } from "../lib/pwa.js";
 import toast from "../lib/toast.jsx";
 
 const AuthContext = createContext(null);
@@ -296,17 +296,14 @@ export function AuthProvider({ children }) {
   // borrar el token del lado del cliente y dejarlo igual de válido en el
   // servidor. Nunca toca browserId/deviceToken — eso es "recordar este
   // dispositivo", sobrevive a un logout normal a propósito.
+  // Bug real (cerrar sesión se quedaba trabado varios segundos en el celular): antes esperaba 2 a 4 viajes al servidor
+  // seguidos (quitar el aviso push, renovar el token si había vencido, revocar la sesión). Ahora la sesión se borra
+  // aquí al instante y el servidor recibe un solo pedido sin esperar: revoca la sesión y quita el aviso push de este
+  // dispositivo con el refresh token, que no vence a la hora como el de acceso.
   const logout = async () => {
-    // Este dispositivo deja de recibir los avisos push de esta persona (antes de cerrar la sesión en el servidor).
-    await detachPush().catch(() => {});
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    if (refreshToken) {
-      try {
-        await api.post("/auth/logout", { refreshToken });
-      } catch {
-        // best-effort — igual se limpia todo del lado del cliente.
-      }
-    }
+    const pushEndpoint = await currentPushEndpoint();
+    if (refreshToken) api.post("/auth/logout", { refreshToken, pushEndpoint }, { timeout: 20000 }).catch(() => {});
     clearLocalSession();
   };
 
