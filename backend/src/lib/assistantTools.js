@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { openSessionWhere } from "./sessionPolicy.js";
 import { ratingSummary } from "./ratings.js";
 import { prisma } from "./prisma.js";
 import { rawSalesSeries, fillSeriesGaps, resolveSeriesRange } from "./salesSeries.js";
@@ -583,7 +584,7 @@ const ADMIN_TOOLS = {
         logins(1),
         logins(7),
         logins(30),
-        prisma.session.count({ where: { revokedAt: null, expiresAt: { gt: new Date() } } }),
+        prisma.session.count({ where: openSessionWhere() }),
         prisma.session.count({ where: { createdAt: { gte: since(1) } } }),
         prisma.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: limite, select: { action: true, description: true, actorRole: true, createdAt: true, vendor: { select: { companyName: true } } } }),
         prisma.activityLog.groupBy({ by: ["action"], where: { createdAt: { gte: since(7) } }, _count: { _all: true }, orderBy: { _count: { action: "desc" } }, take: 10 }),

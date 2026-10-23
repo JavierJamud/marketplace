@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { openSessionWhere } from "./sessionPolicy.js";
 import { getPlanConfig, isPremiumActive } from "./planConfig.js";
 import { RANKING_RULES, rankFeaturedProducts, explainProductRanking, completenessScore } from "./productRanking.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
@@ -112,7 +113,7 @@ export async function accountActivity(vendorId, limit = 15) {
   const since30 = new Date(Date.now() - 30 * DAY_MS);
   const [sessions, activeSessions, staff, logs, byAction] = await Promise.all([
     prisma.session.findMany({ where: { userId: vendor.userId, createdAt: { gte: since14 } }, orderBy: { createdAt: "desc" }, take: 60, select: { createdAt: true, lastUsedAt: true, userAgent: true, revokedAt: true } }),
-    prisma.session.count({ where: { userId: vendor.userId, revokedAt: null, expiresAt: { gt: new Date() } } }),
+    prisma.session.count({ where: { userId: vendor.userId, ...openSessionWhere() } }),
     prisma.vendorStaff.findMany({ where: { vendorId }, take: 15, select: { isActive: true, staffType: true, user: { select: { fullName: true, lastLoginAt: true } } } }),
     prisma.activityLog.findMany({ where: { vendorId }, orderBy: { createdAt: "desc" }, take: limit, select: { action: true, description: true, actorRole: true, createdAt: true } }),
     prisma.activityLog.groupBy({ by: ["action"], where: { vendorId, createdAt: { gte: since30 } }, _count: { _all: true }, orderBy: { _count: { action: "desc" } }, take: 10 }),

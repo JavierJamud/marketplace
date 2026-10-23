@@ -15,6 +15,11 @@ const TOUCH_EVERY_MS = 60 * 1000;
 
 export const IDLE_MESSAGE = "Tu sesión se cerró porque pasaron 30 minutos sin actividad. Vuelve a iniciar sesión.";
 
+// Sesiones que todavía sirven (para contarlas): sin cerrar, sin vencer y usadas en los últimos 30 minutos.
+export function openSessionWhere(now = Date.now()) {
+  return { revokedAt: null, expiresAt: { gt: new Date(now) }, lastUsedAt: { gt: new Date(now - SESSION_IDLE_MS) } };
+}
+
 export function isSessionIdle(session) {
   return Date.now() - new Date(session.lastUsedAt).getTime() > SESSION_IDLE_MS;
 }

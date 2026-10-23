@@ -1,4 +1,5 @@
 import { checkoutLabel } from "../lib/catalog.js";
+import { isSessionIdle } from "../lib/sessionPolicy.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getPlanConfig } from "../lib/planConfig.js";
@@ -254,7 +255,9 @@ export async function getVendorManage(req, res) {
         ...describeUserAgent(s.userAgent),
         createdAt: s.createdAt,
         lastUsedAt: s.lastUsedAt,
-        active: !s.revokedAt && s.expiresAt > new Date(),
+        // Abierta = todavía sirve. Una sesión sin usar más de 30 minutos ya no se acepta (lib/sessionPolicy.js), aunque nadie la
+        // haya cerrado: si el teléfono o la pestaña no volvieron, se quedaba sin revocar y aquí salía "Abierta" durante días.
+        active: !s.revokedAt && s.expiresAt > new Date() && !isSessionIdle(s),
       })),
     },
     activity: activity.map((a) => ({ id: a.id, action: a.action, description: a.description, who: a.actor?.fullName ?? null, role: a.actorRole, createdAt: a.createdAt })),
