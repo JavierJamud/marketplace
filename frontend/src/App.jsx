@@ -381,6 +381,8 @@ export default function App() {
         <Route path="perfil" element={<AdminProfile />} />
       </Route>
 
+      {/* /index.html es la portada (Nginx ya redirige; esto cubre el servidor local y una página vieja guardada en caché). */}
+      <Route path="/index.html" element={<Navigate to="/" replace />} />
       <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>

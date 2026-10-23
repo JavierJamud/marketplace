@@ -199,6 +199,11 @@ server {
     set \$es_portada 0;
     if (\$request_uri ~ "^/(\?.*)?\$") { set \$es_portada 1; }
 
+    # /index.html es la portada con otro nombre: se redirige a / para que Google vea una sola dirección y React no muestre
+    # su 404. Se compara \$request_uri (lo que pidió el visitante) y no \$uri: el try_files de la SPA salta internamente a
+    # /index.html en cada ruta, y un "location = /index.html" con redirección rompería todas.
+    if (\$request_uri ~ "^/index\.html(\?.*)?\$") { return 301 /\$is_args\$args; }
+
     # Una sola dirección para Google: www redirige al dominio sin www (evita contenido duplicado).
     $REDIR_WWW
 
