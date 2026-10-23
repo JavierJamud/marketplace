@@ -435,7 +435,9 @@
 :root {
   --sileo-width: min(350px, calc(100vw - 1.5rem));
 }
-[data-sileo-viewport] {
+/* Con "html" delante: Sileo carga su CSS después con z-index 50 y la misma especificidad, y ganaba. Así los avisos quedaban
+   detrás de la hoja de filtros del celular (z-70) y de otros paneles, y no se veía, por ejemplo, "Filtros limpiados.". */
+html [data-sileo-viewport] {
   z-index: 10000;
 }
 /* Con el viewport delante: Sileo carga su CSS después y, con la misma especificidad, ganaba (ponía Mayúscula Cada Palabra). */
