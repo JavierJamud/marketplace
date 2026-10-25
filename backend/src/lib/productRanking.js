@@ -14,13 +14,20 @@
 // ordenado por antigüedad como cualquier producto sin señales. El piso de
 // completitud es más estricto para tiendas NO verificadas (65 vs 40) — el
 // beneficio de la duda es menor cuando no hay KYC de por medio.
+//
+// Pedido del dueño (2026-10-24): también cuenta el interés que no queda en el producto: cuántos clientes lo tienen en el
+// carrito, cuántos lo pidieron en los últimos 30 días (aunque el pedido no esté confirmado todavía) y cuántos lo guardaron en
+// favoritos (ver services/productRankingSignals.service.js). Se les hizo lugar bajando un poco el resto; la suma sigue en 1.
 const WEIGHTS = {
-  sales: 0.3,
-  clicks: 0.15,
-  searchClicks: 0.15,
-  dwell: 0.1,
-  completeness: 0.15,
-  reviews: 0.15,
+  sales: 0.24,
+  orders: 0.1,
+  carts: 0.1,
+  favorites: 0.06,
+  clicks: 0.12,
+  searchClicks: 0.08,
+  dwell: 0.08,
+  completeness: 0.12,
+  reviews: 0.1,
 };
 
 const MIN_COMPLETENESS_VERIFIED = 40;
@@ -104,9 +111,61 @@ function normalize(value, max) {
   return max > 0 ? value / max : 0;
 }
 
+// Rotación (pedido del dueño, 2026-10-24: "no tiene por qué mostrarse los productos fijos siempre en la misma posición, hace
+// ver a la plataforma muerta"): con `seed`, el orden final se sortea pesando cada producto por su puntaje. El que tiene más
+// interacción sale arriba casi siempre, pero dos productos con puntajes parecidos se turnan, y uno algo más flojo a veces sube.
+// La temperatura decide cuánto: con 0.15, entre dos productos, una ventaja de 0.1 en el puntaje sale primero ~66% de las veces
+// y una de 0.3, ~88%. Se sortea por grupos que nunca se mezclan: primero los destacados a mano por el admin, después el resto,
+// y al final los que no pasan el piso de calidad. Misma semilla, mismo orden: así una persona no ve saltar las tarjetas
+// mientras navega.
+const ROTATION_TEMPERATURE = 0.15;
+
+// Número 0..1 estable para (semilla, producto): FNV-1a de 32 bits más el mezclado final de MurmurHash3. Sin ese mezclado, los
+// id de producto, que solo cambian en los últimos caracteres, daban números muy parecidos y el sorteo dejaba de ser parejo.
+function seededUnit(seed, id) {
+  let h = 0x811c9dc5;
+  const str = `${seed}:${id}`;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return ((h >>> 0) + 0.5) / 4294967296;
+}
+
+// Semilla de la rotación: la que manda la página en cada visita (solo letras y números) más la hora en curso. Así el orden
+// cambia cuando la persona vuelve a entrar o recarga y, aunque no lo haga, al menos cada hora.
+export function rotationSeed(visitSeed) {
+  const visit = typeof visitSeed === "string" && /^[a-z0-9]{1,16}$/i.test(visitSeed) ? visitSeed : "";
+  return `${visit}h${Math.floor(Date.now() / 3_600_000)}`;
+}
+
+// Sorteo ponderado sin reemplazo (Efraimidis-Spirakis): clave = -ln(u) / peso, la más chica va primero.
+function rotate(scored, seed) {
+  const draw = (group, weighted) =>
+    group
+      .map((s) => ({ s, k: -Math.log(seededUnit(seed, s.product.id)) / (weighted ? Math.exp(s.score / ROTATION_TEMPERATURE) : 1) }))
+      .sort((a, b) => a.k - b.k)
+      .map((x) => x.s.product);
+  const manual = scored.filter((s) => s.score >= 0 && s.product.isFeatured);
+  const rest = scored.filter((s) => s.score >= 0 && !s.product.isFeatured);
+  const floor = scored.filter((s) => s.score < 0);
+  return [...draw(manual, true), ...draw(rest, true), ...draw(floor, false)];
+}
+
 // reviewStatsByProductId: Map<productId, { avgRating: number, reviewCount: number }>
-export function rankFeaturedProducts(products, reviewStatsByProductId) {
+// engagement: Map<productId, { favorites, orders, carts }> (services/productRankingSignals.service.js); sin él cuentan 0.
+// options.seed: si viene, el orden rota (ver rotate arriba); sin semilla es el orden puro por puntaje.
+export function rankFeaturedProducts(products, reviewStatsByProductId, engagement = new Map(), options = {}) {
   if (products.length === 0) return [];
+  const signal = (p, k) => engagement.get(p.id)?.[k] ?? 0;
+  const maxFavorites = Math.max(1, ...products.map((p) => signal(p, "favorites")));
+  const maxOrders = Math.max(1, ...products.map((p) => signal(p, "orders")));
+  const maxCarts = Math.max(1, ...products.map((p) => signal(p, "carts")));
 
   const maxSales = Math.max(1, ...products.map((p) => p.salesCount));
   const maxClicks = Math.max(1, ...products.map((p) => p.clickCount));
@@ -158,12 +217,17 @@ export function rankFeaturedProducts(products, reviewStatsByProductId) {
       WEIGHTS.sales * logNormalize(product.salesCount, maxSales) +
       WEIGHTS.clicks * logNormalize(product.clickCount, maxClicks) +
       WEIGHTS.searchClicks * logNormalize(product.searchClickCount, maxSearchClicks) +
-      WEIGHTS.dwell * logNormalize(avgDwell, maxDwell);
+      WEIGHTS.dwell * logNormalize(avgDwell, maxDwell) +
+      WEIGHTS.favorites * logNormalize(signal(product, "favorites"), maxFavorites);
+    // Pedidos y carritos ya vienen acotados a los últimos 30 días: no se les aplica el decaimiento por inactividad.
+    const interestScore =
+      WEIGHTS.orders * logNormalize(signal(product, "orders"), maxOrders) + WEIGHTS.carts * logNormalize(signal(product, "carts"), maxCarts);
 
     // Bloque 230 (Fase 3): decae solo la parte de tráfico/ventas, nunca
     // completitud/reseñas (ver comentario de recencyMultiplier arriba).
     let score =
       trafficScore * recencyMultiplier(product.lastActivityAt, now) +
+      interestScore +
       WEIGHTS.completeness * (completeness / 100) +
       WEIGHTS.reviews * reviewScore +
       newBoost;
@@ -176,6 +240,7 @@ export function rankFeaturedProducts(products, reviewStatsByProductId) {
     return { product, score };
   });
 
+  if (options.seed) return rotate(scored, String(options.seed));
   return scored.sort((a, b) => b.score - a.score).map((s) => s.product);
 }
 
@@ -192,6 +257,10 @@ export const RANKING_RULES = {
   empujonProductoNuevo: NEW_PRODUCT_BOOST,
   mitadDeVidaDeLaActividadEnDias: RECENCY_HALF_LIFE_DAYS,
   pesoMinimoDeLaActividadAntigua: RECENCY_FLOOR,
+  ventanaDeCarritosYPedidosEnDias: 30,
+  temperaturaDeRotacion: ROTATION_TEMPERATURE,
+  rotacion:
+    "En la portada, el catálogo y la página de la tienda el orden se sortea pesando cada producto por su puntaje: el de más interacción sale arriba casi siempre y los de puntaje parecido se turnan. Cambia en cada visita y, como mínimo, cada hora.",
 };
 
 // Las señales de UN producto tal como las ve el algoritmo (mismas funciones y

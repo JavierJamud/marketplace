@@ -4,7 +4,8 @@ import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { correctSearchQuery } from "../lib/ai.js";
 import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from "./products.controller.js";
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
-import { rankFeaturedProducts } from "../lib/productRanking.js";
+import { rankFeaturedProducts, rotationSeed } from "../lib/productRanking.js";
+import { fetchRankingPool, loadRankingSignals } from "../services/productRankingSignals.service.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
 import { recordSearchTerm, getTrendingSearches, getTrendingSearchesForZone } from "../lib/trendingSearches.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
@@ -291,7 +292,8 @@ export async function structuredSearch(req, res) {
     // decide este orderBy (queda solo como criterio de qué candidatos
     // entran cuando hay más de 300 que calzan el filtro), lo decide
     // rankFeaturedProducts más abajo con el catálogo completo disponible.
-    products = await prisma.product.findMany({ where: baseWhere, include: includeOpts, take: 300, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }] });
+    // 2026-10-24: los candidatos ya no son solo los 300 más nuevos (ver fetchRankingPool).
+    products = await fetchRankingPool({ where: baseWhere, include: includeOpts, size: 300 });
   } else {
     // Intento 1: literal, sin importar mayúsculas/tildes.
     products = await fetchByIds(await findProductIdsByName(cleanQ));
@@ -341,17 +343,13 @@ export async function structuredSearch(req, res) {
   // recorta a 60 DESPUÉS de rankear, no antes — con el pool de 300 de
   // arriba, un producto viejo con buen desempeño real no queda afuera solo
   // por no ser de los 60 más recientes.
+  // 2026-10-24 (pedido del dueño): también cuentan carritos, favoritos y pedidos recientes, y sin texto buscado (portada y
+  // catálogo sin búsqueda) el orden rota con la semilla de la visita (ver rotate en productRanking.js). Con texto buscado no
+  // rota: ahí manda encontrar lo pedido, no turnar.
   if (!sort || sort === "relevance") {
-    const reviewAgg = await prisma.review.groupBy({
-      by: ["productId"],
-      where: { productId: { in: products.map((p) => p.id) }, rating: { not: null } },
-      _avg: { rating: true },
-      _count: { rating: true },
-    });
-    const reviewStatsByProductId = new Map(
-      reviewAgg.map((a) => [a.productId, { avgRating: a._avg.rating ?? 0, reviewCount: a._count.rating }])
-    );
-    products = rankFeaturedProducts(products, reviewStatsByProductId).slice(0, 60);
+    const { reviewStats, engagement } = await loadRankingSignals(products.map((p) => p.id));
+    const options = cleanQ ? {} : { seed: rotationSeed(req.query.seed) };
+    products = rankFeaturedProducts(products, reviewStats, engagement, options).slice(0, 60);
   }
 
   // Si no hay resultados en la provincia elegida, sugerí provincias vecinas

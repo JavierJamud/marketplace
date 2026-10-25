@@ -38,6 +38,14 @@ export function brandingLogoDiskPath(url) {
   return toDiskPath(url);
 }
 
+// Foto de producto subida al servidor: solo "/uploads/products/<tienda>/<archivo>". La usa la imagen de vista previa del
+// producto, que se lee del disco: un enlace externo o una ruta de otra carpeta (documentos de identidad) da null.
+export const PRODUCT_IMAGE_PATTERN = /^\/uploads\/products\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+export function productImageDiskPath(url) {
+  if (typeof url !== "string" || !PRODUCT_IMAGE_PATTERN.test(url) || url.includes("..")) return null;
+  return toDiskPath(url);
+}
+
 // Borra las fotos (con miniatura y variantes) de una lista de URLs. No falla nunca: lo que ya no existe se ignora.
 export async function deleteUploadedImages(urls) {
   const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);

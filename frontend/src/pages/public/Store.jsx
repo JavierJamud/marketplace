@@ -42,6 +42,7 @@ import { DigitalMenuProductCard, DIGITAL_MENU_GRID_CLASS } from "../../component
 import { ProductCard, ProductGridSkeleton, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
 import { useSeo } from "../../lib/seo.js";
 import { storeSeo } from "../../lib/seoBuilders.js";
+import { VISIT_SEED } from "../../lib/visitSeed.js";
 
 const MAX_REVIEW_IMAGES = 2;
 
@@ -339,8 +340,10 @@ export default function Store() {
   const reviewsRef = useRef(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["vendor", slug],
-    queryFn: async () => (await api.get(`/vendors/${slug}`)).data.vendor,
+    // Clave propia ("store" y la semilla de la visita): el carrito y el pago leen la misma tienda sin semilla, y compartir la
+    // clave mezclaría los dos órdenes. Las invalidaciones con ["vendor", slug] la siguen alcanzando.
+    queryKey: ["vendor", slug, "store", VISIT_SEED],
+    queryFn: async () => (await api.get(`/vendors/${slug}`, { params: { seed: VISIT_SEED } })).data.vendor,
   });
 
   // Enlace anterior de la tienda (el servidor la encontró igual): la dirección pasa al enlace actual, sin sumar un paso al

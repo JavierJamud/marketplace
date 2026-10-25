@@ -238,13 +238,21 @@ export async function renderProductPage(req, res) {
       name: true,
       description: true,
       price: true,
+      oldPrice: true,
       currency: true,
       images: true,
       stock: true,
       unlimitedStock: true,
       sizeStock: true,
+      // Lo que se dibuja en la imagen de vista previa: sirve para su versión (ver `image` más abajo).
+      rating: true,
+      reviewCount: true,
+      shippingMode: true,
+      shippingLocal: true,
+      shippingOther: true,
+      shippingCurrency: true,
       category: { select: { name: true } },
-      vendor: { select: { companyName: true, locations: { take: 1, select: { stateOther: true, province: { select: { name: true } }, municipality: { select: { name: true } } } } } },
+      vendor: { select: { companyName: true, color: true, logoUrl: true, verificationStatus: true, storeShippingMode: true, storeShippingLocal: true, storeShippingOther: true, storeShippingCurrency: true, locations: { take: 1, select: { stateOther: true, province: { select: { name: true } }, municipality: { select: { name: true } } } } } },
     },
   });
   if (!product) return notFound(res, siteName);
@@ -257,10 +265,18 @@ export async function renderProductPage(req, res) {
   const inStock = product.unlimitedStock || product.stock > 0 || sizeStockTotal > 0;
 
   const title = `${product.name} | ${product.vendor.companyName} | ${siteName}`;
-  const description =
-    clip(product.description, 200) ||
-    `${product.name} en ${product.vendor.companyName}${place ? `, ${place}` : ""}. Precio, fotos y disponibilidad. Pídelo con pago contra entrega o por WhatsApp en ${siteName}.`;
-  const image = images[0] ?? SITE_IMAGE;
+  // Al compartir, WhatsApp muestra el título y esta línea debajo: precio y disponibilidad primero, luego la descripción.
+  const priceLine = `${money(product.price, product.currency)}${inStock ? "" : " · Agotado"}`;
+  const description = `${priceLine}. ${
+    clip(product.description, 170) ||
+    `${product.name} en ${product.vendor.companyName}${place ? `, ${place}` : ""}. Pídelo con pago contra entrega o por WhatsApp en ${siteName}.`
+  }`;
+  // Imagen diseñada del producto (og.controller.js). `v` cambia cuando cambia algo de lo que se dibuja, para que WhatsApp y
+  // Facebook pidan la nueva en vez de la que guardaron.
+  const p = product;
+  const visible = [p.name, p.description, String(p.price), String(p.oldPrice), p.currency, p.images?.[0], inStock, String(p.rating), p.reviewCount, p.shippingMode, String(p.shippingLocal), String(p.shippingOther), p.shippingCurrency, p.category?.name, p.vendor.companyName, p.vendor.color, p.vendor.logoUrl, p.vendor.verificationStatus, p.vendor.storeShippingMode, String(p.vendor.storeShippingLocal), String(p.vendor.storeShippingOther), p.vendor.storeShippingCurrency, place];
+  const version = crypto.createHash("sha1").update(visible.join("|")).digest("hex").slice(0, 10);
+  const image = `${env.backendUrl}/og/producto/${encodeURIComponent(vendorSlug)}/${encodeURIComponent(productSlug)}/imagen.jpg?v=${version}`;
 
   const jsonLd = {
     "@context": "https://schema.org",

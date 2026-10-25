@@ -60,7 +60,7 @@ import { REPORT_UPLOAD_DIR } from "./controllers/reports.controller.js";
 import { OFFER_UPLOAD_DIR } from "./controllers/offers.controller.js";
 import { REVIEW_UPLOAD_DIR } from "./controllers/reviews.controller.js";
 import { receiveStripeWebhook } from "./controllers/stripeWebhook.controller.js";
-import { renderStoreOgImagePng } from "./controllers/og.controller.js";
+import { renderStoreOgImagePng, renderProductOgImageJpg } from "./controllers/og.controller.js";
 import { clearPublicCache } from "./middleware/publicCache.js";
 import { maintenanceGate } from "./middleware/maintenance.js";
 import { trackVendorActions } from "./lib/vendorUsage.js";
@@ -195,6 +195,7 @@ app.get("/sitemap.xml", sitemapXml);
 app.get("/hero-preload", heroPreload);
 app.get("/seo-home", seoHome);
 app.get("/og/tienda/:slug/imagen.png", renderStoreOgImagePng);
+app.get("/og/producto/:vendorSlug/:productSlug/imagen.jpg", renderProductOgImageJpg);
 
 // Modo mantenimiento: con todo el sitio en mantenimiento, la API pública responde 503 (ver middleware/maintenance.js).
 app.use(maintenanceGate);

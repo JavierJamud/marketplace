@@ -38,7 +38,8 @@ import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, planAll
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
 import { getTrialChecklist, maybeAutoActivateTrial, hasHadPremium } from "../services/trialEligibility.service.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
-import { completenessScore } from "../lib/productRanking.js";
+import { completenessScore, rankFeaturedProducts, rotationSeed } from "../lib/productRanking.js";
+import { loadRankingSignals } from "../services/productRankingSignals.service.js";
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
@@ -318,7 +319,9 @@ export async function getVendorBySlug(req, res) {
       // split ocurra del lado del cliente.
       // Bloque 157: hiddenFromStore:true = "solo por pedido de mesa" — no
       // aparece en esta lista pública de la tienda.
-      products: { where: { isActive: true, hiddenFromStore: false, overQuota: false }, take: 48, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
+      // 2026-10-24 (pedido del dueño): el orden ya no es el de creación, lo decide el algoritmo más abajo. Se traen hasta 200
+      // candidatos para que un producto viejo que vende bien no quede fuera del corte por su fecha.
+      products: { where: { isActive: true, hiddenFromStore: false, overQuota: false }, take: 200, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
       // Comentarios públicos de la tienda: los que se le hicieron a la tienda (sin producto) y también las reseñas de sus
       // productos, que traen `product` para que la página las identifique como reseña de ese producto. Un comentario oculto por
       // el admin (isHidden) nunca llega acá.
@@ -365,6 +368,16 @@ export async function getVendorBySlug(req, res) {
   // pasar por acá, así que nunca se ve afectado por este filtro.
   if (!vendor.menuPublic) {
     vendor.products = vendor.products.filter((p) => !p.availableForTableMenu);
+  }
+
+  // Mismo algoritmo que la portada (lib/productRanking.js), comparando los productos de esta tienda entre sí, y con la misma
+  // rotación por visita: lo que más interesa a los clientes sale arriba y el orden no queda fijo. El algoritmo necesita saber
+  // si la tienda está verificada (piso de calidad) y lo lee de product.vendor, que acá no viene: se agrega solo para rankear.
+  if (vendor.products.length > 1) {
+    const { reviewStats, engagement } = await loadRankingSignals(vendor.products.map((p) => p.id));
+    const withVendor = vendor.products.map((p) => ({ ...p, vendor: { verificationStatus: vendor.verificationStatus } }));
+    const ranked = rankFeaturedProducts(withVendor, reviewStats, engagement, { seed: rotationSeed(req.query.seed) });
+    vendor.products = ranked.slice(0, 60).map(({ vendor: _vendor, ...p }) => p);
   }
 
   // Bloque 64 (regla de visibilidad, independiente de verificationStatus):

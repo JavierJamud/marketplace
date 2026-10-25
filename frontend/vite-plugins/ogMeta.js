@@ -73,11 +73,6 @@ function buildMetaHtml(meta) {
   ].join("\n    ");
 }
 
-function absoluteImage(apiUrl, path) {
-  if (!path) return null;
-  return /^https?:\/\//i.test(path) ? path : `${apiUrl}${path}`;
-}
-
 // `env` = resultado de loadEnv() en vite.config.js — vite.config.js corre en
 // Node puro, `process.env` NO trae lo que hay en .env/.env.development salvo
 // que se cargue a mano con loadEnv (así es como React ya lee VITE_API_URL en
@@ -149,9 +144,10 @@ export function ogMetaPlugin(env = {}) {
         if (res.ok) {
           const { product } = await res.json();
           return {
-            title: `${product.name} — ${siteName}`,
+            title: `${product.name} | ${product.vendor?.companyName ?? siteName}`,
             description: truncate(product.description, 200) || `${product.name}, disponible en ${siteName}.`,
-            image: absoluteImage(apiUrl, product.images?.[0]) ?? defaultImage,
+            // Misma imagen diseñada que en producción (backend og.controller.js): foto, tienda, precio y datos.
+            image: `${apiUrl}/og/producto/${encodeURIComponent(productMatch[1])}/${encodeURIComponent(productMatch[2])}/imagen.jpg`,
             url: `${siteUrl}${path}`,
             type: "product",
             siteName,

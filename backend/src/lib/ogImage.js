@@ -365,3 +365,185 @@ export async function renderStoreOgImage(vendor) {
     .png({ compressionLevel: 9 })
     .toBuffer();
 }
+
+// Luminancia relativa (WCAG) de un color #rrggbb.
+function luminance(hex) {
+  const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+
+// Foto del producto recortada en cuadrado con esquinas redondeadas. photoPath es una ruta del disco ya validada
+// (productImageDiskPath); nunca una URL.
+async function photoBuffer(photoPath, size, radius) {
+  if (!photoPath) return null;
+  try {
+    const input = await fs.promises.readFile(photoPath);
+    const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="${radius}"/></svg>`);
+    return await sharp(input)
+      .resize(size, size, { fit: "cover", background: "#ffffff" })
+      .flatten({ background: "#ffffff" })
+      .composite([{ input: mask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+  } catch {
+    return null;
+  }
+}
+
+// Imagen de vista previa al compartir el enlace de un producto (1200x630, JPEG), pedido del dueño: la foto a la izquierda y, a
+// la derecha, quién lo vende (logo, nombre, sello), el nombre del producto, el precio con su rebaja, la descripción y los
+// datos que deciden la compra (valoración, disponibilidad, envío, ubicación). Fondo con el color y los íconos de la
+// tienda, igual que su banner, para que se reconozca de quién es. Todo sale de la base; lo que falta no se dibuja.
+// p: { name, description, priceText, oldPriceText, discount, inStock, rating, reviewCount, shippingText, place, category,
+//      photoPath, siteHost, store: { id, companyName, color, logoPath, verified, isRestaurant, category, categorySlug } }
+export async function renderProductOgImage(p) {
+  const bold = font(800);
+  const semi = font(600);
+  const s = p.store;
+  const color = /^#[0-9a-f]{6}$/i.test(s.color ?? "") ? s.color : "#232F3E";
+  const PAD = 40;
+  const S = H - PAD * 2;
+  const R = 28;
+  const x0 = PAD + S + 48;
+  const tw = W - x0 - 56;
+  const parts = [];
+
+  // Quién lo vende: logo (o inicial), "Vendido por" y el nombre con el sello de verificada.
+  const logo = 60;
+  const ly = 46;
+  const [photo, logoImg] = await Promise.all([photoBuffer(p.photoPath, S, R), s.logoPath ? logoBuffer(s.logoPath, logo) : null]);
+  parts.push(`<circle cx="${x0 + logo / 2}" cy="${ly + logo / 2}" r="${logo / 2 + 3}" fill="#fff"/>`);
+  parts.push(`<circle cx="${x0 + logo / 2}" cy="${ly + logo / 2}" r="${logo / 2}" fill="${color}"/>`);
+  if (!logoImg) {
+    const initial = (s.companyName[0] ?? "?").toUpperCase();
+    parts.push(textPath(bold, initial, x0 + logo / 2 - advance(bold, initial, 30) / 2, ly + logo / 2 + 11, 30, "#fff"));
+  }
+  const nx = x0 + logo + 16;
+  const seal = s.verified ? 34 : 0;
+  parts.push(textPath(semi, "Vendido por", nx, ly + 22, 17, "#fff", 0.65));
+  const storeName = fit(bold, s.companyName, 25, tw - logo - 16 - seal);
+  parts.push(textPath(bold, storeName, nx, ly + 52, 25, "#fff"));
+  if (s.verified) {
+    const sx = nx + advance(bold, storeName, 25) + 10;
+    parts.push(
+      `<circle cx="${sx + 12}" cy="${ly + 43}" r="12" fill="#22c55e"/><path d="M${sx + 6.5} ${ly + 43}l4 4 7.5-8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`
+    );
+  }
+
+  // Datos de abajo como pastillas (las que no caben en dos filas se omiten). Se calculan primero para saber cuánto
+  // espacio le queda a la descripción.
+  const chips = [];
+  if (p.reviewCount > 0) chips.push({ icon: "Star", star: true, text: `${Number(p.rating).toFixed(1)} (${p.reviewCount} ${p.reviewCount === 1 ? "reseña" : "reseñas"})` });
+  // Agotado ya va como etiqueta sobre la foto.
+  if (p.inStock) chips.push({ icon: "PackageCheck", text: "Disponible" });
+  if (p.place) chips.push({ icon: "MapPin", text: p.place });
+  if (p.shippingText) chips.push({ icon: "Truck", text: p.shippingText });
+  if (p.category) chips.push({ icon: "Tag", text: p.category });
+  const CH = 40;
+  const GAP = 10;
+  const rows = [[]];
+  let rx = 0;
+  for (const c of chips) {
+    const label = fit(semi, c.text, 19, tw - 62);
+    const w = 46 + advance(semi, label, 19) + 16;
+    if (rx + w > tw && rows[rows.length - 1].length) {
+      if (rows.length === 2) continue;
+      rows.push([]);
+      rx = 0;
+    }
+    rows[rows.length - 1].push({ ...c, label, x: rx, w });
+    rx += w + GAP;
+  }
+  const footerY = H - PAD - 4;
+  const chipsTop = footerY - 34 - rows.length * (CH + GAP) + GAP;
+  rows.forEach((row, ri) => {
+    const cy = chipsTop + ri * (CH + GAP);
+    for (const c of row) {
+      const cx = x0 + c.x;
+      parts.push(`<rect x="${cx.toFixed(1)}" y="${cy}" width="${c.w.toFixed(1)}" height="${CH}" rx="${CH / 2}" fill="#fff" fill-opacity="0.13"/>`);
+      parts.push(iconSvg(c.icon, cx + 14, cy + 9, 22, c.star ? { stroke: "#fe9800", fill: "#fe9800", strokeWidth: 2 } : { stroke: "#fff", opacity: 0.85, strokeWidth: 2 }));
+      parts.push(textPath(semi, c.label, cx + 46, cy + 27, 19, "#fff", 0.95));
+    }
+  });
+  parts.push(textPath(semi, p.siteHost, W - 56 - advance(semi, p.siteHost, 18), footerY, 18, "#fff", 0.55));
+
+  // Nombre del producto: hasta 3 líneas. Se usa la letra más grande (de 50 a 38) con la que entra en menos líneas, así
+  // no queda una palabra sola abajo ni se corta con "..." si achicando cabe entero.
+  let nameSize = 50;
+  let nameLines = wrap(bold, p.name, nameSize, tw, 3);
+  const cut = (ls) => ls.some((l) => l.endsWith("..."));
+  for (let size = 46; size >= 38; size -= 4) {
+    const ls = wrap(bold, p.name, size, tw, 3);
+    if (ls.length < nameLines.length || (cut(nameLines) && !cut(ls))) {
+      nameSize = size;
+      nameLines = ls;
+    }
+  }
+  const nameLH = Math.round(nameSize * 1.14);
+  let y = ly + logo + 40 + nameSize * 0.8;
+  nameLines.forEach((l, i) => parts.push(textPath(bold, l, x0, y + i * nameLH, nameSize, "#fff")));
+  y += (nameLines.length - 1) * nameLH;
+
+  // Precio, y si tiene rebaja, el anterior tachado al lado.
+  y += 68;
+  parts.push(textPath(bold, p.priceText, x0, y, 48, "#fff"));
+  if (p.oldPriceText) {
+    const ox = x0 + advance(bold, p.priceText, 48) + 18;
+    const ow = advance(semi, p.oldPriceText, 24);
+    if (ox + ow <= x0 + tw) {
+      parts.push(textPath(semi, p.oldPriceText, ox, y - 3, 24, "#fff", 0.6));
+      parts.push(`<line x1="${ox}" y1="${y - 11}" x2="${(ox + ow).toFixed(1)}" y2="${y - 11}" stroke="#fff" stroke-opacity="0.6" stroke-width="2"/>`);
+    }
+  }
+
+  // Descripción en el alto que queda, hasta 3 líneas.
+  if (p.description) {
+    const LH = 30;
+    const first = y + 48;
+    const lines = Math.min(3, Math.floor((chipsTop - 22 - first) / LH) + 1);
+    if (lines > 0) wrap(semi, p.description, 21, tw, lines).forEach((l, i) => parts.push(textPath(semi, l, x0, first + i * LH, 21, "#fff", 0.82)));
+  }
+
+  // Fondo oscurecido: luminancia L·(1-a)^2.2. Con blanco a 4.5:1 hace falta L <= 0.183; se apunta a 0.15 por los íconos claros.
+  const lum = luminance(color);
+  const veil = Math.min(0.75, Math.max(0.22, 1 - Math.min(1, 0.15 / Math.max(lum, 0.001)) ** (1 / 2.2)));
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="${W * 0.25}" y1="0" x2="${W * 0.75}" y2="${H}">`,
+    `<stop offset="0" stop-color="${color}"/><stop offset="0.55" stop-color="${color}" stop-opacity="0.87"/><stop offset="1" stop-color="#111827"/>`,
+    `</linearGradient></defs>`,
+    `<rect width="${W}" height="${H}" fill="#111827"/>`,
+    `<rect width="${W}" height="${H}" fill="url(#g)"/>`,
+    iconPattern(s),
+    // Velo oscuro detrás del texto: el texto es blanco y el color de la tienda puede ser claro. Se oscurece lo justo para
+    // que el blanco contraste al menos 4.5:1 (AA) sobre la parte más clara del fondo, que es el color puro de arriba.
+    `<rect x="${x0 - 24}" width="${W - x0 + 24}" height="${H}" fill="#000" fill-opacity="${veil.toFixed(2)}"/>`,
+    `<rect x="${PAD - 4}" y="${PAD - 4}" width="${S + 8}" height="${S + 8}" rx="${R + 4}" fill="#fff" fill-opacity="0.9"/>`,
+    photo ? "" : `<rect x="${PAD}" y="${PAD}" width="${S}" height="${S}" rx="${R}" fill="#e5e7eb"/>${iconSvg("ImageOff", PAD + S / 2 - 40, PAD + S / 2 - 64, 80, { stroke: "#6b7280", strokeWidth: 1.5 })}${textPath(semi, "Sin fotos todavía", PAD + S / 2 - advance(semi, "Sin fotos todavía", 24) / 2, PAD + S / 2 + 56, 24, "#4b5563")}`,
+    ...parts,
+    `</svg>`,
+  ].join("");
+
+  // Etiquetas sobre la foto (rebaja y agotado): van en otra capa porque la foto se pega encima del fondo.
+  const badges = [];
+  let bx = PAD + 20;
+  if (p.discount > 0) {
+    const t = `-${p.discount}%`;
+    const w = advance(bold, t, 26) + 32;
+    badges.push(`<rect x="${bx}" y="${PAD + 20}" width="${w.toFixed(1)}" height="46" rx="23" fill="#fe9800"/>`, textPath(bold, t, bx + 16, PAD + 53, 26, "#0e1a28"));
+    bx += w + 10;
+  }
+  if (!p.inStock) {
+    const t = "Agotado";
+    const w = advance(bold, t, 22) + 32;
+    badges.push(`<rect x="${bx.toFixed(1)}" y="${PAD + 20}" width="${w.toFixed(1)}" height="46" rx="23" fill="#0e1a28" fill-opacity="0.85"/>`, textPath(bold, t, bx + 16, PAD + 51, 22, "#fff"));
+  }
+
+  const layers = [];
+  if (photo) layers.push({ input: photo, left: PAD, top: PAD });
+  if (logoImg) layers.push({ input: logoImg, left: x0, top: ly });
+  if (badges.length) layers.push({ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${badges.join("")}</svg>`), left: 0, top: 0 });
+  // JPEG y no PNG: con una foto adentro el PNG pasa de 400 KB, y WhatsApp deja de mostrar vistas previas mucho más pesadas
+  // que unos 300 KB.
+  return sharp(Buffer.from(svg)).composite(layers).jpeg({ quality: 84, mozjpeg: true }).toBuffer();
+}

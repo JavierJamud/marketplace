@@ -3,7 +3,7 @@ import { shippingLabel } from "../../lib/shipping.js";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, Truck, X as XIcon } from "lucide-react";
+import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, Truck, Share2, X as XIcon } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -27,6 +27,7 @@ import { Lightbox } from "../../components/ui/Lightbox.jsx";
 import { useSeo } from "../../lib/seo.js";
 import { productSeo } from "../../lib/seoBuilders.js";
 import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
+import { shareLink } from "../../lib/shareLink.js";
 
 // Bloque 69 (pedido explícito): "los productos también pueden llevar
 // reseñas" — mismas fotos que Store.jsx (solo tiendas verificadas).
@@ -409,6 +410,17 @@ export default function Product() {
     setTimeout(() => setAdded(false), 2000);
   }
 
+  // Enlace directo a este producto en esta tienda. La vista previa que se ve en WhatsApp o Facebook (foto, nombre, precio,
+  // tienda) la arma el servidor: Nginx les entrega /api/og/producto/... cuando abren esta misma dirección.
+  function handleShare() {
+    const url = `${window.location.origin}/producto/${encodeURIComponent(v.slug)}/${encodeURIComponent(product.slug ?? productSlug)}`;
+    shareLink({ url, title: product.name, text: `${product.name} en ${v.companyName}` })
+      .then((result) => {
+        if (result === "copied") toast.success("¡Enlace copiado!", "Pégalo en WhatsApp, en tus redes o en un mensaje para compartir este producto.", { icon: "link" });
+      })
+      .catch(() => toast.error("No se pudo copiar el enlace."));
+  }
+
   return (
     <div>
       <div className="container-app pt-6">
@@ -519,14 +531,23 @@ export default function Product() {
             {/* Pedido explícito: solo visible para clientes logueados —
                 antes se mostraba siempre y redirigía a login al click, ahora
                 directamente no aparece si no hay sesión de cliente. */}
-            {user?.role === "CUSTOMER" && (
+            <div className="flex items-center gap-3">
+              {user?.role === "CUSTOMER" && (
+                <button
+                  onClick={() => setReportFraudOpen(true)}
+                  className="inline-flex min-h-[44px] items-center gap-1 text-[11.5px] font-semibold text-outline hover:text-error"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" /> Reportar estafa
+                </button>
+              )}
               <button
-                onClick={() => setReportFraudOpen(true)}
-                className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-outline hover:text-error"
+                type="button"
+                onClick={handleShare}
+                className="inline-flex h-11 items-center gap-2 rounded-full border border-outline-variant px-4 text-[13px] font-bold text-on-surface transition-colors hover:bg-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tertiary-accent"
               >
-                <ShieldAlert className="h-3.5 w-3.5" /> Reportar estafa
+                <Share2 className="h-4 w-4" aria-hidden="true" /> Compartir
               </button>
-            )}
+            </div>
           </div>
           <h1 className="mb-2.5 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{product.name}</h1>
           <div className="mb-5 flex flex-wrap items-center gap-2.5">

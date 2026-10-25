@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
 import { rankFeaturedProducts } from "../lib/productRanking.js";
+import { fetchRankingPool, loadRankingSignals } from "../services/productRankingSignals.service.js";
 import { findProductIdsByName, findProductIdsByTrigram } from "./search.controller.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
@@ -112,20 +113,10 @@ function rankedPool(where) {
 }
 
 async function computeRankedPool(where) {
-  const pool = await prisma.product.findMany({
-    where,
-    include: productInclude,
-    take: RANK_POOL,
-    orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
-  });
-  const agg = await prisma.review.groupBy({
-    by: ["productId"],
-    where: { productId: { in: pool.map((p) => p.id) }, rating: { not: null }, isHidden: false },
-    _avg: { rating: true },
-    _count: { rating: true },
-  });
-  const stats = new Map(agg.map((a) => [a.productId, { avgRating: a._avg.rating ?? 0, reviewCount: a._count.rating }]));
-  return rankFeaturedProducts(pool, stats);
+  // Mismos candidatos y señales que la portada; sin rotación, porque este resultado se guarda en caché y se pagina.
+  const pool = await fetchRankingPool({ where, include: productInclude, size: RANK_POOL });
+  const { reviewStats, engagement } = await loadRankingSignals(pool.map((p) => p.id));
+  return rankFeaturedProducts(pool, reviewStats, engagement);
 }
 
 export async function listProducts(req, res) {

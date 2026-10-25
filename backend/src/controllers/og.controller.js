@@ -2,11 +2,12 @@ import { currencyLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { env } from "../config/env.js";
-import { renderStoreOgImage } from "../lib/ogImage.js";
+import { renderStoreOgImage, renderProductOgImage } from "../lib/ogImage.js";
+import { effectiveShipping } from "../lib/shipping.js";
 import { publicSocialLinks } from "../lib/socialLinks.js";
-import { brandingLogoDiskPath } from "../lib/uploadFiles.js";
+import { brandingLogoDiskPath, productImageDiskPath } from "../lib/uploadFiles.js";
 
-// Imagen de vista previa (1200x630) de cada tienda al compartir su enlace. Las páginas para rastreadores (título, descripción,
+// Imagen de vista previa (1200x630) de cada tienda y de cada producto al compartir su enlace. Las páginas para rastreadores (título, descripción,
 // datos estructurados) viven en seoPages.controller.js.
 
 function absoluteUrl(path) {
@@ -80,4 +81,91 @@ export async function renderStoreOgImagePng(req, res) {
 
   res.set({ "Content-Type": "image/png", "Cache-Control": "public, max-age=600" });
   res.send(png);
+}
+
+const money = (n, cur) => `${Number(n).toLocaleString("es-CU")} ${currencyLabel(cur)}`;
+const productImageCache = new Map();
+const SITE_HOST = (() => {
+  try {
+    return new URL(CANONICAL_FRONTEND_URL).host.replace(/^www./, "");
+  } catch {
+    return "baznova.com";
+  }
+})();
+
+// Mismo texto corto que la tarjeta y la ficha (frontend lib/shipping.js shippingLabel), ya con la regla de la tienda.
+function productShippingText(product, vendor) {
+  const s = effectiveShipping(product, vendor);
+  if (s.mode === "COORDINATE") return "Envío a coordinar";
+  if (s.mode === "FIXED") return s.local === s.other ? `Envío ${money(s.local, s.currency)}` : `Envío desde ${money(Math.min(s.local, s.other), s.currency)}`;
+  return "Envío gratis";
+}
+
+export async function renderProductOgImageJpg(req, res) {
+  const vendorSlug = await resolveVendorSlug(req.params.vendorSlug);
+  const key = `${vendorSlug}/${req.params.productSlug}`;
+  const cached = productImageCache.get(key);
+  let jpg = cached && cached.expires > Date.now() ? cached.jpg : null;
+
+  if (!jpg) {
+    // Mismas reglas que la página del producto (seoPages.controller.js): solo lo que se ve en el sitio.
+    const product = await prisma.product.findFirst({
+      where: {
+        slug: req.params.productSlug,
+        isActive: true,
+        hiddenFromStore: false,
+        overQuota: false,
+        vendor: { slug: vendorSlug, isBlocked: false, status: "ACTIVE", isPrivate: false },
+      },
+      include: {
+        category: { select: { name: true } },
+        vendor: {
+          include: {
+            businessCategory: { select: { name: true, slug: true } },
+            locations: { take: 1, include: { province: { select: { name: true } }, municipality: { select: { name: true } } } },
+          },
+        },
+      },
+    });
+    if (!product) return res.redirect(302, `${CANONICAL_FRONTEND_URL}/og-baznova-3.png`);
+
+    const v = product.vendor;
+    const loc = v.locations[0];
+    const place = loc ? [loc.municipality?.name, loc.province?.name ?? loc.stateOther].filter(Boolean).join(", ") || null : null;
+    const sizeTotal = product.sizeStock && typeof product.sizeStock === "object" ? Object.values(product.sizeStock).reduce((a, n) => a + Number(n || 0), 0) : 0;
+    const price = Number(product.price);
+    const old = product.oldPrice ? Number(product.oldPrice) : null;
+    const hasDiscount = old && old > price;
+    jpg = await renderProductOgImage({
+      name: product.name,
+      description: product.description,
+      priceText: money(price, product.currency),
+      oldPriceText: hasDiscount ? money(old, product.currency) : null,
+      discount: hasDiscount ? Math.round((1 - price / old) * 100) : 0,
+      inStock: product.unlimitedStock || product.stock > 0 || sizeTotal > 0,
+      rating: Number(product.rating),
+      reviewCount: product.reviewCount,
+      shippingText: productShippingText(product, v),
+      place,
+      category: product.category?.name ?? null,
+      // Solo la foto subida al servidor, leída del disco: una dirección externa nunca se descarga.
+      photoPath: productImageDiskPath(product.images?.[0]),
+      siteHost: SITE_HOST,
+      store: {
+        id: v.id,
+        companyName: v.companyName,
+        color: v.color,
+        logoPath: brandingLogoDiskPath(v.logoUrl),
+        verified: v.verificationStatus === "VERIFIED",
+        isRestaurant: v.isRestaurant,
+        category: v.businessCategory?.name ?? null,
+        categorySlug: v.businessCategory?.slug ?? null,
+      },
+    });
+    if (productImageCache.size >= IMAGE_CACHE_MAX) productImageCache.delete(productImageCache.keys().next().value);
+    productImageCache.set(key, { jpg, expires: Date.now() + IMAGE_TTL_MS });
+  }
+
+  res.set({ "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600" });
+  res.send(jpg);
 }

@@ -21,6 +21,7 @@ import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
 import vendorMockupImageMobile from "../../assets/images/hero-mobile-apps.webp";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { VISIT_SEED } from "../../lib/visitSeed.js";
 
 // Bloque 248 (auditoría 004 de la página principal, pedido explícito del
 // dueño: "revisa cada punto visual de estructura y posición; se usará más en
@@ -232,8 +233,9 @@ export default function Home() {
   });
 
   const { data: featured, isPending: featuredPending } = useQuery({
-    queryKey: ["home-featured", zoneKey],
-    queryFn: async () => (await api.get("/search", { params: zoneParams })).data.products,
+    // La semilla va en la clave: lo guardado de la visita anterior no se pinta primero para después saltar al orden nuevo.
+    queryKey: ["home-featured", zoneKey, VISIT_SEED],
+    queryFn: async () => (await api.get("/search", { params: { ...zoneParams, seed: VISIT_SEED } })).data.products,
     enabled: !zoneLoading,
   });
 

@@ -13,6 +13,7 @@ import { useMediaQuery } from "../../lib/useMediaQuery.js";
 import { lockPageScroll } from "../../lib/scrollLock.js";
 import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 import toast from "../../lib/toast.jsx";
+import { VISIT_SEED } from "../../lib/visitSeed.js";
 
 const SORT_OPTIONS = [
   { value: "relevance", label: "Más relevantes" },
@@ -101,7 +102,7 @@ export default function Shop() {
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["shop-products", q, searchParams.toString(), zoneKey, sort],
+    queryKey: ["shop-products", q, searchParams.toString(), zoneKey, sort, VISIT_SEED],
     placeholderData: (prev) => prev,
     enabled: !zoneLoading,
     queryFn: async () =>
@@ -122,6 +123,7 @@ export default function Shop() {
             badge: filters.badge || undefined,
             minRating: filters.minRating || undefined,
             sort,
+            seed: VISIT_SEED,
           },
         })
       ).data,

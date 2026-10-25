@@ -3,6 +3,7 @@ import { openSessionWhere } from "./sessionPolicy.js";
 import { getPlanConfig, isPremiumActive } from "./planConfig.js";
 import { RANKING_RULES, rankFeaturedProducts, explainProductRanking, completenessScore } from "./productRanking.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
+import { fetchRankingPool, loadRankingSignals } from "../services/productRankingSignals.service.js";
 
 // Bloque 260 (pedido explícito — el asistente de negocio debe tener acceso
 // completo a todo lo que pasa en el negocio, también lo que el vendedor no ve en
@@ -197,7 +198,7 @@ export async function algorithmPosition(vendorId) {
   // Mismo universo y mismo orden que el buscador/Home (search.controller.js):
   // hasta 300 candidatos y rankFeaturedProducts sobre ellos.
   const POOL = 300;
-  const catalog = await prisma.product.findMany({
+  const catalog = await fetchRankingPool({
     where: {
       isActive: true,
       hiddenFromStore: false,
@@ -206,17 +207,11 @@ export async function algorithmPosition(vendorId) {
       vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false },
     },
     include: { vendor: { select: { verificationStatus: true } }, priceTiers: { select: { id: true } } },
-    take: POOL,
-    orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+    size: POOL,
   });
-  const reviewAgg = await prisma.review.groupBy({
-    by: ["productId"],
-    where: { productId: { in: catalog.map((p) => p.id) }, rating: { not: null } },
-    _avg: { rating: true },
-    _count: { rating: true },
-  });
-  const stats = new Map(reviewAgg.map((a) => [a.productId, { avgRating: a._avg.rating ?? 0, reviewCount: a._count.rating }]));
-  const ranked = rankFeaturedProducts(catalog, stats);
+  // Sin semilla: el asistente explica la posición por puntaje, sin la rotación de cada visita.
+  const { reviewStats: stats, engagement } = await loadRankingSignals(catalog.map((p) => p.id));
+  const ranked = rankFeaturedProducts(catalog, stats, engagement);
   const positions = new Map(ranked.map((p, i) => [p.id, i + 1]));
   const mineRanked = ranked.filter((p) => p.vendorId === vendorId);
   const total = ranked.length;
@@ -225,7 +220,7 @@ export async function algorithmPosition(vendorId) {
   return {
     ...base,
     productosComparadosEnElCatalogo: total,
-    nota: total >= POOL ? `El catálogo tiene más de ${POOL} productos candidatos: el buscador evalúa solo los ${POOL} primeros, así que un producto fuera de ese grupo ni siquiera compite.` : undefined,
+    nota: total >= POOL ? `El catálogo tiene más de ${POOL} productos candidatos: el buscador evalúa los ${POOL} con actividad más reciente y los recién publicados, así que un producto sin movimiento fuera de ese grupo ni siquiera compite.` : undefined,
     susProductosEnElRanking: {
       cuantosCompiten: mineRanked.length,
       enElTop10: mineRanked.filter((p) => positions.get(p.id) <= 10).length,
@@ -234,7 +229,7 @@ export async function algorithmPosition(vendorId) {
     },
     mejoresPosiciones: mineRanked.slice(0, 6).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })),
     peoresPosiciones: mineRanked.length > 6 ? mineRanked.slice(-4).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })) : [],
-    comoMejorar: "Subir la completitud de la ficha (fotos, descripción, etiquetas), conseguir reseñas buenas y mantener actividad reciente (clics y ventas) son las palancas reales; el algoritmo no se puede comprar ni forzar.",
+    comoMejorar: "Subir la completitud de la ficha (fotos, descripción, etiquetas), conseguir reseñas buenas y mantener actividad reciente (clics, ventas, pedidos, clientes que lo guardan en el carrito o en favoritos) son las palancas reales; el orden además rota en cada visita entre productos de puntaje parecido; el algoritmo no se puede comprar ni forzar.",
   };
 }
 
