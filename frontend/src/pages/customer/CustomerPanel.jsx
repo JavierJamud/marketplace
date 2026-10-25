@@ -32,6 +32,7 @@ import { EmailPreferencesCard } from "../../components/customer/EmailPreferences
 import { ReportsCenter } from "../../components/reports/ReportsCenter.jsx";
 import { CardListSkeleton, FormSkeleton } from "../../components/ui/Skeleton.jsx";
 import { channelLabel, currencyCodesFor, currencyLabel } from "../../lib/catalog.js";
+import { AutoClosedOrderHelp } from "../../components/AutoClosedOrderHelp.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -41,6 +42,10 @@ function fmtCUP(n) {
 // los controles de gestión (ese panel es del vendedor, este es de lectura).
 const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#087A38", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
+// Cerrado por el sistema porque la tienda no lo confirmó a tiempo: en gris y sin la palabra "Cancelado", que sonaría a rechazo.
+const autoClosed = (o) => o.status === "CANCELLED" && !!o.autoCancelledAt;
+const statusLabel = (o) => (autoClosed(o) ? "Sin confirmar" : STATUS_LABEL[o.status]);
+const statusColor = (o) => (autoClosed(o) ? "#5f6368" : STATUS_COLOR[o.status]);
 
 const TABS = [
   { id: "orders", label: "Mis pedidos" },
@@ -506,9 +511,9 @@ export default function CustomerPanel() {
                     <div className="text-[14px] font-bold text-on-surface">{orderTotalLabel(o)}</div>
                     <span
                       className="rounded-full px-3 py-1.5 text-[11.5px] font-bold"
-                      style={{ background: `${STATUS_COLOR[o.status]}1f`, color: STATUS_COLOR[o.status] }}
+                      style={{ background: `${statusColor(o)}1f`, color: statusColor(o) }}
                     >
-                      {STATUS_LABEL[o.status]}
+                      {statusLabel(o)}
                     </span>
                   </div>
                   {/* Bloque 197 (pedido explícito — "cuando un pedido es
@@ -516,7 +521,8 @@ export default function CustomerPanel() {
                       debe mostrarse al cliente en su página"): mismo
                       criterio que la mesa (TableOrder.cancelReason) —
                       ahora Order también lo guarda y lo devuelve. */}
-                  {o.status === "CANCELLED" && o.cancelReason && (
+                  {autoClosed(o) && <AutoClosedOrderHelp code={o.code} store={{ name: o.vendor.companyName, whatsapp: o.vendor.whatsapp, email: o.vendor.email }} className="mt-3" />}
+                  {o.status === "CANCELLED" && o.cancelReason && !autoClosed(o) && (
                     <div className="mt-3 rounded-md bg-error/5 px-3 py-2 text-[12.5px] text-error">{o.cancelReason}</div>
                   )}
                   <div className="mt-3 flex flex-col gap-1 border-t border-surface-container pt-3">

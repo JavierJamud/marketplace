@@ -12,6 +12,7 @@ import { ProductImageLinksPanel } from "./AdminLocations.jsx";
 import { MaintenanceCard } from "../../components/admin/MaintenanceCard.jsx";
 import { PwaSettingsCard } from "../../components/admin/PwaSettingsCard.jsx";
 import { CustomerRemindersCard } from "../../components/admin/CustomerRemindersCard.jsx";
+import { OrderFollowUpCard } from "../../components/admin/OrderFollowUpCard.jsx";
 
 // Pedido explícito: una sola sección "Configuración" con TODOS los ajustes del
 // panel, en vez de tenerlos repartidos por Marca, Seguridad, Suscripciones,
@@ -54,6 +55,7 @@ export default function AdminSettings() {
         <div className="flex max-w-[820px] flex-col gap-5">
           <AdminBranding mode="catalog" />
           <ProductImageLinksPanel />
+          <OrderFollowUpCard />
           <h2 className="mt-3 text-[15px] font-bold text-on-surface">Políticas de venta rápida y comentarios</h2>
           <ListingPolicyCard />
           <ReviewPolicyCard />

@@ -11,6 +11,7 @@ import { Input } from "../../components/ui/Input.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
+import { AutoClosedOrderHelp } from "../../components/AutoClosedOrderHelp.jsx";
 
 // Rastreo de un pedido sin cuenta: correo + número del pedido (POST /orders/track, que exige que los dos coincidan). Muestra
 // el avance en 4 pasos, el historial con fecha y hora de cada movimiento, la tienda, los productos, el total y la entrega.
@@ -138,8 +139,8 @@ function OrderResult({ order, updatedAt, refreshing }) {
               <div className="text-label-sm font-semibold text-outline">Pedido</div>
               <div className="font-mono text-[18px] font-extrabold tracking-wide text-on-surface">{order.code}</div>
             </div>
-            <span id="track-status" className={`rounded-full px-3 py-1.5 text-[13px] font-bold ${status.tone}`}>
-              {status.label}
+            <span id="track-status" className={`rounded-full px-3 py-1.5 text-[13px] font-bold ${order.autoCancelled ? "bg-surface-container-high text-on-surface" : status.tone}`}>
+              {order.autoCancelled ? "Sin confirmar" : status.label}
             </span>
           </div>
           <dl className="mt-4 grid grid-cols-2 gap-3 text-[13px]">
@@ -148,12 +149,14 @@ function OrderResult({ order, updatedAt, refreshing }) {
               <dd className="font-semibold text-on-surface">{dateTime(order.createdAt)}</dd>
             </div>
             <div>
-              <dt className="text-outline">{!finished ? "Tiempo desde que lo hiciste" : cancelled ? "Se canceló a los" : "Llegó en"}</dt>
+              <dt className="text-outline">{!finished ? "Tiempo desde que lo hiciste" : order.autoCancelled ? "Se cerró a los" : cancelled ? "Se canceló a los" : "Llegó en"}</dt>
               <dd className="font-semibold text-on-surface">{finished && !finishedAt ? "Sin fecha registrada" : formatElapsed(order.createdAt, finishedAt)}</dd>
             </div>
           </dl>
 
-          {cancelled ? (
+          {cancelled && order.autoCancelled ? (
+            <AutoClosedOrderHelp code={order.code} store={order.store} className="mt-5" />
+          ) : cancelled ? (
             <div className="mt-5 rounded-xl bg-error/10 px-4 py-3.5 text-[13.5px] text-error">
               <div className="font-bold">{order.cancelledByCustomer ? "Cancelaste este pedido" : "La tienda canceló este pedido"}</div>
               {order.cancelReason && <div className="mt-0.5">Motivo: {order.cancelReason}</div>}

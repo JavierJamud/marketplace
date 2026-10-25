@@ -35,7 +35,7 @@ export function LiveNotices() {
         return;
       }
       // Un pedido que lleva rato esperando se queda más tiempo en pantalla: es el que más importa no perderse.
-      const duration = n.type === "ORDER_OVERDUE" ? 20000 : DURATION_MS;
+      const duration = ["ORDER_OVERDUE", "ORDER_REMINDER", "ORDER_CANCEL_WARNING"].includes(n.type) ? 20000 : DURATION_MS;
       const id = url
         ? toast.action(n.title ?? "Aviso", n.body, { label: "Ver", duration, onClick: () => nav.current(url) })
         : toast.info(n.title ?? "Aviso", n.body, { icon: "bell", duration });

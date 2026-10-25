@@ -110,7 +110,8 @@ export async function getMyOrders(req, res) {
 
   const orders = await prisma.order.findMany({
     where: { OR: [{ customerId: user.id }, { customerEmail: { equals: user.email, mode: "insensitive" } }] },
-    include: { items: true, vendor: { select: { companyName: true, slug: true, color: true, whatsapp: true } } },
+    // email: el cliente puede escribirle a la tienda si su pedido se cerró sin confirmar.
+    include: { items: true, vendor: { select: { companyName: true, slug: true, color: true, whatsapp: true, email: true } } },
     orderBy: { createdAt: "desc" },
   });
 

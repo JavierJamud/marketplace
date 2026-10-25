@@ -16,6 +16,8 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
 import { upsertVendorCustomer } from "./vendorCustomers.controller.js";
 import { getPlanLimit, assertPlanAllows } from "../lib/planConfig.js";
+import { getOrderFollowUpPolicy } from "./settings.controller.js";
+import { projectedAutoCancelAt, reactivateBlocker, reactivateAutoCancelledOrder, resolveOrderNotices } from "../services/orderFollowUp.service.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -497,7 +499,16 @@ export async function listMyOrders(req, res) {
     ])
   );
 
-  res.json({ orders: orders.map((o) => (posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o)), tableOrders });
+  // Pedido sin respuesta: cuándo se cerraría solo (si nadie lo responde) y, si el sistema ya lo cerró, si se puede reactivar.
+  const followUp = await getOrderFollowUpPolicy();
+  const now = Date.now();
+  const withFollowUp = (o) => ({
+    ...o,
+    autoCancelAt: projectedAutoCancelAt(o, followUp, now),
+    ...(o.autoCancelledAt ? { canReactivate: !reactivateBlocker(o, now), reactivateBlockedReason: reactivateBlocker(o, now) } : {}),
+  });
+
+  res.json({ orders: orders.map((o) => withFollowUp(posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o)), followUpHours: followUp.enabled ? followUp.cancelHours : null, tableOrders });
 }
 
 // Bloque 52: decremento/incremento atómico de stock POR TALLA. `sizeStock`
@@ -547,11 +558,10 @@ const updateOrderStatusSchema = z.object({
   reason: z.string().trim().optional(),
 });
 
-// El aviso de "pedido nuevo" deja de mostrarse en la campanita cuando el pedido ya se atendió (confirmado, anulado o eliminado).
+// Los avisos de "pedido nuevo" y los de pedido sin respuesta dejan de mostrarse en la campanita cuando el pedido ya se atendió
+// (confirmado, anulado o eliminado).
 async function resolveNewOrderNotices(vendorId, code) {
-  await prisma.vendorNotification
-    .updateMany({ where: { vendorId, type: "NEW_ORDER", refCode: code, resolvedAt: null }, data: { resolvedAt: new Date(), readAt: new Date() } })
-    .catch(() => {});
+  await resolveOrderNotices(vendorId, code);
 }
 
 // Un pedido que vino de la caja avanza también en la caja (y en la pantalla de pedidos del local). Si se anula, la venta de caja
@@ -676,6 +686,17 @@ export async function updateOrderStatus(req, res) {
   await sendOrderStatusEmail(updated);
   if (status === "CANCELLED") await sendOrderCancelledVendorEmail(updated, { by: "STORE", reason: reason.trim() }).catch(() => {});
 
+  res.json({ order: updated });
+}
+
+// La tienda retoma un pedido que el sistema cerró por falta de respuesta (normalmente porque el cliente le escribió). Vuelve a
+// "Nuevo", el plazo de respuesta empieza de cero y el cliente recibe un aviso de que lo están revisando.
+export async function reactivateOrder(req, res) {
+  const vendor = await resolveMyVendor(req.user.id);
+  const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+  if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
+  const updated = await reactivateAutoCancelledOrder(order);
+  logActivity({ actorId: req.user.id, actorRole: actorRoleForVendorAction(req), vendorId: vendor.id, action: "order_reactivated", description: `Reactivó el pedido ${order.code}, que se había cerrado sin respuesta`, meta: { orderId: order.id } });
   res.json({ order: updated });
 }
 

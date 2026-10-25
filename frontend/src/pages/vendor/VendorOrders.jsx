@@ -3,7 +3,7 @@ import { orderTotalLabel } from "../../lib/shipping.js";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { MessageCircle, Mail, CheckCircle2, XCircle, Pencil, Trash2, FileText, ShieldCheck, Eye, ShoppingCart } from "lucide-react";
+import { MessageCircle, Mail, CheckCircle2, XCircle, Pencil, Trash2, FileText, ShieldCheck, Eye, ShoppingCart, RotateCcw, Clock } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatElapsed } from "../../lib/duration.js";
@@ -51,7 +51,14 @@ const ORDER_TRANSITIONS = { PREPARING: ["READY", "DELIVERED"], READY: ["DELIVERE
 // Ventas de la caja (o.pos): se recogen en el mostrador, así que sus estados se llaman como en la caja y en la pantalla de
 // pedidos del local. Cambiar el estado aquí también lo cambia allí.
 const POS_STATUS_LABEL = { PREPARING: "Preparando", READY: "Listo para recoger", DELIVERED: "Recogido", CANCELLED: "Anulado" };
-const statusLabelFor = (o, status) => (o.pos && POS_STATUS_LABEL[status]) || STATUS_LABEL[status];
+// Un pedido que el sistema cerró por falta de respuesta no lo rechazó la tienda: se nombra distinto y en gris.
+const AUTO_CLOSED_LABEL = "Cerrado sin respuesta";
+const AUTO_CLOSED_COLOR = "#5f6368";
+const isAutoClosed = (o) => !o.isTable && o.status === "CANCELLED" && !!o.raw?.autoCancelledAt;
+const statusLabelFor = (o, status) => (isAutoClosed(o) && status === "CANCELLED" ? AUTO_CLOSED_LABEL : (o.pos && POS_STATUS_LABEL[status]) || STATUS_LABEL[status]);
+const statusColorFor = (o) => (isAutoClosed(o) ? AUTO_CLOSED_COLOR : STATUS_COLOR[o.status]);
+// "dom, 27 oct, 2:00 p. m.": cuándo se cerraría solo un pedido sin respuesta.
+const closeTime = (d) => new Date(d).toLocaleString("es-CU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const KITCHEN_STEPS = ["RECEIVED", "PREPARING", "READY"];
 const KITCHEN_LABEL = { RECEIVED: "Recibido", PREPARING: "Preparando", READY: "Listo" };
 
@@ -177,6 +184,7 @@ export default function VendorOrders() {
   // el viejo rejectTarget, que nunca pedía motivo.
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [reactivateTarget, setReactivateTarget] = useState(null);
   const [docTarget, setDocTarget] = useState(null);
   const [stockRisk, setStockRisk] = useState(null);
   const [viewTarget, setViewTarget] = useState(null);
@@ -255,6 +263,17 @@ export default function VendorOrders() {
       queryClient.invalidateQueries({ queryKey: ["my-tables"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo anular el pedido."),
+  });
+
+  // Retomar un pedido que el sistema cerró sin respuesta (el cliente escribió y la tienda puede atenderlo).
+  const reactivate = useMutation({
+    mutationFn: async (id) => (await api.post(`/orders/${id}/reactivate`)).data,
+    onSuccess: () => {
+      toast.success("Pedido reactivado. Le avisamos al cliente que lo estás revisando.");
+      setReactivateTarget(null);
+      invalidateOrders();
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo reactivar el pedido."),
   });
 
   const updateKitchen = useMutation({
@@ -525,6 +544,13 @@ export default function VendorOrders() {
                       vez de seguir contando. */}
                   {o.isTable && ` · ${o.clearedAt ? `Duró ${formatElapsed(o.date, o.clearedAt)}` : `En mesa hace ${formatElapsed(o.date)}`}`}
                 </div>
+                {/* Pedido sin respuesta: cuándo lo cierra el sistema si nadie lo confirma ni lo rechaza. */}
+                {!o.isTable && o.status === "NEW" && o.raw?.autoCancelAt && (
+                  <div className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-[#8A5100]">
+                    <Clock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                    <span>Se cierra solo si no lo respondes: {closeTime(o.raw.autoCancelAt)}</span>
+                  </div>
+                )}
               </div>
               <div className={`text-[15px] font-bold text-on-surface ${isVoided ? "line-through opacity-60" : ""}`}>{o.isTable ? fmtCUP(o.total) : orderTotalLabel(o.raw)}</div>
 
@@ -545,7 +571,7 @@ export default function VendorOrders() {
               {!o.isTable && (
                 <span
                   className="rounded-full px-3 py-1.5 text-[11.5px] font-bold"
-                  style={{ background: `${STATUS_COLOR[o.status]}1f`, color: STATUS_COLOR[o.status] }}
+                  style={{ background: `${statusColorFor(o)}1f`, color: statusColorFor(o) }}
                 >
                   {statusLabelFor(o, o.status)}
                 </span>
@@ -698,10 +724,28 @@ export default function VendorOrders() {
                 // Bloque 197: mismo tratamiento que un pedido de mesa
                 // cancelado (arriba) — solo el aviso con el motivo, sin
                 // ningún botón de acción (es un estado terminal).
+                isAutoClosed(o) ? (
+                  // Cerrado por el sistema: si el cliente escribió y todavía se puede atender, la tienda lo retoma aquí.
+                  <div className="flex max-w-[340px] flex-col gap-1.5 rounded-[7px] bg-surface-container px-2.5 py-2">
+                    <span className="text-[11.5px] font-bold text-on-surface">{AUTO_CLOSED_LABEL}</span>
+                    <span className="text-[11.5px] text-on-surface-variant">Pasó el plazo sin confirmar y le avisamos al cliente. Si te escribe y puedes atenderlo, reactívalo.</span>
+                    {o.raw.canReactivate ? (
+                      <button
+                        onClick={() => setReactivateTarget(o)}
+                        className="flex min-h-11 items-center justify-center gap-1.5 rounded-[7px] bg-primary px-3 text-[12.5px] font-bold text-white hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+                      >
+                        <RotateCcw className="h-4 w-4" aria-hidden="true" /> Reactivar pedido
+                      </button>
+                    ) : (
+                      o.raw.reactivateBlockedReason && <span className="text-[11px] text-outline">{o.raw.reactivateBlockedReason}</span>
+                    )}
+                  </div>
+                ) : (
                 <div className="flex max-w-[280px] flex-col gap-0.5 rounded-[7px] bg-error/10 px-2.5 py-1.5">
                   <span className="text-[11.5px] font-bold text-error">Anulado</span>
                   {o.cancelReason && <span className="text-[11px] text-error/80">{o.cancelReason}</span>}
                 </div>
+                )
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {isSold && (
@@ -856,6 +900,18 @@ export default function VendorOrders() {
             className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2 text-[13px] outline-none focus:border-primary-container"
           />
         </ConfirmModal>
+      )}
+
+      {reactivateTarget && (
+        <ConfirmModal
+          open
+          title={`¿Reactivar el pedido ${reactivateTarget.id}?`}
+          message={`Vuelve a quedar pendiente con los mismos productos y le avisamos a ${reactivateTarget.customer} que lo estás revisando. Después confírmalo como cualquier pedido nuevo${data?.followUpHours ? `: si no lo respondes en ${data.followUpHours} horas, se vuelve a cerrar solo` : ""}.`}
+          confirmLabel={reactivate.isPending ? "Reactivando..." : "Sí, reactivar"}
+          confirmDisabled={reactivate.isPending}
+          onConfirm={() => reactivate.mutate(reactivateTarget.rawId)}
+          onCancel={() => setReactivateTarget(null)}
+        />
       )}
     </div>
   );

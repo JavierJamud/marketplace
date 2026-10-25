@@ -106,6 +106,9 @@ export async function getSettings(_req, res) {
       maxReviewsPerProductPerPeriod: settings.maxReviewsPerProductPerPeriod,
       maxReviewsPerStorePerPeriod: settings.maxReviewsPerStorePerPeriod,
       vendorsCanReview: settings.vendorsCanReview,
+      // Cierre automático de pedidos sin respuesta: el panel de la tienda muestra cuándo se cerraría cada pedido pendiente.
+      orderFollowUpEnabled: settings.orderFollowUpEnabled,
+      orderAutoCancelHours: settings.orderAutoCancelHours,
       showChatWidget: settings.showChatWidget,
       pwaEnabled: settings.pwaEnabled,
       // Monedas y formas de pago con su nombre visible (ver lib/catalog.js). Las dos listas de abajo son las activas, para
@@ -337,6 +340,48 @@ export async function updateCustomerRemindersSettings(req, res) {
   const settings = await getOrCreateSettings();
   await prisma.siteSettings.update({ where: { id: settings.id }, data: { customerRemindersEnabled: enabled } });
   res.json({ enabled });
+}
+
+// --- Pedidos que la tienda no responde ------------------------------------------------------------------------------------------
+// Uso interno (jobs/orderOverdue.job.js, services/orderFollowUp.service.js): si está activo y a cuántas horas va cada aviso.
+export async function getOrderFollowUpPolicy() {
+  const s = await getOrCreateSettings();
+  return { enabled: s.orderFollowUpEnabled, reminderHours: s.orderReminderHours, warningHours: s.orderCancelWarningHours, cancelHours: s.orderAutoCancelHours };
+}
+
+// Admin > Configuración > Tiendas y productos. Junto a los ajustes van las cifras reales de los últimos 30 días.
+export async function getOrderFollowUpSettings(_req, res) {
+  const policy = await getOrderFollowUpPolicy();
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [waiting, reminded, autoCancelled, reactivated] = await Promise.all([
+    prisma.order.count({ where: { status: "NEW", channel: { not: "TABLE" }, createdAt: { lte: new Date(Date.now() - policy.reminderHours * 3600_000) } } }),
+    prisma.order.count({ where: { pendingReminderAt: { gte: since } } }),
+    prisma.orderEvent.count({ where: { type: "AUTO_CANCELLED", createdAt: { gte: since } } }),
+    prisma.orderEvent.count({ where: { type: "REACTIVATED", createdAt: { gte: since } } }),
+  ]);
+  res.json({ ...policy, stats: { waiting, reminded30d: reminded, autoCancelled30d: autoCancelled, reactivated30d: reactivated } });
+}
+
+const orderFollowUpSchema = z
+  .object({
+    enabled: z.boolean(),
+    reminderHours: z.number().int().min(1).max(336),
+    warningHours: z.number().int().min(2).max(336),
+    cancelHours: z.number().int().min(3).max(336),
+  })
+  .refine((d) => d.reminderHours < d.warningHours && d.warningHours < d.cancelHours, {
+    message: "Las horas tienen que ir en orden: primero el recordatorio, después el aviso y al final el cierre.",
+  });
+
+export async function updateOrderFollowUpSettings(req, res) {
+  const d = orderFollowUpSchema.parse(req.body);
+  const settings = await getOrCreateSettings();
+  await prisma.siteSettings.update({
+    where: { id: settings.id },
+    data: { orderFollowUpEnabled: d.enabled, orderReminderHours: d.reminderHours, orderCancelWarningHours: d.warningHours, orderAutoCancelHours: d.cancelHours },
+  });
+  clearPublicCache();
+  res.json(await getOrderFollowUpPolicy());
 }
 
 const offerPolicySchema = z.object({

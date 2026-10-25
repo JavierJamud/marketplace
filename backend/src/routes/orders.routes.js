@@ -24,6 +24,7 @@ router.post("/:id/email", authenticate, requireVendorWrite("pedidos"), ordersCon
 
 // Bloque 29: gestión de pedidos Pendientes
 router.post("/:id/confirm", authenticate, requireVendorWrite("pedidos"), ordersController.confirmOrderSale);
+router.post("/:id/reactivate", authenticate, requireVendorWrite("pedidos"), ordersController.reactivateOrder);
 router.patch("/:id/items", authenticate, requireVendorWrite("pedidos"), ordersController.updateOrderItems);
 router.delete("/:id", authenticate, requireVendorWrite("pedidos"), ordersController.deleteOrder);
 

@@ -11,11 +11,7 @@ import { orderCurrency, money, orderShippingText, orderGrandTotal, deliveryPlace
 // dónde y cómo se paga. `partnerName` solo se pone cuando el pedido llegó por un socio.
 export async function newOrderVendorEmail({ order, partnerName }) {
   const { siteName } = await getBrandSettings();
-  const currency = orderCurrency(order);
-  const place = await deliveryPlace(order);
   const subject = `Pedido nuevo ${order.code} · ${orderGrandTotal(order)}`;
-  const items = order.items.map((i) => ({ name: i.name, size: i.size, quantity: i.quantity, price: i.price, currency, imageUrl: resolveAssetUrl(i.product?.images?.[0]) }));
-  const subtotal = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
   const html = await emailShell({
     preview: `${order.customerName ?? "Un cliente"} hizo el pedido ${order.code} por ${orderGrandTotal(order)}`,
     title: "Recibiste un pedido nuevo",
@@ -23,6 +19,22 @@ export async function newOrderVendorEmail({ order, partnerName }) {
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola equipo de <strong>${esc(order.vendor.companyName)}</strong>, entró el pedido <strong>${esc(order.code)}</strong>${partnerName ? ` desde el sitio de <strong>${esc(partnerName)}</strong>` : ""}. Está pendiente de tu confirmación.`)}
+      ${await orderDetailsMjml(order)}
+      ${ctaButton("Ver el pedido en mi panel", `${env.frontendUrl}/vendedor/pedidos?ver=${order.id}&tipo=orden`)}
+      ${smallNote("Recibes este correo porque tienes activado el aviso de pedidos nuevos. Puedes apagarlo en Configuración de tu tienda.")}
+    `,
+  });
+  return { subject, html };
+}
+
+// Todo lo del pedido para atenderlo sin abrir el panel: productos, totales, quién compra y la entrega. Lo comparten el aviso de
+// pedido nuevo y los recordatorios de un pedido sin respuesta (templates/orderFollowUp.js).
+export async function orderDetailsMjml(order) {
+  const currency = orderCurrency(order);
+  const place = await deliveryPlace(order);
+  const items = order.items.map((i) => ({ name: i.name, size: i.size, quantity: i.quantity, price: i.price, currency, imageUrl: resolveAssetUrl(i.product?.images?.[0]) }));
+  const subtotal = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
+  return `
       ${itemsTable(items)}
       ${Number(order.discountAmount) > 0 || Number(order.loyaltyDiscount) > 0 ? totalRow("Subtotal", money(subtotal, currency)) : ""}
       ${Number(order.discountAmount) > 0 ? totalRow("Código de descuento", `-${money(order.discountAmount, currency)}`) : ""}
@@ -46,9 +58,5 @@ export async function newOrderVendorEmail({ order, partnerName }) {
         place ? ["Provincia", esc(place)] : null,
         ["Pago", esc(channelLabel(order.channel))],
       ])}
-      ${ctaButton("Ver el pedido en mi panel", `${env.frontendUrl}/vendedor/pedidos?ver=${order.id}&tipo=orden`)}
-      ${smallNote("Recibes este correo porque tienes activado el aviso de pedidos nuevos. Puedes apagarlo en Configuración de tu tienda.")}
-    `,
-  });
-  return { subject, html };
+  `;
 }

@@ -1864,6 +1864,14 @@ model Order {
   shippingSource     String?
   shippingZone       String?
 
+  // Seguimiento de un pedido que la tienda no responde (jobs/orderOverdue.job.js). Cada marca es la fecha del aviso enviado.
+  // autoCancelledAt: lo cerró el sistema (la tienda puede reactivarlo). reactivatedAt: la tienda lo retomó; el plazo vuelve a
+  // contar desde ahí.
+  pendingReminderAt DateTime?
+  cancelWarningAt   DateTime?
+  autoCancelledAt   DateTime?
+  reactivatedAt     DateTime?
+
   vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   partner  Partner? @relation(fields: [partnerId], references: [id], onDelete: SetNull)
   customer User?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -1875,6 +1883,7 @@ model Order {
   // Bloque 241: agregados por tienda en una ventana de fechas (ventas y
   // pedidos de 30 días en las listas del admin y el asistente).
   @@index([vendorId, createdAt])
+  @@index([status, createdAt])
   @@unique([partnerId, idempotencyKey])
 }
 
@@ -2577,6 +2586,12 @@ model SiteSettings {
   pwaEnabled Boolean @default(true)
   // Recordatorios automáticos a clientes (carrito sin terminar, puntos y ofertas de tiendas que visitaron).
   customerRemindersEnabled Boolean @default(true)
+  // Pedidos que la tienda no responde (jobs/orderOverdue.job.js): recordatorio a la tienda, aviso de que se cerrará y cierre
+  // automático con aviso amable al cliente. Horas contadas desde que se hizo el pedido (o desde que la tienda lo reactivó).
+  orderFollowUpEnabled    Boolean @default(true)
+  orderReminderHours      Int     @default(24)
+  orderCancelWarningHours Int     @default(48)
+  orderAutoCancelHours    Int     @default(72)
   maintenanceMode    MaintenanceMode @default(OFF)
   // Texto opcional que ven los visitantes; sin él se muestra uno por defecto.
   maintenanceMessage String?
@@ -3031,6 +3046,10 @@ enum VendorNotificationType {
   NEW_MESSAGE
   ORDER_OVERDUE
   LOW_STOCK
+  // Pedido que la tienda no responde: recordatorio, aviso de que se cerrará solo y cierre automático.
+  ORDER_REMINDER
+  ORDER_CANCEL_WARNING
+  ORDER_AUTO_CANCELLED
 }
 
 model VendorNotification {

@@ -314,6 +314,8 @@ router.get("/settings/pwa", settingsController.getPwaStatus);
 router.patch("/settings/pwa", settingsController.updatePwaSettings);
 router.get("/settings/customer-reminders", settingsController.getCustomerRemindersStatus);
 router.patch("/settings/customer-reminders", settingsController.updateCustomerRemindersSettings);
+router.get("/settings/order-follow-up", settingsController.getOrderFollowUpSettings);
+router.patch("/settings/order-follow-up", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateOrderFollowUpSettings);
 router.patch("/settings/maintenance", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateMaintenance);
 router.patch("/settings/branding", requireActionCode("PLATFORM_BRANDING"), settingsController.updateBranding);
 router.patch("/settings/cup-payment", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateCupPaymentSettings);

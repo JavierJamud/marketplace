@@ -14,6 +14,10 @@ const EVENT_LABEL = {
   READY: "Listo para entregar",
   DELIVERED: "Entregado al cliente",
   CANCELLED: "Pedido cancelado",
+  REMINDER_SENT: "Recordatorio a la tienda: pedido sin respuesta",
+  CANCEL_WARNING_SENT: "Aviso a la tienda: se cerrará si no lo responde",
+  AUTO_CANCELLED: "Cerrado por el sistema: no se confirmó a tiempo",
+  REACTIVATED: "Reactivado por la tienda",
   EDITED_BY_CUSTOMER: "Productos modificados por el cliente",
   INVOICE_SENT: "Factura enviada al cliente",
   INVOICE_DOWNLOADED: "Factura generada",
@@ -46,7 +50,7 @@ export function OrderDetailModal({ order, onClose }) {
           <div>
             <h3 className="text-title-lg font-bold text-on-surface">Pedido {o.code}</h3>
             <p className="text-[12.5px] text-outline">
-              {(o.pos ? POS_STATUS_LABEL[o.status] : null) ?? STATUS_LABEL[o.status] ?? o.status} · {o.pos ? `Caja ${o.pos.code}` : channelLabel(o.channel)} · {new Date(o.createdAt).toLocaleString("es-CU")}
+              {(o.pos ? POS_STATUS_LABEL[o.status] : null) ?? (o.status === "CANCELLED" && o.autoCancelledAt ? "Cerrado sin respuesta" : null) ?? STATUS_LABEL[o.status] ?? o.status} · {o.pos ? `Caja ${o.pos.code}` : channelLabel(o.channel)} · {new Date(o.createdAt).toLocaleString("es-CU")}
             </p>
           </div>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">

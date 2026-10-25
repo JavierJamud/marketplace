@@ -25,6 +25,8 @@ const EVENT_TEXT = {
   READY: "Tu pedido va en camino o está listo para recoger",
   DELIVERED: "Pedido entregado",
   CANCELLED: "Pedido cancelado",
+  AUTO_CANCELLED: "La tienda no alcanzó a confirmarlo a tiempo y se cerró",
+  REACTIVATED: "La tienda retomó tu pedido y lo está revisando",
   EDITED_BY_CUSTOMER: "Cambiaste los productos del pedido",
   INVOICE_SENT: "La tienda te envió la factura por correo",
   WARRANTY_SENT: "La tienda te envió la garantía por correo",
@@ -46,7 +48,7 @@ export async function trackOrder(req, res) {
     include: {
       items: { include: { product: { select: { images: true } } } },
       events: { orderBy: { createdAt: "asc" }, select: { type: true, detail: true, createdAt: true } },
-      vendor: { select: { companyName: true, slug: true, logoUrl: true, color: true, whatsapp: true, deletedAt: true } },
+      vendor: { select: { companyName: true, slug: true, logoUrl: true, color: true, whatsapp: true, email: true, deletedAt: true } },
     },
   });
   if (!order) throw new AppError(NOT_FOUND, 404);
@@ -64,6 +66,8 @@ export async function trackOrder(req, res) {
     return { type: e.type, text: EVENT_TEXT[e.type], detail, at: e.createdAt };
   });
   const at = (type) => timeline.find((e) => e.type === type)?.at ?? null;
+  // Un pedido reactivado puede tener más de un cierre: cuenta el último.
+  const lastAt = (...types) => timeline.filter((e) => types.includes(e.type)).at(-1)?.at ?? null;
 
   const subtotal = order.items.reduce((s, i) => s + Number(i.price) * i.quantity, 0);
   const deleted = !!order.vendor?.deletedAt;
@@ -74,9 +78,11 @@ export async function trackOrder(req, res) {
       status: order.status,
       createdAt: order.createdAt,
       // Fechas de cada paso del avance (null si todavía no pasó).
-      steps: { received: order.createdAt, confirmed: at("CONFIRMED") ?? at("PREPARING"), onTheWay: at("READY"), delivered: at("DELIVERED"), cancelled: at("CANCELLED") },
+      steps: { received: order.createdAt, confirmed: at("CONFIRMED") ?? at("PREPARING"), onTheWay: at("READY"), delivered: at("DELIVERED"), cancelled: lastAt("CANCELLED", "AUTO_CANCELLED") },
       cancelReason: order.status === "CANCELLED" ? String(order.cancelReason ?? "").replace(/^Cancelado por el cliente:\s*/, "") || null : null,
       cancelledByCustomer: order.status === "CANCELLED" && String(order.cancelReason ?? "").startsWith("Cancelado por el cliente"),
+      // Cerrado por el sistema porque la tienda no lo confirmó a tiempo: la página ofrece escribirle a la tienda.
+      autoCancelled: order.status === "CANCELLED" && !!order.autoCancelledAt,
       payment: channelLabel(order.channel),
       items: order.items.map((i) => ({
         name: i.name,
@@ -103,8 +109,8 @@ export async function trackOrder(req, res) {
       },
       customerName: order.customerName ?? null,
       store: deleted
-        ? { name: order.vendor.companyName, slug: null, logoUrl: null, color: null, whatsapp: null }
-        : { name: order.vendor.companyName, slug: order.vendor.slug, logoUrl: order.vendor.logoUrl, color: order.vendor.color, whatsapp: order.vendor.whatsapp ?? null },
+        ? { name: order.vendor.companyName, slug: null, logoUrl: null, color: null, whatsapp: null, email: null }
+        : { name: order.vendor.companyName, slug: order.vendor.slug, logoUrl: order.vendor.logoUrl, color: order.vendor.color, whatsapp: order.vendor.whatsapp ?? null, email: order.vendor.email ?? null },
       timeline,
     },
   });

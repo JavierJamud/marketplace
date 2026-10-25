@@ -118,13 +118,18 @@ async function onMutation({ model, operation, args, result }) {
 
 const VENDOR_NOTIF_CATEGORY = {
   NEW_ORDER: "orders", ORDER_CANCELLED_BY_CUSTOMER: "orders", ORDER_EDITED_BY_CUSTOMER: "orders", ORDER_OVERDUE: "orders", SUPPORT_CASE: "orders",
+  ORDER_REMINDER: "orders", ORDER_CANCEL_WARNING: "orders", ORDER_AUTO_CANCELLED: "orders",
   NEW_CUSTOMER: "customers", NEW_MESSAGE: "messages", LOW_STOCK: "stock", VENDOR_STAFF_OUT_OF_STOCK: "stock",
 };
 const VENDOR_NOTIF_URL = {
   NEW_ORDER: "/vendedor/pedidos", ORDER_CANCELLED_BY_CUSTOMER: "/vendedor/pedidos", ORDER_EDITED_BY_CUSTOMER: "/vendedor/pedidos",
   ORDER_OVERDUE: "/vendedor/pedidos", NEW_CUSTOMER: "/vendedor/clientes", NEW_MESSAGE: "/vendedor/mensajes", LOW_STOCK: "/vendedor/productos",
   VENDOR_STAFF_OUT_OF_STOCK: "/vendedor/usuarios", SUPPORT_CASE: "/vendedor/pedidos",
+  ORDER_REMINDER: "/vendedor/pedidos", ORDER_CANCEL_WARNING: "/vendedor/pedidos", ORDER_AUTO_CANCELLED: "/vendedor/pedidos",
 };
+// Avisos de un pedido que sigue esperando: cada uno con su etiqueta (si usaran la del pedido nuevo, el teléfono los
+// trataría como el mismo aviso) y el enlace que abre ese pedido.
+const ORDER_FOLLOW_UP_TAG = { ORDER_OVERDUE: "overdue", ORDER_REMINDER: "reminder", ORDER_CANCEL_WARNING: "warning", ORDER_AUTO_CANCELLED: "autoclosed" };
 
 async function onCreated({ model, args, result }) {
   if (!result) return;
@@ -149,8 +154,9 @@ async function onCreated({ model, args, result }) {
         }
       }
       // El de pedido atrasado lleva su propia etiqueta: si usara la del pedido nuevo, el sistema lo trataría como el mismo aviso.
-      const tag = result.type === "ORDER_OVERDUE" ? `overdue-${result.refCode}` : `vn-${result.refCode ?? result.id}`;
-      const link = result.type === "ORDER_OVERDUE" && result.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(result.refCode)}` : url;
+      const followUp = ORDER_FOLLOW_UP_TAG[result.type];
+      const tag = followUp ? `${followUp}-${result.refCode}` : `vn-${result.refCode ?? result.id}`;
+      const link = followUp && result.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(result.refCode)}` : url;
       return notifyVendor(result.vendorId, { category: cat, app: "VENDOR", title: result.title, body: result.body, url: link, tag, urgency: cat === "orders" ? "high" : "normal", detail, image, type: result.type });
     }
     case "Vendor": {
@@ -195,6 +201,9 @@ const CUSTOMER_ORDER_COPY = {
   READY: ["Tu pedido está listo", "Ya puedes recogerlo o va camino a ti."],
   DELIVERED: ["Pedido entregado", "Tu pedido fue entregado. ¡Gracias por comprar!"],
   CANCELLED: ["Pedido cancelado", "La tienda canceló tu pedido."],
+  // Cerrado por el sistema: sin culpar a la tienda, y con el camino para retomarlo.
+  AUTO_CANCELLED: ["Tu pedido no se confirmó a tiempo", "La tienda no alcanzó a confirmarlo. Puedes escribirle directo para retomarlo."],
+  REACTIVATED: ["Tu pedido está activo otra vez", "La tienda retomó tu pedido y lo está revisando."],
   INVOICE_SENT: ["Factura de tu pedido", "La tienda te envió la factura."],
   WARRANTY_SENT: ["Garantía de tu pedido", "La tienda te envió la garantía."],
 };

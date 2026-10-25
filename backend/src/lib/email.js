@@ -14,6 +14,7 @@ import { statusUpdateEmail } from "../templates/statusUpdate.js";
 import { orderCancelledVendorEmail } from "../templates/orderCancelledVendor.js";
 import { orderOverdueVendorEmail } from "../templates/orderOverdueVendor.js";
 import { orderCancelHelpEmail } from "../templates/orderCancelHelp.js";
+import { orderFollowUpVendorEmail, orderAutoCancelledCustomerEmail, orderReactivatedCustomerEmail } from "../templates/orderFollowUp.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
 import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
@@ -172,6 +173,37 @@ export async function sendOrderOverdueVendorEmail(order, { waited }) {
   const { subject, html } = await orderOverdueVendorEmail({ order, waited });
   const result = await sendViaResend({ to, subject, html, fromName: order.vendor.companyName });
   await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_OVERDUE_VENDOR", to, subject, result });
+  return result;
+}
+
+// Pedido sin respuesta (services/orderFollowUp.service.js): recordatorio, aviso de cierre y cierre. A diferencia del aviso de
+// pedido nuevo, sale siempre, aunque la tienda haya apagado ese correo: hay un cliente esperando. Best-effort.
+export async function sendOrderFollowUpVendorEmail(order, { stage, hours, closesAt }) {
+  const vendor = await prisma.vendor.findUnique({ where: { id: order.vendorId }, select: { email: true, user: { select: { email: true } } } });
+  const to = vendor?.email || vendor?.user?.email;
+  if (!to) return { ok: false, error: "La tienda no tiene correo" };
+  const { subject, html } = await orderFollowUpVendorEmail({ stage, order, hours, closesAt });
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_OVERDUE_VENDOR", to, subject, result });
+  return result;
+}
+
+// Avisos de la plataforma al cliente sobre un pedido cerrado sin confirmar o reactivado por la tienda. No dependen del plan
+// de la tienda (no son correos de la tienda a sus clientes, son de la plataforma), y la respuesta le llega a la tienda.
+// `order.vendor` trae companyName, logoUrl, slug, whatsapp, email y companyAddress. Best-effort.
+export async function sendOrderAutoCancelledCustomerEmail(order, { hours }) {
+  if (!order.customerEmail) return { ok: false, skipped: true };
+  const { subject, html } = await orderAutoCancelledCustomerEmail({ order, hours });
+  const result = await sendViaResend({ to: order.customerEmail, subject, html, replyTo: order.vendor.email || undefined });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
+  return result;
+}
+
+export async function sendOrderReactivatedCustomerEmail(order) {
+  if (!order.customerEmail) return { ok: false, skipped: true };
+  const { subject, html } = await orderReactivatedCustomerEmail({ order });
+  const result = await sendViaResend({ to: order.customerEmail, subject, html, fromName: order.vendor.companyName, replyTo: order.vendor.email || undefined });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
   return result;
 }
 
