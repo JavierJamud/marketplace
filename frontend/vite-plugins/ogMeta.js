@@ -20,7 +20,7 @@
 // nombre de la plataforma cambia algún día.
 const FALLBACK_SITE_NAME = "Baznova";
 const DEFAULT_DESCRIPTION =
-  "Baznova, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia.";
+  "Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en Baznova gratis y sin comisión por venta.";
 
 const STORE_RE = /^\/tienda\/([^/?#]+)\/?$/;
 const PRODUCT_RE = /^\/producto\/([^/?#]+)\/([^/?#]+)\/?$/;
@@ -65,7 +65,8 @@ function buildMetaHtml(meta) {
     `<meta property="og:image" content="${esc(meta.image)}" />`,
     `<meta property="og:image:width" content="1200" />`,
     `<meta property="og:image:height" content="630" />`,
-    `<meta property="og:url" content="${esc(meta.url)}" />`,
+    // En el build no hay ruta real (llega "/index.html"): sin og:url, que la portada recibe por SSI y el resto por seo.js.
+    ...(meta.url.endsWith("/index.html") ? [] : [`<meta property="og:url" content="${esc(meta.url)}" />`]),
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${esc(meta.title)}" />`,
     `<meta name="twitter:description" content="${esc(meta.description)}" />`,
@@ -104,7 +105,7 @@ export function ogMetaPlugin(env = {}) {
       // Bloque 54 (pedido explícito): mismo formato que el <title> estático
       // de index.html y el que setea App.jsx del lado del cliente — antes
       // decía "— Marketplace multivendedor de Cuba".
-      title: `${siteName} | Marketplace de tiendas y restaurantes en Cuba`,
+      title: `${siteName} | Marketplace para comprar y vender en Cuba`,
       description: DEFAULT_DESCRIPTION,
       image: defaultImage,
       url: `${siteUrl}${path}`,

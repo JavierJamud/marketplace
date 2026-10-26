@@ -18,8 +18,8 @@ export function staticSeoFor(path, siteName) {
   const common = ["tienda en línea Cuba", "comprar en Cuba", "marketplace Cuba", "tiendas locales", "pago contra entrega", "pedido por WhatsApp"];
   const table = {
     "/": {
-      title: `${n} | Marketplace de tiendas y restaurantes en Cuba`,
-      description: `${n}, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia.`,
+      title: `${n} | Marketplace para comprar y vender en Cuba`,
+      description: `Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en ${n} gratis y sin comisión por venta.`,
       keywords: [...common, "comida a domicilio Cuba", "restaurantes La Habana", "tiendas verificadas", "comprar productos en Cuba", "vender en Cuba"],
     },
     "/tiendas": {

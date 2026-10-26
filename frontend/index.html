@@ -79,36 +79,39 @@
          "Baznova — Marketplace multivendedor de Cuba". App.jsx pisa este
          título apenas React monta y /settings responde con el nombre real
          (ver usePageTitle ahí) — esto es solo el piso del primer instante. -->
-    <title>Baznova | Marketplace de tiendas y restaurantes en Cuba</title>
+    <title>Baznova | Marketplace para comprar y vender en Cuba</title>
     <meta
       name="description"
-      content="Baznova, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia."
+      content="Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en Baznova gratis y sin comisión por venta."
     />
     <meta name="keywords" content="tienda en línea Cuba, comprar en Cuba, marketplace Cuba, tiendas locales, comida a domicilio Cuba, restaurantes La Habana, pago contra entrega, pedido por WhatsApp, tiendas verificadas" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <meta name="theme-color" content="#0e1a28" />
     <!--# if expr="$es_portada = 1" --><!--# include virtual="/api/hero-preload" --><!--# endif -->
+    <!-- Dirección canónica de la portada. Va solo en la portada porque este mismo HTML se sirve para todas las rutas;
+         en las demás pantallas la pone src/lib/seo.js al cargar. -->
+    <!--# if expr="$es_portada = 1" --><link rel="canonical" href="https://baznova.com/" /><meta content="https://baznova.com/" property="og:url" /><!--# endif -->
     <!-- Para asistentes y agentes de IA: catálogo de recursos (ARD) y guía en Markdown. -->
     <link rel="ard" href="/.well-known/ard.json" />
     <link rel="alternate" type="text/markdown" href="/llms.txt" title="Guía para asistentes de IA" />
     <script type="application/ld+json" id="org-jsonld">
-      {"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://baznova.com/#organization","name":"Baznova","alternateName":["Baz Nova","Baznova Cuba","Baznova Marketplace"],"url":"https://baznova.com/","logo":{"@type":"ImageObject","url":"https://baznova.com/pwa/icon-512.png","width":512,"height":512},"parentOrganization":{"@type":"Organization","name":"Zeudin Group"},"description":"Marketplace de Cuba que reúne tiendas locales y restaurantes. Los compradores piden a cada tienda y coordinan con ella el pago (efectivo, contra entrega o transferencia) y la entrega, también por WhatsApp. Los negocios abren su tienda gratis.","image":"https://baznova.com/og-baznova-3.png","areaServed":{"@type":"Country","name":"Cuba"}},{"@type":"WebSite","@id":"https://baznova.com/#website","name":"Baznova","alternateName":["Baz Nova","Baznova Cuba"],"url":"https://baznova.com/","inLanguage":"es","publisher":{"@id":"https://baznova.com/#organization"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://baznova.com/catalogo?q={search_term_string}"},"query-input":"required name=search_term_string"},"description":"Tiendas locales y restaurantes de Cuba en un solo sitio."}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://baznova.com/#organization","name":"Baznova","alternateName":["Baz Nova","Baznova Cuba","Baznova Marketplace"],"url":"https://baznova.com/","logo":{"@type":"ImageObject","url":"https://baznova.com/pwa/icon-512.png","width":512,"height":512},"parentOrganization":{"@type":"Organization","name":"Zeudin Group"},"description":"Baznova es el marketplace para comprar y vender en Cuba. Reúne tiendas, restaurantes y negocios locales con tienda propia en línea. Los compradores piden directo a cada tienda, por la web o por WhatsApp, y acuerdan con ella el pago (efectivo, contra entrega o transferencia) y la entrega. Los negocios abren su tienda gratis, sin comisión por venta, reciben los pedidos en su panel y pueden usar menú con QR, caja con código de barras, ofertas, códigos de descuento, programa de puntos y chat con IA.","slogan":"Compra y vende en Cuba, en un solo lugar.","image":"https://baznova.com/og-baznova-3.png","areaServed":{"@type":"Country","name":"Cuba"}},{"@type":"WebSite","@id":"https://baznova.com/#website","name":"Baznova","alternateName":["Baz Nova","Baznova Cuba"],"url":"https://baznova.com/","inLanguage":"es","publisher":{"@id":"https://baznova.com/#organization"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://baznova.com/catalogo?q={search_term_string}"},"query-input":"required name=search_term_string"},"description":"Tiendas, restaurantes y negocios locales de Cuba en un solo sitio: compra, pide por WhatsApp o abre tu propia tienda en línea."}]}
     </script>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Baznova" />
-    <meta property="og:title" content="Baznova | Marketplace de tiendas y restaurantes en Cuba" />
+    <meta property="og:title" content="Baznova | Marketplace para comprar y vender en Cuba" />
     <meta
       property="og:description"
-      content="Baznova, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia."
+      content="Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en Baznova gratis y sin comisión por venta."
     />
     <meta property="og:image" content="https://baznova.com/og-baznova-3.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Baznova | Marketplace de tiendas y restaurantes en Cuba" />
+    <meta name="twitter:title" content="Baznova | Marketplace para comprar y vender en Cuba" />
     <meta
       name="twitter:description"
-      content="Baznova, el marketplace de Cuba: tiendas locales y restaurantes con productos, comida y servicios. Pide por WhatsApp y paga contra entrega o por transferencia."
+      content="Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en Baznova gratis y sin comisión por venta."
     />
     <meta name="twitter:image" content="https://baznova.com/og-baznova-3.png" />
     <!-- Bloque 125 (pedido explícito — reemplaza los Bloques 121-124 de

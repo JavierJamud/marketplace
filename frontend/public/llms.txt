@@ -1,8 +1,25 @@
 # Baznova
 
-> Baznova es un marketplace de tiendas locales y restaurantes de Cuba, de Zeudin Group. Los compradores encuentran productos, comida y servicios, hacen su pedido a una tienda (un pedido por tienda) y coordinan con ella el pago (efectivo, contra entrega o transferencia) y la entrega, también por WhatsApp. Los negocios abren su tienda gratis, publican su catálogo, reciben pedidos en su panel y pueden usar menú con código QR para restaurantes. Baznova no vende los productos ni procesa los pagos entre comprador y tienda.
+> Baznova es el marketplace para comprar y vender en Cuba, de Zeudin Group. Reúne en un solo sitio a tiendas, restaurantes y negocios locales, cada uno con su tienda propia en línea. Los compradores encuentran productos, comida y servicios cerca de casa y piden directo a la tienda (un pedido por tienda), por la web o por WhatsApp, y acuerdan con ella el pago (efectivo, contra entrega o transferencia) y la entrega. Los negocios abren su tienda gratis, sin comisión por venta. Baznova no vende los productos ni cobra ni retiene el dinero de las compras.
 
 Información para asistentes de IA: los precios, existencias, planes y tiendas cambian a diario. Consulta siempre las páginas enlazadas o la API en lugar de suponer datos. El sitio está en español.
+
+## Qué ofrece a quien compra
+
+- Tiendas y restaurantes de todas las provincias con negocios activos, con fotos, precios en la moneda de cada tienda y existencias al día.
+- Sello de tienda verificada: Baznova revisó la identidad del negocio.
+- Pedido por la web o por WhatsApp; pago acordado con la tienda (efectivo, contra entrega o transferencia).
+- Seguimiento del pedido con su número, avisos en el celular y por correo, e historial en la cuenta.
+- Reseñas de compradores, favoritos, carritos compartibles y ofertas de cada tienda.
+- Menú digital con código QR para pedir desde la mesa en los restaurantes que lo usan.
+- Si una tienda no confirma un pedido a tiempo, el pedido se cierra y el comprador recibe los contactos de la tienda para retomarlo.
+
+## Qué ofrece a quien vende
+
+- Tienda propia en línea con dirección baznova.com/tienda/nombre, logo, redes sociales y horario de atención.
+- Pedidos con aviso al instante en el panel, en el celular y por correo, y recordatorios automáticos de pedidos sin responder.
+- Plan Regular gratis y plan Premium con prueba gratuita. Los límites y funciones de cada plan están en la página de registro de vendedores.
+- Funciones del plan Premium: productos ilimitados, venta en todas las provincias, caja con código de barras, menú con QR para mesas, usuarios del equipo, ofertas, códigos de descuento, programa de puntos para clientes, correos a clientes con el nombre de la tienda, chat con IA en la tienda, sello de verificada y lugar destacado en la portada.
 
 ## Comprar
 

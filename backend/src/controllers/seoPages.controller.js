@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { env } from "../config/env.js";
 import { getBrandSettings } from "./settings.controller.js";
+import { getAllPlanConfigs, buildPlanIncludes } from "../lib/planConfig.js";
 
 // SEO del servidor. Dos piezas:
 //  1) /sitemap.xml: lista de todo lo público para que Google lo descubra (páginas fijas, tiendas y productos visibles).
@@ -351,7 +352,7 @@ async function buildSeoHome() {
   const siteName = brand.siteName || "Baznova";
   const listedVendorWhere = { ...publicVendorWhere, products: { some: visibleProductWhere } };
 
-  const [storeCount, productCount, restaurantCount, vendors, products, categories, provinceRows, faqs, settings] = await Promise.all([
+  const [storeCount, productCount, restaurantCount, vendors, products, categories, provinceRows, faqs, settings, plans] = await Promise.all([
     prisma.vendor.count({ where: listedVendorWhere }),
     prisma.product.count({ where: { ...visibleProductWhere, vendor: publicVendorWhere } }),
     prisma.vendor.count({ where: { ...listedVendorWhere, isRestaurant: true } }),
@@ -385,7 +386,8 @@ async function buildSeoHome() {
       select: { name: true },
     }),
     prisma.faqItem.findMany({ where: { audience: "CUSTOMER" }, orderBy: { createdAt: "asc" }, take: 6, select: { question: true, answer: true } }),
-    prisma.siteSettings.findFirst({ select: { facebookUrl: true, instagramUrl: true } }),
+    prisma.siteSettings.findFirst({ select: { facebookUrl: true, instagramUrl: true, trialDays: true } }),
+    getAllPlanConfigs(),
   ]);
 
   const provinces = provinceRows.map((p) => p.name);
@@ -416,6 +418,15 @@ async function buildSeoHome() {
     .map((p) => `<li><a href="${esc(`${ORIGIN}/producto/${encodeURIComponent(p.vendor.slug)}/${encodeURIComponent(p.slug)}`)}">${esc(p.name)}</a> · ${esc(money(p.price, p.currency))} en ${esc(p.vendor.companyName)}</li>`)
     .join("\n");
 
+  // Lo que incluye cada plan sale de su configuración real (los mismos textos que ve el vendedor al elegir plan).
+  const planList = (type) => {
+    const p = plans.find((x) => x.planType === type);
+    return p ? buildPlanIncludes(p).map((t) => `<li>${esc(t)}</li>`).join("\n") : "";
+  };
+  const regularPlan = planList("REGULAR");
+  const premiumPlan = planList("BUSINESS");
+  const trialDays = settings?.trialDays ?? 0;
+
   const sameAs = [settings?.facebookUrl, settings?.instagramUrl].filter((u) => typeof u === "string" && /^https:\/\//i.test(u));
   const jsonLd = {
     "@context": "https://schema.org",
@@ -445,13 +456,22 @@ async function buildSeoHome() {
   const name = esc(siteName);
   return `<div id="seo-portada">
 <style>#seo-portada{max-width:960px;margin:0 auto;padding:24px 16px;background:#0e1a28;color:#f4f6f8;font:16px/1.6 Inter,system-ui,sans-serif}#seo-portada a{color:#fe9800}#seo-portada h1{font-size:28px;line-height:1.25;margin:0 0 12px}#seo-portada h2{font-size:20px;margin:28px 0 8px}#seo-portada li{margin:4px 0}</style>
-<h1>${name}: marketplace de tiendas y restaurantes en Cuba</h1>
-<p>${name} reúne tiendas locales y restaurantes de Cuba en un solo sitio. Busca productos, comida y servicios cerca de ti, haz tu pedido a la tienda y coordina con ella el pago y la entrega: efectivo, pago contra entrega, transferencia o por WhatsApp.</p>
+<h1>${name}: el marketplace para comprar y vender en Cuba</h1>
+<p>${name} reúne en un solo sitio a las tiendas, restaurantes y negocios locales de Cuba. Quien compra encuentra productos, comida y servicios cerca de casa y pide directo a la tienda, por la web o por WhatsApp. Quien vende abre su tienda en línea en minutos, sin pagar comisión por venta, y recibe los pedidos en su panel y en su celular.</p>
 ${facts.length ? `<p>Hoy en ${name}: ${esc(facts.join(", "))}.</p>` : ""}
 ${provinces.length ? `<p>Provincias con tiendas: ${esc(provinces.join(", "))}.</p>` : ""}
 ${categories.length ? `<h2>Tipos de negocio</h2>\n<p>${esc(categories.map((c) => c.name).join(", "))}.</p>` : ""}
 ${storeLinks ? `<h2>Tiendas y restaurantes en ${name}</h2>\n<ul>\n${storeLinks}\n</ul>\n<p><a href="${esc(ORIGIN)}/tiendas">Ver todas las tiendas</a></p>` : ""}
 ${productLinks ? `<h2>Productos más pedidos</h2>\n<ul>\n${productLinks}\n</ul>\n<p><a href="${esc(ORIGIN)}/catalogo">Ver el catálogo completo</a></p>` : ""}
+<h2>Para quien compra</h2>
+<ul>
+<li>Tiendas y restaurantes de tu provincia, con fotos, precios en la moneda de cada tienda y existencias al día.</li>
+<li>Tiendas verificadas: el sello indica que ${name} revisó la identidad del negocio.</li>
+<li>Pago acordado con la tienda: efectivo, contra entrega o transferencia. ${name} no cobra ni retiene tu dinero.</li>
+<li>Seguimiento del pedido con su número, avisos en el celular y por correo, e historial en tu cuenta.</li>
+<li>Reseñas de otros compradores, favoritos, carritos que puedes compartir y ofertas de cada tienda.</li>
+<li>Menú digital con código QR para pedir desde la mesa en los restaurantes que lo usan.</li>
+</ul>
 <h2>Cómo comprar en ${name}</h2>
 <ol>
 <li>Busca en el catálogo o entra a una tienda de tu provincia.</li>
@@ -460,7 +480,16 @@ ${productLinks ? `<h2>Productos más pedidos</h2>\n<ul>\n${productLinks}\n</ul>\
 <li>Sigue el estado de tu pedido en <a href="${esc(ORIGIN)}/rastrear-pedido">Rastrear pedido</a>.</li>
 </ol>
 <h2>Vende en ${name}</h2>
-<p>Abre tu tienda gratis, publica tu catálogo con fotos y precios y recibe los pedidos en tu panel. Los restaurantes pueden usar un menú con código QR para pedir desde la mesa. <a href="${esc(ORIGIN)}/vendedor/ingresar?tab=registro">Registrar mi negocio</a>.</p>
+<p>Tu negocio con tienda propia en internet, con su dirección (${esc(ORIGIN.replace(/^https?:\/\//, ""))}/tienda/tu-negocio), su logo, sus redes y su horario. Publicas tus productos con fotos y precios, recibes cada pedido con aviso al instante y lo gestionas desde el celular. Si un pedido se queda sin respuesta, el sistema te lo recuerda para que no pierdas ventas.</p>
+${regularPlan ? `<h3>Plan Regular, gratis</h3>
+<ul>
+${regularPlan}
+</ul>` : ""}
+${premiumPlan ? `<h3>Plan Premium${trialDays > 0 ? `, con ${plural(trialDays, "día", "días")} de prueba gratis` : ""}</h3>
+<ul>
+${premiumPlan}
+</ul>` : ""}
+<p><a href="${esc(ORIGIN)}/vendedor/ingresar?tab=registro">Registrar mi negocio</a> · <a href="${esc(ORIGIN)}/ayuda">Guías para vendedores y restaurantes</a></p>
 ${faqItems.length ? `<h2>Preguntas frecuentes</h2>\n${faqItems.map((f) => `<h3>${esc(f.q)}</h3>\n<p>${esc(f.a)}</p>`).join("\n")}\n<p><a href="${esc(ORIGIN)}/faq">Más preguntas frecuentes</a></p>` : ""}
 <p><a href="${esc(ORIGIN)}/ayuda">Centro de ayuda</a> · <a href="${esc(ORIGIN)}/contacto">Contacto</a> · <a href="${esc(ORIGIN)}/terminos">Términos</a> · <a href="${esc(ORIGIN)}/privacidad">Privacidad</a></p>
 <script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>
