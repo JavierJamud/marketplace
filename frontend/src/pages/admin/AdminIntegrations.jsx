@@ -21,9 +21,9 @@ import AiModelsPanel from "../../components/admin/AiModelsPanel.jsx";
 // NIM (109s medidos una vez en vivo, el motivo real de por qué NVIDIA
 // sigue de último recurso).
 const SERVICE_META = {
-  gemini: { name: "Google AI Studio (Gemini)", desc: "Último respaldo de IA — entra solo si Groq y NVIDIA están inactivos o fallan", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
-  groq: { name: "Groq", desc: "Proveedor PRINCIPAL de IA (se usa primero) — chatbot de tienda y 'Mejorar con IA'. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
-  nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA — entra si Groq está inactivo o falla (más lento que Groq)", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
+  gemini: { name: "Google AI Studio (Gemini)", desc: "Último respaldo de IA: entra solo si Groq y NVIDIA están inactivos o fallan", emoji: "✨", iconBg: "rgba(42,111,219,0.1)" },
+  groq: { name: "Groq", desc: "Proveedor principal de IA (se usa primero): chat de las tiendas y 'Mejorar con IA'. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
+  nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA: entra si Groq está inactivo o falla (más lento que Groq)", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
   stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
@@ -163,7 +163,7 @@ function ServiceCard({ name, meta, integration, modelsData, onToggle, onSave, on
               className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-outline-variant px-3.5 py-2 text-[12.5px] font-semibold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${testingResend ? "animate-spin" : ""}`} />
-              {testingResend ? "Mandando correo de prueba..." : "Probar — mandar correo de prueba"}
+              {testingResend ? "Mandando correo de prueba..." : "Probar: mandar correo de prueba"}
             </button>
           )}
         </div>
@@ -336,7 +336,7 @@ export default function AdminIntegrations({ embedded = false }) {
   // verdad por qué una key "correcta" igual no manda correos.
   const testResend = useMutation({
     mutationFn: async () => (await api.post("/admin/integrations/resend/test")).data,
-    onSuccess: (result) => toast.success(`Correo de prueba enviado a ${result.to} — revisa esa bandeja.`),
+    onSuccess: (result) => toast.success(`Correo de prueba enviado a ${result.to}. Revisa esa bandeja.`),
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo mandar el correo de prueba.", { duration: 8000 }),
   });
 
@@ -375,10 +375,12 @@ export default function AdminIntegrations({ embedded = false }) {
       {/* Bloque 85/245: transparencia sobre la reparación automática. El admin
           ve acá POR QUÉ la lista de modelos de un proveedor puede cambiar sola. */}
       <div className="mb-[22px] rounded-[10px] bg-surface-container px-3.5 py-2.5 text-[12px] text-on-surface-variant">
-        No hay pruebas automáticas que gasten tokens: si un modelo falla dos veces seguidas con clientes reales, queda
-        marcado caído y la consulta pasa al siguiente. Una vez al día (3:00am) se revisa la lista de modelos de cada API
-        y se reprueban solo los caídos. Tú puedes probar cualquier modelo a mano con "Probar". Si no queda ningún modelo
-        disponible, el chatbot se oculta en todo el sitio.
+        Si un modelo falla dos veces seguidas con clientes reales, queda marcado caído y la consulta pasa al siguiente.
+        Cinco veces al día se lee la lista de modelos de cada API, que no gasta tokens: si uno desaparece, se cambia
+        por otro modelo de texto que se prueba antes de activarlo. A las 3:00am se hace una consulta mínima a cada
+        modelo activo, se ordenan del más rápido al más lento, se reemplaza el que no responde y te llega un correo con
+        el resumen. Solo se usan modelos de texto. Tú puedes probar cualquier modelo a mano con "Probar". Si no queda
+        ningún modelo disponible, el chatbot se oculta en todo el sitio.
       </div>
 
       <div className="flex flex-col gap-4">
@@ -412,7 +414,7 @@ export default function AdminIntegrations({ embedded = false }) {
         )}
       </div>
       <p className="mt-[18px] text-[12px] text-outline">
-        Nota: Stripe se usa <strong>solo</strong> para cobrar la suscripción Business a {siteName} — nunca en las ventas entre vendedor y cliente.
+        Nota: Stripe se usa <strong>solo</strong> para cobrar la suscripción Business a {siteName}, nunca en las ventas entre vendedor y cliente.
       </p>
     </div>
   );

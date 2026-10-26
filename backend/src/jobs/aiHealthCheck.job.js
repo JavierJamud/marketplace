@@ -4,6 +4,7 @@ import { getSiteTimezone } from "../controllers/settings.controller.js";
 import { runAiModelsCheck } from "./aiChatbotAvailability.job.js";
 import { beginDailyReport, endDailyReport } from "../lib/aiModelRepair.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
+import { classifyModel } from "../lib/aiModelCatalog.js";
 
 // Bloque 85 (pedido explícito): tercer cron del proyecto — verificación
 // diaria de que cada modelo de IA activo (Gemini/Groq/NVIDIA NIM) sigue
@@ -69,6 +70,13 @@ export async function runAiHealthCheckJob() {
       const tried = d?.tried?.length ? ` Modelos probados: ${d.tried.map((t) => t.model).join(", ")}.` : "";
       pending.push({ provider: r.provider, model: r.model, text: `${label}: ${reason}${tried}`, errorDetail: r.errorDetail ?? d?.errorDetail ?? null });
     }
+  }
+
+  // Pedido explícito: solo modelos de texto. Uno de otro tipo que siga activo (agregado antes de esta
+  // regla) se señala para que el admin lo quite; no se borra solo porque puede ser el único que responde.
+  for (const r of results) {
+    const kind = classifyModel(r.provider, r.model);
+    if (kind.category !== "text") pending.push({ provider: r.provider, model: r.model, text: `${LABELS[r.provider] ?? r.provider} · ${r.model}: es un modelo de ${kind.label.toLowerCase()}, no de texto. Quítalo en Admin → Integraciones.`, errorDetail: null });
   }
 
   for (const s of solved) {

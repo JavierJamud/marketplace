@@ -213,7 +213,8 @@ export async function listProviderModels(req, res) {
   // NVIDIA eran más de cien). Se muestran solo los TIPOS que la plataforma usa —
   // texto (chat, asistentes, descripciones), texto+imagen (sirve como texto) y voz a
   // texto (micrófono del chat) — y primero los que menos cupo llevan gastado.
-  const NEEDED = new Set(["text", "vision", "transcription"]);
+  // Pedido explícito ("solo usamos modelos de solo texto"): ya no se listan los de texto + imagen.
+  const NEEDED = new Set(["text", "transcription"]);
   const usage = new Map((await getProviderQuotaOverview(name, classified.map((m) => m.id))).map((q) => [q.model, q]));
   const catalog = classified
     .filter((m) => NEEDED.has(m.category) && isFreeTierModel(name, m.id))
@@ -233,7 +234,7 @@ export async function listProviderModels(req, res) {
       };
     })
     .sort((a, b) => Number(b.withinFreeQuota) - Number(a.withinFreeQuota) || a.usageRatio - b.usageRatio || Number(b.verified) - Number(a.verified) || a.id.localeCompare(b.id));
-  res.json({ models, catalog, probing: getProbeState(name), categories: CATEGORY_ORDER.filter((id) => ["text", "vision", "transcription"].includes(id)).map((id) => ({ id, label: CATEGORIES[id].label, purpose: CATEGORIES[id].purpose, usedNow: CATEGORIES[id].usedNow })), fetchedAt: new Date().toISOString() });
+  res.json({ models, catalog, probing: getProbeState(name), categories: CATEGORY_ORDER.filter((id) => NEEDED.has(id)).map((id) => ({ id, label: CATEGORIES[id].label, purpose: CATEGORIES[id].purpose, usedNow: CATEGORIES[id].usedNow })), fetchedAt: new Date().toISOString() });
 }
 
 // Bloque 86 (pedido explícito, con reporte real en vivo de "el correo no

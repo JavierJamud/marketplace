@@ -7,7 +7,7 @@ import { AI_PRIORITY, getProviderQuotaOverview, getQuotaStatus } from "../lib/ai
 import { getModelCooldowns } from "../lib/aiProviderCooldown.js";
 import { TRANSCRIBE_MODEL as GROQ_TRANSCRIBE_MODEL } from "../lib/groq.js";
 import { PROVIDERS, probeModel, errorDetailOf, classifyFailure } from "../lib/aiModelRepair.js";
-import { friendlyModelError, markModelUnavailable, clearModelUnavailable, isFreeTierModel } from "../lib/aiModelCatalog.js";
+import { friendlyModelError, markModelUnavailable, clearModelUnavailable, isFreeTierModel, classifyModel } from "../lib/aiModelCatalog.js";
 import { getModelHealthRows, deleteModelHealth, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 
 // Bloque 245 (pedido explícito): cada proveedor de IA puede tener uno o varios
@@ -106,6 +106,9 @@ export async function addAiModel(req, res) {
   const { provider, model } = addSchema.parse(req.body);
   // Bloque 281: solo modelos del plan gratis.
   if (!isFreeTierModel(provider, model)) throw new AppError(`"${model}" no está en el plan gratis de ${PROVIDERS[provider].label}. Solo se pueden agregar modelos gratuitos.`, 400);
+  // Pedido explícito: solo modelos de texto. Se comprueba aquí y no solo en la lista del panel.
+  const kind = classifyModel(provider, model);
+  if (kind.category !== "text") throw new AppError(`"${model}" es un modelo de ${kind.label.toLowerCase()}. Solo se pueden agregar modelos de texto.`, 400);
 
   const existing = await prisma.aiModelConfig.findUnique({ where: { provider_model: { provider, model } } });
   if (existing) throw new AppError("Ese modelo ya está en la lista de este proveedor.", 409);

@@ -39,7 +39,14 @@ export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
 // Los modelos gpt-oss "razonan" antes de responder y ese pensamiento sale del mismo tope de tokens: con razonamiento alto se
 // gastaba todo el presupuesto y la respuesta llegaba vacía ("La IA no devolvió texto", visto muchas veces en los registros del
 // servidor, con el consiguiente salto al siguiente modelo). Con esfuerzo bajo piensan poco y alcanza para responder.
-const reasoningParams = (model) => (/gpt-oss/i.test(String(model ?? "")) ? { reasoning_effort: "low" } : {});
+// Los Qwen 3 aceptan "none" (documentado por Groq: no usan tokens de razonamiento): para respuestas cortas
+// de tienda no hace falta pensar, y así el cupo gratis rinde más. Exportada para que aiStream.js use lo mismo.
+export const reasoningParams = (model) => {
+  const m = String(model ?? "");
+  if (/gpt-oss/i.test(m)) return { reasoning_effort: "low" };
+  if (/qwen-?3/i.test(m)) return { reasoning_effort: "none" };
+  return {};
+};
 const API_BASE = "https://api.groq.com/openai/v1/chat/completions";
 const MODELS_API_BASE = "https://api.groq.com/openai/v1/models";
 

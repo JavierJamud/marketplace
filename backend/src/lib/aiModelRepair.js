@@ -6,7 +6,7 @@ import { generateWithGroq, listGroqModels, listGroqModelsDetailed, listGroqModel
 import { generateWithNvidia, listNvidiaModels, listNvidiaModelsDetailed, listNvidiaModelsCatalog, DEFAULT_MODEL as NVIDIA_DEFAULT } from "./nvidia.js";
 import { rankNewestFirst } from "./aiModelRanking.js";
 import { getEffectiveActiveModels } from "./aiModels.js";
-import { getUnavailableModel, getModelAvailable, isFreeTierModel } from "./aiModelCatalog.js";
+import { getUnavailableModel, getModelAvailable, isFreeTierModel, isTextModel } from "./aiModelCatalog.js";
 import { getModelHealth, getModelHealthRows, upsertModelHealth, patchModelHealth, deleteModelHealth } from "./aiProviderHealth.js";
 
 // Bloque 99 (pedido explícito — "cuando un modelo se desconecte, que el
@@ -202,7 +202,7 @@ async function askAdvisorToPick({ provider, brokenModel, candidates }) {
     `Eres un ingeniero que elige modelos de IA. El modelo "${brokenModel}" de ${PROVIDERS[provider].label} dejó de funcionar.\n` +
     `Elige UN reemplazo de esta lista real de modelos del proveedor (ordenada de más nuevo a más antiguo según su fecha o versión). ` +
     `Se usará para un chat de atención al cliente de tiendas en línea: necesita ser rápido, de uso general (instruct/chat), estable y bueno en español. ` +
-    `Prefiere los más nuevos, pero evita modelos experimentales, de visión, de código o especializados.\n\n` +
+    `Prefiere los más nuevos y estables; evita los experimentales o "preview".\n\n` +
     `Lista:\n${candidates.map((m, i) => `${i + 1}. ${m}`).join("\n")}\n\n` +
     `Responde SOLO con JSON, sin texto extra: {"model":"<nombre exacto copiado de la lista>"}`;
   try {
@@ -243,9 +243,10 @@ async function runRepair({ provider, apiKey, brokenModel, errorDetail, failure, 
   }
 
   // Bloque 266b: los que ya se comprobó que dan 404 para esta cuenta no se prueban, y los
-  // comprobados como disponibles van primero.
+  // comprobados como disponibles van primero. Solo modelos de texto (pedido explícito): sin el
+  // filtro de tipo, en NVIDIA podía entrar uno de código o de voz, que no sirve para el chat.
   const usable = detailed
-    .filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id) && !getUnavailableModel(provider, m.id) && isFreeTierModel(provider, m.id))
+    .filter((m) => m.id !== brokenModel && !configuredNames.has(m.id) && !EXCLUDE_MODEL_PATTERN.test(m.id) && !getUnavailableModel(provider, m.id) && isFreeTierModel(provider, m.id) && isTextModel(provider, m.id))
     .sort((a, b) => Number(!!getModelAvailable(provider, b.id)) - Number(!!getModelAvailable(provider, a.id)));
   // Bloque 283 (pedido explícito — "con los modelos más rápidos para lo que se use"):
   // primero los modelos ligeros (instant, lite, flash, mini, lightning, 8b, 20b...),

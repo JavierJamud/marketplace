@@ -1,5 +1,6 @@
 import { AppError } from "../utils/AppError.js";
 import { recordAiResponse } from "./aiQuota.js";
+import { reasoningParams as groqReasoningParams } from "./groq.js";
 
 // Respuesta de la IA en streaming (pedido explícito — "el asistente nunca debe
 // escribir en segundo plano: tiene que escribir en tiempo real y el cliente ir
@@ -51,15 +52,17 @@ export async function streamFromProvider({ provider, apiKey, model, prompt, mess
   if (provider === "gemini") {
     url = `${ENDPOINTS.gemini}/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
     headers = { "Content-Type": "application/json" };
-    body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: TEMPERATURE, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 1 } } };
+    // Mismo tope que los demás proveedores (antes Gemini ignoraba maxTokens y permitía 3000), más un margen
+    // para el pensamiento mínimo que Gemini gasta aun con thinkingBudget 1 (medido: 65-173 tokens, ver gemini.js).
+    body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature, maxOutputTokens: maxTokens + 300, thinkingConfig: { thinkingBudget: 1 } } };
   } else {
     url = ENDPOINTS[provider];
     headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
     body = { model, messages: messages ?? [{ role: "user", content: prompt }], temperature, max_tokens: maxTokens, stream: true };
     if (json) body.response_format = { type: "json_object" };
-    // Los modelos gpt-oss de Groq "piensan" antes de escribir; en esfuerzo bajo
-    // responden en una fracción del tiempo y para estas consultas rinden igual.
-    if (provider === "groq" && /gpt-oss/i.test(model)) body.reasoning_effort = "low";
+    // Los modelos de Groq que "piensan" antes de escribir (gpt-oss, Qwen 3) van con el
+    // razonamiento al mínimo: responden antes y gastan menos cupo (ver groq.js).
+    if (provider === "groq") Object.assign(body, groqReasoningParams(model));
     if (provider === "groq") body.stream_options = { include_usage: true };
   }
 

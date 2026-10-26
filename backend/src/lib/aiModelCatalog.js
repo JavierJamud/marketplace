@@ -10,13 +10,13 @@
 // agregar a la cadena de respaldo de texto.
 //
 // Qué usa hoy la plataforma: TEXTO (chat de tiendas, asistentes, descripciones,
-// autocorrección de búsqueda) y AUDIO (voz a texto con Whisper de Groq). Los
-// modelos de VISIÓN (texto + imagen) se podrán usar para analizar tiendas y
-// páginas; por eso ya se distinguen.
+// autocorrección de búsqueda) y AUDIO (voz a texto con Whisper de Groq). Solo
+// los de TEXTO entran a la cadena de respaldo (pedido explícito: "solo usamos
+// modelos de solo texto"); los de VISIÓN se distinguen para dejarlos fuera.
 
 export const CATEGORIES = {
   text: { label: "Texto", purpose: "Responde preguntas y redacta: alimenta el chat de las tiendas, los asistentes y las descripciones de productos.", usedNow: true, addable: true },
-  vision: { label: "Texto + imagen", purpose: "Entiende imágenes además de texto. Sirve como modelo de texto y se podrá usar para analizar tiendas y páginas visualmente.", usedNow: true, addable: true },
+  vision: { label: "Texto + imagen", purpose: "Entiende imágenes además de texto. La plataforma solo usa modelos de texto, así que no se agrega al chat.", usedNow: false, addable: false },
   transcription: { label: "Audio: voz a texto", purpose: "Transcribe notas de voz a texto (hoy lo usa el micrófono del chat, solo con Whisper de Groq).", usedNow: true, addable: false },
   speech: { label: "Audio: texto a voz", purpose: "Convierte texto en voz hablada. La plataforma todavía no lo usa.", usedNow: false, addable: false },
   image: { label: "Imagen: crear o editar", purpose: "Genera o edita imágenes. La plataforma todavía no lo usa.", usedNow: false, addable: false },
@@ -39,7 +39,7 @@ const RULES = [
   ["video", /veo|video|sora|cosmos(?!-reason)|\bwan\b/i],
   ["image", /imagen|image-gen|flux|stable-diffusion|sdxl|sd3|nano-banana|dall-e|-image|edify|picasso/i],
   ["code", /coder|codestral|starcoder|codellama|code-|-code|deepseek-coder|granite-.*code/i],
-  ["vision", /vision|-vl\b|-vl-|vl-|llava|pixtral|paligemma|kosmos|neva|vila|fuyu|maverick|scout|gemma-?[34]|multimodal|gemini|phi-.*(vision|multimodal)|qwen.*-vl/i],
+  ["vision", /vision|-vl\b|-vl-|vl-|llava|pixtral|paligemma|kosmos|neva|vila|fuyu|maverick|scout|gemma-?[34]|multimodal|phi-.*(vision|multimodal)|qwen.*-vl/i],
 ];
 
 // `meta` (opcional) trae lo que la API sí sabe del modelo: en Gemini, `methods`
@@ -62,11 +62,10 @@ export function classifyModel(provider, id, meta = {}) {
       }
     }
   }
-  // Gemini: todo modelo de generateContent entiende imágenes, salvo los
-  // especializados que las reglas de arriba ya apartaron (tts, image, live...).
-  if (!category && provider === "gemini" && methods?.includes("generateContent")) category = "vision";
-  if (category === "vision" && provider === "gemini" && /tts|image|live|audio|robotics|computer-use|deep-research|antigravity/i.test(id)) category = /tts|audio|live/i.test(id) ? "speech" : /image/i.test(id) ? "image" : "other";
   if (!category) category = "text";
+  // Gemini: sus modelos de chat (Flash, Flash-Lite) responden solo con texto, así que cuentan como texto.
+  // Los especializados que llevan "gemini" en el nombre (voz, imagen, agentes) se apartan aquí.
+  if (provider === "gemini" && (category === "text" || category === "vision") && /tts|image|live|audio|robotics|computer-use|deep-research|antigravity/i.test(id)) category = /tts|audio|live/i.test(id) ? "speech" : /image/i.test(id) ? "image" : "other";
   const info = CATEGORIES[category];
   return { id, category, label: info.label, purpose: info.purpose, addable: info.addable, description: meta.description ?? null, owner: meta.owner ?? null, contextWindow: meta.contextWindow ?? null };
 }
@@ -186,6 +185,11 @@ export function failureKindOf(text) {
 //  - NVIDIA: los endpoints de build.nvidia.com son gratis con 40 pedidos por minuto.
 //  - Gemini: solo la familia Flash y Flash-Lite. Los Pro (y los de imagen, voz,
 //    video o investigación) no tienen plan gratis útil o son de pago.
+// Un modelo sirve para la plataforma solo si es de texto (ni visión, ni voz, ni código, ni imagen).
+export function isTextModel(provider, id, meta = {}) {
+  return classifyModel(provider, id, meta).category === "text";
+}
+
 export function isFreeTierModel(provider, id) {
   const s = String(id || "").toLowerCase();
   if (provider === "groq") return !/compound|tts|playai|orpheus/.test(s);

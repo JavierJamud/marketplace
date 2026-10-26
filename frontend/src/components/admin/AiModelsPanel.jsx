@@ -246,7 +246,7 @@ export default function AiModelsPanel({ provider, integration, data, onTest, tes
                 const inCat = options.filter((m) => m.category === cat.id);
                 if (inCat.length === 0) return null;
                 const working = inCat.filter((m) => m.verified).length;
-                const label = cat.id === "text" || cat.id === "vision" ? `${cat.label}: sirve para el chat (${working} funcionan con tu cuenta de ${inCat.length})` : `${cat.label}: no va al chat (${inCat.length})`;
+                const label = cat.id === "text" ? `${cat.label}: sirve para el chat (${working} funcionan con tu cuenta de ${inCat.length})` : `${cat.label}: no va al chat (${inCat.length})`;
                 return (
                   <optgroup key={cat.id} label={label}>
                     {inCat.map((m) => {
