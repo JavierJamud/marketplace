@@ -18,6 +18,7 @@ import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { ID_TYPES, ID_TYPE_LABEL, idError, isValidId } from "../../lib/idDocument.js";
 import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
 import { LoyaltyBox, useCheckoutLoyalty } from "../../components/checkout/LoyaltyBox.jsx";
+import { clientInfo } from "../../lib/clientInfo.js";
 
 // Bloque 231: "Fecha y hora" del ticket de confirmación — mismo formato
 // corto que ya usa fmtDate en VendorOffers.jsx, con hora agregada.
@@ -311,6 +312,7 @@ export default function Checkout() {
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions, size: i.size ?? undefined })),
           discountCode: discount?.code ?? undefined,
           loyaltyPoints: loyalty.used || undefined,
+          clientInfo: clientInfo(),
         })
       ).data,
     onSuccess: ({ order }) => {

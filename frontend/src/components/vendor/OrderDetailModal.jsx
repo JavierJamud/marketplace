@@ -7,7 +7,7 @@ function fmtCUP(n, currency = "CUP") {
 }
 
 // Mismos nombres que usa el servidor para el registro del pedido (lib/orderEvents.js).
-const EVENT_LABEL = {
+export const EVENT_LABEL = {
   CREATED: "Pedido recibido",
   CONFIRMED: "Venta confirmada",
   PREPARING: "En preparación",
@@ -28,6 +28,15 @@ const EVENT_LABEL = {
 const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
 const POS_STATUS_LABEL = { PREPARING: "Preparando", READY: "Listo para recoger", DELIVERED: "Recogido", CANCELLED: "Anulado" };
 const METHOD_LABEL = { CASH: "Efectivo", CARD: "Tarjeta", TRANSFER: "Transferencia" };
+const waLink = (phone) => `https://wa.me/${String(phone).replace(/\D/g, "")}`;
+// Opciones elegidas en un producto (selectedOptions: { "Punto": "Tres cuartos", "Extras": ["Queso", "Bacon"] }).
+const optionsText = (opts) =>
+  opts && typeof opts === "object"
+    ? Object.entries(opts)
+        .filter(([, v]) => v != null && v !== "" && !(Array.isArray(v) && v.length === 0))
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : v}`)
+        .join(" · ")
+    : "";
 const timeOf = (d) => (d ? new Date(d).toLocaleTimeString("es-CU", { hour: "2-digit", minute: "2-digit" }) : null);
 
 // Bloque 175 (pedido explícito — "habrá un botón en cada pedido para ver
@@ -58,15 +67,38 @@ export function OrderDetailModal({ order, onClose }) {
           </button>
         </div>
 
+        {o.status === "CANCELLED" && o.cancelReason && (
+          <p className="mb-3 rounded-md bg-error/5 px-3 py-2 text-[12.5px] text-error">
+            <span className="font-semibold">Motivo de la anulación:</span> {o.cancelReason}
+          </p>
+        )}
+
+        {/* Todo lo que el cliente escribió al hacer el pedido. La IP y el dispositivo no: eso solo lo ve el equipo de Baznova. */}
         {(o.customerName || o.customerPhone || o.customerEmail) && (
           <div className="mb-3 rounded-md bg-surface-container p-3 text-[12.5px] text-on-surface-variant">
-            {o.customerName && <div><span className="font-semibold text-on-surface">Cliente:</span> {o.customerName}</div>}
-            {o.customerPhone && <div><span className="font-semibold text-on-surface">Teléfono:</span> {o.customerPhone}</div>}
-            {o.customerEmail && <div><span className="font-semibold text-on-surface">Email:</span> {o.customerEmail}</div>}
+            {o.customerName && (
+              <div>
+                <span className="font-semibold text-on-surface">Cliente:</span> {o.customerName}{" "}
+                {!o.pos && <span className="text-outline">({o.customerId ? "tiene cuenta en Baznova" : "compró sin cuenta"})</span>}
+              </div>
+            )}
+            {o.customerPhone && (
+              <div>
+                <span className="font-semibold text-on-surface">Teléfono:</span>{" "}
+                <a href={waLink(o.customerPhone)} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">{o.customerPhone}</a>{" "}
+                <a href={`tel:${o.customerPhone}`} className="text-outline underline">llamar</a>
+              </div>
+            )}
+            {o.customerEmail && (
+              <div>
+                <span className="font-semibold text-on-surface">Correo:</span>{" "}
+                <a href={`mailto:${o.customerEmail}`} className="break-all text-tertiary-accent underline">{o.customerEmail}</a>
+              </div>
+            )}
             {o.recipientName && (
               <div className="mt-1.5 border-t border-outline-variant/40 pt-1.5">
                 <span className="font-semibold text-on-surface">Recibe:</span> {o.recipientName}
-                {o.recipientPhone && <> · <a href={`https://wa.me/${o.recipientPhone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">{o.recipientPhone}</a></>}
+                {o.recipientPhone && <> · <a href={waLink(o.recipientPhone)} target="_blank" rel="noreferrer" className="font-semibold text-tertiary-accent underline">{o.recipientPhone}</a></>}
                 {o.recipientIdNumber && (
                   <div>
                     <span className="font-semibold text-on-surface">{o.recipientIdType === "CU_ID" ? "Carné de identidad" : "Documento"}:</span> {o.recipientIdNumber}{" "}
@@ -75,7 +107,13 @@ export function OrderDetailModal({ order, onClose }) {
                 )}
               </div>
             )}
+            {(o.provinceName || o.municipalityName) && (
+              <div className="mt-1.5 border-t border-outline-variant/40 pt-1.5">
+                <span className="font-semibold text-on-surface">Entrega en:</span> {[o.municipalityName, o.provinceName, o.countryName && !/^cuba$/i.test(o.countryName) ? o.countryName : null].filter(Boolean).join(", ")}
+              </div>
+            )}
             {o.shippingAddress && <div><span className="font-semibold text-on-surface">Dirección:</span> {o.shippingAddress}</div>}
+            {o.tableNumber && <div><span className="font-semibold text-on-surface">Mesa:</span> {o.tableNumber}</div>}
           </div>
         )}
 
@@ -118,6 +156,7 @@ export function OrderDetailModal({ order, onClose }) {
               <span className="text-on-surface">
                 {it.quantity} × {it.name}
                 {it.size && ` (${it.size})`}
+                {optionsText(it.selectedOptions) && <span className="block text-[11.5px] text-on-surface-variant">{optionsText(it.selectedOptions)}</span>}
                 {orderLineShippingText(it) && <span className="block text-[11.5px] text-outline">{orderLineShippingText(it)}</span>}
               </span>
               <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity, it.currency)}</span>
@@ -127,7 +166,7 @@ export function OrderDetailModal({ order, onClose }) {
 
         {o.discountAmount > 0 && (
           <div className="mt-3 flex items-center justify-between text-[12.5px] text-on-surface-variant">
-            <span>Descuento aplicado</span>
+            <span>Descuento aplicado{o.discountCode?.code ? ` (código ${o.discountCode.code})` : ""}</span>
             <span>-{fmtCUP(o.discountAmount)}</span>
           </div>
         )}

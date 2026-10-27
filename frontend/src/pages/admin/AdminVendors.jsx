@@ -18,6 +18,7 @@ import { RepresentativeFileModal } from "../../components/admin/RepresentativeFi
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { SuspendedVendorsList, useSuspendedVendors } from "./AdminSuspendedVendors.jsx";
+import { OrderLookup } from "../../components/admin/OrderLookup.jsx";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { vendorPlanStatus } from "../../lib/planStatus.js";
@@ -386,7 +387,7 @@ const SORT_OPTIONS = [
 ];
 
 const ROW_GRID =
-  "md:grid md:grid-cols-[minmax(0,2.4fr)_128px_64px_96px_112px_60px_92px_96px] md:items-center md:gap-3";
+  "md:grid md:grid-cols-[minmax(0,2.4fr)_112px_48px_80px_100px_60px_84px_158px] md:items-center md:gap-3";
 
 const VERIFICATION_LABEL = {
   NOT_STARTED: "Sin verificar",
@@ -412,14 +413,18 @@ function VendorRow({ v }) {
     </span>
   );
   // Todas las acciones (editar, plan, bloquear, eliminar, responsable, usuarios, estadísticas) viven en la página Gestionar.
+  // "Pedidos" abre esa misma página en la pestaña de pedidos, para dar soporte a la tienda en un clic.
+  const linkClass =
+    "flex min-h-11 items-center justify-center rounded-lg px-2.5 text-[12.5px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent md:min-h-10";
   const menu = (
-    <Link
-      to={`/admin/tiendas/${v.id}`}
-      aria-label={`Gestionar ${v.companyName}`}
-      className="flex min-h-10 items-center justify-center rounded-lg bg-surface-container px-3 text-[12.5px] font-semibold text-on-surface hover:bg-surface-container-high focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
-    >
-      Gestionar
-    </Link>
+    <div className="flex gap-1">
+      <Link to={`/admin/tiendas/${v.id}?tab=pedidos`} aria-label={`Pedidos de ${v.companyName}`} className={`${linkClass} border border-outline-variant text-on-surface hover:bg-surface-container`}>
+        Pedidos
+      </Link>
+      <Link to={`/admin/tiendas/${v.id}`} aria-label={`Gestionar ${v.companyName}`} className={`${linkClass} bg-surface-container text-on-surface hover:bg-surface-container-high`}>
+        Gestionar
+      </Link>
+    </div>
   );
   return (
     <div className={`border-b border-surface-container px-4 py-2.5 last:border-b-0 ${ROW_GRID}`}>
@@ -578,6 +583,8 @@ export default function AdminVendors() {
         <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Tiendas</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Gestiona, verifica a dedo, edita o elimina tiendas. El bloqueo oculta, no borra.</p>
+
+      <OrderLookup className="mb-4" />
 
       <StatStrip>
         {tiles.map((t) => (

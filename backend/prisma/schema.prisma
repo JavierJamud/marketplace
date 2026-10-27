@@ -1879,12 +1879,42 @@ model Order {
   items    OrderItem[]
   emailLogs EmailLog[]
   events   OrderEvent[]
+  // Datos técnicos de la solicitud (IP, dispositivo). Tabla aparte a propósito: los pedidos del vendedor se leen con la
+  // fila completa, y estos datos son solo para el admin.
+  requestInfo OrderRequestInfo?
 
   // Bloque 241: agregados por tienda en una ventana de fechas (ventas y
   // pedidos de 30 días en las listas del admin y el asistente).
   @@index([vendorId, createdAt])
   @@index([status, createdAt])
   @@unique([partnerId, idempotencyKey])
+}
+
+// Cómo llegó un pedido: la IP, el navegador y el dispositivo, para que el admin pueda dar soporte o revisar un pedido
+// sospechoso. Solo lo lee el panel de administración (adminOrders.controller.js); nunca se manda a la tienda ni al cliente.
+// Lo del navegador (zona horaria, pantalla, idioma, app instalada) lo informa el propio navegador: sirve de pista, no de prueba.
+model OrderRequestInfo {
+  orderId        String   @id
+  // WEB (tienda en línea) o PARTNER_API (pedido de un socio por la API; la IP es la de su servidor).
+  source         String
+  ip             String?
+  userAgent      String?
+  acceptLanguage String?
+  referer        String?
+  origin         String?
+  // Pistas del navegador (Client Hints): sistema, si es celular y modelo. Solo las mandan Chrome, Edge y similares.
+  platformHint   String?
+  mobileHint     Boolean?
+  modelHint      String?
+  timezone       String?
+  screen         String?
+  language       String?
+  standalone     Boolean?
+  createdAt      DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([ip])
 }
 
 // Historial de emails transaccionales (confirmación, cambio de estado,

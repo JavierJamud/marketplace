@@ -1,8 +1,8 @@
 import { BlacklistCheckbox } from "../../components/admin/BlacklistCheckbox.jsx";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, KeyRound, ListChecks, MonitorSmartphone, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, KeyRound, LayoutGrid, ListChecks, MonitorSmartphone, ReceiptText, Users } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
@@ -24,9 +24,12 @@ import { VendorUsageSection } from "../../components/admin/VendorUsage.jsx";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { Tabs } from "../../components/ui/Tabs.jsx";
+import { VendorOrdersPanel } from "../../components/admin/VendorOrdersPanel.jsx";
 
 // Gestionar una tienda (/admin/tiendas/:id): estado, lo que le falta configurar, accesos y dispositivos, equipo, asistente,
-// actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista.
+// actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista. La pestaña Pedidos
+// (?tab=pedidos) busca y abre los pedidos de la tienda para darle soporte sin ir a otra sección.
 const VERIFICATION_LABEL = {
   NOT_STARTED: "Sin verificar",
   PENDING_DOCS: "Faltan documentos",
@@ -74,6 +77,10 @@ export default function AdminVendorManage() {
   const [notify, setNotify] = useState(false);
   const [blacklist, setBlacklist] = useState(false);
   const { planNames } = usePlatformSettings();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get("tab") === "pedidos" ? "pedidos" : "resumen";
+  // Al cambiar de pestaña se limpian los filtros de la otra: cada una usa la URL para lo suyo.
+  const setTab = (next) => setSearchParams(next === "pedidos" ? { tab: "pedidos" } : {}, { replace: true });
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["admin-vendor-manage", id], queryFn: async () => (await api.get(`/admin/vendors/${id}/manage`)).data });
 
   const done = (msg) => {
@@ -187,6 +194,20 @@ export default function AdminVendorManage() {
 
       {v.isBlocked && v.blockReason && <p className="mb-4 rounded-xl bg-error/5 px-3 py-2 text-[13px] text-error">Motivo del bloqueo: {v.blockReason}</p>}
 
+      <Tabs
+        className="mb-4"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "resumen", label: "Resumen", icon: LayoutGrid },
+          { id: "pedidos", label: `Pedidos${counts.orders != null ? ` (${counts.orders.toLocaleString("es-CU")})` : ""}`, icon: ReceiptText },
+        ]}
+      />
+
+      {tab === "pedidos" ? (
+        <VendorOrdersPanel vendorId={v.id} />
+      ) : (
+      <>
       <div className="mb-5 flex flex-wrap gap-2">
         <a href={`/tienda/${v.slug}`} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded border border-outline px-3 text-label-sm font-semibold text-on-surface hover:bg-surface-container">
           <ExternalLink className="h-4 w-4" aria-hidden="true" /> Ver tienda
@@ -320,6 +341,8 @@ export default function AdminVendorManage() {
       <p className="mt-4 flex items-center gap-1.5 text-[12px] text-outline">
         <KeyRound className="h-3.5 w-3.5" aria-hidden="true" /> Los cambios de plan, bloqueos y eliminaciones piden el código que llega a tu correo.
       </p>
+      </>
+      )}
 
       {modal === "edit" && <EditVendorModal vendor={v} saving={update.isPending} onCancel={() => setModal(null)} onSave={(form) => update.mutateAsync({ payload: form })} />}
       {modal === "stats" && <StatsModal vendorName={{ id: v.id, companyName: v.companyName }} onClose={() => setModal(null)} />}

@@ -5,6 +5,7 @@ import { activeCodes, checkoutLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { placeOrder } from "./orders.controller.js";
+import { captureOrderRequest } from "../lib/orderRequestInfo.js";
 import { getSubscriptionPricing } from "./settings.controller.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
 import { visibleVendorWhere, visibleProductWhere, absUrl, siteUrl } from "../lib/partnerDto.js";
@@ -238,7 +239,7 @@ export async function createPartnerOrder(req, res) {
 
   let created;
   try {
-    created = await placeOrder(data, { partnerId, idempotencyKey: key });
+    created = await placeOrder(data, { partnerId, idempotencyKey: key, requestInfo: captureOrderRequest(req, null, "PARTNER_API") });
   } catch (err) {
     // Dos peticiones simultáneas con la misma clave: gana una, la otra recibe ese mismo pedido.
     if (err?.code === "P2002") {

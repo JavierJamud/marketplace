@@ -1,5 +1,6 @@
 import * as usageController from "../controllers/usage.controller.js";
 import * as vendorManage from "../controllers/adminVendorManage.controller.js";
+import * as adminOrders from "../controllers/adminOrders.controller.js";
 import { Router } from "express";
 import * as adminController from "../controllers/admin.controller.js";
 import * as announcementsController from "../controllers/announcements.controller.js";
@@ -76,6 +77,11 @@ router.get("/vendors", adminController.listVendors);
 // Página "Gestionar" de cada tienda y tiendas nuevas del panel principal.
 router.get("/vendors/new", vendorManage.listNewVendors);
 router.get("/vendors/:id/manage", vendorManage.getVendorManage);
+// Pedidos de una tienda para dar soporte (buscar, filtrar, ver la ficha con IP y dispositivo).
+router.get("/vendors/:id/orders", adminOrders.listVendorOrders);
+router.get("/vendors/:id/order-products", adminOrders.vendorOrderProducts);
+router.get("/orders/lookup", adminOrders.lookupOrder);
+router.get("/orders/:id", adminOrders.getOrderDetail);
 router.patch("/vendors/:id", requireActionCode(vendorChangeAction), adminController.updateVendor);
 // Zona de servicio (provincia y municipios) desde "Editar tienda": mismo código de acción que modificar una tienda.
 router.post("/vendors/:id/zone", requireActionCode("VENDOR_CHANGE"), adminController.adminSyncVendorZone);

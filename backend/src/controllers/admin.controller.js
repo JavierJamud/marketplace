@@ -2059,18 +2059,20 @@ export async function adminSearch(req, res) {
       take: 8,
     }),
     prisma.order.findMany({
-      where: { code: { startsWith: q.toUpperCase() } },
-      select: { id: true, code: true, vendor: { select: { companyName: true } } },
+      // Por cualquier parte del código: "MFX3K2" encuentra "Z-MFX3K2AB" aunque no se escriba el "Z-".
+      where: { code: { contains: q.toUpperCase() } },
+      select: { id: true, code: true, vendorId: true, vendor: { select: { companyName: true } } },
+      orderBy: { createdAt: "desc" },
       take: 8,
     }),
   ]);
 
   res.json({
-    vendors: vendors.map((v) => ({ id: v.id, label: v.companyName, to: "/admin/tiendas" })),
-    customers: customers.map((c) => ({ id: c.id, label: c.fullName ?? c.email, to: "/admin/clientes" })),
-    // No hay una pantalla de detalle de pedido en el admin todavía — el link
-    // más útil que existe hoy es la ficha de la tienda dueña del pedido.
-    orders: orders.map((o) => ({ id: o.id, label: `${o.code} · ${o.vendor.companyName}`, to: "/admin/tiendas" })),
+    // Cada resultado lleva a su ficha: la tienda, el cliente ya buscado y el pedido abierto dentro de su tienda
+    // (antes los tres llevaban a la lista general y había que volver a buscar).
+    vendors: vendors.map((v) => ({ id: v.id, label: v.companyName, to: `/admin/tiendas/${v.id}` })),
+    customers: customers.map((c) => ({ id: c.id, label: c.fullName ?? c.email, to: `/admin/clientes?q=${encodeURIComponent(c.email)}` })),
+    orders: orders.map((o) => ({ id: o.id, label: `${o.code} · ${o.vendor.companyName}`, to: `/admin/tiendas/${o.vendorId}?tab=pedidos&pedido=${o.id}` })),
   });
 }
 

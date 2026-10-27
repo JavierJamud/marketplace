@@ -14,6 +14,7 @@ import { redeemForOrder, recordRedemption, awardOrderPoints, reverseOrderLoyalty
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
+import { captureOrderRequest, clientInfoSchema } from "../lib/orderRequestInfo.js";
 import { upsertVendorCustomer } from "./vendorCustomers.controller.js";
 import { getPlanLimit, assertPlanAllows } from "../lib/planConfig.js";
 import { getOrderFollowUpPolicy } from "./settings.controller.js";
@@ -77,6 +78,8 @@ export const createOrderSchema = z.object({
   discountCode: z.string().trim().optional(),
   // Puntos del programa de la tienda que el cliente quiere usar. Solo la cantidad: el valor y los topes los calcula el servidor.
   loyaltyPoints: z.number().int().min(1).max(10_000_000).optional(),
+  // Zona horaria, pantalla e idioma que informa el navegador; solo lo ve el admin (lib/orderRequestInfo.js).
+  clientInfo: clientInfoSchema,
 });
 
 // En el pedido se guarda en mayúsculas (COD, ONLINE, CASH, TABLE...), como siempre.
@@ -104,7 +107,7 @@ export async function createOrder(req, res) {
   // de reto 2FA o el de una sesión cerrada no cuentan, así nadie gasta puntos ajenos sin el segundo factor).
   const customerId = (await resolveSessionUser(req))?.id;
 
-  const order = await placeOrder(data, { customerId });
+  const order = await placeOrder(data, { customerId, requestInfo: captureOrderRequest(req, data.clientInfo, "WEB") });
   res.status(201).json({ order });
 }
 
@@ -157,7 +160,8 @@ export async function quoteShipping(req, res) {
   res.json({ shipping });
 }
 
-export async function placeOrder(data, { customerId, partnerId = null, idempotencyKey = null } = {}) {
+// requestInfo: IP y dispositivo de la solicitud (captureOrderRequest), guardados aparte para el admin.
+export async function placeOrder(data, { customerId, partnerId = null, idempotencyKey = null, requestInfo = null } = {}) {
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
 
@@ -363,6 +367,7 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
         tableNumber: data.tableNumber,
         partnerId,
         idempotencyKey,
+        ...(requestInfo ? { requestInfo: { create: requestInfo } } : {}),
         total,
         discountCodeId,
         discountAmount,
@@ -458,9 +463,24 @@ export async function listMyOrders(req, res) {
 
   const orders = await prisma.order.findMany({
     where: { vendorId: vendor.id },
-    include: { items: true, events: { orderBy: { createdAt: "asc" } } },
+    // Nunca requestInfo (IP y dispositivo): es solo para el admin.
+    include: { items: true, events: { orderBy: { createdAt: "asc" } }, discountCode: { select: { code: true } } },
     orderBy: { createdAt: "desc" },
     take: 50,
+  });
+
+  // Provincia y municipio de entrega por nombre: el pedido guarda solo los ids, y la tienda veía únicamente la dirección escrita.
+  const [provinces, municipalities] = await Promise.all([
+    prisma.province.findMany({ where: { id: { in: [...new Set(orders.map((o) => o.shippingProvinceId).filter(Boolean))] } }, select: { id: true, name: true, country: { select: { name: true } } } }),
+    prisma.municipality.findMany({ where: { id: { in: [...new Set(orders.map((o) => o.shippingMunicipalityId).filter(Boolean))] } }, select: { id: true, name: true } }),
+  ]);
+  const provinceById = new Map(provinces.map((p) => [p.id, p]));
+  const municipalityById = new Map(municipalities.map((m) => [m.id, m.name]));
+  const withPlace = (o) => ({
+    ...o,
+    provinceName: provinceById.get(o.shippingProvinceId)?.name ?? null,
+    countryName: provinceById.get(o.shippingProvinceId)?.country?.name ?? null,
+    municipalityName: municipalityById.get(o.shippingMunicipalityId) ?? null,
   });
 
   let tableOrders = [];
@@ -508,7 +528,7 @@ export async function listMyOrders(req, res) {
     ...(o.autoCancelledAt ? { canReactivate: !reactivateBlocker(o, now), reactivateBlockedReason: reactivateBlocker(o, now) } : {}),
   });
 
-  res.json({ orders: orders.map((o) => withFollowUp(posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o)), followUpHours: followUp.enabled ? followUp.cancelHours : null, tableOrders });
+  res.json({ orders: orders.map((o) => withFollowUp(withPlace(posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o))), followUpHours: followUp.enabled ? followUp.cancelHours : null, tableOrders });
 }
 
 // Bloque 52: decremento/incremento atómico de stock POR TALLA. `sizeStock`
