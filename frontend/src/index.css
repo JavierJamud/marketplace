@@ -163,12 +163,24 @@
   color: theme("colors.on-surface.DEFAULT");
 }
 
+/* Azul de Nova en la plataforma (botón del chat y cara de Nova en los paneles,
+   NovaFace.jsx). El azul eléctrico del logo (#38b6ff a #0050f0) era el único
+   color brillante y frío en una paleta sobria (navy #0e1a28, naranja #fe9800,
+   teal #337475, fondos cálidos) y desentonaba; este es el mismo tono, más
+   profundo. Los ojos y la boca blancos contrastan al menos 4,7:1 con la parte
+   más clara (antes 2,26:1) y el botón 4,5:1 o más con los fondos claros. */
+:root {
+  --nova-light: #2f6fe0;
+  --nova-mid: #2459c4;
+  --nova-deep: #1a46a3;
+}
+
 /* Botón flotante del chatbot (web pública y tiendas), Bloque 48: 3 divs
    (left-eye/right-eye/mouth) que por defecto forman 3 puntos en fila y se
    reacomodan con CSS puro en hover (sonrisa ancha) y con el chat abierto
    (.active, sonrisa asimétrica rotada). La silueta (esquina inferior derecha
    recta) ya era la de la burbuja de Nova; ahora también lleva su degradado
-   azul (#38b6ff a #0050f0) y una sombra azul, en vez del navy #232f3e.
+   azul (variables --nova-*, abajo) y una sombra azul, en vez del navy #232f3e.
    Pedido explícito: se mantiene esta animación, no la cara fija de Nova.
    La entrada (animate-fade-up, ver ChatFaceButton.jsx) es la misma de la
    burbuja de notificación de al lado. Vive fuera de cualquier @layer. */
@@ -176,8 +188,8 @@
   box-sizing: border-box;
   width: 60px;
   height: 60px;
-  background: linear-gradient(135deg, #38b6ff 0%, #1a7dff 55%, #0050f0 100%);
-  box-shadow: 0 8px 16px -4px rgba(0, 80, 240, 0.45);
+  background: linear-gradient(135deg, var(--nova-light) 0%, var(--nova-mid) 55%, var(--nova-deep) 100%);
+  box-shadow: 0 8px 16px -4px rgb(26 70 163 / 0.45);
   border-radius: 100px 100px 0 100px;
   display: flex;
   align-items: center;
@@ -188,7 +200,7 @@
   padding: 0;
 }
 .chat-face-btn:focus-visible {
-  outline: 2px solid #0050f0;
+  outline: 2px solid var(--nova-deep);
   outline-offset: 3px;
 }
 .chat-face-btn > div {
@@ -225,7 +237,7 @@
 @media screen and (min-width: 1000px) {
   .chat-face-btn:hover {
     transform: translateY(-10px);
-    box-shadow: 0 12px 20px -4px rgba(0, 80, 240, 0.55);
+    box-shadow: 0 12px 20px -4px rgb(26 70 163 / 0.55);
   }
   .chat-face-btn:hover .chat-face-left-eye {
     top: 35%;

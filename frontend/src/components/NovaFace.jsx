@@ -3,7 +3,8 @@ import { useId } from "react";
 // Nova, el agente de IA de Baznova: la burbuja azul del logo (redonda, con la esquina inferior derecha recta), dos ojos
 // blancos (el derecho más abajo) y la sonrisa con el borde de arriba inclinado. Medidas tomadas del logo original en un
 // lienzo de 100 x 100. Es el ícono de todos los chats con IA (web pública, panel de vendedor y admin), así el bot se
-// reconoce igual en todas partes.
+// reconoce igual en todas partes. Los colores son las variables --nova-* de index.css (un azul más profundo que el
+// del logo, para que combine con la paleta de la plataforma).
 // `happy`: ojos felices (^ ^), para cuando el chat está abierto o el cursor pasa encima. Los ojos abiertos parpadean
 // con CSS (.nova-face en index.css), que se apaga con "reducir movimiento".
 const BUBBLE = "M50 8C26.8 8 8 26.8 8 50s18.8 42 42 42h38.5c1.9 0 3.5-1.6 3.5-3.5V50C92 26.8 73.2 8 50 8Z";
@@ -14,9 +15,9 @@ export function NovaFace({ happy = false, className = "" }) {
     <svg viewBox="8 8 84 84" aria-hidden="true" focusable="false" className={`nova-face ${happy ? "is-happy" : ""} ${className}`}>
       <defs>
         <linearGradient id={`nova-g${id}`} x1="0.15" y1="0.1" x2="0.9" y2="0.95">
-          <stop offset="0%" stopColor="#38b6ff" />
-          <stop offset="55%" stopColor="#1a7dff" />
-          <stop offset="100%" stopColor="#0050f0" />
+          <stop offset="0%" style={{ stopColor: "var(--nova-light)" }} />
+          <stop offset="55%" style={{ stopColor: "var(--nova-mid)" }} />
+          <stop offset="100%" style={{ stopColor: "var(--nova-deep)" }} />
         </linearGradient>
       </defs>
       <path d={BUBBLE} fill={`url(#nova-g${id})`} />
