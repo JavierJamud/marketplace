@@ -163,116 +163,90 @@
   color: theme("colors.on-surface.DEFAULT");
 }
 
-/* Bloque 48 (ajustado a pedido explícito post-entrega): botón flotante del
-   chatbot — 3 divs (left-eye/right-eye/mouth) que por defecto forman 3
-   puntos en fila, y se reacomodan con CSS puro en hover/click para armar
-   una cara. Más chico que la primera versión (60px, no 80px), navy de
-   marca (primary-container #232f3e, el mismo del header — el dueño del
-   negocio pidió cambiarlo del teal original) y una transición más rápida
-   (0.2s, no 0.3s) para que se sienta más "responsivo" al touch/click. La
-   entrada (animate-fade-up, ver ChatFaceButton.jsx) es la misma animación
-   que ya usa la burbuja de notificación de al lado, para que combinen.
-   Vive fuera de cualquier @layer: no hay ninguna clase de Tailwind con
-   estos nombres, así que no hace falta pelear el orden de capas. */
+/* Botón flotante del chatbot (web pública y tiendas): la cara de Nova, el agente
+   de IA (NovaFace.jsx), en vez de los 3 puntos navy del Bloque 48. Mismo tamaño
+   (60px, 52px en celular) y la misma entrada animate-fade-up que la burbuja de
+   notificación de al lado. La sombra es azul para que la burbuja se despegue del
+   fondo claro sin el gris pesado de antes. Vive fuera de cualquier @layer: no
+   hay ninguna clase de Tailwind con estos nombres. */
+/* Sin `position`: cada widget lo fija con la clase `fixed` de Tailwind, y esta regla sin capa la pisaría. */
 .chat-face-btn {
   box-sizing: border-box;
   width: 60px;
   height: 60px;
-  background-color: #232f3e;
-  box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.24);
-  border-radius: 100px 100px 0 100px;
-  display: flex;
-  align-items: center;
-  justify-content: space-evenly;
-  transition: all ease-in-out 0.2s;
-  cursor: pointer;
-  border: none;
   padding: 0;
+  border: none;
+  background: transparent;
+  /* Misma silueta que la burbuja (esquina inferior derecha recta) para que el foco la siga. */
+  border-radius: 50% 50% 6px 50%;
+  filter: drop-shadow(0 8px 12px rgba(0, 80, 240, 0.35));
+  transition: transform ease-in-out 0.2s, filter ease-in-out 0.2s;
+  cursor: pointer;
 }
-.chat-face-btn > div {
-  position: relative;
-  width: 60px;
-  height: 60px;
+.chat-face-btn:focus-visible {
+  outline: 2px solid #0050f0;
+  outline-offset: 3px;
 }
-.chat-face-btn div div {
-  width: 9px;
-  height: 9px;
-  background-color: #fff;
-  border-radius: 100px;
-  transition: all ease-in-out 0.2s;
-  position: absolute;
-}
-.chat-face-btn .chat-face-left-eye {
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-}
-.chat-face-btn .chat-face-right-eye {
-  top: 50%;
-  right: 11px;
-  transform: translateY(-50%);
-}
-.chat-face-btn .chat-face-mouth {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) rotateZ(0.001deg);
-}
-
-/* Hover — solo tablet/desktop, chat cerrado (el botón deja de renderizarse
-   en mobile mientras el panel está abierto, ver el widget). */
 @media screen and (min-width: 1000px) {
   .chat-face-btn:hover {
-    transform: translateY(-10px);
-    box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.45);
-  }
-  .chat-face-btn:hover .chat-face-left-eye {
-    top: 35%;
-    left: 15px;
-  }
-  .chat-face-btn:hover .chat-face-right-eye {
-    top: 35%;
-    right: 15px;
-  }
-  .chat-face-btn:hover .chat-face-mouth {
-    width: 30px;
-    height: 15px;
-    border-radius: 0 0 100px 100px;
-    top: 65%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateY(-6px);
+    filter: drop-shadow(0 12px 16px rgba(0, 80, 240, 0.45));
   }
 }
-
-/* Abierto — clase .active cuando el chat está abierto (isOpen === true). */
-.chat-face-btn.active .chat-face-left-eye {
-  top: 28%;
-  left: 11px;
-}
-.chat-face-btn.active .chat-face-right-eye {
-  top: 35%;
-  right: 21px;
-}
-.chat-face-btn.active .chat-face-mouth {
-  width: 26px;
-  height: 14px;
-  border-radius: 0 0 100px 100px;
-  top: 60%;
-  left: 35%;
-  transform: translate(-50%, -50%) rotateZ(15deg);
-}
-
 @media screen and (max-width: 450px) {
   .chat-face-btn {
     width: 52px;
     height: 52px;
   }
-  .chat-face-btn > div {
-    width: 52px;
-    height: 52px;
+}
+
+/* Cara de Nova: los ojos abiertos parpadean cada pocos segundos; con .is-happy (o
+   el cursor encima del botón del chat o de un contenedor .nova-hover) pasan a ojos felices ^ ^. */
+.nova-face {
+  display: block;
+  overflow: visible;
+}
+.nova-face-eyes ellipse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nova-blink 4.2s infinite;
+}
+.nova-face-eyes,
+.nova-face-happy {
+  transition: opacity 0.15s ease-in-out;
+}
+.nova-face-happy {
+  opacity: 0;
+}
+.nova-face.is-happy .nova-face-eyes {
+  opacity: 0;
+}
+.nova-face.is-happy .nova-face-happy {
+  opacity: 1;
+}
+@media screen and (min-width: 1000px) {
+  .chat-face-btn:hover .nova-face-eyes,
+  .nova-hover:hover .nova-face-eyes {
+    opacity: 0;
   }
-  .chat-face-btn > div div {
-    width: 7px;
-    height: 7px;
+  .chat-face-btn:hover .nova-face-happy,
+  .nova-hover:hover .nova-face-happy {
+    opacity: 1;
+  }
+}
+@keyframes nova-blink {
+  0%,
+  94%,
+  100% {
+    transform: scaleY(1);
+  }
+  97% {
+    transform: scaleY(0.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nova-face-eyes ellipse {
+    animation: none;
   }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, MessageSquareText, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
+import { NovaFace } from "../NovaFace.jsx";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api.js";
 import BusinessAssistantPanel from "./BusinessAssistantPanel.jsx";
@@ -18,6 +19,9 @@ import { lockPageScroll } from "../../lib/scrollLock.js";
 // círculo azul marino con el chat en naranja, y el nombre al lado. La cabecera
 // del chat (título, historial, chat nuevo, cerrar) ahora vive en el propio
 // panel, que solo se monta al abrir.
+//
+// Pedido explícito: el ícono pasa a ser la cara de Nova (NovaFace.jsx), el
+// mismo del chat de la web pública, así el bot se reconoce igual en todas partes.
 export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFree, intro = "Conectado a tu negocio, solo lectura", isAdmin = false }) {
   // Bloque 280 (pedido explícito): si todas las IA están en su límite gratis, el
   // asistente se oculta también en los paneles (mismo dato que usa la tienda).
@@ -135,13 +139,18 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Cerrar el asistente de negocio" : "Abrir el asistente de negocio"}
         aria-expanded={open}
-        className={`group fixed bottom-4 right-4 z-40 flex h-14 [html[data-camera-open]_&]:hidden items-center gap-2.5 rounded-full border border-surface-container-high bg-surface-container-lowest py-1.5 pl-1.5 pr-5 text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-8px_rgba(14,26,40,0.45)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6 ${
+        className={`nova-hover group fixed bottom-4 right-4 z-40 flex h-14 [html[data-camera-open]_&]:hidden items-center gap-2.5 rounded-full border border-surface-container-high bg-surface-container-lowest py-1.5 pl-1.5 pr-5 text-on-surface shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-8px_rgba(14,26,40,0.45)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6 ${
           open ? "max-sm:hidden" : ""
         }`}
       >
-        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-secondary-container">
-          {open ? <X className="h-5 w-5" aria-hidden="true" /> : <MessageSquareText className="h-5 w-5" aria-hidden="true" />}
-        </span>
+        {/* La cara de Nova, el mismo ícono del chat de la web pública; abierto, el círculo navy con la X deja claro que cierra. */}
+        {open ? (
+          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-white">
+            <X className="h-5 w-5" aria-hidden="true" />
+          </span>
+        ) : (
+          <NovaFace className="h-11 w-11 flex-shrink-0" />
+        )}
         <span className="text-[14px] font-bold leading-none">
           {open ? (
             "Cerrar"

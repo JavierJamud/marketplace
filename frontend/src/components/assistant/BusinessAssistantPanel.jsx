@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatMarkdown } from "../ChatMarkdown.jsx";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, MessageSquareText, Plus, RotateCcw, Square, Trash2, X, ChevronLeft } from "lucide-react";
+import { ArrowUp, ArrowRight, Check, ChevronDown, History, Maximize2, Mic, Minimize2, Plus, RotateCcw, Square, Trash2, X, ChevronLeft } from "lucide-react";
+import { NovaFace } from "../NovaFace.jsx";
 import { api } from "../../lib/api.js";
 import { useVoiceRecorder } from "../../lib/useVoiceRecorder.js";
 import { RecordingIndicator, TranscribingIndicator } from "../RecordingIndicator.jsx";
@@ -520,9 +521,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </button>
         ) : (
-          <span className="ml-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-secondary-container text-primary">
-            <MessageSquareText className="h-[18px] w-[18px]" aria-hidden="true" />
-          </span>
+          <NovaFace className="ml-1 h-9 w-9 flex-shrink-0" />
         )}
         <div className="min-w-0 flex-1 px-1.5">
           <p className="truncate text-[15px] font-bold leading-5">{showHistory ? "Tus conversaciones" : "Asistente de negocio"}</p>
