@@ -7,6 +7,8 @@ import { describeOrderRequest } from "../lib/orderRequestInfo.js";
 import { describeUserAgent } from "../lib/userAgent.js";
 import { ID_TYPE_LABEL } from "../lib/orderSummary.js";
 import { logActivity } from "../lib/activityLog.js";
+import { adminNoticeToVendor } from "../lib/notify.js";
+import { updateOrderStatus, confirmOrderSale, reactivateOrder } from "./orders.controller.js";
 
 // Pedidos de una tienda para dar soporte desde el admin (/admin/tiendas/:id, pestaña Pedidos): buscar, filtrar y abrir la
 // ficha completa de un pedido, incluida la IP y el dispositivo (OrderRequestInfo), que la tienda nunca ve.
@@ -221,4 +223,42 @@ export async function lookupOrder(req, res) {
     take: 8,
   });
   res.json({ matches });
+}
+
+// --- Gestionar el pedido desde el admin ----------------------------------------------------------------------------------
+// Mismas funciones que usa la tienda (orders.controller.js), sobre la tienda del pedido: el stock, las ventas, los puntos, la
+// caja y el correo al cliente se comportan igual. La tienda recibe el aviso solo si el admin marcó "Avisar a la tienda".
+
+const STATUS_ES = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };
+
+async function actOnOrder(req) {
+  const order = await prisma.order.findUnique({ where: { id: req.params.id }, select: { id: true, code: true, vendorId: true } });
+  if (!order) throw new AppError("Pedido no encontrado.", 404);
+  req.adminOrderVendorId = order.vendorId;
+  return order;
+}
+
+const notice = (order, body) => adminNoticeToVendor(order.vendorId, `Pedido ${order.code} actualizado por el equipo`, body);
+
+// POST /admin/orders/:id/confirm: confirmar la venta (descuenta el stock y suma ventas).
+export async function adminConfirmOrder(req, res) {
+  const order = await actOnOrder(req);
+  await confirmOrderSale(req, res);
+  await notice(order, `Confirmamos la venta del pedido ${order.code}. Ya aparece como "Vendido" en tu panel.`);
+}
+
+// PATCH /admin/orders/:id/status: { status, reason }
+export async function adminUpdateOrderStatus(req, res) {
+  const order = await actOnOrder(req);
+  await updateOrderStatus(req, res);
+  const status = String(req.body?.status ?? "");
+  const reason = status === "CANCELLED" && req.body?.reason ? ` Motivo: ${String(req.body.reason).trim()}` : "";
+  await notice(order, `Pasamos el pedido ${order.code} a "${STATUS_ES[status] ?? status}".${reason}`);
+}
+
+// POST /admin/orders/:id/reactivate: retomar un pedido que el sistema cerró por falta de respuesta.
+export async function adminReactivateOrder(req, res) {
+  const order = await actOnOrder(req);
+  await reactivateOrder(req, res);
+  await notice(order, `Reactivamos el pedido ${order.code}: vuelve a estar pendiente en tu panel.`);
 }

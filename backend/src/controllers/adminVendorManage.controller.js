@@ -182,7 +182,7 @@ export async function getVendorManage(req, res) {
     featuredInHome: "Destacada en la portada",
   };
   const planInfo = {
-    kind: isTrial ? "TRIAL" : vendor.planType === "BUSINESS" ? "PAID" : "FREE",
+    kind: isTrial ? "TRIAL" : vendor.planType !== "REGULAR" ? "PAID" : "FREE",
     name: plan?.displayName ?? vendor.planType,
     nextPaymentDueDate: vendor.nextPaymentDueDate ?? null,
     paymentMethod: vendor.verification?.paymentMethod ?? null,
@@ -207,6 +207,7 @@ export async function getVendorManage(req, res) {
       companyAddress: vendor.companyAddress ?? null,
       description: vendor.description ?? null,
       category: vendor.businessCategory?.name ?? vendor.category?.name ?? null,
+      businessCategoryId: vendor.businessCategoryId ?? null,
       locations: zones,
       // Zonas tal como están guardadas, para editarlas desde "Editar tienda".
       zoneLocations: vendor.locations.map((l) => ({ id: l.id, provinceId: l.provinceId, municipalityId: l.municipalityId, province: l.province, municipality: l.municipality })),

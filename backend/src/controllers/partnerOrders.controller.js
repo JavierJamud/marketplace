@@ -6,7 +6,6 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { placeOrder } from "./orders.controller.js";
 import { captureOrderRequest } from "../lib/orderRequestInfo.js";
-import { getSubscriptionPricing } from "./settings.controller.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
 import { visibleVendorWhere, visibleProductWhere, absUrl, siteUrl } from "../lib/partnerDto.js";
 import { orderWhatsAppText, whatsappUrl, mixedTotalLabel } from "../lib/orderWhatsapp.js";
@@ -262,18 +261,18 @@ export async function getPartnerOrder(req, res) {
 
 // Planes con el precio base de Baznova y el extra que este socio le suma. Se arma igual para la API y el panel.
 export async function plansForPartner(partnerId) {
-  const [configs, pricing, extras, counts] = await Promise.all([
+  const [configs, extras, counts] = await Promise.all([
     getAllPlanConfigs(),
-    getSubscriptionPricing(),
     prisma.partnerPlanPrice.findMany({ where: { partnerId } }),
     prisma.vendor.groupBy({ by: ["planType"], where: { partnerId }, _count: { _all: true } }),
   ]);
   const extraBy = new Map(extras.map((e) => [e.planType, e]));
   const countBy = new Map(counts.map((c) => [c.planType, c._count._all]));
   return configs.map((c) => {
-    const paid = c.planType !== "REGULAR";
-    const baseCup = paid ? Number(pricing.cupPricePerMonth) : 0;
-    const baseUsd = paid ? Number(pricing.cardPricePerMonthUsd) : 0;
+    // Precio base de Baznova para ese plan (0 si es gratis por ahora o se contrata hablando con el equipo).
+    const paid = !c.isFree && !c.contactOnly;
+    const baseCup = paid ? Number(c.priceCup) : 0;
+    const baseUsd = paid ? Number(c.priceUsd) : 0;
     const extra = extraBy.get(c.planType);
     const extraCup = Number(extra?.extraCup ?? 0);
     const extraUsd = Number(extra?.extraUsd ?? 0);

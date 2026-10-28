@@ -15,6 +15,8 @@ import { orderCancelledVendorEmail } from "../templates/orderCancelledVendor.js"
 import { orderOverdueVendorEmail } from "../templates/orderOverdueVendor.js";
 import { orderCancelHelpEmail } from "../templates/orderCancelHelp.js";
 import { orderFollowUpVendorEmail, orderAutoCancelledCustomerEmail, orderReactivatedCustomerEmail } from "../templates/orderFollowUp.js";
+import { orderDelayVendorEmail, orderDelayCustomerEmail } from "../templates/orderDelay.js";
+import { loyaltyPointsEmail } from "../templates/loyaltyPoints.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
 import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
@@ -199,6 +201,36 @@ export async function sendOrderAutoCancelledCustomerEmail(order, { hours }) {
   return result;
 }
 
+// Pedido detenido (services/orderDelay.service.js). A la tienda le llega siempre, como los demás avisos de seguimiento; al
+// cliente es un aviso de la plataforma (no depende del plan de la tienda) y su respuesta le llega a la tienda. Best-effort.
+export async function sendOrderDelayVendorEmail(order, { hours }) {
+  const vendor = await prisma.vendor.findUnique({ where: { id: order.vendorId }, select: { email: true, user: { select: { email: true } } } });
+  const to = vendor?.email || vendor?.user?.email;
+  if (!to) return { ok: false, error: "La tienda no tiene correo" };
+  const { subject, html } = await orderDelayVendorEmail({ order, hours });
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "ORDER_OVERDUE_VENDOR", to, subject, result });
+  return result;
+}
+
+export async function sendOrderDelayCustomerEmail(order, { hours }) {
+  if (!order.customerEmail) return { ok: false, skipped: true };
+  const { subject, html } = await orderDelayCustomerEmail({ order, hours });
+  const result = await sendViaResend({ to: order.customerEmail, subject, html, replyTo: order.vendor.email || undefined });
+  await logEmail({ vendorId: order.vendorId, orderId: order.id, type: "STATUS_UPDATE", to: order.customerEmail, subject, result });
+  return result;
+}
+
+// Aviso al cliente de un movimiento de sus puntos (services/loyaltyNotify.service.js). Es sobre su saldo, no publicidad: no
+// depende de marketingEmails ni del plan de la tienda. La respuesta le llega a la tienda. Best-effort.
+export async function sendLoyaltyPointsEmail({ to, vendor, orderId = null, ...data }) {
+  if (!to) return { ok: false, skipped: true };
+  const { subject, html } = await loyaltyPointsEmail({ vendor, ...data });
+  const result = await sendViaResend({ to, subject, html, fromName: vendor.companyName, replyTo: vendor.email || undefined });
+  await logEmail({ vendorId: vendor.id, orderId, type: "LOYALTY_POINTS", to, subject, result });
+  return result;
+}
+
 export async function sendOrderReactivatedCustomerEmail(order) {
   if (!order.customerEmail) return { ok: false, skipped: true };
   const { subject, html } = await orderReactivatedCustomerEmail({ order });
@@ -330,6 +362,22 @@ export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue)
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VERIFICATION_PAYMENT_REMINDER", to: vendor.user.email, subject, result });
+  return result;
+}
+
+// Avisos del cobro de un plan sin insignia (planBilling.service.js): fecha de cobro, vencimiento, pedidos pausados y
+// suspensión por falta de pago. Llevan a Suscripción, donde se paga.
+export async function sendPlanBillingEmail(vendor, { title, message }) {
+  if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  const { subject, html } = await verificationUpdateEmail({
+    type: "PLAN_BILLING_NOTICE",
+    vendorName: vendor.companyName,
+    title,
+    message,
+    ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
+  });
+  const result = await sendViaResend({ to: vendor.user.email, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "PLAN_BILLING_NOTICE", to: vendor.user.email, subject, result });
   return result;
 }
 

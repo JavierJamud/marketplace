@@ -621,8 +621,8 @@ export function ListingPolicyCard() {
 const AUDIENCE_LABEL = {
   all_customers: "Todos los clientes",
   all_vendors: "Todos los vendedores",
-  regular_vendors: "Vendedores Plan Regular",
-  business_vendors: "Vendedores Plan Business",
+  regular_vendors: "Tiendas del plan Básico",
+  business_vendors: "Tiendas con plan de pago",
   unverified_vendors: "Vendedores no verificados",
   specific_vendor: "Un vendedor específico",
   specific_customer: "Un cliente específico",
@@ -1049,7 +1049,7 @@ function TargetedOffersSection() {
     <div>
       <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-[560px] text-[13.5px] text-outline">
-          Ofertas dirigidas a un cliente, a un vendedor, o a un grupo puntual (ej. solo Plan Business) — por correo, popup al
+          Ofertas dirigidas a un cliente, a un vendedor, o a un grupo puntual (ej. solo tiendas con plan de pago) — por correo, popup al
           iniciar sesión, o ambas.
         </p>
         <button

@@ -522,7 +522,7 @@ export default function Store() {
           explícito: van ARRIBA de los productos, no abajo del todo) —
           distinta de la sección "Ofertas" del Home: esta vive DENTRO de
           cada tienda, solo visible si tiene al menos una StoreOffer activa. */}
-      <StoreLoyaltyBanner vendorId={v.id} vendorName={v.companyName} />
+      <StoreLoyaltyBanner vendorId={v.id} vendorName={v.companyName} vendorColor={v.color} />
 
       {v.storeOffers?.length > 0 && (
         <div className="container-app pt-8">

@@ -80,7 +80,7 @@ export function DocsApprovedPopup({ vendor }) {
                 ¡Felicidades, aprobamos tu cuenta!
               </h2>
               <p className="mb-4 text-[13.5px] leading-relaxed text-on-surface-variant">
-                El equipo de revisión ya aprobó los documentos de <strong className="text-on-surface">{vendor.companyName}</strong>. Solo te falta terminar de configurarla para tener todos los beneficios del plan Premium.
+                El equipo de revisión ya aprobó los documentos de <strong className="text-on-surface">{vendor.companyName}</strong>. Solo te falta terminar de configurarla para tener todos los beneficios del plan que elijas.
               </p>
               <ol className="mb-5 space-y-1.5 text-left text-[13px]">
                 <li className="flex items-center gap-2 text-on-surface-variant">

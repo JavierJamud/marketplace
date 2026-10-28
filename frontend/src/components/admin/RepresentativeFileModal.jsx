@@ -15,7 +15,7 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 const STATUS_LABEL = {
   NOT_STARTED: "Sin iniciar", PENDING_DOCS: "Documentos subidos", IN_REVIEW: "En revisión", PENDING_PAYMENT: "Falta el pago", VERIFIED: "Verificada",
-  PAYMENT_FAILED: "Pago fallido", SUSPENDED: "Suspendida", REJECTED: "Rechazada", PLAN_ENDED: "Volvió a Regular", ACTIVE: "Activa",
+  PAYMENT_FAILED: "Pago fallido", SUSPENDED: "Suspendida", REJECTED: "Rechazada", PLAN_ENDED: "Volvió a Básico", ACTIVE: "Activa",
   PENDING: "Pendiente", EVIDENCE_REQUESTED: "Evidencia solicitada", RESOLVED: "Resuelto", DISMISSED: "Descartado", APPROVED: "Aprobada",
 };
 const label = (s) => STATUS_LABEL[s] ?? s ?? "";

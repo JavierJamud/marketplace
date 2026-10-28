@@ -30,9 +30,13 @@ enum Role {
   VENDOR_STAFF
 }
 
+// Planes de las tiendas. Los identificadores se conservan aunque cambie el nombre visible (PlanConfig.displayName):
+// REGULAR = Básico (el gratis), STANDARD = Estándar, BUSINESS = Premium, ENTERPRISE = Empresarial (se contrata por WhatsApp).
 enum PlanType {
   REGULAR
   BUSINESS
+  STANDARD
+  ENTERPRISE
 }
 
 // Preferencia del vendedor sobre sus pedidos. Todo pedido entra SIEMPRE a su panel (/vendedor/pedidos) con aviso en vivo,
@@ -180,6 +184,8 @@ enum EmailType {
   // — aviso proactivo del trial gratuito de 30 días (7/3/1 días antes de
   // vencer), nunca un cambio de estado real.
   TRIAL_EXPIRING_SOON
+  // Avisos del cobro de un plan sin insignia (planBilling.service.js).
+  PLAN_BILLING_NOTICE
   // Bloque 71: código de verificación para cambiar el correo de la cuenta —
   // mismo criterio que TWO_FACTOR_CODE/REGISTRATION_CODE (tipo propio).
   EMAIL_CHANGE_CODE
@@ -220,6 +226,9 @@ enum EmailType {
   // oferta). Respetan User.marketingEmails.
   CART_REMINDER
   STORE_REMINDER
+  // Avisos al cliente de su programa de puntos: puntos ganados (con bono), regalados o quitados por la tienda, y devueltos
+  // o quitados por un pedido anulado.
+  LOYALTY_POINTS
 }
 
 enum EmailStatus {
@@ -1070,6 +1079,26 @@ model PlanConfig {
   id          String   @id @default(cuid())
   planType    PlanType @unique
   displayName String
+  // Frase corta bajo el nombre en la página de planes, y orden en que se muestra (de menor a mayor).
+  tagline     String?
+  sortOrder   Int      @default(0)
+  // Precio mensual en CUP (transferencia) y en USD (tarjeta). `listPrice*` es el precio de lista que se muestra tachado
+  // mientras el plan es gratis (`isFree`). Al apagar `isFree` el plan pasa a cobrarse y se avisa a sus tiendas.
+  priceCup     Int     @default(0)
+  priceUsd     Float   @default(0)
+  listPriceCup Int?
+  listPriceUsd Float?
+  isFree       Boolean @default(false)
+  // Sin precio publicado: se contrata escribiendo al equipo por WhatsApp (Empresarial).
+  contactOnly  Boolean @default(false)
+  // El "más elegido" de la página de planes (uno solo a la vez).
+  highlighted  Boolean @default(false)
+  // Da la insignia de tienda verificada (exige pasar la verificación de documentos).
+  grantsBadge  Boolean @default(false)
+  isPublic     Boolean @default(true)
+  // Descuentos por pagar varios meses juntos: [{ months, cup, usd }] con el % en cada moneda. Se aplica el escalón más alto
+  // alcanzado (12 meses o más = el de 12).
+  monthDiscounts Json  @default("[]")
   // Lista de beneficios en texto libre que ve el vendedor/comprador — antes
   // SiteSettings.planFeaturesRegular/Business.
   features    String[] @default([])
@@ -1259,6 +1288,13 @@ model Vendor {
   suspensionReason      String?
   reactivatedAt         DateTime?
   reactivationReason    String?
+  // Cobro de un plan de pago sin insignia (el Básico cuando el admin lo vuelve de pago, ver planBilling.service.js).
+  // billingSuspendedAt: la suspensión es por falta de pago (no por inactividad ni por el admin): la tienda no se ve,
+  // pero el dueño entra a su panel y puede pagar. billingNoticeStage/billingNoticeDue: último aviso de cobro enviado
+  // ("before", "due", "after", "suspended") y para qué fecha de cobro, así cada aviso sale una sola vez.
+  billingSuspendedAt    DateTime?
+  billingNoticeStage    String?
+  billingNoticeDue      DateTime?
   // Para no reenviar el recordatorio de 7 días todos los días — se re-manda
   // cada 7 días de inactividad continua (día 7, 14, 21... hasta reactivar o
   // llegar a los 90 días de suspensión automática).
@@ -2284,6 +2320,9 @@ model VerificationRequest {
   // es lo que el VENDEDOR declara haber pagado al subir el comprobante (lo
   // que el admin compara contra el total esperado), no el precio de lista.
   paymentMonths   Int?
+  // Plan elegido al pagar la verificación y descuento por meses aplicado (%).
+  paymentPlanType        PlanType?
+  paymentDiscountPercent Int?
   paymentAmount   Decimal? @db.Decimal(12, 2)
   paymentCurrency String?
   // Datos de quién hizo el pago — obligatorios al subir el comprobante.
@@ -2443,6 +2482,9 @@ model SubscriptionPayment {
   months        Int
   amount        Decimal? @db.Decimal(12, 2)
   currency      String
+  // Plan que se paga y descuento por meses aplicado (%), tal como estaban al pedir el pago.
+  planType        PlanType?
+  discountPercent Int?
 
   payerName          String?
   payerAccountNumber String?
@@ -2622,6 +2664,11 @@ model SiteSettings {
   orderReminderHours      Int     @default(24)
   orderCancelWarningHours Int     @default(48)
   orderAutoCancelHours    Int     @default(72)
+  // Pedido detenido (services/orderDelay.service.js): si pasa estas horas sin cambiar de estado ("Vendido" o "En camino"), se
+  // avisa a la tienda y al cliente del retraso. Con esto encendido, el cliente también recibe aviso cuando su pedido "Nuevo"
+  // llega al recordatorio a la tienda.
+  orderDelayEnabled       Boolean @default(true)
+  orderDelayHours         Int     @default(48)
   maintenanceMode    MaintenanceMode @default(OFF)
   // Texto opcional que ven los visitantes; sin él se muestra uno por defecto.
   maintenanceMessage String?
@@ -2751,6 +2798,7 @@ model SiteSettings {
   // puede verificar/notificar su pago — opcional igual que el resto de estos
   // datos, el vendedor solo lo copia, nunca lo escribe.
   cupBankPhone         String?
+  // Ya no se usan para cobrar: cada plan tiene su precio en PlanConfig (priceCup/priceUsd). Se conservan por historial.
   cupSubscriptionPriceCup Int @default(2500)
   // Bloque 150: precio mensual en USD del cobro con tarjeta vía Stripe —
   // antes una constante hardcodeada (SUBSCRIPTION_PRICE_USD = 25 en
@@ -2761,6 +2809,9 @@ model SiteSettings {
   // Días de la prueba gratis del plan Pro. Se aplica a las pruebas que se activan desde que se cambia; las que ya están en
   // curso conservan su fecha de fin.
   trialDays Int @default(30)
+  // Tienda que no paga su plan: pasa a modo limitado al vencer y, pasados estos días sin pagar, queda oculta y suspendida
+  // hasta que pague o el admin la reactive.
+  unpaidSuspendDays Int @default(30)
   // Bloque 66 (pedido explícito): catálogo administrable de etiquetas que un
   // vendedor puede elegir para un producto (mismo patrón que
   // productPaymentMethods/availableCurrencies arriba) — "Nuevo" es un valor
@@ -3080,6 +3131,8 @@ enum VendorNotificationType {
   ORDER_REMINDER
   ORDER_CANCEL_WARNING
   ORDER_AUTO_CANCELLED
+  // Pedido detenido en "Vendido" o "En camino" más horas de las que fija el admin.
+  ORDER_DELAYED
 }
 
 model VendorNotification {
@@ -4164,6 +4217,9 @@ model LoyaltyProgram {
   // Mínimo de puntos juntados en la tienda para poder canjearlos, y parte máxima del pedido que se paga con puntos (%).
   minRedeemPoints  Int               @default(10)
   maxRedeemPercent Int               @default(50)
+  // Ganancia aproximada de la tienda por venta (%), opcional. Si la escribe, el programa no puede costarle más de la mitad
+  // (services/loyalty.service.js, programCost): así los puntos nunca se comen lo que gana.
+  marginPercent    Int?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

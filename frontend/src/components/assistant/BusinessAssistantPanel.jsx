@@ -318,6 +318,17 @@ const headerButton =
 // además recibe la recomendación del plan). `embedded`: llena el contenedor del
 // botón flotante. `isOpen`, `onNavigate` y `onClose` los pasa el botón flotante.
 export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPromptsFree, intro, embedded = false, isOpen = true, wide = false, onToggleWide, onNavigate, onClose, friendlyErrors = false }) {
+  // Con el chat abierto, Nova baja la mirada hacia la conversación; arranca mirando arriba (como el botón cerrado) y baja
+  // un instante después, para que se vea el gesto.
+  const [faceDown, setFaceDown] = useState(false);
+  useEffect(() => {
+    if (!isOpen) {
+      setFaceDown(false);
+      return undefined;
+    }
+    const t = setTimeout(() => setFaceDown(true), 180);
+    return () => clearTimeout(t);
+  }, [isOpen]);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   // Con `friendlyErrors` (vendedores) un fallo del asistente nunca muestra el error real:
@@ -521,7 +532,7 @@ export default function BusinessAssistantPanel({ endpoint, quickPrompts, quickPr
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </button>
         ) : (
-          <NovaFace className="ml-1 h-9 w-9 flex-shrink-0" />
+          <NovaFace lookDown={faceDown} className="ml-1 h-9 w-9 flex-shrink-0" />
         )}
         <div className="min-w-0 flex-1 px-1.5">
           <p className="truncate text-[15px] font-bold leading-5">{showHistory ? "Tus conversaciones" : "Asistente de negocio"}</p>

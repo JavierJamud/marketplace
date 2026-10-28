@@ -23,6 +23,7 @@ export const EVENT_LABEL = {
   INVOICE_DOWNLOADED: "Factura generada",
   WARRANTY_SENT: "Garantía enviada al cliente",
   WARRANTY_DOWNLOADED: "Garantía generada",
+  DELAY_NOTICE: "Aviso de retraso a la tienda y al cliente",
 };
 
 const STATUS_LABEL = { NEW: "Pendiente", PREPARING: "Vendido", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Rechazado" };

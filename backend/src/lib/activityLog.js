@@ -21,5 +21,7 @@ export async function logActivity({ actorId, actorRole, vendorId, action, descri
 // el historial (dueño vs. usuario con acceso), sin tener que abrir cada
 // entrada para saberlo.
 export function actorRoleForVendorAction(req) {
+  // El admin también gestiona pedidos de una tienda desde su panel (adminOrders.controller.js).
+  if (req.user?.role === "ADMIN") return "ADMIN";
   return req.user?.role === "VENDOR_STAFF" ? "VENDOR_STAFF" : "VENDOR";
 }

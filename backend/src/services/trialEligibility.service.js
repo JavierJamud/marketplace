@@ -87,7 +87,7 @@ export async function hasHadPremium(vendorId) {
     select: { verificationStatus: true, planType: true, nextPaymentDueDate: true, stripeSubscriptionId: true, verification: { select: { paymentConfirmedAt: true } } },
   });
   if (!vendor) return false;
-  if (PREMIUM_HISTORY_STATUSES.has(vendor.verificationStatus) || vendor.planType === "BUSINESS") return true;
+  if (PREMIUM_HISTORY_STATUSES.has(vendor.verificationStatus) || vendor.planType !== "REGULAR") return true;
   if (vendor.nextPaymentDueDate || vendor.stripeSubscriptionId || vendor.verification?.paymentConfirmedAt) return true;
   const everVerified = await prisma.verificationStatusLog.findFirst({ where: { vendorId, toStatus: "VERIFIED" }, select: { id: true } });
   return !!everVerified;

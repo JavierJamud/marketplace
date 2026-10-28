@@ -46,9 +46,9 @@ export async function isStripeConfigured() {
 // (subscriptionPaymentId en metadata, ver SubscriptionPayment) arman un
 // Checkout Session idéntico salvo la metadata/redirect, así que comparten
 // esta función en vez de duplicar la llamada al SDK dos veces.
-async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam }) {
+async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam, planType = "BUSINESS" }) {
   const stripe = await getStripeClient();
-  const { siteName } = await getBrandSettings();
+  const [{ siteName }, plan] = await Promise.all([getBrandSettings(), getPlanConfig(planType)]);
   if (!stripe) throw new AppError(`El pago con tarjeta no está disponible en este momento — contacta al equipo de ${siteName}.`, 503);
 
   try {
@@ -60,7 +60,7 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
           price_data: {
             currency: "usd",
             product_data: {
-              name: `Suscripción ${siteName} — Plan Business (${months} ${months === 1 ? "mes" : "meses"})`,
+              name: `Suscripción ${siteName}: plan ${plan?.displayName ?? "Premium"} (${months} ${months === 1 ? "mes" : "meses"})`,
               description,
             },
             unit_amount: Math.round(amountUsd * 100),
@@ -68,7 +68,7 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
           quantity: 1,
         },
       ],
-      metadata: { ...metadata, vendorId: vendor.id, months: String(months) },
+      metadata: { ...metadata, vendorId: vendor.id, months: String(months), planType },
       success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=${successParam}`,
       cancel_url: `${env.frontendUrl}/vendedor/verificacion?stripe=cancel`,
     });
@@ -99,13 +99,14 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
 // (checkout.session.completed) ya NO activa la verificación por sí solo —
 // deja la marca `stripePaidAt` y el vendedor sube su comprobante igual que
 // con CUP, un admin finaliza a mano (ver confirmSubscriptionPayment).
-export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd }) {
+export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd, planType = "BUSINESS" }) {
   return createSubscriptionCheckoutSession({
     vendor,
     months,
     amountUsd,
+    planType,
     metadata: { verificationId: verification.id },
-    description: `Verificación y Plan Business para ${vendor.companyName} — ${months} ${months === 1 ? "mes" : "meses"}`,
+    description: `Verificación y plan de ${vendor.companyName}: ${months} ${months === 1 ? "mes" : "meses"}`,
     successParam: "success",
   });
 }
@@ -116,13 +117,14 @@ export async function createVerificationCheckoutSession({ verification, vendor, 
 // tienda YA está VERIFIED — metadata.subscriptionPaymentId (no
 // verificationId) es lo que el webhook usa para saber qué fila de
 // SubscriptionPayment marcar como pagada (ver handleCheckoutCompleted).
-export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd }) {
+export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd, planType = "BUSINESS" }) {
   return createSubscriptionCheckoutSession({
     vendor,
     months,
     amountUsd,
+    planType,
     metadata: { subscriptionPaymentId: subscriptionPayment.id },
-    description: `Renovación del Plan Business para ${vendor.companyName} — ${months} ${months === 1 ? "mes" : "meses"}`,
+    description: `Renovación del plan de ${vendor.companyName}: ${months} ${months === 1 ? "mes" : "meses"}`,
     successParam: "renew-success",
   });
 }
@@ -212,8 +214,8 @@ export async function ensureStripeCustomer(vendor, stripe) {
 }
 
 // Lo que ve la tienda en la página de pago de Stripe: nombre del plan, qué incluye, cada cuánto se cobra y cómo cancelar.
-async function planProductData(months, { trialDays = 0 } = {}) {
-  const [{ siteName, logoUrl }, plan] = await Promise.all([getBrandSettings(), getPlanConfig("BUSINESS")]);
+async function planProductData(months, { trialDays = 0, planType = "BUSINESS" } = {}) {
+  const [{ siteName, logoUrl }, plan] = await Promise.all([getBrandSettings(), getPlanConfig(planType)]);
   const planName = plan?.displayName ?? "Premium";
   const every = months === 1 ? "cada mes" : `cada ${months} meses`;
   const features = buildPlanIncludes(plan).slice(0, 6).join(" · ");
@@ -237,14 +239,15 @@ async function planProductData(months, { trialDays = 0 } = {}) {
 // Página de pago de Stripe para una suscripción con cobro automático. purpose: "subscribe" (pagar ya) o "trial" (registrar
 // la tarjeta, 0 USD hoy, prueba de trialDays). trialEnd: si la tienda ya tiene tiempo pagado (por ejemplo, venía pagando en
 // CUP), el primer cobro se corre hasta esa fecha para no cobrarle dos veces el mismo periodo.
-export async function createCardSubscriptionCheckout({ vendor, months, priceUsd, purpose, trialDays = 0, trialEnd = null }) {
+// `totalUsd`: lo que se cobra cada `months` meses, ya con el descuento del plan (planPrice en lib/planConfig.js).
+export async function createCardSubscriptionCheckout({ vendor, months, priceUsd, totalUsd, planType = "BUSINESS", purpose, trialDays = 0, trialEnd = null }) {
   if (!CARD_INTERVAL_MONTHS.includes(months)) throw new AppError("Elige 1, 3, 6 o 12 meses.", 400);
   const stripe = await stripeOrThrow();
   try {
     const customer = await ensureStripeCustomer(vendor, stripe);
-    const product = await planProductData(months, { trialDays });
-    const total = priceUsd * months;
-    const metadata = { vendorId: vendor.id, months: String(months), purpose };
+    const product = await planProductData(months, { trialDays, planType });
+    const total = totalUsd ?? priceUsd * months;
+    const metadata = { vendorId: vendor.id, months: String(months), purpose, planType };
     // Stripe exige que un fin de prueba fijo esté al menos 2 días en el futuro.
     const useTrialEnd = trialEnd && trialEnd.getTime() - Date.now() > 2 * 24 * 60 * 60 * 1000;
     const firstCharge = trialDays ? new Date(Date.now() + trialDays * 86400000) : useTrialEnd ? trialEnd : null;
@@ -379,7 +382,7 @@ export async function setCardSubscriptionCancelAtPeriodEnd(subscriptionId, cance
 
 // Reactivar una suscripción que ya terminó: se crea otra con la tarjeta guardada y se cobra en el momento. Si Stripe rechaza
 // la tarjeta (o no hay ninguna), devuelve { declined: true } y la tienda va a Stripe a poner otra y pagar.
-export async function chargeSavedCardSubscription({ vendor, months, priceUsd }) {
+export async function chargeSavedCardSubscription({ vendor, months, priceUsd, totalUsd, planType = "BUSINESS" }) {
   const stripe = await stripeOrThrow();
   const customerId = await ensureStripeCustomer(vendor, stripe);
   const customer = await stripe.customers.retrieve(customerId);
@@ -389,11 +392,11 @@ export async function chargeSavedCardSubscription({ vendor, months, priceUsd }) 
     paymentMethod = list.data[0]?.id ?? null;
   }
   if (!paymentMethod) return { declined: true, reason: "no_card" };
-  const product = await planProductData(months);
+  const product = await planProductData(months, { planType });
   try {
     const price = await stripe.prices.create({
       currency: "usd",
-      unit_amount: Math.round(priceUsd * months * 100),
+      unit_amount: Math.round((totalUsd ?? priceUsd * months) * 100),
       recurring: { interval: "month", interval_count: months },
       product_data: { name: product.name },
     });
@@ -403,7 +406,7 @@ export async function chargeSavedCardSubscription({ vendor, months, priceUsd }) 
       default_payment_method: typeof paymentMethod === "string" ? paymentMethod : paymentMethod.id,
       off_session: true,
       payment_behavior: "error_if_incomplete",
-      metadata: { vendorId: vendor.id, months: String(months), purpose: "reactivate" },
+      metadata: { vendorId: vendor.id, months: String(months), purpose: "reactivate", planType },
       description: `${product.name} · ${vendor.companyName}`,
     });
     return { subscription: sub };

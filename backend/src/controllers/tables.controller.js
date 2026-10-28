@@ -8,6 +8,7 @@ import { sendTableOrderStatusEmail } from "../lib/email.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
+import { assertVendorAcceptsOrders } from "../services/planBilling.service.js";
 
 // Bloque 185 (pedido explícito — "se podrán identificar tanto para el
 // restaurante como para el cliente cuáles de los pedidos se realizaron
@@ -1215,7 +1216,7 @@ export async function createTableOrder(req, res) {
     where: { qrToken },
     include: {
       vendor: {
-        select: { id: true, companyName: true, isBlocked: true, status: true, schedules: true, timezone: true, planType: true },
+        select: { id: true, companyName: true, isBlocked: true, status: true, schedules: true, timezone: true, planType: true, nextPaymentDueDate: true, billingNoticeStage: true },
       },
     },
   });
@@ -1223,6 +1224,7 @@ export async function createTableOrder(req, res) {
   // haciendo pedidos reales a una tienda bloqueada o suspendida vía el QR.
   if (!table || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
   if (!(await planAllows(table.vendor.planType, "allowQrTables"))) throw new AppError("Esta tienda no recibe pedidos por mesa en este momento. Pide al personal.", 409);
+  await assertVendorAcceptsOrders(table.vendor);
 
   // Bloque 169 (pedido explícito — "si la tienda está cerrada... no se
   // podrá ordenar hasta que esté en horario de abierto"): mismo cálculo

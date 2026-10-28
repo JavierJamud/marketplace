@@ -71,7 +71,7 @@ const planPriceBody = z.object({
 
 export async function setPortalPlanPrice(req, res) {
   const partner = await myPartner(req);
-  const planType = z.enum(["REGULAR", "BUSINESS"]).parse(req.params.planType);
+  const planType = z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE"]).parse(req.params.planType);
   const { finalCup, finalUsd } = planPriceBody.parse(req.body);
   const current = (await plansForPartner(partner.id)).find((p) => p.planType === planType);
   if (!current) throw new AppError("Plan no encontrado.", 404);

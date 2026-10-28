@@ -2,7 +2,7 @@ import { BlacklistCheckbox } from "../../components/admin/BlacklistCheckbox.jsx"
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, KeyRound, LayoutGrid, ListChecks, MonitorSmartphone, ReceiptText, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, KeyRound, LayoutGrid, ListChecks, MonitorSmartphone, Package, ReceiptText, Users } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
@@ -26,10 +26,13 @@ import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Tabs } from "../../components/ui/Tabs.jsx";
 import { VendorOrdersPanel } from "../../components/admin/VendorOrdersPanel.jsx";
+import AdminProducts from "./AdminProducts.jsx";
 
 // Gestionar una tienda (/admin/tiendas/:id): estado, lo que le falta configurar, accesos y dispositivos, equipo, asistente,
 // actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista. La pestaña Pedidos
-// (?tab=pedidos) busca y abre los pedidos de la tienda para darle soporte sin ir a otra sección.
+// (?tab=pedidos) busca, abre y gestiona los pedidos de la tienda, y Productos (?tab=productos) sus productos, para darle
+// soporte sin ir a otra sección.
+const TAB_IDS = ["resumen", "pedidos", "productos"];
 const VERIFICATION_LABEL = {
   NOT_STARTED: "Sin verificar",
   PENDING_DOCS: "Faltan documentos",
@@ -39,7 +42,7 @@ const VERIFICATION_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   REJECTED: "Rechazada",
   SUSPENDED: "Verificación suspendida",
-  PLAN_ENDED: "Volvió a Regular",
+  PLAN_ENDED: "Volvió a Básico",
 };
 
 function Section({ icon: Icon, title, children, action }) {
@@ -78,9 +81,9 @@ export default function AdminVendorManage() {
   const [blacklist, setBlacklist] = useState(false);
   const { planNames } = usePlatformSettings();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get("tab") === "pedidos" ? "pedidos" : "resumen";
+  const tab = TAB_IDS.includes(searchParams.get("tab")) ? searchParams.get("tab") : "resumen";
   // Al cambiar de pestaña se limpian los filtros de la otra: cada una usa la URL para lo suyo.
-  const setTab = (next) => setSearchParams(next === "pedidos" ? { tab: "pedidos" } : {}, { replace: true });
+  const setTab = (next) => setSearchParams(next === "resumen" ? {} : { tab: next }, { replace: true });
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["admin-vendor-manage", id], queryFn: async () => (await api.get(`/admin/vendors/${id}/manage`)).data });
 
   const done = (msg) => {
@@ -92,6 +95,9 @@ export default function AdminVendorManage() {
     queryClient.invalidateQueries({ queryKey: ["admin-list-vendors"] });
     queryClient.invalidateQueries({ queryKey: ["admin-suspended-vendors"] });
     queryClient.invalidateQueries({ queryKey: ["admin-subscriptions"] });
+    // Si cambió el rubro, los contadores y las listas de Categorías también.
+    queryClient.invalidateQueries({ queryKey: ["admin-business-categories"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-business-category-vendors"] });
   };
   const fail = (fallback) => (err) => {
     if (!err.actionCodeCancelled) toast.error(err.response?.data?.error ?? fallback);
@@ -106,13 +112,15 @@ export default function AdminVendorManage() {
   const downgrade = useMutation({
     mutationFn: async ({ when, reason: r }) => (await api.post(`/admin/vendors/${id}/downgrade`, { when, reason: r })).data,
     onSuccess: (_, { when }) =>
-      done(when === "now" ? "La tienda pasó al plan Regular" : when === "cancel" ? "Se anuló el cambio programado" : "Cambio a Regular programado"),
+      done(when === "now" ? "La tienda pasó al plan Básico" : when === "cancel" ? "Se anuló el cambio programado" : "Cambio a Básico programado"),
     onError: fail("No se pudo cambiar el plan."),
   });
-  // Dar Premium a mano (con motivo): mueve plan e insignia juntos, igual que "Activar Premium" de Suscripciones.
+  // Activar un plan de pago a mano (con motivo): mueve plan e insignia juntos, igual que "Activar Premium" de Suscripciones.
+  // Empresarial solo se activa así, porque se contrata hablando con el equipo.
+  const [grantPlan, setGrantPlan] = useState("BUSINESS");
   const grant = useMutation({
-    mutationFn: async () => (await api.post(`/admin/vendors/${id}/grant-business`, { reason: reason.trim() }, notifyVendorConfig(notify))).data,
-    onSuccess: () => done(`La tienda pasó a ${planNames.BUSINESS}`),
+    mutationFn: async () => (await api.post(`/admin/vendors/${id}/grant-business`, { reason: reason.trim(), planType: grantPlan }, notifyVendorConfig(notify))).data,
+    onSuccess: () => done(`La tienda pasó a ${planNames[grantPlan]}`),
     onError: fail("No se pudo cambiar el plan."),
   });
   const reactivate = useMutation({
@@ -179,13 +187,13 @@ export default function AdminVendorManage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Chip tone={v.trial.active ? "teal" : v.planType === "BUSINESS" ? "warn" : "neutral"}>{v.trial.active ? `${v.planName} · Prueba gratis` : v.planName}</Chip>
+          <Chip tone={v.trial.active ? "teal" : v.planType !== "REGULAR" ? "warn" : "neutral"}>{v.trial.active ? `${v.planName} · Prueba gratis` : v.planName}</Chip>
           {v.trial.active ? (
             <Chip tone={v.trial.daysLeft <= 7 ? "bad" : "teal"}>{v.trial.daysLeft === 1 ? "Queda 1 día" : `Quedan ${v.trial.daysLeft} días`}</Chip>
           ) : (
             <Chip tone={v.verificationStatus === "VERIFIED" ? "good" : "neutral"}>{VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</Chip>
           )}
-          {v.planDowngradeAt && <Chip tone="bad">Pasa a Regular el {exactDate(v.planDowngradeAt)}</Chip>}
+          {v.planDowngradeAt && <Chip tone="bad">Pasa a Básico el {exactDate(v.planDowngradeAt)}</Chip>}
           {v.isBlocked && <Chip tone="bad">Bloqueada</Chip>}
           {suspendedByInactivity && <Chip tone="bad">Suspendida por inactividad</Chip>}
           {pendingDeletion && <Chip tone="bad">Eliminación pendiente</Chip>}
@@ -201,11 +209,14 @@ export default function AdminVendorManage() {
         tabs={[
           { id: "resumen", label: "Resumen", icon: LayoutGrid },
           { id: "pedidos", label: `Pedidos${counts.orders != null ? ` (${counts.orders.toLocaleString("es-CU")})` : ""}`, icon: ReceiptText },
+          { id: "productos", label: `Productos${counts.products != null ? ` (${counts.products.toLocaleString("es-CU")})` : ""}`, icon: Package },
         ]}
       />
 
       {tab === "pedidos" ? (
         <VendorOrdersPanel vendorId={v.id} />
+      ) : tab === "productos" ? (
+        <AdminProducts vendorId={v.id} embedded />
       ) : (
       <>
       <div className="mb-5 flex flex-wrap gap-2">
@@ -225,7 +236,7 @@ export default function AdminVendorManage() {
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("stats")}>Estadísticas</Button>
             {v.planDowngradeAt ? (
               <Button size="sm" variant="outline" className={btn} onClick={() => downgrade.mutate({ when: "cancel" })} disabled={downgrade.isPending}>
-                Anular paso a Regular
+                Anular paso a Básico
               </Button>
             ) : (
               <Button
@@ -234,10 +245,10 @@ export default function AdminVendorManage() {
                 className={btn}
                 onClick={() => {
                   setDowngradeWhen(v.premiumUntil && new Date(v.premiumUntil) > new Date() ? "period_end" : "now");
-                  setModal(v.planType === "BUSINESS" ? "downgrade" : "plan");
+                  setModal(v.planType !== "REGULAR" ? "downgrade" : "plan");
                 }}
               >
-                {v.planType === "BUSINESS" ? `Pasar a ${planNames.REGULAR}` : `Pasar a ${planNames.BUSINESS}`}
+                {v.planType !== "REGULAR" ? `Pasar a ${planNames.REGULAR}` : "Activar un plan de pago"}
               </Button>
             )}
             {v.isBlocked ? (
@@ -351,13 +362,28 @@ export default function AdminVendorManage() {
 
       <ConfirmModal
         open={modal === "plan"}
-        title={`¿Pasar "${v.companyName}" a ${planNames.BUSINESS}?`}
-        message={`Recibe la insignia de verificada y todas las funciones ${planNames.BUSINESS} sin pasar por el pago, por un ciclo de 30 días. Después se le cobra la renovación como a cualquier tienda.`}
-        confirmLabel={grant.isPending ? "Guardando..." : `Pasar a ${planNames.BUSINESS}`}
+        title={`¿Activar un plan de pago para "${v.companyName}"?`}
+        message={`Recibe la insignia de verificada y las funciones del plan ${planNames[grantPlan]} sin pasar por el pago, por un ciclo de 30 días. Después se le cobra la renovación como a cualquier tienda.`}
+        confirmLabel={grant.isPending ? "Guardando..." : `Pasar a ${planNames[grantPlan]}`}
         confirmDisabled={reason.trim().length < 5 || grant.isPending}
         onConfirm={() => grant.mutate()}
         onCancel={() => setModal(null)}
       >
+        <label htmlFor="grant-plan" className="mb-1 block text-[12.5px] font-bold text-on-surface">
+          Plan
+        </label>
+        <select
+          id="grant-plan"
+          value={grantPlan}
+          onChange={(e) => setGrantPlan(e.target.value)}
+          className="mb-3 min-h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+        >
+          {["STANDARD", "BUSINESS", "ENTERPRISE"].map((p) => (
+            <option key={p} value={p}>
+              {planNames[p]}
+            </option>
+          ))}
+        </select>
         <label htmlFor="grant-reason" className="mb-1 block text-[12.5px] font-bold text-on-surface">
           Motivo
         </label>
@@ -375,8 +401,8 @@ export default function AdminVendorManage() {
       <ConfirmModal
         open={modal === "downgrade"}
         title={`¿Pasar "${v.companyName}" al plan ${planNames.REGULAR}?`}
-        message={`Pierde la insignia de verificada y las funciones ${planNames.BUSINESS}, y se aplican los límites del plan ${planNames.REGULAR}. Los productos que pasen del cupo quedan ocultos, no se borran. Sus documentos siguen aprobados: puede volver pagando, sin repetir la verificación.`}
-        confirmLabel={downgrade.isPending ? "Guardando..." : downgradeWhen === "now" ? "Pasar a Regular ahora" : "Programar el cambio"}
+        message={`Pierde la insignia de verificada y las funciones de su plan, y se aplican los límites del plan ${planNames.REGULAR}. Los productos que pasen del cupo quedan ocultos, no se borran. Sus documentos siguen aprobados: puede volver pagando, sin repetir la verificación.`}
+        confirmLabel={downgrade.isPending ? "Guardando..." : downgradeWhen === "now" ? "Pasar a Básico ahora" : "Programar el cambio"}
         confirmDisabled={reason.trim().length < 5 || downgrade.isPending}
         onConfirm={() => downgrade.mutate({ when: downgradeWhen, reason: reason.trim() })}
         onCancel={() => setModal(null)}
@@ -388,7 +414,7 @@ export default function AdminVendorManage() {
               value: "period_end",
               label: v.premiumUntil && new Date(v.premiumUntil) > new Date() ? `Al terminar lo que ya tiene (${exactDate(v.premiumUntil)})` : "Al terminar lo que ya tiene",
               hint: v.trial.active
-                ? "Sigue con la prueba gratis hasta esa fecha y después pasa sola a Regular."
+                ? "Sigue con la prueba gratis hasta esa fecha y después pasa sola al Básico."
                 : `Sigue con Premium hasta esa fecha y no se le renueva${v.paysWithCard ? " el cobro con tarjeta" : ""}.`,
               disabled: !(v.premiumUntil && new Date(v.premiumUntil) > new Date()),
             },

@@ -23,6 +23,7 @@ const META = {
   TRIAL_ACTIVATED: { label: "Prueba gratis de Premium activada", color: "#0CAE53" },
   TRIAL_EXPIRING_SOON: { label: "Tu prueba gratis de Premium termina pronto", color: "#8A5100" },
   TRIAL_EXPIRED: { label: "Tu prueba gratis de Premium terminó", color: "#337475" },
+  PLAN_BILLING_NOTICE: { label: "Pago de tu plan", color: "#8A5100" },
 };
 
 export async function verificationUpdateEmail({ type, vendorName, title, message, ctaHref }) {

@@ -49,7 +49,7 @@ const STATUS_BADGE = {
   PAYMENT_FAILED: { label: "Pago fallido", className: "bg-error/10 text-error" },
   SUSPENDED: { label: "Suspendida", className: "bg-error/10 text-error" },
   REJECTED: { label: "Rechazada", className: "bg-error/10 text-error" },
-  PLAN_ENDED: { label: "Volvió a Regular", className: "bg-surface-container text-on-surface-variant" },
+  PLAN_ENDED: { label: "Volvió a Básico", className: "bg-surface-container text-on-surface-variant" },
 };
 
 function fmtDate(iso) {
@@ -585,15 +585,6 @@ export default function AdminVerifications() {
     (v) => inTab(currentTab, v) && (!q || [v.vendor?.companyName, v.vendor?.ownerName, v.fullName, v.vendor?.user?.email, v.vendor?.email, v.vendor?.whatsapp].some((x) => String(x ?? "").toLowerCase().includes(q)))
   );
 
-  // Bloque 150: precios por mes (CUP/USD) — solo para mostrar el monto
-  // ESPERADO junto al declarado por el vendedor, nunca se usan para validar
-  // nada acá (esa cuenta la hace el admin a ojo antes de confirmar).
-  const { data: settings } = useQuery({
-    queryKey: ["site-settings"],
-    queryFn: async () => (await api.get("/settings")).data.settings,
-  });
-  const cupPricePerMonth = settings?.cupSubscriptionPriceCup ?? 2500;
-  const cardPricePerMonthUsd = settings?.cardSubscriptionPriceUsd ?? 25;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["admin-verifications"] });
@@ -632,7 +623,7 @@ export default function AdminVerifications() {
   const manualPayment = useMutation({
     mutationFn: async ({ id, payload }) => (await api.post(`/admin/verifications/${id}/manual-payment`, payload, notify.config(id))).data,
     onSuccess: (d) => {
-      toast.success("Pago registrado", `La tienda queda verificada con Premium hasta el ${fmtDate(d.periodEnd)}.`);
+      toast.success("Pago registrado", `La tienda queda verificada hasta el ${fmtDate(d.periodEnd)}.`);
       setManualTarget(null);
       invalidate();
     },
@@ -741,7 +732,7 @@ export default function AdminVerifications() {
           const showAwaitingClaim = inPaymentPhase && !!v.paymentMethod && !v.paymentClaimedAt;
           const showPaymentConfirm = inPaymentPhase && !!v.paymentMethod && !!v.paymentClaimedAt;
           const noMethodYet = v.verificationStatus === "PENDING_PAYMENT" && !v.paymentMethod;
-          const expectedAmount = v.paymentMonths ? (v.paymentMethod === "CARD" ? cardPricePerMonthUsd : cupPricePerMonth) * v.paymentMonths : null;
+          const expectedAmount = v.expectedAmount;
 
           return (
             <div key={v.id} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-[22px]">
@@ -940,7 +931,9 @@ export default function AdminVerifications() {
                     )}
                     {v.paymentMonths && (
                       <span className="ml-auto text-[11px] font-semibold text-outline">
-                        {v.paymentMonths} {v.paymentMonths === 1 ? "mes" : "meses"} · esperado{" "}
+                        {v.paymentPlanName ? `${v.paymentPlanName} · ` : ""}
+                        {v.paymentMonths} {v.paymentMonths === 1 ? "mes" : "meses"}
+                        {v.discountPercent > 0 ? ` (−${v.discountPercent}%)` : ""} · esperado{" "}
                         {expectedAmount != null ? `${expectedAmount.toLocaleString("es-CU")} ${v.paymentCurrency}` : "—"}
                       </span>
                     )}
@@ -1158,6 +1151,11 @@ function SubmittedData({ v, open, withDocuments }) {
 // Registrar un pago a mano: meses pagados (1 a 24), motivo obligatorio y, si se sabe, monto, moneda y referencia. Al
 // confirmar se pide el código de seguridad del admin (igual que para confirmar un pago).
 function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
+  // Planes que se pueden activar así: los que dan la insignia (también Empresarial, que se contrata hablando con el equipo).
+  const { data: planConfigs } = useQuery({ queryKey: ["admin-plan-configs"], queryFn: async () => (await api.get("/admin/plan-configs")).data.plans });
+  const plans = (planConfigs ?? []).filter((p) => p.grantsBadge && !p.isFree).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const [planType, setPlanType] = useState(verification.paymentPlanType ?? "BUSINESS");
+  const planName = plans.find((p) => p.planType === planType)?.displayName ?? planType;
   const [months, setMonths] = useState(1);
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
@@ -1176,7 +1174,7 @@ function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!valid || pending) return;
-          onConfirm({ months, reason: reason.trim(), ...(amount !== "" ? { amount: Number(amount), currency } : {}), ...(reference.trim() ? { reference: reference.trim() } : {}) });
+          onConfirm({ months, planType, reason: reason.trim(), ...(amount !== "" ? { amount: Number(amount), currency } : {}), ...(reference.trim() ? { reference: reference.trim() } : {}) });
         }}
         className="flex max-h-[92dvh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
       >
@@ -1189,8 +1187,22 @@ function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
           </button>
         </div>
         <p className="text-[12.5px] text-on-surface-variant">
-          La tienda queda verificada con Premium como si hubiera pagado. Queda registrado quién lo hizo, cuándo, los meses y el motivo, y la tienda recibe el aviso.
+          La tienda queda verificada con el plan elegido como si hubiera pagado. Queda registrado quién lo hizo, cuándo, los meses y el motivo, y la tienda recibe el aviso.
         </p>
+        {plans.length > 0 && (
+          <>
+            <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-plan">
+              Plan
+            </label>
+            <select id="mp-plan" value={planType} onChange={(e) => setPlanType(e.target.value)} className={field}>
+              {plans.map((p) => (
+                <option key={p.planType} value={p.planType}>
+                  {p.displayName}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-months">
           Meses pagados
         </label>
@@ -1201,7 +1213,9 @@ function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
             </option>
           ))}
         </select>
-        <p className="-mt-1 text-[12px] text-on-surface-variant">Premium hasta el {fmtDate(until.toISOString())}.</p>
+        <p className="-mt-1 text-[12px] text-on-surface-variant">
+          {planName} hasta el {fmtDate(until.toISOString())}.
+        </p>
         <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-reason">
           Motivo (obligatorio)
         </label>

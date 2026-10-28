@@ -16,6 +16,7 @@ import { StaleOrderAlert } from "../../components/vendor/StaleOrderAlert.jsx";
 import { TargetedOfferPopup } from "../../components/TargetedOfferPopup.jsx";
 import { VendorSearchBar } from "../../components/vendor/VendorSearchBar.jsx";
 import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx";
+import { PlanBillingBanner } from "../../components/vendor/PlanBillingBanner.jsx";
 import { unlockAudioOnFirstInteraction } from "../../lib/orderNotificationSound.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { vendorPlanStatus } from "../../lib/planStatus.js";
@@ -330,7 +331,8 @@ export default function VendorLayout() {
     );
   }
 
-  if (vendor?.status === "SUSPENDED" || vendor?.isBlocked) {
+  // Suspendida por falta de pago del plan: el dueño sigue entrando a su panel para pagar (aviso en PlanBillingBanner).
+  if ((vendor?.status === "SUSPENDED" && !vendor?.billingSuspendedAt) || vendor?.isBlocked) {
     return <VendorAccessBlockedGate vendor={vendor} supportWhatsapp={supportWhatsapp} onLogout={handleLogout} />;
   }
 
@@ -629,6 +631,7 @@ export default function VendorLayout() {
             de abajo). */}
         {!isStaff && <TrialChecklistBanner vendor={vendor} />}
         {!isStaff && <TrialStatusBanner vendor={vendor} />}
+        {!isStaff && <PlanBillingBanner vendor={vendor} />}
         <OfflineBar />
         {/* Bloque 185: `sectionPermissions` (null para dueño/admin — sin
             restricción de nivel) viaja a cada página hija para que pueda

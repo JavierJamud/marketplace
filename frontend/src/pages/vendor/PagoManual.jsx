@@ -96,7 +96,8 @@ export default function PagoManual() {
   const isLoading = loadingVerification || loadingSubscription;
   // Renovación: solo cuando la tienda YA está VERIFIED y hay una renovación
   // en curso — si no, es el ciclo inicial de siempre.
-  const isRenewal = vendor?.verificationStatus === "VERIFIED" && !!subscription?.pendingRenewal;
+  // También un plan sin insignia que se cobra (el Básico de pago): se paga como renovación, sin verificación.
+  const isRenewal = (vendor?.verificationStatus === "VERIFIED" || !!subscription?.paysWithoutBadge) && !!subscription?.pendingRenewal;
   // Normaliza los 2 orígenes a la misma forma para no repetir el resto del
   // componente 2 veces.
   const data = isRenewal
@@ -104,6 +105,8 @@ export default function PagoManual() {
         paymentMethod: subscription.pendingRenewal.paymentMethod,
         paymentMonths: subscription.pendingRenewal.months,
         expectedAmount: subscription.pendingRenewal.expectedAmount,
+        paymentPlanName: subscription.planName,
+        discountPercent: subscription.pendingRenewal.discountPercent ?? 0,
         stripeCheckoutUrl: subscription.pendingRenewal.stripeCheckoutUrl,
         stripePaidAt: subscription.pendingRenewal.stripePaidAt,
         paymentClaimedAt: subscription.pendingRenewal.paymentClaimedAt,
@@ -223,13 +226,22 @@ export default function PagoManual() {
                 <span className="text-outline">Tienda: </span>
                 <strong className="text-on-surface">{vendor?.companyName}</strong>
               </div>
+              {data.paymentPlanName && (
+                <div>
+                  <span className="text-outline">Plan: </span>
+                  <strong className="text-on-surface">{data.paymentPlanName}</strong>
+                </div>
+              )}
               <div>
                 <span className="text-outline">Duración: </span>
                 <strong className="text-on-surface">
                   {data.paymentMonths ?? 1} {(data.paymentMonths ?? 1) === 1 ? "mes" : "meses"}
                 </strong>
-                {data.paymentMonths > 1 && (
-                  <span className="text-outline"> ({(settings.cupSubscriptionPriceCup ?? 2500).toLocaleString("es-CU")} CUP/mes)</span>
+                {data.paymentMonths > 1 && data.pricePerMonth != null && (
+                  <span className="text-outline">
+                    {" "}
+                    ({data.pricePerMonth.toLocaleString("es-CU")} CUP/mes{data.discountPercent > 0 ? `, ${data.discountPercent}% de descuento` : ""})
+                  </span>
                 )}
               </div>
               <div>
@@ -262,13 +274,22 @@ export default function PagoManual() {
               <span className="text-outline">Tienda: </span>
               <strong className="text-on-surface">{vendor?.companyName}</strong>
             </div>
+            {data.paymentPlanName && (
+              <div>
+                <span className="text-outline">Plan: </span>
+                <strong className="text-on-surface">{data.paymentPlanName}</strong>
+              </div>
+            )}
             <div>
               <span className="text-outline">Duración: </span>
               <strong className="text-on-surface">
                 {data.paymentMonths ?? 1} {(data.paymentMonths ?? 1) === 1 ? "mes" : "meses"}
               </strong>
-              {data.paymentMonths > 1 && (
-                <span className="text-outline"> (US$ {(settings?.cardSubscriptionPriceUsd ?? 25).toLocaleString("en-US")}/mes)</span>
+              {data.paymentMonths > 1 && data.pricePerMonth != null && (
+                <span className="text-outline">
+                  {" "}
+                  (US$ {data.pricePerMonth.toLocaleString("en-US")}/mes{data.discountPercent > 0 ? `, ${data.discountPercent}% de descuento` : ""})
+                </span>
               )}
             </div>
             <div>

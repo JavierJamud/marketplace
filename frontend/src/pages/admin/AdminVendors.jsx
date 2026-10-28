@@ -150,8 +150,14 @@ export function EditVendorModal({ vendor, onSave, onCancel, saving }) {
     companyAddress: vendor.companyAddress ?? "",
     description: vendor.description ?? "",
     color: vendor.color ?? "#232F3E",
+    businessCategoryId: vendor.businessCategoryId ?? "",
   });
   const [newPassword, setNewPassword] = useState("");
+  // Rubro de la tienda: todas las categorías de negocio (también las inactivas, por si la tienda ya tiene una).
+  const { data: businessCategories } = useQuery({
+    queryKey: ["admin-business-categories"],
+    queryFn: async () => (await api.get("/admin/business-categories")).data.categories,
+  });
   const [newLoginEmail, setNewLoginEmail] = useState("");
 
   // Bloque 196 (pedido explícito — "si se hace clic fuera de un contenedor
@@ -194,6 +200,23 @@ export function EditVendorModal({ vendor, onSave, onCancel, saving }) {
         <div className="flex flex-col gap-3.5">
           <Input label="Nombre de la tienda" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
           <Input label="WhatsApp (con código de país)" value={form.whatsapp} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} />
+          <div>
+            <label htmlFor="edit-vendor-category" className="mb-1.5 block text-label-md text-on-surface-variant">Rubro (categoría de negocio)</label>
+            <select
+              id="edit-vendor-category"
+              value={form.businessCategoryId}
+              onChange={(e) => setForm({ ...form, businessCategoryId: e.target.value })}
+              className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3 text-body-md text-on-surface outline-none focus:border-primary-container"
+            >
+              {!form.businessCategoryId && <option value="">Sin rubro</option>}
+              {businessCategories?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.active ? "" : " (inactiva)"}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             {/* Bloque 222 (pedido explícito): el color del banner de la
                 tienda lo asigna el sistema al crearla — de ahí en más,
@@ -397,7 +420,7 @@ const VERIFICATION_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   REJECTED: "Rechazada",
   SUSPENDED: "Verificación suspendida",
-  PLAN_ENDED: "Volvió a Regular",
+  PLAN_ENDED: "Volvió a Básico",
 };
 
 function VendorRow({ v }) {

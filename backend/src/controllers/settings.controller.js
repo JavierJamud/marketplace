@@ -6,7 +6,7 @@ import { publicCatalog } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
-import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota, buildPlanIncludes } from "../lib/planConfig.js";
+import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota, buildPlanIncludes, publicPlan } from "../lib/planConfig.js";
 import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 import { createHeroVariant, smallVariantName } from "../lib/heroVariants.js";
 import { forgetPwaEnabled } from "../lib/push.js";
@@ -131,6 +131,8 @@ export async function getSettings(_req, res) {
       cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd,
       // Días de la prueba gratis: los textos de la oferta y del panel lo muestran tal cual.
       trialDays: settings.trialDays,
+      // Días sin pagar hasta que una tienda queda suspendida (planBilling.service.js).
+      unpaidSuspendDays: settings.unpaidSuspendDays,
       // Bloque 66: catálogo de etiquetas que un vendedor puede elegir para
       // un producto — "Nuevo" es fijo del sistema, no viaja en esta lista
       // (ver assertBadgeAllowed en products.controller.js).
@@ -220,9 +222,27 @@ export async function getReviewPolicy() {
 // sueltas de SiteSettings. `.optional()` en cada campo porque
 // AdminSubscriptions.jsx guarda cada tarjeta de plan por separado — un
 // request nunca manda las ~20 columnas, solo las que esa tarjeta edita.
+const discountSchema = z.object({ months: z.number().int().min(2).max(36), cup: z.number().int().min(0).max(90), usd: z.number().int().min(0).max(90) });
 const planConfigSchema = z.object({
-  planType: z.enum(["REGULAR", "BUSINESS"]),
+  planType: z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE"]),
   displayName: z.string().trim().min(1).max(40).optional(),
+  tagline: z.string().trim().max(90).optional().nullable(),
+  sortOrder: z.number().int().min(0).max(99).optional(),
+  // Precios mensuales y precio de lista (tachado mientras el plan es gratis).
+  priceCup: z.number().int().min(0).max(10_000_000).optional(),
+  priceUsd: z.number().min(0).max(100_000).optional(),
+  listPriceCup: z.number().int().min(0).max(10_000_000).optional().nullable(),
+  listPriceUsd: z.number().min(0).max(100_000).optional().nullable(),
+  isFree: z.boolean().optional(),
+  contactOnly: z.boolean().optional(),
+  highlighted: z.boolean().optional(),
+  grantsBadge: z.boolean().optional(),
+  isPublic: z.boolean().optional(),
+  monthDiscounts: z
+    .array(discountSchema)
+    .max(6, "Hasta 6 descuentos por plan.")
+    .refine((a) => new Set(a.map((d) => d.months)).size === a.length, "Hay dos descuentos para la misma cantidad de meses.")
+    .optional(),
   features: z.array(z.string().trim().min(1)).optional(),
   maxProducts: z.number().int().min(0).optional().nullable(),
   maxProvinces: z.number().int().min(0).optional().nullable(),
@@ -258,8 +278,28 @@ export async function updatePlanConfig(req, res) {
   // allowPanelOrders ya no se usa: todo pedido entra al panel en cualquier plan. Solo allowWhatsappOrders decide si las
   // tiendas del plan pueden ofrecer el botón de WhatsApp; si se apaga, las que lo tenían pasan a solo panel.
   delete data.allowPanelOrders;
-  const updated = await prisma.planConfig.update({ where: { planType }, data });
+  const before = await prisma.planConfig.findUnique({ where: { planType } });
+  if (!before) throw new AppError("Plan no encontrado.", 404);
+  const next = { ...before, ...data };
+  // Un plan que se cobra necesita precio en las dos monedas (la tienda paga con tarjeta en USD o por transferencia en CUP).
+  if (!next.isFree && !next.contactOnly && (!(next.priceCup > 0) || !(next.priceUsd > 0))) {
+    throw new AppError("Para cobrar este plan escribe su precio en CUP y en USD, o márcalo como gratis o por WhatsApp.", 400);
+  }
+  // El plan gratis no lleva la insignia: la insignia exige verificar documentos, que va unido al pago.
+  if (planType === "REGULAR" && next.grantsBadge && next.isFree) {
+    throw new AppError("Mientras el Básico sea gratis no puede dar la insignia de verificada.", 400);
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    // Un solo plan destacado ("el más elegido") a la vez.
+    if (data.highlighted === true) await tx.planConfig.updateMany({ where: { planType: { not: planType } }, data: { highlighted: false } });
+    return tx.planConfig.update({ where: { planType }, data });
+  });
   invalidatePlanConfigCache();
+  // El plan dejó de ser gratis: se avisa a sus tiendas para que paguen antes de su fecha de cobro (planBilling.service.js).
+  if (before.isFree && updated.isFree === false && !updated.contactOnly) {
+    const { startBillingForFreePlan } = await import("../services/planBilling.service.js");
+    void startBillingForFreePlan(planType).catch((err) => console.error("[planes] no se pudo activar el cobro:", err?.message));
+  }
   if (data.allowWhatsappOrders === false) {
     await prisma.vendor.updateMany({ where: { planType, orderDestination: { not: "PANEL" } }, data: { orderDestination: "PANEL" } });
   }
@@ -349,17 +389,25 @@ export async function getOrderFollowUpPolicy() {
   return { enabled: s.orderFollowUpEnabled, reminderHours: s.orderReminderHours, warningHours: s.orderCancelWarningHours, cancelHours: s.orderAutoCancelHours };
 }
 
+// Pedido detenido: a cuántas horas sin cambiar de estado se avisa a la tienda y al cliente (services/orderDelay.service.js).
+export async function getOrderDelayPolicy() {
+  const s = await getOrCreateSettings();
+  return { delayEnabled: s.orderDelayEnabled, delayHours: s.orderDelayHours };
+}
+
 // Admin > Configuración > Tiendas y productos. Junto a los ajustes van las cifras reales de los últimos 30 días.
 export async function getOrderFollowUpSettings(_req, res) {
   const policy = await getOrderFollowUpPolicy();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [waiting, reminded, autoCancelled, reactivated] = await Promise.all([
+  const delay = await getOrderDelayPolicy();
+  const [waiting, reminded, autoCancelled, reactivated, delayed] = await Promise.all([
     prisma.order.count({ where: { status: "NEW", channel: { not: "TABLE" }, createdAt: { lte: new Date(Date.now() - policy.reminderHours * 3600_000) } } }),
     prisma.order.count({ where: { pendingReminderAt: { gte: since } } }),
     prisma.orderEvent.count({ where: { type: "AUTO_CANCELLED", createdAt: { gte: since } } }),
     prisma.orderEvent.count({ where: { type: "REACTIVATED", createdAt: { gte: since } } }),
+    prisma.orderEvent.count({ where: { type: "DELAY_NOTICE", createdAt: { gte: since } } }),
   ]);
-  res.json({ ...policy, stats: { waiting, reminded30d: reminded, autoCancelled30d: autoCancelled, reactivated30d: reactivated } });
+  res.json({ ...policy, ...delay, stats: { waiting, reminded30d: reminded, autoCancelled30d: autoCancelled, reactivated30d: reactivated, delayed30d: delayed } });
 }
 
 const orderFollowUpSchema = z
@@ -368,6 +416,8 @@ const orderFollowUpSchema = z
     reminderHours: z.number().int().min(1).max(336),
     warningHours: z.number().int().min(2).max(336),
     cancelHours: z.number().int().min(3).max(336),
+    delayEnabled: z.boolean().optional(),
+    delayHours: z.number().int().min(1).max(720).optional(),
   })
   .refine((d) => d.reminderHours < d.warningHours && d.warningHours < d.cancelHours, {
     message: "Las horas tienen que ir en orden: primero el recordatorio, después el aviso y al final el cierre.",
@@ -378,10 +428,17 @@ export async function updateOrderFollowUpSettings(req, res) {
   const settings = await getOrCreateSettings();
   await prisma.siteSettings.update({
     where: { id: settings.id },
-    data: { orderFollowUpEnabled: d.enabled, orderReminderHours: d.reminderHours, orderCancelWarningHours: d.warningHours, orderAutoCancelHours: d.cancelHours },
+    data: {
+      orderFollowUpEnabled: d.enabled,
+      orderReminderHours: d.reminderHours,
+      orderCancelWarningHours: d.warningHours,
+      orderAutoCancelHours: d.cancelHours,
+      ...(d.delayEnabled !== undefined ? { orderDelayEnabled: d.delayEnabled } : {}),
+      ...(d.delayHours !== undefined ? { orderDelayHours: d.delayHours } : {}),
+    },
   });
   clearPublicCache();
-  res.json(await getOrderFollowUpPolicy());
+  res.json({ ...(await getOrderFollowUpPolicy()), ...(await getOrderDelayPolicy()) });
 }
 
 const offerPolicySchema = z.object({
@@ -584,6 +641,7 @@ const cupPaymentSettingsSchema = z.object({
     .transform((n) => Math.round(n * 100) / 100)
     .optional(),
   trialDays: z.number().int().min(1, "La prueba debe durar al menos 1 día.").max(365, "La prueba puede durar hasta 365 días.").optional(),
+  unpaidSuspendDays: z.number().int().min(1, "Al menos 1 día.").max(365, "Hasta 365 días.").optional(),
 });
 
 // Admin — datos bancarios de la transferencia CUP + precio mensual de la
@@ -601,6 +659,7 @@ export async function updateCupPaymentSettings(req, res) {
   if (data.cupSubscriptionPriceCup !== undefined) update.cupSubscriptionPriceCup = data.cupSubscriptionPriceCup;
   if (data.cardSubscriptionPriceUsd !== undefined) update.cardSubscriptionPriceUsd = data.cardSubscriptionPriceUsd;
   if (data.trialDays !== undefined) update.trialDays = data.trialDays;
+  if (data.unpaidSuspendDays !== undefined) update.unpaidSuspendDays = data.unpaidSuspendDays;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
   res.json({
     settings: {
@@ -611,6 +670,7 @@ export async function updateCupPaymentSettings(req, res) {
       cupSubscriptionPriceCup: updated.cupSubscriptionPriceCup,
       cardSubscriptionPriceUsd: updated.cardSubscriptionPriceUsd,
       trialDays: updated.trialDays,
+      unpaidSuspendDays: updated.unpaidSuspendDays,
     },
   });
 }
@@ -708,4 +768,21 @@ export async function getPublicStats(_req, res) {
     prisma.businessCategory.count({ where: { active: true } }),
   ]);
   res.json({ countries, categories });
+}
+
+// GET /settings/plans: lo que muestra la página pública de planes. Los planes ocultos (isPublic=false) no salen; el
+// Empresarial lleva el WhatsApp de soporte para contratarlo.
+export async function getPublicPlans(_req, res) {
+  const [plans, settings] = await Promise.all([getAllPlanConfigs(), getOrCreateSettings()]);
+  res.json({
+    plans: plans.filter((p) => p.isPublic).map(publicPlan),
+    supportWhatsapp: settings.supportWhatsapp ?? null,
+    trialDays: settings.trialDays,
+  });
+}
+
+// Cuántas tiendas tiene cada plan (sin las eliminadas), para el admin.
+export async function planVendorCounts(_req, res) {
+  const rows = await prisma.vendor.groupBy({ by: ["planType"], where: { deletedAt: null }, _count: { _all: true } });
+  res.json({ counts: Object.fromEntries(rows.map((r) => [r.planType, r._count._all])) });
 }

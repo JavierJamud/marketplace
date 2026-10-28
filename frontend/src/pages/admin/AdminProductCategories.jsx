@@ -70,7 +70,8 @@ function CategoryForm({ category, parents, onClose }) {
   );
 }
 
-export default function AdminProductCategories() {
+// `embedded`: dentro de la sección Categorías (AdminAllCategories.jsx), sin su propio encabezado.
+export default function AdminProductCategories({ embedded = false } = {}) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(() => new Set());
@@ -147,10 +148,12 @@ export default function AdminProductCategories() {
 
   return (
     <div className="max-w-[820px]">
-      <div className="mb-1 flex items-center gap-3">
-        <IconCircle icon={Boxes} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de producto</h1>
-      </div>
+      {!embedded && (
+        <div className="mb-1 flex items-center gap-3">
+          <IconCircle icon={Boxes} tone="teal" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de producto</h1>
+        </div>
+      )}
       <p className="mb-4 text-[13.5px] text-outline">
         Las que elige cada vendedor al publicar un producto. Si no encuentra la suya, puede crear una nueva y aparece aquí marcada para que la revises.
         {pendingReview > 0 && <strong className="text-on-surface"> Hay {pendingReview} creada{pendingReview === 1 ? "" : "s"} por vendedores.</strong>}

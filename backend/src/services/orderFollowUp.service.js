@@ -2,7 +2,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
 import { reverseOrderLoyalty } from "./loyalty.service.js";
-import { getOrderFollowUpPolicy } from "../controllers/settings.controller.js";
+import { getOrderFollowUpPolicy, getOrderDelayPolicy } from "../controllers/settings.controller.js";
+import { notifyCustomerOfDelay } from "./orderDelay.service.js";
 import { sendOrderFollowUpVendorEmail, sendOrderAutoCancelledCustomerEmail, sendOrderReactivatedCustomerEmail } from "../lib/email.js";
 import { cubaDateTime } from "../templates/orderFollowUp.js";
 
@@ -70,6 +71,8 @@ async function sendReminder(order, policy, now) {
   });
   await recordOrderEvent(order.id, "REMINDER_SENT", `${hours} h sin respuesta`);
   await sendOrderFollowUpVendorEmail(order, { stage: "reminder", hours, closesAt }).catch((err) => console.error("[orderFollowUp] correo recordatorio:", err?.message));
+  // El cliente también se entera de que su pedido va con retraso (si el aviso de retraso está encendido).
+  if ((await getOrderDelayPolicy()).delayEnabled) await notifyCustomerOfDelay(order, hours);
   return true;
 }
 

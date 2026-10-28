@@ -43,13 +43,13 @@ function Cell({ value }) {
 // Se muestra una sola vez, justo después de crear una tienda (Account.jsx
 // stepper) — nunca en el login, así que no hace falta persistir un flag de
 // "ya lo vio": está atado al onSuccess del create.
-export function PlanComparisonModal({ onContinueRegular, businessHref = "/vendedor/configuracion" }) {
+export function PlanComparisonModal({ onContinueRegular, planType = "BUSINESS", businessHref = "/vendedor/configuracion" }) {
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
   const regular = settings?.plans?.find((p) => p.planType === "REGULAR");
-  const business = settings?.plans?.find((p) => p.planType === "BUSINESS");
+  const business = settings?.plans?.find((p) => p.planType === planType);
   const rows = buildRows(regular, business);
 
   return (
@@ -60,14 +60,14 @@ export function PlanComparisonModal({ onContinueRegular, businessHref = "/vended
         </div>
         <h2 className="mb-2 text-center font-display text-headline-md text-on-surface">Elige cómo empezar</h2>
         <p className="mb-6 text-center text-[13px] text-outline">
-          Arrancas en el Plan {regular?.displayName ?? "Regular"}, gratis. Puedes pasar a {business?.displayName ?? "Premium"} cuando
+          Arrancas en el Plan {regular?.displayName ?? "Básico"}{regular?.isFree === false ? "" : ", gratis"}. Puedes pasar a {business?.displayName ?? "Premium"} cuando
           quieras desde tu panel.
         </p>
 
         <div className="mb-6 overflow-hidden rounded-lg border border-surface-container-high">
           <div className="grid grid-cols-[1.4fr_1fr_1fr] bg-surface-container text-center text-[11.5px] font-bold text-on-surface-variant">
             <div className="px-3 py-2.5 text-left">Incluye</div>
-            <div className="px-3 py-2.5">{regular?.displayName ?? "Regular"}</div>
+            <div className="px-3 py-2.5">{regular?.displayName ?? "Básico"}</div>
             <div className="px-3 py-2.5 text-secondary">{business?.displayName ?? "Premium"}</div>
           </div>
           {rows.length ? (
@@ -92,7 +92,7 @@ export function PlanComparisonModal({ onContinueRegular, businessHref = "/vended
             onClick={onContinueRegular}
             className="flex-1 rounded bg-primary-container py-3 text-label-md font-bold text-white hover:bg-primary"
           >
-            Continuar con {regular?.displayName ?? "Regular"}
+            Continuar con {regular?.displayName ?? "Básico"}
           </button>
           <Link
             to={businessHref}
@@ -101,6 +101,9 @@ export function PlanComparisonModal({ onContinueRegular, businessHref = "/vended
             Conocer {business?.displayName ?? "Premium"}
           </Link>
         </div>
+        <Link to="/planes" className="mt-3 flex min-h-11 items-center justify-center text-[12.5px] font-semibold text-tertiary-accent hover:underline">
+          Ver todos los planes y precios
+        </Link>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { currencyLabel } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getPlanConfig } from "../lib/planConfig.js";
+import { notifyPointsEarned, notifyOrderPointsReversed } from "./loyaltyNotify.service.js";
 
 // Programa de fidelidad (puntos) de cada tienda (ver LoyaltyProgram en schema.prisma). Todo cálculo de puntos pasa por aquí: el checkout,
 // el cambio de estado del pedido, el panel de la tienda y el del cliente usan las mismas reglas.
@@ -11,6 +12,12 @@ import { getPlanConfig } from "../lib/planConfig.js";
 //  - el saldo se descuenta con un UPDATE condicionado (balance >= N) dentro de la misma transacción que crea el pedido;
 //  - cada pedido da, canjea, revierte o devuelve puntos una sola vez (índice único orderId + tipo);
 //  - solo cuenta lo que está en la moneda de la tienda: un pedido con productos en otra moneda no da ni canjea puntos.
+
+// Topes para que el programa siempre deje ganancia a la tienda:
+//  - maxRewardPercent: lo más que puede devolver en puntos, como % de la compra (contando el bono en su peor caso);
+//  - maxRedeemPercent: lo más del pedido que se paga con puntos; el resto siempre es dinero.
+// Si la tienda escribe su ganancia aproximada por venta (marginPercent), el programa no puede costarle más de la mitad.
+export const LOYALTY_LIMITS = { maxRewardPercent: 15, maxRedeemPercent: 50 };
 
 export const PROGRAM_DEFAULTS = {
   enabled: false,
@@ -22,6 +29,7 @@ export const PROGRAM_DEFAULTS = {
   valueOrder: "AMOUNT_FIRST",
   minRedeemPoints: 10,
   maxRedeemPercent: 50,
+  marginPercent: null,
 };
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -40,8 +48,36 @@ export function serializeProgram(row) {
     valueOrder: p.valueOrder,
     pointValue: valueAmount / valuePoints,
     minRedeemPoints: p.minRedeemPoints,
-    maxRedeemPercent: p.maxRedeemPercent,
+    // Un programa guardado antes de existir el tope se ajusta a él al usarse.
+    maxRedeemPercent: Math.min(p.maxRedeemPercent, LOYALTY_LIMITS.maxRedeemPercent),
+    marginPercent: p.marginPercent ?? null,
   };
+}
+
+// Cuánto le cuesta el programa a la tienda: qué % de la compra le devuelve al cliente en puntos. `base` es el de cualquier
+// pedido; cada bono se mide justo en su monto mínimo, que es donde más regala. `max` es el peor caso de todos.
+export function programCost(p) {
+  const pointValue = Number(p.valueAmount) / p.valuePoints;
+  const perAmount = Number(p.earnPerAmount);
+  const base = (p.earnPoints / perAmount) * pointValue * 100;
+  const tiers = normalizeTiers(p.bonusTiers).map((t) => ({
+    minTotal: t.minTotal,
+    percent: round2((((Math.floor(t.minTotal / perAmount) * p.earnPoints + t.bonusPoints) * pointValue) / t.minTotal) * 100),
+  }));
+  return { base: round2(base), tiers, max: round2(Math.max(base, ...tiers.map((t) => t.percent))) };
+}
+
+// Mensaje de error si el programa haría perder dinero a la tienda, o null si está bien.
+export function programCostError(p) {
+  const cost = programCost(p);
+  const pct = (n) => `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 1 })} %`;
+  if (cost.max > LOYALTY_LIMITS.maxRewardPercent) {
+    return `Así devuelves hasta el ${pct(cost.max)} de la compra en puntos. El máximo es ${pct(LOYALTY_LIMITS.maxRewardPercent)}: da menos puntos, baja el valor de cada punto o el bono.`;
+  }
+  if (p.marginPercent && cost.max > p.marginPercent / 2) {
+    return `Con una ganancia del ${pct(p.marginPercent)} por venta, el programa no debería costarte más del ${pct(p.marginPercent / 2)}. Ahora te costaría hasta el ${pct(cost.max)}.`;
+  }
+  return null;
 }
 
 // Lo que valen `points` puntos en la moneda de la tienda. Se calcula con el par que escribió la tienda (no con el valor de un
@@ -143,6 +179,7 @@ export async function awardOrderPoints(orderId) {
   if (!program || !allInStoreCurrency(order.items, vendor.currency)) return 0;
   const points = pointsForAmount(program, Number(order.total));
   if (points <= 0) return 0;
+  const bonus = Math.max(0, points - pointsForAmount({ ...program, bonusTiers: [] }, Number(order.total)));
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -158,6 +195,7 @@ export async function awardOrderPoints(orderId) {
       await tx.loyaltyTransaction.update({ where: { id: txRow.id }, data: { balanceAfter } });
       await tx.order.update({ where: { id: order.id }, data: { loyaltyPointsEarned: points } });
     });
+    void notifyPointsEarned({ vendorId: vendor.id, userId: order.customerId, orderId: order.id, orderCode: order.code, points, bonus }).catch((err) => console.error("[loyalty] aviso de puntos:", err?.message));
     return points;
   } catch (err) {
     if (err?.code === "P2002") return 0; // ya se habían dado
@@ -169,6 +207,7 @@ export async function awardOrderPoints(orderId) {
 // Si el cliente ya gastó los puntos ganados, se quita solo lo que queda en el saldo (nunca queda negativo).
 export async function reverseOrderLoyalty(orderId, client = prisma) {
   const rows = await client.loyaltyTransaction.findMany({ where: { orderId, type: { in: ["EARN", "REDEEM"] } } });
+  let changed = false;
   for (const row of rows) {
     const reverseType = row.type === "REDEEM" ? "REDEEM_REFUNDED" : "EARN_REVERSED";
     const already = await client.loyaltyTransaction.findUnique({ where: { orderId_type: { orderId, type: reverseType } } });
@@ -183,7 +222,29 @@ export async function reverseOrderLoyalty(orderId, client = prisma) {
     };
     if (client === prisma) await prisma.$transaction(run);
     else await run(client);
+    changed = true;
   }
+  if (changed) scheduleReversalNotice(orderId);
+}
+
+// Aviso al cliente de los puntos devueltos o quitados. Se manda un momento después y leyendo lo guardado: si la anulación
+// corre dentro de una transacción que al final se deshace, no queda ningún movimiento y no se avisa nada.
+function scheduleReversalNotice(orderId) {
+  setTimeout(async () => {
+    try {
+      const rows = await prisma.loyaltyTransaction.findMany({
+        where: { orderId, type: { in: ["REDEEM_REFUNDED", "EARN_REVERSED"] } },
+        select: { type: true, points: true, orderCode: true, account: { select: { vendorId: true, userId: true } } },
+      });
+      if (!rows.length) return;
+      const refunded = rows.filter((r) => r.type === "REDEEM_REFUNDED").reduce((n, r) => n + r.points, 0);
+      const removed = -rows.filter((r) => r.type === "EARN_REVERSED").reduce((n, r) => n + r.points, 0);
+      const { vendorId, userId } = rows[0].account;
+      await notifyOrderPointsReversed({ vendorId, userId, orderId, orderCode: rows[0].orderCode, refunded, removed });
+    } catch (err) {
+      console.error("[loyalty] aviso de puntos devueltos:", err?.message);
+    }
+  }, 3000).unref?.();
 }
 
 // Ajuste manual de la tienda (siempre con nota). Nunca deja el saldo en negativo.
@@ -254,9 +315,23 @@ export async function suggestionsFor(vendor) {
     "Los puntos se ganan cuando marcas el pedido como Entregado. Si lo anulas después, se quitan solos.",
   ];
 
+  // Tres niveles listos para usar: cuánto devuelve cada uno de lo que se compra. 1 punto por cada `earnPerAmount`, y 100
+  // puntos valen ese % de 100 veces ese monto.
+  const preset = (key, label, percent, hint) => ({
+    key,
+    label,
+    percent,
+    hint,
+    values: { earnPerAmount, earnPoints: 1, valuePoints: 100, valueAmount: round2(earnPerAmount * percent) || 1, valueOrder: "POINTS_FIRST", minRedeemPoints: 10, maxRedeemPercent: percent >= 5 ? 30 : 40, bonusTiers: [] },
+  });
   return {
     stats: { orders, avgTicket: Math.round(avg * 100) / 100, buyers, repeatBuyers, currency },
     suggested: { earnPerAmount, earnPoints: 1, valuePoints: 100, valueAmount, valueOrder: "POINTS_FIRST", minRedeemPoints: 10, maxRedeemPercent: 40, bonusTiers: bonusTier ? [bonusTier] : [] },
+    presets: [
+      preset("prudent", "Prudente", 2, "Para negocios con poca ganancia por venta, como alimentos o mayoristas."),
+      preset("recommended", "Recomendado", 3, "El punto medio habitual: se nota para el cliente y cuida tu ganancia."),
+      preset("generous", "Generoso", 5, "Para ganar clientes rápido, si tu ganancia por venta es alta."),
+    ],
     tips,
   };
 }

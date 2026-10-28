@@ -4,7 +4,8 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getPlanConfig } from "../lib/planConfig.js";
 import { verifyUnsubscribe } from "../lib/marketingEmail.js";
-import { activeProgramFor, serializeProgram, suggestionsFor, adjustPoints, touchStoreVisit, pointsWorth } from "../services/loyalty.service.js";
+import { activeProgramFor, serializeProgram, suggestionsFor, adjustPoints, touchStoreVisit, pointsWorth, programCost, programCostError, LOYALTY_LIMITS } from "../services/loyalty.service.js";
+import { notifyPointsAdjusted } from "../services/loyaltyNotify.service.js";
 
 const HISTORY_LIMIT = 100;
 const TX_SELECT = { id: true, type: true, points: true, balanceAfter: true, orderCode: true, note: true, createdAt: true };
@@ -107,7 +108,9 @@ const programSchema = z
     valueAmount: z.number().positive("Escribe cuánto dinero equivalen esos puntos.").max(1e9),
     valueOrder: z.enum(["AMOUNT_FIRST", "POINTS_FIRST"]),
     minRedeemPoints: z.number().int().min(1).max(10_000_000),
-    maxRedeemPercent: z.number().int().min(1).max(100),
+    // El resto del pedido siempre se paga con dinero (LOYALTY_LIMITS en loyalty.service.js).
+    maxRedeemPercent: z.number().int().min(1).max(LOYALTY_LIMITS.maxRedeemPercent, `Con puntos se paga como mucho el ${LOYALTY_LIMITS.maxRedeemPercent} % del pedido.`),
+    marginPercent: z.number().int().min(1).max(95).nullable().optional(),
   })
   // Un punto que valga menos de una diezmilésima no se puede cobrar ni mostrar con sentido.
   .refine((d) => d.valueAmount / d.valuePoints >= 0.0001, { message: "Cada punto tiene que valer al menos 0,0001.", path: ["valueAmount"] });
@@ -137,7 +140,8 @@ export async function getMyProgram(req, res) {
     programStats(vendor.id),
     suggestionsFor(vendor),
   ]);
-  res.json({ program: serializeProgram(row), configured: !!row, planAllows: plan?.allowLoyalty !== false, currency: vendor.currency ?? "CUP", stats, suggestions });
+  const program = serializeProgram(row);
+  res.json({ program, cost: programCost(program), limits: LOYALTY_LIMITS, configured: !!row, planAllows: plan?.allowLoyalty !== false, currency: vendor.currency ?? "CUP", stats, suggestions });
 }
 
 export async function saveMyProgram(req, res) {
@@ -145,9 +149,13 @@ export async function saveMyProgram(req, res) {
   const data = programSchema.parse(req.body);
   const plan = await getPlanConfig(vendor.planType);
   if (data.enabled && plan?.allowLoyalty === false) throw new AppError("Tu plan actual no incluye el programa de fidelidad.", 403);
+  // Nunca se guarda un programa que le haga perder dinero a la tienda.
+  const costError = programCostError(data);
+  if (costError) throw new AppError(costError, 400);
   const fields = { ...data, pointValue: data.valueAmount / data.valuePoints, bonusTiers: [...data.bonusTiers].sort((a, b) => a.minTotal - b.minTotal) };
   const saved = await prisma.loyaltyProgram.upsert({ where: { vendorId: vendor.id }, create: { vendorId: vendor.id, ...fields }, update: fields });
-  res.json({ program: serializeProgram(saved) });
+  const program = serializeProgram(saved);
+  res.json({ program, cost: programCost(program) });
 }
 
 export async function listMyMembers(req, res) {
@@ -210,5 +218,7 @@ export async function adjustMemberPoints(req, res) {
   const bought = await prisma.order.findFirst({ where: { vendorId: vendor.id, customerId: userId, customer: { role: "CUSTOMER" } }, select: { id: true } });
   if (!bought) throw new AppError("Solo puedes ajustar puntos a clientes que ya te compraron con su cuenta.", 400);
   const balance = await adjustPoints({ vendorId: vendor.id, userId, points, note });
+  // El cliente se entera del regalo o de la corrección, con el motivo.
+  void notifyPointsAdjusted({ vendorId: vendor.id, userId, points, note }).catch((err) => console.error("[loyalty] aviso de ajuste:", err?.message));
   res.json({ balance });
 }

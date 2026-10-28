@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { sendOrderOverdueVendorEmail } from "../lib/email.js";
 import { runOrderFollowUp } from "../services/orderFollowUp.service.js";
+import { runOrderDelayNotices } from "../services/orderDelay.service.js";
 
 // Pedidos atrasados: un pedido que sigue "Nuevo" (nadie lo confirmó) después de OVERDUE_MINUTES le llega a la tienda por tres
 // vías: la campana del panel (con el aviso en pantalla si lo tiene abierto), la notificación del sistema en el celular o la
@@ -60,5 +61,7 @@ export function startOrderOverdueJob() {
     runOrderOverdueJob().catch((err) => console.error("[orderOverdueJob] error:", err));
     // Después del aviso de los 30 minutos: recordatorio, aviso de cierre y cierre de los que siguen sin respuesta.
     runOrderFollowUp().catch((err) => console.error("[orderFollowUp] error:", err));
+    // Pedidos "Vendido" o "En camino" que llevan demasiado sin cambiar: aviso de retraso a la tienda y al cliente.
+    runOrderDelayNotices().catch((err) => console.error("[orderDelay] error:", err));
   });
 }

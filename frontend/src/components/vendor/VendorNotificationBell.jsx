@@ -17,7 +17,7 @@ function timeAgo(iso) {
 
 // A dónde lleva cada tipo de aviso. Los que no tienen un lugar propio solo se dan por atendidos.
 function destinationFor(n) {
-  if (["NEW_ORDER", "ORDER_CANCELLED_BY_CUSTOMER", "ORDER_EDITED_BY_CUSTOMER", "ORDER_OVERDUE", "ORDER_REMINDER", "ORDER_CANCEL_WARNING", "ORDER_AUTO_CANCELLED"].includes(n.type)) return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
+  if (["NEW_ORDER", "ORDER_CANCELLED_BY_CUSTOMER", "ORDER_EDITED_BY_CUSTOMER", "ORDER_OVERDUE", "ORDER_REMINDER", "ORDER_CANCEL_WARNING", "ORDER_AUTO_CANCELLED", "ORDER_DELAYED"].includes(n.type)) return n.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(n.refCode)}` : "/vendedor/pedidos";
   if (n.type === "SUPPORT_CASE") return "/vendedor/pedidos";
   if (n.type === "VENDOR_STAFF_OUT_OF_STOCK" || n.type === "LOW_STOCK") return "/vendedor/productos";
   if (n.type === "NEW_CUSTOMER") return "/vendedor/clientes";

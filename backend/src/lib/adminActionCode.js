@@ -27,6 +27,8 @@ export const ACTION_LABELS = {
   PAYMENT_CONFIRM: "confirmar un pago de suscripción",
   FRAUD_DECISION: "resolver un reporte de fraude",
   CONTENT_MODERATION: "moderar o eliminar una reseña",
+  // Pedidos de una tienda gestionados desde el admin (confirmar, cambiar de estado, anular o reactivar).
+  ORDER_CHANGE: "cambiar el estado de un pedido",
   // Clientes
   CUSTOMER_CHANGE: "modificar un cliente",
   DELETE_CUSTOMER: "eliminar un cliente",

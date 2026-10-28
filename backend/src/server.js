@@ -17,6 +17,7 @@ import { startVendorDeletionJob } from "./jobs/vendorDeletion.job.js";
 import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
+import { startPlanBillingJob } from "./jobs/planBilling.job.js";
 import { reconcilePlanVerification } from "./services/vendorVerification.service.js";
 import { tidyVendorSlugs } from "./lib/vendorSlug.js";
 import { reconcileRatings } from "./lib/ratings.js";
@@ -125,6 +126,8 @@ startClickAnomalyJob();
 // siguiente cron diario fijo libre después de reviewAnomaly (10:00) —
 // clickAnomaly no cuenta, corre cada 3h, no una vez al día.
 startTrialExpiryJob();
+// Cobro de los planes sin insignia (el Básico cuando deja de ser gratis): avisos, pedidos en pausa y suspensión por falta de pago.
+startPlanBillingJob();
 // Plan Pro activo <=> insignia: corrige al arrancar cualquier tienda que haya quedado a medias.
 reconcilePlanVerification().catch((err) => console.error("[planes] no se pudo revisar:", err));
 // Enlaces de tienda con un código al final y enlaces de tiendas eliminadas (ver lib/vendorSlug.js).

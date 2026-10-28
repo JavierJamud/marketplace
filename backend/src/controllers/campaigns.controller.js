@@ -24,7 +24,7 @@ async function resolveRecipients(segment, provinceId) {
     return users.map((u) => u.email);
   }
 
-  const planFilter = segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "BUSINESS" : undefined;
+  const planFilter = segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] } : undefined;
   const vendors = await prisma.vendor.findMany({
     where: {
       isBlocked: false,

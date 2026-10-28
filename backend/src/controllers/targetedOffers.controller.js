@@ -100,7 +100,7 @@ async function resolveTargetedOfferRecipients(offer) {
   // Resto: variantes de "vendedores" — all_vendors (sin filtro de plan/
   // verificación), regular_vendors/business_vendors (por plan),
   // unverified_vendors (por verificationStatus).
-  const planFilter = offer.audience === "regular_vendors" ? "REGULAR" : offer.audience === "business_vendors" ? "BUSINESS" : undefined;
+  const planFilter = offer.audience === "regular_vendors" ? "REGULAR" : offer.audience === "business_vendors" ? { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] } : undefined;
   const vendors = await prisma.vendor.findMany({
     where: {
       isBlocked: false,
@@ -445,7 +445,7 @@ export async function listMyTargetedOffers(req, res) {
     const vendor = await resolveMyVendor(userId);
     const vendorAudiences = ["all_vendors"];
     if (vendor.planType === "REGULAR") vendorAudiences.push("regular_vendors");
-    if (vendor.planType === "BUSINESS") vendorAudiences.push("business_vendors");
+    if (vendor.planType !== "REGULAR") vendorAudiences.push("business_vendors");
     if (vendor.verificationStatus !== "VERIFIED") vendorAudiences.push("unverified_vendors");
     audienceWhere = { OR: [{ audience: { in: vendorAudiences } }, { audience: "specific_vendor", targetVendorId: vendor.id }] };
   } else {

@@ -40,5 +40,5 @@ export const STAGE_META = {
   SUSPENDED: { label: "Tu suscripción fue suspendida", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: Ban },
   REJECTED: { label: "Documentos rechazados", color: "#ba1a1a", bg: "rgba(186,26,26,0.1)", Icon: XCircle },
   // Tuvo Premium (pagado o prueba gratis) y volvió al plan Regular: no es un error ni un castigo, por eso no va en rojo.
-  PLAN_ENDED: { label: "Plan Regular", color: "#65676c", bg: "rgba(117,119,124,0.1)", Icon: Clock },
+  PLAN_ENDED: { label: "Plan Básico", color: "#65676c", bg: "rgba(117,119,124,0.1)", Icon: Clock },
 };

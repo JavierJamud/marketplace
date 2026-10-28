@@ -101,7 +101,7 @@ export function TrialOfferPopup({ vendor }) {
                 {trialDays} {trialDays === 1 ? "día" : "días"} gratis de {business?.displayName ?? "Premium"}
               </h2>
               <p className="mb-4 text-[13px] text-on-surface-variant">
-                Prueba todo sin costo durante {trialDays} {trialDays === 1 ? "día" : "días"}. Puedes seguir pagando o volver a Regular cuando quieras, sin compromiso.
+                Prueba todo sin costo durante {trialDays} {trialDays === 1 ? "día" : "días"}. Puedes seguir pagando o volver al Básico cuando quieras, sin compromiso.
               </p>
 
               {business?.includes?.length > 0 && (

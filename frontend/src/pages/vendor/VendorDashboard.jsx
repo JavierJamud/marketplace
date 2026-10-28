@@ -595,7 +595,7 @@ export default function VendorDashboard() {
             <div className="font-display text-[30px] font-extrabold tracking-tight text-on-surface">{data ? data.activeProducts : "—"}</div>
             {data && (
               <span className="rounded-full bg-verified/10 px-2.5 py-1 text-[11px] font-bold text-verified-dark">
-                {data.maxProducts ? `de ${data.maxProducts} · Regular` : "Business · ilimitado"}
+                {data.maxProducts ? `de ${data.maxProducts} en tu plan` : "Sin límite en tu plan"}
               </span>
             )}
           </div>

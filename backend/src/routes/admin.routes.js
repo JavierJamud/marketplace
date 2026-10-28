@@ -82,6 +82,9 @@ router.get("/vendors/:id/orders", adminOrders.listVendorOrders);
 router.get("/vendors/:id/order-products", adminOrders.vendorOrderProducts);
 router.get("/orders/lookup", adminOrders.lookupOrder);
 router.get("/orders/:id", adminOrders.getOrderDetail);
+router.post("/orders/:id/confirm", requireActionCode("ORDER_CHANGE"), adminOrders.adminConfirmOrder);
+router.patch("/orders/:id/status", requireActionCode("ORDER_CHANGE"), adminOrders.adminUpdateOrderStatus);
+router.post("/orders/:id/reactivate", requireActionCode("ORDER_CHANGE"), adminOrders.adminReactivateOrder);
 router.patch("/vendors/:id", requireActionCode(vendorChangeAction), adminController.updateVendor);
 // Zona de servicio (provincia y municipios) desde "Editar tienda": mismo código de acción que modificar una tienda.
 router.post("/vendors/:id/zone", requireActionCode("VENDOR_CHANGE"), adminController.adminSyncVendorZone);
@@ -121,6 +124,7 @@ router.post("/vendors/:id/reactivate", requireActionCode("VENDOR_UNBLOCK"), admi
 router.get("/customer-listings", adminCustomerListingsController.listCustomerListingsByOwner);
 router.patch("/customer-listings/:id", requireActionCode("CUSTOMER_CHANGE"), adminCustomerListingsController.updateAdminCustomerListing);
 router.delete("/customer-listings/:id", requireActionCode("CUSTOMER_CHANGE"), adminCustomerListingsController.deleteAdminCustomerListing);
+router.delete("/customer-listings/:id/images", requireActionCode("CUSTOMER_CHANGE"), adminCustomerListingsController.removeAdminListingImage);
 
 // Feature B: reportes de fraude sobre producto/tienda/venta rápida. Rutas
 // literales ("pending-count") ANTES de ":id/..." — mismo criterio que
@@ -296,6 +300,7 @@ router.post("/product-categories", categoriesController.createCategory);
 router.patch("/product-categories/:id", categoriesController.updateCategoryAdmin);
 router.delete("/product-categories/:id", requireActionCode("CATALOG_DELETE"), categoriesController.deleteCategoryAdmin);
 router.get("/business-categories", businessCategoriesController.listBusinessCategoriesAdmin);
+router.get("/business-categories/:id/vendors", businessCategoriesController.listBusinessCategoryVendors);
 router.post("/business-categories", businessCategoriesController.createBusinessCategory);
 router.patch("/business-categories/:id", businessCategoriesController.updateBusinessCategory);
 router.delete("/business-categories/:id", requireActionCode("CATALOG_DELETE"), businessCategoriesController.deleteBusinessCategory);
@@ -308,6 +313,7 @@ router.delete("/settings/hero-images", requireActionCode("PLATFORM_BRANDING"), s
 // sueltas de SiteSettings) — un plan entero (límites, interruptores,
 // beneficios, nombre visible) por request, ver PlanConfig en schema.prisma.
 router.get("/plan-configs", settingsController.listPlanConfigs);
+router.get("/plan-configs/vendor-counts", settingsController.planVendorCounts);
 router.patch("/plan-configs", requireActionCode("PLAN_CONFIG_CHANGE"), settingsController.updatePlanConfig);
 router.patch("/settings/product-settings", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductSettings);
 router.patch("/settings/offer-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateOfferPolicy);

@@ -16,10 +16,11 @@ async function assertStaffPlan(staff) {
 // de bloqueo, como /vendors/me o los avisos); las secciones con datos y toda escritura quedan cerradas.
 async function assertVendorUsable(req, staff, { strict }) {
   const where = staff ? { id: staff.vendorId } : { userId: req.user.id };
-  const vendor = await prisma.vendor.findUnique({ where, select: { deletedAt: true, isBlocked: true, status: true } });
+  const vendor = await prisma.vendor.findUnique({ where, select: { deletedAt: true, isBlocked: true, status: true, billingSuspendedAt: true } });
   if (!vendor) return; // el controlador responde "no tienes tienda"
   if (vendor.deletedAt) throw new AppError("Esta tienda fue eliminada.", 403, { vendorState: "deleted" });
-  if (strict && (vendor.isBlocked || vendor.status === "SUSPENDED")) {
+  // Suspendida por falta de pago del plan: no se ve en público, pero el dueño sigue usando su panel para pagar.
+  if (strict && (vendor.isBlocked || (vendor.status === "SUSPENDED" && !vendor.billingSuspendedAt))) {
     throw new AppError("Tu tienda está bloqueada. Revisa el aviso en tu panel.", 403, { vendorState: "blocked" });
   }
 }

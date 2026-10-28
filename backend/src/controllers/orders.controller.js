@@ -19,6 +19,7 @@ import { upsertVendorCustomer } from "./vendorCustomers.controller.js";
 import { getPlanLimit, assertPlanAllows } from "../lib/planConfig.js";
 import { getOrderFollowUpPolicy } from "./settings.controller.js";
 import { projectedAutoCancelAt, reactivateBlocker, reactivateAutoCancelledOrder, resolveOrderNotices } from "../services/orderFollowUp.service.js";
+import { assertVendorAcceptsOrders } from "../services/planBilling.service.js";
 
 // Transiciones válidas de estado de pedido — no se puede saltar pasos
 // (ej. de NEW directo a DELIVERED) ni revivir un pedido terminal.
@@ -164,6 +165,8 @@ export async function quoteShipping(req, res) {
 export async function placeOrder(data, { customerId, partnerId = null, idempotencyKey = null, requestInfo = null } = {}) {
   const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+  // Cobro del plan atrasado: la tienda se ve, pero no recibe pedidos nuevos hasta pagar (planBilling.service.js).
+  await assertVendorAcceptsOrders(vendor);
 
   // Bloque 206 (pedido explícito): Checkout.jsx ya filtra el desplegable de
   // provincias/países a la cobertura que el vendedor configuró, pero un
@@ -607,8 +610,20 @@ async function syncPosSaleFromOrder(order, status, userId) {
 
 const ORDER_STATUS_ES = { NEW: "Nuevo", CONFIRMED: "Confirmado", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado" };
 
+// Tienda sobre la que se actúa: la del usuario, o la del pedido cuando lo gestiona el admin desde su panel
+// (adminOrders.controller.js marca req.adminOrderVendorId). Así el admin pasa por las mismas reglas de stock, ventas, puntos,
+// caja y avisos que la tienda.
+async function orderActorVendor(req) {
+  if (req.adminOrderVendorId && req.user?.role === "ADMIN") {
+    const vendor = await prisma.vendor.findUnique({ where: { id: req.adminOrderVendorId } });
+    if (!vendor) throw new AppError("Tienda no encontrada.", 404);
+    return vendor;
+  }
+  return resolveMyVendor(req.user.id);
+}
+
 export async function updateOrderStatus(req, res) {
-  const vendor = await resolveMyVendor(req.user.id);
+  const vendor = await orderActorVendor(req);
   const { id } = req.params;
   const { status, reason } = updateOrderStatusSchema.parse(req.body);
 
@@ -712,7 +727,7 @@ export async function updateOrderStatus(req, res) {
 // La tienda retoma un pedido que el sistema cerró por falta de respuesta (normalmente porque el cliente le escribió). Vuelve a
 // "Nuevo", el plazo de respuesta empieza de cero y el cliente recibe un aviso de que lo están revisando.
 export async function reactivateOrder(req, res) {
-  const vendor = await resolveMyVendor(req.user.id);
+  const vendor = await orderActorVendor(req);
   const order = await prisma.order.findUnique({ where: { id: req.params.id } });
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   const updated = await reactivateAutoCancelledOrder(order);
@@ -726,7 +741,7 @@ export async function reactivateOrder(req, res) {
 // antes corría en createOrder: si algún ítem no alcanza, se aborta TODO (el
 // pedido se queda en NEW, nada de stock negativo ni confirmación parcial).
 export async function confirmOrderSale(req, res) {
-  const vendor = await resolveMyVendor(req.user.id);
+  const vendor = await orderActorVendor(req);
   const { id } = req.params;
 
   const order = await prisma.order.findUnique({ where: { id }, include: { items: true } });

@@ -441,7 +441,9 @@ function ProductRow({ p, open, onToggleOpen, onTogglePause, onEdit, onDelete }) 
   );
 }
 
-export default function AdminProducts() {
+// `vendorId` + `embedded`: la misma lista dentro de la página de una tienda (pestaña Productos de /admin/tiendas/:id), solo con
+// sus productos y sin el encabezado de la sección.
+export default function AdminProducts({ vendorId, embedded = false } = {}) {
   const queryClient = useQueryClient();
   const [params, setParams] = useListParams(LIST_DEFAULTS);
   const [editTarget, setEditTarget] = useState(null);
@@ -452,11 +454,12 @@ export default function AdminProducts() {
   const [searchText, setSearchText] = useDebouncedSearch(params.q, commitSearch);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["admin-list-products", params],
+    queryKey: ["admin-list-products", params, vendorId ?? null],
     queryFn: async () =>
       (
         await api.get("/admin/products", {
           params: {
+            vendorId: vendorId || undefined,
             q: params.q || undefined,
             status: params.status,
             categoryId: params.category || undefined,
@@ -514,13 +517,17 @@ export default function AdminProducts() {
 
   return (
     <div className="max-w-[1180px]">
-      <div className="mb-1 flex items-center gap-3">
-        <IconCircle icon={Package} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos</h1>
-      </div>
-      <p className="mb-4 text-[13.5px] text-outline">
-        Todo lo que cargan los vendedores. Toca un producto para ver sus estadísticas reales, o usa los contadores para filtrar por estado.
-      </p>
+      {!embedded && (
+        <>
+          <div className="mb-1 flex items-center gap-3">
+            <IconCircle icon={Package} tone="teal" />
+            <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos</h1>
+          </div>
+          <p className="mb-4 text-[13.5px] text-outline">
+            Todo lo que cargan los vendedores. Toca un producto para ver sus estadísticas reales, o usa los contadores para filtrar por estado.
+          </p>
+        </>
+      )}
 
       <StatStrip>
         {tiles.map((t) => (
@@ -537,7 +544,7 @@ export default function AdminProducts() {
       </StatStrip>
 
       <div className="mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por producto o tienda" className="sm:col-span-2 lg:col-span-1" />
+        <SearchField value={searchText} onChange={setSearchText} placeholder={embedded ? "Buscar un producto" : "Buscar por producto o tienda"} className="sm:col-span-2 lg:col-span-1" />
         <select
           value={params.category}
           onChange={(e) => setParams({ category: e.target.value })}

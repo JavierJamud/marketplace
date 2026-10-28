@@ -87,6 +87,34 @@ export async function listBusinessCategoriesAdmin(_req, res) {
   res.json({ categories });
 }
 
+// GET /admin/business-categories/:id/vendors: las tiendas de un rubro, con enlace para gestionarlas, y en qué categorías de
+// producto venden de verdad. El rubro es cómo se presenta la tienda; sus productos pueden ser de otras categorías (no se le
+// limita), y esto deja ver cuándo el rubro ya no la describe bien.
+export async function listBusinessCategoryVendors(req, res) {
+  const category = await prisma.businessCategory.findUnique({ where: { id: req.params.id }, select: { id: true, name: true } });
+  if (!category) throw new AppError("Categoría no encontrada.", 404);
+  const vendors = await prisma.vendor.findMany({
+    where: { businessCategoryId: category.id, deletedAt: null },
+    select: { id: true, companyName: true, slug: true, logoUrl: true, isBlocked: true, verificationStatus: true, planType: true, createdAt: true },
+    orderBy: { companyName: "asc" },
+  });
+  const ids = vendors.map((v) => v.id);
+  const groups = ids.length
+    ? await prisma.product.groupBy({ by: ["vendorId", "categoryId"], where: { vendorId: { in: ids }, isActive: true }, _count: { _all: true } })
+    : [];
+  const categoryIds = [...new Set(groups.map((g) => g.categoryId).filter(Boolean))];
+  const names = new Map((await prisma.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]));
+  const byVendor = new Map(ids.map((id) => [id, []]));
+  for (const g of groups) byVendor.get(g.vendorId).push({ name: g.categoryId ? names.get(g.categoryId) ?? "Sin categoría" : "Sin categoría", count: g._count._all });
+  res.json({
+    category,
+    vendors: vendors.map((v) => {
+      const sells = byVendor.get(v.id).sort((a, b) => b.count - a.count);
+      return { ...v, activeProducts: sells.reduce((n, s) => n + s.count, 0), sells: sells.slice(0, 4), moreCategories: Math.max(0, sells.length - 4) };
+    }),
+  });
+}
+
 const createSchema = z.object({
   name: z.string().trim().min(2),
   icon: z.string().trim().min(1),

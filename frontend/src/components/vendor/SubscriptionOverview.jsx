@@ -116,7 +116,7 @@ export function SubscriptionOverview({ onChoosePayment }) {
         <div role="status" className="mb-4 flex gap-2 rounded-xl border border-secondary/30 bg-secondary-container/30 p-3.5 text-[13px] text-on-surface">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-secondary" aria-hidden="true" />
           <p>
-            Tu tienda pasará al plan Regular el <strong>{new Date(s.planDowngradeAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>.
+            Tu tienda pasará al plan Básico el <strong>{new Date(s.planDowngradeAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>.
             Hasta ese día tienes todas las funciones Premium y no se te cobra la renovación.
             {s.planDowngradeReason ? ` Motivo: ${s.planDowngradeReason}.` : ""} Si quieres mantener Premium, escríbenos en Mensajes.
           </p>
@@ -198,8 +198,7 @@ export function SubscriptionOverview({ onChoosePayment }) {
             {reactivate.isPending ? "Reactivando..." : s.status === "VERIFIED" ? "Reactivar suscripción" : card ? `Reactivar y cobrar a la tarjeta ${s.card.last4}` : "Reactivar suscripción"}
           </button>
         ) : (
-          s.status === "VERIFIED" &&
-          s.planType === "BUSINESS" && (
+          ((s.status === "VERIFIED" && s.planType !== "REGULAR") || s.paysWithoutBadge) && (
             <button type="button" onClick={() => setConfirmCancel(true)} className="min-h-11 rounded-xl border border-error px-4 text-[13px] font-bold text-error hover:bg-error/5">
               Cancelar suscripción
             </button>

@@ -603,7 +603,7 @@ export async function storesActivity({ days, filter, limit }) {
     const reference = lastOrder ?? v.createdAt;
     return {
       tienda: clip(v.companyName, 50),
-      plan: v.planType === "BUSINESS" ? "Business" : "Regular",
+      plan: { REGULAR: "Básico", STANDARD: "Estándar", BUSINESS: "Premium", ENTERPRISE: "Empresarial" }[v.planType] ?? v.planType,
       verificada: v.verificationStatus === "VERIFIED" ? "Sí" : "No",
       estado: v.isBlocked ? "Bloqueada" : v.status === "SUSPENDED" ? "Suspendida" : v.isPrivate ? "Privada" : "Activa",
       pedidosEnLaVentana: count.get(v.id) ?? 0,

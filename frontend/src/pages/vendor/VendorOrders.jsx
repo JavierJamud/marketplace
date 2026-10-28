@@ -591,7 +591,7 @@ export default function VendorOrders() {
 
               {!o.isTable && o.customerEmail && (
                 <button
-                  onClick={() => (atEmailLimit ? toast.error("Alcanzaste el límite de emails manuales del Plan Regular este mes.") : setEmailTarget(o))}
+                  onClick={() => (atEmailLimit ? toast.error("Alcanzaste el límite de correos manuales de tu plan este mes.") : setEmailTarget(o))}
                   title="Enviar email al cliente"
                   className="flex items-center gap-1.5 rounded-[7px] bg-tertiary-accent/10 px-2.5 py-1.5 text-[11.5px] font-bold text-tertiary-accent"
                 >

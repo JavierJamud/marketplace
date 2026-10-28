@@ -39,9 +39,104 @@ export async function getPlanConfig(planType) {
   return configs[planType] ?? null;
 }
 
+// Todos los planes, en el orden en que se muestran (Básico, Estándar, Premium, Empresarial).
 export async function getAllPlanConfigs() {
   const configs = await loadPlanConfigs();
-  return [configs.REGULAR, configs.BUSINESS].filter(Boolean);
+  return Object.values(configs).sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+// --- Precios ------------------------------------------------------------------------------------------------------------
+// Cada plan tiene su precio mensual en CUP (transferencia) y en USD (tarjeta), y descuentos por pagar varios meses juntos
+// (PlanConfig.monthDiscounts: [{ months, cup, usd }], el % en cada moneda). Se aplica el escalón más alto alcanzado: con
+// descuentos en 3, 6 y 12 meses, pagar 8 meses lleva el de 6. Todo cobro (verificación, renovación, tarjeta, pago manual)
+// sale de aquí, así el precio que ve la tienda y el que se cobra nunca difieren.
+
+export function normalizeMonthDiscounts(raw) {
+  if (!Array.isArray(raw)) return [];
+  const clamp = (n) => Math.max(0, Math.min(90, Math.round(Number(n) || 0)));
+  return raw
+    .map((d) => ({ months: Math.trunc(Number(d?.months)), cup: clamp(d?.cup), usd: clamp(d?.usd) }))
+    .filter((d) => d.months >= 2 && d.months <= 36 && (d.cup > 0 || d.usd > 0))
+    .sort((a, b) => a.months - b.months);
+}
+
+export function discountFor(config, months, currency) {
+  const key = currency === "USD" ? "usd" : "cup";
+  const tier = [...normalizeMonthDiscounts(config?.monthDiscounts)].reverse().find((d) => months >= d.months);
+  return tier?.[key] ?? 0;
+}
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Precio de `months` meses de un plan en una moneda ("CUP" o "USD"): mensual, % de descuento y total a pagar. En CUP se
+// redondea al peso (no hay centavos en las transferencias); en USD, al centavo.
+export function planPrice(config, months, currency) {
+  const monthly = currency === "USD" ? Number(config?.priceUsd ?? 0) : Number(config?.priceCup ?? 0);
+  const discountPercent = discountFor(config, months, currency);
+  const gross = monthly * months;
+  const raw = gross * (1 - discountPercent / 100);
+  const total = currency === "USD" ? round2(raw) : Math.round(raw);
+  return { monthly, months, currency, discountPercent, gross: currency === "USD" ? round2(gross) : gross, total, perMonth: currency === "USD" ? round2(total / months) : Math.round(total / months) };
+}
+
+// Plan de un pago guardado. Los pagos de antes de los planes configurables no lo tienen: eran todos de Premium.
+export const paymentPlanOf = (planType) => planType ?? "BUSINESS";
+
+// Cuánto se cobra por `months` meses del plan con un método de pago (CARD = USD, cualquier otro = CUP), con su descuento.
+// Rechaza los planes que no se pagan en línea: los "por WhatsApp" y los gratis.
+export async function quotePlan(planType, months, method) {
+  const config = await getPlanConfig(paymentPlanOf(planType));
+  if (!config) throw new AppError("Ese plan no existe.", 400);
+  if (config.contactOnly) throw new AppError(`El plan ${config.displayName} se contrata hablando con el equipo por WhatsApp.`, 400);
+  if (config.isFree) throw new AppError(`El plan ${config.displayName} es gratis por ahora: no hay nada que pagar.`, 400);
+  return { config, ...planPrice(config, months, method === "CARD" ? "USD" : "CUP") };
+}
+
+// Un plan que se cobra: ni gratis por ahora ni "por WhatsApp".
+export function isPaidConfig(config) {
+  return !!config && !config.isFree && !config.contactOnly;
+}
+
+// Lo que ve cualquiera en la página de planes (sin datos internos).
+export function publicPlan(config) {
+  return {
+    planType: config.planType,
+    name: config.displayName,
+    tagline: config.tagline,
+    sortOrder: config.sortOrder,
+    priceCup: config.priceCup,
+    priceUsd: config.priceUsd,
+    listPriceCup: config.listPriceCup,
+    listPriceUsd: config.listPriceUsd,
+    isFree: config.isFree,
+    contactOnly: config.contactOnly,
+    highlighted: config.highlighted,
+    grantsBadge: config.grantsBadge,
+    monthDiscounts: normalizeMonthDiscounts(config.monthDiscounts),
+    includes: buildPlanIncludes(config),
+    limits: {
+      maxProducts: config.maxProducts,
+      maxProvinces: config.maxProvinces,
+      maxDeliveryCountries: config.maxDeliveryCountries,
+      maxStaffUsers: config.allowStaffUsers ? config.maxStaffUsers : 0,
+      maxTables: config.allowQrTables ? config.maxTables : 0,
+      maxDiscountCodes: config.allowDiscountCodes ? config.maxDiscountCodes : 0,
+      maxActiveStoreOffers: config.allowStoreOffers ? config.maxActiveStoreOffers : 0,
+      maxMonthlyOrderEmails: config.allowCustomerEmails ? config.maxMonthlyOrderEmails : 0,
+    },
+    flags: {
+      allowWhatsappOrders: config.allowWhatsappOrders,
+      allowPos: config.allowPos,
+      allowAiChatbot: config.allowAiChatbot,
+      allowLoyalty: config.allowLoyalty,
+      allowCustomerEmails: config.allowCustomerEmails,
+      allowSchedules: config.allowSchedules,
+      allowReviewPhotos: config.allowReviewPhotos,
+      allowAdminChat: config.allowAdminChat,
+      featuredInHome: config.featuredInHome,
+      allowPublicProfile: config.allowPublicProfile,
+    },
+  };
 }
 
 // Bloque 52 (pedido explícito, decisión confirmada — "las dos cosas"): una
@@ -53,8 +148,13 @@ export async function getAllPlanConfigs() {
 // quedaría con todas las funciones encendidas igual si siguiéramos mirando
 // solo verificationStatus. La insignia de verificado sigue siendo nada más
 // que un sello de confianza — nunca una llave de funciones por sí sola.
+// Con los planes configurables: las funciones de un plan de pago están activas si la tienda está verificada en ese plan
+// (los planes con insignia) o, en un plan de pago sin insignia, mientras tenga tiempo pagado. Qué funciones concretas tiene
+// cada plan lo deciden sus interruptores (assertPlanAllows / planAllows).
 export function isPremiumActive(vendor) {
-  return vendor.planType === "BUSINESS" && vendor.verificationStatus === "VERIFIED";
+  if (!vendor || vendor.planType === "REGULAR") return false;
+  if (vendor.verificationStatus === "VERIFIED") return true;
+  return !!vendor.nextPaymentDueDate && new Date(vendor.nextPaymentDueDate) > new Date();
 }
 
 // Límite numérico efectivo de una tienda para `key` (ej. "maxProducts").
@@ -198,7 +298,7 @@ export async function swapProductQuota(vendorId, productIdToActivate) {
 // El texto libre del admin se agrega al final como beneficios extra, sin las líneas con números (podrían contradecir un
 // límite real; los límites ya salen arriba con el valor configurado).
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const TOPICS = ["producto", "provincia", "envio", "whatsapp", "pedido", "caja", "chat", "usuario", "mesa", "codigo", "oferta", "punto", "correo", "horario", "resena", "destacad", "perfil"];
+const TOPICS = ["verificad", "producto", "provincia", "envio", "whatsapp", "pedido", "caja", "chat", "usuario", "mesa", "codigo", "oferta", "punto", "correo", "horario", "resena", "destacad", "perfil"];
 
 export function buildPlanIncludes(config) {
   if (!config) return [];
@@ -223,6 +323,7 @@ export function buildPlanIncludes(config) {
   if (c.allowAdminChat) lines.push("Chat con el equipo de la plataforma");
   if (c.featuredInHome) lines.push("Destacada en la portada");
   if (c.allowPublicProfile) lines.push("Perfil público de tu tienda");
+  if (c.grantsBadge) lines.push("Insignia de tienda verificada");
   // Un extra que habla de algo que ya está arriba (con otras palabras) se omite para no repetirlo.
   const norm = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const covered = TOPICS.filter((k) => lines.some((l) => norm(l).includes(k)));

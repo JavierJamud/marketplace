@@ -48,8 +48,10 @@ export function usePlatformSettings() {
     // Días de la prueba gratis de Premium (los configura el admin en Suscripciones) y el nombre visible de cada plan.
     trialDays: data?.trialDays ?? 30,
     planNames: {
-      REGULAR: data?.plans?.find((p) => p.planType === "REGULAR")?.displayName || "Regular",
+      REGULAR: data?.plans?.find((p) => p.planType === "REGULAR")?.displayName || "Básico",
+      STANDARD: data?.plans?.find((p) => p.planType === "STANDARD")?.displayName || "Estándar",
       BUSINESS: data?.plans?.find((p) => p.planType === "BUSINESS")?.displayName || "Premium",
+      ENTERPRISE: data?.plans?.find((p) => p.planType === "ENTERPRISE")?.displayName || "Empresarial",
     },
     logoUrl: logo,
     // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del

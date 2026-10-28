@@ -322,6 +322,19 @@
     opacity: 1;
   }
 }
+/* Hacia dónde mira Nova: arriba con el chat cerrado (como el logo) y abajo con el chat abierto, mirando la conversación.
+   Se mueven juntos ojos y boca dentro de la burbuja. */
+.nova-face-features {
+  transition: transform 0.45s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.nova-face.is-looking-down .nova-face-features {
+  transform: translate(3px, 10px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nova-face-features {
+    transition: none;
+  }
+}
 @keyframes nova-blink {
   0%,
   94%,

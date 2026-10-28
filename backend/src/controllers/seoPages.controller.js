@@ -419,13 +419,17 @@ async function buildSeoHome() {
     .join("\n");
 
   // Lo que incluye cada plan sale de su configuración real (los mismos textos que ve el vendedor al elegir plan).
-  const planList = (type) => {
-    const p = plans.find((x) => x.planType === type);
-    return p ? buildPlanIncludes(p).map((t) => `<li>${esc(t)}</li>`).join("\n") : "";
-  };
-  const regularPlan = planList("REGULAR");
-  const premiumPlan = planList("BUSINESS");
+  // Todos los planes públicos, en su orden, con su precio (o "gratis" / "hablando con el equipo").
   const trialDays = settings?.trialDays ?? 0;
+  const planSections = plans
+    .filter((p) => p.isPublic !== false)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((p) => {
+      const price = p.contactOnly ? "precio a la medida" : p.isFree ? "gratis" : `${Number(p.priceCup).toLocaleString("es-CU")} CUP o ${p.priceUsd} USD al mes`;
+      const trial = p.planType === "BUSINESS" && trialDays > 0 ? `, con ${plural(trialDays, "día", "días")} de prueba gratis` : "";
+      return `<h3>Plan ${esc(p.displayName)}, ${esc(price)}${trial}</h3>\n<ul>\n${buildPlanIncludes(p).map((t) => `<li>${esc(t)}</li>`).join("\n")}\n</ul>`;
+    })
+    .join("\n");
 
   const sameAs = [settings?.facebookUrl, settings?.instagramUrl].filter((u) => typeof u === "string" && /^https:\/\//i.test(u));
   const jsonLd = {
@@ -481,15 +485,8 @@ ${productLinks ? `<h2>Productos más pedidos</h2>\n<ul>\n${productLinks}\n</ul>\
 </ol>
 <h2>Vende en ${name}</h2>
 <p>Tu negocio con tienda propia en internet, con su dirección (${esc(ORIGIN.replace(/^https?:\/\//, ""))}/tienda/tu-negocio), su logo, sus redes y su horario. Publicas tus productos con fotos y precios, recibes cada pedido con aviso al instante y lo gestionas desde el celular. Si un pedido se queda sin respuesta, el sistema te lo recuerda para que no pierdas ventas.</p>
-${regularPlan ? `<h3>Plan Regular, gratis</h3>
-<ul>
-${regularPlan}
-</ul>` : ""}
-${premiumPlan ? `<h3>Plan Premium${trialDays > 0 ? `, con ${plural(trialDays, "día", "días")} de prueba gratis` : ""}</h3>
-<ul>
-${premiumPlan}
-</ul>` : ""}
-<p><a href="${esc(ORIGIN)}/vendedor/ingresar?tab=registro">Registrar mi negocio</a> · <a href="${esc(ORIGIN)}/ayuda">Guías para vendedores y restaurantes</a></p>
+${planSections}
+<p><a href="${esc(ORIGIN)}/planes">Planes y precios</a> · <a href="${esc(ORIGIN)}/vendedor/ingresar?tab=registro">Registrar mi negocio</a> · <a href="${esc(ORIGIN)}/ayuda">Guías para vendedores y restaurantes</a></p>
 ${faqItems.length ? `<h2>Preguntas frecuentes</h2>\n${faqItems.map((f) => `<h3>${esc(f.q)}</h3>\n<p>${esc(f.a)}</p>`).join("\n")}\n<p><a href="${esc(ORIGIN)}/faq">Más preguntas frecuentes</a></p>` : ""}
 <p><a href="${esc(ORIGIN)}/ayuda">Centro de ayuda</a> · <a href="${esc(ORIGIN)}/contacto">Contacto</a> · <a href="${esc(ORIGIN)}/terminos">Términos</a> · <a href="${esc(ORIGIN)}/privacidad">Privacidad</a></p>
 <script type="application/ld+json">${JSON.stringify(jsonLd).replace(/</g, "\\u003c")}</script>

@@ -1,9 +1,12 @@
 import { SearchBox, matchesQuery } from "../../components/ui/SearchBox.jsx";
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Icons from "lucide-react";
 import toast from "../../lib/toast.jsx";
-import { Check, X, Pencil, Trash2, Plus, GripVertical, Tags } from "lucide-react";
+import { Check, X, Pencil, Trash2, Plus, GripVertical, Tags, ChevronDown } from "lucide-react";
+import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
+import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { Input } from "../../components/ui/Input.jsx";
@@ -142,7 +145,58 @@ function CategoryModal({ category, onClose }) {
   );
 }
 
-export default function AdminCategories() {
+// Tiendas de un rubro, con enlace para gestionarlas y en qué categorías de producto venden de verdad. Sirve para ver cuándo
+// el rubro ya no describe a la tienda (por ejemplo, "Electrodomésticos" con casi todo en Ropa) y cambiárselo desde Editar.
+function CategoryVendors({ category }) {
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ["admin-business-category-vendors", category.id],
+    queryFn: async () => (await api.get(`/admin/business-categories/${category.id}/vendors`)).data.vendors,
+  });
+  const link = "inline-flex min-h-11 items-center rounded-lg px-3 text-[12.5px] font-semibold md:min-h-9";
+  return (
+    <div className="border-b border-surface-container bg-surface-container/40 px-4 py-3">
+      {isLoading && <p className="text-[12.5px] text-on-surface-variant">Cargando tiendas...</p>}
+      {isError && (
+        <p className="text-[12.5px] text-error">
+          No se pudieron cargar las tiendas.{" "}
+          <button type="button" onClick={() => refetch()} className="font-bold underline">Reintentar</button>
+        </p>
+      )}
+      {data?.length === 0 && <p className="text-[12.5px] text-on-surface-variant">Ninguna tienda tiene este rubro.</p>}
+      {data?.length > 0 && (
+        <ul className="divide-y divide-surface-container-high">
+          {data.map((v) => (
+            <li key={v.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <VendorAvatar vendor={v} className="h-9 w-9 flex-shrink-0 rounded-full text-sm" />
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-on-surface">
+                    <span className="truncate">{v.companyName}</span>
+                    {v.verificationStatus === "VERIFIED" && <VerifiedBadge size="sm" />}
+                    {v.isBlocked && <span className="rounded-full bg-error/10 px-2 py-0.5 text-[10.5px] font-bold text-error">Bloqueada</span>}
+                  </p>
+                  <p className="text-[12px] text-on-surface-variant">
+                    {v.activeProducts === 0
+                      ? "Sin productos activos"
+                      : `Vende: ${v.sells.map((s) => `${s.name} (${s.count})`).join(", ")}${v.moreCategories ? ` y ${v.moreCategories} más` : ""}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 gap-1.5 pl-12 sm:pl-0">
+                <Link to={`/admin/tiendas/${v.id}?tab=productos`} className={`${link} border border-outline-variant text-on-surface hover:bg-surface-container`}>Productos</Link>
+                <Link to={`/admin/tiendas/${v.id}`} className={`${link} bg-surface-container text-on-surface hover:bg-surface-container-high`}>Gestionar</Link>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// `embedded`: dentro de la sección Categorías (AdminAllCategories.jsx), sin su propio encabezado.
+export default function AdminCategories({ embedded = false } = {}) {
+  const [openId, setOpenId] = useState(null);
   const queryClient = useQueryClient();
   const [modalState, setModalState] = useState(null); // null | {} | category
   const [toDelete, setToDelete] = useState(null);
@@ -174,10 +228,12 @@ export default function AdminCategories() {
 
   return (
     <div className="max-w-[820px]">
-      <div className="mb-1 flex items-center gap-3">
-        <IconCircle icon={Tags} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de tipo de negocio</h1>
-      </div>
+      {!embedded && (
+        <div className="mb-1 flex items-center gap-3">
+          <IconCircle icon={Tags} tone="teal" />
+          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de tipo de negocio</h1>
+        </div>
+      )}
       <p className="mb-2 text-[13.5px] text-outline">
         Rubro que elige cada tienda al registrarse (restaurante, belleza, ferretería...). Se muestran en el Home y como
         filtro de búsqueda de Tiendas.
@@ -209,31 +265,52 @@ export default function AdminCategories() {
       {isLoading && <ListSkeleton />}
 
       <div className="overflow-hidden rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        {categories?.filter((c) => matchesQuery(c.name, search)).map((c) => (
-          <div key={c.id} className="flex items-center gap-3 border-b border-surface-container px-4 py-3 last:border-b-0">
-            <GripVertical className="h-4 w-4 flex-shrink-0 text-outline/40" />
-            <span className="w-8 flex-shrink-0 text-center text-[11.5px] font-bold text-outline">{c.sortOrder}</span>
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-tertiary-accent/10">
-              <CategoryIcon name={c.icon} className="h-4 w-4 text-tertiary-accent" />
+        {categories?.filter((c) => matchesQuery(c.name, search)).map((c) => {
+          const count = c._count?.vendors ?? 0;
+          const open = openId === c.id;
+          return (
+            <div key={c.id} className="border-b border-surface-container last:border-b-0">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <GripVertical className="hidden h-4 w-4 flex-shrink-0 text-outline/40 sm:block" />
+                <span className="hidden w-8 flex-shrink-0 text-center text-[11.5px] font-bold text-outline sm:block">{c.sortOrder}</span>
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-tertiary-accent/10">
+                  <CategoryIcon name={c.icon} className="h-4 w-4 text-tertiary-accent" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-semibold text-on-surface">{c.name}</div>
+                  {count > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(open ? null : c.id)}
+                      aria-expanded={open}
+                      aria-label={`${open ? "Ocultar" : "Ver"} ${count === 1 ? "la tienda asignada" : `las ${count} tiendas asignadas`} a ${c.name}`}
+                      className="inline-flex min-h-8 items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-tertiary-accent hover:underline"
+                    >
+                      {count === 1 ? "1 tienda" : `${count} tiendas`}
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <div className="text-[11.5px] text-outline">Ninguna tienda asignada</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => toggleActive.mutate(c)}
+                  aria-label={c.active ? `Desactivar ${c.name}` : `Activar ${c.name}`}
+                  className={`min-h-9 rounded-full px-2.5 text-[11px] font-bold ${c.active ? "bg-verified/10 text-verified-dark" : "bg-surface-container text-outline"}`}
+                >
+                  {c.active ? "Activa" : "Inactiva"}
+                </button>
+                <button onClick={() => setModalState(c)} aria-label={`Editar ${c.name}`} className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-tertiary-accent hover:bg-surface-container">
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button onClick={() => setToDelete(c)} aria-label={`Eliminar ${c.name}`} className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-error hover:bg-error/5">
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+              {open && <CategoryVendors category={c} />}
             </div>
-            <div className="flex-1">
-              <div className="text-[13.5px] font-semibold text-on-surface">{c.name}</div>
-              <div className="text-[11.5px] text-outline">{c._count?.vendors ?? 0} tiendas asignadas</div>
-            </div>
-            <button
-              onClick={() => toggleActive.mutate(c)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${c.active ? "bg-verified/10 text-verified-dark" : "bg-surface-container text-outline"}`}
-            >
-              {c.active ? "Activa" : "Inactiva"}
-            </button>
-            <button onClick={() => setModalState(c)} className="text-tertiary-accent">
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button onClick={() => setToDelete(c)} className="text-error">
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
+          );
+        })}
         {!isLoading && !categories?.length && <p className="p-4 text-body-md text-on-surface-variant">Todavía no hay categorías cargadas.</p>}
         {!isLoading && !!categories?.length && !categories.some((c) => matchesQuery(c.name, search)) && <p className="p-4 text-body-md text-on-surface-variant">No hay categorías que coincidan con “{search.trim()}”.</p>}
       </div>
@@ -244,7 +321,7 @@ export default function AdminCategories() {
           title={`¿Eliminar "${toDelete.name}"?`}
           description={
             toDelete._count?.vendors > 0
-              ? `Hay ${toDelete._count.vendors} tienda(s) usando esta categoría — no se puede eliminar. Desactivala en su lugar.`
+              ? `Hay ${toDelete._count.vendors} tienda(s) usando esta categoría, así que no se puede eliminar. Desactívala en su lugar.`
               : "Esta categoría no tiene tiendas asignadas."
           }
           confirmLabel="Eliminar"

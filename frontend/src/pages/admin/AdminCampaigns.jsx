@@ -14,8 +14,8 @@ import { useDirtyModal } from "../../lib/useDirtyModal.js";
 const SEGMENTS = [
   { id: "all_customers", label: "Todos los clientes" },
   { id: "all_vendors", label: "Todos los vendedores" },
-  { id: "regular_vendors", label: "Vendedores Regular" },
-  { id: "business_vendors", label: "Vendedores Business" },
+  { id: "regular_vendors", label: "Tiendas en el plan Básico" },
+  { id: "business_vendors", label: "Tiendas con plan de pago" },
 ];
 
 function fmtDate(iso) {
@@ -327,7 +327,7 @@ export default function AdminCampaigns() {
       (
         await api.get("/admin/vendors", {
           params: {
-            plan: segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "BUSINESS" : undefined,
+            plan: segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "PAID" : undefined,
             provinceId: provinceId || undefined,
             pageSize: 1,
           },

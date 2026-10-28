@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
@@ -124,43 +125,173 @@ const PLAN_TOGGLE_FIELDS = [
   { key: "allowCustomerEmails", label: "Correos a clientes y avisos de gestión por correo" },
 ];
 
-// Una tarjeta completa por plan — nombre visible, beneficios en texto libre,
-// límites numéricos y los interruptores de función. Guarda TODO el plan
-// en un solo request (PATCH /admin/plan-configs), nunca columnas sueltas.
-function PlanConfigCard({ plan }) {
+// Descuentos por pagar varios meses juntos: una fila por escalón (meses, % en CUP, % en USD).
+function DiscountEditor({ rows, onChange }) {
+  const set = (i, key, value) => onChange(rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
+  const field = "h-10 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent";
+  return (
+    <div>
+      {rows.length > 0 && (
+        <div className="mb-1 grid grid-cols-[1fr_1fr_1fr_40px] gap-2 text-[11.5px] font-semibold text-outline">
+          <span>Desde (meses)</span>
+          <span>Descuento CUP (%)</span>
+          <span>Descuento USD (%)</span>
+          <span />
+        </div>
+      )}
+      {rows.map((r, i) => (
+        <div key={i} className="mb-2 grid grid-cols-[1fr_1fr_1fr_40px] items-center gap-2">
+          <input aria-label={`Meses del descuento ${i + 1}`} inputMode="numeric" value={r.months} onChange={(e) => set(i, "months", e.target.value.replace(/\D/g, ""))} className={field} />
+          <input aria-label={`Descuento en CUP ${i + 1}`} inputMode="numeric" value={r.cup} onChange={(e) => set(i, "cup", e.target.value.replace(/\D/g, ""))} className={field} />
+          <input aria-label={`Descuento en USD ${i + 1}`} inputMode="numeric" value={r.usd} onChange={(e) => set(i, "usd", e.target.value.replace(/\D/g, ""))} className={field} />
+          <button type="button" aria-label={`Quitar el descuento ${i + 1}`} onClick={() => onChange(rows.filter((_, j) => j !== i))} className="flex h-10 w-10 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container">
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+      {rows.length < 6 && (
+        <button type="button" onClick={() => onChange([...rows, { months: "", cup: "", usd: "" }])} className="flex min-h-10 items-center gap-1.5 text-[13px] font-bold text-tertiary-accent">
+          <Plus className="h-4 w-4" aria-hidden="true" /> Agregar descuento
+        </button>
+      )}
+      <p className="mt-1 text-[11.5px] text-outline">Se aplica el escalón más alto alcanzado: con descuentos en 3, 6 y 12 meses, quien paga 8 meses recibe el de 6.</p>
+    </div>
+  );
+}
+
+const toText = (v) => (v === null || v === undefined ? "" : String(v));
+const numOrNull = (v) => (String(v).trim() === "" ? null : Number(String(v).replace(",", ".")));
+
+// Una tarjeta por plan: precio y página pública, beneficios, límites y funciones. Guarda todo el plan en un solo pedido
+// (PATCH /admin/plan-configs); pide el código de confirmación (PLAN_CONFIG_CHANGE).
+function PlanConfigCard({ plan, vendorCount }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(null);
+  const [confirmPaid, setConfirmPaid] = useState(false);
 
   useEffect(() => {
     if (!plan) return;
     setForm({
       displayName: plan.displayName,
+      tagline: plan.tagline ?? "",
+      sortOrder: toText(plan.sortOrder),
+      priceCup: toText(plan.priceCup),
+      priceUsd: toText(plan.priceUsd),
+      listPriceCup: toText(plan.listPriceCup),
+      listPriceUsd: toText(plan.listPriceUsd),
+      isFree: !!plan.isFree,
+      contactOnly: !!plan.contactOnly,
+      highlighted: !!plan.highlighted,
+      grantsBadge: !!plan.grantsBadge,
+      isPublic: plan.isPublic !== false,
+      monthDiscounts: (plan.monthDiscounts ?? []).map((d) => ({ months: toText(d.months), cup: toText(d.cup), usd: toText(d.usd) })),
       features: plan.features ?? [],
       ...Object.fromEntries(PLAN_LIMIT_FIELDS.map((f) => [f.key, plan[f.key]])),
       ...Object.fromEntries(PLAN_TOGGLE_FIELDS.map((f) => [f.key, plan[f.key]])),
     });
   }, [plan]);
 
+  const body = () => ({
+    planType: plan.planType,
+    ...form,
+    tagline: form.tagline.trim() || null,
+    sortOrder: Number(form.sortOrder) || 0,
+    priceCup: Number(form.priceCup) || 0,
+    priceUsd: Number(String(form.priceUsd).replace(",", ".")) || 0,
+    listPriceCup: numOrNull(form.listPriceCup),
+    listPriceUsd: numOrNull(form.listPriceUsd),
+    monthDiscounts: form.monthDiscounts
+      .filter((d) => String(d.months).trim() !== "")
+      .map((d) => ({ months: Number(d.months), cup: Number(d.cup) || 0, usd: Number(d.usd) || 0 })),
+  });
+
   const save = useMutation({
-    mutationFn: async () => (await api.patch("/admin/plan-configs", { planType: plan.planType, ...form })).data,
+    mutationFn: async () => (await api.patch("/admin/plan-configs", body())).data,
     onSuccess: () => {
       toast.success(`Plan ${form.displayName} actualizado.`);
+      setConfirmPaid(false);
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
       queryClient.invalidateQueries({ queryKey: ["admin-plan-configs"] });
+      queryClient.invalidateQueries({ queryKey: ["public-plans"] });
     },
-    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
+    onError: (err) => {
+      if (!err.actionCodeCancelled) toast.error(err.response?.data?.error ?? "No se pudo guardar.");
+    },
   });
 
   if (!form) return null;
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+  const toggle = (key) => (e) => setForm({ ...form, [key]: e.target.checked });
+  const price = "h-10 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent";
+  const goingPaid = plan.isFree && !form.isFree && !form.contactOnly;
+  const discountsInvalid = form.monthDiscounts.some((d) => String(d.months).trim() !== "" && (!(Number(d.months) >= 2 && Number(d.months) <= 36) || Number(d.cup) > 90 || Number(d.usd) > 90));
+  const priceMissing = !form.isFree && !form.contactOnly && (!(Number(form.priceCup) > 0) || !(Number(String(form.priceUsd).replace(",", ".")) > 0));
 
   return (
-    <div className="flex-1 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
-      <Input label="Nombre visible del plan" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} className="mb-4" />
+    <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] sm:p-6">
+      <div className="mb-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_100px]">
+        <Input label="Nombre visible del plan" value={form.displayName} onChange={set("displayName")} />
+        <Input label="Frase corta (página de planes)" value={form.tagline} onChange={set("tagline")} placeholder="Ej.: Para empezar a vender en línea" />
+        <Input label="Orden" inputMode="numeric" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: e.target.value.replace(/\D/g, "") })} />
+      </div>
+
+      <section className="mb-5 rounded-xl bg-surface-container/50 p-4">
+        <div className="mb-3 text-label-md font-bold text-on-surface">Precio y página pública</div>
+        <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {[
+            ["isFree", "Gratis por ahora", "Se muestra el precio de lista tachado. Al apagarlo, se cobra y se avisa a sus tiendas."],
+            ["contactOnly", "Se contrata por WhatsApp", "Sin precio publicado: el botón abre el WhatsApp de soporte."],
+            ["highlighted", "Destacado como el más elegido", "Solo un plan a la vez; al marcar este se quita del otro."],
+            ["grantsBadge", "Da la insignia de verificada", "La tienda tiene que pasar la verificación de documentos."],
+            ["isPublic", "Se muestra en la página de planes", "Apágalo para ocultar un plan sin borrarlo."],
+          ].map(([key, label, hint]) => (
+            <label key={key} className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border border-outline-variant bg-surface-container-lowest p-2.5">
+              <input type="checkbox" checked={!!form[key]} onChange={toggle(key)} className="mt-0.5 h-4 w-4 flex-shrink-0 accent-tertiary-accent" />
+              <span>
+                <span className="block text-[13px] font-semibold text-on-surface">{label}</span>
+                <span className="block text-[11.5px] text-outline">{hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {!form.contactOnly && (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-[11.5px] font-semibold text-outline">Precio al mes (CUP)</label>
+              <input inputMode="numeric" value={form.priceCup} onChange={(e) => setForm({ ...form, priceCup: e.target.value.replace(/\D/g, "") })} className={price} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11.5px] font-semibold text-outline">Precio al mes (USD)</label>
+              <input inputMode="decimal" value={form.priceUsd} onChange={(e) => setForm({ ...form, priceUsd: e.target.value.replace(/[^\d.,]/g, "") })} className={price} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11.5px] font-semibold text-outline">Precio tachado (CUP)</label>
+              <input inputMode="numeric" value={form.listPriceCup} placeholder="Sin tachado" onChange={(e) => setForm({ ...form, listPriceCup: e.target.value.replace(/\D/g, "") })} className={price} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11.5px] font-semibold text-outline">Precio tachado (USD)</label>
+              <input inputMode="decimal" value={form.listPriceUsd} placeholder="Sin tachado" onChange={(e) => setForm({ ...form, listPriceUsd: e.target.value.replace(/[^\d.,]/g, "") })} className={price} />
+            </div>
+          </div>
+        )}
+        {priceMissing && <p className="mt-2 text-[12px] font-semibold text-error">Para cobrar este plan escribe su precio en CUP y en USD.</p>}
+        {!form.contactOnly && !form.isFree && (
+          <div className="mt-4">
+            <div className="mb-1 text-[12.5px] font-bold text-on-surface">Descuentos por pagar varios meses</div>
+            <DiscountEditor rows={form.monthDiscounts} onChange={(monthDiscounts) => setForm({ ...form, monthDiscounts })} />
+          </div>
+        )}
+        {goingPaid && (
+          <p className="mt-3 rounded-lg bg-secondary-container/25 px-3 py-2 text-[12.5px] text-on-surface">
+            Al guardar, este plan empieza a cobrarse. {vendorCount != null ? `Se avisará a ${vendorCount === 1 ? "la tienda" : `las ${vendorCount} tiendas`} de este plan` : "Se avisará a sus tiendas"} para que paguen antes de su fecha de cobro mensual (contada desde que se registraron).
+          </p>
+        )}
+      </section>
 
       <div className="mb-5">
         <div className="mb-1 text-label-md font-semibold text-on-surface-variant">Beneficios extra (texto libre, lo ve la tienda)</div>
         <p className="mb-2 text-[12px] text-on-surface-variant">
-          Los límites (productos, provincias, mesas...) y las funciones encendidas abajo ya se muestran solos con su valor real. Aquí escribe solo beneficios que no estén en esa lista y sin números: las líneas con números no se muestran, para que nunca contradigan un límite.
+          Los límites y las funciones de abajo ya se muestran solos con su valor real. Aquí escribe solo beneficios que no estén en esa lista y sin números: las líneas con números no se muestran, para que nunca contradigan un límite.
         </p>
         <FeatureChipList items={form.features} onChange={(features) => setForm({ ...form, features })} />
       </div>
@@ -169,8 +300,7 @@ function PlanConfigCard({ plan }) {
         <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Límites (vacío = sin límite)</div>
         {plan.planType === "REGULAR" && (
           <p className="mb-3 rounded-lg bg-tertiary-accent/[0.07] px-3 py-2 text-[12px] text-on-surface">
-            Estos límites se aplican también cuando una tienda termina su prueba gratis o baja de Premium. Los productos que pasen
-            del límite quedan ocultos, nunca se borran: se quedan visibles los que más vendieron, mejor valorados y con la ficha más completa.
+            Estos límites se aplican también cuando una tienda termina su prueba gratis o baja de plan. Los productos que pasen del límite quedan ocultos, nunca se borran.
           </p>
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -194,44 +324,72 @@ function PlanConfigCard({ plan }) {
         <div className="mb-2 text-label-md font-semibold text-on-surface-variant">Funciones habilitadas</div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {PLAN_TOGGLE_FIELDS.map((f) => (
-            <label key={f.key} className="flex items-center gap-2 text-[12.5px] text-on-surface">
-              <input
-                type="checkbox"
-                checked={!!form[f.key]}
-                onChange={(e) => setForm({ ...form, [f.key]: e.target.checked })}
-                className="h-4 w-4 flex-shrink-0 rounded border-outline-variant accent-tertiary-accent"
-              />
+            <label key={f.key} className="flex min-h-9 items-center gap-2 text-[12.5px] text-on-surface">
+              <input type="checkbox" checked={!!form[f.key]} onChange={toggle(f.key)} className="h-4 w-4 flex-shrink-0 rounded border-outline-variant accent-tertiary-accent" />
               {f.label}
             </label>
           ))}
         </div>
       </div>
 
-      <Button className="rounded-xl font-bold" disabled={save.isPending} onClick={() => save.mutate()}>
+      <Button className="rounded-xl font-bold" disabled={save.isPending || discountsInvalid || priceMissing} onClick={() => (goingPaid ? setConfirmPaid(true) : save.mutate())}>
         {save.isPending ? "Guardando..." : `Guardar ${form.displayName}`}
       </Button>
+      {discountsInvalid && <p className="mt-2 text-[12px] text-error">Cada descuento va de 2 a 36 meses y hasta 90 %.</p>}
+
+      <ConfirmModal
+        open={confirmPaid}
+        title={`¿Empezar a cobrar el plan ${form.displayName}?`}
+        message={`Dejará de ser gratis: costará ${Number(form.priceCup).toLocaleString("es-CU")} CUP o ${form.priceUsd} USD al mes. Cada tienda de este plan recibe un aviso con su fecha de pago (mensual, desde que se registró) y otros recordatorios antes y después. Si no paga, pasa a modo limitado y luego a suspendida, según los días que configures.`}
+        confirmLabel={save.isPending ? "Guardando..." : "Sí, empezar a cobrar"}
+        confirmDisabled={save.isPending}
+        onConfirm={() => save.mutate()}
+        onCancel={() => setConfirmPaid(false)}
+      />
     </div>
   );
 }
 
 export function PlanConfigTab() {
+  const [active, setActive] = useState(null);
   const { data: plans } = useQuery({
     queryKey: ["admin-plan-configs"],
     queryFn: async () => (await api.get("/admin/plan-configs")).data.plans,
   });
-  const regular = plans?.find((p) => p.planType === "REGULAR");
-  const business = plans?.find((p) => p.planType === "BUSINESS");
+  const { data: counts } = useQuery({
+    queryKey: ["admin-plan-vendor-counts"],
+    queryFn: async () => (await api.get("/admin/plan-configs/vendor-counts")).data.counts,
+  });
+  const current = plans?.find((p) => p.planType === active) ?? plans?.[0];
 
   return (
     <div>
-      <p className="mb-5 text-[13px] text-outline">
-        Lo que configures aquí es lo que de verdad aplica el sistema — nunca solo texto decorativo. Los mismos límites y
-        funciones se reflejan tal cual en Verificación y Suscripción del panel del vendedor.
+      <p className="mb-4 text-[13px] text-outline">
+        Lo que configures aquí es lo que de verdad aplica el sistema y lo que ven todos en la{" "}
+        <Link to="/planes" target="_blank" className="font-bold text-tertiary-accent underline">página de planes</Link>, en el registro y en el panel de cada tienda.
       </p>
-      <div className="flex flex-col gap-5 lg:flex-row">
-        <PlanConfigCard plan={regular} />
-        <PlanConfigCard plan={business} />
+      <div role="tablist" aria-label="Planes" className="mb-4 flex flex-wrap gap-1.5">
+        {(plans ?? []).map((p) => {
+          const on = current?.planType === p.planType;
+          return (
+            <button
+              key={p.planType}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setActive(p.planType)}
+              className={`flex min-h-11 flex-shrink-0 items-center gap-2 rounded-xl border px-4 text-[13.5px] font-bold ${on ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant text-on-surface hover:bg-surface-container"}`}
+            >
+              {p.displayName}
+              <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">
+                {p.contactOnly ? "WhatsApp" : p.isFree ? "Gratis" : `${Number(p.priceCup).toLocaleString("es-CU")} CUP`}
+              </span>
+              {counts && <span className="text-[11px] font-semibold text-outline">{counts[p.planType] ?? 0} tiendas</span>}
+            </button>
+          );
+        })}
       </div>
+      {current && <PlanConfigCard key={current.planType} plan={current} vendorCount={counts?.[current.planType]} />}
     </div>
   );
 }
@@ -252,9 +410,8 @@ export function CupPaymentSettingsCard() {
     cupBankAccountHolder: "",
     cupBankInstructions: "",
     cupBankPhone: "",
-    cupSubscriptionPriceCup: 2500,
-    cardSubscriptionPriceUsd: 25,
     trialDays: 30,
+    unpaidSuspendDays: 30,
   });
 
   useEffect(() => {
@@ -264,27 +421,21 @@ export function CupPaymentSettingsCard() {
       cupBankAccountHolder: settings.cupBankAccountHolder ?? "",
       cupBankInstructions: settings.cupBankInstructions ?? "",
       cupBankPhone: settings.cupBankPhone ?? "",
-      cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup ?? 2500,
-      cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd ?? 25,
       trialDays: settings.trialDays ?? 30,
+      unpaidSuspendDays: settings.unpaidSuspendDays ?? 30,
     });
   }, [settings]);
 
-  // Los precios viven como texto mientras se escriben: con Number() en cada tecla un campo vacío volvía a 0 y no se podía borrar.
-  const cupPrice = Number(form.cupSubscriptionPriceCup);
-  const cardPrice = Number(String(form.cardSubscriptionPriceUsd).replace(",", "."));
-  const cupPriceError = form.cupSubscriptionPriceCup === "" || !Number.isInteger(cupPrice) || cupPrice <= 0 ? "Escribe un precio entero mayor que 0." : null;
-  const cardPriceError =
-    form.cardSubscriptionPriceUsd === "" || !Number.isFinite(cardPrice) || cardPrice <= 0 || !/^\d+([.,]\d{1,2})?$/.test(String(form.cardSubscriptionPriceUsd).trim())
-      ? "Escribe un precio mayor que 0, con hasta 2 decimales (ej.: 4.99)."
-      : null;
+  // Los precios de cada plan se editan en "Configuración de planes".
+  const unpaidDays = Number(form.unpaidSuspendDays);
+  const unpaidDaysError = form.unpaidSuspendDays === "" || !Number.isInteger(unpaidDays) || unpaidDays < 1 || unpaidDays > 365 ? "Escribe un número de días entre 1 y 365." : null;
 
   const trialDays = Number(form.trialDays);
   const trialDaysError = form.trialDays === "" || !Number.isInteger(trialDays) || trialDays < 1 || trialDays > 365 ? "Escribe un número de días entre 1 y 365." : null;
 
   const save = useMutation({
     mutationFn: async () =>
-      (await api.patch("/admin/settings/cup-payment", { ...form, cupSubscriptionPriceCup: cupPrice, cardSubscriptionPriceUsd: cardPrice, trialDays })).data,
+      (await api.patch("/admin/settings/cup-payment", { ...form, trialDays, unpaidSuspendDays: unpaidDays })).data,
     onSuccess: () => {
       toast.success("Datos de pago de la suscripción actualizados.");
       queryClient.invalidateQueries({ queryKey: ["site-settings"] });
@@ -298,25 +449,17 @@ export function CupPaymentSettingsCard() {
         <Landmark className="h-5 w-5 text-tertiary-accent" /> Datos de pago de la suscripción
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Precios por mes en cada moneda: el vendedor elige cuántos meses paga (1 a 24) y el monto se calcula solo. Los datos de
-        transferencia CUP son lo que ve el vendedor en "Pago por transferencia" para copiar y pegar; si están vacíos, le pedimos que
-        contacte al equipo. Los días de la prueba gratis valen para las pruebas que se activen desde que los cambias: las
-        que ya están en curso conservan su fecha de fin.
+        Los precios de cada plan y sus descuentos por meses están en "Configuración de planes". Aquí van los datos de
+        transferencia CUP que el vendedor copia al pagar (si están vacíos, le pedimos que contacte al equipo), los días de la
+        prueba gratis (valen para las pruebas nuevas) y cuántos días sin pagar pasan antes de suspender una tienda.
       </p>
       <div className="mb-3.5 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <Input
-          label="Precio mensual con transferencia CUP"
+          label="Días sin pagar antes de suspender la tienda"
           inputMode="numeric"
-          value={form.cupSubscriptionPriceCup}
-          error={cupPriceError}
-          onChange={(e) => setForm({ ...form, cupSubscriptionPriceCup: e.target.value.replace(/\D/g, "") })}
-        />
-        <Input
-          label="Precio mensual con tarjeta (USD, Stripe)"
-          inputMode="decimal"
-          value={form.cardSubscriptionPriceUsd}
-          error={cardPriceError}
-          onChange={(e) => setForm({ ...form, cardSubscriptionPriceUsd: e.target.value.replace(/[^\d.,]/g, "") })}
+          value={form.unpaidSuspendDays}
+          error={unpaidDaysError}
+          onChange={(e) => setForm({ ...form, unpaidSuspendDays: e.target.value.replace(/\D/g, "") })}
         />
         <Input
           label="Días de la prueba gratis de Premium"
@@ -350,7 +493,7 @@ export function CupPaymentSettingsCard() {
         placeholder="Ej.: incluir el nombre de la tienda como referencia..."
         className="mb-4 w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
       />
-      <Button className="rounded-xl font-bold" disabled={save.isPending || !!cupPriceError || !!cardPriceError || !!trialDaysError} onClick={() => save.mutate()}>
+      <Button className="rounded-xl font-bold" disabled={save.isPending || !!unpaidDaysError || !!trialDaysError} onClick={() => save.mutate()}>
         {save.isPending ? "Guardando..." : "Guardar cambios"}
       </Button>
     </div>
@@ -387,10 +530,13 @@ function GrantBusinessCard() {
   const vendorOptions =
     selectedVendor && !regularVendors.some((v) => v.id === selectedVendor.id) ? [selectedVendor, ...regularVendors] : regularVendors;
 
+  // Plan a activar: cualquiera de pago (Empresarial solo se activa así, porque se contrata hablando con el equipo).
+  const { planNames } = usePlatformSettings();
+  const [grantPlan, setGrantPlan] = useState("BUSINESS");
   const grant = useMutation({
-    mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/grant-business`, { reason: reason.trim() }, notifyVendorConfig(notifyVendor))).data,
+    mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/grant-business`, { reason: reason.trim(), planType: grantPlan }, notifyVendorConfig(notifyVendor))).data,
     onSuccess: () => {
-      toast.success("Plan Premium activado a mano.");
+      toast.success(`Plan ${planNames[grantPlan]} activado a mano.`);
       setNotifyVendor(false);
       setVendorId("");
       setSelectedVendor(null);
@@ -405,17 +551,17 @@ function GrantBusinessCard() {
   return (
     <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
       <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
-        <Sparkles className="h-5 w-5 text-tertiary-accent" /> Activar Premium manualmente
+        <Sparkles className="h-5 w-5 text-tertiary-accent" /> Activar un plan a mano
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Para casos excepcionales — activa el badge de verificación y el Plan Premium de una tienda sin pasar por el ciclo
-        normal de documentos/pago. Queda registrado con el motivo que escribas, visible en su historial.
+        Para casos excepcionales o para el plan {planNames.ENTERPRISE}: activa la insignia de verificada y el plan que elijas sin pasar por los
+        documentos ni el pago. Queda registrado con el motivo que escribas, visible en su historial.
       </p>
       <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_2fr]">
         <div className="flex flex-col gap-2">
-          <Input label="Buscar tienda (Plan Regular)" value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} placeholder="Nombre de la tienda" />
+          <Input label={`Buscar tienda (plan ${planNames.REGULAR})`} value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} placeholder="Nombre de la tienda" />
           <Select
-            aria-label="Tienda a la que activar Premium"
+            aria-label="Tienda a la que activar el plan"
             value={vendorId}
             onChange={(e) => {
               setVendorId(e.target.value);
@@ -430,12 +576,21 @@ function GrantBusinessCard() {
             ))}
           </Select>
         </div>
+        <div className="flex flex-col gap-2">
+        <Select aria-label="Plan a activar" value={grantPlan} onChange={(e) => setGrantPlan(e.target.value)}>
+          {["STANDARD", "BUSINESS", "ENTERPRISE"].map((p) => (
+            <option key={p} value={p}>
+              Plan {planNames[p]}
+            </option>
+          ))}
+        </Select>
         <Input
           label="Motivo (obligatorio)"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Ej.: acuerdo comercial directo con el vendedor..."
         />
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <Button
@@ -443,7 +598,7 @@ function GrantBusinessCard() {
           disabled={!vendorId || reason.trim().length < 5 || grant.isPending}
           onClick={() => grant.mutate()}
         >
-          {grant.isPending ? "Activando..." : "Activar Plan Premium"}
+          {grant.isPending ? "Activando..." : `Activar plan ${planNames[grantPlan]}`}
         </Button>
         <NotifyVendorCheckbox checked={notifyVendor} onChange={setNotifyVendor} />
       </div>
@@ -513,7 +668,7 @@ function SubscriptionsTab() {
       <div className="mb-6 rounded-[10px] bg-tertiary-accent/[0.08] px-3.5 py-2.5 text-[12px] text-tertiary-accent">
         El cobro es recurrente: Stripe cobra cada mes solo (factura fallida = "Pago fallido", suscripción cancelada = "Suspendida"); CUP se
         renueva a mano cada ciclo, con recordatorio automático 7 días antes de vencer. Las tiendas en "Prueba gratis" tienen todas las funciones
-        Premium, reciben aviso 7, 3 y 1 día antes de que termine la prueba y al terminar pasan solas a Regular, sin insignia y con sus límites.
+        Premium, reciben aviso 7, 3 y 1 día antes de que termine la prueba y al terminar pasan solas al Básico, sin insignia y con sus límites.
       </div>
 
       <div className="mb-6">
@@ -631,7 +786,7 @@ function SubscriptionsTab() {
       <ConfirmModal
         open={!!confirmRevoke}
         title={`¿Revocar el Plan Premium de "${confirmRevoke?.companyName}"?`}
-        message="Vuelve a Regular, pierde el badge verificado y las funciones Premium — se le avisa por correo con el motivo que escribas."
+        message="Vuelve al Básico, pierde el badge verificado y las funciones Premium — se le avisa por correo con el motivo que escribas."
         confirmLabel={revoke.isPending ? "Revocando..." : "Sí, revocar"}
         danger
         confirmDisabled={revokeReason.trim().length < 5 || revoke.isPending}

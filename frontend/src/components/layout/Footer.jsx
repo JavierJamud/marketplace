@@ -87,7 +87,7 @@ export function Footer() {
               <div className={HEADING}>Vender</div>
               <div className="flex flex-col md:gap-2.5">
                 <Link to="/vendedor/ingresar?tab=registro" className={LINK}>Registrarse gratis</Link>
-                <Link to="/vendedor/ingresar?tab=registro" className={LINK}>Planes y verificación</Link>
+                <Link to="/planes" className={LINK}>Planes y precios</Link>
                 <Link to="/api-socios" className={LINK}>API para socios</Link>
               </div>
             </nav>

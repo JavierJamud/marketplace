@@ -11,7 +11,7 @@ export function PlanUpsell({ title, text }) {
       </div>
       <p className="mb-3 text-[13px] leading-[19px] text-on-surface-variant">{text}</p>
       <Link to="/vendedor/verificacion" className="inline-flex min-h-11 items-center rounded-xl bg-secondary-container px-4 text-[13.5px] font-bold text-on-secondary-container hover:brightness-95">
-        Ver el Plan Premium
+        Ver los planes
       </Link>
     </div>
   );

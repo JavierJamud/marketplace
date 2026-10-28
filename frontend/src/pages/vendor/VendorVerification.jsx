@@ -8,7 +8,8 @@ import { api } from "../../lib/api.js";
 import { KycSubmitForm } from "../../components/vendor/KycSubmitForm.jsx";
 import { SubscriptionOverview } from "../../components/vendor/SubscriptionOverview.jsx";
 import { PaymentChooser } from "../../components/vendor/PaymentChooser.jsx";
-import { planFromSettings, STAGE_META } from "../../lib/verificationMeta.js";
+import { STAGE_META } from "../../lib/verificationMeta.js";
+import { EnterpriseCta, PlansCatalog, usePublicPlans } from "../../components/plans/PlansCatalog.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Pantalla "Suscripción" del panel (antes "Verificación y plan"): el trámite de verificación (documentos, revisión y pago) y,
@@ -17,9 +18,6 @@ import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 
 function fmtDateTime(iso) {
   return new Date(iso).toLocaleString("es-CU", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
-}
-function fmtCup(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
 }
 
 // El paso visual sale de Vendor.verificationStatus (ver STAGE_META). "Revisión de pago" solo aplica al pago en CUP: con
@@ -71,17 +69,33 @@ export default function VendorVerification() {
     refetchInterval: waitingStripe ? 2000 : false,
   });
 
-  // Nombre, precio y beneficios de cada plan vienen de la configuración de planes del admin.
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
-  const regularPlan = settings ? planFromSettings(settings.plans, "REGULAR") : null;
-  const businessPlan = settings
-    ? { ...planFromSettings(settings.plans, "BUSINESS"), priceLabel: `${fmtCup(settings.cupSubscriptionPriceCup)} ó $${settings.cardSubscriptionPriceUsd} USD/mes` }
-    : null;
-  const mergedPlans = [regularPlan, businessPlan].filter(Boolean);
-  const currentPlan = vendor?.planType === "BUSINESS" ? businessPlan : regularPlan;
+  // Nombre, precio y beneficios de cada plan vienen de la configuración de planes del admin (GET /settings/plans).
+  // `?plan=` llega desde la página pública de planes y preselecciona ese plan en el pago.
+  const { data: publicPlans } = usePublicPlans();
+  const planList = publicPlans?.plans ?? [];
+  // Con un pago ya elegido manda su plan; al cambiar la forma de pago, el que se elija en pantalla.
+  const urlPlan = searchParams.get("plan");
+  const requestedPlan = data?.paymentMethod && !changingMethod ? data.paymentPlanType ?? urlPlan : urlPlan ?? data?.paymentPlanType;
+  const badgePlans = planList.filter((p) => p.grantsBadge && !p.isFree && !p.contactOnly);
+  const businessPlan = badgePlans.find((p) => p.planType === requestedPlan) ?? badgePlans.find((p) => p.highlighted) ?? badgePlans[badgePlans.length - 1];
+  const basicPlan = planList.find((p) => p.planType === "REGULAR");
+  const currentPlan = planList.find((p) => p.planType === vendor?.planType);
+  const choosePlan = (planType) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("plan", planType);
+    setSearchParams(next, { replace: true });
+  };
+
+  // Plan de pago sin insignia (el Básico cuando deja de ser gratis): se paga desde acá, sin verificación.
+  const { data: subscription } = useQuery({
+    queryKey: ["my-subscription"],
+    queryFn: async () => (await api.get("/verification/me/subscription")).data.subscription,
+  });
+  const paysWithoutBadge = !!subscription?.paysWithoutBadge;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["my-verification"] });
@@ -166,7 +180,7 @@ export default function VendorVerification() {
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <span className="text-[16.5px] font-bold text-on-surface">{meta.label}</span>
               <span className="rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
-                Plan {currentPlan?.name ?? (vendor?.planType === "BUSINESS" ? "Premium" : "Regular")}
+                Plan {currentPlan?.name ?? basicPlan?.name ?? "Básico"}
               </span>
             </div>
             <div className="text-[13px] text-on-surface-variant">
@@ -176,7 +190,7 @@ export default function VendorVerification() {
               {status === "VERIFIED" && "Tu tienda tiene la insignia de verificada."}
               {status === "PAYMENT_FAILED" && "No pudimos cobrar tu plan. Resuélvelo abajo para recuperarlo, sin rehacer documentos."}
               {status === "SUSPENDED" && "Tu suscripción terminó. Reactívala abajo, sin rehacer documentos."}
-              {status === "PLAN_ENDED" && `Tu tienda está en el plan Regular, sin la insignia. Tus documentos siguen aprobados: vuelve a ${businessPlan?.name ?? "Premium"} pagando abajo.`}
+              {status === "PLAN_ENDED" && `Tu tienda está en el plan ${basicPlan?.name ?? "Básico"}, sin la insignia. Tus documentos siguen aprobados: vuelve a ${businessPlan?.name ?? "Premium"} pagando abajo.`}
               {status === "REJECTED" && (data?.notes || "Tu solicitud fue rechazada. Vuelve a capturar los documentos e intenta de nuevo.")}
             </div>
           </div>
@@ -191,6 +205,26 @@ export default function VendorVerification() {
         </div>
       </div>
 
+      {/* Mientras paga la verificación recién aprobada no se muestra este segundo selector de pago. */}
+      {paysWithoutBadge && status !== "PENDING_PAYMENT" && (
+        <>
+          <div className="mb-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5 text-[13px] text-on-surface-variant">
+            <p className="text-[15px] font-bold text-on-surface">Tu plan {subscription.planName}</p>
+            {subscription.periodEnd && (
+              <p className="mt-1">
+                Próxima fecha de cobro: <strong className="text-on-surface">{new Date(subscription.periodEnd).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>. Lo que pagues ahora se suma desde esa fecha.
+              </p>
+            )}
+            {subscription.pendingRenewal && (
+              <Link to="/vendedor/pago-manual" className="mt-2 inline-flex min-h-11 items-center font-semibold text-tertiary-accent hover:underline">
+                Tienes un pago en curso: ver los datos y avisar que pagaste
+              </Link>
+            )}
+          </div>
+          <PaymentChooser renewal onlyPlanType={vendor?.planType} title={`Pagar mi plan ${subscription.planName}`} intro="Elige cuántos meses pagar. Pagando varios meses juntos se aplica el descuento del plan." onChoseCup={invalidate} />
+        </>
+      )}
+
       {showOverview && <SubscriptionOverview onChoosePayment={() => setSwitchToCard(true)} />}
 
       {switchToCard && status === "VERIFIED" && (
@@ -198,40 +232,45 @@ export default function VendorVerification() {
           switching
           title="Pasar a cobro automático con tarjeta"
           intro="Lo que ya pagaste se respeta: el primer cobro con tarjeta es cuando vence."
-          cardPriceUsd={settings?.cardSubscriptionPriceUsd}
-          cupPrice={settings?.cupSubscriptionPriceCup}
+          initialPlanType={vendor?.planType}
         />
       )}
 
       {!showOverview && status !== "VERIFIED" && (
         <>
-          <div className="mb-5 rounded-lg bg-gradient-to-br from-primary to-primary-container p-6 text-white">
-            <div className="mb-3.5 text-[15px] font-bold">Al verificarte obtienes</div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {(businessPlan?.features ?? []).map((b) => (
-                <div key={b} className="flex items-center gap-2.5 text-[13px] text-white/85">
-                  <Check className="h-[15px] w-[15px] flex-shrink-0 text-secondary-container" strokeWidth={2.5} />
-                  {b}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {mergedPlans.map((pl) => (
-              <div key={pl.id} className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-                <div className="font-display text-title-lg text-on-surface">{pl.name}</div>
-                <div className="mb-3 mt-1 font-display text-xl font-extrabold text-on-surface">{pl.priceLabel}</div>
-                <div className="flex flex-col gap-2">
-                  {pl.features.map((f) => (
-                    <div key={f} className="flex items-center gap-2 text-[12.5px] text-on-surface-variant">
-                      <Check className="h-3.5 w-3.5 flex-shrink-0 text-verified" strokeWidth={2.5} />
-                      {f}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div className="mb-5">
+            <h2 className="mb-1 text-[15px] font-bold text-on-surface">Elige tu plan</h2>
+            <p className="mb-5 text-[12.5px] text-on-surface-variant">
+              Los planes con <strong className="text-on-surface">insignia de verificada</strong> se activan al terminar la verificación y pagar. El plan que elijas acá queda marcado en el pago.
+            </p>
+            <PlansCatalog
+              compact
+              currentPlanType={vendor?.planType}
+              cta={(plan, { dark, current, supportWhatsapp }) => {
+                if (plan.contactOnly) return <EnterpriseCta plan={plan} supportWhatsapp={supportWhatsapp} dark={dark} />;
+                const base = "flex min-h-12 w-full items-center justify-center rounded-2xl px-4 text-[14px] font-extrabold transition";
+                if (current || !plan.grantsBadge || plan.isFree) {
+                  return <span className={`${base} border ${dark ? "border-white/30 text-white/85" : "border-outline-variant text-on-surface-variant"}`}>{current ? "Es tu plan actual" : "Sin verificación"}</span>;
+                }
+                const picked = businessPlan?.planType === plan.planType;
+                return (
+                  <button
+                    type="button"
+                    aria-pressed={picked}
+                    onClick={() => choosePlan(plan.planType)}
+                    className={`${base} ${picked ? (dark ? "bg-white text-primary" : "bg-tertiary-accent text-white") : dark ? "bg-secondary-container text-on-secondary-container hover:brightness-95" : "bg-primary text-on-primary hover:bg-primary-container"}`}
+                  >
+                    {picked ? (
+                      <>
+                        <Check className="mr-1.5 h-4 w-4" aria-hidden="true" /> Elegido
+                      </>
+                    ) : (
+                      `Elegir ${plan.name}`
+                    )}
+                  </button>
+                );
+              }}
+            />
           </div>
         </>
       )}
@@ -258,9 +297,13 @@ export default function VendorVerification() {
           <PaymentChooser
             title={status === "PENDING_PAYMENT" ? "¿Cómo vas a pagar tu plan?" : "Elegir otra forma de pago"}
             intro={status === "PENDING_PAYMENT" ? "Con tarjeta tu tienda se verifica al instante. En CUP, cuando el equipo confirme la transferencia." : "Si prefieres, también puedes pagar de otra forma."}
-            cardPriceUsd={settings?.cardSubscriptionPriceUsd}
-            cupPrice={settings?.cupSubscriptionPriceCup}
+            initialPlanType={businessPlan?.planType}
+            onPlanChange={choosePlan}
             onChoseCup={() => {
+              // El plan ya quedó guardado en el pago: el del enlace (?plan=) deja de mandar.
+              const next = new URLSearchParams(searchParams);
+              next.delete("plan");
+              setSearchParams(next, { replace: true });
               setChangingMethod(false);
               invalidate();
             }}
@@ -297,13 +340,13 @@ export default function VendorVerification() {
         </div>
       )}
 
-      {!showOverview && status === "VERIFIED" && currentPlan?.features && (
+      {!showOverview && status === "VERIFIED" && currentPlan?.includes && (
         <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
           <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
             <Sparkles className="h-4 w-4 text-tertiary-accent" /> Tu plan incluye
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {currentPlan.features.map((f) => (
+            {currentPlan.includes.map((f) => (
               <div key={f} className="flex items-center gap-2 text-[12.5px] text-on-surface-variant">
                 <Check className="h-3.5 w-3.5 flex-shrink-0 text-verified" strokeWidth={2.5} />
                 {f}

@@ -13,17 +13,17 @@ import { notifyVerificationEvent } from "../services/verificationNotify.service.
 import { adminNoticeToVendor } from "../lib/notify.js";
 import { cancelStripeSubscription } from "../lib/stripe.js";
 import { sendAdminDirectEmail, sendVendorReactivatedEmail } from "../lib/email.js";
-import { getSubscriptionPricing } from "./settings.controller.js";
 import { logActivity } from "../lib/activityLog.js";
 import { applyPlanDowngrade, scheduleOrCancelDowngrade } from "../services/planDowngrade.service.js";
 import { finalizeUserDeletion } from "../lib/accountDeletion.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 import { computeVendorHealthScore } from "./vendors.controller.js";
 import { rawSalesSeries, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
-import { recalcVendorProductQuota } from "../lib/planConfig.js";
+import { recalcVendorProductQuota, getAllPlanConfigs, getPlanConfig, paymentPlanOf, quotePlan } from "../lib/planConfig.js";
 import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
 import { vendorZoneWhere, describeVendorZones } from "../lib/vendorZone.js";
 import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
+import { adminReactivationBillingData, liftBillingSuspension } from "../services/planBilling.service.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -54,7 +54,9 @@ const inTrial = (v) => !!v.trialEndsAt && new Date(v.trialEndsAt) > new Date();
 // Tiendas que aparecen en Suscripciones: las que tienen Premium (pagado o prueba) y las que lo perdieron por un cobro
 // fallido o una suspensión. Con la regla "Premium activo <=> VERIFIED" estas últimas ya están en plan Regular, así que filtrar
 // solo por planType las escondería justo cuando hay que revisar su cobro.
-const SUBSCRIPTION_SCOPE = { deletedAt: null, OR: [{ planType: "BUSINESS" }, { verificationStatus: { in: ["PAYMENT_FAILED", "SUSPENDED"] } }] };
+// Planes de pago (todos menos el Básico): sus tiendas son las que tienen suscripción.
+const PAID_PLAN_TYPES = ["STANDARD", "BUSINESS", "ENTERPRISE"];
+const SUBSCRIPTION_SCOPE = { deletedAt: null, OR: [{ planType: { in: PAID_PLAN_TYPES } }, { verificationStatus: { in: ["PAYMENT_FAILED", "SUSPENDED"] } }] };
 function subscriptionStatusOf(v) {
   const status = SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment";
   return status === "active" && inTrial(v) ? "trial" : status;
@@ -68,8 +70,10 @@ async function computeSubscriptionMetrics(vendors) {
   const rejected = statuses.filter((s) => s === "rejected").length;
   const paymentFailed = statuses.filter((s) => s === "payment_failed").length;
   const suspended = statuses.filter((s) => s === "suspended").length;
-  const { cardPricePerMonthUsd } = await getSubscriptionPricing();
-  return { active, trial, pendingPayment, rejected, paymentFailed, suspended, mrrUsd: active * cardPricePerMonthUsd };
+  // Ingreso mensual estimado: cada tienda activa con el precio en USD de su plan.
+  const priceByPlan = new Map((await getAllPlanConfigs()).map((p) => [p.planType, Number(p.priceUsd) || 0]));
+  const mrrUsd = Math.round(vendors.reduce((sum, v, i) => sum + (statuses[i] === "active" ? priceByPlan.get(v.planType) ?? 0 : 0), 0) * 100) / 100;
+  return { active, trial, pendingPayment, rejected, paymentFailed, suspended, mrrUsd };
 }
 
 // Bloque 48: embudo de verificación para el dashboard — NOT_STARTED es la
@@ -125,7 +129,7 @@ export async function getDashboard(_req, res) {
     prisma.order.aggregate({ _sum: { total: true } }),
     prisma.tableOrder.aggregate({ _sum: { total: true } }),
     prisma.vendor.count({ where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] }, deletedAt: null } }),
-    prisma.vendor.count({ where: { planType: "BUSINESS", deletedAt: null } }),
+    prisma.vendor.count({ where: { planType: { in: PAID_PLAN_TYPES }, deletedAt: null } }),
   ]);
 
   const gmv = Number(orderSum._sum.total ?? 0) + Number(tableOrderSum._sum.total ?? 0);
@@ -244,7 +248,7 @@ export async function getDashboard(_req, res) {
 
   const [subscriptionMetrics, verificationFunnelRaw] = await Promise.all([
     computeSubscriptionMetrics(
-      await prisma.vendor.findMany({ where: SUBSCRIPTION_SCOPE, select: { verificationStatus: true, trialEndsAt: true } })
+      await prisma.vendor.findMany({ where: SUBSCRIPTION_SCOPE, select: { verificationStatus: true, trialEndsAt: true, planType: true } })
     ),
     prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
   ]);
@@ -392,7 +396,8 @@ const DAY_MS_VENDORS = 24 * 60 * 60 * 1000;
 
 const vendorsQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
-  plan: z.enum(["REGULAR", "BUSINESS"]).optional(),
+  // PAID = cualquier plan de pago (lo usan las campañas para "tiendas con plan de pago").
+  plan: z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE", "PAID"]).optional(),
   provinceId: z.string().optional(),
   // Con municipio salen las tiendas de ese municipio y las que atienden toda su provincia (misma regla que los filtros públicos).
   municipalityId: z.string().optional(),
@@ -411,7 +416,8 @@ function vendorStatusWhere(status) {
     case "unverified":
       return { verificationStatus: { in: ["NOT_STARTED", "REJECTED", "PAYMENT_FAILED", "PLAN_ENDED"] } };
     case "business":
-      return { planType: "BUSINESS" };
+      // Planes de pago (Estándar, Premium y Empresarial), pagados o en prueba.
+      return { planType: { in: PAID_PLAN_TYPES } };
     case "inactive":
       // Mismo criterio de "último acceso" que vendorLifecycle.job.js: la
       // última sesión del dueño, o su fecha de alta si nunca entró.
@@ -447,7 +453,7 @@ export async function listVendors(req, res) {
   const scope = {
     deletedAt: null,
     ...(pendingView ? { adminDeletionRequestedAt: { not: null } } : { isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null }),
-    planType: plan || undefined,
+    planType: plan === "PAID" ? { in: PAID_PLAN_TYPES } : plan || undefined,
     locations: zone,
   };
   const where = {
@@ -603,14 +609,22 @@ const updateVendorSchema = z.object({
   // vendors.controller.js); de ahí en más, solo este endpoint lo puede
   // tocar — ya no existe en updateVendorSchema del propio vendedor.
   color: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "El color debe ser un código hex válido (ej. #232F3E).").optional(),
+  // Rubro de la tienda (categoría de negocio): el admin lo corrige cuando ya no la describe (Categorías > De negocio muestra
+  // en qué categorías vende cada tienda).
+  businessCategoryId: z.string().trim().optional(),
 });
 
 export async function updateVendor(req, res) {
   const { id } = req.params;
   const data = updateVendorSchema.parse(req.body);
   if (data.email === "") data.email = null;
+  // Vacío = no cambiar (una tienda vieja puede no tener rubro y el formulario lo manda en blanco).
+  if (data.businessCategoryId === "") delete data.businessCategoryId;
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  if (data.businessCategoryId && !(await prisma.businessCategory.findUnique({ where: { id: data.businessCategoryId }, select: { id: true } }))) {
+    throw new AppError("Ese tipo de negocio no existe.", 400);
+  }
 
   // Bloque 75 (pedido explícito, bug real reportado en vivo): "Bloquear"
   // dejaba al dueño sin ninguna forma de saber que su tienda estaba
@@ -800,7 +814,8 @@ export async function reactivateVendor(req, res) {
   const [updated] = await prisma.$transaction([
     prisma.vendor.update({
       where: { id },
-      data: { status: "ACTIVE", reactivatedAt: now, reactivationReason: reason },
+      // Suspendida por falta de pago: además de volver a verse, recibe una semana para pagar (adminReactivationBillingData).
+      data: { status: "ACTIVE", reactivatedAt: now, reactivationReason: reason, ...adminReactivationBillingData(vendor) },
     }),
     prisma.vendorStatusLog.create({
       data: { vendorId: id, fromStatus: "SUSPENDED", toStatus: "ACTIVE", reason, byAdminId: req.user.id },
@@ -1149,7 +1164,16 @@ export async function listVerifications(req, res) {
   });
   const verifiedSinceByVendor = new Map(verifiedSinceLogs.map((l) => [l.vendorId, l.at]));
 
-  const verifications = vendors.map((v) => ({
+  // Monto esperado de cada pago según el plan elegido y su descuento por meses (el mismo cálculo que cobra el servidor).
+  const quotes = await Promise.all(
+    vendors.map((v) =>
+      v.verification?.paymentMonths
+        ? quotePlan(v.verification.paymentPlanType, v.verification.paymentMonths, v.verification.paymentCurrency === "USD" ? "CARD" : "CUP_TRANSFER").catch(() => null)
+        : null
+    )
+  );
+
+  const verifications = vendors.map((v, i) => ({
     id: v.verification?.id ?? v.id,
     vendorId: v.id,
     verificationStatus: v.verificationStatus,
@@ -1211,6 +1235,10 @@ export async function listVerifications(req, res) {
     // pagado (lo que el admin compara contra lo esperado antes de confirmar).
     paymentMonths: v.verification?.paymentMonths ?? null,
     paymentCurrency: v.verification?.paymentCurrency ?? null,
+    paymentPlanType: v.verification?.paymentMonths ? paymentPlanOf(v.verification.paymentPlanType) : null,
+    paymentPlanName: quotes[i]?.config.displayName ?? null,
+    discountPercent: quotes[i]?.discountPercent ?? 0,
+    expectedAmount: quotes[i]?.total ?? null,
     paymentAmount: v.verification?.paymentAmount ?? null,
     payerName: v.verification?.payerName ?? null,
     payerAccountNumber: v.verification?.payerAccountNumber ?? null,
@@ -1322,7 +1350,7 @@ export async function confirmSubscriptionPayment(req, res) {
   // (1..24), ya no un mes fijo siempre — mismo criterio para CARD y CUP.
   const months = verification.paymentMonths ?? 1;
   const nextPaymentDueDate = new Date(Date.now() + months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
-  const extraData = { planType: "BUSINESS", nextPaymentDueDate };
+  const extraData = { planType: paymentPlanOf(verification.paymentPlanType), nextPaymentDueDate };
   // Bloque 235: si esta tienda venía de un trial gratuito activo, ya está
   // pagando de verdad — limpiar trialEndsAt evita que el cron de
   // vencimiento del trial (trialExpiry.job.js) la baje a Regular más
@@ -1345,8 +1373,10 @@ export async function confirmSubscriptionPayment(req, res) {
 // como cualquier pago confirmado: en la solicitud y su archivo (método MANUAL, meses, monto, quién y cuándo), en el
 // historial de estados, en la actividad de la tienda y, si era una renovación, en su historial de pagos. La tienda recibe
 // el aviso de verificada.
+const ADMIN_PLAN = z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE"]);
 const manualPaymentSchema = z.object({
   months: z.number().int().min(1).max(24),
+  planType: ADMIN_PLAN.optional(),
   reason: z.string().trim().min(5, "Escribe el motivo (por ejemplo: pagó en efectivo en la oficina).").max(500),
   amount: z.number().min(0).max(10_000_000).optional(),
   currency: z.enum(["USD", "CUP"]).optional(),
@@ -1365,6 +1395,7 @@ export async function registerManualPayment(req, res) {
 
   const now = new Date();
   const renewal = status !== "PENDING_PAYMENT";
+  const planType = data.planType ?? paymentPlanOf(verification.paymentPlanType);
   // Si todavía le quedaba tiempo pagado, los meses se suman desde ese vencimiento (no se pierden días); si no, desde hoy.
   const due = verification.vendor.nextPaymentDueDate;
   const periodStart = due && due > now ? due : now;
@@ -1373,6 +1404,7 @@ export async function registerManualPayment(req, res) {
   const paymentData = {
     paymentMethod: "MANUAL",
     paymentMonths: data.months,
+    paymentPlanType: planType,
     paymentAmount: data.amount ?? null,
     paymentCurrency: data.currency ?? null,
     paymentClaimedAt: now,
@@ -1393,6 +1425,7 @@ export async function registerManualPayment(req, res) {
         vendorId: verification.vendorId,
         paymentMethod: "MANUAL",
         months: data.months,
+        planType,
         amount: data.amount ?? null,
         currency: data.currency ?? "USD",
         payerName: "Registrado por el equipo",
@@ -1406,7 +1439,7 @@ export async function registerManualPayment(req, res) {
     });
   }
 
-  const extraData = { planType: "BUSINESS", nextPaymentDueDate: periodEnd };
+  const extraData = { planType, nextPaymentDueDate: periodEnd };
   // Mismo cuidado que confirmSubscriptionPayment: si venía de la prueba gratis, ya no la debe bajar el cron de la prueba.
   if (verification.vendor.trialEndsAt) extraData.trialEndsAt = null;
   const months = `${data.months} ${data.months === 1 ? "mes" : "meses"}`;
@@ -1529,7 +1562,11 @@ export async function confirmSubscriptionRenewal(req, res) {
     where: { id },
     data: { confirmedAt: now, confirmedById: req.user.id, periodStart, periodEnd },
   });
-  await prisma.vendor.update({ where: { id: payment.vendorId }, data: { nextPaymentDueDate: periodEnd } });
+  const planChanged = !!payment.planType && payment.planType !== payment.vendor.planType;
+  await prisma.vendor.update({ where: { id: payment.vendorId }, data: { nextPaymentDueDate: periodEnd, ...(planChanged ? { planType: payment.planType } : {}) } });
+  if (planChanged) await recalcVendorProductQuota(payment.vendorId);
+  // Si estaba suspendida por no pagar su plan, vuelve a verse y a recibir pedidos al momento.
+  await liftBillingSuspension(payment.vendorId, "Pagó su plan");
   logActivity({
     actorId: req.user.id,
     actorRole: "ADMIN",
@@ -1663,7 +1700,7 @@ export async function revokeBusinessPlan(req, res) {
   const { reason } = planReasonSchema.parse(req.body);
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
-  if (vendor.planType !== "BUSINESS") throw new AppError("Esta tienda no tiene el Plan Premium activo.", 409);
+  if (vendor.planType === "REGULAR") throw new AppError("Esta tienda no tiene un plan de pago activo.", 409);
 
   if (vendor.stripeSubscriptionId) await cancelStripeSubscription(vendor.stripeSubscriptionId);
 
@@ -1691,7 +1728,7 @@ export async function downgradeVendorPlan(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
   if (when !== "cancel") {
-    if (vendor.planType !== "BUSINESS") throw new AppError("Esta tienda ya está en el plan Regular.", 409);
+    if (vendor.planType === "REGULAR") throw new AppError("Esta tienda ya está en el plan Básico.", 409);
     if (!reason || reason.length < 5) throw new AppError("Escribe un motivo de al menos 5 caracteres (lo verá la tienda).", 400);
   }
   if (when === "now") {
@@ -1721,15 +1758,18 @@ export async function downgradeVendorPlan(req, res) {
 export async function grantBusinessPlan(req, res) {
   const { id } = req.params;
   const { reason } = planReasonSchema.parse(req.body);
+  // Plan a activar (Premium si no se indica). Empresarial solo se activa así: se contrata hablando con el equipo.
+  const planType = z.enum(["STANDARD", "BUSINESS", "ENTERPRISE"]).default("BUSINESS").parse(req.body?.planType);
+  const plan = await getPlanConfig(planType);
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
-  if (vendor.planType === "BUSINESS" && vendor.verificationStatus === "VERIFIED") {
-    throw new AppError("Esta tienda ya tiene el Plan Premium activo.", 409);
+  if (vendor.planType === planType && vendor.verificationStatus === "VERIFIED") {
+    throw new AppError(`Esta tienda ya tiene el plan ${plan?.displayName ?? planType} activo.`, 409);
   }
 
   const now = new Date();
   const periodEnd = new Date(now.getTime() + PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
-  const grantExtraData = { planType: "BUSINESS", nextPaymentDueDate: periodEnd };
+  const grantExtraData = { planType, nextPaymentDueDate: periodEnd };
   // Bloque 235: mismo guardrail que confirmSubscriptionPayment — si venía
   // de un trial gratuito, esto ya lo reemplaza por Premium real, no debe
   // quedar un trialEndsAt viejo que el cron de vencimiento procese después.
@@ -1747,7 +1787,7 @@ export async function grantBusinessPlan(req, res) {
     actorRole: "ADMIN",
     vendorId: id,
     action: "business_plan_granted_manually",
-    description: `Activó el Plan Premium a mano. Motivo: ${reason}`,
+    description: `Activó el plan ${plan?.displayName ?? planType} a mano. Motivo: ${reason}`,
   });
   res.json({ vendor: updated });
 }

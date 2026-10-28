@@ -472,7 +472,7 @@ export default function Home() {
               <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abre tu tienda online gratis, hoy mismo</h3>
               <p className="text-body-md text-white/80">
                 Para tiendas, restaurantes y comercios. Catálogo propio, pedidos por WhatsApp o desde tu panel y menú con QR si tienes un restaurante.
-                Sin comisiones por venta y sin costo de entrada en el Plan Regular. Empieza a vender en minutos.
+                Sin comisiones por venta y con un plan para cada tamaño de negocio. Empieza a vender en minutos.
               </p>
             </div>
             <div className="flex w-full flex-shrink-0 flex-col items-stretch gap-3 sm:w-auto sm:items-start">

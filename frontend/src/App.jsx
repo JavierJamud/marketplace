@@ -85,9 +85,8 @@ const AdminAssistant = lazyRetry(() => import("./pages/admin/AdminAssistant.jsx"
 const AdminErrors = lazyRetry(() => import("./pages/admin/AdminErrors.jsx"));
 const AdminChat = lazyRetry(() => import("./pages/admin/AdminChat.jsx"));
 const AdminLocations = lazyRetry(() => import("./pages/admin/AdminLocations.jsx"));
-const AdminCategories = lazyRetry(() => import("./pages/admin/AdminCategories.jsx"));
+const AdminAllCategories = lazyRetry(() => import("./pages/admin/AdminAllCategories.jsx"));
 const AdminSupportCases = lazyRetry(() => import("./pages/admin/AdminSupportCases.jsx"));
-const AdminProductCategories = lazyRetry(() => import("./pages/admin/AdminProductCategories.jsx"));
 const AdminProfile = lazyRetry(() => import("./pages/admin/AdminProfile.jsx"));
 const AdminPages = lazyRetry(() => import("./pages/admin/AdminPages.jsx"));
 const AdminFaq = lazyRetry(() => import("./pages/admin/AdminFaq.jsx"));
@@ -103,6 +102,7 @@ const PartnerMovements = lazyRetry(() => import("./pages/partner/PartnerMovement
 const PartnerPlans = lazyRetry(() => import("./pages/partner/PartnerPlans.jsx"));
 const PartnerAccount = lazyRetry(() => import("./pages/partner/PartnerAccount.jsx"));
 const ApiSocios = lazyRetry(() => import("./pages/public/ApiSocios.jsx"));
+const Plans = lazyRetry(() => import("./pages/public/Plans.jsx"));
 const SolicitudSocio = lazyRetry(() => import("./pages/public/SolicitudSocio.jsx"));
 import { capturePartnerRef } from "./lib/partnerRef.js";
 const AdminDiscountCodes = lazyRetry(() => import("./pages/admin/AdminDiscountCodes.jsx"));
@@ -248,6 +248,7 @@ export default function App() {
         <Route path="/rastrear-pedido" element={<OrderTracking />} />
         <Route path="/correos/baja" element={<EmailUnsubscribe />} />
         <Route path="/api-socios" element={<ApiSocios />} />
+        <Route path="/planes" element={<Plans />} />
         <Route path="/socios/solicitar" element={<SolicitudSocio />} />
       </Route>
 
@@ -369,9 +370,10 @@ export default function App() {
         <Route path="asistente-negocio" element={<Navigate to="/admin" replace />} />
         <Route path="errores" element={<AdminErrors />} />
         <Route path="ubicaciones" element={<AdminLocations />} />
-        <Route path="categorias" element={<AdminCategories />} />
+        <Route path="categorias" element={<AdminAllCategories />} />
         <Route path="casos-soporte" element={<AdminSupportCases />} />
-        <Route path="categorias-producto" element={<AdminProductCategories />} />
+        {/* Las dos clases de categoría viven en una sola sección (AdminAllCategories.jsx). */}
+        <Route path="categorias-producto" element={<Navigate to="/admin/categorias?tab=producto" replace />} />
         <Route path="paginas" element={<AdminPages />} />
         <Route path="preguntas-frecuentes" element={<AdminFaq />} />
         <Route path="contacto" element={<AdminContacto />} />

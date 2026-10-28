@@ -116,10 +116,10 @@ async function adminNarrative(s) {
   const by = Object.fromEntries(s.stats.map((x) => [x.key, x]));
   const [notOperating, expiring, paymentsToConfirm, anomalies, business] = await Promise.all([
     prisma.vendor.count({ where: { deletedAt: null, OR: [{ verificationStatus: "SUSPENDED" }, { status: "SUSPENDED" }, { isBlocked: true }] } }),
-    prisma.vendor.count({ where: { deletedAt: null, planType: "BUSINESS", verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: new Date(w.now.getTime() + 7 * DAY_MS) } } }),
+    prisma.vendor.count({ where: { deletedAt: null, planType: { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] }, verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: new Date(w.now.getTime() + 7 * DAY_MS) } } }),
     prisma.subscriptionPayment.count({ where: { claimedAt: { not: null }, confirmedAt: null } }),
     prisma.rankingAnomaly.count({ where: { status: "PENDING" } }),
-    prisma.vendor.count({ where: { deletedAt: null, planType: "BUSINESS" } }),
+    prisma.vendor.count({ where: { deletedAt: null, planType: { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] } } }),
   ]);
   const paragraphs = [];
   paragraphs.push(

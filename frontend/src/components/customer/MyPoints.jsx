@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Award, ChevronDown } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { imgUrl } from "../../lib/imgUrl.js";
-import { fmtAmount, fmtPoints, TX_LABEL } from "../../lib/loyalty.js";
+import { fmtAmount, fmtPoints, txLabel } from "../../lib/loyalty.js";
 import { CardListSkeleton } from "../ui/Skeleton.jsx";
 
 // "Mis puntos" del panel del cliente: una fila por tienda con su saldo y lo que vale, y el historial de cada una al tocarla.
@@ -23,7 +23,7 @@ function History({ vendorId }) {
       {data.map((t) => (
         <li key={t.id} className="flex items-start justify-between gap-3 py-2.5">
           <div className="min-w-0">
-            <p className="text-[12.5px] font-semibold text-on-surface">{TX_LABEL[t.type] ?? t.type}{t.orderCode ? ` · ${t.orderCode}` : ""}</p>
+            <p className="text-[12.5px] font-semibold text-on-surface">{txLabel(t)}{t.orderCode ? ` · ${t.orderCode}` : ""}</p>
             {t.note && <p className="text-[12px] text-on-surface-variant">{t.note}</p>}
             <p className="text-[11.5px] text-outline">{dateText(t.createdAt)}</p>
           </div>
@@ -71,9 +71,18 @@ export function MyPoints() {
               )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14px] font-bold text-on-surface">{a.vendor.name}</span>
-                <span className="block text-[12px] text-on-surface-variant">
-                  {a.programActive ? `Valen ${fmtAmount(a.value, a.vendor.currency)}` : "La tienda pausó su programa: tus puntos se guardan"}
-                </span>
+                {!a.programActive ? (
+                  <span className="block text-[12px] text-on-surface-variant">La tienda pausó su programa: tus puntos se guardan</span>
+                ) : a.minRedeemPoints && a.balance < a.minRedeemPoints ? (
+                  <>
+                    <span className="mt-1 block h-1.5 max-w-[220px] overflow-hidden rounded-full bg-surface-container" role="progressbar" aria-valuemin={0} aria-valuemax={a.minRedeemPoints} aria-valuenow={a.balance} aria-label={`Puntos para usar en ${a.vendor.name}`}>
+                      <span className="block h-full rounded-full bg-tertiary-accent" style={{ width: `${Math.min(100, Math.round((a.balance / a.minRedeemPoints) * 100))}%` }} />
+                    </span>
+                    <span className="mt-0.5 block text-[12px] text-on-surface-variant">Te faltan {fmtPoints(a.minRedeemPoints - a.balance)} para usarlos</span>
+                  </>
+                ) : (
+                  <span className="block text-[12px] font-semibold text-verified-dark">Listos para usar · valen {fmtAmount(a.value, a.vendor.currency)}</span>
+                )}
               </span>
               <span className="flex-shrink-0 text-right">
                 <span className="block text-[16px] font-extrabold text-on-surface">{a.balance.toLocaleString("es-CU")}</span>

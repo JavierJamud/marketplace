@@ -1116,7 +1116,7 @@ export default function VendorProducts() {
         </div>
         <div className="flex flex-wrap gap-2.5">
           <button
-            onClick={() => (atLimit ? toast.error(`Alcanzaste el límite de ${data.limit} productos del Plan Regular.`) : setModalState({ mode: "new" }))}
+            onClick={() => (atLimit ? toast.error(`Alcanzaste el límite de ${data.limit} productos de tu plan.`) : setModalState({ mode: "new" }))}
             className="rounded-full bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
           >
             + Nuevo producto

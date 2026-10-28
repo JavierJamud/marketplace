@@ -118,18 +118,18 @@ async function onMutation({ model, operation, args, result }) {
 
 const VENDOR_NOTIF_CATEGORY = {
   NEW_ORDER: "orders", ORDER_CANCELLED_BY_CUSTOMER: "orders", ORDER_EDITED_BY_CUSTOMER: "orders", ORDER_OVERDUE: "orders", SUPPORT_CASE: "orders",
-  ORDER_REMINDER: "orders", ORDER_CANCEL_WARNING: "orders", ORDER_AUTO_CANCELLED: "orders",
+  ORDER_REMINDER: "orders", ORDER_CANCEL_WARNING: "orders", ORDER_AUTO_CANCELLED: "orders", ORDER_DELAYED: "orders",
   NEW_CUSTOMER: "customers", NEW_MESSAGE: "messages", LOW_STOCK: "stock", VENDOR_STAFF_OUT_OF_STOCK: "stock",
 };
 const VENDOR_NOTIF_URL = {
   NEW_ORDER: "/vendedor/pedidos", ORDER_CANCELLED_BY_CUSTOMER: "/vendedor/pedidos", ORDER_EDITED_BY_CUSTOMER: "/vendedor/pedidos",
   ORDER_OVERDUE: "/vendedor/pedidos", NEW_CUSTOMER: "/vendedor/clientes", NEW_MESSAGE: "/vendedor/mensajes", LOW_STOCK: "/vendedor/productos",
   VENDOR_STAFF_OUT_OF_STOCK: "/vendedor/usuarios", SUPPORT_CASE: "/vendedor/pedidos",
-  ORDER_REMINDER: "/vendedor/pedidos", ORDER_CANCEL_WARNING: "/vendedor/pedidos", ORDER_AUTO_CANCELLED: "/vendedor/pedidos",
+  ORDER_REMINDER: "/vendedor/pedidos", ORDER_CANCEL_WARNING: "/vendedor/pedidos", ORDER_AUTO_CANCELLED: "/vendedor/pedidos", ORDER_DELAYED: "/vendedor/pedidos",
 };
 // Avisos de un pedido que sigue esperando: cada uno con su etiqueta (si usaran la del pedido nuevo, el teléfono los
 // trataría como el mismo aviso) y el enlace que abre ese pedido.
-const ORDER_FOLLOW_UP_TAG = { ORDER_OVERDUE: "overdue", ORDER_REMINDER: "reminder", ORDER_CANCEL_WARNING: "warning", ORDER_AUTO_CANCELLED: "autoclosed" };
+const ORDER_FOLLOW_UP_TAG = { ORDER_OVERDUE: "overdue", ORDER_REMINDER: "reminder", ORDER_CANCEL_WARNING: "warning", ORDER_AUTO_CANCELLED: "autoclosed", ORDER_DELAYED: "delayed" };
 
 async function onCreated({ model, args, result }) {
   if (!result) return;

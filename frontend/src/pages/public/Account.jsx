@@ -966,7 +966,9 @@ export default function Account({ mode = "customer" }) {
   }
 
   if (showPlanModal) {
-    return <PlanComparisonModal onContinueRegular={closePlanModal} />;
+    // Si llegó desde /planes eligiendo un plan de pago, la comparación y el botón son de ese plan.
+    const chosenPlan = ["STANDARD", "BUSINESS"].includes(searchParams.get("plan")) ? searchParams.get("plan") : "BUSINESS";
+    return <PlanComparisonModal onContinueRegular={closePlanModal} planType={chosenPlan} businessHref={`/vendedor/verificacion?plan=${chosenPlan}`} />;
   }
 
   // Bloque 47: segundo paso del login cuando la cuenta tiene 2FA activo —

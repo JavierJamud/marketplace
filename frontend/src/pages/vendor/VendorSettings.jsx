@@ -440,7 +440,6 @@ export default function VendorSettings() {
   // Bloque 52: los límites por plan ahora vienen de settings.plans
   // (PlanConfig del backend) — antes eran columnas pareadas sueltas
   // (maxProvincesRegular/Business) directo en settings.
-  const isBusiness = vendor?.planType === "BUSINESS";
   const currentPlanConfig = settings?.plans?.find((p) => p.planType === vendor?.planType);
   const maxProvinces = currentPlanConfig?.maxProvinces;
   const distinctProvinceCount = new Set((vendor?.locations ?? []).map((l) => l.provinceId)).size;

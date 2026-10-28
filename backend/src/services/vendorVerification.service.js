@@ -37,14 +37,15 @@ export async function transitionVendorVerification(vendorId, toStatus, { reason 
   if (!vendor) throw new Error(`Vendor ${vendorId} no encontrado (transitionVendorVerification)`);
 
   const fromStatus = vendor.verificationStatus;
-  // Pedido explícito: solo existen dos planes. Pro (pagado o prueba gratis) lleva la insignia y todas sus funciones; Regular,
-  // nada de eso. Por eso VERIFIED va siempre con planType BUSINESS y cualquier otro estado con REGULAR. Se fuerza acá, en el
-  // único punto que cambia el estado, para que ningún camino (vencimiento de la prueba, cobro fallido, decisión del admin)
-  // vuelva a dejar una tienda con insignia pero sin las funciones Pro.
+  // VERIFIED (la insignia) va siempre con un plan de pago (Estándar, Premium o Empresarial), nunca con el Básico. Al perder
+  // VERIFIED (vencimiento de la prueba, cobro fallido, decisión del admin) la tienda vuelve al Básico. Se fuerza acá, en el
+  // único punto que cambia el estado, para que ningún camino deje una tienda con insignia sin plan o con un plan pagado sin
+  // la verificación que ese plan exige. Los planes de pago sin insignia no pasan por la verificación (se pagan desde
+  // Suscripción), así que un cambio de estado de una tienda que nunca estuvo verificada no le toca el plan.
   const plan = extraData.planType ?? vendor.planType;
-  if (toStatus === "VERIFIED" && plan !== "BUSINESS") toStatus = "PLAN_ENDED";
+  if (toStatus === "VERIFIED" && plan === "REGULAR") toStatus = "PLAN_ENDED";
   const data = { ...extraData, verificationStatus: toStatus };
-  if (toStatus !== "VERIFIED") data.planType = "REGULAR";
+  if (toStatus !== "VERIFIED" && fromStatus === "VERIFIED") data.planType = "REGULAR";
 
   const [updatedVendor] = await prisma.$transaction([
     prisma.vendor.update({ where: { id: vendorId }, data }),
@@ -199,7 +200,7 @@ export async function syncVerificationArchive(vendorId, patch) {
 export async function reconcilePlanVerification() {
   const now = new Date();
   const badgeWithoutPlan = await prisma.vendor.findMany({
-    where: { verificationStatus: "VERIFIED", planType: { not: "BUSINESS" } },
+    where: { verificationStatus: "VERIFIED", planType: "REGULAR" },
     select: { id: true, trialEndsAt: true, nextPaymentDueDate: true },
   });
   let restored = 0;
@@ -223,7 +224,10 @@ export async function reconcilePlanVerification() {
       ended++;
     }
   }
-  const planWithoutBadge = await prisma.vendor.findMany({ where: { verificationStatus: { not: "VERIFIED" }, planType: "BUSINESS" }, select: { id: true } });
+  // Un plan que exige la verificación (da la insignia) sin estar verificada no tiene ninguna de sus funciones: vuelve al
+  // Básico. Los planes de pago sin insignia no exigen verificación y no se tocan.
+  const badgePlans = (await prisma.planConfig.findMany({ where: { grantsBadge: true, planType: { not: "REGULAR" } }, select: { planType: true } })).map((p) => p.planType);
+  const planWithoutBadge = await prisma.vendor.findMany({ where: { verificationStatus: { not: "VERIFIED" }, planType: { in: badgePlans }, trialEndsAt: null }, select: { id: true } });
   for (const v of planWithoutBadge) {
     await prisma.vendor.update({ where: { id: v.id }, data: { planType: "REGULAR" } });
     await recalcVendorProductQuota(v.id);

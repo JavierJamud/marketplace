@@ -18,6 +18,7 @@ export const ORDER_EVENT_LABEL = {
   INVOICE_DOWNLOADED: "Factura generada",
   WARRANTY_SENT: "Garantía enviada al cliente",
   WARRANTY_DOWNLOADED: "Garantía generada",
+  DELAY_NOTICE: "Aviso de retraso a la tienda y al cliente",
 };
 
 // Anota un movimiento. Nunca rompe lo que lo llamó: si falla el registro, la acción principal ya se hizo.

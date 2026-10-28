@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Boxes, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
+import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -22,8 +22,7 @@ const NAV = [
   { to: "/admin/anomalias-ranking", label: "Anomalías del ranking", icon: Radar, badge: "rankingAnomaliesCount", group: "tiendas" },
   { to: "/admin/productos", label: "Productos", icon: Package, group: "catalogo" },
   { to: "/admin/ventas-rapidas", label: "Venta rápida", icon: Zap, group: "catalogo" },
-  { to: "/admin/categorias-producto", label: "Categorías de producto", icon: Boxes, group: "catalogo" },
-  { to: "/admin/categorias", label: "Categorías de negocio", icon: Tags, group: "catalogo" },
+  { to: "/admin/categorias", label: "Categorías", icon: Tags, group: "catalogo" },
   { to: "/admin/clientes", label: "Clientes", icon: Users, group: "clientes" },
   { to: "/admin/mensajes", label: "Mensajes", icon: MessageCircle, badge: "mensajes", group: "clientes" },
   { to: "/admin/comentarios", label: "Comentarios", icon: Star, badge: "comentarios", group: "clientes" },

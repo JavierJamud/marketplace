@@ -556,7 +556,7 @@ const ADMIN_TOOLS = {
       const [byPlan, byVerification, expiring, cancelling, trials, pending, confirmed] = await Promise.all([
         prisma.vendor.groupBy({ by: ["planType"], where: { deletedAt: null }, _count: { _all: true } }),
         prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
-        prisma.vendor.findMany({ where: { deletedAt: null, planType: "BUSINESS", verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: in14 } }, orderBy: { nextPaymentDueDate: "asc" }, take: 10, select: { companyName: true, nextPaymentDueDate: true, cancelAtPeriodEnd: true, stripeSubscriptionId: true } }),
+        prisma.vendor.findMany({ where: { deletedAt: null, planType: { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] }, verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: in14 } }, orderBy: { nextPaymentDueDate: "asc" }, take: 10, select: { companyName: true, nextPaymentDueDate: true, cancelAtPeriodEnd: true, stripeSubscriptionId: true } }),
         prisma.vendor.count({ where: { deletedAt: null, cancelAtPeriodEnd: true } }),
         prisma.vendor.count({ where: { deletedAt: null, trialEndsAt: { gt: now } } }),
         prisma.subscriptionPayment.findMany({ where: { claimedAt: { not: null }, confirmedAt: null }, orderBy: { claimedAt: "asc" }, take: 8, select: { claimedAt: true, months: true, amount: true, currency: true, vendor: { select: { companyName: true } } } }),
