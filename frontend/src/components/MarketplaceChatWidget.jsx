@@ -716,7 +716,7 @@ export function MarketplaceChatWidget() {
         <div className="fixed bottom-[84px] right-5 z-[60] flex max-w-[260px] items-start gap-2 rounded-2xl rounded-br-md bg-surface-container-lowest p-3.5 shadow-2xl animate-fade-up sm:bottom-[100px] sm:right-6">
           <PlatformAvatar className="h-8 w-8 text-[13px]" />
           <p className="flex-1 text-[12.5px] leading-[17px] text-on-surface-variant">
-            ¡Hola! Soy el asistente de compras de <span className="font-bold text-on-surface">{siteName}</span>. Cuéntame qué buscas, por texto o por audio.
+            ¡Hola! Soy <span className="font-bold text-on-surface">Nova</span>. ¿En qué puedo ayudarte hoy? Escríbeme o mándame un audio.
           </p>
           <button
             onClick={() => {
@@ -786,7 +786,7 @@ export function MarketplaceChatWidget() {
           <div className="flex items-center gap-2.5 rounded-t-2xl bg-primary px-4 py-3.5 text-white">
             <PlatformAvatar className="h-8 w-8 text-[13px]" />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-label-md font-bold">{siteName}</div>
+              <div className="truncate text-label-md font-bold">Nova</div>
               <div className="text-[11px] text-white/70">Asistente de compras</div>
             </div>
             {/* Bloque 38: mute toggle — clave compartida con el chat de
@@ -842,7 +842,7 @@ export function MarketplaceChatWidget() {
           <div className="flex-1 overflow-y-auto p-4">
             <BotRow>
               <div className="rounded-lg rounded-tl-none bg-surface-container px-3.5 py-2.5 text-[13px] leading-5 text-on-surface-variant">
-                ¡Hola! Soy el asistente de {siteName}. Te ayudo a comprar, vender, conocer los planes, consultar tu pedido o encontrar un producto.
+                ¡Hola! Soy Nova, tu asistente en {siteName}. ¿En qué puedo ayudarte hoy? Puedo ayudarte a encontrar un producto, consultar tu pedido, abrir tu tienda o conocer los planes.
               </div>
             </BotRow>
 
