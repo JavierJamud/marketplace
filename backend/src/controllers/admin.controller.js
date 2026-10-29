@@ -2538,7 +2538,7 @@ export async function updateCustomer(req, res) {
   if (!user || user.role !== "CUSTOMER" || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
   if (blacklist && data.isSuspended !== true) throw new AppError("La lista negra se aplica al suspender al cliente.", 400);
   if (blacklist && !blacklistReason) throw new AppError("Escribe el motivo para la lista negra.", 400);
-  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id });
+  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id, scope: "customer" });
 
   const emailChanged = !!data.email && data.email !== user.email?.toLowerCase();
   if (emailChanged) {

@@ -282,7 +282,7 @@ export function PlansCatalog({ cta, currentPlanType, compact = false }) {
           <h2 className="mb-1 text-center font-display text-[24px] font-extrabold text-on-surface">Compara los planes</h2>
           <p className="mb-5 text-center text-[13.5px] text-on-surface-variant">Todo lo que incluye cada uno, lado a lado.</p>
           {/* La caja recibe foco para poder desplazar la tabla con las flechas del teclado cuando no cabe (390 px). */}
-          <div tabIndex={0} role="region" aria-label="Comparación de planes" className="overflow-x-auto rounded-2xl border border-surface-container-high bg-surface-container-lowest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tertiary-accent">
+          <div tabIndex={0} role="region" aria-label="Comparación de planes" className="relative overflow-x-auto rounded-2xl border border-surface-container-high bg-surface-container-lowest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tertiary-accent">
             {/* Ancho mínimo según la cantidad de planes: con más columnas la tabla se desplaza dentro de su caja y la
                 página nunca se desborda (390 px). */}
             <table className="w-full text-[13.5px]" style={{ minWidth: 200 + plans.length * 150 }}>

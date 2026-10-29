@@ -41,6 +41,13 @@
       overflow-x: clip;
     }
   }
+  /* El recorte de arriba no le basta a iPhone: si algo queda más ancho que la pantalla, Safari aleja la vista para mostrarlo
+     y la página se desliza de lado. Los textos solo para lectores de pantalla (sr-only) son position:absolute y, dentro de
+     una tabla que se desliza por dentro, quedaban en su lugar original (hasta 800 px a la derecha) fuera de esa caja. Anclados
+     al borde izquierdo siguen leyéndose igual y ya no ensanchan la página. */
+  .sr-only {
+    left: 0;
+  }
   /* En pantallas táctiles, los campos de texto con letra de menos de 16 px hacen que iPhone acerque la página sola al
      tocarlos (y luego queda con zoom). Con 16 px como mínimo eso no pasa. Solo en táctiles: en computadora se ven igual. */
   @media (pointer: coarse) {

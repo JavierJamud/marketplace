@@ -34,7 +34,7 @@ export async function findVendorConflicts({ companyName, whatsapp, email, ownerI
     const found = await prisma.vendor.findFirst({ where: { ...not, deletedAt: null, OR: [{ whatsapp: `+${d}` }, { whatsapp: d }] }, select: { id: true } });
     if (found) conflicts.whatsapp = "Ese WhatsApp ya está registrado en otra tienda.";
     // Tampoco el teléfono de la cuenta de otra persona.
-    else if (await findPhoneOwner(whatsapp, { userId: ownerUserId, vendorId: exceptVendorId })) conflicts.whatsapp = "Ese número ya lo usa otra cuenta. Usa un WhatsApp tuyo distinto.";
+    else if (await findPhoneOwner(whatsapp, { userId: ownerUserId, vendorId: exceptVendorId, scope: "vendor" })) conflicts.whatsapp = "Ese número ya lo usa otra cuenta. Usa un WhatsApp tuyo distinto.";
   }
 
   if (username !== undefined && username !== null) {

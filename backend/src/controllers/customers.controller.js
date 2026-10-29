@@ -60,7 +60,7 @@ export async function updateMe(req, res) {
     const current = await prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true } });
     if (basic.phone !== current?.phone) {
       await assertNotBlacklisted({ phone: basic.phone }, { userId: req.user.id });
-      await assertPhoneFree(basic.phone, { userId: req.user.id });
+      await assertPhoneFree(basic.phone, { userId: req.user.id, scope: req.user.role === "VENDOR" ? "vendor" : "customer" });
     }
   }
   if (country) {

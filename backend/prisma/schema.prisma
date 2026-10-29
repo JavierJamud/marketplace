@@ -1054,8 +1054,9 @@ model PendingRegistration {
   codeExpiresAt DateTime
   // Pruebas del código de registro (tope en auth.controller.js); vuelve a 0 al reenviar el formulario.
   codeAttempts  Int      @default(0)
-  // Registro de tienda con el correo de una cuenta de cliente que ya existe: el código que llega a ese correo prueba que es
-  // suyo, y al verificarlo se usa esa misma cuenta (ver verifyRegistration) en vez de pedirle iniciar sesión.
+  // Registro para abrir una tienda. Si el correo es el de una cuenta de cliente que ya existe, el código que llega a ese
+  // correo prueba que es suyo, y al verificarlo se usa esa misma cuenta (ver verifyRegistration) en vez de pedirle iniciar
+  // sesión. También decide con qué rol se compara el teléfono (lib/phoneUniqueness.js).
   forStore      Boolean  @default(false)
   createdAt     DateTime @default(now())
 }

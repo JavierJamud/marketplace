@@ -221,9 +221,10 @@ export async function register(req, res) {
   }
   // Lista negra (personas eliminadas por reportes de fraude confirmados): no pueden volver a registrarse.
   await assertNotBlacklisted({ email: data.email, phone: data.phone });
-  // Un teléfono es de una sola persona: no puede ser el de otra cuenta ni el WhatsApp de la tienda de otro. El de su propia
-  // cuenta de cliente sí vale.
-  await assertPhoneFree(data.phone, mergeIntoCustomer ? { userId: existing.id } : {});
+  // El teléfono no se repite dentro del mismo rol: quien se registra como cliente no puede usar el de otro cliente, y quien
+  // abre una tienda no puede usar el de otro vendedor ni el WhatsApp de la tienda de otro. Entre cliente y vendedor sí se
+  // puede (lib/phoneUniqueness.js). El de su propia cuenta de cliente siempre vale.
+  await assertPhoneFree(data.phone, { ...(mergeIntoCustomer ? { userId: existing.id } : {}), scope: data.forStore ? "vendor" : "customer" });
 
   // El país del teléfono tiene que estar habilitado en el panel del admin (la pantalla solo ofrece esos; esto cubre llamadas directas).
   const phoneCountry = await prisma.country.findFirst({ where: { code: data.country.toUpperCase(), isActive: true }, select: { id: true } });
@@ -264,8 +265,8 @@ export async function register(req, res) {
   };
   await prisma.pendingRegistration.upsert({
     where: { email: data.email },
-    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, codeAttempts: 0, forStore: mergeIntoCustomer },
-    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, forStore: mergeIntoCustomer },
+    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, codeAttempts: 0, forStore: data.forStore === true },
+    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, forStore: data.forStore === true },
   });
 
   await sendRegistrationCodeEmail({ fullName: data.fullName, email: data.email }, code);
@@ -301,7 +302,7 @@ export async function verifyRegistration(req, res) {
   // cuenta. La contraseña pasa a ser la que eligió en este registro (es la que tiene en la cabeza ahora), y los datos de
   // contacto y ubicación se completan con los nuevos solo donde la cuenta no tenía nada.
   if (existing && pending.forStore && mergeable) {
-    await assertPhoneFree(pending.phone, { userId: existing.id });
+    await assertPhoneFree(pending.phone, { userId: existing.id, scope: "vendor" });
     const current = await prisma.user.findUnique({ where: { id: existing.id } });
     const fill = (field) => (current[field] ? {} : pending[field] ? { [field]: pending[field] } : {});
     const user = await prisma.$transaction(async (tx) => {
@@ -330,7 +331,7 @@ export async function verifyRegistration(req, res) {
     return res.status(200).json({ user: publicUser(user), ...tokens, deviceToken, linkedOrdersCount: 0, mergedIntoCustomer: true });
   }
   if (existing) throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
-  await assertPhoneFree(pending.phone);
+  await assertPhoneFree(pending.phone, { scope: pending.forStore ? "vendor" : "customer" });
 
   const { user, linkedOrdersCount } = await prisma.$transaction(async (tx) => {
     // Bloque 62: completar el registro ya es un "login" real (se emite

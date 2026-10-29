@@ -2065,12 +2065,6 @@ export async function removeAiDocument(req, res) {
   res.status(204).end();
 }
 
-// "danisrego@gmail.com" -> "d•••@gmail.com": lo justo para que la persona reconozca su correo sin mostrarlo entero.
-function maskEmail(email) {
-  const [local, domain] = String(email).split("@");
-  return `${local.slice(0, 1)}•••@${domain ?? ""}`;
-}
-
 // Comprobación previa del registro de tienda (antes de crear la cuenta): avisa en el formulario si el nombre, el WhatsApp o el
 // correo ya los usa otra tienda, para no crear una cuenta que después no pueda abrir su tienda.
 export async function checkVendorAvailability(req, res) {
@@ -2085,32 +2079,8 @@ export async function checkVendorAvailability(req, res) {
   if (await findBlacklisted({ email: data.email, phone: data.whatsapp, storeName: data.companyName, username: data.username })) {
     conflicts.blacklisted = "No podemos usar estos datos en la plataforma. Si crees que es un error, escribe a soporte.";
   }
-  // El cliente que abre su tienda es la misma persona: si el WhatsApp es el teléfono de una cuenta de cliente sin tienda, no es
-  // "otra cuenta" sino la suya. Se le pide iniciar sesión con ella (createVendor la usa) en vez de cortarle el registro. No se
-  // dice de quién es la cuenta: es el mismo dato que ya revela el aviso de teléfono ocupado.
-  let phoneAccountExists = false;
-  let phoneAccountEmailHint = null;
-  if (!req.user && conflicts.whatsapp && data.whatsapp) {
-    const d = data.whatsapp.replace(/\D/g, "");
-    const owner = await prisma.user.findFirst({
-      where: { phone: { in: [`+${d}`, d] }, deletedAt: null, role: "CUSTOMER", vendor: { is: null } },
-      select: { id: true, email: true },
-    });
-    const storeHasIt = await prisma.vendor.findFirst({ where: { deletedAt: null, whatsapp: { in: [`+${d}`, d] } }, select: { id: true } });
-    // Con el mismo correo de esa cuenta, el registro sigue y se une solo (register con forStore). Con otro correo no se puede
-    // unir sin probar que el número es suyo (no mandamos códigos por SMS): se le da una pista del correo de su cuenta, oculta
-    // ("d•••@gmail.com"), para que lo use.
-    const sameEmail = owner && data.email?.trim() && owner.email.toLowerCase() === data.email.trim().toLowerCase();
-    if (owner && !storeHasIt) {
-      delete conflicts.whatsapp;
-      if (!sameEmail) {
-        phoneAccountExists = true;
-        phoneAccountEmailHint = maskEmail(owner.email);
-      }
-    }
-  }
   const suggestedUsername = data.companyName?.trim() ? await suggestUsername(data.companyName) : null;
-  res.json({ conflicts, accountExists, phoneAccountExists, phoneAccountEmailHint, suggestedUsername });
+  res.json({ conflicts, accountExists, suggestedUsername });
 }
 
 // Revisión en vivo del nombre de usuario mientras se escribe (registro y Perfil). ?u=usuario y/o ?name=nombre de la tienda

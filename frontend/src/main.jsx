@@ -54,7 +54,17 @@ window.addEventListener("error", (e) => {
   if (e.target && e.target !== window) return; // errores de carga de imágenes u otros archivos: no son de código
   reportClientError({ kind: "script", error: e.error ?? e.message });
 });
-window.addEventListener("unhandledrejection", (e) => reportClientError({ kind: "promise", error: e.reason }));
+// Una respuesta 4xx del servidor (dato repetido, permiso, validación) no es un fallo de la pantalla: la mutación ya le
+// mostró el mensaje a la persona, y las ventanas que guardan con mutateAsync dejan esa promesa rechazada sin atender. Los
+// 5xx y los errores de código sí se siguen avisando.
+window.addEventListener("unhandledrejection", (e) => {
+  const status = e.reason?.isAxiosError ? e.reason.response?.status : undefined;
+  if (status >= 400 && status < 500) {
+    e.preventDefault();
+    return;
+  }
+  reportClientError({ kind: "promise", error: e.reason });
+});
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

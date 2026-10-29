@@ -835,18 +835,6 @@ export default function Account({ mode = "customer" }) {
         // Correo de una cuenta que ya existe: no se le pide iniciar sesión. El registro sigue y, si es una cuenta de cliente,
         // al verificar el código la tienda queda en esa misma cuenta (forStore en register). Si es de otro tipo, el servidor
         // responde "duplicate" y se lleva a iniciar sesión (catch de abajo).
-        // Ese número es el de una cuenta de cliente con otro correo: no se puede unir sin probar que el número es suyo, así que
-        // se le muestra una pista del correo de esa cuenta para que lo use.
-        if (data.phoneAccountExists && !completingStore) {
-          toast.warning(
-            "Ese número ya está en una cuenta de cliente",
-            data.phoneAccountEmailHint
-              ? `Si es tuya, escribe su correo (${data.phoneAccountEmailHint}) y tu tienda quedará en esa misma cuenta, con tus compras y anuncios.`
-              : "Si es tuya, escribe el correo de esa cuenta y tu tienda quedará en ella."
-          );
-          setStep(1);
-          return;
-        }
         const first = Object.values(data.conflicts ?? {})[0];
         if (first) {
           toast.error(first);
