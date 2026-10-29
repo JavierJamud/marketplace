@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { sendTrialExpiringSoonEmail } from "../lib/email.js";
 import { transitionVendorVerification, reconcilePlanVerification } from "../services/vendorVerification.service.js";
 import { applyScheduledDowngrades } from "../services/planDowngrade.service.js";
+import { pauseVerifiedWithoutDocuments } from "../services/pendingActivation.service.js";
 import { getDefaultPlanKey, getAllPlanConfigs } from "../lib/planConfig.js";
 
 // Bloque 235 (pedido explícito — trial gratuito de 30 días del plan de
@@ -101,6 +102,9 @@ export async function runTrialExpiryJob() {
   const reminders = await sendTrialExpiringSoonReminders();
   const expired = await expireTrials();
   await reconcilePlanVerification();
+  // Insignia sin documento de identidad o selfie: se pausa hasta completar la verificación (pendingActivation.service.js).
+  const paused = await pauseVerifiedWithoutDocuments();
+  if (paused) console.log(`[trialExpiryJob] insignias pausadas por falta de documentos=${paused}`);
   console.log(`[trialExpiryJob] cambios-a-regular=${downgraded} recordatorios=${reminders} vencidos=${expired}`);
   return { downgraded, reminders, expired };
 }

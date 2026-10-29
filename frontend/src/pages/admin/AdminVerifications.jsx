@@ -5,6 +5,7 @@ import toast from "../../lib/toast.jsx";
 import { User, FileText, Receipt, Check, Bot, UserCheck, CreditCard, Landmark, Clock, Eye, Archive, X, Pencil, Trash2, RotateCcw, ShieldCheck, HandCoins, ChevronDown } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
+import { showPendingPlanToast } from "../../lib/pendingPlanToast.js";
 import { PrivateDocument } from "../../components/PrivateDocument.jsx";
 import { imgUrl } from "../../lib/imgUrl.js";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
@@ -621,8 +622,8 @@ export default function AdminVerifications() {
   // acepta ambos — ver confirmSubscriptionPayment en admin.controller.js).
   const confirmPayment = useMutation({
     mutationFn: async (id) => (await api.patch(`/admin/verifications/${id}/confirm-payment`, {}, notify.config(id))).data,
-    onSuccess: () => {
-      toast.success("Pago confirmado — tienda verificada.");
+    onSuccess: (d) => {
+      if (!showPendingPlanToast(d)) toast.success("Pago confirmado: tienda verificada.");
       invalidate();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo confirmar el pago."),
@@ -633,7 +634,7 @@ export default function AdminVerifications() {
     mutationFn: async ({ id, payload }) => (await api.post(`/admin/verifications/${id}/manual-payment`, payload, notify.config(id))).data,
     onSuccess: (d) => {
       // Una tienda "sin vencimiento" (activada a mano) conserva su estado: el servidor responde noExpiry y no hay fecha.
-      toast.success("Pago registrado", d.noExpiry ? "La tienda sigue verificada, sin fecha de vencimiento." : `La tienda queda verificada hasta el ${fmtDate(d.periodEnd)}.`);
+      if (!showPendingPlanToast(d)) toast.success("Pago registrado", d.noExpiry ? "La tienda sigue verificada, sin fecha de vencimiento." : `La tienda queda verificada hasta el ${fmtDate(d.periodEnd)}.`);
       setManualTarget(null);
       invalidate();
     },

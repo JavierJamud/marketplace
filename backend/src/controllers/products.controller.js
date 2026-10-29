@@ -21,6 +21,7 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { hashToken } from "../utils/hashToken.js";
 import { getPlanLimit, planAllows, swapProductQuota, placeProductInQuota, getDefaultPlanKey } from "../lib/planConfig.js";
 import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
+import { bumpVendorStat, isBotRequest } from "../lib/vendorDailyStats.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // A diferencia de uploads/kyc (privado), las fotos de producto son públicas
@@ -623,6 +624,11 @@ async function resolveOptionalUserId(req) {
 export async function trackProductView(req, res) {
   const { id } = req.params;
   await prisma.product.updateMany({ where: { id }, data: { viewCount: { increment: 1 } } });
+  // También por día para la tienda (resumen semanal). Los robots no cuentan.
+  if (!isBotRequest(req)) {
+    const p = await prisma.product.findUnique({ where: { id }, select: { vendorId: true } }).catch(() => null);
+    if (p) void bumpVendorStat(p.vendorId, "productViews");
+  }
   res.status(204).end();
 }
 

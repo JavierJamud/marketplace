@@ -42,6 +42,8 @@ export function TrialChecklistBanner({ vendor }) {
   // Con la tienda verificada (o la prueba ya activa) no hay nada que completar.
   if (!vendor?.id || !data || data.trialEndsAt || vendor.verificationStatus === "VERIFIED" || pathname.startsWith("/vendedor/completar")) return null;
   const trialAccepted = !!data.trialStartedAt;
+  // Plan que asignó el equipo y espera a que la tienda complete la verificación (o su insignia se pausó por eso).
+  const pendingPlan = vendor.pendingPlan;
 
   const items = data.checklist;
   const total = items.length;
@@ -61,11 +63,13 @@ export function TrialChecklistBanner({ vendor }) {
           </span>
           <div className="min-w-0">
             <p className="text-[11.5px] font-bold uppercase tracking-wide text-secondary">
-              Paso {done + 1} de {total} {trialAccepted ? "para tu prueba gratis" : "para verificar tu tienda"}
+              Paso {done + 1} de {total} {pendingPlan ? `para activar tu plan ${pendingPlan.name}` : trialAccepted ? "para tu prueba gratis" : "para verificar tu tienda"}
             </p>
             <h2 className="mt-0.5 font-display text-[17px] font-extrabold leading-tight text-on-surface">{next.label}</h2>
             <p className="mt-1 text-[12.5px] text-on-surface-variant">
-              {trialAccepted
+              {pendingPlan
+                ? `${pendingPlan.paused ? `Tu plan ${pendingPlan.name} está en pausa` : `El equipo te asignó el plan ${pendingPlan.name}`}: mientras no completes tu verificación, tu tienda sigue en el plan gratis, sin insignia ni funciones del plan. Al completar todos los pasos se activa solo.`
+                : trialAccepted
                 ? "Cuando completes todos, tu tienda pasa a verificada y empieza tu prueba gratis sin esperar revisión de nadie."
                 : "Son obligatorios para obtener la insignia de tienda verificada. Hazlos todos desde un solo lugar."}
             </p>

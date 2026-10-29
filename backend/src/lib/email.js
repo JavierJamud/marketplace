@@ -28,6 +28,7 @@ import { adminDirectEmail } from "../templates/adminDirectEmail.js";
 import { supportTicketAdminEmail, supportTicketReceiptEmail, supportTicketUpdateEmail } from "../templates/supportTicket.js";
 import { contactMessageEmail } from "../templates/contactMessage.js";
 import { vendorInactivityReminderEmail } from "../templates/vendorInactivityReminder.js";
+import { vendorWeeklySummaryEmail } from "../templates/vendorWeeklySummary.js";
 import { vendorSuspendedEmail } from "../templates/vendorSuspended.js";
 import { vendorReactivatedEmail } from "../templates/vendorReactivated.js";
 import { vendorWinbackEmail } from "../templates/vendorWinback.js";
@@ -544,6 +545,16 @@ export async function sendContactMessageEmail({ to, name, email, message }) {
 // el destinatario es el correo de LOGIN de la cuenta (User.email), no
 // Vendor.email (contacto público de la tienda): lo que importa es avisarle
 // a quien de verdad entra al panel.
+// Resumen semanal de la tienda (jobs/weeklyVendorSummary.job.js y el botón del admin): va al correo de la tienda, o al de
+// su cuenta si la tienda no tiene uno.
+export async function sendVendorWeeklySummaryEmail({ vendor, to, stats, pending, insight, panelPath }) {
+  if (!to) return { ok: false, error: "Sin correo de tienda" };
+  const { subject, html } = await vendorWeeklySummaryEmail({ vendor, stats, pending, insight, panelPath });
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_WEEKLY_SUMMARY", to, subject, result });
+  return result;
+}
+
 export async function sendVendorInactivityReminderEmail(vendor, daysInactive) {
   if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
   const { subject, html } = await vendorInactivityReminderEmail({ vendor, daysInactive });

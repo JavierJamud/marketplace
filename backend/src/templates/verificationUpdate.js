@@ -25,6 +25,9 @@ const META = {
   // título y el texto del correo (verificationNotify.service.js los arma con el nombre de la base).
   VERIFICATION_BUSINESS_REVOKED: { label: "Plan de pago retirado", color: RED },
   VERIFICATION_BUSINESS_GRANTED: { label: "Plan de pago activado", color: GREEN },
+  // El plan asignado espera a que la tienda complete su verificación (no es un fallo: le falta un paso).
+  PLAN_PENDING_COMPLETION: { label: "Completa tu cuenta", color: AMBER },
+  PLAN_PAUSED_INCOMPLETE: { label: "Completa tu cuenta", color: AMBER },
   SUBSCRIPTION_RENEWAL_CONFIRMED: { label: "Renovación confirmada", color: DARK_GREEN },
   VENDOR_CHANGE_REQUEST_APPROVED: { label: "Cambio de datos aprobado", color: DARK_GREEN },
   VENDOR_CHANGE_REQUEST_REJECTED: { label: "Cambio de datos rechazado", color: RED },

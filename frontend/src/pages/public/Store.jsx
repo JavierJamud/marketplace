@@ -391,6 +391,20 @@ export default function Store() {
     if (data?.slug && data.slug !== slug) navigate(`/tienda/${data.slug}${window.location.search}${window.location.hash}`, { replace: true });
   }, [data?.slug, slug, navigate]);
 
+  // Visita a la tienda (cualquier visitante, con o sin cuenta) para el resumen semanal de la tienda: una vez por tienda en
+  // esta pestaña, igual que las vistas de producto (Product.jsx). Volver a cargar la página no la suma otra vez.
+  useEffect(() => {
+    if (!data?.id) return;
+    const key = `zeudin_store_viewed_${data.id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      /* sin almacenamiento: se cuenta igual */
+    }
+    api.post(`/vendors/${data.id}/track-view`).catch(() => {});
+  }, [data?.id]);
+
   // Tracking mínimo para "clientes potenciales" del dashboard de vendedor —
   // solo clientes logueados, una vez por visita a la tienda, sin bloquear la
   // UI si falla.

@@ -113,6 +113,9 @@ export async function isTrialChecklistComplete(vendorOrId) {
 // recalcVendorProductQuota en este mismo código, llamado en línea después
 // de cada escritura relevante, nunca por cron.
 export async function maybeAutoActivateTrial(vendorId) {
+  // Un plan que el equipo dejó pendiente hasta que la tienda complete su cuenta se aplica en estos mismos puntos.
+  const { applyPendingActivationIfReady } = await import("./pendingActivation.service.js");
+  if (await applyPendingActivationIfReady(vendorId).catch(() => false)) return true;
   const vendor = await loadVendorForChecklist(vendorId);
   if (!vendor) return false;
   // trialStartedAt null = nunca aceptó la oferta, nada que activar.

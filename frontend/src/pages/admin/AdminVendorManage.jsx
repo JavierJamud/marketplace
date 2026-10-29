@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, History, KeyRound, LayoutGrid, LifeBuoy, ListChecks, MonitorSmartphone, Package, ReceiptText, Users } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
+import { showPendingPlanToast } from "../../lib/pendingPlanToast.js";
+import { SendVendorEmailModal } from "../../components/admin/SendVendorEmailModal.jsx";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
 import { formatPrice } from "../../lib/format.js";
 import { resolvePaymentMethod } from "../../lib/catalog.js";
@@ -161,8 +163,10 @@ export default function AdminVendorManage() {
         )
       ).data,
     // `same` llega en las variables (no se lee grantSamePlan, que se calcula más abajo, después de los returns tempranos).
-    onSuccess: (_, vars) =>
-      done(vars?.same ? `Listo: sigue con ${vars.name}` : `La tienda pasó a ${vars?.name ?? grantPlan?.displayName ?? "el plan elegido"}`),
+    onSuccess: (data, vars) =>
+      showPendingPlanToast(data, vars?.name ?? grantPlan?.displayName)
+        ? done(null)
+        : done(vars?.same ? `Listo: sigue con ${vars.name}` : `La tienda pasó a ${vars?.name ?? grantPlan?.displayName ?? "el plan elegido"}`),
     onError: fail("No se pudo cambiar el plan."),
   });
   const reactivate = useMutation({
@@ -305,6 +309,7 @@ export default function AdminVendorManage() {
         ) : (
           <>
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("edit")}>Editar</Button>
+            <Button size="sm" variant="outline" className={btn} onClick={() => setModal("email")}>Enviar correo</Button>
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("rep")}>Responsable</Button>
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("staff")}>Usuarios del sistema</Button>
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("stats")}>Estadísticas</Button>
@@ -351,7 +356,7 @@ export default function AdminVendorManage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {tab === "resumen" && plan && usage && <PlanUsageSection v={v} plan={plan} usage={usage} counts={counts} />}
 
-        {tab === "resumen" && <RequirementsSection requirements={requirements} extras={extras} />}
+        {tab === "resumen" && <RequirementsSection requirements={requirements} extras={extras} pendingPlan={v.pendingPlan} />}
 
         {tab === "equipo" && (
         <Section icon={MonitorSmartphone} title="Accesos y dispositivos">
@@ -454,6 +459,7 @@ export default function AdminVendorManage() {
       {modal === "edit" && <EditVendorModal vendor={v} saving={update.isPending} onCancel={() => setModal(null)} onSave={(form) => update.mutateAsync({ payload: form })} />}
       {/* isRestaurant: con él, Estadísticas pide los pedidos de mesa y Usuarios ofrece el tipo "Mesero" (los dos lo miran). */}
       {modal === "stats" && <StatsModal vendorName={{ id: v.id, companyName: v.companyName, isRestaurant: v.isRestaurant }} onClose={() => setModal(null)} />}
+      {modal === "email" && <SendVendorEmailModal vendor={{ id: v.id, companyName: v.companyName, email: v.email }} onClose={() => setModal(null)} />}
       {modal === "rep" && <RepresentativeFileModal vendor={{ id: v.id, companyName: v.companyName }} onClose={() => setModal(null)} />}
       {modal === "staff" && <AdminVendorStaffModal vendor={{ id: v.id, companyName: v.companyName, isRestaurant: v.isRestaurant }} onClose={() => setModal(null)} />}
 
@@ -789,13 +795,23 @@ function PlanUsageSection({ v, plan, usage, counts }) {
 
 // Requisitos de la verificación (los mismos de la prueba gratis y de los planes con insignia): primero lo que falta, después lo que
 // completó con el dato con que lo hizo, y aparte lo que ayuda a vender aunque no sea obligatorio.
-function RequirementsSection({ requirements, extras }) {
+function RequirementsSection({ requirements, extras, pendingPlan }) {
   const done = requirements.filter((r) => r.done);
   const pending = requirements.filter((r) => !r.done);
   const pct = requirements.length ? Math.round((done.length / requirements.length) * 100) : 0;
   const extrasPending = extras.filter((x) => !x.done);
   return (
     <Section icon={ListChecks} title="Requisitos para la verificación">
+      {pendingPlan && (
+        <p className="mb-3 rounded-xl border border-secondary-container/60 bg-secondary-container/10 p-3 text-[12.5px] leading-relaxed text-on-surface">
+          <strong>Plan {pendingPlan.name} {pendingPlan.paused ? "en pausa" : "pendiente"}.</strong>{" "}
+          {pendingPlan.paused
+            ? "Tenía la insignia sin haber completado la verificación: sigue en el plan gratis hasta que la complete."
+            : "Se asignó, pero sigue en el plan gratis hasta que complete la verificación."}{" "}
+          Al completar lo que falta, el plan y la insignia se activan solos.
+          {pendingPlan.reason ? <> Motivo: {pendingPlan.reason}</> : null}
+        </p>
+      )}
       <div className="mb-3">
         <div className="flex justify-between text-[12.5px]">
           <span className="text-on-surface-variant">{pending.length === 0 ? "Tiene todos los requisitos." : `Le faltan ${pending.length} de ${requirements.length}.`}</span>

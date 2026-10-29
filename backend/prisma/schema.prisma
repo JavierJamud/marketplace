@@ -170,6 +170,8 @@ enum EmailType {
   // ninguno cuenta contra el límite mensual de MANUAL del vendedor (son
   // necesidad operativa/de la plataforma, no marketing suyo).
   VENDOR_INACTIVITY_REMINDER
+  // Resumen semanal con IA que recibe cada tienda los viernes (jobs/weeklyVendorSummary.job.js).
+  VENDOR_WEEKLY_SUMMARY
   VENDOR_SUSPENDED
   VENDOR_WINBACK
   VENDOR_REACTIVATED
@@ -1438,6 +1440,10 @@ model Vendor {
   // fecha conserva Premium y no se le renueva el cobro; ese día una tarea diaria aplica el cambio. Null = nada programado.
   planDowngradeAt     DateTime?
   planDowngradeReason String?
+  // Plan con insignia asignado por el equipo (o pago confirmado) mientras faltaban requisitos de la verificación: se aplica
+  // solo al completarlos (services/pendingActivation.service.js). Mientras tanto, sin insignia ni funciones del plan.
+  pendingActivation Json?
+  dailyStats VendorDailyStat[]
   // Bloque 198 (pedido explícito — "se podrán enviar recordatorios a los
   // usuarios en caso de que el vendedor asigne un día que sea el día para
   // cuadrar la caja"): null = recordatorio desactivado. DAILY no usa ningún
@@ -3150,6 +3156,9 @@ enum VendorNotificationType {
   // Suscripciones, sin pasar por el ciclo normal de documentos/pago — mismo
   // canal que el resto.
   VERIFICATION_BUSINESS_GRANTED
+  // El plan asignado espera a que la tienda complete la verificación, o su insignia se pausó porque le faltan documentos.
+  PLAN_PENDING_COMPLETION
+  PLAN_PAUSED_INCOMPLETE
   // Bloque 235 (pedido explícito — trial gratuito de 30 días): mismo canal
   // (email + campanita) que el resto del ciclo de verificación/cobro, pero
   // disparado por el propio vendedor al completar el checklist del trial
@@ -4542,4 +4551,18 @@ model CatalogOption {
   updatedAt   DateTime    @default(now()) @updatedAt
 
   @@unique([kind, code])
+}
+
+// Visitas a la página de la tienda y vistas de sus productos, por día (hora de Cuba). Las usa el resumen semanal de la
+// tienda (jobs/weeklyVendorSummary.job.js); Product.viewCount sigue siendo el total de siempre.
+model VendorDailyStat {
+  vendorId     String
+  day          DateTime @db.Date
+  storeViews   Int      @default(0)
+  productViews Int      @default(0)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@id([vendorId, day])
+  @@index([day])
 }

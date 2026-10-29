@@ -5,6 +5,7 @@ import toast from "../../lib/toast.jsx";
 import { CreditCard, Landmark, Clock, BadgeCheck, HandCoins, Gift } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
+import { showPendingPlanToast } from "../../lib/pendingPlanToast.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
@@ -305,7 +306,7 @@ function GrantBusinessCard() {
     },
     onSuccess: (data) => {
       const name = data?.planName ?? nameOf(grantPlan);
-      toast.success(
+      if (!showPendingPlanToast(data, name)) toast.success(
         data?.noExpiry
           ? `Plan ${name} activado a mano, sin vencimiento.`
           : data?.periodEnd

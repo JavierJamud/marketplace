@@ -46,6 +46,7 @@ import { getTrialChecklist, maybeAutoActivateTrial, hasHadPremium } from "../ser
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { completenessScore, rankFeaturedProducts, rotationSeed } from "../lib/productRanking.js";
 import { loadRankingSignals } from "../services/productRankingSignals.service.js";
+import { bumpVendorStat, isBotRequest } from "../lib/vendorDailyStats.js";
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
@@ -344,6 +345,15 @@ export async function createVendor(req, res) {
 }
 
 // Campos públicos de una reseña: lista cerrada compartida con la ficha del producto (lib/publicReview.js).
+
+// POST /vendors/:id/track-view — la página de la tienda avisa una vez por visita (resumen semanal de la tienda).
+export async function trackStoreView(req, res) {
+  if (!isBotRequest(req)) {
+    const v = await prisma.vendor.findFirst({ where: { id: req.params.id, deletedAt: null }, select: { id: true } }).catch(() => null);
+    if (v) void bumpVendorStat(v.id, "storeViews");
+  }
+  res.status(204).end();
+}
 
 export async function getVendorBySlug(req, res) {
   // Un enlace anterior de la tienda trae la tienda igual; la página cambia la dirección al enlace actual.
@@ -678,7 +688,13 @@ export async function getMyVendor(req, res) {
   });
   // planFeatures va también al personal: su menú se recorta igual que el del dueño (VendorLayout.jsx).
   const planFeatures = planFeaturesOf(await getPlanConfig(vendor.planType));
-  res.json({ vendor: { ...withComputedVendorFields(stripOwnerPrivateFields(vendor, req.user.role)), planFeatures } });
+  // Plan que el equipo asignó y espera a que la tienda complete su verificación: solo el nombre y si estaba pausado (el
+  // registro completo, con quién lo pidió y su motivo, es para el admin).
+  const { pendingActivation, ...rest } = vendor;
+  const pendingPlan = pendingActivation?.planType
+    ? { name: await planDisplayName(pendingActivation.planType), paused: pendingActivation.kind === "PAUSED" }
+    : null;
+  res.json({ vendor: { ...withComputedVendorFields(stripOwnerPrivateFields(rest, req.user.role)), planFeatures, pendingPlan } });
 }
 
 // Bloque 184 (auditoría de seguridad): /vendors/me es la única ruta del

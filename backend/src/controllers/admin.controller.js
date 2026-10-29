@@ -1780,6 +1780,9 @@ export async function confirmSubscriptionPayment(req, res) {
     notify: { type: "VERIFICATION_VERIFIED" },
     planChangeReason: "payment_confirmed",
   });
+  if (updated.pendingMissing) {
+    return res.json({ verification: updated, pending: true, missing: updated.pendingMissing.map((m) => m.label) });
+  }
   await recalcVendorProductQuota(verification.vendorId);
 
   res.json({ verification: updated });
@@ -1916,6 +1919,9 @@ export async function registerManualPayment(req, res) {
       notify: { type: "VERIFICATION_VERIFIED" },
       planChangeReason: "payment_confirmed",
     });
+    if (updated.pendingMissing) {
+      return res.json({ verification: updated, pending: true, missing: updated.pendingMissing.map((m) => m.label), planName: plan.displayName });
+    }
   }
   await recalcVendorProductQuota(verification.vendorId);
   // Si estaba suspendida por no pagar su plan, vuelve a verse y a recibir pedidos al momento.
@@ -2367,7 +2373,20 @@ export async function grantBusinessPlan(req, res) {
       extraData: grantData,
       notify: { type: "VERIFICATION_BUSINESS_GRANTED" },
       planChangeReason: "admin_grant",
+      planGrant: noExpiry ? { noExpiry: true } : { months },
     });
+    // A la tienda le faltan requisitos: el plan queda guardado y se activa solo cuando los complete.
+    if (updated.pendingMissing) {
+      const missing = updated.pendingMissing.map((m) => m.label);
+      logActivity({
+        actorId: req.user.id,
+        actorRole: "ADMIN",
+        vendorId: id,
+        action: "business_plan_granted_pending",
+        description: `Asignó el plan ${name} a mano (${noExpiry ? "sin vencimiento" : `${months} ${months === 1 ? "mes" : "meses"}`}). Queda pendiente hasta que la tienda complete: ${missing.join(", ")}. Motivo: ${data.reason}`,
+      });
+      return res.json({ vendor: updated, planName: name, pending: true, missing });
+    }
   } else {
     updated = await prisma.$transaction(async (tx) => {
       const row = await tx.vendor.update({ where: { id }, data: grantData });
@@ -2404,7 +2423,7 @@ const DAY_MS_CUSTOMERS = 24 * 60 * 60 * 1000;
 const customersQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
   provinceId: z.string().optional(),
-  status: z.enum(["all", "active", "suspended", "new", "recent", "buyers", "nobuyers", "reporters"]).default("all"),
+  status: z.enum(["all", "active", "suspended", "new", "recent", "buyers", "nobuyers", "reporters", "store"]).default("all"),
   sort: z.enum(["recent", "orders", "lastLogin", "name"]).default("recent"),
   dir: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -2426,6 +2445,8 @@ function customerStatusWhere(status) {
       return { orders: { none: {} } };
     case "reporters":
       return { reportsMade: { some: {} } };
+    case "store":
+      return { role: "VENDOR" };
     default:
       return {};
   }
@@ -2448,7 +2469,9 @@ export async function listCustomers(req, res) {
   const query = customersQuerySchema.parse(req.query);
   const { q, provinceId, status, sort, dir } = query;
 
-  const scope = { role: "CUSTOMER", deletedAt: null, provinceId: provinceId || undefined };
+  // Toda cuenta que puede comprar es cliente: también la de quien tiene tienda (cliente y tienda son la misma cuenta).
+  // Esas filas llevan su tienda; se suspenden y eliminan desde Tiendas.
+  const scope = { role: { in: ["CUSTOMER", "VENDOR"] }, deletedAt: null, provinceId: provinceId || undefined };
   const where = {
     ...scope,
     ...customerStatusWhere(status),
@@ -2468,13 +2491,14 @@ export async function listCustomers(req, res) {
   // nuevo que pueda desincronizarse. No filtra por status del reporte
   // (un reporte descartado también cuenta para el patrón de uso, es
   // información para el admin, no una acusación).
-  const [customers, total, kAll, kRecent, kNew, kBuyers, kNoBuyers, kReporters, kSuspended] = await Promise.all([
+  const [customers, total, kAll, kRecent, kNew, kBuyers, kNoBuyers, kReporters, kSuspended, kStore] = await Promise.all([
     prisma.user.findMany({
       where,
       include: {
         province: true,
         registrationCountry: { select: { name: true } },
         _count: { select: { orders: true, reportsMade: true } },
+        vendor: { select: { id: true, companyName: true, slug: true, deletedAt: true } },
       },
       orderBy: customersOrderBy(sort, dir),
       ...pageArgs(query),
@@ -2487,6 +2511,7 @@ export async function listCustomers(req, res) {
     prisma.user.count({ where: { ...scope, ...customerStatusWhere("nobuyers") } }),
     prisma.user.count({ where: { ...scope, ...customerStatusWhere("reporters") } }),
     prisma.user.count({ where: { ...scope, ...customerStatusWhere("suspended") } }),
+    prisma.user.count({ where: { ...scope, ...customerStatusWhere("store") } }),
   ]);
 
   // Fecha del último pedido de cada cliente de ESTA página, en una sola
@@ -2514,8 +2539,10 @@ export async function listCustomers(req, res) {
       isSuspended: c.isSuspended,
       createdAt: c.createdAt,
       lastLoginAt: c.lastLoginAt,
+      role: c.role,
+      store: c.vendor && !c.vendor.deletedAt ? { id: c.vendor.id, companyName: c.vendor.companyName, slug: c.vendor.slug } : null,
     })),
-    kpis: { all: kAll, recent: kRecent, new: kNew, buyers: kBuyers, nobuyers: kNoBuyers, reporters: kReporters, suspended: kSuspended },
+    kpis: { all: kAll, recent: kRecent, new: kNew, buyers: kBuyers, nobuyers: kNoBuyers, reporters: kReporters, suspended: kSuspended, store: kStore },
     ...pageMeta(query, total),
   });
 }
@@ -2536,10 +2563,13 @@ export async function updateCustomer(req, res) {
   const { addToBlacklist: blacklist, blacklistReason, ...data } = updateCustomerSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { id } });
-  if (!user || user.role !== "CUSTOMER" || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
+  // La cuenta de quien tiene tienda también es cliente: aquí se le pueden corregir nombre, correo y teléfono. Suspenderla
+  // corta también su tienda, así que eso se hace desde Tiendas, con su propio registro.
+  if (!user || !["CUSTOMER", "VENDOR"].includes(user.role) || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
+  if (user.role === "VENDOR" && data.isSuspended !== undefined) throw new AppError("Esta cuenta tiene tienda: suspéndela desde Tiendas.", 409);
   if (blacklist && data.isSuspended !== true) throw new AppError("La lista negra se aplica al suspender al cliente.", 400);
   if (blacklist && !blacklistReason) throw new AppError("Escribe el motivo para la lista negra.", 400);
-  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id, scope: "customer" });
+  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id, scope: user.role === "VENDOR" ? "vendor" : "customer" });
 
   const emailChanged = !!data.email && data.email !== user.email?.toLowerCase();
   if (emailChanged) {
@@ -3091,22 +3121,37 @@ export async function listAdminNotifications(_req, res) {
 // logActivity() (lib/activityLog.js), llamado best-effort desde cada acción
 // relevante ya instrumentada en los controllers de vendedor/cliente.
 
+// ?role= (incluye ADMIN: lo que hace el administrador, registrado por lib/adminAudit.js), ?q= busca en la descripción y en
+// el nombre o correo de quien lo hizo, ?before= (fecha ISO del último que se ve) trae los 100 siguientes.
 export async function listActivityLog(req, res) {
   const { role, vendorId, action } = req.query;
+  const q = String(req.query.q ?? "").trim().slice(0, 100);
+  const before = req.query.before ? new Date(String(req.query.before)) : null;
+  const PAGE = 100;
   const logs = await prisma.activityLog.findMany({
     where: {
-      actorRole: role === "VENDOR" || role === "CUSTOMER" ? role : undefined,
+      actorRole: ["VENDOR", "CUSTOMER", "VENDOR_STAFF", "ADMIN"].includes(role) ? role : undefined,
       vendorId: vendorId ? String(vendorId) : undefined,
       action: action ? String(action) : undefined,
+      ...(before && !Number.isNaN(before.getTime()) ? { createdAt: { lt: before } } : {}),
+      ...(q.length >= 2
+        ? {
+            OR: [
+              { description: { contains: q, mode: "insensitive" } },
+              { actor: { is: { OR: [{ fullName: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] } } },
+              { vendor: { is: { companyName: { contains: q, mode: "insensitive" } } } },
+            ],
+          }
+        : {}),
     },
     include: {
       actor: { select: { fullName: true, email: true } },
       vendor: { select: { companyName: true, slug: true } },
     },
     orderBy: { createdAt: "desc" },
-    take: 150,
+    take: PAGE + 1,
   });
-  res.json({ logs });
+  res.json({ logs: logs.slice(0, PAGE), hasMore: logs.length > PAGE });
 }
 
 const ACTIVITY_PERIODS = {

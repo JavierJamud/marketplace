@@ -2,7 +2,7 @@ import { checkoutLabel } from "../lib/catalog.js";
 import { isSessionIdle } from "../lib/sessionPolicy.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { getPlanConfig, getDefaultPlanKey, isPremiumActive } from "../lib/planConfig.js";
+import { getPlanConfig, getDefaultPlanKey, isPremiumActive, planDisplayName } from "../lib/planConfig.js";
 import { getPlanFeatureCatalog, featureValue, planFeatureList } from "../lib/planFeatures.js";
 import { describeUserAgent } from "../lib/userAgent.js";
 import { getTrialChecklist } from "../services/trialEligibility.service.js";
@@ -306,6 +306,15 @@ export async function getVendorManage(req, res) {
       planDowngradeReason: vendor.planDowngradeReason ?? null,
       premiumUntil: vendor.trialEndsAt ?? vendor.nextPaymentDueDate ?? null,
       paysWithCard: !!vendor.stripeSubscriptionId,
+      // Plan asignado (o pagado) que espera a que la tienda complete su verificación (services/pendingActivation.service.js).
+      pendingPlan: vendor.pendingActivation?.planType
+        ? {
+            name: await planDisplayName(vendor.pendingActivation.planType),
+            paused: vendor.pendingActivation.kind === "PAUSED",
+            requestedAt: vendor.pendingActivation.requestedAt ?? null,
+            reason: vendor.pendingActivation.reason ?? null,
+          }
+        : null,
     },
     owner: vendor.user,
     payment: vendor.verification ?? null,

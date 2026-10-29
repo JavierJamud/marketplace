@@ -143,6 +143,7 @@ router.post("/:vendorId/chat", chatRateLimit, streamable(chatController.postChat
 // "Ver más" de la tienda pública: páginas siguientes de productos. Va antes de "/:slug" y con la caché corta del resto
 // del catálogo (la clave es la URL completa, así que page y rankSeed dan entradas distintas).
 router.get("/:slug/products", publicCache(20_000), vendorsController.listVendorProducts);
+router.post("/:id/track-view", vendorsController.trackStoreView);
 router.get("/:slug", vendorsController.getVendorBySlug);
 
 export default router;

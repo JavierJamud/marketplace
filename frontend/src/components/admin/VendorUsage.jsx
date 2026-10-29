@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, GraduationCap, Gift, Sparkles, RefreshCw } from "lucide-react";
+import { Activity, GraduationCap, Gift, Sparkles, RefreshCw, Mail } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDateTime } from "../../lib/relativeTime.js";
@@ -134,6 +134,48 @@ function InsightCard({ insight, onRun, running, error, scopeLabel }) {
   );
 }
 
+// Resumen semanal que recibe la tienda por correo cada viernes a las 00:00 (hora de Cuba), escrito para el vendedor. Aquí se
+// ve el último enviado y se puede mandar ahora (backend: jobs/weeklyVendorSummary.job.js).
+function WeeklySummaryCard({ vendorId }) {
+  const queryClient = useQueryClient();
+  const queryKey = ["admin-vendor-weekly-summary", vendorId];
+  const { data } = useQuery({ queryKey, queryFn: async () => (await api.get(`/admin/vendors/${vendorId}/weekly-summary`)).data.summary });
+  const send = useMutation({
+    mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/weekly-summary`)).data,
+    onSuccess: (d) => {
+      toast.success("Resumen enviado", `Le llegó a ${d.to}.`);
+      queryClient.invalidateQueries({ queryKey });
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo enviar el resumen."),
+  });
+  return (
+    <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-[14px] font-bold text-on-surface">
+          <Mail className="h-4 w-4 text-tertiary-accent" aria-hidden="true" /> Resumen semanal para la tienda
+        </h3>
+        <button
+          type="button"
+          onClick={() => send.mutate()}
+          disabled={send.isPending}
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-outline-variant px-4 text-[12.5px] font-bold text-on-surface hover:bg-surface-container disabled:opacity-60"
+        >
+          {send.isPending ? "Enviando..." : "Enviar ahora"}
+        </button>
+      </div>
+      <p className="text-[12.5px] text-on-surface-variant">
+        La tienda lo recibe sola cada viernes a las 00:00, hora de Cuba: los números de su semana y qué puede mejorar, escrito por la IA para el vendedor.
+      </p>
+      {data && (
+        <p className="mt-2 text-[12px] text-outline" title={exactDateTime(data.updatedAt)}>
+          Último envío {timeAgo(data.updatedAt).toLowerCase()} a {data.to}
+          {data.stats ? ` · ${data.stats.orders} ${data.stats.orders === 1 ? "pedido" : "pedidos"} en esa semana` : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function useInsight(url, queryKey) {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
@@ -205,6 +247,7 @@ export function VendorUsageSection({ vendorId }) {
               </div>
             )}
             <InsightCard insight={data.insight} onRun={() => run.mutate()} running={run.isPending} error={error} scopeLabel="de esta tienda" />
+            <WeeklySummaryCard vendorId={vendorId} />
           </div>
 
           <div className="min-w-0">

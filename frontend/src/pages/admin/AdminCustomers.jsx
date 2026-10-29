@@ -2,7 +2,8 @@ import { BlacklistCheckbox } from "../../components/admin/BlacklistCheckbox.jsx"
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Flag, Users } from "lucide-react";
+import { Flag, Store, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { IconCircle, CARD } from "../../components/dashboard/DashboardCard.jsx";
 import { useListParams, useDebouncedSearch } from "../../lib/useListParams.js";
 import { timeAgo, exactDate } from "../../lib/relativeTime.js";
@@ -85,19 +86,22 @@ const SORT_OPTIONS = [
 
 const ROW_GRID = "md:grid md:grid-cols-[minmax(0,2.6fr)_minmax(0,1.2fr)_72px_104px_104px_96px_44px] md:items-center md:gap-3";
 
-function CustomerRow({ c, onEdit, onSuspend, onReactivate, onMerge, onDelete }) {
+function CustomerRow({ c, onEdit, onSuspend, onReactivate, onMerge, onDelete, onOpenStore }) {
   const place = c.province ?? c.country ?? null;
-  const menu = (
-    <ActionMenu
-      label={`Acciones de ${c.fullName ?? c.email}`}
-      items={[
+  // Quien tiene tienda también compra con esta cuenta: aquí se le corrigen sus datos; suspenderla o eliminarla se hace
+  // desde su tienda, porque también corta la tienda.
+  const items = c.store
+    ? [
+        { label: "Editar", onClick: onEdit },
+        { label: "Gestionar su tienda", onClick: onOpenStore },
+      ]
+    : [
         { label: "Editar", onClick: onEdit },
         { label: c.isSuspended ? "Reactivar" : "Suspender", onClick: c.isSuspended ? onReactivate : onSuspend },
         { label: "Unir con su tienda", onClick: onMerge },
         { label: "Eliminar", onClick: onDelete, danger: true },
-      ]}
-    />
-  );
+      ];
+  const menu = <ActionMenu label={`Acciones de ${c.fullName ?? c.email}`} items={items} />;
   return (
     <div className={`border-b border-surface-container px-4 py-2 last:border-b-0 ${ROW_GRID} ${c.isSuspended ? "bg-error/[0.04]" : ""}`}>
       <div className="flex min-w-0 items-center gap-3">
@@ -117,6 +121,11 @@ function CustomerRow({ c, onEdit, onSuspend, onReactivate, onMerge, onDelete }) 
                 className="flex flex-shrink-0 items-center gap-0.5 rounded-full bg-error/10 px-1.5 py-0.5 text-[10px] font-bold text-error"
               >
                 <Flag className="h-2.5 w-2.5" /> {c.reportsMadeCount}
+              </span>
+            )}
+            {c.store && (
+              <span title={`También vende: ${c.store.companyName}`} className="flex min-w-0 items-center gap-0.5 truncate rounded-full bg-tertiary-accent/10 px-1.5 py-0.5 text-[10px] font-bold text-tertiary">
+                <Store className="h-2.5 w-2.5 flex-shrink-0" aria-hidden="true" /> <span className="truncate">Tiene tienda: {c.store.companyName}</span>
               </span>
             )}
             {c.isSuspended && (
@@ -166,6 +175,7 @@ export default function AdminCustomers() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [merging, setMerging] = useState(null);
+  const navigate = useNavigate();
   const [suspending, setSuspending] = useState(null); // cliente a suspender, para el modal de confirmación
   // Lista negra al suspender (opcional): casilla y motivo, ver BlacklistCheckbox.
   const [blacklist, setBlacklist] = useState(false);
@@ -248,6 +258,7 @@ export default function AdminCustomers() {
     { key: "buyers", label: "Con pedidos", value: kpis?.buyers },
     { key: "nobuyers", label: "Sin pedidos", value: kpis?.nobuyers },
     { key: "reporters", label: "Con reportes", value: kpis?.reporters, tone: "warn" },
+    { key: "store", label: "Con tienda", value: kpis?.store, hint: "También venden" },
     { key: "suspended", label: "Suspendidos", value: kpis?.suspended, tone: "danger" },
   ];
   const onSort = (sort, dir) => setParams({ sort, dir });
@@ -258,7 +269,7 @@ export default function AdminCustomers() {
         <IconCircle icon={Users} tone="teal" />
         <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Clientes</h1>
       </div>
-      <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Usa los contadores para filtrar; en cada fila puedes editar, suspender, unir con su tienda o eliminar la cuenta.</p>
+      <p className="mb-4 text-[13.5px] text-outline">Todas las cuentas que compran, también las de quien tiene tienda. Usa los contadores para filtrar; en cada fila puedes editar, suspender, unir con su tienda o eliminar la cuenta.</p>
 
       <StatStrip>
         {tiles.map((t) => (
@@ -337,6 +348,7 @@ export default function AdminCustomers() {
             onSuspend={() => setSuspending(c)}
             onReactivate={() => toggle.mutate({ id: c.id, isSuspended: false })}
             onMerge={() => setMerging(c)}
+            onOpenStore={() => navigate(`/admin/tiendas/${c.store.id}`)}
             onDelete={() => setDeleting(c)}
           />
         ))}

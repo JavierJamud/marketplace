@@ -1,6 +1,10 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Store, User, Activity } from "lucide-react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { Store, User, Activity, ChevronDown } from "lucide-react";
+import { exactDateTime } from "../../lib/relativeTime.js";
+import { SearchField } from "../../components/admin/ListControls.jsx";
+import { useDebouncedSearch } from "../../lib/useListParams.js";
+import { Button } from "../../components/ui/Button.jsx";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { UsageOverview } from "../../components/admin/VendorUsage.jsx";
@@ -16,7 +20,63 @@ const ROLE_FILTERS = [
   { value: "", label: "Todos" },
   { value: "VENDOR", label: "Vendedores" },
   { value: "CUSTOMER", label: "Clientes" },
+  { value: "VENDOR_STAFF", label: "Equipos" },
+  { value: "ADMIN", label: "Administración" },
 ];
+
+const ROLE_LABEL = { VENDOR: "Vendedor", VENDOR_STAFF: "Equipo de la tienda", ADMIN: "Admin", CUSTOMER: "Cliente" };
+const METHOD_LABEL = { POST: "Crear o ejecutar", PATCH: "Modificar", PUT: "Modificar", DELETE: "Eliminar" };
+
+// Detalle de una acción: lo que guarda lib/adminAudit.js (sección, motivo, IP, dispositivo) y, en otras acciones, lo que
+// cada una registró. Solo se muestran los datos que existen.
+function LogDetails({ log }) {
+  const a = log.meta?.audit;
+  const rows = [
+    ["Fecha y hora", exactDateTime(log.createdAt)],
+    ["Sección", a?.section],
+    ["Acción", a ? `${METHOD_LABEL[a.method] ?? a.method} · ${a.path}` : null],
+    ["Motivo", a?.reason ?? log.meta?.reason ?? null],
+    ["Datos enviados", a?.fields?.length ? a.fields.join(", ") : null],
+    ["IP", a?.ip ?? log.meta?.ip ?? log.meta?.context?.ip ?? null],
+    ["Dispositivo", a?.device ?? null],
+    ["Quién", log.actor?.email ?? null],
+  ].filter(([, v]) => v);
+  return (
+    <dl className="mt-2 grid gap-x-4 gap-y-1 rounded-xl bg-surface-container/50 p-3 text-[12px] sm:grid-cols-[120px_minmax(0,1fr)]">
+      {rows.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="font-semibold text-on-surface-variant">{k}</dt>
+          <dd className="mb-1 break-words text-on-surface sm:mb-0">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function LogRow({ log }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-surface-container px-4 py-3 last:border-b-0">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full min-w-0 items-start justify-between gap-3 text-left">
+        <span className="min-w-0">
+          <span className="flex flex-wrap items-center gap-1.5 text-[13px] text-on-surface">
+            <span className="font-bold">{log.actor?.fullName ?? log.actor?.email ?? "Cuenta eliminada"}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${log.actorRole === "VENDOR" ? "bg-secondary-container text-on-secondary-container" : log.actorRole === "ADMIN" ? "bg-tertiary-accent/10 text-tertiary" : "bg-surface-container text-on-surface-variant"}`}>
+              {ROLE_LABEL[log.actorRole] ?? "Cliente"}
+            </span>
+            {log.vendor && <span className="text-[11.5px] text-outline">· {log.vendor.companyName}</span>}
+          </span>
+          <span className="mt-0.5 block break-words text-[12.5px] text-on-surface-variant">{log.description}</span>
+        </span>
+        <span className="flex flex-shrink-0 items-center gap-1 text-[11px] text-outline" title={exactDateTime(log.createdAt)}>
+          {timeAgo(log.createdAt)}
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+        </span>
+      </button>
+      {open && <LogDetails log={log} />}
+    </div>
+  );
+}
 
 function timeAgo(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -59,10 +119,15 @@ export default function AdminActivityLog() {
     queryFn: async () => (await api.get("/admin/activity-log/stats", { params: { period } })).data,
   });
 
-  const { data: logsData, isLoading } = useQuery({
-    queryKey: ["admin-activity-log", role],
-    queryFn: async () => (await api.get("/admin/activity-log", { params: { role: role || undefined } })).data,
+  const [q, setQ] = useState("");
+  const [searchText, setSearchText] = useDebouncedSearch(q, setQ);
+  const { data: logsPages, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ["admin-activity-log", role, q],
+    queryFn: async ({ pageParam }) => (await api.get("/admin/activity-log", { params: { role: role || undefined, q: q.length >= 2 ? q : undefined, before: pageParam } })).data,
+    initialPageParam: undefined,
+    getNextPageParam: (last) => (last.hasMore ? last.logs[last.logs.length - 1]?.createdAt : undefined),
   });
+  const logs = logsPages?.pages.flatMap((p) => p.logs) ?? [];
 
   return (
     <div className="max-w-[980px]">
@@ -71,7 +136,7 @@ export default function AdminActivityLog() {
         <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Actividad</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        Registro de las acciones que hacen vendedores y clientes en sus paneles, y qué tiendas/clientes más usan la plataforma.
+        Registro de las acciones de vendedores, clientes y administración, y qué tiendas y clientes más usan la plataforma. Toca una acción para ver la hora exacta, la sección, el motivo, la IP y el dispositivo.
       </p>
 
       <UsageOverview />
@@ -118,14 +183,14 @@ export default function AdminActivityLog() {
         </div>
       </div>
 
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-[14px] font-bold text-on-surface">Historial</div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {ROLE_FILTERS.map((r) => (
             <button
               key={r.value}
               onClick={() => setRole(r.value)}
-              className={`rounded-full px-3 py-1 text-[12px] font-semibold ${
+              className={`min-h-9 rounded-full px-3 py-1 text-[12px] font-semibold ${
                 role === r.value ? "bg-tertiary-accent-light text-tertiary" : "border border-outline-variant text-on-surface-variant"
               }`}
             >
@@ -135,30 +200,31 @@ export default function AdminActivityLog() {
         </div>
       </div>
 
-      {isLoading && <ListSkeleton />}
-      {!isLoading && !logsData?.logs?.length && <p className="text-body-md text-on-surface-variant">Todavía no hay actividad registrada.</p>}
+      <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por acción, persona o tienda" className="mb-3" />
 
-      <div className="flex flex-col gap-2 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
-        {logsData?.logs?.map((log) => (
-          <div key={log.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-surface-container px-4 py-3 last:border-b-0">
-            <div>
-              <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-on-surface">
-                <span className="font-bold">{log.actor?.fullName ?? log.actor?.email ?? "Cuenta eliminada"}</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    log.actorRole === "VENDOR" ? "bg-secondary-container text-on-secondary-container" : "bg-surface-container text-on-surface-variant"
-                  }`}
-                >
-                  {{ VENDOR: "Vendedor", VENDOR_STAFF: "Equipo de la tienda", ADMIN: "Admin", CUSTOMER: "Cliente" }[log.actorRole] ?? "Cliente"}
-                </span>
-                {log.vendor && <span className="text-[11.5px] text-outline">· {log.vendor.companyName}</span>}
-              </div>
-              <p className="mt-0.5 text-[12.5px] text-on-surface-variant">{log.description}</p>
-            </div>
-            <span className="flex-shrink-0 text-[11px] text-outline">{timeAgo(log.createdAt)}</span>
-          </div>
-        ))}
-      </div>
+      {isLoading && <ListSkeleton />}
+      {isError && (
+        <div className="flex flex-col items-center gap-3 p-6 text-center">
+          <p className="text-body-md text-error">No se pudo cargar el historial.</p>
+          <Button variant="outline" onClick={() => refetch()}>Reintentar</Button>
+        </div>
+      )}
+      {!isLoading && !isError && !logs.length && <p className="text-body-md text-on-surface-variant">{q.length >= 2 ? "Ninguna acción coincide con esa búsqueda." : "Todavía no hay actividad registrada."}</p>}
+
+      {logs.length > 0 && (
+        <div className="flex flex-col rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
+          {logs.map((log) => (
+            <LogRow key={log.id} log={log} />
+          ))}
+        </div>
+      )}
+      {hasNextPage && (
+        <div className="mt-3 flex justify-center">
+          <Button variant="outline" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+            {isFetchingNextPage ? "Cargando..." : "Ver más"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

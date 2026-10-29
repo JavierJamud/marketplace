@@ -9,6 +9,7 @@ import * as campaignsController from "../controllers/campaigns.controller.js";
 import * as integrationsController from "../controllers/integrations.controller.js";
 import * as securityController from "../controllers/security.controller.js";
 import { requireActionCode, vendorChangeAction } from "../lib/adminActionCode.js";
+import { adminAudit } from "../lib/adminAudit.js";
 import * as aiModelsController from "../controllers/aiModels.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
 import { assistantRateLimit } from "../middleware/rateLimit.js";
@@ -57,6 +58,8 @@ const massEmailCode = requireActionCode("MASS_EMAIL");
 
 // Todo el módulo admin exige rol ADMIN (rechaza 403 a vendedor/cliente).
 router.use(authenticate, requireRole("ADMIN"), notifyVendorChoice);
+// Cada cambio que el admin hace queda registrado con sección, motivo, IP y dispositivo (lib/adminAudit.js).
+router.use(adminAudit);
 
 // Socios de la API (Partner API): crear socios, llaves, permisos, cuotas, dominios e IP.
 router.get("/partners/scopes", partnersController.listScopes);
@@ -240,6 +243,8 @@ router.get("/usage/overview", usageController.adminUsageOverview);
 router.post("/usage/insights", usageController.adminUsageInsights);
 router.get("/vendors/:id/usage", usageController.adminVendorUsage);
 router.post("/vendors/:id/usage/insights", usageController.adminVendorUsageInsights);
+router.get("/vendors/:id/weekly-summary", usageController.adminGetWeeklySummary);
+router.post("/vendors/:id/weekly-summary", usageController.adminSendWeeklySummary);
 router.get("/support-cases", adminController.listSupportCases);
 router.patch("/support-cases/:id/resolve", adminController.resolveSupportCase);
 router.post("/emails", adminController.sendAdminEmail);

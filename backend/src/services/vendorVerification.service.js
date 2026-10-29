@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma.js";
 import { notifyVerificationEvent } from "./verificationNotify.service.js";
 import { recalcVendorProductQuota, getDefaultPlanKey, getTrialPlanKey, getPlanConfig, planDisplayName, recordPlanChange } from "../lib/planConfig.js";
+import { holdIfIncomplete } from "./pendingActivation.service.js";
 
 // Bloque 64 (fuente única de verdad — bug real reportado en vivo): antes el
 // badge/IA/destacado leían `Vendor.isVerified`, un booleano guardado APARTE
@@ -52,9 +53,16 @@ function planChangeReasonFor(source, toStatus) {
 // el cambio queda anotado en VendorPlanChange DENTRO de la misma transacción. Quien llama a esta función NO debe llamar
 // recordPlanChange otra vez (saldría duplicado): si quiere un motivo exacto lo pasa en `planChangeReason` (un código de
 // PLAN_CHANGE_REASONS). Sin él se deduce del origen y del estado nuevo (planChangeReasonFor).
-export async function transitionVendorVerification(vendorId, toStatus, { reason = null, actorId = null, source, notify, extraData = {}, planChangeReason = null } = {}) {
+export async function transitionVendorVerification(vendorId, toStatus, options = {}) {
+  const { reason = null, actorId = null, source, notify, extraData = {}, planChangeReason = null } = options;
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, include: { user: true } });
   if (!vendor) throw new Error(`Vendor ${vendorId} no encontrado (transitionVendorVerification)`);
+
+  // La insignia exige la verificación completa aunque la decida el admin (activar a mano, confirmar o registrar un pago).
+  // Si falta algo, la activación queda guardada y se aplica sola cuando la tienda lo completa
+  // (services/pendingActivation.service.js). Quien llama recibe la tienda sin cambios y `pendingMissing` con lo que falta.
+  const missing = await holdIfIncomplete(vendor, toStatus, options);
+  if (missing) return { ...vendor, pendingMissing: missing };
 
   const fromStatus = vendor.verificationStatus;
   // VERIFIED (la insignia) va siempre con un plan de pago, nunca con el plan por defecto (isDefault, hoy el Básico). Al

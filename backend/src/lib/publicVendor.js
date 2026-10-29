@@ -35,6 +35,8 @@ export const PRIVATE_VENDOR_FIELDS = [
   "billingNoticeDue",
   "planDowngradeAt",
   "planDowngradeReason",
+  // Plan en espera de que la tienda complete la verificación: incluye quién lo pidió y su motivo (solo admin).
+  "pendingActivation",
   "deletedAt",
   "deletionRequestedAt",
   "adminDeletionRequestedAt",

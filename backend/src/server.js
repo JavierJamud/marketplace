@@ -18,7 +18,9 @@ import { startReviewAnomalyJob } from "./jobs/reviewAnomaly.job.js";
 import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { startPlanBillingJob } from "./jobs/planBilling.job.js";
+import { startWeeklyVendorSummaryJob } from "./jobs/weeklyVendorSummary.job.js";
 import { reconcilePlanVerification } from "./services/vendorVerification.service.js";
+import { pauseVerifiedWithoutDocuments } from "./services/pendingActivation.service.js";
 import { checkFeatureCatalog } from "./lib/planFeatures.js";
 import { tidyVendorSlugs } from "./lib/vendorSlug.js";
 import { reconcileRatings } from "./lib/ratings.js";
@@ -127,10 +129,16 @@ startClickAnomalyJob();
 // siguiente cron diario fijo libre después de reviewAnomaly (10:00) —
 // clickAnomaly no cuenta, corre cada 3h, no una vez al día.
 startTrialExpiryJob();
+// Resumen semanal con IA para cada tienda: viernes a las 00:00, hora de Cuba (jobs/weeklyVendorSummary.job.js).
+startWeeklyVendorSummaryJob();
 // Cobro de los planes sin insignia (el Básico cuando deja de ser gratis): avisos, pedidos en pausa y suspensión por falta de pago.
 startPlanBillingJob();
 // Plan Pro activo <=> insignia: corrige al arrancar cualquier tienda que haya quedado a medias.
 reconcilePlanVerification().catch((err) => console.error("[planes] no se pudo revisar:", err));
+// Al arrancar también: una tienda con insignia sin documento de identidad o selfie la pierde hasta completar su verificación.
+pauseVerifiedWithoutDocuments()
+  .then((n) => n && console.log(`[planes] insignias pausadas por falta de documentos=${n}`))
+  .catch((err) => console.error("[planes] no se pudieron revisar las insignias:", err));
 // Catálogo de funciones de los planes (tabla PlanFeature) contra FEATURE_REGISTRY: avisa por consola si falta una fila, si
 // sobra una clave que el código no conoce o si una columna no coincide. Solo avisa: nunca frena el arranque.
 void checkFeatureCatalog().catch(() => {});
