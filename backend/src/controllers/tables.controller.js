@@ -8,7 +8,7 @@ import { sendTableOrderStatusEmail } from "../lib/email.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
-import { assertVendorAcceptsOrders } from "../services/planBilling.service.js";
+import { assertVendorAcceptsOrders, isBillingOverdue } from "../services/planBilling.service.js";
 
 // Bloque 185 (pedido explícito — "se podrán identificar tanto para el
 // restaurante como para el cliente cuáles de los pedidos se realizaron
@@ -48,8 +48,83 @@ import { assertVendorAcceptsOrders } from "../services/planBilling.service.js";
 // items de esa primera ronda, ver más abajo); una ronda agregada DESPUÉS
 // arranca su propio contador en RECEIVED y se avanza por separado con
 // updateTableOrderItemStatus, sin tocar ni depender del resto de la cuenta.
-function makeOrderItem({ productId = null, name, price, quantity, source, addedByName = null, status = "RECEIVED" }) {
-  return { id: randomUUID(), productId, name, price, quantity, source, addedByName, status };
+//
+// `stockTaken`: si el stock de esa línea ya se descontó. Antes se deducía del
+// estado de la cuenta (en Recibido nada descontado, después todo), pero el
+// mesero y la caja pueden sumar consumo a una cuenta que sigue en Recibido y
+// esas líneas descuentan en el momento: al aceptar la cuenta se volvían a
+// descontar, y al cancelarla en Recibido no se devolvían. Cada línea lo lleva
+// ahora; ver lineStockTaken para las líneas viejas que no traen el campo.
+function makeOrderItem({ productId = null, name, price, quantity, source, addedByName = null, status = "RECEIVED", stockTaken = false }) {
+  return { id: randomUUID(), productId, name, price, quantity, source, addedByName, status, stockTaken };
+}
+
+// Si el stock de esta línea ya se descontó. Las líneas de antes de `stockTaken`
+// siguen la regla vieja (cuenta aceptada = todo descontado), con un caso más:
+// en una cuenta todavía en Recibido, una línea con estado propio más avanzado
+// solo pudo entrar por "Agregar consumo" o por la caja, que descuentan al
+// agregar.
+function lineStockTaken(item, tableOrder) {
+  if (typeof item.stockTaken === "boolean") return item.stockTaken;
+  return tableOrder.kitchenStatus !== "RECEIVED" || (item.status ?? "RECEIVED") !== "RECEIVED";
+}
+
+// Al aceptar la cuenta se descuenta el stock de las líneas que todavía no lo
+// tenían descontado; desde ahí todas quedan marcadas.
+function markAllStockTaken(items) {
+  return items.map((item) => (item.productId ? { ...item, stockTaken: true } : item));
+}
+
+// Qué productos ve y puede pedir quien escanea el QR de ESTA mesa. Un solo
+// filtro para getTableByToken (lo que se muestra) y createTableOrder (lo que
+// se acepta), así no se separan (Bloque 157). El menú QR es una vitrina
+// pública más (ver publicVisibility.js): un producto fuera del cupo del plan
+// (overQuota) o suspendido por un reporte no se ofrece aquí. hiddenFromStore
+// no se filtra: significa justamente "solo para pedidos de mesa".
+function tableMenuProductWhere(qrToken) {
+  return {
+    isActive: true,
+    availableForTableMenu: true,
+    overQuota: false,
+    suspendedAt: null,
+    OR: [{ tableRestricted: false }, { restrictedTables: { some: { qrToken } } }],
+  };
+}
+
+// Bloquea la cuenta hasta el final de la transacción y la vuelve a leer.
+// `items` es un JSON que se reescribe entero: si el cliente (por el QR), el
+// mesero y la caja suman a la vez, cada uno leía la lista vieja y el último
+// en guardar pisaba la ronda del otro, con su stock ya descontado. Con el
+// bloqueo, el segundo espera al primero y relee la lista ya actualizada
+// (Postgres en READ COMMITTED: cada consulta ve lo último confirmado). Mismo
+// criterio que lockSale en pos.controller.js. Exportada para la caja
+// (attachSaleToTable), que también escribe en `items`.
+export async function lockTableOrder(tx, tableOrderId) {
+  await tx.$queryRaw`SELECT id FROM "TableOrder" WHERE id = ${tableOrderId} FOR UPDATE`;
+  const tableOrder = await tx.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
+  if (!tableOrder) throw new AppError("Pedido de mesa no encontrado.", 404);
+  return tableOrder;
+}
+
+// Bloquea la mesa mientras se decide si se abre una cuenta nueva o se suma a
+// la abierta: dos personas que piden a la vez en una mesa libre abrían dos
+// cuentas en la misma mesa. Siempre se bloquea la mesa antes que su cuenta
+// (nunca al revés), así dos caminos no se esperan entre sí para siempre.
+// Devuelve la mesa releída (null si se borró mientras se esperaba el turno).
+export async function lockTable(tx, tableId) {
+  await tx.$queryRaw`SELECT id FROM "Table" WHERE id = ${tableId} FOR UPDATE`;
+  return tx.table.findUnique({ where: { id: tableId } });
+}
+
+// Abrir una cuenta o sumarle consumo desde el panel exige lo mismo que crear
+// mesas (createTable): tienda restaurante y mesas con QR en el plan. Antes
+// solo createTable lo miraba, y una tienda que bajó de plan seguía abriendo
+// cuentas en sus mesas viejas. Terminar lo que ya está abierto (aceptar,
+// avanzar, entregar, cobrar, cancelar, quitar) no lo exige: si no, una
+// cuenta abierta antes de bajar de plan quedaba sin poder cerrarse.
+async function assertTablesPlan(vendor) {
+  if (!vendor.isRestaurant) throw new AppError("Esta función es solo para tiendas tipo restaurante.", 403);
+  await assertPlanAllows(vendor, "allowQrTables", "Tu plan actual no incluye mesas con QR.");
 }
 
 // Bloque 186: el JWT solo trae {id, role} (ver middleware/auth.js) — el
@@ -166,7 +241,8 @@ export async function listMyTables(req, res) {
   // cuenta). La mesa recién se libera cuando el vendedor marca a mano que
   // el cliente pagó y se fue (ver clearTableOrder).
   const tables = await prisma.table.findMany({
-    where: { vendorId: vendor.id },
+    // Las mesas eliminadas que tenían cuentas se conservan solo por su historial (ver deleteTable).
+    where: { vendorId: vendor.id, deletedAt: null },
     // Bloque 167: un pedido cancelado no "ocupa" la mesa — se saca de esta
     // lista igual que uno liberado (sigue existiendo, visible en Pedidos,
     // solo no cuenta para ocupar la mesa).
@@ -303,19 +379,23 @@ export async function catchUpTableOrderStatus(req, res) {
   const { tableOrderId } = req.params;
   const { target } = catchUpSchema.parse(req.body);
 
-  const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
-  if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
-  if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
-  if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
-
-  const currentLevel = tableOrderLevel(tableOrder);
-  const targetLevel = STATUS_LEVEL[target];
-  if (targetLevel <= currentLevel) {
-    throw new AppError(`Este pedido ya está en "${STATUS_LEVEL_LABEL[tableOrder.deliveredAt ? "DELIVERED" : tableOrder.kitchenStatus]}" o más adelante.`, 400);
-  }
+  const found = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, select: { table: { select: { vendorId: true } } } });
+  if (!found || found.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
 
   const now = new Date();
+  const targetLevel = STATUS_LEVEL[target];
+  let tableOrder;
   const updated = await prisma.$transaction(async (tx) => {
+    // Se lee bajo bloqueo (ver lockTableOrder): las líneas se reescriben más
+    // abajo y una ronda sumada mientras tanto no debe perderse.
+    tableOrder = await lockTableOrder(tx, tableOrderId);
+    if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
+    if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
+    const currentLevel = tableOrderLevel(tableOrder);
+    if (targetLevel <= currentLevel) {
+      throw new AppError(`Este pedido ya está en "${STATUS_LEVEL_LABEL[tableOrder.deliveredAt ? "DELIVERED" : tableOrder.kitchenStatus]}" o más adelante.`, 400);
+    }
+
     // Descuento de stock: mismo criterio atómico que updateKitchenStatus —
     // solo aplica si el pedido NUNCA pasó por la aceptación real (seguía en
     // RECEIVED) y el destino lo deja en PREPARING o más allá.
@@ -324,14 +404,15 @@ export async function catchUpTableOrderStatus(req, res) {
       const tableProducts = await tx.product.findMany({ where: { id: { in: tableProductIds } }, select: { id: true, unlimitedStock: true } });
       const isUnlimited = new Map(tableProducts.map((p) => [p.id, p.unlimitedStock]));
       for (const item of tableOrder.items) {
-        if (!item.productId || isUnlimited.get(item.productId)) continue;
+        // Lo que el mesero o la caja ya sumaron con la cuenta en Recibido ya está descontado.
+        if (!item.productId || isUnlimited.get(item.productId) || lineStockTaken(item, tableOrder)) continue;
         const result = await tx.product.updateMany({
           where: { id: item.productId, stock: { gte: item.quantity } },
           data: { stock: { decrement: item.quantity } },
         });
         if (result.count === 0) {
           const fresh = await tx.product.findUnique({ where: { id: item.productId } });
-          throw new AppError(`Stock insuficiente para "${item.name}" — disponible ${fresh?.stock ?? 0}.`, 409);
+          throw new AppError(`Stock insuficiente para "${item.name}": disponible ${fresh?.stock ?? 0}.`, 409);
         }
       }
     }
@@ -343,7 +424,8 @@ export async function catchUpTableOrderStatus(req, res) {
     // "Revisando" por su cuenta. Nunca las retrocede si ya estaban más
     // adelante (no debería pasar, pero por las dudas).
     const itemLevel = (item) => STATUS_LEVEL[item.status ?? "RECEIVED"] ?? STATUS_LEVEL.RECEIVED;
-    const cascadedItems = tableOrder.items.map((item) => (itemLevel(item) < STATUS_LEVEL[nextKitchenStatus] ? { ...item, status: nextKitchenStatus } : item));
+    let cascadedItems = tableOrder.items.map((item) => (itemLevel(item) < STATUS_LEVEL[nextKitchenStatus] ? { ...item, status: nextKitchenStatus } : item));
+    if (targetLevel >= STATUS_LEVEL.PREPARING) cascadedItems = markAllStockTaken(cascadedItems);
     return tx.tableOrder.update({
       where: { id: tableOrderId },
       data: {
@@ -418,29 +500,36 @@ export async function cancelTableOrder(req, res) {
   const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
   if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
   if (tableOrder.cancelledAt) throw new AppError("Este pedido ya estaba cancelado.", 409);
-  if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya fue cobrada y cerrada — no se puede cancelar.", 400);
-
-  // Solo si ya se había aceptado (kitchenStatus !== RECEIVED) hay stock real
-  // que devolver — mientras sigue RECEIVED, createTableOrder nunca lo
-  // descontó (ver ese comentario), nada que revertir acá.
-  const shouldRestock = tableOrder.kitchenStatus !== "RECEIVED";
+  if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró, así que no se puede cancelar.", 400);
 
   const updated = await prisma.$transaction(async (tx) => {
-    if (shouldRestock) {
-      const productIds = [...new Set(tableOrder.items.map((i) => i.productId).filter(Boolean))];
+    // Bajo bloqueo (ver lockTableOrder): las líneas a devolver salen de la
+    // cuenta tal como está ahora, no de la lectura de arriba, por si alguien
+    // le sumó una ronda en el medio (su stock también hay que devolverlo).
+    const current = await lockTableOrder(tx, tableOrderId);
+    // La cancelación se reclama con una condición: dos clics casi a la vez no
+    // devuelven el stock dos veces.
+    const claimed = await tx.tableOrder.updateMany({
+      where: { id: tableOrderId, cancelledAt: null, clearedAt: null },
+      data: { cancelledAt: new Date(), cancelReason: reason },
+    });
+    if (claimed.count === 0) throw new AppError(current.clearedAt ? "Esta cuenta ya se cobró y cerró, así que no se puede cancelar." : "Este pedido ya estaba cancelado.", 409);
+    // Se devuelve el stock de cada línea que ya lo tenía descontado (ver
+    // lineStockTaken): en una cuenta aceptada son todas; en una que sigue en
+    // Recibido, solo lo que el mesero o la caja sumaron (las líneas del
+    // cliente se descuentan recién al aceptar).
+    const restockItems = current.items.filter((i) => i.productId && lineStockTaken(i, current));
+    if (restockItems.length > 0) {
+      const productIds = [...new Set(restockItems.map((i) => i.productId))];
       const products = await tx.product.findMany({ where: { id: { in: productIds } }, select: { id: true, unlimitedStock: true } });
       const productById = new Map(products.map((p) => [p.id, p]));
-      for (const item of tableOrder.items) {
-        if (!item.productId) continue;
+      for (const item of restockItems) {
         const product = productById.get(item.productId);
         if (!product || product.unlimitedStock) continue; // producto borrado después, o "disponible siempre" — nada que devolver.
         await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
     }
-    return tx.tableOrder.update({
-      where: { id: tableOrderId },
-      data: { cancelledAt: new Date(), cancelReason: reason },
-    });
+    return tx.tableOrder.findUnique({ where: { id: tableOrderId } });
   });
 
   logActivity({
@@ -448,7 +537,7 @@ export async function cancelTableOrder(req, res) {
     actorRole: actorRoleForVendorAction(req),
     vendorId: vendor.id,
     action: "table_order_cancelled",
-    description: `Canceló el pedido #${tableOrder.orderNumber} de la mesa #${tableOrder.table.tableNumber} — ${reason}`,
+    description: `Canceló el pedido #${tableOrder.orderNumber} de la mesa #${tableOrder.table.tableNumber}: ${reason}`,
     meta: { tableOrderId, reason },
   });
   res.json({ tableOrder: updated });
@@ -475,7 +564,7 @@ const addTableOrderItemSchema = z
     quantity: z.number().int().positive(),
   })
   .refine((d) => !!d.productId !== !!(d.name && d.price != null), {
-    message: "Elige un producto del catálogo O escribe un nombre y precio — no ambos ni ninguno.",
+    message: "Elige un producto del catálogo O escribe un nombre y precio, no las dos cosas ni ninguna.",
   });
 
 export async function addTableOrderItem(req, res) {
@@ -485,12 +574,15 @@ export async function addTableOrderItem(req, res) {
 
   const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
   if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
-  if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
-  if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
+  await assertTablesPlan(vendor);
 
   const addedByName = await resolveActorFullName(req.user.id);
   let newItem;
   const updated = await prisma.$transaction(async (tx) => {
+    // Se relee bajo bloqueo (ver lockTableOrder) antes de sumar la línea.
+    const current = await lockTableOrder(tx, tableOrderId);
+    if (current.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
+    if (current.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
     if (data.productId) {
       const product = await tx.product.findUnique({ where: { id: data.productId } });
       if (!product || product.vendorId !== vendor.id) throw new AppError("Producto no encontrado.", 404);
@@ -503,19 +595,19 @@ export async function addTableOrderItem(req, res) {
           data: { stock: { decrement: data.quantity } },
         });
         if (result.count === 0) {
-          throw new AppError(`Stock insuficiente para "${product.name}" — disponible ${product.stock}.`, 409);
+          throw new AppError(`Stock insuficiente para "${product.name}": disponible ${product.stock}.`, 409);
         }
       }
       // Bloque 190: "PREPARING" y no el default "RECEIVED" — el mesero ya
       // decidió sumar esto a la cuenta, no hace falta un paso de "revisar"
       // que él mismo se saltearía igual (mismo criterio que
       // createManualTableOrder, que arranca la cuenta entera en PREPARING).
-      newItem = makeOrderItem({ productId: product.id, name: product.name, price: Number(product.price), quantity: data.quantity, source: "staff", addedByName, status: "PREPARING" });
+      newItem = makeOrderItem({ productId: product.id, name: product.name, price: Number(product.price), quantity: data.quantity, source: "staff", addedByName, status: "PREPARING", stockTaken: true });
     } else {
       newItem = makeOrderItem({ name: data.name, price: data.price, quantity: data.quantity, source: "staff", addedByName, status: "PREPARING" });
     }
 
-    const nextItems = [...tableOrder.items, newItem];
+    const nextItems = [...current.items, newItem];
     const nextTotal = nextItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
     return tx.tableOrder.update({ where: { id: tableOrderId }, data: { items: nextItems, total: nextTotal } });
   });
@@ -548,10 +640,10 @@ function findEditableItem(tableOrder, itemId) {
   if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
   if (tableOrder.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
   if (tableOrder.kitchenStatus === "RECEIVED") {
-    throw new AppError('Este pedido todavía no fue aceptado — usa "Modificar" para cambiarlo antes de aceptarlo.', 400);
+    throw new AppError('Este pedido todavía no fue aceptado. Usa "Modificar" para cambiarlo antes de aceptarlo.', 400);
   }
   const index = tableOrder.items.findIndex((i) => i.id === itemId);
-  if (index === -1) throw new AppError("Ese producto ya no está en la cuenta — puede que ya lo hayan quitado.", 404);
+  if (index === -1) throw new AppError("Ese producto ya no está en la cuenta Puede que ya lo hayan quitado.", 404);
   return index;
 }
 
@@ -561,14 +653,18 @@ export async function removeTableOrderItem(req, res) {
 
   const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
   if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
-  const index = findEditableItem(tableOrder, itemId);
-  const item = tableOrder.items[index];
 
-  if (tableOrder.items.length === 1) {
-    throw new AppError("No puedes dejar la cuenta sin productos — si es el único, cancela o gestiona el pedido completo.", 400);
-  }
-
+  let item;
   const updated = await prisma.$transaction(async (tx) => {
+    // Bajo bloqueo (ver lockTableOrder): la línea y el resto de la cuenta se
+    // leen tal como están ahora, no como estaban antes de esperar el turno.
+    const current = await lockTableOrder(tx, tableOrderId);
+    const index = findEditableItem(current, itemId);
+    item = current.items[index];
+    if (current.items.length === 1) {
+      throw new AppError("No puedes dejar la cuenta sin productos. Si es el único, cancela o gestiona el pedido completo.", 400);
+    }
+
     // El stock de este item ya se descontó (la cuenta está aceptada, ver
     // findEditableItem) — quitarlo lo devuelve. unlimitedStock se vuelve a
     // chequear en el momento (no en el item viejo) por si cambió desde
@@ -579,7 +675,7 @@ export async function removeTableOrderItem(req, res) {
         await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
       }
     }
-    const nextItems = tableOrder.items.filter((i) => i.id !== itemId);
+    const nextItems = current.items.filter((i) => i.id !== itemId);
     const nextTotal = nextItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
     return tx.tableOrder.update({ where: { id: tableOrderId }, data: { items: nextItems, total: nextTotal } });
   });
@@ -605,11 +701,18 @@ export async function updateTableOrderItemQuantity(req, res) {
 
   const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
   if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
-  const index = findEditableItem(tableOrder, itemId);
-  const item = tableOrder.items[index];
-  const delta = quantity - item.quantity;
 
+  let item;
   const updated = await prisma.$transaction(async (tx) => {
+    // Bajo bloqueo (ver lockTableOrder): la diferencia de stock se calcula
+    // con la cantidad que tiene la línea ahora, no la de antes de esperar.
+    const current = await lockTableOrder(tx, tableOrderId);
+    const index = findEditableItem(current, itemId);
+    item = current.items[index];
+    const delta = quantity - item.quantity;
+    // Subir la cantidad es sumar consumo (ver assertTablesPlan); bajarla se
+    // permite siempre, para poder ajustar una cuenta antes de cerrarla.
+    if (delta > 0) await assertTablesPlan(vendor);
     if (delta !== 0 && item.productId) {
       const product = await tx.product.findUnique({ where: { id: item.productId } });
       if (product && !product.unlimitedStock) {
@@ -621,14 +724,14 @@ export async function updateTableOrderItemQuantity(req, res) {
             data: { stock: { decrement: delta } },
           });
           if (result.count === 0) {
-            throw new AppError(`Stock insuficiente para "${item.name}" — disponible ${product.stock}.`, 409);
+            throw new AppError(`Stock insuficiente para "${item.name}": disponible ${product.stock}.`, 409);
           }
         } else {
           await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: -delta } } });
         }
       }
     }
-    const nextItems = [...tableOrder.items];
+    const nextItems = [...current.items];
     nextItems[index] = { ...item, quantity };
     const nextTotal = nextItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
     return tx.tableOrder.update({ where: { id: tableOrderId }, data: { items: nextItems, total: nextTotal } });
@@ -666,17 +769,23 @@ export async function updateTableOrderItemStatus(req, res) {
 
   const tableOrder = await prisma.tableOrder.findUnique({ where: { id: tableOrderId }, include: { table: true } });
   if (!tableOrder || tableOrder.table.vendorId !== vendor.id) throw new AppError("Pedido de mesa no encontrado.", 404);
-  const index = findEditableItem(tableOrder, itemId);
-  const item = tableOrder.items[index];
-  const currentStatus = item.status ?? "RECEIVED";
 
-  if (!KITCHEN_TRANSITIONS[currentStatus].includes(status)) {
-    throw new AppError(`No se puede pasar "${item.name}" de "${ITEM_STATUS_LABEL[currentStatus]}" a "${ITEM_STATUS_LABEL[status]}".`, 400);
-  }
-
-  const nextItems = [...tableOrder.items];
-  nextItems[index] = { ...item, status };
-  const updated = await prisma.tableOrder.update({ where: { id: tableOrderId }, data: { items: nextItems } });
+  let item;
+  let currentStatus;
+  const updated = await prisma.$transaction(async (tx) => {
+    // Bajo bloqueo (ver lockTableOrder): cambiar el estado de una línea
+    // reescribe la lista entera, y sin esto borraba una ronda recién sumada.
+    const current = await lockTableOrder(tx, tableOrderId);
+    const index = findEditableItem(current, itemId);
+    item = current.items[index];
+    currentStatus = item.status ?? "RECEIVED";
+    if (!KITCHEN_TRANSITIONS[currentStatus].includes(status)) {
+      throw new AppError(`No se puede pasar "${item.name}" de "${ITEM_STATUS_LABEL[currentStatus]}" a "${ITEM_STATUS_LABEL[status]}".`, 400);
+    }
+    const nextItems = [...current.items];
+    nextItems[index] = { ...item, status };
+    return tx.tableOrder.update({ where: { id: tableOrderId }, data: { items: nextItems } });
+  });
 
   logActivity({
     actorId: req.user.id,
@@ -711,7 +820,7 @@ const manualItemSchema = z
     quantity: z.number().int().positive(),
   })
   .refine((d) => !!d.productId !== !!(d.name && d.price != null), {
-    message: "Elige un producto del catálogo O escribe un nombre y precio — no ambos ni ninguno.",
+    message: "Elige un producto del catálogo O escribe un nombre y precio, no las dos cosas ni ninguna.",
   });
 const createManualTableOrderSchema = z.object({
   items: z.array(manualItemSchema).min(1, "Agrega al menos un producto."),
@@ -724,12 +833,8 @@ export async function createManualTableOrder(req, res) {
   const data = createManualTableOrderSchema.parse(req.body);
 
   const table = await prisma.table.findUnique({ where: { id } });
-  if (!table || table.vendorId !== vendor.id) throw new AppError("Mesa no encontrada.", 404);
-
-  const existingOrder = await prisma.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null } });
-  if (existingOrder) {
-    throw new AppError("Esta mesa ya tiene una cuenta abierta — usá \"Agregar consumo\" para sumarle productos.", 409);
-  }
+  if (!table || table.vendorId !== vendor.id || table.deletedAt) throw new AppError("Mesa no encontrada.", 404);
+  await assertTablesPlan(vendor);
 
   const productIds = data.items.filter((i) => i.productId).map((i) => i.productId);
   const products = productIds.length
@@ -740,6 +845,15 @@ export async function createManualTableOrder(req, res) {
   const addedByName = await resolveActorFullName(req.user.id);
 
   const tableOrder = await prisma.$transaction(async (tx) => {
+    // Con la mesa bloqueada (ver lockTable): si el cliente pide por el QR a
+    // la vez, no quedan dos cuentas abiertas en la misma mesa.
+    const fresh = await lockTable(tx, table.id);
+    if (!fresh || fresh.deletedAt) throw new AppError("Mesa no encontrada.", 404);
+    const existingOrder = await tx.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null } });
+    if (existingOrder) {
+      throw new AppError("Esta mesa ya tiene una cuenta abierta. Usa \"Agregar consumo\" para sumarle productos.", 409);
+    }
+
     const orderItems = [];
     for (const item of data.items) {
       if (item.productId) {
@@ -749,12 +863,12 @@ export async function createManualTableOrder(req, res) {
             where: { id: product.id, stock: { gte: item.quantity } },
             data: { stock: { decrement: item.quantity } },
           });
-          if (result.count === 0) throw new AppError(`Stock insuficiente para "${product.name}" — disponible ${product.stock}.`, 409);
+          if (result.count === 0) throw new AppError(`Stock insuficiente para "${product.name}": disponible ${product.stock}.`, 409);
         }
         // Bloque 190: la cuenta entera arranca en PREPARING (ver más abajo,
         // kitchenStatus: "PREPARING") — cada item nace en ese mismo estado,
         // nunca en "Revisando".
-        orderItems.push(makeOrderItem({ productId: product.id, name: product.name, price: Number(product.price), quantity: item.quantity, source: "staff", addedByName, status: "PREPARING" }));
+        orderItems.push(makeOrderItem({ productId: product.id, name: product.name, price: Number(product.price), quantity: item.quantity, source: "staff", addedByName, status: "PREPARING", stockTaken: true }));
       } else {
         orderItems.push(makeOrderItem({ name: item.name, price: item.price, quantity: item.quantity, source: "staff", addedByName, status: "PREPARING" }));
       }
@@ -791,10 +905,13 @@ export async function createTable(req, res) {
   await assertPlanAllows(vendor, "allowQrTables", "Tu plan actual no incluye mesas con QR.");
   const maxTables = await getPlanLimit(vendor, "maxTables");
   if (maxTables !== null) {
-    const currentCount = await prisma.table.count({ where: { vendorId: vendor.id } });
+    // Una mesa eliminada que se guarda por su historial (deletedAt) ya no ocupa lugar.
+    const currentCount = await prisma.table.count({ where: { vendorId: vendor.id, deletedAt: null } });
     if (currentCount >= maxTables) throw new AppError(`Tu plan permite hasta ${maxTables} mesa(s).`, 403);
   }
 
+  // Aquí sí cuentan las eliminadas: su número sigue reservado (único por
+  // tienda) para que el historial de "Mesa #N" no se mezcle con otra mesa.
   const last = await prisma.table.findFirst({ where: { vendorId: vendor.id }, orderBy: { tableNumber: "desc" } });
   const tableNumber = (last?.tableNumber ?? 0) + 1;
 
@@ -822,7 +939,7 @@ export async function updateTable(req, res) {
   const { label } = updateTableSchema.parse(req.body);
 
   const table = await prisma.table.findUnique({ where: { id } });
-  if (!table || table.vendorId !== vendor.id) throw new AppError("Mesa no encontrada.", 404);
+  if (!table || table.vendorId !== vendor.id || table.deletedAt) throw new AppError("Mesa no encontrada.", 404);
 
   const updated = await prisma.table.update({ where: { id }, data: { label: label?.trim() || null } });
   res.json({ table: updated });
@@ -843,7 +960,7 @@ export async function regenerateTableQr(req, res) {
   const { id } = req.params;
 
   const table = await prisma.table.findUnique({ where: { id } });
-  if (!table || table.vendorId !== vendor.id) throw new AppError("Mesa no encontrada.", 404);
+  if (!table || table.vendorId !== vendor.id || table.deletedAt) throw new AppError("Mesa no encontrada.", 404);
 
   // El `@default(cuid())` de schema.prisma solo aplica en el INSERT
   // inicial — un `update` normal no lo vuelve a disparar, así que el
@@ -869,16 +986,34 @@ export async function deleteTable(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
 
-  const table = await prisma.table.findUnique({
-    where: { id },
-    include: { tableOrders: { where: { clearedAt: null } } },
-  });
-  if (!table || table.vendorId !== vendor.id) throw new AppError("Mesa no encontrada.", 404);
-  if (table.tableOrders.length > 0) {
-    throw new AppError("Esta mesa tiene un pedido sin liberar todavía. Márcalo como pagado/liberado antes de eliminarla.", 409);
-  }
+  const table = await prisma.table.findUnique({ where: { id } });
+  if (!table || table.vendorId !== vendor.id || table.deletedAt) throw new AppError("Mesa no encontrada.", 404);
 
-  await prisma.table.delete({ where: { id } });
+  // Bloque 167 ("los movimientos deben quedar registrados"): TableOrder →
+  // Table es onDelete: Cascade, así que borrar la fila borraba también las
+  // cuentas ya cobradas y las canceladas de esa mesa. Ahora una mesa con
+  // cuentas se oculta (deletedAt) y su QR cambia por uno que nadie tiene, así
+  // el impreso deja de servir; solo una mesa que nunca tuvo cuentas se borra
+  // de verdad.
+  await prisma.$transaction(async (tx) => {
+    const fresh = await lockTable(tx, id);
+    if (!fresh || fresh.deletedAt) throw new AppError("Mesa no encontrada.", 404);
+    // Lo que bloquea es una cuenta abierta: ni cobrada ni cancelada. Antes
+    // un pedido cancelado (que nunca llega a cobrarse) impedía eliminar la
+    // mesa para siempre.
+    const openCount = await tx.tableOrder.count({ where: { tableId: id, clearedAt: null, cancelledAt: null } });
+    if (openCount > 0) {
+      throw new AppError("Esta mesa tiene un pedido sin liberar todavía. Márcalo como pagado/liberado antes de eliminarla.", 409);
+    }
+    const historyCount = await tx.tableOrder.count({ where: { tableId: id } });
+    if (historyCount === 0) {
+      await tx.table.delete({ where: { id } });
+      return;
+    }
+    // Las restricciones "solo en estas mesas" de los productos se sueltan,
+    // igual que pasaba al borrar la fila.
+    await tx.table.update({ where: { id }, data: { deletedAt: new Date(), qrToken: randomUUID(), restrictedProducts: { set: [] } } });
+  });
   logActivity({
     actorId: req.user.id,
     actorRole: actorRoleForVendorAction(req),
@@ -914,7 +1049,7 @@ export async function updateKitchenStatus(req, res) {
   // está en PREPARING) queda afuera a propósito — esa se avanza aparte,
   // con updateTableOrderItemStatus, sin que este botón la toque de rebote.
   const oldStatus = tableOrder.kitchenStatus;
-  const cascadedItems = tableOrder.items.map((item) => ((item.status ?? oldStatus) === oldStatus ? { ...item, status } : item));
+  const accepting = oldStatus === "RECEIVED" && status === "PREPARING";
 
   // Bloque 185 (pedido explícito — "todo será en tiempo real hasta si el
   // usuario acepta un pedido se debe cerrar en tiempo real para no cometer
@@ -936,12 +1071,22 @@ export async function updateKitchenStatus(req, res) {
     // este pedido está de verdad en su estado actual. `staleReminderSnoozedUntil`
     // se limpia porque el estado real acaba de cambiar — cualquier "posponer"
     // anterior ya no aplica a este estado nuevo.
+    // Las líneas se arrastran desde la cuenta releída bajo bloqueo (ver
+    // lockTableOrder), no desde la lectura de arriba: si no, una ronda que el
+    // cliente, el mesero o la caja sumaron justo antes se perdía al guardar.
+    const current = await lockTableOrder(tx, tableOrderId);
+    if (current.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
+    if (current.clearedAt) throw new AppError("Esta cuenta ya se cobró y cerró.", 400);
+    const cascaded = current.items.map((item) => ((item.status ?? oldStatus) === oldStatus ? { ...item, status } : item));
+    // Al aceptar, todas las líneas quedan con el stock descontado (ver el
+    // descuento más abajo, que salta las que ya lo estaban).
+    const cascadedItems = accepting ? markAllStockTaken(cascaded) : cascaded;
     const claimed = await tx.tableOrder.updateMany({
-      where: { id: tableOrderId, kitchenStatus: tableOrder.kitchenStatus },
+      where: { id: tableOrderId, kitchenStatus: oldStatus },
       data: { kitchenStatus: status, items: cascadedItems, statusChangedAt: new Date(), staleReminderSnoozedUntil: null },
     });
     if (claimed.count === 0) {
-      throw new AppError("Este pedido ya fue actualizado por otro usuario — recarga para ver el estado actual.", 409);
+      throw new AppError("Este pedido ya fue actualizado por otro usuario Recarga para ver el estado actual.", 409);
     }
 
     // Bloque 29: RECEIVED -> PREPARING es el momento en que la cocina
@@ -951,20 +1096,23 @@ export async function updateKitchenStatus(req, res) {
     // la transición de arriba — si esto falla por falta de stock, la
     // transacción entera se revierte, incluida la reclamación (el pedido
     // vuelve a quedar en RECEIVED, sin ningún efecto secundario a medias).
-    if (tableOrder.kitchenStatus === "RECEIVED" && status === "PREPARING") {
-      const tableProductIds = [...new Set(tableOrder.items.map((i) => i.productId).filter(Boolean))];
+    if (accepting) {
+      const tableProductIds = [...new Set(current.items.map((i) => i.productId).filter(Boolean))];
       const tableProducts = await tx.product.findMany({ where: { id: { in: tableProductIds } }, select: { id: true, unlimitedStock: true } });
       const isUnlimited = new Map(tableProducts.map((p) => [p.id, p.unlimitedStock]));
 
-      for (const item of tableOrder.items) {
+      for (const item of current.items) {
         if (!item.productId || isUnlimited.get(item.productId)) continue; // Bloque 56: "disponible siempre" — sin seguimiento de stock.
+        // Lo que el mesero ("Agregar consumo") o la caja sumaron con la cuenta
+        // todavía en Recibido ya se descontó al agregarlo: no se descuenta dos veces.
+        if (lineStockTaken(item, current)) continue;
         const result = await tx.product.updateMany({
           where: { id: item.productId, stock: { gte: item.quantity } },
           data: { stock: { decrement: item.quantity } },
         });
         if (result.count === 0) {
           const fresh = await tx.product.findUnique({ where: { id: item.productId } });
-          throw new AppError(`Stock insuficiente para "${item.name}" — pedido ${item.quantity}, disponible ${fresh?.stock ?? 0}.`, 409, {
+          throw new AppError(`Stock insuficiente para "${item.name}": pedido ${item.quantity}, disponible ${fresh?.stock ?? 0}.`, 409, {
             insufficientStock: [{ productId: item.productId, name: item.name, requested: item.quantity, available: fresh?.stock ?? 0 }],
           });
         }
@@ -1066,14 +1214,19 @@ export async function clearTableOrder(req, res) {
     throw new AppError("Primero marca el pedido como entregado.", 400);
   }
   if (tableOrder.clearedAt) throw new AppError("Esta mesa ya fue liberada.", 409);
+  if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
 
-  const updated = await prisma.tableOrder.update({ where: { id: tableOrderId }, data: { clearedAt: new Date() } });
+  // Con condición, como cancelTableOrder: si se cancela o se cobra en otro
+  // dispositivo al mismo tiempo, la cuenta no queda cancelada y cobrada a la vez.
+  const claimed = await prisma.tableOrder.updateMany({ where: { id: tableOrderId, clearedAt: null, cancelledAt: null }, data: { clearedAt: new Date() } });
+  if (claimed.count === 0) throw new AppError("Esta cuenta cambió en otro dispositivo. Recarga para ver cómo quedó.", 409);
+  const updated = await prisma.tableOrder.findUnique({ where: { id: tableOrderId } });
   logActivity({
     actorId: req.user.id,
     actorRole: actorRoleForVendorAction(req),
     vendorId: vendor.id,
     action: "table_order_cleared",
-    description: `Cobró y liberó la mesa #${tableOrder.table.tableNumber} — pedido #${tableOrder.orderNumber}`,
+    description: `Cobró y liberó la mesa #${tableOrder.table.tableNumber}: pedido #${tableOrder.orderNumber}`,
     meta: { tableOrderId, tableId: tableOrder.tableId },
   });
   res.json({ tableOrder: updated });
@@ -1118,6 +1271,11 @@ export async function getTableByToken(req, res) {
           color: true,
           isBlocked: true,
           status: true,
+          // Solo para calcular acceptsOrders (más abajo); no salen en la respuesta.
+          isRestaurant: true,
+          planType: true,
+          nextPaymentDueDate: true,
+          billingNoticeStage: true,
           // Bloque 16: solo los productos que el vendedor marcó para el menú
           // QR (VendorProducts.jsx) — antes se mostraban TODOS los activos,
           // sin distinguir de la tienda normal.
@@ -1127,11 +1285,7 @@ export async function getTableByToken(req, res) {
           // ESTA mesa (por qrToken, ya lo tenemos de req.params, sin
           // necesitar el id todavía) está en la lista.
           products: {
-            where: {
-              isActive: true,
-              availableForTableMenu: true,
-              OR: [{ tableRestricted: false }, { restrictedTables: { some: { qrToken } } }],
-            },
+            where: tableMenuProductWhere(qrToken),
             include: { options: true },
             orderBy: { createdAt: "asc" },
           },
@@ -1143,7 +1297,17 @@ export async function getTableByToken(req, res) {
   // chequeó isBlocked/status del vendedor, a diferencia de cualquier otro
   // punto público (Store.jsx, Product.jsx, etc). Una tienda bloqueada o
   // suspendida seguía siendo 100% accesible vía su QR.
-  if (!table || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
+  if (!table || table.deletedAt || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
+
+  // Si la mesa recibe pedidos por el QR ahora: las mismas reglas que
+  // createTableOrder (tienda restaurante, mesas con QR en el plan y cobro al
+  // día). Antes el cliente armaba el pedido, escribía su nombre y recién al
+  // enviarlo recibía el error; con esto la página muestra el menú sin carrito
+  // y le pide que llame al personal. El horario no entra aquí: ya lo resuelve
+  // la página con el estado de apertura de la tienda.
+  const { isRestaurant, planType, nextPaymentDueDate, billingNoticeStage, ...publicVendor } = table.vendor;
+  const acceptsOrders =
+    !!isRestaurant && (await planAllows(planType, "allowQrTables")) && !(await isBillingOverdue({ planType, nextPaymentDueDate, billingNoticeStage }));
 
   // Bloque 172 (pedido explícito — "todos los que escaneen el QR de la mesa
   // podrán ver la cuenta de la mesa en tiempo real mientras están en la
@@ -1186,6 +1350,8 @@ export async function getTableByToken(req, res) {
   res.json({
     table: {
       ...table,
+      vendor: publicVendor,
+      acceptsOrders,
       activeOrder: hideStaffNamesFromCustomer(activeOrder),
       lastCancelledOrder: hideStaffNamesFromCustomer(lastCancelledOrder),
     },
@@ -1216,14 +1382,18 @@ export async function createTableOrder(req, res) {
     where: { qrToken },
     include: {
       vendor: {
-        select: { id: true, companyName: true, isBlocked: true, status: true, schedules: true, timezone: true, planType: true, nextPaymentDueDate: true, billingNoticeStage: true },
+        select: { id: true, companyName: true, isBlocked: true, status: true, schedules: true, timezone: true, isRestaurant: true, planType: true, nextPaymentDueDate: true, billingNoticeStage: true },
       },
     },
   });
   // Bloque 62: mismo hueco que getTableByToken — sin esto, se podía seguir
   // haciendo pedidos reales a una tienda bloqueada o suspendida vía el QR.
-  if (!table || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
-  if (!(await planAllows(table.vendor.planType, "allowQrTables"))) throw new AppError("Esta tienda no recibe pedidos por mesa en este momento. Pide al personal.", 409);
+  if (!table || table.deletedAt || table.vendor.isBlocked || table.vendor.status !== "ACTIVE") throw new AppError("Mesa no encontrada.", 404);
+  // Mismas reglas que acceptsOrders en getTableByToken: una tienda que dejó de
+  // ser restaurante tampoco recibe pedidos por las mesas que le quedaron.
+  if (!table.vendor.isRestaurant || !(await planAllows(table.vendor.planType, "allowQrTables"))) {
+    throw new AppError("Esta tienda no recibe pedidos por mesa en este momento. Pide al personal.", 409);
+  }
   await assertVendorAcceptsOrders(table.vendor);
 
   // Bloque 169 (pedido explícito — "si la tienda está cerrada... no se
@@ -1238,7 +1408,7 @@ export async function createTableOrder(req, res) {
   const { isOpen, nextOpenLabel } = isVendorOpenNow(table.vendor.schedules, table.vendor.timezone);
   if (isOpen === false) {
     throw new AppError(
-      nextOpenLabel ? `Este local está cerrado ahora — ${nextOpenLabel.toLowerCase()}.` : "Este local está cerrado ahora — prueba más tarde.",
+      nextOpenLabel ? `Este local está cerrado ahora. ${nextOpenLabel.charAt(0).toUpperCase()}${nextOpenLabel.slice(1)}.` : "Este local está cerrado ahora. Prueba más tarde.",
       409
     );
   }
@@ -1253,13 +1423,11 @@ export async function createTableOrder(req, res) {
   // vez. Una vez aceptada (PREPARING en adelante, sin importar si ya se
   // entregó o no), un pedido nuevo ya NO crea una cuenta aparte: se SUMA a
   // la misma (ver más abajo), como una ronda más de consumo.
-  const existingOrder = await prisma.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null } });
-  if (existingOrder && existingOrder.kitchenStatus === "RECEIVED") {
-    throw new AppError(
-      "Esta mesa ya tiene un pedido esperando a que el mesero lo confirme — espera un momento y prueba de nuevo.",
-      409
-    );
-  }
+  // Esta lectura solo sirve para cortar rápido; la que decide se repite
+  // dentro de la transacción, con la mesa bloqueada.
+  const pendingMessage = "Esta mesa ya tiene un pedido esperando a que el mesero lo confirme. Espera un momento y prueba de nuevo.";
+  const existingOrder = await prisma.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null }, select: { kitchenStatus: true } });
+  if (existingOrder?.kitchenStatus === "RECEIVED") throw new AppError(pendingMessage, 409);
 
   const { items, customerName, customerEmail } = createTableOrderSchema.parse(req.body);
 
@@ -1271,32 +1439,45 @@ export async function createTableOrder(req, res) {
   // aplica getTableByToken para decidir qué se MUESTRA en el menú de esta
   // mesa — acá se vuelven a exigir para decidir qué se ACEPTA en el pedido.
   const products = await prisma.product.findMany({
-    where: {
-      id: { in: items.map((i) => i.productId) },
-      vendorId: table.vendorId,
-      isActive: true,
-      availableForTableMenu: true,
-      OR: [{ tableRestricted: false }, { restrictedTables: { some: { qrToken } } }],
-    },
+    where: { id: { in: items.map((i) => i.productId) }, vendorId: table.vendorId, ...tableMenuProductWhere(qrToken) },
   });
   if (products.length !== items.length) throw new AppError("Uno o más productos ya no están disponibles en este menú.", 400);
 
   const productById = Object.fromEntries(products.map((p) => [p.id, p]));
 
-  const orderItems = items.map((i) =>
-    makeOrderItem({ productId: i.productId, name: productById[i.productId].name, price: Number(productById[i.productId].price), quantity: i.quantity, source: "customer" })
-  );
+  // Con la mesa bloqueada (ver lockTable) se decide si esto abre la cuenta o
+  // se suma a la abierta: antes dos personas que pedían a la vez en una mesa
+  // libre abrían dos cuentas. La cuenta abierta se relee bloqueada (ver
+  // lockTableOrder) antes de sumarle la ronda, para no pisar lo que el
+  // mesero o la caja le agregaron en el mismo momento.
+  const { tableOrder, opened } = await prisma.$transaction(async (tx) => {
+    const fresh = await lockTable(tx, table.id);
+    // Si mientras tanto la eliminaron o le regeneraron el QR, este QR ya no vale.
+    if (!fresh || fresh.deletedAt || fresh.qrToken !== qrToken) throw new AppError("Mesa no encontrada.", 404);
+    const openRef = await tx.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null }, select: { id: true } });
+    let open = openRef ? await lockTableOrder(tx, openRef.id) : null;
+    // Cancelar o cobrar bloquean solo la cuenta, no la mesa: si eso pasó
+    // mientras se esperaba el bloqueo, la cuenta releída ya está cerrada y
+    // sumarle la ronda la escondía (con su stock descontado y sin nadie que
+    // la viera). Se trata como mesa libre y se abre una cuenta nueva, que es
+    // seguro porque la mesa sigue bloqueada.
+    if (open && (open.cancelledAt || open.clearedAt)) open = null;
+    if (open?.kitchenStatus === "RECEIVED") throw new AppError(pendingMessage, 409);
 
-  let tableOrder;
-  if (existingOrder) {
-    // Bloque 172: la cuenta ya fue aceptada — esto es una ronda más de
-    // consumo, no un pedido nuevo. Mismo criterio ATÓMICO que
-    // addTableOrderItem (descuenta stock real de una, nunca de más aunque
-    // varias personas de la misma mesa agreguen algo casi al mismo tiempo)
-    // en vez del chequeo solo informativo de abajo, que acá no alcanza —
-    // el stock de estos items SÍ se descuenta ahora mismo, no en un futuro
-    // paso de "aceptar" que ya pasó.
-    tableOrder = await prisma.$transaction(async (tx) => {
+    // Una ronda sobre una cuenta ya aceptada descuenta el stock aquí mismo (ver
+    // más abajo); un pedido que abre la cuenta lo descuenta al aceptarlo.
+    const orderItems = items.map((i) =>
+      makeOrderItem({ productId: i.productId, name: productById[i.productId].name, price: Number(productById[i.productId].price), quantity: i.quantity, source: "customer", stockTaken: !!open })
+    );
+
+    if (open) {
+      // Bloque 172: la cuenta ya fue aceptada — esto es una ronda más de
+      // consumo, no un pedido nuevo. Mismo criterio ATÓMICO que
+      // addTableOrderItem (descuenta stock real de una, nunca de más aunque
+      // varias personas de la misma mesa agreguen algo casi al mismo tiempo)
+      // en vez del chequeo solo informativo de abajo, que acá no alcanza —
+      // el stock de estos items SÍ se descuenta ahora mismo, no en un futuro
+      // paso de "aceptar" que ya pasó.
       for (const item of orderItems) {
         if (productById[item.productId].unlimitedStock) continue;
         const result = await tx.product.updateMany({
@@ -1304,10 +1485,10 @@ export async function createTableOrder(req, res) {
           data: { stock: { decrement: item.quantity } },
         });
         if (result.count === 0) {
-          throw new AppError(`Stock insuficiente para "${item.name}" — disponible ${productById[item.productId].stock}.`, 409);
+          throw new AppError(`Stock insuficiente para "${item.name}": disponible ${productById[item.productId].stock}.`, 409);
         }
       }
-      const mergedItems = [...existingOrder.items, ...orderItems];
+      const mergedItems = [...open.items, ...orderItems];
       const mergedTotal = mergedItems.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
       // Bloque 177 (bug real reportado en vivo — "agregó productos a su
       // cuenta pero eso no se notificó en el panel del vendedor... debe
@@ -1317,16 +1498,17 @@ export async function createTableOrder(req, res) {
       // nunca la veía — customerUpdatedAt es la señal aparte que la hace
       // aparecer en el popup/sonido de "pedido nuevo" igual, sin reabrir el
       // paso de aceptar.
-      return tx.tableOrder.update({
-        where: { id: existingOrder.id },
+      const merged = await tx.tableOrder.update({
+        where: { id: open.id },
         // Bloque 178: `orderItems.length` es cuántos items van al FINAL del
         // array — el frontend resalta `items.slice(-lastCustomerAddCount)`
         // para marcar exactamente esta ronda, sin ambigüedad con lo que ya
         // estaba en la cuenta antes.
         data: { items: mergedItems, total: mergedTotal, customerUpdatedAt: new Date(), lastCustomerAddCount: orderItems.length },
       });
-    });
-  } else {
+      return { tableOrder: merged, opened: false };
+    }
+
     // Bloque 29: chequeo informativo — igual que createOrder, NO reserva ni
     // descuenta nada (eso pasa recién cuando la cocina acepta el pedido, ver
     // updateKitchenStatus). Solo evita registrar un pedido de mesa obviamente
@@ -1344,15 +1526,19 @@ export async function createTableOrder(req, res) {
     if (!customerName?.trim()) throw new AppError("Ingresa tu nombre para identificar el pedido.", 400);
 
     const total = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    tableOrder = await prisma.tableOrder.create({
+    const created = await tx.tableOrder.create({
       data: { tableId: table.id, items: orderItems, total, kitchenStatus: "RECEIVED", customerName: customerName.trim(), customerEmail: customerEmail || null },
     });
+    return { tableOrder: created, opened: true };
+  });
 
-    // Confirmación al cliente — best-effort, nunca bloquea ni revierte el
-    // pedido si el email falla (mismo criterio que sendOrderConfirmationEmail).
-    // customerEmail ahora es opcional (Bloque 141) — sendTableOrderStatusEmail
-    // ya no hace nada si `to` viene vacío/undefined. Solo tiene sentido en la
-    // creación (una "ronda más" no reinicia el ciclo de avisos de estado).
+  // Confirmación al cliente — best-effort, nunca bloquea ni revierte el
+  // pedido si el email falla (mismo criterio que sendOrderConfirmationEmail).
+  // customerEmail ahora es opcional (Bloque 141) — sendTableOrderStatusEmail
+  // ya no hace nada si `to` viene vacío/undefined. Solo tiene sentido en la
+  // creación (una "ronda más" no reinicia el ciclo de avisos de estado). Va
+  // fuera de la transacción para no tener la mesa bloqueada mientras sale.
+  if (opened) {
     await sendTableOrderStatusEmail({
       to: customerEmail || null,
       vendorId: table.vendor.id,
@@ -1416,6 +1602,10 @@ export async function updateTableOrderItems(req, res) {
   if (tableOrder.kitchenStatus !== "RECEIVED") {
     throw new AppError("Solo se puede modificar un pedido todavía sin aceptar (Recibido).", 400);
   }
+  if (tableOrder.cancelledAt) throw new AppError("Este pedido está cancelado.", 400);
+  // Rearmar el pedido es como armarlo (ver assertTablesPlan); sin el plan, el
+  // pedido que quedó pendiente se puede aceptar o cancelar igual.
+  await assertTablesPlan(vendor);
 
   const uniqueProductIds = [...new Set(items.map((i) => i.productId))];
   const products = await prisma.product.findMany({ where: { id: { in: uniqueProductIds }, vendorId: vendor.id } });
@@ -1437,7 +1627,31 @@ export async function updateTableOrderItems(req, res) {
   );
   const total = orderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-  const updated = await prisma.tableOrder.update({ where: { id: tableOrderId }, data: { items: orderItems, total } });
+  // La lista nueva reemplaza a TODAS las líneas, también a las que el mesero o
+  // la caja sumaron con la cuenta en Recibido, que ya tenían el stock
+  // descontado (ver lineStockTaken). Se devuelve ese stock y las líneas nuevas
+  // quedan sin descontar, como cualquier pedido en Recibido: al aceptarlo se
+  // descuenta todo una sola vez. Sin esto, ese stock se perdía al modificar.
+  const restockItems = tableOrder.items.filter((i) => i.productId && lineStockTaken(i, tableOrder));
+  const updated = await prisma.$transaction(async (tx) => {
+    // Se reemplaza solo si la cuenta sigue en Recibido y nadie la tocó desde
+    // que se leyó: si alguien la aceptó o le sumó algo en el medio, el stock
+    // devuelto aquí ya no correspondería.
+    const claimed = await tx.tableOrder.updateMany({
+      where: { id: tableOrderId, kitchenStatus: "RECEIVED", updatedAt: tableOrder.updatedAt, cancelledAt: null, clearedAt: null },
+      data: { items: orderItems, total },
+    });
+    if (claimed.count === 0) throw new AppError("Este pedido cambió mientras lo editabas. Recarga y vuelve a intentarlo.", 409);
+    if (restockItems.length > 0) {
+      const restockProducts = await tx.product.findMany({ where: { id: { in: [...new Set(restockItems.map((i) => i.productId))] } }, select: { id: true, unlimitedStock: true } });
+      const isUnlimited = new Map(restockProducts.map((p) => [p.id, p.unlimitedStock]));
+      for (const item of restockItems) {
+        if (!isUnlimited.has(item.productId) || isUnlimited.get(item.productId)) continue; // borrado después, o "disponible siempre".
+        await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
+      }
+    }
+    return tx.tableOrder.findUnique({ where: { id: tableOrderId } });
+  });
 
   logActivity({
     actorId: req.user.id,

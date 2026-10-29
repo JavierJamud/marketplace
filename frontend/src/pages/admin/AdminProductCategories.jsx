@@ -25,8 +25,9 @@ function CategoryForm({ category, parents, onClose }) {
       const body = { name: name.trim(), parentId: parentId || null };
       return editing ? (await api.patch(`/admin/product-categories/${category.id}`, body)).data : (await api.post("/admin/product-categories", body)).data;
     },
-    onSuccess: () => {
-      toast.success(editing ? "Categoría actualizada." : "Categoría creada.");
+    // createCategory devuelve existing: true si ya había una con ese nombre: no se creó otra.
+    onSuccess: (data) => {
+      toast.success(editing ? "Categoría actualizada." : data?.existing ? "Ya existía una categoría con ese nombre." : "Categoría creada.");
       queryClient.invalidateQueries({ queryKey: ["admin-product-categories"] });
       queryClient.invalidateQueries({ queryKey: ["categories"] });
       onClose();
@@ -42,7 +43,7 @@ function CategoryForm({ category, parents, onClose }) {
           e.preventDefault();
           save.mutate();
         }}
-        className="flex w-full max-w-[420px] flex-col gap-4 rounded-t-2xl bg-surface-container-lowest p-5 sm:rounded-2xl"
+        className="modal-panel-5 flex w-full max-w-[420px] flex-col gap-4 rounded-t-2xl bg-surface-container-lowest p-5 sm:rounded-2xl"
       >
         <h2 className="font-display text-[18px] font-extrabold text-on-surface">{editing ? "Editar categoría" : "Agregar categoría"}</h2>
         <Input label="Nombre" required minLength={2} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
@@ -151,7 +152,7 @@ export default function AdminProductCategories({ embedded = false } = {}) {
       {!embedded && (
         <div className="mb-1 flex items-center gap-3">
           <IconCircle icon={Boxes} tone="teal" />
-          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de producto</h1>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Categorías de producto</h1>
         </div>
       )}
       <p className="mb-4 text-[13.5px] text-outline">

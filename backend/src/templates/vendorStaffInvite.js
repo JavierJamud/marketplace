@@ -17,7 +17,7 @@ export async function vendorStaffInviteEmail(user, vendorName) {
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola <strong>${esc(user.fullName)}</strong>, <strong>${esc(vendorName)}</strong> te agregó como usuario de su panel en ${siteName}.`)}
-      ${paragraph(`Para entrar, entra a la página de inicio de sesión de vendedores e ingresa tu correo (<strong>${esc(user.email)}</strong>) — como es tu primera vez, el sistema te va a pedir crear tu propia contraseña con un código que te mandamos a este mismo correo.`)}
+      ${paragraph(`Para entrar, entra a la página de inicio de sesión de vendedores e ingresa tu correo (<strong>${esc(user.email)}</strong>): como es tu primera vez, el sistema te va a pedir crear tu propia contraseña con un código que te mandamos a este mismo correo.`)}
       ${ctaButton("Ir a iniciar sesión", `${env.frontendUrl}/vendedor/ingresar`)}
       ${smallNote("Vas a ver solo las secciones del panel a las que te dieron acceso.")}
     `,

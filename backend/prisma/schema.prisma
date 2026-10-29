@@ -30,14 +30,11 @@ enum Role {
   VENDOR_STAFF
 }
 
-// Planes de las tiendas. Los identificadores se conservan aunque cambie el nombre visible (PlanConfig.displayName):
-// REGULAR = Básico (el gratis), STANDARD = Estándar, BUSINESS = Premium, ENTERPRISE = Empresarial (se contrata por WhatsApp).
-enum PlanType {
-  REGULAR
-  BUSINESS
-  STANDARD
-  ENTERPRISE
-}
+// Planes de las tiendas: ya no hay enum. La clave de un plan es PlanConfig.planType (texto único, A-Z0-9_, hasta 30) y
+// todas las columnas que guardan un plan son texto con clave foránea a PlanConfig.planType (migración
+// 20261129000000_dynamic_plans). Las claves de siempre se conservan aunque cambie el nombre visible (displayName):
+// REGULAR = Básico, STANDARD = Estándar, BUSINESS = Premium, ENTERPRISE = Empresarial. Un plan nuevo recibe una clave
+// generada de su nombre (planKeyFromName en lib/planConfig.js, ej. PLAN_RESTAURANTE) que nunca cambia.
 
 // Preferencia del vendedor sobre sus pedidos. Todo pedido entra SIEMPRE a su panel (/vendedor/pedidos) con aviso en vivo,
 // push y correo; esto solo decide si al cliente, después de enviarlo, se le ofrece además mandárselo por WhatsApp.
@@ -851,6 +848,8 @@ model User {
   // Reset de contraseña por código (nunca en texto plano, expira ~15 min).
   resetCodeHash      String?
   resetCodeExpiresAt DateTime?
+  // Pruebas hechas con el código vigente (tope en auth.controller.js, takeCodeAttempt); vuelve a 0 con cada código nuevo.
+  resetCodeAttempts  Int       @default(0)
 
   // Bloque 60: código de verificación en dos pasos del LOGIN — campos
   // propios, separados de resetCodeHash/resetCodeExpiresAt (un reset de
@@ -867,6 +866,8 @@ model User {
   totpEnabledAt          DateTime?
   totpLastStep           Int?
   twoFactorCodeExpiresAt DateTime?
+  // Igual que resetCodeAttempts, para el código del login enviado por correo (la app autenticadora tiene su propio tope).
+  twoFactorCodeAttempts  Int       @default(0)
 
   // Bloque 71 (pedido explícito): cambiar de correo deja de ser directo —
   // primero hay que probar acceso al correo VIEJO (el que ya está en la
@@ -1051,6 +1052,11 @@ model PendingRegistration {
   address       String?
   codeHash      String
   codeExpiresAt DateTime
+  // Pruebas del código de registro (tope en auth.controller.js); vuelve a 0 al reenviar el formulario.
+  codeAttempts  Int      @default(0)
+  // Registro de tienda con el correo de una cuenta de cliente que ya existe: el código que llega a ese correo prueba que es
+  // suyo, y al verificarlo se usa esa misma cuenta (ver verifyRegistration) en vez de pedirle iniciar sesión.
+  forStore      Boolean  @default(false)
   createdAt     DateTime @default(now())
 }
 
@@ -1063,9 +1069,9 @@ model PendingRegistration {
 // ninguna conexión con lo que el frontend anunciaba como beneficio de cada
 // plan (frontend/src/lib/verificationMeta.js, PlanComparisonModal.jsx — esos
 // quedaban hardcodeados aparte y podían decir cualquier cosa). Una fila por
-// PlanType, leída/escrita entera desde lib/planConfig.js.
+// plan (clave en planType), leída/escrita entera desde lib/planConfig.js.
 //
-// `planType` es el valor interno de SIEMPRE (nunca cambia, ver enum arriba);
+// `planType` es la clave del plan, la de SIEMPRE (nunca cambia, ver la nota de arriba);
 // `displayName` es el nombre que ve el usuario — ahí es donde vive el cambio
 // de "Business" a "Premium" pedido, editable sin tocar código ni desplegar.
 //
@@ -1077,7 +1083,8 @@ model PendingRegistration {
 // de verificado nunca deja de ser solo un sello de confianza).
 model PlanConfig {
   id          String   @id @default(cuid())
-  planType    PlanType @unique
+  // Clave del plan. CHECK en la base: ^[A-Z][A-Z0-9_]{0,29}$.
+  planType    String   @unique
   displayName String
   // Frase corta bajo el nombre en la página de planes, y orden en que se muestra (de menor a mayor).
   tagline     String?
@@ -1102,6 +1109,17 @@ model PlanConfig {
   // Lista de beneficios en texto libre que ve el vendedor/comprador — antes
   // SiteSettings.planFeaturesRegular/Business.
   features    String[] @default([])
+  // Papeles del plan que antes se deducían de su clave. isDefault: plan de registro y de bajada (hoy REGULAR); hay
+  // exactamente uno. isTrialPlan: plan de la prueba gratis (hoy BUSINESS); como mucho uno. Los garantiza un índice único
+  // parcial en la base (PlanConfig_single_default_key y PlanConfig_single_trial_key, fuera de Prisma) y un CHECK impide
+  // archivarlos.
+  isDefault   Boolean  @default(false)
+  isTrialPlan Boolean  @default(false)
+  // Los planes no se borran: se archivan (dejan de venderse y de asignarse; sus pagos y cambios viejos siguen apuntando aquí).
+  archivedAt  DateTime?
+  // Funciones personalizadas del catálogo (PlanFeature kind 'custom') encendidas en este plan: { clave: true }. Solo se
+  // muestran; el servidor no las hace cumplir.
+  customFeatures Json  @default("{}")
 
   // --- Límites numéricos (null = ilimitado) ---------------------------
   maxProducts           Int?
@@ -1135,6 +1153,62 @@ model PlanConfig {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  vendors              Vendor[]
+  verificationPayments VerificationRequest[]
+  subscriptionPayments SubscriptionPayment[]
+  partnerPrices        PartnerPlanPrice[]
+  changesFrom          VendorPlanChange[] @relation("VendorPlanChangeFrom")
+  changesTo            VendorPlanChange[] @relation("VendorPlanChangeTo")
+}
+
+// Catálogo de funciones de los planes: textos, grupo y orden de cada límite e interruptor que el admin ve al configurar un
+// plan y que se muestran en /planes y en "Tu plan incluye". Las claves 'flag' y 'limit' son solo las que el servidor sabe
+// hacer cumplir (FEATURE_REGISTRY en lib/planFeatures.js, que además fija `column` y `kind`); las 'custom' las crea el admin
+// y solo se muestran (su valor por plan vive en PlanConfig.customFeatures). CHECK en la base para kind, group y la clave.
+model PlanFeature {
+  key            String   @id
+  label          String
+  // Qué hace exactamente en el servidor (o, en las personalizadas, que solo se muestra).
+  description    String   @default("")
+  // Ventas | Equipo | Marketing | Visibilidad | Cobro | Otras
+  group          String   @default("Otras")
+  // flag | limit | custom
+  kind           String
+  // Columna de PlanConfig que la hace cumplir (null en las personalizadas).
+  column         String?
+  // Solo funciona si además la tienda está verificada.
+  requiresBadge  Boolean  @default(false)
+  // Texto público. En los límites admite {n} y {uno|varios} (singular o plural según el número).
+  publicLabel    String?
+  // Texto público de un límite vacío (ilimitado). null = no se anuncia.
+  unlimitedLabel String?
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Cada cambio de plan de una tienda (de dónde a dónde, por qué y quién). De aquí salen las altas y bajas de cada plan en
+// las estadísticas; se escribe con recordPlanChange (lib/planConfig.js) donde se cambia Vendor.planType.
+model VendorPlanChange {
+  id        String   @id @default(cuid())
+  vendorId  String
+  fromPlan  String?
+  toPlan    String
+  // Código corto: registration, admin_change, trial_start, downgrade_unpaid... (PLAN_CHANGE_REASONS en lib/planConfig.js).
+  reason    String
+  // Usuario que hizo el cambio (null = el sistema). Sin clave foránea: el historial sobrevive al usuario.
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  vendor     Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  fromConfig PlanConfig? @relation("VendorPlanChangeFrom", fields: [fromPlan], references: [planType], onDelete: Restrict, onUpdate: Cascade)
+  toConfig   PlanConfig  @relation("VendorPlanChangeTo", fields: [toPlan], references: [planType], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([toPlan, createdAt])
+  @@index([fromPlan, createdAt])
+  @@index([vendorId])
 }
 
 model Vendor {
@@ -1202,7 +1276,9 @@ model Vendor {
   // getTableByToken (QR real de la mesa) nunca lo consulta, siempre muestra
   // el menú completo sin importar este valor.
   menuPublic Boolean @default(true)
-  planType    PlanType @default(REGULAR)
+  // Clave del plan (PlanConfig.planType). El valor por defecto de la base es 'REGULAR' (el plan isDefault de hoy); el
+  // registro debe usar getDefaultPlanKey() en vez de confiar en este valor.
+  planType    String   @default("REGULAR")
   orderDestination OrderDestination @default(BOTH)
   // Cómo puede el cliente coordinar el pago al terminar su compra en esta tienda (cod = contra entrega, online = pago en línea
   // coordinado por WhatsApp, cash = efectivo). Por tienda, no por producto. Por defecto están las tres.
@@ -1275,6 +1351,10 @@ model Vendor {
   adminDeletionRequestedAt   DateTime?
   adminDeletionRequestedById String?
   adminDeletionReminderSentAt DateTime?
+  // Bloqueo previo a la eliminación pendiente (deleteVendor lo guarda, restoreVendorDeletion lo devuelve): sin esto,
+  // restaurar dejaba desbloqueada a una tienda bloqueada por normas. null = no estaba bloqueada.
+  preDeletionBlockReason      String?
+  preDeletionBlockedAt        DateTime?
   // Bloque 62: tercer estado, distinto de isBlocked (el admin bloquea a
   // mano, reversible en cualquier momento desde AdminVendors.jsx) y de
   // deletedAt (soft-delete, sin vuelta atrás) — SUSPENDED lo pone el cron de
@@ -1465,6 +1545,8 @@ model Vendor {
   posSettings PosSettings?
 
   supportTickets SupportTicket[]
+  plan           PlanConfig         @relation(fields: [planType], references: [planType], onDelete: Restrict, onUpdate: Cascade)
+  planChanges    VendorPlanChange[]
 
   // Bloque 241: lista de tiendas del admin (filtro por plan, orden por fecha).
   @@index([planType, createdAt])
@@ -1688,6 +1770,8 @@ model VendorStaffSale {
   quantity      Int
   unitPrice     Decimal  @db.Decimal(12, 2)
   total         Decimal  @db.Decimal(12, 2)
+  // Moneda del producto al vender (null = venta vieja de un producto ya borrado). Los totales se suman por moneda.
+  currency      String?
   note          String?
   createdAt     DateTime @default(now())
 
@@ -2133,6 +2217,9 @@ model Table {
   // Bloque 141: nombre propio opcional (ej. "Terraza 1") — si no se carga,
   // se sigue mostrando "Mesa {tableNumber}" en todos lados.
   label       String?
+  // Mesa eliminada que tenía cuentas: se oculta en vez de borrarse, porque TableOrder cae en cascada con la mesa y el
+  // historial cobrado o cancelado se perdía (Bloque 167). Su QR se cambia al eliminarla. Una mesa sin cuentas se borra.
+  deletedAt   DateTime?
 
   vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   tableOrders TableOrder[]
@@ -2321,7 +2408,7 @@ model VerificationRequest {
   // que el admin compara contra el total esperado), no el precio de lista.
   paymentMonths   Int?
   // Plan elegido al pagar la verificación y descuento por meses aplicado (%).
-  paymentPlanType        PlanType?
+  paymentPlanType        String?
   paymentDiscountPercent Int?
   paymentAmount   Decimal? @db.Decimal(12, 2)
   paymentCurrency String?
@@ -2358,6 +2445,7 @@ model VerificationRequest {
   reviewedBy        User?  @relation("ReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   paymentConfirmedBy User? @relation("PaymentConfirmedBy", fields: [paymentConfirmedById], references: [id], onDelete: SetNull)
   archive           VerificationArchive? @relation("VerificationRequestArchive", fields: [archiveId], references: [id], onDelete: SetNull)
+  paymentPlan       PlanConfig?          @relation(fields: [paymentPlanType], references: [planType], onDelete: Restrict, onUpdate: Cascade)
 }
 
 // Bloque 64: auditoría completa de cada cambio de Vendor.verificationStatus —
@@ -2477,13 +2565,16 @@ model VerificationArchive {
 model SubscriptionPayment {
   id       String @id @default(cuid())
   vendorId String
+  // El primer pago de la suscripción (el de la verificación), copiado aquí para que el historial y los ingresos salgan de una
+  // sola tabla (lib/initialPayment.js). false = renovación o pago registrado directamente aquí.
+  fromVerification Boolean @default(false)
 
   paymentMethod VerificationPaymentMethod
   months        Int
   amount        Decimal? @db.Decimal(12, 2)
   currency      String
   // Plan que se paga y descuento por meses aplicado (%), tal como estaban al pedir el pago.
-  planType        PlanType?
+  planType        String?
   discountPercent Int?
 
   payerName          String?
@@ -2520,6 +2611,7 @@ model SubscriptionPayment {
 
   vendor      Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   confirmedBy User?  @relation("SubscriptionPaymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  plan        PlanConfig? @relation(fields: [planType], references: [planType], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([vendorId, createdAt])
 }
@@ -3776,6 +3868,11 @@ model DiscountCode {
   // null = nunca vence (el vendedor lo desactiva manualmente con `active`).
   expiresAt DateTime?
   active    Boolean  @default(true)
+  // Suspendido por el admin (igual que Product.suspendedAt): queda con active:false y la tienda no lo puede volver a
+  // activar hasta que el admin quite la suspensión. Antes el admin solo ponía active:false y la tienda lo reactivaba al
+  // instante, así que la moderación no duraba.
+  suspendedAt     DateTime?
+  suspendedReason String?
   createdAt DateTime @default(now())
 
   vendor Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -3809,6 +3906,10 @@ model StoreOffer {
   // ella; uno reusado de otras ofertas/promos nunca se toca automáticamente.
   discountCodeExclusive Boolean @default(false)
   active         Boolean  @default(true)
+  // Suspendida por el admin: active:false y la tienda no la puede reactivar hasta que el admin quite la suspensión (mismo
+  // criterio que DiscountCode.suspendedAt).
+  suspendedAt     DateTime?
+  suspendedReason String?
   createdAt      DateTime @default(now())
 
   vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -4007,12 +4108,13 @@ model PartnerApiUsageHour {
 // Bloque 300: extra que el socio le suma al precio base de cada plan de Baznova (nunca por debajo).
 model PartnerPlanPrice {
   partnerId String
-  planType  PlanType
+  planType  String
   extraCup  Decimal  @default(0) @db.Decimal(12, 2)
   extraUsd  Decimal  @default(0) @db.Decimal(12, 2)
   updatedAt DateTime @updatedAt
 
-  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  partner Partner    @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  plan    PlanConfig @relation(fields: [planType], references: [planType], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([partnerId, planType])
 }

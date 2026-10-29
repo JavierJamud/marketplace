@@ -1,3 +1,4 @@
+import { logVendorLifecycle, LIFECYCLE_ACTIONS } from "../lib/vendorLifecycle.js";
 import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
 import { assertNotBlacklisted, findBlacklisted } from "../lib/blacklist.js";
 import { Prisma } from "@prisma/client";
@@ -6,6 +7,7 @@ import { ratingSummary, ratingScore } from "../lib/ratings.js";
 import { fixedShippingError } from "../lib/shipping.js";
 import { touchStoreVisit } from "../services/loyalty.service.js";
 import { toPublicVendor } from "../lib/publicVendor.js";
+import { PUBLIC_REVIEW_SELECT } from "../lib/publicReview.js";
 import { z } from "zod";
 import { unlink, readFile } from "node:fs/promises";
 import { deleteUploadedImages, brandingLogoDiskPath, BRANDING_LOGO_PATTERN } from "../lib/uploadFiles.js";
@@ -15,8 +17,9 @@ import { KYC_UPLOAD_DIR } from "./verification.controller.js";
 import { activeCodes, allCodes, assertActiveCurrency, assertActiveCheckoutPayments } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { emailField } from "../utils/emailField.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
-import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
+import { syncVendorProvinceZone, countVendorProvinces } from "../services/vendorZoneSync.service.js";
 import { resolveVendorSlug } from "../lib/vendorSlug.js";
 import { normalizeUsername, suggestUsername, usernameTaken, usernameFormatError } from "../lib/username.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
@@ -26,6 +29,7 @@ import { isVendorOpenNow } from "../services/schedule.service.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { getBrandSettings, getTrialDays } from "./settings.controller.js";
 import { expireStaleStoreOffers, storeOfferSummarySelect } from "./storeOffers.controller.js";
+import { filterVisibleStoreOffers, publicStoreOfferWhere } from "../lib/storeOfferVisibility.js";
 import { productPriceTiersInclude, expireNewBadges } from "./products.controller.js";
 import { rawSalesSeries, fillSeriesGaps, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
 import { withComputedVendorFields, withComputedVendorFieldsList, transitionVendorVerification } from "../services/vendorVerification.service.js";
@@ -34,7 +38,9 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertVendorLocationComplete, needsAddress } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
-import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, planAllows, recalcVendorProductQuota } from "../lib/planConfig.js";
+import { getPlanConfig, getPlanLimit, isPremiumActive, assertPlanAllows, planAllows, planFeaturesOf, getDefaultPlanKey, getTrialPlanKey, planDisplayName, recordPlanChange, PLAN_KEY_PATTERN } from "../lib/planConfig.js";
+import { applyPlanDowngrade } from "../services/planDowngrade.service.js";
+import { plansOffering, plansSentence } from "../lib/planUpsell.js";
 import { getOrGenerateVendorDailyTips } from "../services/vendorDailyTips.service.js";
 import { getTrialChecklist, maybeAutoActivateTrial, hasHadPremium } from "../services/trialEligibility.service.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
@@ -92,6 +98,11 @@ function flattenScheduleDays(days) {
   return rows;
 }
 
+// Tope técnico del número de mesas, aparte del tope del plan (maxTables). Con un plan sin tope (null) nada frenaba un
+// tableCount enorme, y createVendor/updateMyVendor crean una fila Table por mesa de una sola vez: 1.000.000 saturaba la base.
+const MAX_TABLE_COUNT = 500;
+const tableCountField = z.number().int().positive().max(MAX_TABLE_COUNT, `Puedes declarar hasta ${MAX_TABLE_COUNT} mesas.`);
+
 const createVendorSchema = z.object({
   companyName: z.string().min(2),
   // Nombre de usuario = enlace de la tienda (lib/username.js). Si no viene, se arma con el nombre.
@@ -113,9 +124,9 @@ const createVendorSchema = z.object({
   whatsapp: z.string().regex(E164_REGEX, "El WhatsApp debe incluir código de país (ej. +5355512345)."),
   // Bloque 11: obligatorio — puede ser el mismo correo personal de la cuenta,
   // el frontend lo prellena pero permite editarlo.
-  email: z.string().email("El correo de la tienda es obligatorio."),
+  email: emailField("El correo de la tienda es obligatorio."),
   isRestaurant: z.boolean().default(false),
-  tableCount: z.number().int().positive().optional(),
+  tableCount: tableCountField.optional(),
   // Bloque 18: obligatorio — el rubro/tipo de negocio se elige una sola vez
   // al registrar la tienda (se puede cambiar después desde VendorSettings.jsx).
   businessCategoryId: z.string().min(1, "Elige el tipo de negocio de tu tienda."),
@@ -141,12 +152,15 @@ const createVendorSchema = z.object({
         stateOther: z.string().trim().max(80).optional(),
       })
     )
-    .min(1, "Selecciona dónde va a operar tu tienda."),
+    .min(1, "Selecciona dónde va a operar tu tienda.")
+    // El tope de provincias del plan cuenta provincias distintas: sin este máximo se podían mandar cientos de ubicaciones
+    // de la misma provincia y crearlas todas de una vez (lo mismo que pasaba con tableCount). El formulario manda una.
+    .max(30, "Puedes indicar hasta 30 ubicaciones."),
   // Bloque 171 (pedido explícito — "al crear una cuenta se debe ingresar
   // los horarios de la tienda"): opcional a nivel de zod (un request directo
-  // a la API sin este campo no debe romper), pero VendorOnboarding.jsx
-  // SIEMPRE lo manda desde ahora — en la práctica, toda tienda nueva creada
-  // por el formulario real termina con horario cargado desde el arranque.
+  // a la API sin este campo no debe romper). VendorOnboarding.jsx, que lo
+  // mandaba, ya no existe: el alta de hoy (Account.jsx) no manda horario y la
+  // tienda lo carga después desde su panel.
   schedule: scheduleSchema.optional(),
 });
 
@@ -165,7 +179,7 @@ function pickVendorColor(seed) {
 }
 
 // Registro de tienda (el usuario ya debe existir y estar autenticado).
-// Empieza siempre en Plan Regular; el KYC/verificación se pide aparte.
+// Empieza siempre en el plan por defecto (isDefault, hoy el Básico); el KYC/verificación se pide aparte.
 // Bloque 294 (pedido explícito — "el número de mesas al registrar un restaurante debe respetar el máximo
 // que el admin fija para el plan de esa tienda: con el plan gratis, 10 mesas es el tope"): valida el
 // número de mesas pedido contra PlanConfig.maxTables del plan (null = sin tope). Se usa al registrar la
@@ -181,8 +195,16 @@ async function assertTableCountWithinPlan(planType, tableCount) {
 
 export async function createVendor(req, res) {
   const data = createVendorSchema.parse(req.body);
-  // Toda tienda nueva arranca en el plan Regular: ese es su tope de mesas.
-  if (data.isRestaurant) await assertTableCountWithinPlan("REGULAR", data.tableCount);
+  // Toda tienda nueva arranca en el plan por defecto: ese es su tope de mesas. Se busca por su bandera (isDefault), no por
+  // la clave "REGULAR": el admin puede elegir otro plan como plan de registro.
+  const defaultPlanKey = await getDefaultPlanKey();
+  const defaultPlan = await getPlanConfig(defaultPlanKey);
+  // Las mesas con QR y el horario son funciones del plan (createTable y updateSchedule ya las exigen). Si el admin las apaga
+  // en el plan de registro, el registro tampoco las crea: antes sembraba las mesas y guardaba el horario igual. No se
+  // rechaza el registro (el formulario siempre manda las dos cosas): se ignoran, y aparecen al pasar a un plan que las trae.
+  const canSeedTables = await planAllows(defaultPlanKey, "allowQrTables");
+  const canSaveSchedule = await planAllows(defaultPlanKey, "allowSchedules");
+  if (data.isRestaurant && canSeedTables) await assertTableCountWithinPlan(defaultPlanKey, data.tableCount);
 
   const existing = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (existing) throw new AppError("Este usuario ya tiene una tienda registrada.", 409);
@@ -229,6 +251,13 @@ export async function createVendor(req, res) {
   if (anyWithoutMunicipality && !data.companyAddress?.trim()) {
     throw new AppError("Indica la dirección de tu tienda.", 400);
   }
+  // Mismo tope de provincias que addMyLocation y syncVendorProvinceZone: el registro creaba todas las ubicaciones que
+  // llegaran y una tienda nueva podía empezar con más provincias de las que su plan permite.
+  const maxProvinces = defaultPlan?.maxProvinces ?? null;
+  if (maxProvinces !== null && countVendorProvinces(resolvedLocations) > maxProvinces) {
+    const unit = maxProvinces === 1 ? "provincia" : "provincias";
+    throw new AppError(`Las tiendas nuevas empiezan en el plan ${defaultPlan.displayName}, que permite vender en hasta ${maxProvinces} ${unit}. Elige ${maxProvinces} ${unit} o menos; podrás agregar más al cambiar de plan.`, 400);
+  }
 
   data.currency = data.currency ?? (await activeCodes("CURRENCY"))[0];
   await assertCurrencyAllowed(data.currency);
@@ -246,50 +275,75 @@ export async function createVendor(req, res) {
     ? await prisma.partner.findFirst({ where: { code: data.partnerCode, status: "ACTIVE" }, select: { id: true, listInMarketplace: true } })
     : null;
 
-  const vendor = await prisma.vendor.create({
-    data: {
-      userId: req.user.id,
-      partnerId: partner?.id ?? null,
-      // El socio decide si sus tiendas salen también en el marketplace de Baznova.
-      isPrivate: partner ? !partner.listInMarketplace : undefined,
-      companyName: data.companyName,
-      ownerName: data.ownerName,
-      ownerIdNumber: data.ownerIdNumber,
-      companyAddress: data.companyAddress,
-      slug,
-      description: data.description,
-      whatsapp: data.whatsapp,
-      email: data.email,
-      color: pickVendorColor(slug),
-      isRestaurant: data.isRestaurant,
-      tableCount: data.tableCount,
-      businessCategoryId: data.businessCategoryId,
-      currency: data.currency,
-      planType: "REGULAR",
-      orderDestination,
-      locations: { create: resolvedLocations },
-      verification: { create: {} },
-      // Un restaurante con N mesas declaradas en el registro arranca con N
-      // QRs ya generados (mismo mecanismo de Table.qrToken que VendorTables.jsx)
-      // — no hace falta pasar por "+ Agregar mesa" una por una después.
-      tables:
-        data.isRestaurant && data.tableCount
-          ? { create: Array.from({ length: data.tableCount }, (_, i) => ({ tableNumber: i + 1 })) }
-          : undefined,
-      // Bloque 171: horario cargado desde el registro mismo, si el
-      // formulario lo mandó — mismo aplanado que updateSchedule.
-      schedules: data.schedule ? { create: flattenScheduleDays(data.schedule.days) } : undefined,
-    },
-    include: { locations: true, tables: true },
+  // La tienda y su primera entrada en el historial de planes (VendorPlanChange, "registration") van juntas en una
+  // transacción: de ese historial salen las altas de cada plan en las estadísticas, y nunca debe quedar una sin la otra.
+  const vendor = await prisma.$transaction(async (tx) => {
+    const created = await tx.vendor.create({
+      data: {
+        userId: req.user.id,
+        partnerId: partner?.id ?? null,
+        // El socio decide si sus tiendas salen también en el marketplace de Baznova.
+        isPrivate: partner ? !partner.listInMarketplace : undefined,
+        companyName: data.companyName,
+        ownerName: data.ownerName,
+        ownerIdNumber: data.ownerIdNumber,
+        companyAddress: data.companyAddress,
+        slug,
+        description: data.description,
+        whatsapp: data.whatsapp,
+        email: data.email,
+        color: pickVendorColor(slug),
+        isRestaurant: data.isRestaurant,
+        tableCount: data.tableCount,
+        businessCategoryId: data.businessCategoryId,
+        currency: data.currency,
+        planType: defaultPlanKey,
+        orderDestination,
+        locations: { create: resolvedLocations },
+        verification: { create: {} },
+        // Un restaurante con N mesas declaradas en el registro arranca con N
+        // QRs ya generados (mismo mecanismo de Table.qrToken que VendorTables.jsx)
+        // — no hace falta pasar por "+ Agregar mesa" una por una después.
+        // Solo si el plan de registro incluye mesas con QR (canSeedTables, arriba).
+        tables:
+          data.isRestaurant && data.tableCount && canSeedTables
+            ? { create: Array.from({ length: data.tableCount }, (_, i) => ({ tableNumber: i + 1 })) }
+            : undefined,
+        // Bloque 171: horario cargado desde el registro mismo, si el
+        // formulario lo mandó — mismo aplanado que updateSchedule. Solo si el plan incluye horario (canSaveSchedule).
+        schedules: data.schedule && canSaveSchedule ? { create: flattenScheduleDays(data.schedule.days) } : undefined,
+      },
+      include: { locations: true, tables: true },
+    });
+    await recordPlanChange(tx, { vendorId: created.id, fromPlan: null, toPlan: defaultPlanKey, reason: "registration", actorId: req.user.id });
+    return created;
   });
 
   await prisma.user.update({ where: { id: req.user.id }, data: { role: "VENDOR" } });
+
+  // Historial para el admin (Tiendas > Eliminadas y la ficha de la tienda): quién la creó, con qué datos y desde dónde. Queda
+  // aunque la tienda se elimine después.
+  void logVendorLifecycle({
+    vendorId: vendor.id,
+    actorId: req.user.id,
+    actorRole: "VENDOR",
+    action: LIFECYCLE_ACTIONS.created,
+    description: `Creó la tienda ${vendor.companyName}.`,
+    req,
+    clientInfo: req.body?.clientInfo,
+    extra: {
+      companyName: vendor.companyName, slug: vendor.slug, ownerName: vendor.ownerName ?? null, whatsapp: vendor.whatsapp,
+      email: vendor.email ?? null, ownerEmail: req.user.email ?? null, planType: vendor.planType, partnerId: vendor.partnerId ?? null,
+    },
+  });
 
   // Bloque 244: país/provincia escritos a mano -> solicitud para el admin.
   void recordLocationSuggestions(locationSuggestions);
 
   res.status(201).json({ vendor });
 }
+
+// Campos públicos de una reseña: lista cerrada compartida con la ficha del producto (lib/publicReview.js).
 
 export async function getVendorBySlug(req, res) {
   // Un enlace anterior de la tienda trae la tienda igual; la página cambia la dirección al enlace actual.
@@ -312,16 +366,8 @@ export async function getVendorBySlug(req, res) {
       category: true,
       businessCategory: true,
       deliveryCountries: { include: { country: true } },
-      // Bloque 23: Store.jsx separa esta lista en "disponibles" (stock > 0)
-      // y "Próximamente disponibles" (stock = 0) — el take sube de 24 a 48
-      // para que una tienda con varios productos agotados viejos no le tape
-      // el cupo a productos disponibles nuevos (o viceversa) antes de que el
-      // split ocurra del lado del cliente.
-      // Bloque 157: hiddenFromStore:true = "solo por pedido de mesa" — no
-      // aparece en esta lista pública de la tienda.
-      // 2026-10-24 (pedido del dueño): el orden ya no es el de creación, lo decide el algoritmo más abajo. Se traen hasta 200
-      // candidatos para que un producto viejo que vende bien no quede fuera del corte por su fecha.
-      products: { where: { isActive: true, hiddenFromStore: false, overQuota: false }, take: 200, orderBy: { createdAt: "desc" }, include: productPriceTiersInclude },
+      // Los productos ya no vienen en esta consulta: los pagina rankedStoreProducts (más abajo), igual que
+      // GET /vendors/:slug/products para "Ver más".
       // Comentarios públicos de la tienda: los que se le hicieron a la tienda (sin producto) y también las reseñas de sus
       // productos, que traen `product` para que la página las identifique como reseña de ese producto. Un comentario oculto por
       // el admin (isHidden) nunca llega acá.
@@ -329,7 +375,7 @@ export async function getVendorBySlug(req, res) {
         where: { isHidden: false },
         orderBy: { createdAt: "desc" },
         take: 100,
-        include: { product: { select: { id: true, name: true, slug: true, images: true } } },
+        select: PUBLIC_REVIEW_SELECT,
       },
       // Bloque 66 (bug real reportado en vivo — fuga de seguridad): antes se
       // incluía `tables` (con su `qrToken` real) acá, y Store.jsx armaba un
@@ -345,40 +391,27 @@ export async function getVendorBySlug(req, res) {
       // estar "encendida" por el vendedor pero programada para arrancar más
       // adelante (startsAt futuro) o ya vencida (defensivo, sin depender de
       // que expireStaleStoreOffers haya corrido antes que esta consulta).
+      // El filtro vive en publicStoreOfferWhere (también excluye lo que el
+      // admin suspendió y las ofertas con el código apagado), y después de
+      // la consulta se recorta según el plan con filterVisibleStoreOffers.
       storeOffers: {
-        where: {
-          active: true,
-          AND: [
-            { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
-            { OR: [{ isLimitedTime: false }, { expiresAt: { gt: new Date() } }] },
-          ],
-        },
+        where: publicStoreOfferWhere(),
         orderBy: { createdAt: "desc" },
         select: storeOfferSummarySelect,
       },
     },
   });
   if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+  // Una tienda que bajó de plan o perdió la verificación no publica ofertas, y nunca más que su tope (las más recientes).
+  vendor.storeOffers = await filterVisibleStoreOffers(vendor, vendor.storeOffers);
 
-  // Bloque 208 (pedido explícito): si el vendedor eligió que su menú digital
-  // sea oculto (solo visible escaneando el QR de la mesa), sus productos de
-  // menú ni siquiera llegan a este endpoint público — no es solo un
-  // ocultamiento visual en Store.jsx, el dato en sí no sale del servidor.
-  // getTableByToken (el QR real) consulta los productos por su cuenta, sin
-  // pasar por acá, así que nunca se ve afectado por este filtro.
-  if (!vendor.menuPublic) {
-    vendor.products = vendor.products.filter((p) => !p.availableForTableMenu);
-  }
-
-  // Mismo algoritmo que la portada (lib/productRanking.js), comparando los productos de esta tienda entre sí, y con la misma
-  // rotación por visita: lo que más interesa a los clientes sale arriba y el orden no queda fijo. El algoritmo necesita saber
-  // si la tienda está verificada (piso de calidad) y lo lee de product.vendor, que acá no viene: se agrega solo para rankear.
-  if (vendor.products.length > 1) {
-    const { reviewStats, engagement } = await loadRankingSignals(vendor.products.map((p) => p.id));
-    const withVendor = vendor.products.map((p) => ({ ...p, vendor: { verificationStatus: vendor.verificationStatus } }));
-    const ranked = rankFeaturedProducts(withVendor, reviewStats, engagement, { seed: rotationSeed(req.query.seed) });
-    vendor.products = ranked.slice(0, 60).map(({ vendor: _vendor, ...p }) => p);
-  }
+  // Primera página de productos, ya ordenada (ver rankedStoreProducts). productCount es el total que el visitante puede ver,
+  // no solo esta página: el banner de la tienda contaba v.products.length y decía 60 en una tienda de 150.
+  // La semilla completa (visita + hora) se calcula una sola vez y se devuelve como productSeed: "Ver más" la reenvía en
+  // rankSeed y las páginas siguientes usan el mismo orden aunque entre medio cambie la hora.
+  const productSeed = rotationSeed(req.query.seed);
+  const firstPage = await rankedStoreProducts(vendor, { page: 1, rankSeed: productSeed });
+  vendor.products = firstPage.products;
 
   // Bloque 64 (regla de visibilidad, independiente de verificationStatus):
   // una tienda sin ningún producto publicado no muestra su perfil completo
@@ -426,11 +459,98 @@ export async function getVendorBySlug(req, res) {
   // tiendas verificadas (el widget nunca se monta si no lo está de todas
   // formas, ver Store.jsx/Product.jsx).
   // También el plan: si no incluye el chat con IA, el chat respondería 403 a cada mensaje (caso real: tienda verificada en plan Regular).
-  const aiAvailable = vendor.verificationStatus === "VERIFIED" && (await planAllows(vendor.planType, "allowAiChatbot")) ? await isAIAvailable() : false;
+  // planAllows con la tienda exige además la insignia (allowAiChatbot es requiresBadge en FEATURE_REGISTRY).
+  const aiAvailable = (await planAllows(vendor, "allowAiChatbot")) ? await isAIAvailable() : false;
+  // Fotos en las reseñas: misma regla que exige reviews.controller.js al publicar (tienda verificada y plan que las
+  // incluya). Sin esto, el selector salía en una tienda cuyo plan no las admite y el cliente recibía un 403 al publicar.
+  const reviewPhotosAllowed = vendor.verificationStatus === "VERIFIED" && (await planAllows(vendor, "allowReviewPhotos"));
 
   res.json({
-    vendor: withComputedVendorFields({ ...publicVendor, isOpenNow: isOpen, nextOpenLabel, reviewStats: { total, breakdown }, aiAvailable }),
+    vendor: withComputedVendorFields({
+      ...publicVendor,
+      isOpenNow: isOpen,
+      nextOpenLabel,
+      reviewStats: { total, breakdown },
+      aiAvailable,
+      reviewPhotosAllowed,
+      productCount: firstPage.total,
+      hasMoreProducts: firstPage.hasMore,
+      productSeed,
+    }),
   });
+}
+
+// Página de productos de la tienda pública, para "Ver más" (GET /vendors/:slug/products?page=2&rankSeed=...). Mismas
+// reglas de visibilidad y mismo orden que la primera página que trae getVendorBySlug. rankSeed es el vendor.productSeed
+// de esa primera respuesta, que ya trae la hora: si se recalculara aquí, al cambiar la hora entre una página y otra el
+// orden cambiaba y algunos productos no salían en ninguna página. Sin rankSeed (o con uno mal formado) se usa ?seed= con
+// la hora actual, como antes.
+const RANK_SEED_REGEX = /^[a-z0-9]{0,16}h\d{1,10}$/i;
+export async function listVendorProducts(req, res) {
+  const slug = await resolveVendorSlug(req.params.slug);
+  const vendor = await prisma.vendor.findUnique({
+    where: { slug },
+    select: { id: true, isBlocked: true, status: true, menuPublic: true, verificationStatus: true },
+  });
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+  await expireNewBadges(vendor.id);
+  const page = Math.min(STORE_MAX_PAGE, Math.max(1, Number.parseInt(req.query.page, 10) || 1));
+  const rankSeed = typeof req.query.rankSeed === "string" && RANK_SEED_REGEX.test(req.query.rankSeed) ? req.query.rankSeed : rotationSeed(req.query.seed);
+  const { products, total, hasMore } = await rankedStoreProducts(vendor, { page, rankSeed });
+  res.json({ products, page, pageSize: STORE_PAGE_SIZE, total, hasMore });
+}
+
+// Productos que un visitante puede ver en la página de la tienda. Bloque 157: hiddenFromStore = "solo por pedido de mesa".
+// overQuota = fuera del cupo del plan. Bloque 208: si el menú digital es solo por QR, los productos del menú no salen de
+// este endpoint (antes se filtraban después de traer los 200 candidatos, y una tienda con mucho menú se quedaba con
+// menos candidatos de los que tocaban). getTableByToken (el QR real) consulta sus productos por su cuenta.
+function storeProductsWhere(vendor) {
+  return {
+    vendorId: vendor.id,
+    isActive: true,
+    hiddenFromStore: false,
+    overQuota: false,
+    ...(vendor.menuPublic ? {} : { availableForTableMenu: false }),
+  };
+}
+
+// 60 por página, como el corte de antes. El ranking compara hasta 200 candidatos (los más nuevos) para que un producto
+// viejo que vende bien no quede fuera por su fecha (2026-10-24, pedido del dueño) sin rankear el catálogo entero en cada
+// visita. Lo que pasa de esos 200 sigue después, del más nuevo al más viejo: antes no se podía ver de ninguna forma.
+const STORE_PAGE_SIZE = 60;
+const STORE_RANK_CANDIDATES = 200;
+const STORE_MAX_PAGE = 200;
+const STORE_PRODUCT_ORDER = [{ createdAt: "desc" }, { id: "desc" }];
+
+// `vendor` necesita id, menuPublic y verificationStatus. `rankSeed` es la semilla ya armada por rotationSeed (visita + hora).
+// Devuelve la página pedida, el total visible y si hay más.
+async function rankedStoreProducts(vendor, { page = 1, rankSeed } = {}) {
+  const where = storeProductsWhere(vendor);
+  const total = await prisma.product.count({ where });
+  const start = (page - 1) * STORE_PAGE_SIZE;
+  const end = start + STORE_PAGE_SIZE;
+  const rankedCount = Math.min(total, STORE_RANK_CANDIDATES);
+
+  let products = [];
+  if (start < rankedCount) {
+    let candidates = await prisma.product.findMany({ where, take: STORE_RANK_CANDIDATES, orderBy: STORE_PRODUCT_ORDER, include: productPriceTiersInclude });
+    // Mismo algoritmo que la portada (lib/productRanking.js), comparando los productos de esta tienda entre sí, y con la
+    // misma rotación por visita: lo que más interesa a los clientes sale arriba y el orden no queda fijo. El algoritmo
+    // necesita saber si la tienda está verificada (piso de calidad) y lo lee de product.vendor: se agrega solo para rankear.
+    if (candidates.length > 1) {
+      const { reviewStats, engagement } = await loadRankingSignals(candidates.map((p) => p.id));
+      const withVendor = candidates.map((p) => ({ ...p, vendor: { verificationStatus: vendor.verificationStatus } }));
+      candidates = rankFeaturedProducts(withVendor, reviewStats, engagement, { seed: rankSeed }).map(({ vendor: _vendor, ...p }) => p);
+    }
+    products = candidates.slice(start, end);
+  }
+  // La parte de la página que cae después de los candidatos rankeados.
+  if (end > rankedCount && total > rankedCount) {
+    const from = Math.max(start, rankedCount);
+    const rest = await prisma.product.findMany({ where, orderBy: STORE_PRODUCT_ORDER, skip: from, take: end - from, include: productPriceTiersInclude });
+    products = products.concat(rest);
+  }
+  return { products, total, hasMore: end < total };
 }
 
 // Lista pública de tiendas. Filtros (todos opcionales y combinables): zona (país, provincia o estado, municipio), tipo de
@@ -438,6 +558,17 @@ export async function getVendorBySlug(req, res) {
 // rango de precios de sus productos (en una moneda), valoración mínima y orden. Los precios miran los productos que el cliente
 // realmente puede ver en la tienda.
 const STORE_SORTS = new Set(["recent", "rating", "products"]);
+const STORE_LIST_MAX_PAGE_SIZE = 100;
+// Lo mismo que storeProductsWhere, pero escrito para consultar varias tiendas a la vez: el menú solo por QR se excluye
+// mirando product.vendor.menuPublic (el mismo criterio que PUBLIC_PRODUCT_WHERE de search.controller.js). Sin esto la
+// tarjeta contaba los platos del menú oculto (150 en la tarjeta, 130 en el banner) y un restaurante que solo tenía esos
+// platos salía en el listado y al abrirlo decía "Tienda aún no disponible".
+const LIST_VISIBLE_PRODUCT_WHERE = {
+  isActive: true,
+  hiddenFromStore: false,
+  overQuota: false,
+  NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
+};
 export async function listVendors(req, res) {
   const { countryId, provinceId, municipalityId, isRestaurant, isVerified, q, businessCategoryId, payment, accepts, minPrice, maxPrice, currency, minRating, sort } = req.query;
 
@@ -450,60 +581,81 @@ export async function listVendors(req, res) {
   const max = Number(maxPrice) > 0 ? Number(maxPrice) : undefined;
   const ratingMin = Number(minRating) > 0 ? Math.min(5, Number(minRating)) : undefined;
   const sortBy = STORE_SORTS.has(String(sort)) ? String(sort) : "recent";
+  // Página y tamaño. Sin parámetros responde como antes (las primeras 100), así Home.jsx no cambia.
+  const pageSize = Math.min(STORE_LIST_MAX_PAGE_SIZE, Math.max(1, Number.parseInt(req.query.pageSize, 10) || STORE_LIST_MAX_PAGE_SIZE));
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
 
-  const vendors = await prisma.vendor.findMany({
-    where: {
-      isBlocked: false,
-      status: "ACTIVE",
-      // Bloque 77 (pedido explícito): una tienda privada nunca aparece en
-      // este catálogo público (Home.jsx/StoresPage) — sigue 100% accesible
-      // por su link directo, ver getVendorBySlug, que NO chequea esto.
-      isPrivate: false,
-      // Bloque 64 (regla de visibilidad, INDEPENDIENTE de verificationStatus
-      // de arriba): una tienda sin ningún producto publicado no aparece acá,
-      // verificada o no, Plan Business o Regular. Si además se pide un rango de precios, basta con que UN producto visible
-      // esté dentro del rango.
-      products: {
-        some: {
-          isActive: true,
-          hiddenFromStore: false,
-          overQuota: false,
-          currency: currencyFilter,
-          price: min || max ? { gte: min, lte: max } : undefined,
-        },
+  const where = {
+    isBlocked: false,
+    status: "ACTIVE",
+    // Bloque 77 (pedido explícito): una tienda privada nunca aparece en
+    // este catálogo público (Home.jsx/StoresPage) — sigue 100% accesible
+    // por su link directo, ver getVendorBySlug, que NO chequea esto.
+    isPrivate: false,
+    // Bloque 64 (regla de visibilidad, INDEPENDIENTE de verificationStatus
+    // de arriba): una tienda sin ningún producto publicado no aparece acá,
+    // verificada o no, Plan Business o Regular. Si además se pide un rango de precios, basta con que UN producto visible
+    // esté dentro del rango.
+    products: {
+      some: {
+        ...LIST_VISIBLE_PRODUCT_WHERE,
+        currency: currencyFilter,
+        price: min || max ? { gte: min, lte: max } : undefined,
       },
-      isRestaurant: isRestaurant !== undefined ? isRestaurant === "true" : undefined,
-      verificationStatus: isVerified !== undefined ? (isVerified === "true" ? "VERIFIED" : { not: "VERIFIED" }) : undefined,
-      companyName: q ? { contains: String(q), mode: "insensitive" } : undefined,
-      businessCategoryId: businessCategoryIds.length ? { in: businessCategoryIds } : undefined,
-      checkoutPaymentOptions: checkoutOptions.length ? { hasSome: checkoutOptions } : undefined,
-      acceptedPaymentMethods: acceptedMethods.length ? { hasSome: acceptedMethods } : undefined,
-      rating: ratingMin ? { gte: ratingMin } : undefined,
-      locations: vendorZoneWhere({ countryId, provinceId, municipalityId }),
     },
-    orderBy: { createdAt: "desc" },
-    include: {
-      locations: { include: { province: true, municipality: true } },
-      category: true,
-      businessCategory: true,
-      // Bloque 23: cantidad de productos/servicios activos — se muestra en
-      // StoreCard.jsx. Filtrado por isActive (no cuenta lo pausado/oculto,
-      // que el cliente no puede ver de todas formas).
-      _count: { select: { products: { where: { isActive: true, hiddenFromStore: false, overQuota: false } } } },
-    },
-    take: 100,
+    isRestaurant: isRestaurant !== undefined ? isRestaurant === "true" : undefined,
+    verificationStatus: isVerified !== undefined ? (isVerified === "true" ? "VERIFIED" : { not: "VERIFIED" }) : undefined,
+    companyName: q ? { contains: String(q), mode: "insensitive" } : undefined,
+    businessCategoryId: businessCategoryIds.length ? { in: businessCategoryIds } : undefined,
+    checkoutPaymentOptions: checkoutOptions.length ? { hasSome: checkoutOptions } : undefined,
+    acceptedPaymentMethods: acceptedMethods.length ? { hasSome: acceptedMethods } : undefined,
+    rating: ratingMin ? { gte: ratingMin } : undefined,
+    locations: vendorZoneWhere({ countryId, provinceId, municipalityId }),
+  };
+  // Bloque 23: cantidad de productos/servicios activos — se muestra en
+  // StoreCard.jsx. Filtrado por isActive (no cuenta lo pausado/oculto,
+  // que el cliente no puede ver de todas formas).
+  const visibleProductsCount = { _count: { select: { products: { where: LIST_VISIBLE_PRODUCT_WHERE } } } };
+
+  // El orden se decide sobre TODAS las tiendas que cumplen los filtros y recién después se corta la página. Antes se traían
+  // las 100 más nuevas y se ordenaban esas: con más de 100 tiendas, una verificada antigua desaparecía, "Mejor valoradas"
+  // solo comparaba las 100 más nuevas y Stores.jsx decía "100 tiendas en total". Esta primera consulta trae solo lo que
+  // hace falta para ordenar (sin ubicaciones ni categorías), y la segunda trae completas solo las de la página.
+  const keys = await prisma.vendor.findMany({
+    where,
+    select: { id: true, verificationStatus: true, createdAt: true, rating: true, reviewCount: true, ...(sortBy === "products" ? visibleProductsCount : {}) },
   });
 
   // Bloque 64: verificadas primero — ya no se puede ordenar por isVerified
   // en la propia query (es un enum de 8 valores, no un booleano), se
   // reordena acá con el mismo criterio de siempre. Dentro de cada grupo manda el orden elegido (el de base es "recientes").
   const verifiedFirst = (a, b) => (b.verificationStatus === "VERIFIED" ? 1 : 0) - (a.verificationStatus === "VERIFIED" ? 1 : 0);
-  // "Mejor valoradas": puntaje ponderado (promedio + cantidad de reseñas), no el promedio a secas (ver lib/ratings.js).
+  // "Mejor valoradas": puntaje ponderado (promedio + cantidad de reseñas), no el promedio a secas (ver lib/ratings.js). No
+  // se puede pedir a la base con orderBy, por eso se ordena aquí.
   const secondary = sortBy === "rating" ? (a, b) => ratingScore(b.rating, b.reviewCount) - ratingScore(a.rating, a.reviewCount) : sortBy === "products" ? (a, b) => b._count.products - a._count.products : () => 0;
-  vendors.sort((a, b) => verifiedFirst(a, b) || secondary(a, b));
+  // Desempate: la más nueva primero (el orden de antes), y el id para que dos páginas nunca repitan ni salten una tienda.
+  const newestFirst = (a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+  keys.sort((a, b) => verifiedFirst(a, b) || secondary(a, b) || newestFirst(a, b));
+
+  const total = keys.length;
+  const pageIds = keys.slice((page - 1) * pageSize, page * pageSize).map((k) => k.id);
+  const rows = pageIds.length
+    ? await prisma.vendor.findMany({
+        where: { id: { in: pageIds } },
+        include: {
+          locations: { include: { province: true, municipality: true } },
+          category: true,
+          businessCategory: true,
+          ...visibleProductsCount,
+        },
+      })
+    : [];
+  const byId = new Map(rows.map((v) => [v.id, v]));
+  const vendors = pageIds.map((id) => byId.get(id)).filter(Boolean);
 
   // ownerName es privado — ver nota en getVendorBySlug.
-  res.json({ vendors: withComputedVendorFieldsList(vendors.map(toPublicVendor)) });
+  // total es el número real de tiendas con estos filtros (para "N tiendas en total"), no el largo de esta página.
+  res.json({ vendors: withComputedVendorFieldsList(vendors.map(toPublicVendor)), total, page, pageSize, hasMore: page * pageSize < total });
 }
 
 // Bloque 183: resolveMyVendor (no un findUnique directo por userId) — es lo
@@ -524,7 +676,9 @@ export async function getMyVendor(req, res) {
       deliveryCountries: { include: { country: true } },
     },
   });
-  res.json({ vendor: withComputedVendorFields(stripOwnerPrivateFields(vendor, req.user.role)) });
+  // planFeatures va también al personal: su menú se recorta igual que el del dueño (VendorLayout.jsx).
+  const planFeatures = planFeaturesOf(await getPlanConfig(vendor.planType));
+  res.json({ vendor: { ...withComputedVendorFields(stripOwnerPrivateFields(vendor, req.user.role)), planFeatures } });
 }
 
 // Bloque 184 (auditoría de seguridad): /vendors/me es la única ruta del
@@ -602,7 +756,7 @@ const updateVendorSchema = z.object({
   companyAddress: z.string().trim().min(1).optional().nullable(),
   description: z.string().max(200, "La descripción de la tienda admite hasta 200 caracteres.").optional().nullable(),
   whatsapp: z.string().regex(E164_REGEX, "El WhatsApp debe incluir código de país (ej. +5355512345).").optional(),
-  email: z.string().email().optional(),
+  email: emailField().optional(),
   // Solo un enlace https externo o un logo ya subido a /uploads/vendor-branding: cualquier otra ruta del servidor
   // terminaría tratada como "el logo anterior" al subir uno nuevo (auditoría run-2).
   logoUrl: z
@@ -622,11 +776,13 @@ const updateVendorSchema = z.object({
   // registrar la tienda — ver createVendorSchema arriba, mismo criterio de
   // sembrado de mesas al prenderlo acá.
   isRestaurant: z.boolean().optional(),
-  tableCount: z.number().int().positive().optional(),
+  tableCount: tableCountField.optional(),
   // Bloque 208 (pedido explícito): si el menú digital se ve en la tienda
   // pública o solo escaneando el QR de la mesa.
   menuPublic: z.boolean().optional(),
-  planType: z.enum(["REGULAR", "BUSINESS"]).optional(),
+  // Solo sirve para BAJAR al plan por defecto (ver updateVendor). Ya no es una lista fija de claves: se acepta cualquier
+  // clave bien formada y updateVendor decide; subir de plan nunca pasa por aquí (se paga desde Verificación o Suscripción).
+  planType: z.string().trim().regex(PLAN_KEY_PATTERN, "Ese plan no existe.").optional(),
   // Bloque 68: 3ra opción — BOTH (WhatsApp + panel). Ver el enum en
   // schema.prisma para lo que decide cada valor ahora (ya no gatea si se
   // crea el Order, eso siempre pasa; solo qué le ofrece la confirmación).
@@ -769,22 +925,31 @@ export async function updateMyVendor(req, res) {
     }
   }
 
-  // El upgrade a Business solo lo otorga una verificación KYC aprobada (ver
-  // verification.controller.js) — acá solo se permite bajar a Regular.
-  // Bloque 66 (pedido explícito): si la tienda está VERIFIED, bajar a
-  // Regular queda DIFERIDO (ver más abajo) — planType se mantiene BUSINESS
+  // El upgrade a un plan de pago solo lo otorga una verificación KYC aprobada o un pago (ver
+  // verification.controller.js) — acá solo se permite bajar al plan por defecto (isDefault, hoy el Básico).
+  // Bloque 66 (pedido explícito): si la tienda tiene un ciclo pagado en curso (VERIFIED o un plan de pago
+  // sin insignia con su periodo vigente), bajar al plan por defecto queda DIFERIDO (ver más abajo) — planType se mantiene en el plan de pago
   // acá, el cron/webhook lo cambia recién al llegar la fecha real de
   // vencimiento (Vendor.nextPaymentDueDate).
-  const planType = data.planType === "REGULAR" && vendor.verificationStatus !== "VERIFIED" ? "REGULAR" : undefined;
+  // Cualquier otra clave (un plan de pago, inexistente o archivado) se ignora igual que antes se ignoraba "BUSINESS".
+  const defaultPlanKey = await getDefaultPlanKey();
+  const wantsDefaultPlan = data.planType !== undefined && data.planType === defaultPlanKey;
+  // Ciclo pagado en curso: la insignia (VERIFIED) o un plan de pago con su periodo vigente (isPremiumActive cubre los
+  // planes de pago sin insignia, que se pagan desde Suscripción sin pasar por la verificación). Con un ciclo en curso la
+  // bajada se difiere al final de lo pagado, como en cancelMySubscription; bajarla al momento le quitaba días ya pagados.
+  const paidRunning = vendor.verificationStatus === "VERIFIED" || isPremiumActive(vendor);
+  const planType = wantsDefaultPlan && !paidRunning && vendor.planType !== defaultPlanKey ? defaultPlanKey : undefined;
 
   // Bloque 206: mismo sembrado de mesas que createVendor, para el caso de
   // "se hace restaurante recién ahora" — el chequeo de 0 mesas existentes
   // evita chocar con @@unique([vendorId, tableNumber]) si ya tuvo mesas
   // antes (se desactivó y se vuelve a activar).
-  // Cualquier cambio del número de mesas respeta el tope del plan de esta tienda.
-  if (data.tableCount) await assertTableCountWithinPlan(vendor.planType, data.tableCount);
+  // Cualquier cambio del número de mesas respeta el tope del plan de esta tienda. Sin mesas con QR en el plan no se
+  // siembra ninguna (mismo criterio que createVendor y createTable) y el tope no aplica: tableCount queda solo como dato.
+  const canSeedTables = await planAllows(vendor, "allowQrTables");
+  if (data.tableCount && canSeedTables) await assertTableCountWithinPlan(vendor.planType, data.tableCount);
   let seedTables;
-  if (data.isRestaurant === true && !vendor.isRestaurant && data.tableCount) {
+  if (data.isRestaurant === true && !vendor.isRestaurant && data.tableCount && canSeedTables) {
     const existingTableCount = await prisma.table.count({ where: { vendorId: vendor.id } });
     if (existingTableCount === 0) {
       seedTables = Array.from({ length: data.tableCount }, (_, i) => ({ tableNumber: i + 1 }));
@@ -803,7 +968,7 @@ export async function updateMyVendor(req, res) {
   let orderDestination = data.orderDestination;
   // El panel lo tiene toda tienda; el plan solo decide si puede ofrecer además el botón de WhatsApp.
   if (orderDestination === "BOTH" && planConfig && !planConfig.allowWhatsappOrders) {
-    throw new AppError(`Tu Plan ${planConfig.displayName ?? vendor.planType} no incluye el botón para enviar el pedido por WhatsApp.`, 403);
+    throw new AppError(`Tu plan ${planConfig.displayName ?? vendor.planType} no incluye el botón para enviar el pedido por WhatsApp.`, 403);
   }
 
   let updated = await prisma.vendor.update({
@@ -821,7 +986,7 @@ export async function updateMyVendor(req, res) {
       tableCount: data.tableCount,
       menuPublic: data.menuPublic,
       tables: seedTables ? { create: seedTables } : undefined,
-      planType,
+      // planType no se escribe aquí: la bajada va por applyPlanDowngrade (más abajo).
       orderDestination,
       notifyNewOrderEmail: data.notifyNewOrderEmail,
       checkoutPaymentOptions: data.checkoutPaymentOptions ? [...new Set(data.checkoutPaymentOptions)] : undefined,
@@ -838,9 +1003,26 @@ export async function updateMyVendor(req, res) {
     },
   });
 
-  if (data.planType === "REGULAR" && vendor.verificationStatus === "VERIFIED") {
+  // Bajada inmediata al plan por defecto (sin ciclo pagado vigente): la misma función que usan el admin, la tarea diaria y
+  // el aviso de Stripe. Antes aquí solo se escribía planType y se recalculaba el cupo de productos; applyPlanDowngrade además
+  // cancela la suscripción de tarjeta que quedara viva (si no, Stripe seguía cobrando y su renovación volvía a subir el
+  // plan), limpia la fecha de cobro y la etapa del cobro de planes sin insignia, apaga las ofertas de tienda que el plan
+  // por defecto no permite, levanta una suspensión por falta de pago y anota el cambio ("vendor_request") en el historial.
+  // No avisa a la tienda: adminNoticeToVendor solo escribe cuando un admin marca "Avisar a la tienda", y aquí lo pidió ella.
+  if (planType) {
+    const defaultName = await planDisplayName(planType);
+    updated =
+      (await applyPlanDowngrade(vendor.id, {
+        actorId: req.user.id,
+        source: "VENDOR_ACTION",
+        reason: `La tienda eligió el plan ${defaultName}.`,
+        planChangeReason: "vendor_request",
+      })) ?? updated;
+  }
+
+  if (wantsDefaultPlan && paidRunning) {
     // Bloque 66 (pedido explícito): "Cancelar suscripción" ya NO revoca el
-    // acceso de inmediato — la tienda sigue VERIFIED/Business hasta
+    // acceso de inmediato — la tienda sigue con su plan de pago hasta
     // Vendor.nextPaymentDueDate. Se registra la intención (cancelAtPeriodEnd)
     // y, si paga con Stripe, se agenda su cancelación NATIVA
     // (cancel_at_period_end) — Stripe sigue facturando/vigente hasta el
@@ -852,13 +1034,22 @@ export async function updateMyVendor(req, res) {
       if (vendor.stripeSubscriptionId) await scheduleStripeSubscriptionCancellation(vendor.stripeSubscriptionId);
       updated = await prisma.vendor.update({ where: { id: vendor.id }, data: { cancelAtPeriodEnd: true } });
     }
-  } else if (data.planType === "REGULAR" && !["NOT_STARTED", "REJECTED", "PLAN_ENDED"].includes(vendor.verificationStatus)) {
+    // Un plan de pago sin insignia con su periodo vigente puede tener además una verificación en curso (por ejemplo, el
+    // pago pendiente para subir de plan). Antes esta rama era solo para VERIFIED y ese caso caía en la de abajo, que la
+    // cerraba; si quedara abierta, el admin podría aprobarla y subirle el plan a una tienda que pidió bajar. Se cierra
+    // igual que abajo, pero sin tocar stripeSubscriptionId: es el cobro del plan vigente y Stripe lo cancela al final del
+    // periodo (agendado arriba).
+    if (vendor.verificationStatus !== "VERIFIED" && !["NOT_STARTED", "REJECTED", "PLAN_ENDED"].includes(vendor.verificationStatus)) {
+      updated = await transitionVendorVerification(vendor.id, "NOT_STARTED", { actorId: req.user.id, source: "VENDOR_ACTION" });
+    }
+  } else if (wantsDefaultPlan && !["NOT_STARTED", "REJECTED", "PLAN_ENDED"].includes(vendor.verificationStatus)) {
     // Bloque 64 (mismo criterio que revoke-business del admin): todavía en
     // documentos/pago (nunca llegó a VERIFIED) — no hay ciclo pago vigente
     // que honrar, así que cancelar acá sigue siendo inmediato: vuelve a
     // NOT_STARTED de verdad y cancela cualquier suscripción de Stripe que
-    // hubiera quedado a medias.
-    if (vendor.stripeSubscriptionId) await cancelStripeSubscription(vendor.stripeSubscriptionId);
+    // hubiera quedado a medias. Si la tienda bajó arriba (planType), applyPlanDowngrade ya la canceló y la borró: cancelarla
+    // otra vez fallaría con una suscripción que Stripe ya dio por terminada.
+    if (vendor.stripeSubscriptionId && !planType) await cancelStripeSubscription(vendor.stripeSubscriptionId);
     updated = await transitionVendorVerification(vendor.id, "NOT_STARTED", {
       actorId: req.user.id,
       source: "VENDOR_ACTION",
@@ -1097,7 +1288,8 @@ export async function acceptTrialOffer(req, res) {
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
   const { billing } = acceptTrialSchema.parse(req.body ?? {});
   // Una pestaña vieja con la oferta abierta no puede aceptarla si la tienda ya tiene o tuvo Premium.
-  if (await hasHadPremium(vendor.id)) throw new AppError("Tu tienda ya tiene o tuvo el plan Premium: la prueba gratis es solo para tiendas nuevas.", 409);
+  // El nombre del plan de prueba sale de la base (isTrialPlan), no de un texto fijo.
+  if (await hasHadPremium(vendor.id)) throw new AppError(`Tu tienda ya tiene o tuvo un plan de pago: la prueba gratis del plan ${await planDisplayName(await getTrialPlanKey())} es solo para tiendas nuevas.`, 409);
   // Idempotente a propósito — un doble clic/doble request nunca pisa un
   // trialStartedAt que ya existía.
   if (!vendor.trialStartedAt) {
@@ -1106,7 +1298,7 @@ export async function acceptTrialOffer(req, res) {
     // revisión humana, así que este es el momento de mirar quién la pidió.
     void notifyAdminActionNeeded(
       `Tienda aceptó la prueba gratis: ${vendor.companyName}`,
-      `${vendor.companyName} aceptó la prueba gratis de ${await getTrialDays()} días del Plan Premium (después paga ${billing === "CARD" ? "con tarjeta, cobro automático" : "en CUP, a mano"}). Se activará cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado)${billing === "CARD" ? " y registre su tarjeta" : ""}.`,
+      `${vendor.companyName} aceptó la prueba gratis de ${await getTrialDays()} días del plan ${await planDisplayName(await getTrialPlanKey())} (después paga ${billing === "CARD" ? "con tarjeta, cobro automático" : "en CUP, a mano"}). Se activará cuando complete todos los requisitos (datos, documento, selfie, logo y un producto publicado)${billing === "CARD" ? " y registre su tarjeta" : ""}.`,
       vendor.id,
       { url: `/admin/tiendas/${vendor.id}` }
     ).catch(() => {});
@@ -1305,13 +1497,18 @@ export async function getDashboard(req, res) {
 
   const orderedCustomerIds = new Set(orderedRows.map((o) => o.customerId));
   const potentialCustomerIds = engagedRows.map((e) => e.customerId).filter((id) => !orderedCustomerIds.has(id));
-  const potentialCustomers = potentialCustomerIds.length
+  // El correo y el teléfono de los clientes son de la sección "Clientes", que el dueño delega aparte. Un usuario del equipo
+  // con "Resumen" pero sin "Clientes" ve cuántos son y su nombre, no cómo contactarlos. El nombre vacío se rellena con
+  // "Cliente": VendorDashboard.jsx saca la inicial de fullName o, si falta, del correo, que aquí no llega.
+  const canSeeContacts = !req.vendorStaff || req.vendorStaff.allowedSections.includes("clientes");
+  const potentialRows = potentialCustomerIds.length
     ? await prisma.user.findMany({
         where: { id: { in: potentialCustomerIds } },
-        select: { id: true, fullName: true, email: true, phone: true },
+        select: { id: true, fullName: true, email: canSeeContacts, phone: canSeeContacts },
         take: 20,
       })
     : [];
+  const potentialCustomers = canSeeContacts ? potentialRows : potentialRows.map((c) => ({ id: c.id, fullName: c.fullName || "Cliente" }));
 
   const [recentOrders, recentTableOrders, healthScore] = await Promise.all([
     prisma.order.findMany({ where: { vendorId: vendor.id }, orderBy: { createdAt: "desc" }, take: 4 }),
@@ -1721,10 +1918,9 @@ export async function addMyDeliveryCountry(req, res) {
   const max = planConfig?.maxDeliveryCountries ?? null;
   const currentCount = await prisma.vendorDeliveryCountry.count({ where: { vendorId: vendor.id } });
   if (max !== null && currentCount >= max) {
-    throw new AppError(
-      `Tu Plan ${planConfig.displayName} permite hasta ${max} país(es) de entrega. Quita uno o verifica tu tienda para ampliar el límite.`,
-      403
-    );
+    // Los planes con más países salen de la base: antes decía "verifica tu tienda", como si verificarse subiera el tope.
+    const more = plansSentence(await plansOffering(null, { limitKey: "maxDeliveryCountries", above: max }), { one: "Para enviar a más países, cámbiate al plan", many: "Para enviar a más países, cámbiate a uno de estos planes:" });
+    throw new AppError([`Tu plan ${planConfig.displayName} permite enviar a hasta ${max} ${max === 1 ? "país" : "países"}. Quita uno.`, more].filter(Boolean).join(" "), 403);
   }
 
   const created = await prisma.vendorDeliveryCountry.create({ data: { vendorId: vendor.id, countryId }, include: { country: true } });
@@ -1763,17 +1959,18 @@ export async function addMyLocation(req, res) {
   if (!province || !province.isActive) throw new AppError("Provincia/Estado no disponible.", 404);
 
   const existingLocations = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id } });
-  const distinctProvinceCount = new Set(existingLocations.map((l) => l.provinceId)).size;
+  // Misma cuenta que el registro y el admin (countVendorProvinces): las ubicaciones fuera del catálogo cuentan por su país
+  // y estado.
+  const distinctProvinceCount = countVendorProvinces(existingLocations);
   const isNewProvince = !existingLocations.some((l) => l.provinceId === provinceId);
 
   if (isNewProvince) {
     const planConfig = await getPlanConfig(vendor.planType);
     const max = planConfig?.maxProvinces ?? null;
     if (max !== null && distinctProvinceCount >= max) {
-      throw new AppError(
-        `Tu Plan ${planConfig.displayName} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
-        403
-      );
+      // Igual que con los países: los planes con más provincias salen de la base.
+      const more = plansSentence(await plansOffering(null, { limitKey: "maxProvinces", above: max }), { one: "Para vender en más provincias, cámbiate al plan", many: "Para vender en más provincias, cámbiate a uno de estos planes:" });
+      throw new AppError([`Tu plan ${planConfig.displayName} permite vender en hasta ${max} ${max === 1 ? "provincia" : "provincias"}.`, more].filter(Boolean).join(" "), 403);
     }
   }
 
@@ -1868,6 +2065,12 @@ export async function removeAiDocument(req, res) {
   res.status(204).end();
 }
 
+// "danisrego@gmail.com" -> "d•••@gmail.com": lo justo para que la persona reconozca su correo sin mostrarlo entero.
+function maskEmail(email) {
+  const [local, domain] = String(email).split("@");
+  return `${local.slice(0, 1)}•••@${domain ?? ""}`;
+}
+
 // Comprobación previa del registro de tienda (antes de crear la cuenta): avisa en el formulario si el nombre, el WhatsApp o el
 // correo ya los usa otra tienda, para no crear una cuenta que después no pueda abrir su tienda.
 export async function checkVendorAvailability(req, res) {
@@ -1882,8 +2085,32 @@ export async function checkVendorAvailability(req, res) {
   if (await findBlacklisted({ email: data.email, phone: data.whatsapp, storeName: data.companyName, username: data.username })) {
     conflicts.blacklisted = "No podemos usar estos datos en la plataforma. Si crees que es un error, escribe a soporte.";
   }
+  // El cliente que abre su tienda es la misma persona: si el WhatsApp es el teléfono de una cuenta de cliente sin tienda, no es
+  // "otra cuenta" sino la suya. Se le pide iniciar sesión con ella (createVendor la usa) en vez de cortarle el registro. No se
+  // dice de quién es la cuenta: es el mismo dato que ya revela el aviso de teléfono ocupado.
+  let phoneAccountExists = false;
+  let phoneAccountEmailHint = null;
+  if (!req.user && conflicts.whatsapp && data.whatsapp) {
+    const d = data.whatsapp.replace(/\D/g, "");
+    const owner = await prisma.user.findFirst({
+      where: { phone: { in: [`+${d}`, d] }, deletedAt: null, role: "CUSTOMER", vendor: { is: null } },
+      select: { id: true, email: true },
+    });
+    const storeHasIt = await prisma.vendor.findFirst({ where: { deletedAt: null, whatsapp: { in: [`+${d}`, d] } }, select: { id: true } });
+    // Con el mismo correo de esa cuenta, el registro sigue y se une solo (register con forStore). Con otro correo no se puede
+    // unir sin probar que el número es suyo (no mandamos códigos por SMS): se le da una pista del correo de su cuenta, oculta
+    // ("d•••@gmail.com"), para que lo use.
+    const sameEmail = owner && data.email?.trim() && owner.email.toLowerCase() === data.email.trim().toLowerCase();
+    if (owner && !storeHasIt) {
+      delete conflicts.whatsapp;
+      if (!sameEmail) {
+        phoneAccountExists = true;
+        phoneAccountEmailHint = maskEmail(owner.email);
+      }
+    }
+  }
   const suggestedUsername = data.companyName?.trim() ? await suggestUsername(data.companyName) : null;
-  res.json({ conflicts, accountExists, suggestedUsername });
+  res.json({ conflicts, accountExists, phoneAccountExists, phoneAccountEmailHint, suggestedUsername });
 }
 
 // Revisión en vivo del nombre de usuario mientras se escribe (registro y Perfil). ?u=usuario y/o ?name=nombre de la tienda

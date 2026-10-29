@@ -6,17 +6,148 @@ import { publicCatalog } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
-import { getAllPlanConfigs, getPlanConfig, invalidatePlanConfigCache, recalcVendorProductQuota, buildPlanIncludes, publicPlan } from "../lib/planConfig.js";
+import { getAllPlanConfigs, getPlanConfig, buildPlanIncludes, publicPlan, isValidPlanKey, PLAN_KEY_PATTERN } from "../lib/planConfig.js";
+import { applyPlanUpdate, planPatchSchema } from "./adminPlans.controller.js";
 import { getModelHealthRows, isChatbotHealthy } from "../lib/aiProviderHealth.js";
 import { createHeroVariant, smallVariantName } from "../lib/heroVariants.js";
 import { forgetPwaEnabled } from "../lib/push.js";
 import { connectedCount } from "../lib/realtime.js";
 import { clearPublicCache } from "../middleware/publicCache.js";
+import { resolveSessionUser } from "../middleware/auth.js";
+import { normalizeSocialLinks } from "../lib/socialLinks.js";
 
-// Bloque 294: tope de mesas de cada plan (null = sin tope), para los formularios del restaurante.
-async function tablesLimitByPlan() {
-  const configs = await getAllPlanConfigs();
-  return Object.fromEntries(configs.map((c) => [c.planType, c.maxTables ?? null]));
+// Bloque 294: tope de mesas de cada plan (null = sin tope), para los formularios del restaurante. Solo de los planes que
+// quien pide puede ver con detalle (ver plansForViewer).
+function tablesLimitByPlan(detailedPlans) {
+  return Object.fromEntries(detailedPlans.map((c) => [c.planType, c.maxTables ?? null]));
+}
+
+// GET /settings es público. Antes mandaba la fila completa de TODOS los planes no archivados, también los ocultos
+// (isPublic=false): cualquier visitante veía precios, topes e interruptores de un plan que el admin no publica (por ejemplo
+// uno pactado a mano con una tienda). Ahora la fila completa va solo para los planes públicos, el de la prueba gratis (se
+// le ofrece a toda tienda), el plan por defecto, el plan actual de quien pide (dueño o personal de la tienda) y, para el
+// admin, todos. Con sesión, el resto de los ocultos viaja solo con su nombre y sus banderas de papel, que hacen falta para
+// nombrar el plan de una tienda en cualquier pantalla (planNames). Sin sesión no viajan: ninguna pantalla pública nombra
+// un plan oculto, y su nombre puede ser el de un trato hecho a mano con una tienda. Esto exige que el frontend vuelva a
+// pedir /settings al iniciar sesión, porque comparte una sola copia guardada (queryKey ["site-settings"]).
+async function planViewer(req) {
+  const user = await resolveSessionUser(req);
+  if (!user) return { anonymous: true, admin: false, planType: null };
+  if (user.role === "ADMIN") return { anonymous: false, admin: true, planType: null };
+  let vendor = null;
+  if (user.role === "VENDOR") {
+    vendor = await prisma.vendor.findUnique({ where: { userId: user.id }, select: { planType: true } });
+  } else if (user.role === "VENDOR_STAFF") {
+    const staff = await prisma.vendorStaff.findUnique({ where: { userId: user.id }, select: { vendor: { select: { planType: true } } } });
+    vendor = staff?.vendor ?? null;
+  }
+  return { anonymous: false, admin: false, planType: vendor?.planType ?? null };
+}
+
+// Lo mínimo de un plan oculto que no es de quien pide: sin precios, topes, interruptores ni beneficios. Los arreglos van
+// vacíos (no ausentes) para que una pantalla que los recorre no falle.
+function hiddenPlanStub(p) {
+  return {
+    planType: p.planType,
+    displayName: p.displayName,
+    sortOrder: p.sortOrder,
+    isPublic: false,
+    isDefault: !!p.isDefault,
+    isTrialPlan: !!p.isTrialPlan,
+    isFree: !!p.isFree,
+    contactOnly: !!p.contactOnly,
+    grantsBadge: !!p.grantsBadge,
+    highlighted: false,
+    archivedAt: null,
+    monthDiscounts: [],
+    features: [],
+    includes: [],
+  };
+}
+
+async function plansForViewer(req) {
+  const [configs, viewer] = await Promise.all([getAllPlanConfigs(), planViewer(req)]);
+  const detailed = configs.filter((p) => viewer.admin || p.isPublic || p.isDefault || p.isTrialPlan || p.planType === viewer.planType);
+  const detailedKeys = new Set(detailed.map((p) => p.planType));
+  const plans = configs
+    .filter((p) => !viewer.anonymous || detailedKeys.has(p.planType))
+    .map((p) => (detailedKeys.has(p.planType) ? { ...p, includes: buildPlanIncludes(p) } : hiddenPlanStub(p)));
+  return { plans, detailed };
+}
+
+// El estado de la IA se lee de la base en cada /settings, que pide cada visita: se guarda 15 s en memoria. Las filas de
+// salud las actualiza una tarea cada varios minutos, así que no se pierde nada.
+let chatbotCache = null;
+async function chatbotAvailable() {
+  if (chatbotCache && chatbotCache.expires > Date.now()) return chatbotCache.value;
+  const value = await isChatbotHealthy();
+  chatbotCache = { value, expires: Date.now() + 15_000 };
+  return value;
+}
+
+// --- Redes de la plataforma (pie del sitio y de los correos) ------------------------------------------------------------
+// Antes se guardaban como texto libre y el pie las ponía tal cual en href: un "javascript:..." se ejecutaba en todas las
+// páginas y un "instagram.com/x" sin https quedaba como ruta relativa (404). Ahora pasan por la misma normalización que las
+// redes de las tiendas (lib/socialLinks.js): solo https del dominio de cada red, el usuario ("@baznova") se completa y un
+// número de WhatsApp queda como wa.me.
+const BRAND_LINKS = [
+  ["whatsappUrl", "whatsapp"],
+  ["instagramUrl", "instagram"],
+  ["facebookUrl", "facebook"],
+];
+
+// Enlaces de WhatsApp sin número que sí abren un chat, un canal o un grupo, y que la plataforma usa de verdad: el enlace
+// corto de WhatsApp Business (wa.me/message/<código>, wa.me/qr/<código>; el guardado hoy es uno de estos), un canal
+// (whatsapp.com/channel/<id>) y la invitación a un grupo (chat.whatsapp.com/<código>). Se miran ANTES de
+// normalizeSocialLinks y no cuando falla: esa función saca los dígitos de toda la ruta de wa.me, así que
+// wa.me/message/AB1234567 quedaría como wa.me/1234567, un número equivocado y sin error. Por lo mismo, cualquier otra
+// ruta de wa.me que no sea solo el número se rechaza aquí. Devuelve null cuando el enlace es de otro tipo (número,
+// wa.me/<número>, api.whatsapp.com/send?phone=...) y lo resuelve normalizeSocialLinks, que también rechaza lo que no abre
+// ningún chat (api.whatsapp.com/send sin phone, faq.whatsapp.com/...).
+const WA_CODE = "[A-Za-z0-9]{1,100}";
+const WA_SHORT_PATH = new RegExp(`^/(message|qr)/${WA_CODE}$`, "i");
+const WA_CHANNEL_PATH = new RegExp(`^/channel/${WA_CODE}$`);
+const WA_GROUP_PATH = new RegExp(`^/${WA_CODE}$`);
+// El número puede venir con guiones o puntos (wa.me/53-5123-4567): normalizeSocialLinks los quita y revisa el largo.
+const WA_NUMBER_PATH = /^\/\+?[\d.-]{7,20}$/;
+
+function whatsappLinkWithoutNumber(value) {
+  let url;
+  try {
+    url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+  } catch {
+    return null;
+  }
+  if (!["http:", "https:"].includes(url.protocol)) return null;
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  const path = url.pathname.replace(/\/+$/, "");
+  if (host === "wa.me") {
+    if (WA_SHORT_PATH.test(path)) return `https://wa.me${path}`;
+    if (WA_NUMBER_PATH.test(path)) return null;
+    throw new AppError("El enlace de WhatsApp tiene que llevar el número (por ejemplo wa.me/5351234567) o ser el enlace corto de WhatsApp Business (wa.me/message/...).", 400);
+  }
+  if (host === "whatsapp.com" && WA_CHANNEL_PATH.test(path)) return `https://whatsapp.com${path}`;
+  if (host === "chat.whatsapp.com" && WA_GROUP_PATH.test(path)) return `https://chat.whatsapp.com${path}`;
+  return null;
+}
+
+function brandLink(network, raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  if (network === "whatsapp") {
+    const special = whatsappLinkWithoutNumber(value);
+    if (special) return special;
+  }
+  return normalizeSocialLinks({ [network]: value })?.[network]?.url ?? null;
+}
+
+// Al leer: un valor guardado antes de esta validación que no la pasa no se publica (null), en vez de llegar al href.
+function safeBrandLink(network, stored) {
+  try {
+    return brandLink(network, stored);
+  } catch {
+    return null;
+  }
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,8 +202,11 @@ export async function updateMaintenance(req, res) {
 // Público — Home.jsx lo consulta sin autenticación para pintar el hero.
 // También expone los límites por plan (Bloque 19): el panel de vendedor los
 // necesita para deshabilitar "+ Agregar" al llegar al tope y mostrar "X/Y".
-export async function getSettings(_req, res) {
-  const [settings, catalog] = await Promise.all([getOrCreateSettings(), publicCatalog()]);
+export async function getSettings(req, res) {
+  const [settings, catalog, { plans, detailed }] = await Promise.all([getOrCreateSettings(), publicCatalog(), plansForViewer(req)]);
+  // La lista de planes cambia según quién pide (ver plansForViewer): ninguna caché intermedia debe mezclar respuestas.
+  // res.vary agrega a la cabecera y no la reemplaza: cors() (app.js) ya puso "Vary: Origin" y tiene que seguir ahí.
+  res.vary("Authorization");
   // Bloque 52 (pedido explícito — "debe haber una concordancia con todo...
   // vamos a poder ver toda la configuración real que pueden y que van a
   // tener los vendedores"): los 2 planes completos (límites, interruptores,
@@ -82,17 +216,17 @@ export async function getSettings(_req, res) {
   // cada pantalla tenía su propia copia hardcodeada (verificationMeta.js) que
   // podía decir cualquier cosa sin relación con lo que el backend aplicaba.
   // `includes`: lo que incluye cada plan armado con sus límites y funciones reales (ver buildPlanIncludes). `features` sigue
-  // siendo el texto libre que edita el admin.
-  const plans = (await getAllPlanConfigs()).map((p) => ({ ...p, includes: buildPlanIncludes(p) }));
+  // siendo el texto libre que edita el admin. Los planes ocultos solo traen el detalle para quien puede verlo
+  // (plansForViewer).
   res.json({
     settings: {
       plans,
       heroImages: settings.heroImages,
       allowProductImageLinks: settings.allowProductImageLinks,
       siteName: settings.siteName,
-      whatsappUrl: settings.whatsappUrl,
-      instagramUrl: settings.instagramUrl,
-      facebookUrl: settings.facebookUrl,
+      whatsappUrl: safeBrandLink("whatsapp", settings.whatsappUrl),
+      instagramUrl: safeBrandLink("instagram", settings.instagramUrl),
+      facebookUrl: safeBrandLink("facebook", settings.facebookUrl),
       // Bloque 75: número crudo (E.164) para el botón "Contactar soporte"
       // que ve un vendedor bloqueado/suspendido — distinto de whatsappUrl
       // (ese es un link libre para el ícono del pie de los correos).
@@ -125,10 +259,8 @@ export async function getSettings(_req, res) {
       // Bloque 52 (pedido explícito): teléfono por el que el cliente puede
       // verificar/notificar su pago — opcional, solo para copiar.
       cupBankPhone: settings.cupBankPhone,
-      cupSubscriptionPriceCup: settings.cupSubscriptionPriceCup,
-      // Bloque 150: precio mensual del cobro con tarjeta (Stripe) — antes
-      // una constante hardcodeada, ahora editable junto al precio CUP.
-      cardSubscriptionPriceUsd: settings.cardSubscriptionPriceUsd,
+      // Los precios de cada plan viven en PlanConfig (Suscripciones > planes). Los viejos cupSubscriptionPriceCup y
+      // cardSubscriptionPriceUsd de SiteSettings ya no se editan ni se leen: dejaron de viajar aquí.
       // Días de la prueba gratis: los textos de la oferta y del panel lo muestran tal cual.
       trialDays: settings.trialDays,
       // Días sin pagar hasta que una tienda queda suspendida (planBilling.service.js).
@@ -148,10 +280,10 @@ export async function getSettings(_req, res) {
       // lib/aiProviderHealth.js) — Home.jsx lo usa para ocultar el botón de
       // chat cuando los 3 proveedores están caídos, en vez de dejar que el
       // cliente le escriba a un chat que ya se sabe que va a fallar.
-      chatbotAvailable: await isChatbotHealthy(),
+      chatbotAvailable: await chatbotAvailable(),
       // Bloque 294: tope de mesas de cada plan (null = sin tope) para que los formularios de registro y de
       // configuración del restaurante no dejen escribir más de lo que el plan permite.
-      maxTablesByPlan: await tablesLimitByPlan(),
+      maxTablesByPlan: tablesLimitByPlan(detailed),
       // Bloque 237: política de "Venta rápida" (anuncios clasificados de
       // clientes) — la necesitan tanto AdminOffers.jsx (tarjeta nueva) como
       // CustomerPanel.jsx (texto dinámico del ciclo de vida en 2 etapas).
@@ -182,24 +314,18 @@ export async function getOfferPolicy() {
 // (PlanConfig.maxActiveStoreOffers) — por eso ahora pide el planType.
 export async function getStoreOfferPolicy(planType) {
   const config = await getPlanConfig(planType);
-  return { maxActive: config?.maxActiveStoreOffers ?? null };
+  // Un plan sin ofertas tiene tope 0 aunque su maxActiveStoreOffers guarde un
+  // número (el admin apagó el interruptor sin borrar el límite): antes este
+  // valor decía "sin tope" o el número viejo en un plan que no las incluye.
+  if (!config?.allowStoreOffers) return { maxActive: 0 };
+  return { maxActive: config.maxActiveStoreOffers ?? null };
 }
 
-// Bloque 150: uso INTERNO (verification.controller.js/admin.controller.js)
-// — mismo criterio que getBrandSettings/getReviewPolicy, nunca una ruta
-// HTTP directa. Único lugar que resuelve "precio por mes" para calcular el
-// monto esperado de una suscripción — así nunca se desincroniza del precio
-// vigente que el admin edita en AdminSubscriptions.jsx.
 // Días de la prueba gratis del Plan Premium que edita el admin en Suscripciones. Se lee al activar cada prueba, así que un
 // cambio solo afecta a las pruebas que se activen después; las que ya corren conservan su fecha de fin.
 export async function getTrialDays() {
   const settings = await getOrCreateSettings();
   return settings.trialDays ?? 30;
-}
-
-export async function getSubscriptionPricing() {
-  const settings = await getOrCreateSettings();
-  return { cupPricePerMonth: settings.cupSubscriptionPriceCup, cardPricePerMonthUsd: settings.cardSubscriptionPriceUsd };
 }
 
 // Bloque 118: mismo criterio que getOfferPolicy de arriba — uso INTERNO
@@ -214,107 +340,27 @@ export async function getReviewPolicy() {
   };
 }
 
-// Bloque 52 (pedido explícito — "todo por el estilo... configuración de las
-// suscripciones, donde se podrá configurar todo"): reemplaza a
-// updatePlanLimits/updatePlanFeatures — un solo endpoint que guarda TODA la
-// fila de PlanConfig del plan indicado (límites, interruptores, beneficios,
-// nombre visible), en vez de 2 endpoints separados sobre columnas pareadas
-// sueltas de SiteSettings. `.optional()` en cada campo porque
-// AdminSubscriptions.jsx guarda cada tarjeta de plan por separado — un
-// request nunca manda las ~20 columnas, solo las que esa tarjeta edita.
-const discountSchema = z.object({ months: z.number().int().min(2).max(36), cup: z.number().int().min(0).max(90), usd: z.number().int().min(0).max(90) });
-const planConfigSchema = z.object({
-  planType: z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE"]),
-  displayName: z.string().trim().min(1).max(40).optional(),
-  tagline: z.string().trim().max(90).optional().nullable(),
-  sortOrder: z.number().int().min(0).max(99).optional(),
-  // Precios mensuales y precio de lista (tachado mientras el plan es gratis).
-  priceCup: z.number().int().min(0).max(10_000_000).optional(),
-  priceUsd: z.number().min(0).max(100_000).optional(),
-  listPriceCup: z.number().int().min(0).max(10_000_000).optional().nullable(),
-  listPriceUsd: z.number().min(0).max(100_000).optional().nullable(),
-  isFree: z.boolean().optional(),
-  contactOnly: z.boolean().optional(),
-  highlighted: z.boolean().optional(),
-  grantsBadge: z.boolean().optional(),
-  isPublic: z.boolean().optional(),
-  monthDiscounts: z
-    .array(discountSchema)
-    .max(6, "Hasta 6 descuentos por plan.")
-    .refine((a) => new Set(a.map((d) => d.months)).size === a.length, "Hay dos descuentos para la misma cantidad de meses.")
-    .optional(),
-  features: z.array(z.string().trim().min(1)).optional(),
-  maxProducts: z.number().int().min(0).optional().nullable(),
-  maxProvinces: z.number().int().min(0).optional().nullable(),
-  maxDeliveryCountries: z.number().int().min(0).optional().nullable(),
-  maxMonthlyOrderEmails: z.number().int().min(0).optional().nullable(),
-  maxStaffUsers: z.number().int().min(0).optional().nullable(),
-  maxTables: z.number().int().min(0).optional().nullable(),
-  maxActiveStoreOffers: z.number().int().min(0).optional().nullable(),
-  maxDiscountCodes: z.number().int().min(0).optional().nullable(),
-  allowAiChatbot: z.boolean().optional(),
-  allowStoreOffers: z.boolean().optional(),
-  allowDiscountCodes: z.boolean().optional(),
-  allowQrTables: z.boolean().optional(),
-  allowStaffUsers: z.boolean().optional(),
-  allowAdminChat: z.boolean().optional(),
-  allowReviewPhotos: z.boolean().optional(),
-  allowSchedules: z.boolean().optional(),
-  allowPublicProfile: z.boolean().optional(),
-  allowWhatsappOrders: z.boolean().optional(),
-  allowPanelOrders: z.boolean().optional(),
-  featuredInHome: z.boolean().optional(),
-  allowLoyalty: z.boolean().optional(),
-  allowPos: z.boolean().optional(),
-  allowCustomerEmails: z.boolean().optional(),
-});
+// Bloque 52: un solo endpoint guarda la fila de PlanConfig del plan indicado (límites, interruptores, beneficios, nombre
+// visible). `.optional()` en cada campo porque AdminSubscriptions.jsx guarda cada tarjeta de plan por separado.
+// Con los planes dinámicos la validación y los efectos viven en adminPlans.controller.js (applyPlanUpdate), compartidos con
+// PATCH /admin/plans/:key: así la pantalla vieja y la nueva aplican las mismas reglas (isFree y contactOnly excluyentes,
+// descuentos de 2 a 24 meses, tope de beneficios, confirmación al cambiar la insignia o al dejar de cobrar). La clave ya no
+// es una lista fija de 4 planes: cualquier plan que exista (PLAN_KEY_PATTERN + isValidPlanKey).
+// Se arma al primer uso y no al cargar el módulo: adminPlans.controller.js llega a este archivo por una cadena de imports
+// (servicios de planes y de cobro), y según cuál se cargue primero planPatchSchema todavía no existiría aquí.
+let planConfigSchema = null;
+const getPlanConfigSchema = () =>
+  (planConfigSchema ??= planPatchSchema.extend({ planType: z.string().regex(PLAN_KEY_PATTERN, "Plan no encontrado.") }));
 
 export async function listPlanConfigs(_req, res) {
   res.json({ plans: await getAllPlanConfigs() });
 }
 
 export async function updatePlanConfig(req, res) {
-  const { planType, ...data } = planConfigSchema.parse(req.body);
-  // allowPanelOrders ya no se usa: todo pedido entra al panel en cualquier plan. Solo allowWhatsappOrders decide si las
-  // tiendas del plan pueden ofrecer el botón de WhatsApp; si se apaga, las que lo tenían pasan a solo panel.
-  delete data.allowPanelOrders;
-  const before = await prisma.planConfig.findUnique({ where: { planType } });
-  if (!before) throw new AppError("Plan no encontrado.", 404);
-  const next = { ...before, ...data };
-  // Un plan que se cobra necesita precio en las dos monedas (la tienda paga con tarjeta en USD o por transferencia en CUP).
-  if (!next.isFree && !next.contactOnly && (!(next.priceCup > 0) || !(next.priceUsd > 0))) {
-    throw new AppError("Para cobrar este plan escribe su precio en CUP y en USD, o márcalo como gratis o por WhatsApp.", 400);
-  }
-  // El plan gratis no lleva la insignia: la insignia exige verificar documentos, que va unido al pago.
-  if (planType === "REGULAR" && next.grantsBadge && next.isFree) {
-    throw new AppError("Mientras el Básico sea gratis no puede dar la insignia de verificada.", 400);
-  }
-  const updated = await prisma.$transaction(async (tx) => {
-    // Un solo plan destacado ("el más elegido") a la vez.
-    if (data.highlighted === true) await tx.planConfig.updateMany({ where: { planType: { not: planType } }, data: { highlighted: false } });
-    return tx.planConfig.update({ where: { planType }, data });
-  });
-  invalidatePlanConfigCache();
-  // El plan dejó de ser gratis: se avisa a sus tiendas para que paguen antes de su fecha de cobro (planBilling.service.js).
-  if (before.isFree && updated.isFree === false && !updated.contactOnly) {
-    const { startBillingForFreePlan } = await import("../services/planBilling.service.js");
-    void startBillingForFreePlan(planType).catch((err) => console.error("[planes] no se pudo activar el cobro:", err?.message));
-  }
-  if (data.allowWhatsappOrders === false) {
-    await prisma.vendor.updateMany({ where: { planType, orderDestination: { not: "PANEL" } }, data: { orderDestination: "PANEL" } });
-  }
-
-  // Bloque 52 (pedido explícito — al bajar maxProducts, "se muestran solo
-  // los últimos productos del límite... los demás quedan en el panel"):
-  // recalcula el cupo de TODAS las tiendas de este plan — nunca solo al
-  // crear/editar un producto puntual, porque el límite cambió para todas a
-  // la vez acá.
-  if (data.maxProducts !== undefined) {
-    const vendorIds = await prisma.vendor.findMany({ where: { planType }, select: { id: true } });
-    for (const { id } of vendorIds) await recalcVendorProductQuota(id);
-  }
-
-  res.json({ plan: updated });
+  const { planType, ...data } = getPlanConfigSchema().parse(req.body);
+  // Los archivados existen (para el historial), pero applyPlanUpdate responde 409 y pide restaurarlos antes de editarlos.
+  if (!(await isValidPlanKey(planType, { allowArchived: true }))) throw new AppError("Plan no encontrado.", 404);
+  res.json(await applyPlanUpdate(planType, data, { actorId: req.user?.id ?? null }));
 }
 
 const productSettingsSchema = z.object({
@@ -560,13 +606,11 @@ export async function updateReviewPolicy(req, res) {
 
 const brandingSchema = z.object({
   siteName: z.string().trim().min(1).optional(),
-  // Bloque 61: "" borra, undefined no toca (mismo criterio para las 3) —
-  // nunca se valida el formato estricto de URL acá porque un link de
-  // WhatsApp puede ser wa.me/... o api.whatsapp.com/..., no hay un único
-  // formato "correcto" que validar.
-  whatsappUrl: z.string().trim().optional().nullable(),
-  instagramUrl: z.string().trim().optional().nullable(),
-  facebookUrl: z.string().trim().optional().nullable(),
+  // Bloque 61: "" borra, undefined no toca (mismo criterio para las 3). El formato se valida y normaliza en updateBranding
+  // con brandLink (solo https del dominio de cada red), que responde 400 con el motivo.
+  whatsappUrl: z.string().trim().max(300, "El enlace es demasiado largo.").optional().nullable(),
+  instagramUrl: z.string().trim().max(300, "El enlace es demasiado largo.").optional().nullable(),
+  facebookUrl: z.string().trim().max(300, "El enlace es demasiado largo.").optional().nullable(),
   // Bloque 75: a diferencia de whatsappUrl (link libre), este SÍ se valida
   // en formato E.164 — hace falta un número crudo, no un link, para poder
   // armarle un mensaje prellenado al botón "Contactar soporte".
@@ -597,9 +641,9 @@ export async function updateBranding(req, res) {
   const settings = await getOrCreateSettings();
   const update = {};
   if (data.siteName !== undefined) update.siteName = data.siteName;
-  if (data.whatsappUrl !== undefined) update.whatsappUrl = data.whatsappUrl || null;
-  if (data.instagramUrl !== undefined) update.instagramUrl = data.instagramUrl || null;
-  if (data.facebookUrl !== undefined) update.facebookUrl = data.facebookUrl || null;
+  for (const [field, network] of BRAND_LINKS) {
+    if (data[field] !== undefined) update[field] = brandLink(network, data[field]);
+  }
   if (data.supportWhatsapp !== undefined) update.supportWhatsapp = data.supportWhatsapp || null;
   if (data.timezone !== undefined) update.timezone = data.timezone;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
@@ -630,16 +674,6 @@ const cupPaymentSettingsSchema = z.object({
   // no será obligatorio"): mismo criterio opcional que el resto de estos
   // datos — el vendedor solo lo copia, nunca lo escribe.
   cupBankPhone: z.string().trim().optional().nullable(),
-  cupSubscriptionPriceCup: z.number().int().positive().optional(),
-  // Bloque 150: mismo formulario ("Datos de pago de la suscripción" en
-  // AdminSubscriptions.jsx) — el precio CARD/Stripe se edita junto al CUP.
-  // Admite centavos (4.99); se redondea a 2 decimales para que no se guarde ruido de coma flotante.
-  cardSubscriptionPriceUsd: z
-    .number()
-    .positive("El precio con tarjeta debe ser mayor que 0.")
-    .max(10000)
-    .transform((n) => Math.round(n * 100) / 100)
-    .optional(),
   trialDays: z.number().int().min(1, "La prueba debe durar al menos 1 día.").max(365, "La prueba puede durar hasta 365 días.").optional(),
   unpaidSuspendDays: z.number().int().min(1, "Al menos 1 día.").max(365, "Hasta 365 días.").optional(),
 });
@@ -656,8 +690,6 @@ export async function updateCupPaymentSettings(req, res) {
   if (data.cupBankAccountHolder !== undefined) update.cupBankAccountHolder = data.cupBankAccountHolder || null;
   if (data.cupBankInstructions !== undefined) update.cupBankInstructions = data.cupBankInstructions || null;
   if (data.cupBankPhone !== undefined) update.cupBankPhone = data.cupBankPhone || null;
-  if (data.cupSubscriptionPriceCup !== undefined) update.cupSubscriptionPriceCup = data.cupSubscriptionPriceCup;
-  if (data.cardSubscriptionPriceUsd !== undefined) update.cardSubscriptionPriceUsd = data.cardSubscriptionPriceUsd;
   if (data.trialDays !== undefined) update.trialDays = data.trialDays;
   if (data.unpaidSuspendDays !== undefined) update.unpaidSuspendDays = data.unpaidSuspendDays;
   const updated = await prisma.siteSettings.update({ where: { id: settings.id }, data: update });
@@ -667,8 +699,6 @@ export async function updateCupPaymentSettings(req, res) {
       cupBankAccountHolder: updated.cupBankAccountHolder,
       cupBankInstructions: updated.cupBankInstructions,
       cupBankPhone: updated.cupBankPhone,
-      cupSubscriptionPriceCup: updated.cupSubscriptionPriceCup,
-      cardSubscriptionPriceUsd: updated.cardSubscriptionPriceUsd,
       trialDays: updated.trialDays,
       unpaidSuspendDays: updated.unpaidSuspendDays,
     },
@@ -746,9 +776,10 @@ export async function getBrandSettings() {
   return {
     siteName: settings.siteName || "ZeuDin",
     logoUrl,
-    whatsappUrl: settings.whatsappUrl || null,
-    instagramUrl: settings.instagramUrl || null,
-    facebookUrl: settings.facebookUrl || null,
+    // Pie de los correos: un valor viejo que no pasa la validación de redes no se pone en un enlace (ver safeBrandLink).
+    whatsappUrl: safeBrandLink("whatsapp", settings.whatsappUrl),
+    instagramUrl: safeBrandLink("instagram", settings.instagramUrl),
+    facebookUrl: safeBrandLink("facebook", settings.facebookUrl),
   };
 }
 

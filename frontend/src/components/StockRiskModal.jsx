@@ -8,7 +8,7 @@ import { Button } from "./ui/Button.jsx";
 export function StockRiskModal({ atRiskOrders, onNotify, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-tertiary-accent" />
           <h3 className="text-title-lg text-on-surface">Otros pedidos se quedaron sin stock</h3>

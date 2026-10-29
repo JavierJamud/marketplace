@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
-import { getPlanConfig, isPremiumActive } from "../lib/planConfig.js";
+import { getPlanConfig, getAllPlanConfigs, isPremiumActive, isPaidConfig, buildPlanIncludes } from "../lib/planConfig.js";
 import { prisma } from "../lib/prisma.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
 import { runAssistant, listConversations, getConversation, deleteConversation, clearHistory } from "../services/businessAssistant.service.js";
@@ -26,16 +26,28 @@ const messageSchema = z.object({
 // Lo que cambia con el plan es lo que el asistente cuenta: una tienda con plan
 // activo recibe solo consejos; una sin plan o sin verificar recibe además la
 // recomendación honesta de suscribirse, con los beneficios reales del plan.
+// Con los planes configurables ya no hay "el plan Premium" fijo: con un plan activo se habla del plan de la tienda; sin él,
+// del plan que la plataforma recomienda (ver recommendedPlanConfig). Los beneficios son los textos del admin (features) o,
+// si el plan no tiene, lo que el plan incluye de verdad (buildPlanIncludes, lo mismo que la página de planes).
 async function vendorPlanContext(vendor) {
   const premium = isPremiumActive(vendor);
-  const config = await getPlanConfig("BUSINESS");
+  const config = premium ? await getPlanConfig(vendor.planType) : await recommendedPlanConfig();
+  const benefits = config?.features?.length ? config.features : config ? buildPlanIncludes(config) : [];
   return {
     premium,
     verificationStatus: vendor.verificationStatus,
     planType: vendor.planType,
-    planName: config?.displayName ?? "Premium",
-    planFeatures: (config?.features ?? []).slice(0, 8),
+    planName: config?.displayName ?? "de pago",
+    planFeatures: benefits.slice(0, 8),
   };
+}
+
+// Plan que se le recomienda a una tienda sin plan activo: el destacado en la página de planes si se cobra en línea; si no
+// hay, el de la prueba gratis; si tampoco, el primer plan de pago público. Solo planes vigentes, públicos y cobrados (ni el
+// por defecto, ni gratis, ni "por WhatsApp"): recomendar uno que no se puede contratar desde el panel sería un callejón.
+async function recommendedPlanConfig() {
+  const plans = (await getAllPlanConfigs()).filter((p) => p.isPublic && !p.isDefault && isPaidConfig(p));
+  return plans.find((p) => p.highlighted) ?? plans.find((p) => p.isTrialPlan) ?? plans[0] ?? null;
 }
 
 // Bloque 276 (pedido explícito — "las tiendas gratis tendrán un límite de 5 mensajes por día, que el

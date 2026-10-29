@@ -11,6 +11,11 @@ import { PaymentChooser } from "../../components/vendor/PaymentChooser.jsx";
 import { STAGE_META } from "../../lib/verificationMeta.js";
 import { EnterpriseCta, PlansCatalog, usePublicPlans } from "../../components/plans/PlansCatalog.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { PLAN_KEY_PATTERN } from "../../lib/planStatus.js";
+
+// Lo que llegue en ?plan= con otra forma que la de una clave de plan (PLAN_KEY_PATTERN, lib/planStatus.js) se ignora antes
+// de buscarlo.
 
 // Pantalla "Suscripción" del panel (antes "Verificación y plan"): el trámite de verificación (documentos, revisión y pago) y,
 // con la tienda verificada, el resumen de su suscripción. Con tarjeta el pago se hace en Stripe y la tienda queda verificada
@@ -51,7 +56,13 @@ const RETURN_MESSAGES = {
   success: ["Pago recibido", "Estamos activando tu suscripción. Tarda unos segundos."],
   "trial-success": ["Tarjeta registrada", "Estamos activando tu prueba gratis. Hoy no se cobró nada."],
   "card-updated": ["Tarjeta guardada", "Si tenías un cobro pendiente, se cobra ahora con la tarjeta nueva."],
+  // Renovación pagada con tarjeta (createRenewalCheckoutSession en backend/src/lib/stripe.js). Antes no estaba en esta lista y
+  // la vuelta pasaba sin aviso ni espera. El webhook solo marca el pago como cobrado (el equipo lo confirma después), así que
+  // aquí se espera ese registro en la suscripción, no la verificación.
+  "renew-success": ["Pago recibido", "Estamos registrando tu pago. Tarda unos segundos."],
 };
+// Vueltas de Stripe que esperan el registro de una renovación (pendingRenewal.stripePaidAt de GET /verification/me/subscription).
+const RENEWAL_RETURNS = new Set(["renew-success"]);
 
 export default function VendorVerification() {
   const queryClient = useQueryClient();
@@ -60,6 +71,7 @@ export default function VendorVerification() {
   const [changingMethod, setChangingMethod] = useState(false);
   const [switchToCard, setSwitchToCard] = useState(false);
   const [waitingStripe, setWaitingStripe] = useState(false);
+  const [waitingRenewal, setWaitingRenewal] = useState(false);
 
   // Esta pantalla dice si ya te aprobaron: siempre se pide de nuevo al entrar. Mientras se espera el aviso de Stripe, cada 2 s.
   const { data, isLoading } = useQuery({
@@ -74,26 +86,50 @@ export default function VendorVerification() {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
   // Nombre, precio y beneficios de cada plan vienen de la configuración de planes del admin (GET /settings/plans).
-  // `?plan=` llega desde la página pública de planes y preselecciona ese plan en el pago.
+  // `?plan=` llega desde la página pública de planes y preselecciona ese plan en el pago. Vale cualquier clave de plan, también
+  // la de un plan creado desde el admin: se elige si es público, de pago y con insignia (los que se pagan con la verificación);
+  // si el enlace trae otro plan, se explica por qué no se puede elegir aquí en vez de ignorarlo en silencio.
   const { data: publicPlans } = usePublicPlans();
   const planList = publicPlans?.plans ?? [];
+  // Planes de /settings: también los ocultos, para nombrar el plan actual de una tienda aunque no salga en la página de planes.
+  const { plans: allPlans, defaultPlanKey } = usePlatformSettings();
+  const fromSettings = (key) => {
+    const p = key ? allPlans.find((x) => x.planType === key) : null;
+    return p ? { ...p, name: p.displayName } : null;
+  };
+  const rawUrlPlan = searchParams.get("plan");
+  const urlPlan = rawUrlPlan && PLAN_KEY_PATTERN.test(rawUrlPlan) ? rawUrlPlan : null;
   // Con un pago ya elegido manda su plan; al cambiar la forma de pago, el que se elija en pantalla.
-  const urlPlan = searchParams.get("plan");
   const requestedPlan = data?.paymentMethod && !changingMethod ? data.paymentPlanType ?? urlPlan : urlPlan ?? data?.paymentPlanType;
+  // Los que se pagan junto con la verificación: con insignia, cobrados y no "contáctanos" (mismo filtro que PaymentChooser).
   const badgePlans = planList.filter((p) => p.grantsBadge && !p.isFree && !p.contactOnly);
   const businessPlan = badgePlans.find((p) => p.planType === requestedPlan) ?? badgePlans.find((p) => p.highlighted) ?? badgePlans[badgePlans.length - 1];
-  const basicPlan = planList.find((p) => p.planType === "REGULAR");
-  const currentPlan = planList.find((p) => p.planType === vendor?.planType);
+  // Plan por defecto por su bandera (antes la clave "REGULAR" fija) y plan actual de la tienda, con su nombre de la base.
+  const defaultPlan = fromSettings(defaultPlanKey);
+  const currentPlan = fromSettings(vendor?.planType) ?? planList.find((p) => p.planType === vendor?.planType) ?? null;
+  const currentPlanName = currentPlan?.name ?? defaultPlan?.name ?? null;
+  // El plan del enlace no se puede elegir en este paso: se dice por qué. No aplica a su propio plan (si es de pago sin
+  // insignia, se paga en el bloque de arriba) ni mientras los planes cargan.
+  const linkedPlan = urlPlan ? planList.find((p) => p.planType === urlPlan) : null;
+  let urlPlanNotice = null;
+  if (urlPlan && publicPlans && urlPlan !== vendor?.planType && !badgePlans.some((p) => p.planType === urlPlan)) {
+    if (!linkedPlan) urlPlanNotice = "El plan del enlace ya no está disponible. Elige uno de los planes de abajo.";
+    else if (linkedPlan.contactOnly) urlPlanNotice = `El plan ${linkedPlan.name} se contrata hablando con el equipo: usa el botón de su tarjeta.`;
+    else if (linkedPlan.isFree || linkedPlan.isDefault) urlPlanNotice = `El plan ${linkedPlan.name} no se paga con la verificación.`;
+    else urlPlanNotice = `El plan ${linkedPlan.name} no lleva verificación: para pasarte a él, escríbenos desde Mensajes.`;
+  }
   const choosePlan = (planType) => {
     const next = new URLSearchParams(searchParams);
     next.set("plan", planType);
     setSearchParams(next, { replace: true });
   };
 
-  // Plan de pago sin insignia (el Básico cuando deja de ser gratis): se paga desde acá, sin verificación.
+  // Plan de pago sin insignia (por ejemplo, el plan por defecto cuando deja de ser gratis): se paga desde acá, sin verificación.
   const { data: subscription } = useQuery({
     queryKey: ["my-subscription"],
     queryFn: async () => (await api.get("/verification/me/subscription")).data.subscription,
+    // Al volver de pagar una renovación con tarjeta, cada 2 s hasta que el aviso de Stripe la marque cobrada.
+    refetchInterval: waitingRenewal ? 2000 : false,
   });
   const paysWithoutBadge = !!subscription?.paysWithoutBadge;
 
@@ -104,13 +140,14 @@ export default function VendorVerification() {
     queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
   };
 
-  // Vuelta desde Stripe (?stripe=success|trial-success|card-updated|cancel).
+  // Vuelta desde Stripe (?stripe=success|trial-success|card-updated|renew-success|cancel).
   useEffect(() => {
     const result = searchParams.get("stripe");
     if (!result) return;
     if (RETURN_MESSAGES[result]) {
       toast.success(...RETURN_MESSAGES[result]);
-      setWaitingStripe(true);
+      if (RENEWAL_RETURNS.has(result)) setWaitingRenewal(true);
+      else setWaitingStripe(true);
       invalidate();
     } else if (result === "cancel") {
       toast.info("No se hizo ningún cobro. Puedes intentarlo cuando quieras.");
@@ -138,6 +175,22 @@ export default function VendorVerification() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingStripe, data?.verificationStatus]);
 
+  // Renovación: deja de preguntar cuando el pago en curso ya figura cobrado por Stripe, o ya no hay pago en curso (el equipo
+  // lo confirmó), o a los 40 s. Al terminar se refresca también la tienda (my-vendor), de la que leen PlanBillingBanner y el
+  // menú del panel, por si el cobro ya cambió su fecha o su estado.
+  const renewalSettled = subscription !== undefined && (!subscription?.pendingRenewal || !!subscription.pendingRenewal.stripePaidAt);
+  useEffect(() => {
+    if (!waitingRenewal) return undefined;
+    if (renewalSettled) {
+      setWaitingRenewal(false);
+      invalidate();
+      return undefined;
+    }
+    const t = setTimeout(() => setWaitingRenewal(false), 40_000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingRenewal, renewalSettled]);
+
   if (isLoading) return <PanelSkeleton />;
 
   const status = data?.verificationStatus ?? "NOT_STARTED";
@@ -159,15 +212,32 @@ export default function VendorVerification() {
     <div className="max-w-[820px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ShieldCheck} tone="green" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Suscripción</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Suscripción</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        {status === "VERIFIED" ? "Tu plan, lo que incluye, cómo pagas y cuándo se renueva." : `Verifica tu tienda y activa el plan ${businessPlan?.name ?? "Premium"}.`}
+        {status === "VERIFIED"
+          ? "Tu plan, lo que incluye, cómo pagas y cuándo se renueva."
+          : businessPlan
+            ? `Verifica tu tienda y activa el plan ${businessPlan.name}.`
+            : "Verifica tu tienda y elige tu plan."}
       </p>
+
+      {urlPlanNotice && (
+        <p role="status" className="mb-5 rounded-xl border border-secondary/30 bg-secondary-container/30 p-3.5 text-[13px] text-on-surface">
+          {urlPlanNotice}
+        </p>
+      )}
 
       {waitingStripe && status !== "VERIFIED" && (
         <p className="mb-5 flex items-center gap-2 rounded-xl border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-3.5 text-[13px] text-on-surface" role="status">
           <Clock className="h-4 w-4 flex-shrink-0 animate-pulse text-tertiary-accent" aria-hidden="true" /> Confirmando el pago con Stripe...
+        </p>
+      )}
+
+      {/* La renovación se paga con la tienda ya verificada o en un plan sin insignia: el aviso sale en cualquier estado. */}
+      {waitingRenewal && (
+        <p className="mb-5 flex items-center gap-2 rounded-xl border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-3.5 text-[13px] text-on-surface" role="status">
+          <Clock className="h-4 w-4 flex-shrink-0 animate-pulse text-tertiary-accent" aria-hidden="true" /> Registrando tu pago con Stripe...
         </p>
       )}
 
@@ -179,9 +249,11 @@ export default function VendorVerification() {
           <div>
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <span className="text-[16.5px] font-bold text-on-surface">{meta.label}</span>
-              <span className="rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
-                Plan {currentPlan?.name ?? basicPlan?.name ?? "Básico"}
-              </span>
+              {currentPlanName && (
+                <span className="rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: meta.bg, color: meta.color }}>
+                  Plan {currentPlanName}
+                </span>
+              )}
             </div>
             <div className="text-[13px] text-on-surface-variant">
               {status === "NOT_STARTED" && "Sube tus documentos para empezar el trámite."}
@@ -190,7 +262,8 @@ export default function VendorVerification() {
               {status === "VERIFIED" && "Tu tienda tiene la insignia de verificada."}
               {status === "PAYMENT_FAILED" && "No pudimos cobrar tu plan. Resuélvelo abajo para recuperarlo, sin rehacer documentos."}
               {status === "SUSPENDED" && "Tu suscripción terminó. Reactívala abajo, sin rehacer documentos."}
-              {status === "PLAN_ENDED" && `Tu tienda está en el plan ${basicPlan?.name ?? "Básico"}, sin la insignia. Tus documentos siguen aprobados: vuelve a ${businessPlan?.name ?? "Premium"} pagando abajo.`}
+              {status === "PLAN_ENDED" &&
+                `Tu tienda está en el plan ${currentPlanName ?? "por defecto"}, sin la insignia. Tus documentos siguen aprobados: ${businessPlan ? `vuelve a ${businessPlan.name}` : "vuelve a un plan de pago"} pagando abajo.`}
               {status === "REJECTED" && (data?.notes || "Tu solicitud fue rechazada. Vuelve a capturar los documentos e intenta de nuevo.")}
             </div>
           </div>
@@ -215,9 +288,15 @@ export default function VendorVerification() {
                 Próxima fecha de cobro: <strong className="text-on-surface">{new Date(subscription.periodEnd).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>. Lo que pagues ahora se suma desde esa fecha.
               </p>
             )}
+            {/* Con tarjeta ya cobrada por Stripe, lo que falta es el comprobante (PagoManual.jsx), no avisar que pagó; y con el
+                aviso ya enviado, solo queda esperar al equipo. */}
             {subscription.pendingRenewal && (
               <Link to="/vendedor/pago-manual" className="mt-2 inline-flex min-h-11 items-center font-semibold text-tertiary-accent hover:underline">
-                Tienes un pago en curso: ver los datos y avisar que pagaste
+                {subscription.pendingRenewal.paymentClaimedAt
+                  ? "Tu pago está en revisión: ver el detalle"
+                  : subscription.pendingRenewal.stripePaidAt
+                    ? "Stripe confirmó tu pago: sube el comprobante para que el equipo lo sume a tu plan"
+                    : "Tienes un pago en curso: ver los datos y avisar que pagaste"}
               </Link>
             )}
           </div>
@@ -249,8 +328,11 @@ export default function VendorVerification() {
               cta={(plan, { dark, current, supportWhatsapp }) => {
                 if (plan.contactOnly) return <EnterpriseCta plan={plan} supportWhatsapp={supportWhatsapp} dark={dark} />;
                 const base = "flex min-h-12 w-full items-center justify-center rounded-2xl px-4 text-[14px] font-extrabold transition";
+                // Solo se eligen aquí los planes que se pagan con la verificación. Uno de pago sin insignia (por ejemplo, uno
+                // nuevo creado por el admin) lo activa el equipo: el servidor rechaza pagarlo desde este paso.
                 if (current || !plan.grantsBadge || plan.isFree) {
-                  return <span className={`${base} border ${dark ? "border-white/30 text-white/85" : "border-outline-variant text-on-surface-variant"}`}>{current ? "Es tu plan actual" : "Sin verificación"}</span>;
+                  const note = current ? "Es tu plan actual" : plan.isFree || plan.isDefault ? "Sin verificación" : "Pídelo por Mensajes";
+                  return <span className={`${base} border ${dark ? "border-white/30 text-white/85" : "border-outline-variant text-on-surface-variant"}`}>{note}</span>;
                 }
                 const picked = businessPlan?.planType === plan.planType;
                 return (

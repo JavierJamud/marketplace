@@ -10,14 +10,14 @@ export async function vendorInactivityReminderEmail({ vendor, daysInactive }) {
   const { siteName } = await getBrandSettings();
   const subject = `Hace ${daysInactive} días no entras a tu panel de ${vendor.companyName}`;
   const html = await emailShell({
-    preview: `Tu tienda ${vendor.companyName} sigue activa — entra a tu panel cuando quieras`,
+    preview: `Tu tienda ${vendor.companyName} sigue activa: entra a tu panel cuando quieras`,
     title: "Te extrañamos por aquí",
     badge: { label: "Recordatorio", color: "#8A5100" },
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola equipo de <strong>${vendor.companyName}</strong>, hace <strong>${daysInactive} días</strong> que no entras a tu panel de vendedor.`)}
-      ${paragraph("Tus productos y pedidos siguen exactamente como los dejaste — solo pasa a saludar cuando puedas.")}
-      ${smallNote("Si pasan 90 días seguidos sin acceder, tu tienda se pausa automáticamente (nada se borra — productos, pedidos y datos quedan intactos, y se reactiva apenas contactes a soporte).")}
+      ${paragraph("Tus productos y pedidos siguen exactamente como los dejaste: solo pasa a saludar cuando puedas.")}
+      ${smallNote("Si pasan 90 días seguidos sin acceder, tu tienda se pausa automáticamente (nada se borra: productos, pedidos y datos quedan intactos, y se reactiva apenas contactes a soporte).")}
       ${ctaButton("Entrar a mi panel", `${env.frontendUrl}/vendedor`)}
     `,
   });

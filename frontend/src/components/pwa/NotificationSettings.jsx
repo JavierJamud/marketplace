@@ -67,7 +67,7 @@ export function NotificationSettings({ app }) {
 
   return (
     <div ref={box} id="avisos" className="scroll-mt-24 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         {on ? <Bell className="h-5 w-5 text-tertiary-accent" /> : <BellOff className="h-5 w-5 text-outline" />} Avisos
       </div>
       <p className="mb-4 text-[12.5px] text-outline">

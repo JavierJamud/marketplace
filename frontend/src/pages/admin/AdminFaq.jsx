@@ -46,10 +46,14 @@ function FaqBatchModal({ defaultAudience, onClose, onSaved }) {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo procesar el HTML."),
   });
 
+  // Bloque 196: un toque fuera con HTML pegado cerraba sin preguntar y lo perdía todo (un lote puede traer 100 preguntas).
+  // Sin "Guardar y salir": guardar exige revisar antes lo que se detectó, así que solo se ofrece descartar o seguir.
+  const dirtyModal = useDirtyModal({ isDirty: html.trim() !== "", onClose });
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-3 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-3 sm:p-4" onClick={dirtyModal.handleBackdropClick}>
       <div
-        className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-surface-container-lowest p-4 sm:p-6"
+        className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-surface-container-lowest p-4 sm:p-6 max-h-[calc(100dvh-2rem)]"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -139,6 +143,13 @@ function FaqBatchModal({ defaultAudience, onClose, onSaved }) {
           </Button>
         </div>
       </div>
+
+      <UnsavedChangesModal
+        open={dirtyModal.confirming}
+        saving={dirtyModal.saving}
+        onDiscard={dirtyModal.handleDiscard}
+        onCancel={dirtyModal.handleKeepEditing}
+      />
     </div>
   );
 }
@@ -184,7 +195,7 @@ function FaqFormModal({ item, defaultAudience, onClose, onSaved }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">{isEdit ? "Editar pregunta" : "Nueva pregunta"}</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -217,7 +228,8 @@ function FaqFormModal({ item, defaultAudience, onClose, onSaved }) {
             </div>
           </div>
 
-          <Input label="Pregunta" required value={question} onChange={(e) => setQuestion(e.target.value)} />
+          {/* Mismos topes que el servidor (FAQ_QUESTION_MAX y FAQ_ANSWER_MAX en lib/faqBatch.js). */}
+          <Input label="Pregunta" required maxLength={300} value={question} onChange={(e) => setQuestion(e.target.value)} />
 
           <div>
             <span className="mb-1.5 block text-label-md text-on-surface-variant">Respuesta</span>
@@ -226,8 +238,10 @@ function FaqFormModal({ item, defaultAudience, onClose, onSaved }) {
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               rows={5}
+              maxLength={5000}
               className="w-full resize-y rounded border border-outline-variant bg-surface-container-lowest p-3 text-[13.5px] outline-none focus:border-tertiary-accent"
             />
+            <p className="mt-1 text-right text-[12px] text-on-surface-variant">{answer.length}/5000</p>
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -293,7 +307,7 @@ export default function AdminFaq() {
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <IconCircle icon={HelpCircle} tone="teal" />
-          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Preguntas frecuentes</h1>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Preguntas frecuentes</h1>
         </div>
         <div className="flex flex-wrap gap-2.5">
           <Button variant="outline" className="rounded-xl font-bold" onClick={() => setBatchOpen(true)}>

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, Contact, Award, ScanBarcode, ListChecks } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, UtensilsCrossed, ShieldCheck, ShieldAlert, Settings, MessageSquare, Menu, Star, UserCog, Tag, Gift, Ban, Zap, LogOut, Users, Wallet, Contact, Award, ScanBarcode, ListChecks, X, WifiOff, Lock } from "lucide-react";
+import { useMediaQuery } from "../../lib/useMediaQuery.js";
 import { api } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { VerifiedBadge } from "../../components/ui/VerifiedBadge.jsx";
@@ -19,7 +20,7 @@ import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx
 import { PlanBillingBanner } from "../../components/vendor/PlanBillingBanner.jsx";
 import { unlockAudioOnFirstInteraction } from "../../lib/orderNotificationSound.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
-import { vendorPlanStatus } from "../../lib/planStatus.js";
+import { vendorPlanStatus, planIncludesFlag } from "../../lib/planStatus.js";
 import { BusinessAssistantWidget } from "../../components/assistant/BusinessAssistantWidget.jsx";
 import { ReportProblemButton } from "../../components/vendor/ReportProblemButton.jsx";
 import { DocsApprovedPopup } from "../../components/vendor/DocsApprovedPopup.jsx";
@@ -28,6 +29,7 @@ import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../compon
 import { OfflineBar } from "../../components/vendor/OfflineBar.jsx";
 import { usePanelUsage } from "../../lib/usePanelUsage.js";
 import { AppShellSkeleton } from "../../components/ui/Skeleton.jsx";
+import { PlanUpsell } from "../../components/vendor/PlanUpsell.jsx";
 
 // Bloque 183 (pedido explícito — "saldrán siempre todas las secciones que
 // están en el panel de vendedor, para que el vendedor pueda asignar... el
@@ -60,12 +62,50 @@ const NAV = [
   // cambió, sigue guardando las 2 claves por separado) puede seguir
   // entrando acá — la página adentro decide qué pestaña(s) mostrarle según
   // cuál(es) tenga de verdad (ver mySections en el Outlet context).
-  { to: "/vendedor/ofertas-tienda", label: "Ofertas y códigos", icon: Gift, anySection: ["ofertas-tienda", "codigos-descuento"], group: "catalogo" },
+  // `planFlag`: interruptor del plan (PlanConfig) sin el cual la sección no se muestra (ver planIncludes más abajo); con una
+  // lista, alcanza con cualquiera. `upsell` es lo que ve el dueño si entra igual por un enlace directo o el buscador.
+  {
+    to: "/vendedor/ofertas-tienda",
+    label: "Ofertas y códigos",
+    icon: Gift,
+    anySection: ["ofertas-tienda", "codigos-descuento"],
+    group: "catalogo",
+    planFlag: ["allowStoreOffers", "allowDiscountCodes"],
+    upsell: {
+      title: "Las ofertas y los códigos de descuento no están en tu plan",
+      text: "Publica ofertas dentro de tu tienda y crea códigos de descuento para que tus clientes vuelvan a comprarte. Si ya tenías códigos creados, se guardan para cuando cambies de plan.",
+    },
+  },
   { to: "/vendedor/pedidos", label: "Pedidos", icon: ShoppingCart, section: "pedidos", group: "ventas" },
-  { to: "/vendedor/caja", label: "Caja", icon: ScanBarcode, section: "caja", group: "ventas" },
+  {
+    to: "/vendedor/caja",
+    label: "Caja",
+    icon: ScanBarcode,
+    section: "caja",
+    group: "ventas",
+    planFlag: "allowPos",
+    upsell: {
+      title: "La caja no está en tu plan",
+      text: "Con la caja vendes en el mostrador escaneando el código de barras, cobras con el cálculo del vuelto, muestras la venta en una pantalla para el cliente y llevas el dinero del día. Tus productos y su stock no cambian.",
+    },
+  },
   { to: "/vendedor/clientes", label: "Clientes", icon: Contact, section: "clientes", group: "clientes" },
+  // Sin planFlag a propósito: el programa de fidelidad se puede dejar configurado sin el plan y encenderlo al cambiar de plan
+  // (VendorLoyalty.jsx lo explica y deja el interruptor apagado; saveMyProgram no deja encenderlo).
   { to: "/vendedor/puntos", label: "Programa de fidelidad", icon: Award, section: "puntos", group: "clientes" },
-  { to: "/vendedor/mesas", label: "Mesas / QR", icon: UtensilsCrossed, restaurantOnly: true, section: "mesas", group: "ventas" },
+  {
+    to: "/vendedor/mesas",
+    label: "Mesas / QR",
+    icon: UtensilsCrossed,
+    restaurantOnly: true,
+    section: "mesas",
+    group: "ventas",
+    planFlag: "allowQrTables",
+    upsell: {
+      title: "Las mesas con QR no están en tu plan",
+      text: "Cada mesa tiene su propio QR: el cliente lo escanea, ve tu menú y pide desde la mesa sin esperar a que lo atiendan. Los pedidos te llegan al panel al momento.",
+    },
+  },
   { to: "/vendedor/verificacion", label: "Suscripción", icon: ShieldCheck, ownerOnly: true, group: "negocio" },
   { to: "/vendedor/mensajes", label: "Mensajes", icon: MessageSquare, section: "mensajes", group: "clientes" },
   { to: "/vendedor/resenas", label: "Reseñas", icon: Star, section: "resenas", group: "clientes" },
@@ -83,7 +123,18 @@ const NAV = [
   { to: "/vendedor/configuracion", label: "Configuración", icon: Settings, ownerOnly: true, group: "negocio" },
   // Bloque 183: gestión de usuarios de sistema — nunca delegable, ni
   // siquiera a otro usuario de sistema.
-  { to: "/vendedor/usuarios", label: "Usuarios", icon: Users, ownerOnly: true, group: "negocio" },
+  {
+    to: "/vendedor/usuarios",
+    label: "Usuarios",
+    icon: Users,
+    ownerOnly: true,
+    group: "negocio",
+    planFlag: "allowStaffUsers",
+    upsell: {
+      title: "Los usuarios del equipo no están en tu plan",
+      text: "Dale a cada persona de tu equipo su propia cuenta para el panel, con acceso solo a las secciones que elijas. Si ya tenías usuarios, se guardan y vuelven a entrar cuando cambies de plan.",
+    },
+  },
   // Sin `section` ni `ownerOnly` a propósito: "Mi perfil" siempre se ve
   // para los 2 roles — el contenido cambia solo (ver VendorProfileRoute,
   // App.jsx), nunca el acceso al link.
@@ -103,6 +154,157 @@ const NAV_GROUPS = [
 // de owner-only que su sección padre, así que un usuario de sistema nunca
 // debe poder entrar ni siquiera pegando la URL a mano.
 const OWNER_ONLY_EXTRA_PATHS = ["/vendedor/pago-manual"];
+
+// ¿El plan de la tienda trae la sección? La regla vive en lib/planStatus.js (planIncludesFlag) porque el buscador del panel
+// (VendorSearchBar.jsx) usa la misma: depende solo de los interruptores de planFeatures (GET /vendors/me), nunca del nombre
+// ni de la clave del plan, así que un plan nuevo creado desde el admin queda cubierto sin tocar esto.
+function planIncludes(item, planFeatures) {
+  return planIncludesFlag(item.planFlag, planFeatures);
+}
+
+// Ruta actual tal como la compara el router: React Router decodifica cada tramo (%61 = a), no distingue mayúsculas y
+// acepta una barra al final. Antes se comparaba location.pathname tal cual con NAV, así que "/vendedor/Caja" o
+// "/vendedor/caja/" abrían la pantalla sin pasar por el bloqueo por plan ni por el de secciones del personal.
+function normalizePanelPath(pathname) {
+  const decoded = String(pathname ?? "")
+    .split("/")
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    })
+    .join("/");
+  return decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "").toLowerCase() || "/";
+}
+
+// Entrada de NAV que cubre la ruta: la exacta o, si no hay, la más larga de la que la ruta es un tramo hijo
+// ("/vendedor/caja/algo" cae en Caja). Hoy ninguna sección tiene subrutas, pero si se agrega una (por ejemplo
+// "/vendedor/usuarios/:id") hereda sola los bloqueos de su sección en vez de quedar abierta. El Dashboard ("/vendedor",
+// `end`) solo cuenta exacto: si no, todo el panel sería un tramo suyo.
+function navItemForPath(path) {
+  return NAV.filter((n) => path === n.to || (!n.end && path.startsWith(`${n.to}/`))).sort((a, b) => b.to.length - a.to.length)[0];
+}
+
+// Qué pasó al pedir GET /vendors/me (o el perfil del personal), para elegir la pantalla. Antes cualquier error mandaba al
+// login sin decir nada: un corte de red (frecuente en Cuba) o el 403 del personal de una tienda que bajó de plan parecían
+// una sesión cerrada.
+function panelLoadProblem(error) {
+  const status = error?.response?.status;
+  const details = error?.response?.data?.details;
+  if (!error?.response) return "network";
+  if (status === 401 || status === 404) return "login"; // Sin sesión válida, o un VENDOR sin tienda: lo de siempre.
+  // assertStaffPlan (requireVendorAccess.js) da dos 403 distintos: el plan no trae equipo, o lo trae con un tope menor que
+  // los activos y esta persona quedó fuera. Decirle "el plan ya no incluye equipo" en el segundo caso sería falso.
+  if (status === 403 && details?.planRequired === "maxStaffUsers") return "staffLimit";
+  if (status === 403 && details?.planRequired) return "staffPlan";
+  if (status === 403 && details?.vendorState === "deleted") return "deleted";
+  // assertVendorUsable: al personal de una tienda suspendida por falta de pago se le cierra el panel, pero su cuenta sigue
+  // activa. Antes caía en "noAccess" y leía que lo habían desactivado.
+  if (status === 403 && details?.vendorState === "billing") return "billing";
+  if (status === 403) return "noAccess"; // Personal desactivado o sin tienda (requireVendorAccess sin secciones).
+  return "server";
+}
+
+// Las respuestas 4xx son definitivas: aunque haya una copia vieja de la tienda en caché, se muestra su pantalla. Un corte
+// de red o un fallo del servidor con la tienda ya cargada no saca a nadie del panel: sigue con lo que tenía (OfflineBar
+// avisa del corte) y la consulta se repite sola.
+const DEFINITIVE_PROBLEMS = new Set(["login", "staffPlan", "staffLimit", "billing", "deleted", "noAccess"]);
+
+const LOAD_PROBLEM_COPY = {
+  staffPlan: {
+    title: "Tu acceso al panel está en pausa",
+    text: "El plan de la tienda ya no incluye usuarios del equipo. Habla con el dueño: tu cuenta se guarda y vuelve a entrar cuando la tienda cambie de plan.",
+  },
+  staffLimit: {
+    title: "Tu acceso al panel está en pausa",
+    text: "El plan de la tienda permite menos usuarios del equipo de los que hay activos. Habla con el dueño: puede desactivar a alguien o cambiar de plan, y tu cuenta se guarda.",
+  },
+  billing: {
+    title: "La tienda está suspendida",
+    text: "La tienda tiene un pago del plan pendiente y su panel está en pausa para el equipo. Avísale al dueño: tu cuenta se guarda y vuelves a entrar cuando la tienda pague.",
+  },
+  // El navegador ya avisó que el dispositivo está sin red: React Query deja la consulta en pausa (no hay error que
+  // mostrar) y la lanza sola cuando vuelve la conexión, así que no hace falta un botón.
+  offline: {
+    title: "Estás sin conexión",
+    text: "Tu dispositivo no tiene internet. El panel se abre solo cuando vuelva la conexión, sin que tengas que recargar.",
+  },
+  deleted: {
+    title: "Esta tienda fue eliminada",
+    text: "Ya no se puede entrar a su panel. Si crees que es un error, escribe a soporte.",
+  },
+  noAccess: {
+    title: "No tienes acceso a esta tienda",
+    text: "Tu cuenta del equipo está desactivada o ya no pertenece a esta tienda. Habla con el dueño para que te vuelva a dar acceso.",
+  },
+  network: {
+    title: "No pudimos cargar tu panel",
+    text: "Parece que no hay conexión a internet. Revisa tu conexión y vuelve a intentarlo.",
+  },
+  server: {
+    title: "No pudimos cargar tu panel",
+    text: "El servidor no respondió bien. Vuelve a intentarlo en unos segundos.",
+  },
+};
+
+// Pantalla para cuando el panel no puede arrancar. Solo los problemas pasajeros (red o servidor) ofrecen Reintentar: en
+// los demás la respuesta no cambia por repetir la petición. Mientras se reintenta no hace falta un estado propio del
+// botón: sin datos guardados la consulta vuelve a "pending" y el panel enseña el esqueleto de carga en lugar de esto.
+function VendorLoadProblemGate({ problem, onRetry, onLogout, supportWhatsapp }) {
+  const copy = LOAD_PROBLEM_COPY[problem] ?? LOAD_PROBLEM_COPY.server;
+  const transient = problem === "network" || problem === "server";
+  const Icon = problem === "network" || problem === "offline" ? WifiOff : transient ? ShieldAlert : Lock;
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-surface-container p-4">
+      <div role={transient || problem === "offline" ? "alert" : undefined} className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-7 text-center shadow-lg">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-error/10">
+          <Icon className="h-7 w-7 text-error" aria-hidden="true" />
+        </div>
+        <h1 className="mb-2 text-title-lg font-bold text-on-surface">{copy.title}</h1>
+        <p className="mb-6 text-[13.5px] leading-relaxed text-on-surface-variant">{copy.text}</p>
+        <div className="flex flex-col gap-2.5">
+          {transient && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="min-h-11 rounded-xl bg-primary px-5 text-[13.5px] font-semibold text-white transition hover:bg-primary/90"
+            >
+              Reintentar
+            </button>
+          )}
+          {/* Mismo destino que VendorAccessBlockedGate: el WhatsApp de soporte o, sin él, la página de contacto. */}
+          {problem === "deleted" && (
+            <a
+              href={supportWhatsapp ? `https://wa.me/${supportWhatsapp.replace(/\D/g, "")}` : "/contacto"}
+              target={supportWhatsapp ? "_blank" : undefined}
+              rel={supportWhatsapp ? "noreferrer" : undefined}
+              className="flex min-h-11 items-center justify-center rounded-xl bg-primary px-5 text-[13.5px] font-semibold text-white transition hover:bg-primary/90"
+            >
+              Escribir a soporte
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={onLogout}
+            className="min-h-11 rounded-xl border border-outline-variant px-5 text-[13.5px] font-semibold text-on-surface transition hover:bg-surface-variant"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Primer plan público (en el orden de la página de planes) que trae la sección, para decirle al dueño desde cuál la tiene.
+function firstPlanWith(plans, planFlag) {
+  const flags = Array.isArray(planFlag) ? planFlag : [planFlag];
+  return [...(plans ?? [])]
+    .filter((p) => p.isPublic !== false && flags.some((f) => p[f]))
+    .sort((a, b) => a.sortOrder - b.sortOrder)[0];
+}
 
 function fmtSuspendedDate(iso) {
   if (!iso) return null;
@@ -149,7 +351,7 @@ function VendorAccessBlockedGate({ vendor, supportWhatsapp, onLogout }) {
         {dateLabel && <p className="mb-4 text-[12px] text-outline">Pausada el {dateLabel}.</p>}
         <p className="mb-6 text-[13px] leading-relaxed text-on-surface-variant">
           Tu tienda y tus productos no son visibles en el sitio mientras esté {isBlocked ? "bloqueada" : "pausada"}.
-          Contáctanos para resolverlo — tus datos, pedidos y reseñas siguen intactos.
+          Contáctanos para resolverlo: tus datos, pedidos y reseñas siguen intactos.
         </p>
         <div className="flex flex-col gap-2.5">
           <a
@@ -196,16 +398,53 @@ export default function VendorLayout() {
   // ProtectedRoute en App.jsx) — acá solo hace falta `user` para pedir la
   // tienda propia, nunca hay que volver a chequear si hay sesión.
   const { user, logout } = useAuth();
-  const { siteName, logoUrl, supportWhatsapp, planNames } = usePlatformSettings();
+  // `plans` (filas de /settings) sirve para nombrar, en el aviso de una sección fuera del plan, desde qué plan la tiene; antes
+  // se pedía /settings aparte con la misma clave de caché.
+  const { siteName, logoUrl, supportWhatsapp, planNames, defaultPlanKey, plans } = usePlatformSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Por debajo de lg el menú es un cajón que se esconde con -translate-x-full: sigue en la página, así que el teclado y el
+  // lector de pantalla lo recorrían cerrado. Con `inert` (ver el <aside>) queda fuera mientras está cerrado; en escritorio
+  // siempre está a la vista y no se toca.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const menuButtonRef = useRef(null);
+  const closeMenuButtonRef = useRef(null);
 
   // Bloque 20: el drawer mobile se cierra solo al navegar a otra sección —
   // sin esto quedaba abierto tapando la pantalla nueva.
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  // Cerrar a mano (botón, Escape o el fondo oscuro) devuelve el foco al botón que lo abrió, para que el teclado siga donde
+  // estaba. Al cerrarse por navegar no se mueve: el foco va con la pantalla nueva. El foco se mueve en el efecto de abajo y
+  // no aquí: mientras el cajón sigue abierto, <main> (donde está ese botón) todavía es inert y no acepta el foco.
+  const returnFocusRef = useRef(false);
+  function closeSidebar() {
+    returnFocusRef.current = true;
+    setSidebarOpen(false);
+  }
+
+  // Abierto en móvil: el foco entra al menú y Escape lo cierra.
+  useEffect(() => {
+    if (!sidebarOpen) {
+      if (returnFocusRef.current) {
+        returnFocusRef.current = false;
+        menuButtonRef.current?.focus();
+      }
+      return undefined;
+    }
+    if (isDesktop) return undefined;
+    closeMenuButtonRef.current?.focus();
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape") return;
+      returnFocusRef.current = true;
+      setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen, isDesktop]);
 
   // Uso del panel por sección (lo ve el admin en la ficha de la tienda). Solo cuenta a la tienda y su equipo.
   usePanelUsage(location.pathname, user?.role === "VENDOR" || user?.role === "VENDOR_STAFF");
@@ -245,11 +484,24 @@ export default function VendorLayout() {
   // caché de 5min de siempre, esto es una excepción puntual para el único
   // dato cuyo desfase de minutos realmente confunde (¿ya me aprobaron o
   // no?, ¿tengo el badge o no?).
-  const { data: vendor, isLoading: vendorLoading, isError } = useQuery({
+  const {
+    data: vendor,
+    isLoading: vendorLoading,
+    isError,
+    error: vendorError,
+    refetch: refetchVendor,
+    fetchStatus: vendorFetchStatus,
+  } = useQuery({
     queryKey: ["my-vendor"],
     queryFn: async () => (await api.get("/vendors/me")).data.vendor,
     enabled: !!user,
-    retry: false,
+    // Una respuesta 4xx es definitiva (sin tienda, sin acceso, plan sin equipo) y no se repite. Un 500 sí, dos veces: suele
+    // ser un fallo de un momento. Sin respuesta o con 502/503/504 no hace falta: el interceptor de lib/api.js ya repitió
+    // la petición 3 veces con espera; sumarle más alargaría el esqueleto en un corte de red en vez de mostrar Reintentar.
+    retry: (failureCount, err) => {
+      const status = err?.response?.status;
+      return failureCount < 2 && status >= 500 && ![502, 503, 504].includes(status);
+    },
     refetchOnMount: "always",
   });
   // Bloque 222: mismo criterio que resolveVendorImg (VendorProfile.jsx) —
@@ -274,7 +526,13 @@ export default function VendorLayout() {
   // acceso mientras ese usuario sigue con el panel ABIERTO (sin recargar
   // nada), el cambio le llega solo, sin que tenga que cerrar sesión.
   const isStaff = user?.role === "VENDOR_STAFF";
-  const { data: staffProfile } = useQuery({
+  const {
+    data: staffProfile,
+    isError: staffProfileFailed,
+    error: staffProfileError,
+    refetch: refetchStaffProfile,
+    fetchStatus: staffProfileFetchStatus,
+  } = useQuery({
     queryKey: ["my-staff-profile"],
     queryFn: async () => (await api.get("/vendor-staff/me/profile")).data,
     enabled: !!user && isStaff,
@@ -298,16 +556,54 @@ export default function VendorLayout() {
   });
   const fraudReportsPendingCount = (myFraudReports ?? []).filter((r) => r.status === "EVIDENCE_REQUESTED" && !r.evidenceSentAt).length;
 
-  // Bloque 183: se espera también a staffProfile antes de decidir nada —
-  // sin esto, un usuario de sistema vería el NAV completo (sin filtrar)
-  // por un instante mientras esa segunda consulta todavía está en camino.
-  if (vendorLoading || (isStaff && !staffProfile)) {
+  if (vendorLoading) return <AppShellSkeleton />;
+
+  // Un VENDOR autenticado sin tienda propia (404) o sin sesión válida (401) no tiene nada que hacer acá: mismo destino que
+  // ProtectedRoute usaría. El resto de los errores tiene su propia pantalla (ver panelLoadProblem); un corte de red o del
+  // servidor con la tienda ya cargada deja seguir con lo que había.
+  if (isError) {
+    const problem = panelLoadProblem(vendorError);
+    if (problem === "login") return <Navigate to="/vendedor/ingresar" replace />;
+    if (!vendor || DEFINITIVE_PROBLEMS.has(problem)) {
+      return (
+        <VendorLoadProblemGate
+          problem={problem}
+          onRetry={() => refetchVendor()}
+          onLogout={handleLogout}
+          supportWhatsapp={supportWhatsapp}
+        />
+      );
+    }
+  }
+  // Sin tienda y sin error tampoco se pinta el panel: las páginas hijas darían por hecho que `vendor` existe. Pasa cuando
+  // el navegador ya avisó que no hay red (en la primera carga o al pulsar Reintentar): React Query deja la consulta en
+  // pausa, con isLoading e isError en false, y antes seguía hasta el menú con una tienda vacía. No se fuerza la petición
+  // (networkMode "always"): con la tienda en caché, cada intento fallido sin red dejaría además un aviso de error.
+  if (!vendor) {
+    if (vendorFetchStatus === "paused") return <VendorLoadProblemGate problem="offline" onLogout={handleLogout} supportWhatsapp={supportWhatsapp} />;
     return <AppShellSkeleton />;
   }
 
-  // Un VENDOR autenticado sin tienda propia (o con error al cargarla) no
-  // tiene nada que hacer acá — mismo destino que ProtectedRoute usaría.
-  if (isError) return <Navigate to="/vendedor/ingresar" replace />;
+  // Bloque 183: se espera también a staffProfile antes de decidir nada —
+  // sin esto, un usuario de sistema vería el NAV completo (sin filtrar)
+  // por un instante mientras esa segunda consulta todavía está en camino.
+  // Si esa consulta falla, antes el esqueleto quedaba para siempre: ahora se explica igual que con /vendors/me.
+  if (isStaff && !staffProfile) {
+    // Misma pausa sin red que arriba: sin esto el esqueleto quedaba fijo hasta que volviera la conexión, sin explicar nada.
+    if (staffProfileFetchStatus === "paused") return <VendorLoadProblemGate problem="offline" onLogout={handleLogout} supportWhatsapp={supportWhatsapp} />;
+    if (!staffProfileFailed) return <AppShellSkeleton />;
+    // Aquí un 404 no es "sin tienda" (eso ya lo habría dicho /vendors/me) sino que falta la ficha del personal: sin acceso.
+    const problem = staffProfileError?.response?.status === 404 ? "noAccess" : panelLoadProblem(staffProfileError);
+    if (problem === "login") return <Navigate to="/vendedor/ingresar" replace />;
+    return (
+      <VendorLoadProblemGate
+        problem={problem}
+        onRetry={() => refetchStaffProfile()}
+        onLogout={handleLogout}
+        supportWhatsapp={supportWhatsapp}
+      />
+    );
+  }
 
   // Bloque 211 (pedido explícito — auto-eliminación de cuenta, 30 días de
   // gracia): va ANTES del gate de isBlocked/SUSPENDED de siempre — cuando el
@@ -344,6 +640,9 @@ export default function VendorLayout() {
     // ANTES del resto (aplica igual a ambos roles, a diferencia de todo lo
     // demás de acá que solo recorta para isStaff).
     .filter((n) => !n.staffOnly || (isStaff && staffProfile?.hasAssignedProducts))
+    // Lo que el plan no trae no sale en el menú, ni para el dueño ni para el personal: antes se mostraba y cada botón de
+    // adentro terminaba en un 403 del servidor.
+    .filter((n) => planIncludes(n, vendor?.planFeatures))
     .filter((n) => {
       if (!isStaff) return true; // Dueño/admin: sin recorte, comportamiento de siempre.
       if (n.ownerOnly) return false; // Nunca delegable — ver el comentario largo arriba de NAV.
@@ -357,10 +656,23 @@ export default function VendorLayout() {
   // de lo que tiene asignado (owner-only o una sección que no le dieron),
   // se lo manda a la primera sección real que sí tiene — "Mi perfil" solo
   // si no tiene NINGUNA (caso raro: se le sacaron todas las secciones).
+  // Se compara con la ruta normalizada como la entiende el router (ver normalizePanelPath): sin esto, una mayúscula o una
+  // barra al final saltaban los dos bloqueos de abajo.
+  const currentPath = normalizePanelPath(location.pathname);
+  const currentNavItem = navItemForPath(currentPath);
+  // Sección fuera del plan a la que se llegó por un enlace directo o por el buscador. Mesas de una tienda que no es
+  // restaurante no cuenta: ahí la propia pantalla explica que es solo para restaurantes.
+  const planLockedItem =
+    currentNavItem && !planIncludes(currentNavItem, vendor?.planFeatures) && (!currentNavItem.restaurantOnly || vendor?.isRestaurant)
+      ? currentNavItem
+      : null;
+  const planLockedFrom = planLockedItem ? firstPlanWith(plans, planLockedItem.planFlag) : null;
+
   if (isStaff) {
-    const isOwnerOnlyExtra = OWNER_ONLY_EXTRA_PATHS.some((p) => location.pathname.startsWith(p));
-    const currentNavItem = NAV.find((n) => n.to === location.pathname);
+    const isOwnerOnlyExtra = OWNER_ONLY_EXTRA_PATHS.some((p) => currentPath === p || currentPath.startsWith(`${p}/`));
+    // El personal no puede cambiar el plan: se le manda a su primera sección, igual que con una sección que no le dieron.
     const blocked =
+      !!planLockedItem ||
       isOwnerOnlyExtra ||
       currentNavItem?.ownerOnly ||
       (currentNavItem?.staffOnly && !staffProfile?.hasAssignedProducts) ||
@@ -371,6 +683,10 @@ export default function VendorLayout() {
       return <Navigate to={fallback?.to ?? "/vendedor/perfil"} replace />;
     }
   }
+
+  // Bloque 183 + auditoría de roles: la tarjeta "Mejora tu plan" es para la tienda sin verificar que tampoco tiene un plan de
+  // pago activo. Antes salía a cualquier tienda sin la insignia, también a la que ya paga un plan que no la da.
+  const showUpgradeCard = !isStaff && !!vendor && !vendor.isVerified && !vendorPlanStatus(vendor, planNames, defaultPlanKey ?? null).premium;
 
   return (
     // Bloque 220 (pedido explícito, con imagen de referencia de un dashboard
@@ -385,10 +701,14 @@ export default function VendorLayout() {
     // obligarían a adivinar qué es cada uno.
     <div className="min-h-dvh bg-surface-container lg:grid lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-4 lg:p-4">
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 animate-overlay-in bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div aria-hidden="true" className="fixed inset-0 z-40 animate-overlay-in bg-black/50 lg:hidden" onClick={closeSidebar} />
       )}
 
       <aside
+        id="vendor-sidebar"
+        aria-label="Menú del panel"
+        // Cerrado en móvil: fuera del foco del teclado y de los lectores de pantalla (mismo criterio que CartDrawer.jsx).
+        inert={!isDesktop && !sidebarOpen ? "" : undefined}
         // Bug real reportado en vivo (con captura de celular): `h-dvh` es una
         // unidad DINÁMICA — se recalcula en vivo mientras el navegador
         // oculta/muestra su barra de direcciones al hacer scroll, así que un
@@ -423,16 +743,29 @@ export default function VendorLayout() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Link to="/" className="mb-2 flex flex-shrink-0 items-center gap-2.5 px-2">
-          {logoUrl ? (
-            <img src={logoUrl} alt={siteName} className="h-8 w-8 flex-shrink-0 rounded object-cover" />
-          ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary-container font-display text-base font-extrabold text-primary">
-              {siteName.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <span className="font-display text-lg font-bold text-white">{siteName}</span>
-        </Link>
+        {/* En móvil el cajón trae su propio botón de cerrar (antes solo se cerraba tocando el fondo oscuro, que con teclado o
+            lector de pantalla no existe). */}
+        <div className="mb-2 flex flex-shrink-0 items-center gap-1">
+          <Link to="/" className="flex min-w-0 flex-1 items-center gap-2.5 px-2">
+            {logoUrl ? (
+              <img src={logoUrl} alt={siteName} className="h-8 w-8 flex-shrink-0 rounded object-cover" />
+            ) : (
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded bg-secondary-container font-display text-base font-extrabold text-primary">
+                {siteName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span className="truncate font-display text-lg font-bold text-white">{siteName}</span>
+          </Link>
+          <button
+            ref={closeMenuButtonRef}
+            type="button"
+            onClick={closeSidebar}
+            aria-label="Cerrar menú"
+            className="-my-1.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white lg:hidden"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
 
         <div className="mb-3 flex-shrink-0 border-b border-white/10 px-2 pb-4">
           <div className="mt-3 flex items-center gap-2">
@@ -456,9 +789,11 @@ export default function VendorLayout() {
               </div>
               <div className="text-[11px] font-semibold text-secondary-container">
                 {vendor?.isRestaurant ? "Restaurante · " : ""}
-                {/* Solo dos planes: Regular o Premium. La prueba gratis es Premium completo y se marca con los días que quedan. */}
-                {vendor ? (() => {
-                  const plan = vendorPlanStatus(vendor, planNames);
+                {/* El plan con el nombre que le puso el admin (cualquier plan, también uno nuevo); sin pagar o sin la insignia que
+                    pide, se muestra el plan por defecto. La prueba gratis se marca con los días que quedan. Mientras /settings no
+                    responde no se pinta nada, para no mostrar la clave interna del plan. */}
+                {vendor && defaultPlanKey ? (() => {
+                  const plan = vendorPlanStatus(vendor, planNames, defaultPlanKey);
                   return `Plan ${plan.label}${plan.daysLabel ? ` · ${plan.daysLabel.toLowerCase()}` : ""}`;
                 })() : null}
               </div>
@@ -540,17 +875,18 @@ export default function VendorLayout() {
             negocio/pago del DUEÑO — nunca se le muestra a un usuario de
             sistema, que ni siquiera puede entrar a Verificación y plan
             para actuar sobre esto. */}
-        {!vendor?.isVerified && !isStaff && <div aria-hidden="true" className="min-h-3 flex-1" />}
+        {showUpgradeCard && <div aria-hidden="true" className="min-h-3 flex-1" />}
 
         {/* Pedido explícito: llamado a la acción "glass" visible SOLO para
             tiendas todavía no verificadas — desaparece solo en cuanto
-            vendor.isVerified pasa a true, sin lógica propia (mismo campo
-            computado que ya usa el badge de arriba). Nunca muestra un monto
+            vendor.isVerified pasa a true (mismo campo computado que ya usa el
+            badge de arriba) o en cuanto la tienda tiene un plan de pago
+            activo (ver showUpgradeCard). Nunca muestra un monto
             acá — el precio real vive en /vendedor/verificacion, a donde
             lleva "Ver planes". Compacta a propósito (ícono en línea con el
             título, no arriba solo) para no restarle alto a la lista de
             secciones de arriba. */}
-        {!vendor?.isVerified && !isStaff && (
+        {showUpgradeCard && (
           <Link
             to="/vendedor/verificacion"
             className="group flex flex-shrink-0 flex-col gap-1.5 overflow-hidden rounded-xl border border-white/15 bg-white/10 p-2.5 shadow-[0_4px_24px_rgba(0,0,0,0.18)] backdrop-blur-md transition-colors hover:bg-white/[0.15]"
@@ -562,7 +898,7 @@ export default function VendorLayout() {
               <span className="text-[12.5px] font-bold text-white">Mejora tu plan</span>
             </div>
             <p className="text-[10.5px] leading-[13px] text-white/70">
-              Verifica tu tienda y desbloquea todo lo que Business tiene para hacerla crecer.
+              Mira los planes y desbloquea más funciones para hacer crecer tu tienda.
             </p>
             <span className="mt-0.5 flex items-center justify-center rounded-lg bg-secondary-container py-1.5 text-[11px] font-bold text-primary transition group-hover:brightness-95">
               Ver planes
@@ -576,7 +912,8 @@ export default function VendorLayout() {
           cualquier sobrante horizontal sin crear un contenedor de scroll (el
           buscador fijo de arriba sigue pegado). Las tablas anchas ya traen su
           propio scroll interno. */}
-      <main className="min-w-0 overflow-x-clip px-4 pb-28 pt-6 lg:px-[38px] lg:pt-4">
+      {/* Con el cajón abierto en móvil, lo de detrás queda fuera del teclado: Tab no se escapa a la pantalla tapada. */}
+      <main inert={!isDesktop && sidebarOpen ? "" : undefined} className="min-w-0 overflow-x-clip px-4 pb-28 pt-6 lg:px-[38px] lg:pt-4">
         {/* Bloque 233 (pedido explícito, con captura — "esta barra siempre
             debe aparecer fija en el panel de vendedores para fácil acceso a
             su uso"): antes se iba con el resto del contenido al hacer
@@ -587,10 +924,15 @@ export default function VendorLayout() {
             contenido normal pero por debajo del overlay del sidebar móvil
             (z-40, ver más arriba) y de los popups globales (z-50+). */}
         <div data-toast-anchor className="sticky top-2 z-30 lg:top-4 mb-5 flex items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest px-4 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-12px_rgba(15,23,42,0.1)] lg:px-5">
+          {/* 44px de área táctil con márgenes negativos: la barra conserva su alto y el ícono no se mueve. */}
           <button
+            ref={menuButtonRef}
+            type="button"
             onClick={() => setSidebarOpen(true)}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high lg:hidden"
+            className="-m-1 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-surface-container-high lg:hidden"
             aria-label="Abrir menú"
+            aria-controls="vendor-sidebar"
+            aria-expanded={sidebarOpen}
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -646,7 +988,19 @@ export default function VendorLayout() {
             las que ya tiene) para decidir qué pestaña(s) mostrarle — antes
             ninguna página hija recibía `mySections`, solo VendorLayout lo
             usaba para su propio NAV. */}
-        <Outlet context={{ vendor, isStaff, staffSectionPermissions: staffProfile?.sectionPermissions ?? null, mySections }} />
+        {/* Al dueño, en una sección que su plan no trae, se le explica qué gana y desde qué plan, en vez de la pantalla con
+            botones que el servidor rechaza (o de mandarlo a otra sección sin decirle por qué). */}
+        {planLockedItem ? (
+          <div>
+            <h1 className="mb-4 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">{planLockedItem.label}</h1>
+            <PlanUpsell
+              title={planLockedItem.upsell.title}
+              text={`${planLockedItem.upsell.text}${planLockedFrom ? ` Disponible desde el plan ${planLockedFrom.displayName}.` : ""}`}
+            />
+          </div>
+        ) : (
+          <Outlet context={{ vendor, isStaff, staffSectionPermissions: staffProfile?.sectionPermissions ?? null, mySections }} />
+        )}
       </main>
       {/* Bloque 235: mismo z-[80] que OffersAnnouncementPopup de arriba —
           nunca compiten de verdad por pantalla, uno exige

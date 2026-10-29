@@ -115,6 +115,8 @@ export async function renderProductOgImageJpg(req, res) {
         isActive: true,
         hiddenFromStore: false,
         overQuota: false,
+        // Plato del menú de mesa con el menú oculto: la ficha da 404 (getProductBySlug, Bloque 208), su tarjeta tampoco sale.
+        NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
         vendor: { slug: vendorSlug, isBlocked: false, status: "ACTIVE", isPrivate: false },
       },
       include: {

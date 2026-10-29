@@ -50,10 +50,12 @@ function vendorMeta(product) {
   };
 }
 
+const EMPTY_STORED = { vendor: {}, items: [], discount: null, ownerId: null };
+
 function readStored() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-    if (!parsed || typeof parsed !== "object") return { vendor: {}, items: [], discount: null };
+    if (!parsed || typeof parsed !== "object") return EMPTY_STORED;
     // Bloque 140/143: auto-cura una cantidad guardada que no sea un número
     // válido (NaN, negativa, etc. — un carrito de verdad corrupto) contra
     // el techo REAL del producto (resolveStockCap: sin techo si es
@@ -65,9 +67,14 @@ function readStored() {
         }))
       : [];
     // Un descuento guardado antes de que los códigos tuvieran moneda se descarta: no se sabe a qué productos aplica.
-    return { vendor: parsed.vendor ?? {}, items, discount: parsed.discount?.currency ? parsed.discount : null };
+    return {
+      vendor: parsed.vendor ?? {},
+      items,
+      discount: parsed.discount?.currency ? parsed.discount : null,
+      ownerId: typeof parsed.ownerId === "string" ? parsed.ownerId : null,
+    };
   } catch {
-    return { vendor: {}, items: [], discount: null };
+    return EMPTY_STORED;
   }
 }
 
@@ -98,13 +105,33 @@ export function CartProvider({ children }) {
   // cambio se guarda (debounced) en el servidor (CartSnapshot), y al iniciar
   // sesión en OTRO dispositivo se restaura desde ahí. `useAuth()` funciona
   // acá porque CartProvider está anidado DENTRO de AuthProvider (ver main.jsx).
-  const { user } = useAuth();
-  const hasSyncedRef = useRef(false);
+  const { user, loading: authLoading } = useAuth();
+  // Id de la cuenta cuyo carrito ya se pidió al servidor (null = ninguna). Es un id y no un sí/no para que entrar con
+  // otra cuenta sin pasar por "sin sesión" también la sincronice.
+  const hasSyncedRef = useRef(null);
   const saveTimerRef = useRef(null);
+  // De qué cuenta es el carrito guardado en este navegador (null = de un invitado). Hace falta para que el carrito de
+  // una cuenta no sobreviva a su sesión: antes, al cerrar sesión quedaba en localStorage, y si después entraba otra
+  // persona en el mismo navegador, la sincronización de abajo lo daba por "carrito de este dispositivo" y lo guardaba
+  // en la cuenta nueva (productos y código de descuento incluidos). Lo de un invitado sí pasa a la cuenta al entrar.
+  const [ownerId, setOwnerId] = useState(initial.ownerId);
+  // Cuenta cuya sincronización con el servidor ya terminó (bien, o mal y en modo prudente, ver abajo). Hasta entonces no
+  // se guarda nada: con el carrito local vacío, el guardado de abajo mandaba DELETE /cart/me antes de que llegara el GET
+  // (en una conexión lenta), y borraba el carrito guardado de la cuenta que justo se estaba restaurando.
+  const [syncedUserId, setSyncedUserId] = useState(null);
+  // Cuenta cuyo GET /cart/me falló (5xx, timeout, sin red): no se sabe qué tiene guardado. Mientras tanto se guarda solo
+  // lo que el cliente cambie (PUT) y nunca DELETE, porque un carrito local vacío borraría el de la cuenta sin haberlo
+  // visto. skipSaveRef salta el primer guardado, el que dispara la propia sincronización y no un cambio del cliente.
+  const serverCartUnknownRef = useRef(null);
+  const skipSaveRef = useRef(false);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ vendor, items, discount }));
-  }, [vendor, items, discount]);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ vendor, items, discount, ownerId }));
+    } catch {
+      /* sin almacenamiento (modo privado, cuota llena): el carrito sigue en memoria */
+    }
+  }, [vendor, items, discount, ownerId]);
 
   // Reemplaza el carrito entero (vendedor + ítems + descuento opcional) — se
   // usa al restaurar el carrito guardado en la cuenta (carrito local vacío)
@@ -155,45 +182,100 @@ export function CartProvider({ children }) {
   // Si tenía algo de OTRA tienda, se prioriza lo que ya había en este
   // dispositivo — el próximo cambio termina pisando el snapshot del server
   // de todas formas, así que no hace falta un modal de conflicto acá.
+  //
+  // Sin sesión (ya resuelta, no mientras carga): si el carrito era de una cuenta, esa cuenta salió (cerró sesión, venció
+  // por inactividad, entró otra en otra pestaña) o su sesión ya no existe al abrir el sitio. Se vacía sin aviso: sigue
+  // guardado en la cuenta y vuelve al iniciar sesión. Se cancela antes el guardado pendiente para que no salga un
+  // PUT/DELETE con la sesión ya cerrada.
   useEffect(() => {
+    if (authLoading) return;
     if (!user) {
-      hasSyncedRef.current = false;
+      hasSyncedRef.current = null;
+      serverCartUnknownRef.current = null;
+      setSyncedUserId(null);
+      if (ownerId) {
+        clearTimeout(saveTimerRef.current);
+        setItems([]);
+        setVendor({});
+        setDiscount(null);
+        setPendingConflict(null);
+        setOwnerId(null);
+      }
       return;
     }
-    if (hasSyncedRef.current) return;
-    hasSyncedRef.current = true;
+    if (hasSyncedRef.current === user.id) return;
+    hasSyncedRef.current = user.id;
+    serverCartUnknownRef.current = null;
+    // Defensa extra: un carrito que dice ser de OTRA cuenta (p. ej. quedó así por otra pestaña) no se mezcla con esta.
+    const foreign = !!ownerId && ownerId !== user.id;
+    if (foreign) {
+      setItems([]);
+      setVendor({});
+      setDiscount(null);
+    }
+    setOwnerId(user.id);
+    const userId = user.id;
 
     (async () => {
       try {
         const { data } = await api.get("/cart/me");
-        if (!data.cart || !data.cart.items?.length) return;
-        const local = readStored();
-        if (!local.items?.length) {
-          replaceCart(data.cart.vendorMeta, data.cart.items, data.cart.discount?.currency ? data.cart.discount : null);
-        } else if (local.vendor?.vendorId === data.cart.vendorMeta?.vendorId) {
-          mergeItems(data.cart.items, "max");
+        // La sesión cambió mientras llegaba la respuesta (cerró sesión o entró otra cuenta): ese carrito ya no va aquí.
+        if (hasSyncedRef.current !== userId) return;
+        if (data.cart?.items?.length) {
+          const local = foreign ? EMPTY_STORED : readStored();
+          if (!local.items?.length) {
+            replaceCart(data.cart.vendorMeta, data.cart.items, data.cart.discount?.currency ? data.cart.discount : null);
+          } else if (local.vendor?.vendorId === data.cart.vendorMeta?.vendorId) {
+            mergeItems(data.cart.items, "max");
+          }
         }
+        // Solo con la respuesta en mano se sabe qué tiene la cuenta: desde aquí el guardado puede pisarlo o borrarlo.
+        setSyncedUserId(userId);
       } catch {
-        // sin conexión o sesión vencida — el carrito local sigue funcionando igual.
+        // Sin conexión, timeout o sesión vencida: el carrito local sigue funcionando igual, pero el de la cuenta no se
+        // conoce, así que el guardado entra en modo prudente (ver serverCartUnknownRef).
+        if (hasSyncedRef.current !== userId) return;
+        serverCartUnknownRef.current = userId;
+        skipSaveRef.current = true;
+        setSyncedUserId(userId);
       }
     })();
-  }, [user, replaceCart, mergeItems]);
+    // ownerId se lee del render actual a propósito: solo importa en el momento de entrar o salir, no en cada cambio.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, replaceCart, mergeItems]);
 
   // Guarda (debounced) el carrito en la cuenta en cada cambio mientras haya
   // sesión — vacío = se borra el snapshot (pedido confirmado o vaciado a
   // mano), así no revive productos viejos en el próximo dispositivo.
+  // Por id y no por el objeto `user`: AuthContext lo reemplaza al refrescar el perfil, y eso no es un cambio del carrito
+  // (en modo prudente habría mandado un PUT sin que el cliente tocara nada).
+  const sessionUserId = user?.id ?? null;
   useEffect(() => {
-    if (!user) return;
+    if (!sessionUserId || syncedUserId !== sessionUserId) return;
+    const userId = sessionUserId;
+    if (serverCartUnknownRef.current === userId) {
+      if (skipSaveRef.current) {
+        skipSaveRef.current = false;
+        return;
+      }
+      if (items.length === 0) return;
+    }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       if (items.length === 0) {
         api.delete("/cart/me").catch(() => {});
       } else {
-        api.put("/cart/me", { vendorMeta: vendor, items, discount }).catch(() => {});
+        api
+          .put("/cart/me", { vendorMeta: vendor, items, discount })
+          // Con el PUT guardado, la cuenta ya tiene este carrito: vaciarlo después sí debe borrarlo.
+          .then(() => {
+            if (serverCartUnknownRef.current === userId) serverCartUnknownRef.current = null;
+          })
+          .catch(() => {});
       }
     }, 700);
     return () => clearTimeout(saveTimerRef.current);
-  }, [user, vendor, items, discount]);
+  }, [sessionUserId, syncedUserId, vendor, items, discount]);
 
   // Bloque 52: con tallas, un mismo producto puede tener varias líneas en el
   // carrito (una por talla) — la identidad de un ítem pasa a ser
@@ -450,6 +532,10 @@ export function CartProvider({ children }) {
   const total = items.reduce((sum, i) => sum + resolveUnitPrice(i.price, i.priceTiers, i.quantity) * i.quantity, 0);
   const discountAmount = discount?.amount ?? 0;
   const totalWithDiscount = Math.max(0, total - discountAmount);
+  // El carrito ya es de quien tiene la sesión (o de un invitado sin sesión). Mientras no lo es, el efecto de arriba
+  // todavía puede vaciarlo (sesión vencida o carrito de otra cuenta), así que quien importe productos por su cuenta
+  // (SharedCart) espera a esto: los efectos de los hijos corren antes que los de CartProvider, y lo importado se perdía.
+  const ownerSettled = !authLoading && ownerId === (user?.id ?? null);
 
   return (
     <CartContext.Provider
@@ -479,6 +565,7 @@ export function CartProvider({ children }) {
         resolveConflict,
         replaceCart,
         mergeItems,
+        ownerSettled,
       }}
     >
       {children}

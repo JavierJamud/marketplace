@@ -6,11 +6,19 @@ import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { ConfirmModal } from "../ConfirmModal.jsx";
 import { CardListSkeleton } from "../ui/Skeleton.jsx";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { PaymentChooser } from "./PaymentChooser.jsx";
+import { usePublicPlans } from "../plans/PlansCatalog.jsx";
 
 // Resumen de la suscripción en la pantalla "Suscripción" del panel. Muestra lo que incluye el plan (lo que el admin configura
 // en Suscripciones), el precio, cómo paga, la tarjeta, desde cuándo está suscrita, el periodo actual, cuánto le queda y el
-// próximo cobro. Con tarjeta: cancelar (sigue con Premium hasta el final de lo pagado), reactivar (si ya venció, se cobra en
+// próximo cobro. Con tarjeta: cancelar (sigue con su plan hasta el final de lo pagado), reactivar (si ya venció, se cobra en
 // el momento con la tarjeta guardada) y cambiar la tarjeta (página de Stripe). En CUP: renovar con transferencia.
+// Los nombres de plan salen de la base: el de la tienda viene en la respuesta (planName) y el plan al que se baja es el que
+// tiene isDefault (usePlatformSettings). Antes decía "Básico" y "Premium" escritos acá y comparaba con la clave "REGULAR".
+// El botón "Renovar mi plan" de las tiendas que no pagan con tarjeta se había perdido en v26.0.81: solo quedaba "Pasar a
+// cobro automático con tarjeta", que oculta la transferencia, y una tienda en CUP no podía pagar el mes siguiente antes de
+// vencer. Abre el mismo pago de renovación que VendorVerification.jsx usa con el plan sin insignia.
 const BRAND = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners", jcb: "JCB", unionpay: "UnionPay" };
 const METHOD_LABEL = {
   CARD: "Tarjeta, cobro automático",
@@ -32,8 +40,17 @@ function every(n) {
 
 export function SubscriptionOverview({ onChoosePayment }) {
   const queryClient = useQueryClient();
+  const { defaultPlanKey, defaultPlanName } = usePlatformSettings();
+  const toDefault = defaultPlanName ? `al plan ${defaultPlanName}` : "al plan por defecto";
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showRenew, setShowRenew] = useState(false);
+  // "Pasar a cobro automático con tarjeta" abre otro PaymentChooser debajo (VendorVerification.jsx), que no tiene botón para
+  // cerrarse. Con los dos abiertos salían dos selectores de pago seguidos, así que al elegir la tarjeta se quita el de renovar.
+  const [switchingToCard, setSwitchingToCard] = useState(false);
+  // Misma lista y mismo filtro que PaymentChooser: si el plan de la tienda no sale ahí (oculto, gratis o "por WhatsApp"),
+  // el pago diría "No pudimos cargar los planes", así que el botón no se ofrece.
+  const { data: publicPlans } = usePublicPlans();
   const { data: s, isLoading, isError, refetch } = useQuery({
     queryKey: ["my-subscription"],
     queryFn: async () => (await api.get("/verification/me/subscription")).data.subscription,
@@ -101,6 +118,18 @@ export function SubscriptionOverview({ onChoosePayment }) {
           : { label: "Activa", cls: "bg-verified/10 text-verified-dark" };
   const card = s.card ? `${BRAND[s.card.brand] ?? s.card.brand} terminada en ${s.card.last4} · vence ${String(s.card.expMonth).padStart(2, "0")}/${String(s.card.expYear).slice(-2)}` : null;
   const box = "rounded-xl bg-surface-container/60 px-3 py-2.5";
+  const ownPayablePlan = (publicPlans?.plans ?? []).find((p) => p.planType === s.planType && !p.isFree && !p.contactOnly);
+  // Renovar sin tarjeta: verificada, fuera de la prueba, sin cancelación ni bajada de plan programadas (ahí lo que toca es
+  // reactivar o escribir al equipo). El plan sin insignia ya tiene su propio pago en VendorVerification.jsx.
+  // Elegir de nuevo BORRA la renovación pendiente en el servidor (chooseMyRenewalPayment), así que el botón no sale cuando
+  // esa renovación ya lleva dinero o puede llevarlo: con el aviso "Ya pagué" (se perdería el aviso), con el cobro que Stripe
+  // ya hizo (stripePaidAt: el admin perdería el registro de un pago cobrado) y con una sesión de tarjeta todavía abierta (si
+  // la paga después, el webhook no encuentra el registro y el cobro se pierde). Una sesión vencida ya no se puede pagar.
+  const pendingIsCard = s.pendingRenewal?.paymentMethod === "CARD";
+  const pendingHasMoney =
+    !!s.pendingRenewal && (!!s.pendingRenewal.paymentClaimedAt || !!s.pendingRenewal.stripePaidAt || (pendingIsCard && !s.pendingRenewal.stripeCheckoutExpired));
+  const canRenewManually =
+    !isCard && s.status === "VERIFIED" && !s.inTrial && !s.cancelAtPeriodEnd && !s.planDowngradeAt && !s.paysWithoutBadge && !!ownPayablePlan && !pendingHasMoney && !switchingToCard;
 
   return (
     <section className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-5 shadow-sm sm:p-6" aria-labelledby="sub-title">
@@ -111,14 +140,14 @@ export function SubscriptionOverview({ onChoosePayment }) {
         <span className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${statusChip.cls}`}>{statusChip.label}</span>
       </div>
 
-      {/* El equipo programó el paso al plan Regular: hasta esa fecha sigue todo igual y no se renueva. */}
+      {/* El equipo programó el paso al plan por defecto: hasta esa fecha sigue todo igual y no se renueva. */}
       {s.planDowngradeAt && (
         <div role="status" className="mb-4 flex gap-2 rounded-xl border border-secondary/30 bg-secondary-container/30 p-3.5 text-[13px] text-on-surface">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-secondary" aria-hidden="true" />
           <p>
-            Tu tienda pasará al plan Básico el <strong>{new Date(s.planDowngradeAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>.
-            Hasta ese día tienes todas las funciones Premium y no se te cobra la renovación.
-            {s.planDowngradeReason ? ` Motivo: ${s.planDowngradeReason}.` : ""} Si quieres mantener Premium, escríbenos en Mensajes.
+            Tu tienda pasará {toDefault} el <strong>{new Date(s.planDowngradeAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" })}</strong>.
+            Hasta ese día tienes todas las funciones del plan {s.planName} y no se te cobra la renovación.
+            {s.planDowngradeReason ? ` Motivo: ${s.planDowngradeReason}.` : ""} Si quieres mantener el plan {s.planName}, escríbenos en Mensajes.
           </p>
         </div>
       )}
@@ -198,7 +227,9 @@ export function SubscriptionOverview({ onChoosePayment }) {
             {reactivate.isPending ? "Reactivando..." : s.status === "VERIFIED" ? "Reactivar suscripción" : card ? `Reactivar y cobrar a la tarjeta ${s.card.last4}` : "Reactivar suscripción"}
           </button>
         ) : (
-          ((s.status === "VERIFIED" && s.planType !== "REGULAR") || s.paysWithoutBadge) && (
+          // El plan por defecto no se cancela: es al que se vuelve. Mientras /settings no responde (defaultPlanKey null) no se
+          // ofrece, para no mostrar el botón un instante a una tienda en el plan por defecto.
+          ((s.status === "VERIFIED" && defaultPlanKey != null && s.planType !== defaultPlanKey) || s.paysWithoutBadge) && (
             <button type="button" onClick={() => setConfirmCancel(true)} className="min-h-11 rounded-xl border border-error px-4 text-[13px] font-bold text-error hover:bg-error/5">
               Cancelar suscripción
             </button>
@@ -209,24 +240,54 @@ export function SubscriptionOverview({ onChoosePayment }) {
             <CreditCard className="h-4 w-4" aria-hidden="true" /> {updateCard.isPending ? "Abriendo Stripe..." : "Cambiar tarjeta"}
           </button>
         )}
+        {canRenewManually && (
+          <button
+            type="button"
+            onClick={() => setShowRenew((v) => !v)}
+            aria-expanded={showRenew}
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-[13px] font-bold text-white"
+          >
+            <Landmark className="h-4 w-4" aria-hidden="true" /> {showRenew ? "Ocultar el pago" : "Renovar mi plan"}
+          </button>
+        )}
         {!isCard && s.status === "VERIFIED" && !s.inTrial && (
-          <button type="button" onClick={onChoosePayment} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface">
+          <button
+            type="button"
+            onClick={() => {
+              setShowRenew(false);
+              setSwitchingToCard(true);
+              onChoosePayment?.();
+            }}
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface"
+          >
             <CreditCard className="h-4 w-4" aria-hidden="true" /> Pasar a cobro automático con tarjeta
           </button>
         )}
         {s.pendingRenewal && (
           <Link to="/vendedor/pago-manual" className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface">
-            <Landmark className="h-4 w-4" aria-hidden="true" /> Renovación en CUP en curso ({s.pendingRenewal.months} {s.pendingRenewal.months === 1 ? "mes" : "meses"})
+            {pendingIsCard ? <CreditCard className="h-4 w-4" aria-hidden="true" /> : <Landmark className="h-4 w-4" aria-hidden="true" />}
+            {pendingIsCard ? "Pago con tarjeta en curso" : "Renovación en CUP en curso"} ({s.pendingRenewal.months} {s.pendingRenewal.months === 1 ? "mes" : "meses"})
           </Link>
         )}
       </div>
+      {canRenewManually && showRenew && (
+        <div className="mt-4">
+          <PaymentChooser
+            renewal
+            onlyPlanType={s.planType}
+            title={`Renovar el plan ${s.planName}`}
+            intro={`Elige cuántos meses pagar.${s.periodEnd && new Date(s.periodEnd) > new Date() ? ` Lo que pagues se suma desde el ${fmtDate(s.periodEnd)}, cuando vence tu plan.` : ""} Pagando varios meses juntos se aplica el descuento del plan.`}
+            onChoseCup={refresh}
+          />
+        </div>
+      )}
       {isCard && !s.cancelAtPeriodEnd && s.status === "VERIFIED" && (
         <p className="mt-2 text-[12px] text-on-surface-variant">Se renueva sola {s.intervalMonths ? every(s.intervalMonths) : ""} con tu tarjeta. Si cancelas, sigues con todo hasta el final de lo que pagaste.</p>
       )}
 
       {s.history?.length > 0 && (
         <div className="mt-4 border-t border-surface-container-high pt-3">
-          <button type="button" onClick={() => setShowHistory((v) => !v)} aria-expanded={showHistory} className="flex min-h-10 items-center gap-1.5 text-[12.5px] font-semibold text-tertiary-accent">
+          <button type="button" onClick={() => setShowHistory((v) => !v)} aria-expanded={showHistory} className="flex min-h-11 items-center gap-1.5 text-[12.5px] font-semibold text-tertiary-accent">
             <History className="h-4 w-4" aria-hidden="true" /> {showHistory ? "Ocultar" : "Ver"} historial de pagos ({s.history.length})
           </button>
           {showHistory && (
@@ -246,7 +307,7 @@ export function SubscriptionOverview({ onChoosePayment }) {
       <ConfirmModal
         open={confirmCancel}
         title={`¿Cancelar el plan ${s.planName}?`}
-        message={`No pierdes nada ahora: sigues con todo lo que incluye tu plan hasta el ${fmtDate(s.periodEnd)}. ${isCard ? "No se te volverá a cobrar. " : ""}Después pasas al plan gratis. Puedes reactivarla antes de esa fecha con un solo botón.`}
+        message={`No pierdes nada ahora: sigues con todo lo que incluye tu plan hasta el ${fmtDate(s.periodEnd)}. ${isCard ? "No se te volverá a cobrar. " : ""}Después pasas ${toDefault}. Puedes reactivarla antes de esa fecha con un solo botón.`}
         confirmLabel={cancel.isPending ? "Cancelando..." : "Sí, cancelar"}
         danger
         onConfirm={() => cancel.mutate()}

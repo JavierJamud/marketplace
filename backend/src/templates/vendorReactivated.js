@@ -14,7 +14,7 @@ export async function vendorReactivatedEmail({ vendor, reason }) {
     badge: { label: "Reactivada", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola equipo de <strong>${vendor.companyName}</strong>, tu tienda ya está activa de nuevo — vuelve a estar visible en el marketplace tal cual la dejaste.`)}
+      ${paragraph(`Hola equipo de <strong>${vendor.companyName}</strong>, tu tienda ya está activa de nuevo: vuelve a estar visible en el marketplace tal cual la dejaste.`)}
       ${reason ? smallNote(`Nota del equipo de ${siteName}: ${reason}`) : ""}
       ${ctaButton("Ir a mi panel", `${env.frontendUrl}/vendedor`)}
     `,

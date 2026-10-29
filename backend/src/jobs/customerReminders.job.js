@@ -2,8 +2,9 @@ import { currencyLabel } from "../lib/catalog.js";
 import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { sendCartReminderEmail, sendStoreReminderEmail } from "../lib/email.js";
-import { unsubscribeUrl } from "../lib/marketingEmail.js";
+import { unsubscribeUrl, canSendMarketingEmail as canEmail, markMarketingEmailSent as markEmailed } from "../lib/marketingEmail.js";
 import { activeProgramFor, pointsWorth } from "../services/loyalty.service.js";
+import { filterVisibleStoreOffers, publicStoreOfferWhere } from "../lib/storeOfferVisibility.js";
 
 // Recordatorios automáticos a clientes con cuenta, dos veces al día en horario de Cuba (10:00 y 17:00):
 //  1. Carrito sin terminar: el carrito guardado lleva entre 1 y 7 días sin cambios y no hubo pedido a esa tienda desde entonces.
@@ -13,19 +14,10 @@ import { activeProgramFor, pointsWorth } from "../services/loyalty.service.js";
 // Para no saturar: nunca más de un correo de estos por persona cada 3 días, sea de la tienda que sea, y solo a quien no los
 // apagó (User.marketingEmails). Cada correo sale a nombre de la tienda.
 const DAY = 24 * 60 * 60 * 1000;
-const MIN_GAP_BETWEEN_EMAILS = 3 * DAY;
 const NUDGE_EVERY = 14 * DAY;
 const BATCH = 200;
 
 const eligibleUser = { role: "CUSTOMER", marketingEmails: true, isSuspended: false, deletedAt: null };
-
-function canEmail(user, now) {
-  return !user.lastMarketingEmailAt || now - user.lastMarketingEmailAt.getTime() >= MIN_GAP_BETWEEN_EMAILS;
-}
-
-async function markEmailed(userId, at) {
-  await prisma.user.update({ where: { id: userId }, data: { lastMarketingEmailAt: at } });
-}
 
 async function pointsInfo(vendor, userId) {
   const program = await activeProgramFor(vendor);
@@ -40,18 +32,18 @@ async function pointsInfo(vendor, userId) {
   };
 }
 
+// Mismas reglas que la tienda pública (lib/storeOfferVisibility.js): un correo no anuncia una oferta que la tienda ya no
+// puede mostrar por su plan, ni una que el admin suspendió. La más reciente siempre entra en el tope si el plan permite alguna.
 async function activeOffer(vendorId, now) {
-  const offer = await prisma.storeOffer.findFirst({
-    where: {
-      vendorId,
-      active: true,
-      discountCode: { active: true },
-      OR: [{ startsAt: null }, { startsAt: { lte: now } }],
-      AND: [{ OR: [{ isLimitedTime: false }, { expiresAt: { gt: now } }] }],
-    },
-    include: { discountCode: { select: { code: true, type: true, value: true, currency: true } } },
-    orderBy: { createdAt: "desc" },
-  });
+  const [found, vendor] = await Promise.all([
+    prisma.storeOffer.findFirst({
+      where: { vendorId, ...publicStoreOfferWhere(now) },
+      include: { discountCode: { select: { code: true, type: true, value: true, currency: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.vendor.findUnique({ where: { id: vendorId }, select: { planType: true, verificationStatus: true } }),
+  ]);
+  const [offer] = await filterVisibleStoreOffers(vendor, found ? [found] : []);
   if (!offer) return null;
   const dc = offer.discountCode;
   return {

@@ -16,14 +16,14 @@ export async function twoFactorCodeEmail({ fullName, code }) {
     ? [`${first}, confirma que eres tú`, `${first}, tu código de acceso`, `Código para iniciar sesión, ${first}`]
     : ["Confirma que eres tú", "Tu código de acceso", "Código para iniciar sesión"]);
   const html = await emailShell({
-    preview: "Alguien está iniciando sesión en tu cuenta — usa este código para completar el ingreso",
+    preview: "Alguien está iniciando sesión en tu cuenta: usa este código para completar el ingreso",
     title: "Confirma que eres tú",
     badge: { label: "Verificación en dos pasos", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${esc(fullName)}, alguien está iniciando sesión en tu cuenta. Usa este código para completar el ingreso — vence en <strong>${CODE_TTL_MINUTES} minutos</strong>.`)}
+      ${paragraph(`Hola ${esc(fullName)}, alguien está iniciando sesión en tu cuenta. Usa este código para completar el ingreso: vence en <strong>${CODE_TTL_MINUTES} minutos</strong>.`)}
       ${codeBlock(code)}
-      ${smallNote("Si no intentaste ingresar, cambia tu contraseña — alguien más la tiene.")}
+      ${smallNote("Si no intentaste ingresar, cambia tu contraseña: alguien más la tiene.")}
       ${ctaButton(`Ir a ${siteName}`, `${env.frontendUrl}/cuenta`)}
     `,
   });

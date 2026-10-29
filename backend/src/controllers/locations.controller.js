@@ -161,9 +161,18 @@ export async function seedWorldCountriesAction(_req, res) {
   res.json(await seedWorldCountries());
 }
 
+// El código del país tiene que ser ISO de 2 letras con código de marcado conocido: de ahí salen la bandera y el prefijo del
+// teléfono, y listActiveCountries descarta para el registro los que no tienen prefijo. Antes se aceptaban 2 a 5 letras
+// cualesquiera ("CUB", "USA") y el país quedaba creado y encendido pero invisible al registrarse, sin ningún aviso.
+const ISO_CODE_MESSAGE = "Usa el código ISO de 2 letras (CU, US, ES).";
+const isIsoCountryCode = (code) => /^[A-Z]{2}$/.test(code) && !!callingCodeFor(code);
+const isoCountryCode = z.string().trim().toUpperCase().refine(isIsoCountryCode, ISO_CODE_MESSAGE);
+// Nombres del catálogo: los selectores y las tarjetas no están pensados para textos largos.
+const placeName = z.string().trim().min(2, "Escribe el nombre (al menos 2 letras).").max(80, "El nombre admite hasta 80 caracteres.");
+
 const createCountrySchema = z.object({
-  code: z.string().trim().min(2).max(5).toUpperCase(),
-  name: z.string().trim().min(2),
+  code: isoCountryCode,
+  name: placeName,
 });
 
 export async function createCountry(req, res) {
@@ -175,9 +184,11 @@ export async function createCountry(req, res) {
   res.status(201).json({ country });
 }
 
+// El código se valida como ISO solo si cambia (ver updateCountry): el modal reenvía el código en cada guardado y un país
+// viejo con código no ISO tiene que poder seguir editándose (por ejemplo, para apagarlo) sin que se le exija corregirlo.
 const updateCountrySchema = z.object({
-  code: z.string().trim().min(2).max(5).toUpperCase().optional(),
-  name: z.string().trim().min(2).optional(),
+  code: z.string().trim().toUpperCase().min(2, ISO_CODE_MESSAGE).max(5, ISO_CODE_MESSAGE).optional(),
+  name: placeName.optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -188,7 +199,8 @@ export async function updateCountry(req, res) {
   const existing = await prisma.country.findUnique({ where: { id } });
   if (!existing) throw new AppError("País no encontrado.", 404);
 
-  if (data.code) {
+  if (data.code && data.code !== existing.code) {
+    if (!isIsoCountryCode(data.code)) throw new AppError(ISO_CODE_MESSAGE, 400);
     const codeTaken = await prisma.country.findUnique({ where: { code: data.code } });
     if (codeTaken && codeTaken.id !== id) throw new AppError("Ya existe un país con ese código.", 409);
   }
@@ -286,7 +298,7 @@ export async function listProvincesForAdmin(_req, res) {
 
 const createProvinceSchema = z.object({
   code: z.string().trim().min(1).max(10).toLowerCase(),
-  name: z.string().trim().min(2),
+  name: placeName,
   countryId: z.string().min(1, "Elige a qué país pertenece."),
   type: z.enum(["PROVINCE", "STATE"]).default("PROVINCE"),
 });
@@ -305,7 +317,7 @@ export async function createProvince(req, res) {
 
 const updateProvinceSchema = z.object({
   code: z.string().trim().min(1).max(10).toLowerCase().optional(),
-  name: z.string().trim().min(2).optional(),
+  name: placeName.optional(),
   countryId: z.string().min(1).optional(),
   type: z.enum(["PROVINCE", "STATE"]).optional(),
   isActive: z.boolean().optional(),
@@ -335,22 +347,45 @@ export async function deleteProvince(req, res) {
   const { id } = req.params;
   const province = await prisma.province.findUnique({
     where: { id },
-    include: { _count: { select: { vendorLocations: true, municipalities: true } } },
+    include: {
+      _count: {
+        select: {
+          municipalities: true,
+          vendorLocations: true,
+          addresses: true,
+          users: true,
+          vendorsLegal: true,
+          customerListings: true,
+          locationSuggestions: { where: { status: "PENDING" } },
+        },
+      },
+    },
   });
   if (!province) throw new AppError("Provincia/Estado no encontrado.", 404);
 
-  if (province._count.vendorLocations > 0 || province._count.municipalities > 0) {
-    throw new AppError(
-      `No se puede eliminar. Tiene ${province._count.municipalities} municipio(s) o ciudad(es) y ${province._count.vendorLocations} tienda(s) usándolo. Desactívalo en su lugar.`,
-      409
-    );
+  // Cualquier uso impide borrarla, igual que en deleteMunicipality y deleteCountry. Antes solo se miraban municipios y zonas
+  // de entrega: una dirección guardada (Address.province es obligatoria, sin onDelete) hacía fallar el borrado con un 500, y
+  // las personas, las tiendas con esa dirección legal y los anuncios de venta rápida perdían la provincia sin aviso (SetNull).
+  // Las solicitudes de municipio pendientes escritas dentro de ella se borrarían en cascada sin que el admin las revisara.
+  const c = province._count;
+  const uses = [
+    c.municipalities && `${c.municipalities} municipio(s) o ciudad(es)`,
+    c.vendorLocations && `${c.vendorLocations} zona(s) de entrega`,
+    c.users && `${c.users} persona(s)`,
+    c.vendorsLegal && `${c.vendorsLegal} tienda(s) como dirección legal`,
+    c.addresses && `${c.addresses} dirección(es) guardada(s)`,
+    c.customerListings && `${c.customerListings} anuncio(s) de venta rápida`,
+    c.locationSuggestions && `${c.locationSuggestions} solicitud(es) de ubicación sin revisar`,
+  ].filter(Boolean);
+  if (uses.length) {
+    throw new AppError(`No se puede eliminar porque está en uso: ${uses.join(", ")}. Desactívala en su lugar.`, 409);
   }
 
   await prisma.province.delete({ where: { id } });
   res.status(204).end();
 }
 
-const createMunicipalitySchema = z.object({ name: z.string().trim().min(2) });
+const createMunicipalitySchema = z.object({ name: placeName });
 
 export async function createMunicipality(req, res) {
   const { provinceId } = req.params;
@@ -393,7 +428,7 @@ export async function listMunicipalitiesForAdmin(req, res) {
 }
 
 const updateMunicipalitySchema = z.object({
-  name: z.string().trim().min(2).optional(),
+  name: placeName.optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -459,8 +494,9 @@ export async function pendingLocationSuggestionsCount(_req, res) {
 }
 
 const approveSuggestionSchema = z.object({
-  // Solo para países: el código ISO que el admin le pone (2 o 3 letras).
-  code: z.string().trim().max(3).optional(),
+  // Solo para países: el código ISO de 2 letras que el admin le pone. Antes valían 3 letras y el país aprobado quedaba sin
+  // bandera ni prefijo de teléfono, invisible en el registro (mismo criterio que createCountry).
+  code: isoCountryCode.optional(),
   // Opcional: corregir cómo se escribe antes de crearlo (tildes, mayúsculas).
   name: z.string().trim().min(2).max(80).optional(),
 });

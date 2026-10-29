@@ -2,7 +2,7 @@ import { BlacklistCheckbox } from "../../components/admin/BlacklistCheckbox.jsx"
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, KeyRound, LayoutGrid, ListChecks, MonitorSmartphone, Package, ReceiptText, Users } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Bot, CheckCircle2, ChevronDown, CircleDashed, CreditCard, ExternalLink, History, KeyRound, LayoutGrid, LifeBuoy, ListChecks, MonitorSmartphone, Package, ReceiptText, Users } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { api } from "../../lib/api.js";
 import { timeAgo, exactDate, exactDateTime } from "../../lib/relativeTime.js";
@@ -19,14 +19,14 @@ import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbo
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { AdminVendorStaffModal } from "../../components/admin/AdminVendorStaffModal.jsx";
 import { RepresentativeFileModal } from "../../components/admin/RepresentativeFileModal.jsx";
-import { EditVendorModal, StatsModal } from "./AdminVendors.jsx";
+import { EditVendorModal, StatsModal, useAdminPlanList } from "./AdminVendors.jsx";
 import { VendorUsageSection } from "../../components/admin/VendorUsage.jsx";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
-import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { Tabs } from "../../components/ui/Tabs.jsx";
 import { VendorOrdersPanel } from "../../components/admin/VendorOrdersPanel.jsx";
 import AdminProducts from "./AdminProducts.jsx";
+import { VendorHistorySections } from "./AdminDeletedVendors.jsx";
 
 // Gestionar una tienda (/admin/tiendas/:id): estado, lo que le falta configurar, accesos y dispositivos, equipo, asistente,
 // actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista. La pestaña Pedidos
@@ -42,8 +42,11 @@ const VERIFICATION_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   REJECTED: "Rechazada",
   SUSPENDED: "Verificación suspendida",
-  PLAN_ENDED: "Volvió a Básico",
+  // El nombre del plan por defecto lo pone el componente (sale de la base); esto es solo el texto de reserva.
+  PLAN_ENDED: "Volvió al plan por defecto",
 };
+
+const GRANT_MONTHS = [1, 2, 3, 6, 12, 24];
 
 function Section({ icon: Icon, title, children, action }) {
   return (
@@ -79,12 +82,27 @@ export default function AdminVendorManage() {
   const [reason, setReason] = useState("");
   const [notify, setNotify] = useState(false);
   const [blacklist, setBlacklist] = useState(false);
-  const { planNames } = usePlatformSettings();
+  const { plans, isLoading: plansLoading, isError: plansError } = useAdminPlanList();
+  // Plan por defecto (el de registro y de bajada) por su bandera, nunca por la clave "REGULAR".
+  const defaultPlan = plans.find((p) => p.isDefault) ?? null;
+  // Sin artículo: se usa tras "a" ("Pasar a Básico"); el texto de reserva solo se ve si /settings no llegó.
+  const defaultName = defaultPlan?.displayName ?? "plan por defecto";
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = TAB_IDS.includes(searchParams.get("tab")) ? searchParams.get("tab") : "resumen";
   // Al cambiar de pestaña se limpian los filtros de la otra: cada una usa la URL para lo suyo.
   const setTab = (next) => setSearchParams(next === "resumen" ? {} : { tab: next }, { replace: true });
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["admin-vendor-manage", id], queryFn: async () => (await api.get(`/admin/vendors/${id}/manage`)).data });
+  // Planes que se activan a mano: los de pago (ni el por defecto ni los gratis), también los ocultos y los que se
+  // contratan hablando con el equipo. Mismo criterio que getPaidPlanKeys del backend. Incluye el plan que ya tiene: el
+  // servidor (grantBusinessPlan) lo alarga sumando los meses desde su próxima fecha de pago, o pasa una prueba gratis a
+  // un periodo pagado del mismo plan. Solo da 409 si se pide "Sin vencimiento" y ya lo tiene así.
+  const currentPlanKey = data?.vendor?.planType ?? null;
+  // Sin los que el servidor rechaza: un plan sin insignia que tampoco se cobra (gratis o por WhatsApp) no vencería nunca.
+  // Mismo filtro que GrantBusinessCard de Suscripciones.
+  const grantablePlans = plans.filter((p) => !p.isDefault && (p.grantsBadge || (!p.isFree && !p.contactOnly)));
+  // Plan que el modal propone al abrirse: el que ya tiene (para alargarlo), si no el de prueba, si no el primero.
+  const grantDefaultPlan =
+    grantablePlans.find((p) => p.planType === currentPlanKey) ?? grantablePlans.find((p) => p.isTrialPlan) ?? grantablePlans[0] ?? null;
 
   const done = (msg) => {
     if (msg) toast.success(msg);
@@ -108,19 +126,43 @@ export default function AdminVendorManage() {
     onSuccess: () => done("Tienda actualizada"),
     onError: fail("No se pudo actualizar la tienda."),
   });
-  // Pasar a Regular ahora o al terminar lo que ya tiene, o anular un cambio programado (ver planDowngrade.service.js).
+  // Pasar al plan por defecto ahora o al terminar lo que ya tiene, o anular un cambio programado (ver planDowngrade.service.js).
   const downgrade = useMutation({
     mutationFn: async ({ when, reason: r }) => (await api.post(`/admin/vendors/${id}/downgrade`, { when, reason: r })).data,
     onSuccess: (_, { when }) =>
-      done(when === "now" ? "La tienda pasó al plan Básico" : when === "cancel" ? "Se anuló el cambio programado" : "Cambio a Básico programado"),
+      done(when === "now" ? `La tienda pasó a ${defaultName}` : when === "cancel" ? "Se anuló el cambio programado" : `Cambio a ${defaultName} programado`),
     onError: fail("No se pudo cambiar el plan."),
   });
-  // Activar un plan de pago a mano (con motivo): mueve plan e insignia juntos, igual que "Activar Premium" de Suscripciones.
-  // Empresarial solo se activa así, porque se contrata hablando con el equipo.
-  const [grantPlan, setGrantPlan] = useState("BUSINESS");
+  // Activar un plan de pago a mano (con motivo), por meses o "Sin vencimiento" (#7 de la auditoría: antes vencía siempre a
+  // los 30 días y el Empresarial caía solo al plan por defecto). "Sin vencimiento" solo existe en los planes con insignia:
+  // en uno sin insignia las funciones duran mientras tenga tiempo pagado y el servidor lo rechaza (400). Los planes que se
+  // contratan hablando con el equipo (contactOnly) no se renuevan solos: con insignia proponen "Sin vencimiento", pero se
+  // puede elegir una cantidad de meses; sin insignia, solo por meses.
+  const [grantPick, setGrantPick] = useState(null);
+  const [grantMonths, setGrantMonths] = useState("1");
+  // Sin elección todavía (o si la elegida ya no está): la propuesta de grantDefaultPlan.
+  const grantPlan = grantablePlans.find((p) => p.planType === grantPick) ?? grantDefaultPlan;
+  // Duración que propone cada plan al elegirlo; "Sin vencimiento" se descarta en un plan que no lo admite.
+  const monthsFor = (p, current) => (p?.contactOnly && p?.grantsBadge ? "none" : current === "none" && !p?.grantsBadge ? "1" : current);
+  const grantMonthsValue = grantMonths === "none" && !grantPlan?.grantsBadge ? "1" : grantMonths;
+  const grantNoExpiry = !!grantPlan?.grantsBadge && grantMonthsValue === "none";
+  const openGrantModal = () => {
+    setGrantPick(null);
+    setGrantMonths(monthsFor(grantDefaultPlan, "1"));
+    setModal("plan");
+  };
   const grant = useMutation({
-    mutationFn: async () => (await api.post(`/admin/vendors/${id}/grant-business`, { reason: reason.trim(), planType: grantPlan }, notifyVendorConfig(notify))).data,
-    onSuccess: () => done(`La tienda pasó a ${planNames[grantPlan]}`),
+    mutationFn: async () =>
+      (
+        await api.post(
+          `/admin/vendors/${id}/grant-business`,
+          { reason: reason.trim(), planType: grantPlan.planType, ...(grantNoExpiry ? { noExpiry: true } : { months: Number(grantMonthsValue) }) },
+          notifyVendorConfig(notify)
+        )
+      ).data,
+    // `same` llega en las variables (no se lee grantSamePlan, que se calcula más abajo, después de los returns tempranos).
+    onSuccess: (_, vars) =>
+      done(vars?.same ? `Listo: sigue con ${vars.name}` : `La tienda pasó a ${vars?.name ?? grantPlan?.displayName ?? "el plan elegido"}`),
     onError: fail("No se pudo cambiar el plan."),
   });
   const reactivate = useMutation({
@@ -135,7 +177,8 @@ export default function AdminVendorManage() {
   });
   const restore = useMutation({
     mutationFn: async () => (await api.post(`/admin/vendors/${id}/restore-deletion`)).data,
-    onSuccess: () => done("Tienda restaurada"),
+    // Si estaba bloqueada antes de eliminarla, restaurar le devuelve ese bloqueo (preDeletionBlockReason en el servidor).
+    onSuccess: (data) => done(data?.isBlocked ? "Tienda restaurada. Sigue bloqueada por su motivo anterior." : "Tienda restaurada"),
     onError: fail("No se pudo restaurar la tienda."),
   });
   const removeForever = useMutation({
@@ -163,12 +206,28 @@ export default function AdminVendorManage() {
 
   const { vendor: v, owner, staff, counts, access, errors, assistant, requirements = [], extras = [], plan, usage, tickets = [] } = data;
   const pendingDeletion = !!v.adminDeletionRequestedAt;
-  const suspendedByInactivity = v.status === "SUSPENDED";
-  const btn = "min-h-10";
+  // Suspendida por falta de pago (planBilling.service.js) o por inactividad (vendorLifecycle.job.js): `v.suspension` dice
+  // cuál. Antes cualquier SUSPENDED salía "por inactividad", también la de una tienda que no pagó su plan.
+  const suspended = v.status === "SUSPENDED";
+  const suspendedForBilling = !!v.suspension?.forBilling;
+  const suspensionLabel = suspendedForBilling ? "Suspendida por falta de pago" : v.suspension ? "Suspendida por inactividad" : "Suspendida";
+  // 44px de alto como mínimo: son los botones de acción de la tienda, también en el celular.
+  const btn = "min-h-11";
+  // ¿Está en el plan por defecto? Mientras /settings no llega se usa la bandera que ya manda el servidor (plan.isDefault).
+  // No sirve plan.kind: el plan por defecto puede cobrarse y entonces llega como PAID.
+  const onDefaultPlan = defaultPlan ? v.planType === defaultPlan.planType : !!plan?.isDefault;
+  const premiumLeft = !!(v.premiumUntil && new Date(v.premiumUntil) > new Date());
+  // Misma fecha que guarda el servidor: si alarga el plan que ya tiene con tiempo pagado por delante, los meses se suman
+  // desde su próxima fecha de pago; si no, desde hoy. 30 días por mes, como cycleMs en admin.controller.
+  const grantSamePlan = !!grantPlan && grantPlan.planType === v.planType;
+  const grantBaseMs =
+    grantSamePlan && plan?.nextPaymentDueDate && new Date(plan.nextPaymentDueDate) > new Date() ? new Date(plan.nextPaymentDueDate).getTime() : Date.now();
+  const grantExtends = grantBaseMs > Date.now();
+  const grantUntil = grantNoExpiry ? null : new Date(grantBaseMs + Number(grantMonthsValue) * 30 * 24 * 60 * 60 * 1000);
 
   return (
     <div className="max-w-[1180px]">
-      <Link to="/admin/tiendas" className="mb-3 inline-flex min-h-10 items-center gap-1.5 text-[13px] font-semibold text-tertiary-accent">
+      <Link to="/admin/tiendas" className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-semibold text-tertiary-accent">
         <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Tiendas
       </Link>
 
@@ -187,20 +246,28 @@ export default function AdminVendorManage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Chip tone={v.trial.active ? "teal" : v.planType !== "REGULAR" ? "warn" : "neutral"}>{v.trial.active ? `${v.planName} · Prueba gratis` : v.planName}</Chip>
+          <Chip tone={v.trial.active ? "teal" : !onDefaultPlan ? "warn" : "neutral"}>{v.trial.active ? `${v.planName} · Prueba gratis` : v.planName}</Chip>
           {v.trial.active ? (
             <Chip tone={v.trial.daysLeft <= 7 ? "bad" : "teal"}>{v.trial.daysLeft === 1 ? "Queda 1 día" : `Quedan ${v.trial.daysLeft} días`}</Chip>
           ) : (
-            <Chip tone={v.verificationStatus === "VERIFIED" ? "good" : "neutral"}>{VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</Chip>
+            <Chip tone={v.verificationStatus === "VERIFIED" ? "good" : "neutral"}>
+              {v.verificationStatus === "PLAN_ENDED" && defaultPlan ? `Volvió a ${defaultPlan.displayName}` : VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}
+            </Chip>
           )}
-          {v.planDowngradeAt && <Chip tone="bad">Pasa a Básico el {exactDate(v.planDowngradeAt)}</Chip>}
+          {v.planDowngradeAt && <Chip tone="bad">Pasa a {defaultName} el {exactDate(v.planDowngradeAt)}</Chip>}
           {v.isBlocked && <Chip tone="bad">Bloqueada</Chip>}
-          {suspendedByInactivity && <Chip tone="bad">Suspendida por inactividad</Chip>}
+          {suspended && <Chip tone="bad">{suspensionLabel}</Chip>}
           {pendingDeletion && <Chip tone="bad">Eliminación pendiente</Chip>}
         </div>
       </div>
 
       {v.isBlocked && v.blockReason && <p className="mb-4 rounded-xl bg-error/5 px-3 py-2 text-[13px] text-error">Motivo del bloqueo: {v.blockReason}</p>}
+      {suspended && v.suspension?.reason && (
+        <p className="mb-4 rounded-xl bg-error/5 px-3 py-2 text-[13px] text-error">
+          Motivo de la suspensión: {v.suspension.reason}
+          {v.suspension.at ? ` (desde el ${exactDate(v.suspension.at)})` : ""}
+        </p>
+      )}
 
       <Tabs
         className="mb-4"
@@ -210,6 +277,10 @@ export default function AdminVendorManage() {
           { id: "resumen", label: "Resumen", icon: LayoutGrid },
           { id: "pedidos", label: `Pedidos${counts.orders != null ? ` (${counts.orders.toLocaleString("es-CU")})` : ""}`, icon: ReceiptText },
           { id: "productos", label: `Productos${counts.products != null ? ` (${counts.products.toLocaleString("es-CU")})` : ""}`, icon: Package },
+          // Antes todo esto iba apilado en Resumen (8 bloques seguidos): ahora cada tema tiene su pestaña.
+          { id: "equipo", label: "Equipo y accesos", icon: Users },
+          { id: "soporte", label: "Soporte", icon: LifeBuoy, count: errors.length + tickets.length },
+          { id: "historial", label: "Historial", icon: History },
         ]}
       />
 
@@ -217,10 +288,13 @@ export default function AdminVendorManage() {
         <VendorOrdersPanel vendorId={v.id} />
       ) : tab === "productos" ? (
         <AdminProducts vendorId={v.id} embedded />
+      ) : tab === "historial" ? (
+        <VendorHistoryTab vendorId={v.id} />
       ) : (
       <>
+      {tab === "resumen" && (
       <div className="mb-5 flex flex-wrap gap-2">
-        <a href={`/tienda/${v.slug}`} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded border border-outline px-3 text-label-sm font-semibold text-on-surface hover:bg-surface-container">
+        <a href={`/tienda/${v.slug}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1.5 rounded border border-outline px-3 text-label-sm font-semibold text-on-surface hover:bg-surface-container">
           <ExternalLink className="h-4 w-4" aria-hidden="true" /> Ver tienda
         </a>
         {pendingDeletion ? (
@@ -236,37 +310,50 @@ export default function AdminVendorManage() {
             <Button size="sm" variant="outline" className={btn} onClick={() => setModal("stats")}>Estadísticas</Button>
             {v.planDowngradeAt ? (
               <Button size="sm" variant="outline" className={btn} onClick={() => downgrade.mutate({ when: "cancel" })} disabled={downgrade.isPending}>
-                Anular paso a Básico
+                Anular paso a {defaultName}
               </Button>
             ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className={btn}
-                onClick={() => {
-                  setDowngradeWhen(v.premiumUntil && new Date(v.premiumUntil) > new Date() ? "period_end" : "now");
-                  setModal(v.planType !== "REGULAR" ? "downgrade" : "plan");
-                }}
-              >
-                {v.planType !== "REGULAR" ? `Pasar a ${planNames.REGULAR}` : "Activar un plan de pago"}
-              </Button>
+              <>
+                {!onDefaultPlan && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={btn}
+                    onClick={() => {
+                      setDowngradeWhen(premiumLeft ? "period_end" : "now");
+                      setModal("downgrade");
+                    }}
+                  >
+                    Pasar a {defaultName}
+                  </Button>
+                )}
+                {/* También desde un plan de pago: así se pasa de un plan de pago a otro sin bajar antes al plan por defecto.
+                    No con tarjeta: Stripe seguiría cobrando el precio del plan anterior. */}
+                {(onDefaultPlan || !v.paysWithCard) && (
+                  <Button size="sm" variant="outline" className={btn} onClick={openGrantModal}>
+                    {onDefaultPlan ? "Activar un plan de pago" : "Cambiar o alargar el plan"}
+                  </Button>
+                )}
+              </>
             )}
             {v.isBlocked ? (
               <Button size="sm" className={btn} onClick={() => update.mutate({ payload: { isBlocked: false } })} disabled={update.isPending}>Desbloquear</Button>
             ) : (
               <Button size="sm" variant="outline" className={btn} onClick={() => setModal("block")}>Bloquear</Button>
             )}
-            {suspendedByInactivity && <Button size="sm" className={btn} onClick={() => setModal("reactivate")}>Reactivar</Button>}
+            {suspended && <Button size="sm" className={btn} onClick={() => setModal("reactivate")}>Reactivar</Button>}
             <Button size="sm" variant="ghost" className={`${btn} text-error`} onClick={() => setModal("delete")}>Eliminar</Button>
           </>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {plan && usage && <PlanUsageSection v={v} plan={plan} usage={usage} counts={counts} />}
+        {tab === "resumen" && plan && usage && <PlanUsageSection v={v} plan={plan} usage={usage} counts={counts} />}
 
-        <RequirementsSection requirements={requirements} extras={extras} />
+        {tab === "resumen" && <RequirementsSection requirements={requirements} extras={extras} />}
 
+        {tab === "equipo" && (
         <Section icon={MonitorSmartphone} title="Accesos y dispositivos">
           <p className="text-[13px] text-on-surface">
             Último acceso del dueño: <strong title={exactDate(access.lastLoginAt)}>{access.lastLoginAt ? timeAgo(access.lastLoginAt) : "nunca"}</strong>
@@ -276,7 +363,9 @@ export default function AdminVendorManage() {
           <p className="mb-2 text-[12px] text-outline">Correo de acceso: {owner.email}</p>
           {access.sessions.length === 0 ? <p className="text-[13px] text-on-surface-variant">Sin sesiones registradas.</p> : <DeviceGroups sessions={access.sessions} />}
         </Section>
+        )}
 
+        {tab === "equipo" && (
         <Section icon={Users} title="Equipo">
           <p className="mb-2 text-[13px] text-on-surface">
             {owner.fullName ?? "Sin nombre"} (dueño){v.whatsapp ? ` · WhatsApp ${v.whatsapp}` : ""}
@@ -297,7 +386,9 @@ export default function AdminVendorManage() {
             </ul>
           )}
         </Section>
+        )}
 
+        {tab === "soporte" && (
         <Section icon={Bot} title="Asistente e inteligencia artificial" action={<Link to="/admin/asistente" className="text-[12.5px] font-bold text-tertiary-accent">Entrenar el asistente</Link>}>
           <ul className="space-y-1.5 text-[13px] text-on-surface">
             <li>Chat con IA en su tienda: <strong>{assistant.chatbotAllowedByPlan ? "incluido en su plan" : "no incluido en su plan"}</strong></li>
@@ -307,11 +398,15 @@ export default function AdminVendorManage() {
             <li>Programa de fidelidad: <strong>{assistant.loyaltyEnabled ? "encendido" : "apagado"}</strong></li>
           </ul>
         </Section>
+        )}
 
+        {tab === "resumen" && (
         <div className="lg:col-span-2">
           <VendorUsageSection vendorId={v.id} />
         </div>
+        )}
 
+        {tab === "soporte" && (
         <Section icon={AlertTriangle} title="Errores" action={<Link to="/admin/errores" className="text-[12.5px] font-bold text-tertiary-accent">Ir a Errores</Link>}>
           {errors.length === 0 ? (
             <p className="flex items-center gap-2 text-[13px] text-verified-dark">
@@ -347,6 +442,7 @@ export default function AdminVendorManage() {
             </>
           )}
         </Section>
+        )}
       </div>
 
       <p className="mt-4 flex items-center gap-1.5 text-[12px] text-outline">
@@ -356,34 +452,88 @@ export default function AdminVendorManage() {
       )}
 
       {modal === "edit" && <EditVendorModal vendor={v} saving={update.isPending} onCancel={() => setModal(null)} onSave={(form) => update.mutateAsync({ payload: form })} />}
-      {modal === "stats" && <StatsModal vendorName={{ id: v.id, companyName: v.companyName }} onClose={() => setModal(null)} />}
+      {/* isRestaurant: con él, Estadísticas pide los pedidos de mesa y Usuarios ofrece el tipo "Mesero" (los dos lo miran). */}
+      {modal === "stats" && <StatsModal vendorName={{ id: v.id, companyName: v.companyName, isRestaurant: v.isRestaurant }} onClose={() => setModal(null)} />}
       {modal === "rep" && <RepresentativeFileModal vendor={{ id: v.id, companyName: v.companyName }} onClose={() => setModal(null)} />}
-      {modal === "staff" && <AdminVendorStaffModal vendor={{ id: v.id, companyName: v.companyName }} onClose={() => setModal(null)} />}
+      {modal === "staff" && <AdminVendorStaffModal vendor={{ id: v.id, companyName: v.companyName, isRestaurant: v.isRestaurant }} onClose={() => setModal(null)} />}
 
       <ConfirmModal
         open={modal === "plan"}
-        title={`¿Activar un plan de pago para "${v.companyName}"?`}
-        message={`Recibe la insignia de verificada y las funciones del plan ${planNames[grantPlan]} sin pasar por el pago, por un ciclo de 30 días. Después se le cobra la renovación como a cualquier tienda.`}
-        confirmLabel={grant.isPending ? "Guardando..." : `Pasar a ${planNames[grantPlan]}`}
-        confirmDisabled={reason.trim().length < 5 || grant.isPending}
-        onConfirm={() => grant.mutate()}
+        title={onDefaultPlan ? `¿Activar un plan de pago para "${v.companyName}"?` : `¿Cambiar o alargar el plan de "${v.companyName}"?`}
+        message={
+          grantPlan
+            ? `${
+                grantSamePlan
+                  ? `Sigue con el plan ${grantPlan.displayName} sin pasar por el pago`
+                  : `${grantPlan.grantsBadge ? "Recibe la insignia de verificada y las funciones" : "Recibe las funciones"} del plan ${grantPlan.displayName} sin pasar por el pago`
+              }${
+                grantNoExpiry
+                  ? ", sin fecha de vencimiento."
+                  : grantPlan.contactOnly
+                  ? ". Este plan se contrata hablando con el equipo y no se renueva solo: al terminar el tiempo elegido hay que volver a activarlo."
+                  : ". Al terminar el tiempo elegido se le cobra la renovación como a cualquier tienda."
+              }`
+            : plansLoading
+            ? "Cargando los planes..."
+            : plansError
+            ? "No se pudieron cargar los planes. Cierra y vuelve a intentarlo."
+            : "No hay planes de pago para activar."
+        }
+        confirmLabel={
+          grant.isPending ? "Guardando..." : grantPlan ? (grantSamePlan ? `Seguir con ${grantPlan.displayName}` : `Pasar a ${grantPlan.displayName}`) : "Pasar de plan"
+        }
+        confirmDisabled={!grantPlan || reason.trim().length < 5 || grant.isPending}
+        onConfirm={() => grant.mutate({ same: grantSamePlan, name: grantPlan?.displayName })}
         onCancel={() => setModal(null)}
       >
-        <label htmlFor="grant-plan" className="mb-1 block text-[12.5px] font-bold text-on-surface">
-          Plan
-        </label>
-        <select
-          id="grant-plan"
-          value={grantPlan}
-          onChange={(e) => setGrantPlan(e.target.value)}
-          className="mb-3 min-h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
-        >
-          {["STANDARD", "BUSINESS", "ENTERPRISE"].map((p) => (
-            <option key={p} value={p}>
-              {planNames[p]}
-            </option>
-          ))}
-        </select>
+        {grantablePlans.length > 0 && (
+          <>
+            <label htmlFor="grant-plan" className="mb-1 block text-[12.5px] font-bold text-on-surface">
+              Plan
+            </label>
+            <select
+              id="grant-plan"
+              value={grantPlan?.planType ?? ""}
+              onChange={(e) => {
+                const next = grantablePlans.find((p) => p.planType === e.target.value);
+                setGrantPick(e.target.value);
+                setGrantMonths(monthsFor(next, grantMonths));
+              }}
+              className="mb-3 min-h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+            >
+              {grantablePlans.map((p) => (
+                <option key={p.planType} value={p.planType}>
+                  {p.displayName}
+                  {p.isPublic === false ? " (oculto)" : ""}
+                  {p.planType === v.planType ? " (plan actual)" : ""}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="grant-months" className="mb-1 block text-[12.5px] font-bold text-on-surface">
+              Duración
+            </label>
+            <select
+              id="grant-months"
+              value={grantMonthsValue}
+              onChange={(e) => setGrantMonths(e.target.value)}
+              className="min-h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-tertiary-accent"
+            >
+              {GRANT_MONTHS.map((n) => (
+                <option key={n} value={String(n)}>
+                  {n} {n === 1 ? "mes" : "meses"}
+                </option>
+              ))}
+              {grantPlan?.grantsBadge && <option value="none">Sin vencimiento</option>}
+            </select>
+            <p className="mb-3 mt-1 text-[12px] text-on-surface-variant">
+              {grantNoExpiry
+                ? "No vence ni se le cobra. Para quitárselo, pásala a otro plan."
+                : `${grantExtends ? "Se suma al tiempo que ya tiene pagado: activo" : "Activo"} hasta el ${exactDate(grantUntil)}.${
+                    grantPlan && !grantPlan.grantsBadge ? " Este plan no da la insignia, así que no se puede dejar sin vencimiento." : ""
+                  }`}
+            </p>
+          </>
+        )}
         <label htmlFor="grant-reason" className="mb-1 block text-[12.5px] font-bold text-on-surface">
           Motivo
         </label>
@@ -400,9 +550,11 @@ export default function AdminVendorManage() {
 
       <ConfirmModal
         open={modal === "downgrade"}
-        title={`¿Pasar "${v.companyName}" al plan ${planNames.REGULAR}?`}
-        message={`Pierde la insignia de verificada y las funciones de su plan, y se aplican los límites del plan ${planNames.REGULAR}. Los productos que pasen del cupo quedan ocultos, no se borran. Sus documentos siguen aprobados: puede volver pagando, sin repetir la verificación.`}
-        confirmLabel={downgrade.isPending ? "Guardando..." : downgradeWhen === "now" ? "Pasar a Básico ahora" : "Programar el cambio"}
+        title={`¿Pasar "${v.companyName}" a ${defaultName}?`}
+        message={`${
+          v.verificationStatus === "VERIFIED" ? "Pierde la insignia de verificada y las funciones de su plan" : "Pierde las funciones de su plan"
+        }, y se aplican los límites de ${defaultName}. Los productos que pasen del cupo quedan ocultos, no se borran. Sus documentos siguen aprobados: puede volver pagando, sin repetir la verificación.`}
+        confirmLabel={downgrade.isPending ? "Guardando..." : downgradeWhen === "now" ? `Pasar a ${defaultName} ahora` : "Programar el cambio"}
         confirmDisabled={reason.trim().length < 5 || downgrade.isPending}
         onConfirm={() => downgrade.mutate({ when: downgradeWhen, reason: reason.trim() })}
         onCancel={() => setModal(null)}
@@ -412,13 +564,17 @@ export default function AdminVendorManage() {
           {[
             {
               value: "period_end",
-              label: v.premiumUntil && new Date(v.premiumUntil) > new Date() ? `Al terminar lo que ya tiene (${exactDate(v.premiumUntil)})` : "Al terminar lo que ya tiene",
+              label: premiumLeft ? `Al terminar lo que ya tiene (${exactDate(v.premiumUntil)})` : "Al terminar lo que ya tiene",
               hint: v.trial.active
-                ? "Sigue con la prueba gratis hasta esa fecha y después pasa sola al Básico."
-                : `Sigue con Premium hasta esa fecha y no se le renueva${v.paysWithCard ? " el cobro con tarjeta" : ""}.`,
-              disabled: !(v.premiumUntil && new Date(v.premiumUntil) > new Date()),
+                ? `Sigue con la prueba gratis hasta esa fecha y después pasa sola a ${defaultName}.`
+                : `Sigue con ${v.planName} hasta esa fecha y no se le renueva${v.paysWithCard ? " el cobro con tarjeta" : ""}.`,
+              disabled: !premiumLeft,
             },
-            { value: "now", label: "Ahora mismo", hint: v.paysWithCard ? "Pierde Premium al instante y se cancela su suscripción con tarjeta." : "Pierde Premium al instante." },
+            {
+              value: "now",
+              label: "Ahora mismo",
+              hint: v.paysWithCard ? `Pierde ${v.planName} al instante y se cancela su suscripción con tarjeta.` : `Pierde ${v.planName} al instante.`,
+            },
           ].map((o) => (
             <label
               key={o.value}
@@ -439,7 +595,7 @@ export default function AdminVendorManage() {
           id="downgrade-reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="Ej.: no cumple las condiciones del plan Premium"
+          placeholder="Ej.: no cumple las condiciones de su plan"
           rows={3}
           className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] outline-none focus:border-tertiary-accent"
         />
@@ -466,7 +622,15 @@ export default function AdminVendorManage() {
       <ConfirmModal
         open={modal === "reactivate"}
         title={`¿Reactivar "${v.companyName}"?`}
-        message="Vuelve a verse en todo el sitio y su dueño puede volver a entrar al panel. Se le avisa por correo con el motivo que escribas."
+        message={
+          suspendedForBilling
+            ? // Al reactivar, el servidor le da una semana más si el pago ya venció (adminReactivationBillingData): la fecha llega
+              // calculada en suspension.reactivationDueDate. El dueño ya podía entrar a su panel para pagar.
+              `Vuelve a verse en todo el sitio y a recibir pedidos.${
+                v.suspension?.reactivationDueDate ? ` Tendrá hasta el ${exactDate(v.suspension.reactivationDueDate)} para pagar su plan.` : ""
+              } Si no paga, deja de recibir pedidos y después se vuelve a suspender, como cualquier tienda con el pago vencido. Se le avisa por correo con el motivo que escribas.`
+            : "Vuelve a verse en todo el sitio y su dueño puede volver a entrar al panel. Se le avisa por correo con el motivo que escribas."
+        }
         confirmLabel={reactivate.isPending ? "Reactivando..." : "Sí, reactivar"}
         confirmDisabled={reason.trim().length < 5 || reactivate.isPending}
         onConfirm={() => reactivate.mutate()}
@@ -479,7 +643,7 @@ export default function AdminVendorManage() {
       <ConfirmModal
         open={modal === "delete"}
         title={`¿Eliminar "${v.companyName}"?`}
-        message="La tienda se oculta de todo el sitio y su dueño no podrá entrar. No se borra todavía: queda en eliminación pendiente durante el plazo configurado en Seguridad, y puedes restaurarla mientras tanto."
+        message="La tienda se oculta de todo el sitio y su dueño ve el panel bloqueado. No se borra todavía: queda en eliminación pendiente durante el plazo configurado en Seguridad, y puedes restaurarla mientras tanto. Si estaba bloqueada, al restaurarla sigue bloqueada."
         confirmLabel={remove.isPending ? "Eliminando..." : "Continuar"}
         danger
         confirmDisabled={remove.isPending}
@@ -501,16 +665,26 @@ export default function AdminVendorManage() {
 }
 
 
+// plan.kind (adminVendorManage.controller): FREE = un plan gratis (isFree), PAID = cualquier plan que se cobra (también el
+// plan por defecto cuando se cobra), TRIAL = en la prueba gratis. Que sea el plan por defecto lo dice plan.isDefault, no
+// el kind: por eso la etiqueta se elige en planKindOf.
 const PLAN_KIND = {
   FREE: { label: "Plan gratis", tone: "neutral" },
-  TRIAL: { label: "Prueba gratis de Premium", tone: "teal" },
+  // El nombre del plan de prueba va en el chip de al lado (plan.name), que sale de la base.
+  TRIAL: { label: "Prueba gratis", tone: "teal" },
   PAID: { label: "Plan de pago", tone: "good" },
 };
+const DEFAULT_PLAN_KIND = { label: "Plan por defecto", tone: "neutral" };
+function planKindOf(plan) {
+  if (plan.kind === "TRIAL") return PLAN_KIND.TRIAL;
+  if (plan.isDefault) return DEFAULT_PLAN_KIND;
+  return PLAN_KIND[plan.kind] ?? PLAN_KIND.FREE;
+}
 const PAYMENT_METHOD = { CARD: "tarjeta", CUP_TRANSFER: "transferencia en CUP", MANUAL: "pago registrado por el equipo" };
 
 // Plan y uso: qué plan tiene (gratis, prueba o de pago), cuánto usa de cada límite y cómo usa la plataforma en 30 días.
 function PlanUsageSection({ v, plan, usage, counts }) {
-  const kind = PLAN_KIND[plan.kind] ?? PLAN_KIND.FREE;
+  const kind = planKindOf(plan);
   return (
     <Section icon={CreditCard} title="Plan y uso">
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -518,26 +692,32 @@ function PlanUsageSection({ v, plan, usage, counts }) {
         <Chip>{plan.name}</Chip>
       </div>
       <p className="mb-3 text-[12.5px] text-on-surface-variant">
-        {plan.kind === "TRIAL" && <>La prueba termina el {exactDate(v.trial.endsAt)}. Después pasa sola al plan gratis con sus límites.</>}
+        {plan.kind === "TRIAL" && <>La prueba termina el {exactDate(v.trial.endsAt)}. Después pasa sola al plan por defecto con sus límites.</>}
         {plan.kind === "PAID" && (
           <>
+            {plan.manualGrant ? <>Activado a mano por el equipo el {exactDate(plan.manualGrant.at)}. </> : null}
+            {plan.noExpiry ? <>Sin fecha de vencimiento. </> : null}
             {plan.nextPaymentDueDate ? <>Próximo pago: {exactDate(plan.nextPaymentDueDate)}. </> : null}
             {plan.paymentMethod ? <>Paga con {PAYMENT_METHOD[plan.paymentMethod] ?? plan.paymentMethod}. </> : null}
             {plan.paymentConfirmedAt ? <>Último pago confirmado el {exactDate(plan.paymentConfirmedAt)}.</> : null}
           </>
         )}
-        {plan.kind === "FREE" && <>Usa el plan gratuito con sus límites.</>}
+        {plan.kind === "FREE" && <>Usa el plan {plan.name} con sus límites.</>}
       </p>
 
       <h3 className="mb-1.5 text-[12px] font-bold uppercase tracking-wide text-outline">Límites del plan</h3>
       <ul className="mb-4 space-y-1.5">
         {plan.limits.map((l) => {
           const pct = l.max ? Math.min(100, Math.round((l.used / l.max) * 100)) : 0;
+          // null = sin tope; 0 = su plan no incluye esa función (el servidor ya aplica el interruptor apagado). Si aun así tiene
+          // algo (por ejemplo usuarios creados en un plan anterior), se ve en rojo.
+          const text = l.max == null ? `${l.used} (sin límite)` : l.max === 0 ? (l.used ? `${l.used}, no incluido en su plan` : "No incluido en su plan") : `${l.used} de ${l.max}`;
+          const over = l.max != null && l.used > 0 && l.used >= l.max;
           return (
             <li key={l.label} className="text-[12.5px]">
               <div className="flex justify-between gap-2">
                 <span className="text-on-surface-variant">{l.label}</span>
-                <span className={`font-semibold ${l.max && l.used >= l.max ? "text-error" : "text-on-surface"}`}>{l.max ? `${l.used} de ${l.max}` : `${l.used} (sin límite)`}</span>
+                <span className={`text-right font-semibold ${over ? "text-error" : l.max === 0 ? "text-on-surface-variant" : "text-on-surface"}`}>{text}</span>
               </div>
               {l.max ? (
                 <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-surface-container">
@@ -553,9 +733,10 @@ function PlanUsageSection({ v, plan, usage, counts }) {
       <ul className="mb-4 flex flex-wrap gap-1.5">
         {plan.features.map((f) => (
           <li key={f.label}>
+            {/* Encendida en el plan pero el plan no da la insignia que exige: el servidor no la deja usar, y "Sin ..."
+                haría pensar que el interruptor está apagado. */}
             <Chip tone={f.on ? "good" : "neutral"}>
-              {f.on ? "" : "Sin "}
-              {f.on ? f.label : f.label.toLowerCase()}
+              {f.badgeMissing ? `${f.label}: requiere insignia` : f.on ? f.label : `Sin ${f.label.toLowerCase()}`}
             </Chip>
           </li>
         ))}
@@ -606,7 +787,7 @@ function PlanUsageSection({ v, plan, usage, counts }) {
   );
 }
 
-// Requisitos del plan Premium (los mismos de la prueba gratis y de la verificación): primero lo que falta, después lo que
+// Requisitos de la verificación (los mismos de la prueba gratis y de los planes con insignia): primero lo que falta, después lo que
 // completó con el dato con que lo hizo, y aparte lo que ayuda a vender aunque no sea obligatorio.
 function RequirementsSection({ requirements, extras }) {
   const done = requirements.filter((r) => r.done);
@@ -614,7 +795,7 @@ function RequirementsSection({ requirements, extras }) {
   const pct = requirements.length ? Math.round((done.length / requirements.length) * 100) : 0;
   const extrasPending = extras.filter((x) => !x.done);
   return (
-    <Section icon={ListChecks} title="Requisitos para Premium">
+    <Section icon={ListChecks} title="Requisitos para la verificación">
       <div className="mb-3">
         <div className="flex justify-between text-[12.5px]">
           <span className="text-on-surface-variant">{pending.length === 0 ? "Tiene todos los requisitos." : `Le faltan ${pending.length} de ${requirements.length}.`}</span>
@@ -759,5 +940,30 @@ function ErrorRow({ e }) {
       {e.page && <p className="break-all text-[12px] text-on-surface-variant">Pantalla: {e.page}</p>}
       <p className="text-[11.5px] text-outline">{exactDateTime(e.createdAt)}</p>
     </li>
+  );
+}
+
+// Pestaña Historial: quién creó la tienda y desde qué dispositivo e IP, con qué dispositivos entró su dueño y todo lo que pasó
+// en ella (acciones, cambios de plan y de verificación). Mismo contenido que la ficha de una tienda eliminada.
+function VendorHistoryTab({ vendorId }) {
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ["admin-vendor-history", vendorId],
+    queryFn: async () => (await api.get(`/admin/vendors/${vendorId}/history`)).data,
+  });
+  if (isLoading) return <PanelSkeleton />;
+  if (isError || !data) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-body-md text-error">No se pudo cargar el historial.</p>
+        <Button variant="outline" disabled={isFetching} onClick={() => refetch()}>
+          {isFetching ? "Reintentando..." : "Reintentar"}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <VendorHistorySections data={data} />
+    </div>
   );
 }

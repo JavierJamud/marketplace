@@ -807,7 +807,7 @@ export function StoreChatWidget({ vendor }) {
                       todas. Se sacan del BotRow (que tiene max-w-[88%]) para
                       que puedan usar el ancho completo disponible. */}
                   {m.products?.length > 0 && (
-                    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2 overflow-y-auto pb-1" style={{ maxHeight: 280 }}>
+                    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2 overflow-y-auto pb-1 max-h-[280px]">
                       {m.products.map((p) => (
                         <ChatProductCard key={p.id} product={p} vendor={vendor} />
                       ))}

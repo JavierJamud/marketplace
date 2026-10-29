@@ -95,13 +95,23 @@ function AccountMenu({ user, accountHref, panelLabel }) {
           <Link
             to={accountHref}
             onClick={() => setOpen(false)}
-            className="block px-3.5 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container"
+            className="flex min-h-11 items-center px-3.5 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container"
           >
             {panelLabel}
           </Link>
+          {/* Quien tiene tienda sigue siendo cliente con la misma cuenta. */}
+          {user.role === "VENDOR" && (
+            <Link
+              to="/cuenta/panel"
+              onClick={() => setOpen(false)}
+              className="flex min-h-11 items-center px-3.5 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container"
+            >
+              Mis compras y venta rápida
+            </Link>
+          )}
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5"
+            className="flex min-h-11 w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5"
           >
             <LogOut className="h-3.5 w-3.5" /> Cerrar sesión
           </button>
@@ -124,6 +134,16 @@ function AccountMenu({ user, accountHref, panelLabel }) {
 // (scroll en el Home, o cualquier otra página) pasa a bg-primary/75: texto
 // blanco sobre esa mezcla mide más de 6:1 aun sobre blanco puro (R-25).
 const HEADER_SCROLL_THRESHOLD = 8;
+
+// Panel al que lleva "Mi cuenta" según el rol, con las mismas rutas protegidas de App.jsx: /vendedor admite VENDOR y
+// VENDOR_STAFF, /socio solo PARTNER y /cuenta/panel CUSTOMER y VENDOR (el
+// dueño de una tienda conserva su cuenta de cliente). Un rol desconocido va a la cuenta de cliente.
+function panelForRole(role) {
+  if (role === "ADMIN") return { href: "/admin", label: "Panel de administración" };
+  if (role === "VENDOR" || role === "VENDOR_STAFF") return { href: "/vendedor", label: "Panel de vendedor" };
+  if (role === "PARTNER") return { href: "/socio", label: "Panel de socio" };
+  return { href: "/cuenta/panel", label: "Mi cuenta" };
+}
 
 export function Header() {
   const { items, bump, openCart } = useCart();
@@ -152,8 +172,10 @@ export function Header() {
 
   const atTop = darkTop && !scrolled;
 
-  const accountHref = !user ? "/cuenta" : user.role === "ADMIN" ? "/admin" : user.role === "VENDOR" ? "/vendedor" : "/cuenta/panel";
-  const panelLabel = user?.role === "ADMIN" ? "Panel de administración" : user?.role === "VENDOR" ? "Panel de vendedor" : "Mi cuenta";
+  // Antes solo distinguía ADMIN y VENDOR (el menú es anterior al personal de tienda del Bloque 183 y a los socios del
+  // Bloque 299): VENDOR_STAFF y PARTNER caían en /cuenta/panel, que solo admite clientes, y "Mi cuenta" los rebotaba
+  // al login. Mismo mapa que usa Account.jsx al redirigir después de iniciar sesión.
+  const { href: accountHref, label: panelLabel } = !user ? { href: "/cuenta", label: "Mi cuenta" } : panelForRole(user.role);
 
   return (
     <header data-toast-anchor className="pointer-events-none sticky top-0 z-50 h-[76px]">
@@ -177,7 +199,8 @@ export function Header() {
               {count > 0 && (
                 <span
                   key={`badge-${bump}`}
-                  className="absolute right-0.5 top-0.5 flex h-[17px] min-w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container px-1 text-[10px] font-bold text-white"
+                  // text-on-secondary-container (4,6:1 sobre el naranja), como el botón de iniciar sesión: el blanco de antes daba 2,2:1.
+                  className="absolute right-0.5 top-0.5 flex h-[17px] min-w-[17px] animate-badge-pop items-center justify-center rounded-full bg-secondary-container px-1 text-[10px] font-bold text-on-secondary-container"
                 >
                   {count > 99 ? "99+" : count}
                 </span>

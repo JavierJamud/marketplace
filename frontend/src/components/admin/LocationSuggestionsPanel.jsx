@@ -235,7 +235,7 @@ export function LocationSuggestionsPanel() {
               : `Se crea la provincia en ${approving?.country?.name ?? "su país"}, queda disponible en la lista y se enlaza a quienes la escribieron.`
         }
         confirmLabel={approve.isPending ? "Creando..." : "Aprobar y crear"}
-        confirmDisabled={approve.isPending || approveName.trim().length < 2 || (approving?.kind === "COUNTRY" && !/^[A-Za-z]{2,3}$/.test(approveCode.trim()))}
+        confirmDisabled={approve.isPending || approveName.trim().length < 2 || (approving?.kind === "COUNTRY" && !/^[A-Za-z]{2}$/.test(approveCode.trim()))}
         onConfirm={() => approve.mutate()}
         onCancel={() => setApproving(null)}
       >
@@ -243,7 +243,7 @@ export function LocationSuggestionsPanel() {
           <Input label="Nombre" value={approveName} maxLength={80} onChange={(e) => setApproveName(e.target.value)} />
           {approving?.kind === "COUNTRY" && (
             <div>
-              <Input label="Código del país (2 o 3 letras)" value={approveCode} maxLength={3} onChange={(e) => setApproveCode(e.target.value.toUpperCase())} placeholder="Ej. PA" />
+              <Input label="Código del país (2 letras)" value={approveCode} maxLength={2} onChange={(e) => setApproveCode(e.target.value.toUpperCase())} placeholder="Ej. PA" />
               <p className="mt-1 text-label-sm text-outline">Código ISO del país (PA para Panamá, MX para México).</p>
             </div>
           )}

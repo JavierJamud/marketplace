@@ -17,12 +17,13 @@ export async function supportTicketAdminEmail({ ticket, code, vendorName, hasScr
       ${paragraph(esc(ticket.description).replace(/\n/g, "<br/>"), { color: "#1b1b1d", size: "14px", lineHeight: "22px" })}
       ${metaList([
         ["Tienda", esc(vendorName ?? "Sin tienda")],
-        ["Quién lo reportó", esc(`${ticket.reporterName ?? "Sin nombre"} · ${ticket.reporterEmail}`)],
+        // Sin correo (por ejemplo, una cuenta ya eliminada) se muestra solo el nombre: antes salía "Sin nombre · undefined".
+        ["Quién lo reportó", esc([ticket.reporterName ?? "Sin nombre", ticket.reporterEmail].filter(Boolean).join(" · "))],
         ["Sección", esc(ticket.section ?? "Sin identificar")],
         ["Pantalla", esc(ticket.pagePath)],
         ["Fecha", esc(new Date(ticket.createdAt).toLocaleString("es-CU", { timeZone: "America/Havana" }))],
       ])}
-      ${paragraph(hasScreenshot ? "La captura de lo que veía la persona va adjunta a este correo." : "Este reporte llegó sin captura.", { color: "#75777c", size: "12.5px" })}
+      ${paragraph(hasScreenshot ? "La captura de lo que veía la persona va adjunta a este correo." : "Este reporte llegó sin captura.", { color: "#5f6368", size: "12.5px" })}
       ${ctaButton("Abrir el ticket", `${siteUrl()}/admin/errores?tab=tickets&ticket=${ticket.id}`)}
     `,
   });
@@ -59,7 +60,7 @@ export async function supportTicketUpdateEmail({ ticket, code, body, statusLabel
         ["Estado", esc(statusLabel)],
         ...(resolution ? [["Cómo se solucionó", esc(resolution)]] : []),
       ])}
-      ${paragraph(`<strong>Tu reporte:</strong><br/>${esc(ticket.description.slice(0, 600)).replace(/\n/g, "<br/>")}`, { color: "#75777c", size: "12.5px" })}
+      ${paragraph(`<strong>Tu reporte:</strong><br/>${esc(ticket.description.slice(0, 600)).replace(/\n/g, "<br/>")}`, { color: "#5f6368", size: "12.5px" })}
       ${smallNote(closed ? "Si el problema sigue, envía un reporte nuevo desde la pantalla donde lo ves." : "Puedes responder a este correo si necesitas agregar algo.")}
     `,
   });

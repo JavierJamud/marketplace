@@ -68,6 +68,8 @@ function OfferCard({ offer }) {
   const countdown = useCountdownLabel(offer.expiresAt);
   const to = offerLinkTo(offer);
   const external = to && isExternalUrl(to);
+  const hasButton = !!(offer.buttonLabel && offer.buttonUrl);
+  const hasActions = !!offer.couponCode || hasButton;
 
   if (offer.contentType === "HTML") {
     // El HTML del admin vive dentro de la misma tarjeta (12:5, esquinas redondeadas) que las demás ofertas.
@@ -92,43 +94,69 @@ function OfferCard({ offer }) {
           la izquierda y el bloque de texto crecía desde abajo; con un título de
           2 líneas el nombre de la tienda subía hasta chocar con él. Ahora el
           contador va en la misma fila que el nombre de la tienda, y el texto
-          nunca puede subir por encima de la franja del descuento (max-h). */}
-      <div className="absolute inset-x-0 bottom-0 flex max-h-[calc(100%-2.75rem)] flex-col justify-end overflow-hidden p-3.5 sm:p-4">
-        <div className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold uppercase tracking-wide text-white/80">
-          <span className="flex items-center gap-1.5">
-            {offer.createdByAdmin ? "Oferta oficial" : offer.vendor?.companyName}
+          nunca puede subir por encima de la franja del descuento (max-h).
+          Auditoría de roles (2026-10-28): el Bloque 248 no contó el cupón ni el
+          botón. La tarjeta mide unos 144px de alto en el teléfono y el texto,
+          que crece hacia arriba con overflow-hidden, perdía por arriba la
+          tienda, el contador y el título. Ahora la base (tienda, título y una
+          fila con cupón y botón) cabe en la tarjeta más baja, y el eslogan y la
+          descripción solo aparecen cuando la tarjeta es lo bastante alta
+          (consultas de contenedor por alto, ver cardClass). Un navegador sin
+          consultas de contenedor ve la base, sin eslogan ni descripción. */}
+      <div className={`absolute inset-x-0 bottom-0 flex flex-col justify-end overflow-hidden p-3 [@container(min-height:170px)]:p-3.5 ${offer.discountLabel ? "max-h-[calc(100%-2.75rem)]" : "max-h-full"}`}>
+        <div className="mb-0.5 flex min-w-0 items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-white/80">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{offer.createdByAdmin ? "Oferta oficial" : offer.vendor?.companyName}</span>
             {offer.vendor?.isVerified && <VerifiedBadge size="sm" />}
           </span>
           {countdown && (
-            <span className="flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10.5px] normal-case tracking-normal text-white">
+            <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10.5px] normal-case tracking-normal text-white">
               <Clock className="h-3 w-3" aria-hidden="true" /> {countdown}
             </span>
           )}
         </div>
-        <div className="font-display text-lg font-extrabold leading-tight text-white sm:text-xl">{offer.title}</div>
-        {offer.tagline && <p className="max-sm:hidden line-clamp-1 text-[12px] text-white/85">{offer.tagline}</p>}
+        {/* Con cupón o botón el título se queda en una línea: dos líneas más la fila del cupón no caben en la tarjeta baja.
+            leading-tight se repite dentro de la consulta: text-lg trae su propia interlínea (28px) y pisaba la de fuera. */}
+        <div
+          className={`font-display text-base font-extrabold leading-tight text-white [@container(min-height:170px)]:text-lg [@container(min-height:170px)]:leading-tight ${
+            hasActions ? "line-clamp-1" : "line-clamp-2"
+          }`}
+        >
+          {offer.title}
+        </div>
+        {offer.tagline && <p className="hidden line-clamp-1 text-[12px] text-white/85 [@container(min-height:170px)]:[display:-webkit-box]">{offer.tagline}</p>}
         {/* Bloque 192 (bug real reportado en vivo — "la descripción de las
             ofertas que se crean en el panel de admin no se muestran en las
             ofertas ya publicadas"): antes NUNCA se renderizaba en ningún
             lado, ni para ofertas de admin ni de vendedor — la tarjeta solo
             mostraba tagline. line-clamp-2 porque la tarjeta es chica (12:5),
             un texto largo la desbordaría. */}
-        {offer.description && <p className="mt-0.5 max-sm:hidden line-clamp-2 text-[11.5px] text-white/75">{offer.description}</p>}
-        {offer.couponCode && (
-          <span className="mt-1.5 inline-flex w-fit items-center gap-1 rounded-md border border-dashed border-white/70 bg-black/40 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-white">
-            Código: {offer.couponCode}
-          </span>
+        {offer.description && (
+          <p className="mt-0.5 hidden line-clamp-2 text-[11.5px] text-white/75 [@container(min-height:210px)]:[display:-webkit-box]">{offer.description}</p>
         )}
-        {offer.buttonLabel && offer.buttonUrl && (
-          <span className="mt-2 inline-flex items-center rounded-full bg-white px-3 py-1.5 text-[11.5px] font-bold text-on-surface shadow">
-            {offer.buttonLabel}
-          </span>
+        {/* Cupón y botón en UNA fila (antes iban uno debajo del otro: unos 35px más). Si no caben a lo ancho, se recortan
+            con puntos suspensivos en vez de bajar a otra fila. */}
+        {hasActions && (
+          <div className="mt-1.5 flex min-w-0 items-center gap-2">
+            {offer.couponCode && (
+              <span className="inline-flex min-w-0 items-center rounded-md border border-dashed border-white/70 bg-black/40 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-white">
+                <span className="truncate">Código: {offer.couponCode}</span>
+              </span>
+            )}
+            {hasButton && (
+              <span className="inline-flex min-w-0 flex-shrink-0 items-center rounded-full bg-white px-3 py-1 text-[11.5px] font-bold text-on-surface shadow">
+                <span className="max-w-[160px] truncate">{offer.buttonLabel}</span>
+              </span>
+            )}
+          </div>
         )}
       </div>
     </>
   );
 
-  const cardClass = "group relative block h-full w-full overflow-hidden rounded-3xl shadow-lg";
+  // [container-type:size]: la tarjeta mide lo que le da su caja 12:5 (no depende del texto), así que el bloque de texto puede
+  // preguntar por su alto con @container y mostrar el eslogan y la descripción solo cuando caben.
+  const cardClass = "group relative block h-full w-full overflow-hidden rounded-3xl shadow-lg [container-type:size]";
 
   if (!to) return <div className={cardClass}>{content}</div>;
   // Bloque 192: un enlace externo (http/https) nunca es un <Link> de
@@ -169,7 +197,9 @@ export function OffersSlider({ offers }) {
           <OfferCard offer={o} />
         </div>
       )}
-      itemClassName="basis-full px-1.5 sm:basis-1/2 sm:px-2 lg:basis-1/3"
+      // Dos por fila desde md y tres desde xl (antes desde sm y lg): entre 640 y 767px, y entre 1024 y 1279px, la tarjeta 12:5
+      // quedaba de 117 a 129px de alto, más baja que en el teléfono, y no cabían ni la tienda, el título y el cupón.
+      itemClassName="basis-full px-1.5 md:basis-1/2 md:px-2 xl:basis-1/3"
       align="start"
       delay={4500}
       label="Ofertas de la semana"

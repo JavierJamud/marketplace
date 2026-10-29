@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { offlineRequest, QUEUED_TEXT, QUEUED_TITLE } from "../../lib/offlineQueue.js";
-import { X, Plus, Minus, Trash2, CheckCircle2, DollarSign, History, UtensilsCrossed, Store, ChevronRight } from "lucide-react";
+import { X, Plus, Minus, Trash2, CheckCircle2, DollarSign, History, UtensilsCrossed, Store, ChevronRight, AlertTriangle } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { formatElapsed } from "../../lib/duration.js";
 import { Button } from "../ui/Button.jsx";
@@ -119,11 +119,21 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
   // sin tener que cerrar y volver a abrir el modal). Mismo endpoint
   // público que ya usa el cliente para su seguimiento (GET
   // /tables/order/:id) — funciona igual de bien para el vendedor.
-  const { data: order } = useQuery({
+  const { data: order, error: orderError, isError: orderFailed, isFetching: orderFetching, refetch: refetchOrder } = useQuery({
     queryKey: ["table-order-status", orderId],
     queryFn: async () => (await api.get(`/tables/order/${orderId}`)).data.tableOrder,
     refetchInterval: 5000,
   });
+
+  // Escape cierra la ventana (también mientras carga o si falló), salvo que haya una confirmación abierta encima: esa se
+  // cierra primero con su propio botón.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && !confirmClose && !removingItem) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, confirmClose, removingItem]);
 
   // Bloque 168: el mesero puede sumar CUALQUIER producto propio (no solo
   // los habilitados para el menú QR — esto es un agregado manual interno,
@@ -245,10 +255,50 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
     },
   });
 
+  // Sin pedido todavía: cargando o falló la carga. Antes era un velo fijo sin botón de cerrar ni clic afuera, así que un
+  // 404 o un corte de red dejaban al mesero atrapado hasta recargar la página. Ahora se cierra igual que la ventana normal
+  // y, si falló, dice por qué y deja reintentar.
   if (!order) {
+    const status = orderError?.response?.status;
+    const failText = !orderError?.response
+      ? "Parece que no hay conexión. Revisa tu internet y vuelve a intentarlo."
+      : status === 404
+        ? "Este pedido ya no existe o no está disponible."
+        : orderError.response.data?.error ?? "El servidor no respondió bien. Vuelve a intentarlo en unos segundos.";
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
-        <div className="w-full max-w-md rounded-lg bg-surface-container-lowest p-6"><CardListSkeleton cards={2} label="Cargando pedido" /></div>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      >
+        <div role="dialog" aria-modal="true" aria-label={tableLabel ? `Pedido de ${tableLabel}` : "Pedido de la mesa"} className="modal-panel-6 w-full max-w-md rounded-lg bg-surface-container-lowest p-6 text-left">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="min-w-0 truncate text-title-lg font-bold text-on-surface">{tableLabel ?? "Pedido de la mesa"}</h3>
+            <button onClick={onClose} aria-label="Cerrar" className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-outline hover:bg-surface-container">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          {orderFailed ? (
+            <div role="alert" className="flex flex-col items-center text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-error/10">
+                <AlertTriangle className="h-6 w-6 text-error" aria-hidden="true" />
+              </div>
+              <p className="text-[14px] font-bold text-on-surface">No se pudo cargar el pedido</p>
+              <p className="mt-1 text-[12.5px] text-on-surface-variant">{failText}</p>
+              <div className="mt-5 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                {status !== 404 && (
+                  <Button variant="dark" disabled={orderFetching} onClick={() => refetchOrder()}>
+                    {orderFetching ? "Reintentando..." : "Reintentar"}
+                  </Button>
+                )}
+                <Button variant="outline" onClick={onClose}>
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <CardListSkeleton cards={2} label="Cargando pedido" />
+          )}
+        </div>
       </div>
     );
   }
@@ -273,9 +323,10 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
-        <div className="mb-4 flex items-start justify-between">
-          <div>
+      {/* text-left: VendorTables monta esta ventana dentro de la tarjeta de la mesa, que centra el texto. */}
+      <div role="dialog" aria-modal="true" aria-label={`${tableLabel ?? "Mesa"}, pedido ${order.orderNumber}`} className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6 text-left">
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <h3 className="text-title-lg font-bold text-on-surface">
               {tableLabel} · Pedido #{order.orderNumber}
             </h3>
@@ -284,8 +335,8 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
               {order.customerName && ` · Pidió: ${order.customerName}`}
             </p>
           </div>
-          <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
-            <X className="h-4 w-4" />
+          <button onClick={onClose} aria-label="Cerrar" className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-outline hover:bg-surface-container">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -330,8 +381,10 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
                   isNew ? "border-verified animate-new-item-blink" : "border-surface-container-high"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
+                {/* flex-wrap: con los controles de 44px, a 390px el nombre se quedaba sin lugar; ahora los controles bajan
+                    a su propia fila cuando no caben al lado. */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1 basis-40 break-words">
                     <span className="text-on-surface">
                       {it.quantity} × {it.name}
                     </span>
@@ -348,24 +401,26 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
                         <button
                           onClick={() => changeItemQty.mutate({ itemId: it.id, quantity: it.quantity - 1 })}
                           disabled={it.quantity <= 1 || changeItemQty.isPending}
-                          className="flex h-6 w-6 items-center justify-center text-on-surface-variant disabled:opacity-30"
+                          aria-label={`Quitar una unidad de ${it.name}`}
+                          className="flex h-11 w-11 items-center justify-center text-on-surface-variant disabled:opacity-30"
                         >
-                          <Minus className="h-3 w-3" />
+                          <Minus className="h-4 w-4" />
                         </button>
-                        <span className="w-5 text-center text-[12px]">{it.quantity}</span>
+                        <span className="w-6 text-center text-[13px]" aria-live="polite">{it.quantity}</span>
                         <button
                           onClick={() => changeItemQty.mutate({ itemId: it.id, quantity: it.quantity + 1 })}
                           disabled={changeItemQty.isPending}
-                          className="flex h-6 w-6 items-center justify-center text-on-surface-variant"
+                          aria-label={`Agregar una unidad de ${it.name}`}
+                          className="flex h-11 w-11 items-center justify-center text-on-surface-variant disabled:opacity-30"
                         >
-                          <Plus className="h-3 w-3" />
+                          <Plus className="h-4 w-4" />
                         </button>
                       </div>
                     )}
                     <span className="font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity)}</span>
                     {canEditThis && (
-                      <button onClick={() => setRemovingItem(it)} className="text-error hover:opacity-70">
-                        <Trash2 className="h-3.5 w-3.5" />
+                      <button onClick={() => setRemovingItem(it)} aria-label={`Quitar ${it.name} de la cuenta`} className="flex h-11 w-11 items-center justify-center rounded-full text-error hover:bg-error/10">
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     )}
                   </div>
@@ -383,9 +438,9 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
                     <button
                       onClick={() => advanceItemStatus.mutate({ itemId: it.id, status: nextStatus })}
                       disabled={advanceItemStatus.isPending}
-                      className="flex items-center gap-0.5 rounded-full bg-primary px-2 py-0.5 text-[9.5px] font-bold text-white hover:bg-primary/90 disabled:opacity-50"
+                      className="flex min-h-11 items-center gap-0.5 rounded-full bg-primary px-3 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-50"
                     >
-                      {NEXT_ITEM_ACTION_LABEL[itemStatus]} <ChevronRight className="h-2.5 w-2.5" />
+                      {NEXT_ITEM_ACTION_LABEL[itemStatus]} <ChevronRight className="h-3 w-3" aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -406,7 +461,7 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
             </p>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-2 text-[11.5px] text-on-surface-variant">
-                <span>Se abrió la cuenta{order.customerName ? ` — pidió ${order.customerName}` : ""}</span>
+                <span>Se abrió la cuenta{order.customerName ? `. Pidió ${order.customerName}` : ""}</span>
                 <span className="flex-shrink-0 text-outline">{new Date(order.createdAt).toLocaleString("es-CU")}</span>
               </div>
               {activity.map((entry) => (
@@ -423,7 +478,7 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
           <div className="mt-4 rounded-md bg-surface-container p-3.5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <p className="text-label-md font-bold text-on-surface">Agregar consumo</p>
-              <button onClick={() => setManualMode((v) => !v)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
+              <button onClick={() => setManualMode((v) => !v)} className="min-h-11 text-left text-[11.5px] font-semibold text-tertiary-accent hover:underline">
                 {manualMode ? "Elegir del catálogo" : "Cargar algo que no está en el catálogo"}
               </button>
             </div>
@@ -486,7 +541,7 @@ export function TableOrderDetailModal({ orderId, tableLabel, onClose }) {
       <ConfirmModal
         open={confirmClose}
         title="¿Cobrar y liberar la mesa?"
-        message={`Se cierra la cuenta por ${fmtCUP(order.total)} — el cliente ya pagó y se retira. Esta acción libera la mesa para clientes nuevos.`}
+        message={`Se cierra la cuenta por ${fmtCUP(order.total)}: el cliente ya pagó y se retira. Esta acción libera la mesa para clientes nuevos.`}
         confirmLabel={clearTable.isPending ? "Cerrando..." : "Cobrar y liberar"}
         confirmDisabled={clearTable.isPending}
         onConfirm={() => clearTable.mutate()}

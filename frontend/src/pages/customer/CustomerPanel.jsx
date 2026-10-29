@@ -1,10 +1,10 @@
-import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
+import { WelcomeHeading } from "../../components/WelcomeSummary.jsx";
 import { orderTotalLabel, orderShippingText, orderLineShippingText } from "../../lib/shipping.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Heart, Mail, Package, Pencil, Trash2, CheckCircle2, X as XIcon, ShieldAlert, Clock, Camera } from "lucide-react";
+import { Heart, Mail, Package, Pencil, Trash2, CheckCircle2, X as XIcon, ShieldAlert, Clock, Camera, AlertTriangle, Tag, Gift, MapPin, User as UserIcon, Flag, MessageSquare } from "lucide-react";
 import { api, getErrorMessage } from "../../lib/api.js";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -22,6 +22,7 @@ import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { compressImage } from "../../utils/compressImage.js";
 import { formatPrice } from "../../lib/format.js";
+import { imgUrl, thumbUrl } from "../../lib/imgUrl.js";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
 import { CancelOrderModal, CancelBlockedModal, EditOrderModal } from "../../components/customer/CustomerOrderActions.jsx";
@@ -34,29 +35,47 @@ import { CardListSkeleton, FormSkeleton } from "../../components/ui/Skeleton.jsx
 import { channelLabel, currencyCodesFor, currencyLabel } from "../../lib/catalog.js";
 import { AutoClosedOrderHelp } from "../../components/AutoClosedOrderHelp.jsx";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
-}
-
 // Mismos labels/colores que VendorOrders.jsx para consistencia visual, sin
 // los controles de gestión (ese panel es del vendedor, este es de lectura).
 const STATUS_LABEL = { NEW: "Nuevo", PREPARING: "Preparando", READY: "En camino", DELIVERED: "Entregado", CANCELLED: "Cancelado" };
 const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#087A38", DELIVERED: "#0CAE53", CANCELLED: "#ba1a1a" };
+// El verde de "Entregado" (#0CAE53) solo sirve de fondo: como texto sobre su propio tinte daba 2,6:1. El texto va en
+// verified-dark (#087A38, 4,8:1 sobre ese tinte) para cumplir AA; los demás estados ya pasan con su mismo color.
+const STATUS_TEXT_COLOR = { ...STATUS_COLOR, DELIVERED: "#087A38" };
 // Cerrado por el sistema porque la tienda no lo confirmó a tiempo: en gris y sin la palabra "Cancelado", que sonaría a rechazo.
 const autoClosed = (o) => o.status === "CANCELLED" && !!o.autoCancelledAt;
 const statusLabel = (o) => (autoClosed(o) ? "Sin confirmar" : STATUS_LABEL[o.status]);
 const statusColor = (o) => (autoClosed(o) ? "#5f6368" : STATUS_COLOR[o.status]);
+const statusTextColor = (o) => (autoClosed(o) ? "#5f6368" : STATUS_TEXT_COLOR[o.status]);
 
+// Los puntos se canjean solo en pedidos con todos los precios en la moneda de la tienda (ver redeemForOrder en
+// loyalty.service.js), así que la moneda de cualquier artículo del pedido es la del descuento.
+const orderCurrency = (o) => o.items?.find((it) => it.currency)?.currency ?? "CUP";
+
+// Aviso de error con reintento para las listas del panel. Sin él, una petición fallida se veía como "todavía no tienes
+// nada", y en Perfil y Direcciones el formulario vacío podía guardarse encima de los datos reales.
+function LoadError({ message, onRetry, retrying }) {
+  return (
+    <div role="alert" className="flex flex-col items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest px-4 py-12 text-center">
+      <p className="text-body-md text-error">{message}</p>
+      <Button variant="outline" onClick={() => onRetry()} disabled={retrying}>
+        {retrying ? "Reintentando..." : "Reintentar"}
+      </Button>
+    </div>
+  );
+}
+
+// `short` es la etiqueta de la cuadrícula del celular (4 columnas de unos 80px a 360px de ancho).
 const TABS = [
-  { id: "orders", label: "Mis pedidos" },
-  { id: "quick-sale", label: "Venta rápida" },
-  { id: "wishlist", label: "Favoritos" },
-  { id: "points", label: "Mis puntos" },
-  { id: "addresses", label: "Direcciones" },
-  { id: "profile", label: "Perfil" },
+  { id: "orders", label: "Mis pedidos", short: "Pedidos", icon: Package },
+  { id: "quick-sale", label: "Venta rápida", short: "Venta rápida", icon: Tag },
+  { id: "wishlist", label: "Favoritos", short: "Favoritos", icon: Heart },
+  { id: "points", label: "Mis puntos", short: "Puntos", icon: Gift },
+  { id: "addresses", label: "Direcciones", short: "Direcciones", icon: MapPin },
+  { id: "profile", label: "Perfil", short: "Perfil", icon: UserIcon },
   // Lo que reportaste y lo que te reportaron (ventas rápidas), con su estado. Ver ReportsCenter.jsx.
-  { id: "reports", label: "Reportes" },
-  { id: "suggestions", label: "Sugerencias" },
+  { id: "reports", label: "Reportes", short: "Reportes", icon: Flag },
+  { id: "suggestions", label: "Sugerencias", short: "Sugerencias", icon: MessageSquare },
 ];
 
 const LISTING_NAME_MAX = 80;
@@ -93,15 +112,6 @@ export default function CustomerPanel() {
     const wanted = new URLSearchParams(window.location.search).get("tab");
     return TABS.some((x) => x.id === wanted) ? wanted : "orders";
   });
-  // En el celular las pestañas van en una fila deslizable: se centra la activa (por ejemplo, al entrar con ?tab=reports) sin
-  // mover la página, solo la fila.
-  const tabsNavRef = useRef(null);
-  useEffect(() => {
-    const nav = tabsNavRef.current;
-    const active = nav?.querySelector('[aria-current="page"]');
-    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
-    nav.scrollTo({ left: active.offsetLeft - nav.clientWidth / 2 + active.clientWidth / 2, behavior: "smooth" });
-  }, [tab]);
   const [orderToCancel, setOrderToCancel] = useState(null);
   const [orderToEdit, setOrderToEdit] = useState(null);
   const [orderBlocked, setOrderBlocked] = useState(null);
@@ -119,18 +129,37 @@ export default function CustomerPanel() {
   const [listingLocStatus, setListingLocStatus] = useState({ error: null, needsAddress: false });
   const [deleteListingTarget, setDeleteListingTarget] = useState(null);
 
-  const { data: customer, isLoading: customerLoading } = useQuery({
+  const { data: customer, isLoading: customerLoading, isError: customerError, refetch: refetchCustomer, isFetching: customerFetching } = useQuery({
     queryKey: ["my-customer-profile"],
     queryFn: async () => (await api.get("/customers/me")).data.customer,
     enabled: !!user,
   });
 
-  const { data: orders, isLoading: ordersLoading } = useQuery({
+  // Cada 30 s (antes 8): la lista llega entera y sin paginar, y pedirla tan seguido cargaba al servidor. Los cambios de
+  // estado llegan al momento por el canal en vivo (lib/useRealtime.js); este intervalo es solo el respaldo si ese canal cae.
+  const { data: orders, isLoading: ordersLoading, isError: ordersError, refetch: refetchOrders, isFetching: ordersFetching } = useQuery({
     queryKey: ["my-customer-orders"],
     queryFn: async () => (await api.get("/customers/me/orders")).data.orders,
     enabled: !!user,
-    refetchInterval: tab === "orders" ? 8000 : false,
+    refetchInterval: tab === "orders" ? 30000 : false,
   });
+
+  // País del perfil cuando no hay provincia ni estado: misma queryKey que LocationPicker, así que comparten caché.
+  const needsCountryName = !!customer && !customer.province && !customer.stateOther && !!customer.registrationCountryId;
+  const { data: countries } = useQuery({
+    queryKey: ["active-countries-all"],
+    queryFn: async () => (await api.get("/locations/countries?all=true")).data.countries,
+    enabled: needsCountryName,
+  });
+  // Antes decía "Cuba" a cualquiera sin provincia, también a clientes de otros países. Ahora se muestra lo que hay
+  // guardado y, si no hay nada, no se muestra la línea.
+  const customerPlace = customer
+    ? customer.province?.name ||
+      customer.stateOther ||
+      countries?.find((c) => c.id === customer.registrationCountryId)?.name ||
+      customer.registrationCountryOther ||
+      null
+    : null;
 
   const { data: provinces } = useQuery({
     queryKey: ["provinces"],
@@ -139,7 +168,7 @@ export default function CustomerPanel() {
 
   // Misma queryKey que Store.jsx (el botón de corazón ahí) — comparten
   // cache, así que favoritear desde la tienda y venir acá no pide de nuevo.
-  const { data: favorites, isLoading: favoritesLoading } = useQuery({
+  const { data: favorites, isLoading: favoritesLoading, isError: favoritesError, refetch: refetchFavorites, isFetching: favoritesFetching } = useQuery({
     queryKey: ["my-favorites"],
     queryFn: async () => (await api.get("/customers/me/favorites")).data.favorites,
     enabled: !!user && tab === "wishlist",
@@ -160,7 +189,7 @@ export default function CustomerPanel() {
   // respuesta completa (no solo .listings) para poder armar el botón
   // bloqueado + la cuenta regresiva sin duplicar la lógica de "qué día es"
   // del backend.
-  const { data: listingsData, isLoading: listingsLoading } = useQuery({
+  const { data: listingsData, isLoading: listingsLoading, isError: listingsError, refetch: refetchListings, isFetching: listingsFetching } = useQuery({
     queryKey: ["my-customer-listings"],
     queryFn: async () => (await api.get("/customer-listings/me/list")).data,
     enabled: !!user && tab === "quick-sale",
@@ -223,7 +252,7 @@ export default function CustomerPanel() {
       return (await api.post(`/reports/${id}/evidence`, form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: (_, { id }) => {
-      toast.success("Respuesta enviada — el admin la va a revisar.");
+      toast.success("Respuesta enviada. El admin la va a revisar.");
       setEvidenceDrafts((prev) => { const next = { ...prev }; delete next[id]; return next; });
       queryClient.invalidateQueries({ queryKey: ["my-fraud-reports"] });
     },
@@ -296,7 +325,7 @@ export default function CustomerPanel() {
       setSavedListing(listing);
       setEditingListing(listing);
       queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
-      toast.success(editingListing ? "Anuncio actualizado." : "Anuncio creado — ahora sube al menos una foto.");
+      toast.success(editingListing ? "Anuncio actualizado." : "Anuncio creado. Ahora sube al menos una foto.");
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el anuncio."),
   });
@@ -322,7 +351,7 @@ export default function CustomerPanel() {
     onSuccess: (data) => {
       setSavedListing(data.listing);
       queryClient.invalidateQueries({ queryKey: ["my-customer-listings"] });
-      toast.success("Foto subida — tu anuncio ya está publicado.");
+      toast.success("Foto subida. Tu anuncio ya está publicado.");
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo subir la foto."),
   });
@@ -446,38 +475,45 @@ export default function CustomerPanel() {
 
   return (
     <div className="container-app grid grid-cols-1 gap-5 py-5 lg:grid-cols-[250px_1fr] lg:items-start lg:gap-8 lg:py-9">
-      {/* SIDEBAR. En el celular las pestañas van en una fila que se desliza: antes eran una lista de 8 renglones que llenaba la
-          primera pantalla y el contenido de la pestaña quedaba abajo, fuera de la vista. */}
+      {/* SIDEBAR. En el celular las 8 secciones van en una cuadrícula de 4x2 con ícono: todas a la vista sin deslizar (la fila
+          deslizable escondía la mitad y parecía cortada) y sin ocupar la pantalla entera como la lista de 8 renglones. */}
       <aside className="min-w-0 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 lg:p-[22px]">
         <div className="mb-3 flex items-center gap-3 border-b border-surface-container-high pb-3 lg:mb-5 lg:pb-[18px]">
           <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent font-display text-[17px] font-bold text-white">
             {customer?.fullName?.[0] ?? user.email[0].toUpperCase()}
           </div>
-          <div>
-            <div className="text-[14px] font-bold text-on-surface">{customer?.fullName ?? user.email}</div>
-            <div className="text-[12px] text-outline">{customer?.province?.name ?? "Cuba"}</div>
+          {/* min-w-0 + truncate: un correo largo sin espacios empujaba "Cerrar sesión" fuera de la tarjeta a 390px. */}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-bold text-on-surface" title={customer?.fullName ?? user.email}>{customer?.fullName ?? user.email}</div>
+            {customerPlace && <div className="truncate text-[12px] text-outline">{customerPlace}</div>}
           </div>
-          <button onClick={handleLogout} className="ml-auto min-h-11 rounded-md px-2 text-[12.5px] font-semibold text-error lg:hidden">
+          <button onClick={handleLogout} className="min-h-11 flex-shrink-0 rounded-md px-2 text-[12.5px] font-semibold text-error lg:hidden">
             Cerrar sesión
           </button>
         </div>
-        <nav ref={tabsNavRef} aria-label="Secciones de tu cuenta" className="relative -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0 lg:pb-0">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              aria-current={tab === t.id ? "page" : undefined}
-              className={`min-h-11 flex-shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-left text-[13.5px] font-bold lg:rounded-md lg:py-2.5 ${
-                tab === t.id ? "bg-primary-container text-white" : "text-on-surface-variant hover:bg-surface-container"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <nav aria-label="Secciones de tu cuenta" className="grid grid-cols-4 gap-1.5 lg:flex lg:flex-col lg:gap-1">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                aria-current={active ? "page" : undefined}
+                className={`flex min-h-[60px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-center text-[11.5px] font-semibold leading-tight lg:min-h-11 lg:flex-row lg:justify-start lg:gap-2.5 lg:rounded-md lg:px-3.5 lg:py-2.5 lg:text-left lg:text-[13.5px] lg:font-bold ${
+                  active ? "bg-primary-container text-white" : "bg-surface-container-low text-on-surface-variant hover:bg-surface-container lg:bg-transparent"
+                }`}
+              >
+                <Icon className="h-5 w-5 flex-shrink-0 lg:h-4 lg:w-4" aria-hidden="true" />
+                <span className="w-full break-words lg:hidden">{t.short}</span>
+                <span className="hidden lg:inline">{t.label}</span>
+              </button>
+            );
+          })}
         </nav>
         <button
           onClick={handleLogout}
-          className="mt-4 hidden w-full rounded-md px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5 lg:block"
+          className="mt-4 hidden min-h-11 w-full rounded-md px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5 lg:block"
         >
           Cerrar sesión
         </button>
@@ -487,10 +523,13 @@ export default function CustomerPanel() {
       <div className="min-w-0">
         {tab === "orders" && (
           <div>
-            <WelcomeHeading name={(customer?.fullName ?? "").split(" ")[0] || "bienvenido"} className="mb-4" />
-            <WeeklySummaryCard className="mb-6" />
-            <h2 className="mb-5 font-display text-headline-md text-on-surface">Mis pedidos</h2>
+            {/* Sin el resumen semanal: a un cliente que compra de vez en cuando casi siempre le decía "0, igual que la semana
+                pasada". Sus pedidos quedan justo debajo del saludo. */}
+            <WelcomeHeading name={(customer?.fullName ?? "").split(" ")[0] || "bienvenido"} className="mb-5" />
+            <h2 className="mb-4 font-display text-title-lg font-bold text-on-surface sm:text-headline-md">Mis pedidos</h2>
             {ordersLoading && <CardListSkeleton />}
+            {/* Solo si no hay nada que mostrar: si falla un refresco en segundo plano se deja la lista que ya estaba. */}
+            {ordersError && !orders && <LoadError message="No se pudieron cargar tus pedidos." onRetry={refetchOrders} retrying={ordersFetching} />}
             {!ordersLoading && orders?.length === 0 && (
               <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
                 Todavía no hiciste ningún pedido.
@@ -511,7 +550,7 @@ export default function CustomerPanel() {
                     <div className="text-[14px] font-bold text-on-surface">{orderTotalLabel(o)}</div>
                     <span
                       className="rounded-full px-3 py-1.5 text-[11.5px] font-bold"
-                      style={{ background: `${statusColor(o)}1f`, color: statusColor(o) }}
+                      style={{ background: `${statusColor(o)}1f`, color: statusTextColor(o) }}
                     >
                       {statusLabel(o)}
                     </span>
@@ -545,7 +584,7 @@ export default function CustomerPanel() {
                   </div>
                   {(o.loyaltyPointsRedeemed > 0 || o.loyaltyPointsEarned > 0) && (
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] font-semibold text-verified-dark">
-                      {o.loyaltyPointsRedeemed > 0 && <span>Pagaste {fmtCUP(o.loyaltyDiscount)} con {o.loyaltyPointsRedeemed} puntos</span>}
+                      {o.loyaltyPointsRedeemed > 0 && <span>Pagaste {formatPrice(o.loyaltyDiscount, orderCurrency(o))} con {o.loyaltyPointsRedeemed} puntos</span>}
                       {o.loyaltyPointsEarned > 0 && <span>Ganaste {o.loyaltyPointsEarned} puntos</span>}
                     </div>
                   )}
@@ -584,7 +623,7 @@ export default function CustomerPanel() {
           <div>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h1 className="font-display text-headline-md text-on-surface">Venta rápida</h1>
+                <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Venta rápida</h1>
                 {/* Bloque 237 (pedido explícito — "toda esta información se
                     le debe aclarar al vendedor"): el ciclo de vida en 2
                     etapas, con los números reales vigentes (editables desde
@@ -610,7 +649,7 @@ export default function CustomerPanel() {
                 <p className="mt-0.5 text-[13px] text-on-surface-variant">
                   Te falta: <strong>{profileMissing.join(", ")}</strong>. Los compradores te contactan por WhatsApp y ven tus anuncios según su lugar de entrega.
                 </p>
-                <Button className="mt-2.5" size="sm" onClick={() => setTab("profile")}>Completar mi perfil</Button>
+                <Button className="mt-2.5" onClick={() => setTab("profile")}>Completar mi perfil</Button>
               </div>
             )}
 
@@ -635,14 +674,15 @@ export default function CustomerPanel() {
                     className="mb-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest p-3 text-[13px] text-on-surface outline-none focus:border-tertiary-accent"
                   />
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-outline-variant px-3 py-2 text-[12px] font-semibold text-on-surface-variant hover:bg-surface-variant/40">
-                      <Camera className="h-3.5 w-3.5" />
+                    {/* sr-only y no hidden: con display:none el selector de archivos no se alcanzaba con el teclado. */}
+                    <label className="relative flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-outline-variant px-3 py-2 text-[12px] font-semibold text-on-surface-variant focus-within:ring-2 focus-within:ring-tertiary-accent hover:bg-surface-variant/40">
+                      <Camera className="h-3.5 w-3.5" aria-hidden="true" />
                       {draft.files.length > 0 ? `${draft.files.length} foto(s)` : "Adjuntar foto (opcional)"}
                       <input
                         type="file"
                         accept="image/jpeg,image/jpg,image/png,image/webp"
                         multiple
-                        className="hidden"
+                        className="sr-only"
                         onChange={(e) => updateEvidenceDraft(r.id, { files: Array.from(e.target.files ?? []).slice(0, 4) })}
                       />
                     </label>
@@ -652,7 +692,7 @@ export default function CustomerPanel() {
                         submitListingEvidence.mutate({ id: r.id, message: draft.message.trim(), files: draft.files });
                       }}
                       disabled={submitListingEvidence.isPending}
-                      className="rounded-lg bg-error px-4 py-2 text-[12.5px] font-bold text-white disabled:opacity-50"
+                      className="min-h-11 rounded-lg bg-error px-4 py-2 text-[12.5px] font-bold text-white disabled:opacity-50"
                     >
                       {submitListingEvidence.isPending ? "Enviando..." : "Enviar respuesta"}
                     </button>
@@ -662,7 +702,8 @@ export default function CustomerPanel() {
             })}
 
             {listingsLoading && <CardListSkeleton />}
-            {!listingsLoading && !listings?.length && (
+            {listingsError && !listingsData && <LoadError message="No se pudieron cargar tus anuncios." onRetry={refetchListings} retrying={listingsFetching} />}
+            {!listingsLoading && !listingsError && !listings?.length && (
               <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
                 Todavía no publicaste ningún anuncio de venta rápida.
               </div>
@@ -672,8 +713,22 @@ export default function CustomerPanel() {
               {listings?.map((l) => (
                 <div key={l.id} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest">
                   <div className="relative aspect-[7/4] w-full bg-surface-container">
+                    {/* Miniatura con la foto grande de respaldo, igual que QuickSaleCard. Antes se armaba la URL con
+                        VITE_API_URL ?? localhost, que no cargaba desde el celular en la red local. */}
                     {l.images[0] ? (
-                      <img src={`${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${l.images[0]}`} alt={l.name} className="h-full w-full object-cover" />
+                      <img
+                        src={thumbUrl(l.images[0])}
+                        alt={l.name}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          const full = imgUrl(l.images[0]);
+                          if (e.currentTarget.src !== full) {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = full;
+                          }
+                        }}
+                      />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-outline">
                         <Package className="h-8 w-8" />
@@ -687,7 +742,7 @@ export default function CustomerPanel() {
                     ) : l.isSold ? (
                       <span className="absolute left-2 top-2 rounded-full bg-inverse-surface/80 px-2.5 py-1 text-[10.5px] font-bold text-white">Vendido</span>
                     ) : !l.isActive ? (
-                      <span className="absolute left-2 top-2 rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">Sin foto — no visible</span>
+                      <span className="absolute left-2 top-2 rounded-full bg-error px-2.5 py-1 text-[10.5px] font-bold text-white">Sin foto: no visible</span>
                     ) : new Date(l.publicVisibleUntil).getTime() <= Date.now() ? (
                       <span className="absolute left-2 top-2 rounded-full bg-tertiary-accent px-2.5 py-1 text-[10.5px] font-bold text-white">Ya no se muestra públicamente</span>
                     ) : null}
@@ -704,28 +759,37 @@ export default function CustomerPanel() {
                           ? `Visible ${daysRemaining(l.publicVisibleUntil)} días más`
                           : "Deja de mostrarse hoy"}
                     </div>
-                    <div className="flex gap-1.5">
+                    {/* Botones de 44px (R-03). En una sola fila no cabían a 390px (la tarjeta mide unos 143px por dentro en
+                        la grilla de 2), así que Editar va arriba a todo el ancho y debajo Vendido y Eliminar. Vendido es un
+                        interruptor con texto (antes era solo un ícono de check, difícil de entender). */}
+                    <div className="grid grid-cols-[1fr_auto] gap-1.5">
                       <button
+                        type="button"
                         onClick={() => openEditListing(l)}
-                        aria-label="Editar anuncio"
-                        className="flex h-8 flex-1 items-center justify-center gap-1 rounded border border-outline-variant text-[11.5px] font-semibold text-on-surface hover:bg-surface-container"
+                        aria-label={`Editar ${l.name}`}
+                        className="col-span-2 flex h-11 items-center justify-center gap-1.5 rounded border border-outline-variant text-[12px] font-semibold text-on-surface hover:bg-surface-container"
                       >
-                        <Pencil className="h-3.5 w-3.5" /> Editar
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Editar
                       </button>
                       <button
+                        type="button"
                         onClick={() => toggleListingSold.mutate(l.id)}
                         disabled={toggleListingSold.isPending}
-                        aria-label={l.isSold ? "Marcar como disponible" : "Marcar como vendido"}
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-outline-variant text-on-surface hover:bg-surface-container disabled:opacity-50"
+                        aria-pressed={!!l.isSold}
+                        title={l.isSold ? "Marcar como disponible" : "Marcar como vendido"}
+                        className={`flex h-11 min-w-0 items-center justify-center gap-1.5 rounded border text-[12px] font-semibold disabled:opacity-50 ${
+                          l.isSold ? "border-verified-dark bg-verified-dark/10 text-verified-dark" : "border-outline-variant text-on-surface hover:bg-surface-container"
+                        }`}
                       >
-                        <CheckCircle2 className={`h-3.5 w-3.5 ${l.isSold ? "text-secondary" : ""}`} />
+                        <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" /> Vendido
                       </button>
                       <button
+                        type="button"
                         onClick={() => setDeleteListingTarget(l)}
-                        aria-label="Eliminar anuncio"
-                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-outline-variant text-error hover:bg-error/5"
+                        aria-label={`Eliminar ${l.name}`}
+                        className="flex h-11 w-11 items-center justify-center rounded border border-outline-variant text-error hover:bg-error/5"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>
                   </div>
@@ -734,12 +798,12 @@ export default function CustomerPanel() {
             </div>
 
             {listingModalOpen && (
-              <div className="fixed inset-0 z-[60] flex items-end justify-center bg-inverse-surface/40 sm:items-center sm:p-4">
-                <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-2xl bg-surface-container-lowest p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6">
+              <div className="fixed inset-0 z-[60] flex items-end justify-center bg-inverse-surface/40 sm:items-center sm:p-4 p-4">
+                <div className="modal-panel-4 w-full max-w-lg rounded-t-2xl bg-surface-container-lowest p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-title-lg font-bold text-on-surface">{editingListing ? "Editar anuncio" : "Nuevo anuncio"}</h3>
-                    <button onClick={() => setListingModalOpen(false)} aria-label="Cerrar" className="text-outline hover:text-on-surface">
-                      <XIcon className="h-5 w-5" />
+                    <button type="button" onClick={() => setListingModalOpen(false)} aria-label="Cerrar" className="-mr-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-outline hover:bg-surface-container hover:text-on-surface">
+                      <XIcon className="h-5 w-5" aria-hidden="true" />
                     </button>
                   </div>
 
@@ -828,8 +892,9 @@ export default function CustomerPanel() {
                         Fotos del anuncio <span className="text-error">*</span>
                       </span>
                       {savedListing && !savedListing.images?.length && (
-                        <p className="mb-2.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
-                          ⚠️ Este anuncio está en pausa y no se muestra a la venta hasta que subas al menos 1 foto.
+                        <p className="mb-2.5 flex items-start gap-1.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
+                          <AlertTriangle className="mt-px h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                          Este anuncio está en pausa y no se muestra a la venta hasta que subas al menos 1 foto.
                         </p>
                       )}
                       {savedListing ? (
@@ -837,14 +902,19 @@ export default function CustomerPanel() {
                           <div className="mb-2.5 flex flex-wrap gap-2">
                             {savedListing.images?.map((url) => (
                               <div key={url} className="group relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md border border-surface-container-high">
-                                <img src={`${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}`} alt="" className="h-full w-full object-cover" />
+                                <img src={imgUrl(url)} alt="" className="h-full w-full object-cover" />
+                                {/* Zona táctil de 44px en la esquina con el círculo visible adentro, como el corazón de
+                                    Favoritos; antes el botón medía 16px y no tenía nombre para el lector de pantalla. */}
                                 <button
                                   type="button"
                                   onClick={() => removeListingImage.mutate(url)}
                                   disabled={removeListingImage.isPending}
-                                  className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                                  aria-label={`Quitar foto ${savedListing.images.indexOf(url) + 1}`}
+                                  className="group/rm absolute right-0 top-0 flex h-11 w-11 items-start justify-end p-1 disabled:opacity-50"
                                 >
-                                  <XIcon className="h-3 w-3" />
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white group-hover/rm:bg-black/80">
+                                    <XIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                  </span>
                                 </button>
                               </div>
                             ))}
@@ -862,7 +932,7 @@ export default function CustomerPanel() {
                           <p className="text-label-sm text-outline">
                             {uploadListingImage.isPending
                               ? "Subiendo foto..."
-                              : `Tamaño recomendado: 1400×800px (relación 7:4) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP. Hasta ${maxImages} fotos.`}
+                              : `Tamaño recomendado: 1400×800px (relación 7:4). Al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP. Hasta ${maxImages} fotos.`}
                           </p>
                         </>
                       ) : (
@@ -874,12 +944,12 @@ export default function CustomerPanel() {
                       type="button"
                       onClick={() => {
                         if (savedListing && !savedListing.images?.length) {
-                          toast.error("Sube al menos 1 foto antes de terminar — sin fotos el anuncio queda pausado y no se muestra en venta rápida.");
+                          toast.error("Sube al menos 1 foto antes de terminar. Sin fotos el anuncio queda pausado y no se muestra en venta rápida.");
                           return;
                         }
                         setListingModalOpen(false);
                       }}
-                      className="mt-1 w-full rounded-xl border border-outline-variant py-2.5 text-label-md font-semibold text-on-surface-variant hover:bg-surface-variant"
+                      className="mt-1 min-h-11 w-full rounded-xl border border-outline-variant py-2.5 text-label-md font-semibold text-on-surface-variant hover:bg-surface-variant"
                     >
                       {savedListing ? "Listo" : "Cancelar"}
                     </button>
@@ -890,7 +960,7 @@ export default function CustomerPanel() {
 
             {deleteListingTarget && (
               <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
-                <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+                <div className="modal-panel-6 w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6">
                   <h3 className="mb-2 text-title-lg font-bold text-on-surface">¿Eliminar este anuncio?</h3>
                   <p className="mb-5 text-[13.5px] text-on-surface-variant">
                     "{deleteListingTarget.name}" se va a eliminar para siempre, junto con sus fotos. Esta acción no se puede deshacer.
@@ -912,9 +982,10 @@ export default function CustomerPanel() {
           const productFavorites = favorites?.filter((f) => f.productId) ?? [];
           return (
             <div>
-              <h1 className="mb-5 font-display text-headline-md text-on-surface">Favoritos</h1>
+              <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Favoritos</h1>
               {favoritesLoading && <ProductGridSkeleton count={6} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" />}
-              {!favoritesLoading && !favorites?.length && (
+              {favoritesError && !favorites && <LoadError message="No se pudieron cargar tus favoritos." onRetry={refetchFavorites} retrying={favoritesFetching} />}
+              {!favoritesLoading && !favoritesError && !favorites?.length && (
                 <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
                   Todavía no guardaste tiendas ni productos favoritos.
                 </div>
@@ -926,13 +997,17 @@ export default function CustomerPanel() {
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {storeFavorites.map((f) => (
                       <div key={f.id} className="relative">
+                        {/* Misma forma que el corazón de los productos: zona táctil de 44px con el círculo de 32px adentro. */}
                         <button
+                          type="button"
                           onClick={() => removeFavorite.mutate(f.id)}
                           disabled={removeFavorite.isPending}
-                          aria-label="Quitar de favoritos"
-                          className="absolute right-2.5 top-2.5 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 disabled:opacity-50"
+                          aria-label={`Quitar ${f.vendor?.companyName ?? "esta tienda"} de favoritos`}
+                          className="group/heart absolute right-1 top-1 z-10 flex h-11 w-11 items-center justify-center disabled:opacity-50"
                         >
-                          <Heart className="h-4 w-4 fill-white" />
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white group-hover/heart:bg-black/60">
+                            <Heart className="h-4 w-4 fill-white" aria-hidden="true" />
+                          </span>
                         </button>
                         <StoreCard vendor={f.vendor} />
                       </div>
@@ -976,10 +1051,13 @@ export default function CustomerPanel() {
 
         {tab === "addresses" && (
           <div>
-            <h1 className="mb-5 font-display text-headline-md text-on-surface">Mis direcciones</h1>
+            <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mis direcciones</h1>
             <div className="max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
               {customerLoading ? (
                 <FormSkeleton fields={3} />
+              ) : customerError && !customer ? (
+                // Sin el perfil el formulario sale vacío y "Guardar" borraría la dirección real: se pide reintentar.
+                <LoadError message="No se pudo cargar tu dirección." onRetry={refetchCustomer} retrying={customerFetching} />
               ) : (
                 <div className="flex flex-col gap-3.5">
                   <Select label="Provincia" value={addressForm.provinceId} onChange={(e) => setAddressForm({ ...addressForm, provinceId: e.target.value })}>
@@ -1006,21 +1084,21 @@ export default function CustomerPanel() {
 
         {tab === "points" && (
           <div className="max-w-[640px]">
-            <h1 className="mb-5 font-display text-headline-md text-on-surface">Mis puntos</h1>
+            <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mis puntos</h1>
             <MyPoints />
           </div>
         )}
 
         {tab === "reports" && (
           <div>
-            <h1 className="mb-4 font-display text-headline-md text-on-surface">Reportes</h1>
+            <h1 className="mb-4 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Reportes</h1>
             <ReportsCenter audience="customer" />
           </div>
         )}
 
         {tab === "suggestions" && (
           <div>
-            <h1 className="mb-5 font-display text-headline-md text-on-surface">Sugerencias</h1>
+            <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Sugerencias</h1>
             <div className="max-w-[560px]">
               <SuggestionBox />
             </div>
@@ -1029,10 +1107,10 @@ export default function CustomerPanel() {
 
         {tab === "profile" && (
           <div>
-            <h1 className="mb-5 font-display text-headline-md text-on-surface">Mi perfil</h1>
+            <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mi perfil</h1>
 
             <div className="mb-5 max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
-              <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+              <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
                 <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta
               </div>
               <p className="mb-4 text-[13.5px] text-on-surface-variant">{customer?.email}</p>
@@ -1042,6 +1120,8 @@ export default function CustomerPanel() {
             <div className="max-w-[480px] rounded-2xl border border-surface-container-high bg-surface-container-lowest p-[22px]">
               {customerLoading ? (
                 <FormSkeleton fields={3} />
+              ) : customerError && !customer ? (
+                <LoadError message="No se pudo cargar tu perfil." onRetry={refetchCustomer} retrying={customerFetching} />
               ) : (
                 <div className="flex flex-col gap-3.5">
                   <Input data-guard="name" label="Nombre completo" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} />

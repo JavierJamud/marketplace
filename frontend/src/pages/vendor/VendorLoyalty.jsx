@@ -254,8 +254,8 @@ function MemberModal({ member, currency, canWrite, onClose }) {
   const pts = Math.trunc(Number(points));
 
   return (
-    <div className="fixed inset-0 z-[65] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={`Puntos de ${member.name ?? "cliente"}`} onClick={(e) => e.stopPropagation()} className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl">
+    <div className="fixed inset-0 z-[65] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={`Puntos de ${member.name ?? "cliente"}`} onClick={(e) => e.stopPropagation()} className="flex w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl max-h-[calc(100dvh-2rem)]">
         <div className="flex items-start justify-between gap-3 border-b border-surface-container-high px-5 py-4">
           <div className="min-w-0">
             <h2 className="truncate font-display text-[19px] font-extrabold text-on-surface">{member.name ?? "Cliente"}</h2>
@@ -438,7 +438,7 @@ export default function VendorLoyalty() {
     <div className="mx-auto max-w-5xl">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Award} tone="teal" />
-        <h1 className="font-display text-[24px] font-extrabold tracking-tight text-on-surface sm:text-[26px]">Programa de fidelidad</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Programa de fidelidad</h1>
       </div>
       <p className="mb-5 max-w-2xl text-[13.5px] text-outline">
         Premia a quien vuelve a comprarte. Tus clientes con cuenta ganan puntos al recibir sus pedidos y los usan como descuento en su próxima compra en tu tienda. Tú decides cuánto dar, y nunca te deja perder dinero.

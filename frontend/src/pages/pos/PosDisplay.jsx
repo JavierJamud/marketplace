@@ -17,7 +17,7 @@ const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.(
 
 function Shell({ vendor, accent, children }) {
   return (
-    <div className="fixed inset-0 flex flex-col bg-[#0e1a28] text-white">
+    <div className="fixed inset-0 flex flex-col bg-primary text-white">
       <header className="flex items-center justify-between gap-4 border-b border-white/10 px-6 py-4">
         <div className="flex min-w-0 items-center gap-3">
           {vendor.logoUrl && <img src={imgUrl(vendor.logoUrl)} alt="" className="h-14 w-14 flex-shrink-0 rounded-full bg-white object-cover" />}
@@ -142,9 +142,9 @@ export default function PosDisplay() {
   }, [data?.vendor?.name]);
 
   if (error?.response?.status === 404) {
-    return <div className="fixed inset-0 flex items-center justify-center bg-[#0e1a28] px-6 text-center text-[18px] text-white/85">{error.response.data?.error ?? "Este enlace ya no es válido."}</div>;
+    return <div className="fixed inset-0 flex items-center justify-center bg-primary px-6 text-center text-[18px] text-white/85">{error.response.data?.error ?? "Este enlace ya no es válido."}</div>;
   }
-  if (!data) return <div className="fixed inset-0 flex items-center justify-center bg-[#0e1a28] text-[18px] text-white/70">Conectando...</div>;
+  if (!data) return <div className="fixed inset-0 flex items-center justify-center bg-primary text-[18px] text-white/70">Conectando...</div>;
 
   const accent = readableAccent(data.vendor.color);
   return (

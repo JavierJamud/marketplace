@@ -88,7 +88,7 @@ export default function AdminErrors() {
     <div className="max-w-[900px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={AlertTriangle} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Errores</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Errores</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Fallas técnicas reales registradas automáticamente (bots, emails, pagos, transcripción de audio, y cualquier otra

@@ -59,7 +59,7 @@ export function SuspendedVendorsList() {
 
   return (
     <>
-      <p className="mb-3 text-[12.5px] text-outline">Bloqueadas a mano por un admin o suspendidas solas por 90 días sin entrar al panel. No se ven en el sitio hasta desbloquearlas o reactivarlas.</p>
+      <p className="mb-3 text-[12.5px] text-outline">Bloqueadas a mano por un admin, o suspendidas solas por falta de pago o por mucho tiempo sin entrar al panel. No se ven en el sitio hasta desbloquearlas o reactivarlas.</p>
       <div className={CARD}>
         {isLoading && <ListSkeleton />}
         {isError && (
@@ -82,7 +82,7 @@ export function SuspendedVendorsList() {
                     {v.companyName}
                   </Link>
                   <div className="text-[11.5px] text-outline">
-                    <span className={`mr-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${isBlocked ? "bg-error/10 text-error" : "bg-secondary/10 text-secondary"}`}>{isBlocked ? "Bloqueada" : "Suspendida"}</span>
+                    <span className={`mr-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${isBlocked ? "bg-error/10 text-error" : "bg-secondary/10 text-secondary"}`}>{isBlocked ? "Bloqueada" : v.billingSuspendedAt ? "Suspendida por falta de pago" : "Suspendida por inactividad"}</span>
                     desde {fmtDate(isBlocked ? v.blockedAt : v.suspendedAt)} · entró por última vez {fmtDate(v.user?.lastLoginAt)}
                   </div>
                 </div>
@@ -119,7 +119,13 @@ export function SuspendedVendorsList() {
       <ConfirmModal
         open={!!reactivating}
         title={`¿Reactivar "${reactivating?.companyName}"?`}
-        message="Vuelve a verse en todo el sitio y su dueño puede volver a entrar al panel. Se le avisa por correo con el motivo que escribas."
+        message={
+          // Suspendida por falta de pago: el servidor le da una semana más si el pago ya venció (adminReactivationBillingData),
+          // igual que en la ficha de la tienda (AdminVendorManage.jsx).
+          reactivating?.billingSuspendedAt
+            ? "Vuelve a verse en todo el sitio y a recibir pedidos. Si su pago ya venció, tendrá una semana para pagar su plan; si no paga, se vuelve a suspender. Se le avisa por correo con el motivo que escribas."
+            : "Vuelve a verse en todo el sitio y su dueño puede volver a entrar al panel. Se le avisa por correo con el motivo que escribas."
+        }
         confirmLabel={reactivate.isPending ? "Reactivando..." : "Sí, reactivar"}
         confirmDisabled={reason.trim().length < 5 || reactivate.isPending}
         onConfirm={() => reactivate.mutate({ id: reactivating.id, reason: reason.trim() })}

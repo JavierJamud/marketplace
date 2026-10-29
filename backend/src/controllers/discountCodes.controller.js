@@ -7,6 +7,7 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows, getPlanLimit, planAllows } from "../lib/planConfig.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
+import { adminNoticeToVendor } from "../lib/notify.js";
 
 // Solo las monedas que el admin tiene activas (las mismas que se ofrecen al cargar un producto).
 const assertCurrencyAvailable = (currency) => assertActiveCurrency(currency);
@@ -51,17 +52,61 @@ export const discountCodeSummarySelect = {
   startsAt: true,
   expiresAt: true,
   active: true,
+  // Solo lo leen la tienda y el admin (este select no se usa en respuestas públicas).
+  suspendedAt: true,
+  suspendedReason: true,
   createdAt: true,
 };
 
+// Qué códigos ocupan cupo del plan (maxDiscountCodes): los que la tienda tiene
+// encendidos, sin suspender y sin vencer. Antes se contaban todos, y como un
+// código usado no se puede borrar (solo desactivar), una tienda con N códigos
+// usados y apagados quedaba sin poder crear ninguno más para siempre.
+// Desactivar uno ahora libera su lugar. Exportada para que el resto (por
+// ejemplo, lo que el asistente le cuenta a la tienda) cuente igual que el tope.
+export function countedCodeWhere(vendorId, now = new Date()) {
+  return { vendorId, active: true, suspendedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+}
+
+function countsTowardLimit(code, now = new Date()) {
+  return !!code.active && !code.suspendedAt && (!code.expiresAt || new Date(code.expiresAt) > now);
+}
+
+function codeLimitMessage(max) {
+  if (max === 0) return "Tu plan actual no incluye códigos de descuento activos.";
+  return `Tu plan permite hasta ${max === 1 ? "1 código activo" : `${max} códigos activos`}. Desactiva uno o mejora tu plan.`;
+}
+
+// Lanza si encender (o volver a contar) un código pasaría el tope del plan.
+// `exceptId`: el propio código al editarlo, para no contarse a sí mismo.
+async function assertCodeSlotAvailable(vendor, exceptId = null) {
+  await assertPlanAllows(vendor, "allowDiscountCodes", "Tu plan actual no incluye códigos de descuento.");
+  const max = await getPlanLimit(vendor, "maxDiscountCodes");
+  if (max === null) return;
+  const where = countedCodeWhere(vendor.id);
+  if (exceptId) where.id = { not: exceptId };
+  const activeCount = await prisma.discountCode.count({ where });
+  if (activeCount >= max) throw new AppError(codeLimitMessage(max), 403);
+}
+
 export async function listMyDiscountCodes(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
-  const codes = await prisma.discountCode.findMany({
-    where: { vendorId: vendor.id },
-    orderBy: { createdAt: "desc" },
-    select: discountCodeSummarySelect,
-  });
-  res.json({ discountCodes: codes });
+  const [codes, allowed, planMax, activeCount] = await Promise.all([
+    prisma.discountCode.findMany({
+      where: { vendorId: vendor.id },
+      orderBy: { createdAt: "desc" },
+      select: discountCodeSummarySelect,
+    }),
+    planAllows(vendor, "allowDiscountCodes"),
+    getPlanLimit(vendor, "maxDiscountCodes"),
+    prisma.discountCode.count({ where: countedCodeWhere(vendor.id) }),
+  ]);
+  // `limit` es para el "X de N códigos activos" de la pestaña (maxActive null = sin tope).
+  // Con el interruptor del plan apagado el tope es 0, aunque la base guarde un
+  // número: si no, la pestaña mostraba "0/5" y el servidor rechazaba crear
+  // (mismo criterio que limits.maxDiscountCodes en planConfig.js).
+  const maxActive = allowed ? planMax : 0;
+  res.json({ discountCodes: codes, limit: { maxActive, activeCount } });
 }
 
 // Multipart no hace falta acá (sin imagen) — JSON plano.
@@ -97,12 +142,8 @@ const createDiscountCodeSchema = z
 
 export async function createDiscountCode(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
-  await assertPlanAllows(vendor, "allowDiscountCodes", "Tu plan actual no incluye códigos de descuento.");
-  const maxDiscountCodes = await getPlanLimit(vendor, "maxDiscountCodes");
-  if (maxDiscountCodes !== null) {
-    const currentCount = await prisma.discountCode.count({ where: { vendorId: vendor.id } });
-    if (currentCount >= maxDiscountCodes) throw new AppError(`Tu plan permite hasta ${maxDiscountCodes} código(s) de descuento.`, 403);
-  }
+  // Un código nuevo nace activo, así que ocupa un lugar del tope desde ya.
+  await assertCodeSlotAvailable(vendor);
   const data = createDiscountCodeSchema.parse(req.body);
   data.currency = data.currency ?? vendor.currency ?? (await activeCodes("CURRENCY"))[0];
   await assertCurrencyAvailable(data.currency);
@@ -147,7 +188,8 @@ const updateDiscountCodeSchema = z
     hasExpiry: z.boolean().optional(),
     startsAt: z.string().datetime().optional(),
     expiresAt: z.string().datetime().optional().nullable(),
-    // Toggle de activar/desactivar — siempre permitido, incluso con usos.
+    // Activar/desactivar se permite aunque el código ya tenga usos (activar
+    // mira el tope del plan, ver assertCodeSlotAvailable).
     active: z.boolean().optional(),
   })
   .refine((d) => d.type !== "PERCENTAGE" || d.value == null || d.value <= 100, {
@@ -156,7 +198,8 @@ const updateDiscountCodeSchema = z
   });
 
 // Editar condiciones solo si usesCount === 0 (para no alterar códigos ya
-// usados) — activar/desactivar siempre se permite, sin importar los usos.
+// usados) — activar/desactivar se permite sin importar los usos (activar,
+// dentro del tope de códigos activos del plan).
 export async function updateDiscountCode(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { id } = req.params;
@@ -168,6 +211,12 @@ export async function updateDiscountCode(req, res) {
   const wantsConditionChange = Object.keys(data).some((k) => k !== "active");
   if (wantsConditionChange && existing.usesCount > 0) {
     throw new AppError("Este código ya fue usado — solo puedes activarlo o desactivarlo, no editar sus condiciones.", 409);
+  }
+
+  // Lo que el admin suspendió solo lo reactiva el admin: antes la tienda lo
+  // volvía a encender con este mismo toggle y la moderación no duraba.
+  if (data.active === true && !existing.active && existing.suspendedAt) {
+    throw new AppError("El equipo de la plataforma suspendió este código, así que no puedes reactivarlo. Si crees que es un error, escríbenos.", 403);
   }
 
   const patch = {};
@@ -197,6 +246,29 @@ export async function updateDiscountCode(req, res) {
     throw new AppError("El máximo de compra debe ser mayor que el mínimo.", 400);
   }
 
+  // Las reglas del esquema solo ven lo que llega en el body: mandar solo
+  // `value: 150` sobre un código que ya era de porcentaje, o solo una fecha,
+  // las saltaba. Se validan con los valores con los que queda el código.
+  const finalType = patch.type ?? existing.type;
+  const finalValue = patch.value ?? Number(existing.value);
+  if (finalType === "PERCENTAGE" && finalValue > 100) {
+    throw new AppError("El porcentaje de descuento no puede superar 100%.", 400);
+  }
+  const finalStartsAt = patch.startsAt ?? existing.startsAt;
+  const finalExpiresAt = patch.expiresAt !== undefined ? patch.expiresAt : existing.expiresAt;
+  if (finalExpiresAt && new Date(finalExpiresAt) <= new Date(finalStartsAt)) {
+    throw new AppError("La fecha de fin debe ser posterior a la de inicio.", 400);
+  }
+
+  // Si con este cambio el código pasa a ocupar un lugar del tope (se
+  // reactiva, o se le alarga una vigencia ya vencida), se mira el plan igual
+  // que al crearlo. Antes no hacía falta porque se contaban todos los
+  // códigos; al contar solo los activos, reactivar sin mirar dejaba pasarse.
+  const now = new Date();
+  if (!countsTowardLimit(existing, now) && countsTowardLimit({ ...existing, ...patch }, now)) {
+    await assertCodeSlotAvailable(vendor, existing.id);
+  }
+
   const discountCode = await prisma.discountCode.update({ where: { id }, data: patch, select: discountCodeSummarySelect });
   res.json({ discountCode });
 }
@@ -210,6 +282,8 @@ export async function deleteDiscountCode(req, res) {
   const existing = await prisma.discountCode.findUnique({ where: { id } });
   if (!existing || existing.vendorId !== vendor.id) throw new AppError("Código de descuento no encontrado.", 404);
   if (existing.usesCount > 0) throw new AppError("Este código ya fue usado y no se puede eliminar — solo desactivarlo.", 409);
+  // Si no, borrarlo y crearlo de nuevo con el mismo texto saltaba la suspensión del admin.
+  if (existing.suspendedAt) throw new AppError("Este código está suspendido por el equipo de la plataforma y no se puede eliminar.", 409);
 
   const linkedOffer = await prisma.storeOffer.findFirst({ where: { discountCodeId: id } });
   if (linkedOffer) throw new AppError("Este código está asignado a una oferta de tienda — quita la oferta primero.", 409);
@@ -233,7 +307,8 @@ export async function resolveDiscountForOrder(client, { vendorId, code, items })
   if (!discountCode) throw new AppError("Código de descuento inválido para esta tienda.", 404);
   // Los códigos son del plan de pago: si la tienda bajó de plan, los que ya tenía se conservan pero no se aplican.
   if (!(await planAllows(discountCode.vendor.planType, "allowDiscountCodes"))) throw new AppError("Esta tienda no acepta códigos de descuento por ahora.", 409);
-  if (!discountCode.active) throw new AppError("Este código de descuento ya no está activo.", 409);
+  // suspendedAt va aparte de active por si una escritura vieja dejara un código suspendido encendido.
+  if (!discountCode.active || discountCode.suspendedAt) throw new AppError("Este código de descuento ya no está activo.", 409);
 
   const now = new Date();
   if (discountCode.startsAt > now) throw new AppError("Este código de descuento todavía no está vigente.", 409);
@@ -303,8 +378,9 @@ export async function validateDiscountCode(req, res) {
 // --- Admin (auditoría de seguridad) -----------------------------------------
 // Antes no existía ninguna supervisión de admin sobre códigos de descuento —
 // el único recurso para desactivar uno abusivo era entrar a Prisma Studio a
-// mano. Mismas reglas que el vendedor (activar/desactivar siempre permitido;
-// eliminar solo si nunca se usó), solo que sobre CUALQUIER vendedor.
+// mano. Eliminar sigue la regla del vendedor (solo si nunca se usó). Para
+// apagar, el admin suspende (suspendedAt), no solo desactiva: con `active`
+// solo, la tienda lo volvía a activar al minuto.
 
 export async function listAllDiscountCodesAdmin(_req, res) {
   const codes = await prisma.discountCode.findMany({
@@ -314,16 +390,41 @@ export async function listAllDiscountCodesAdmin(_req, res) {
   res.json({ discountCodes: codes });
 }
 
-const adminSetActiveSchema = z.object({ active: z.boolean() });
+// active:false suspende (con un motivo opcional que ve la tienda); active:true
+// quita la suspensión y deja el código apagado: la tienda decide si lo vuelve
+// a activar (mismo criterio que setStoreOfferActiveAdmin).
+const adminSetActiveSchema = z.object({ active: z.boolean(), reason: z.string().trim().max(300).optional().nullable() });
 
 export async function setDiscountCodeActiveAdmin(req, res) {
   const { id } = req.params;
-  const { active } = adminSetActiveSchema.parse(req.body);
+  const { active, reason } = adminSetActiveSchema.parse(req.body);
 
   const existing = await prisma.discountCode.findUnique({ where: { id } });
   if (!existing) throw new AppError("Código de descuento no encontrado.", 404);
 
-  const discountCode = await prisma.discountCode.update({ where: { id }, data: { active }, select: discountCodeSummarySelect });
+  const data = active
+    ? { suspendedAt: null, suspendedReason: null }
+    : { active: false, suspendedAt: existing.suspendedAt ?? new Date(), suspendedReason: reason || null };
+  const discountCode = await prisma.discountCode.update({ where: { id }, data, select: discountCodeSummarySelect });
+
+  // Solo se registra y se avisa cuando cambia algo (suspender lo ya suspendido solo actualiza el motivo).
+  if (active ? !!existing.suspendedAt : !existing.suspendedAt) {
+    logActivity({
+      actorId: req.user.id,
+      actorRole: "ADMIN",
+      vendorId: existing.vendorId,
+      action: active ? "discount_code_unsuspended" : "discount_code_suspended",
+      description: active ? `Quitó la suspensión del código "${existing.code}"` : `Suspendió el código "${existing.code}"${reason ? `: ${reason}` : ""}`,
+      meta: { discountCodeId: id },
+    });
+    await adminNoticeToVendor(
+      existing.vendorId,
+      active ? "Tu código de descuento ya no está suspendido" : "Suspendimos un código de descuento de tu tienda",
+      active
+        ? `Quitamos la suspensión del código ${existing.code}. Sigue desactivado: puedes volver a activarlo desde Ofertas y códigos.`
+        : `El código ${existing.code} ya no se puede usar${reason ? `. Motivo: ${reason}` : ""}. Si crees que es un error, escríbenos.`
+    );
+  }
   res.json({ discountCode });
 }
 

@@ -4,6 +4,36 @@
  * en código: no se meten hex/px crudos en los componentes, se usan estas
  * clases (bg-primary-container, text-secondary-container, text-headline-lg, etc).
  */
+import plugin from "tailwindcss/plugin";
+
+// Ventanas emergentes: una sola regla para todas (antes cada una tenía la suya y algunas se salían de la pantalla o dejaban los
+// botones fuera de la vista). `modal-panel-6` (o -4, -5, o `modal-panel` sin relleno) en el panel de la ventana:
+//  - nunca pasa del alto de la pantalla menos 2rem, así no toca los bordes;
+//  - su contenido se desliza por dentro;
+//  - la última fila del panel, si son botones, queda pegada abajo y siempre a la vista (el número es el relleno del panel,
+//    para que el pie llegue de borde a borde).
+const modalPanels = plugin(({ addComponents, theme }) => {
+  const sizes = { "": "0px", "-4": theme("spacing.4"), "-5": theme("spacing.5"), "-6": theme("spacing.6") };
+  const rules = {};
+  for (const [suffix, pad] of Object.entries(sizes)) {
+    rules[`.modal-panel${suffix}`] = {
+      maxHeight: "calc(100dvh - 2rem)",
+      overflowY: "auto",
+      overscrollBehavior: "contain",
+      "& > div:last-child:has(> button, > a)": {
+        position: "sticky",
+        bottom: `-${pad}`,
+        zIndex: "10",
+        margin: `${theme("spacing.4")} -${pad} -${pad}`,
+        padding: `${theme("spacing.3")} ${pad === "0px" ? theme("spacing.4") : pad}`,
+        backgroundColor: "inherit",
+        borderTop: `1px solid ${theme("colors.surface.container")}`,
+      },
+    };
+  }
+  addComponents(rules);
+});
+
 export default {
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
@@ -69,6 +99,8 @@ export default {
         },
         background: "#fbf9fa",
         "on-background": "#1b1b1d",
+        // Verde de WhatsApp: el botón y los íconos de WhatsApp usan el color de la marca (lo reconocen al instante).
+        whatsapp: "#25D366",
         verified: {
           light: "#2fdd73",
           DEFAULT: "#0cae53",
@@ -166,6 +198,17 @@ export default {
           "0%, 100%": { backgroundColor: "rgba(12,174,83,0.28)" },
           "50%": { backgroundColor: "rgba(12,174,83,0.06)" },
         },
+        // Entrada de las ventanas: antes cada modal traía su propio <style> con un @keyframes copiado (modal-pop en
+        // ConfirmModal, IdleWarningModal, ReportFraudModal y UnsavedChangesModal; otro en PlanDialog y PlanConfigDrawer).
+        // Ahora es una sola definición; se usa con motion-safe: para respetar "reducir movimiento".
+        "modal-pop": {
+          "0%": { opacity: "0", transform: "scale(0.94) translateY(8px)" },
+          "100%": { opacity: "1", transform: "scale(1) translateY(0)" },
+        },
+        "sheet-up": {
+          "0%": { opacity: "0", transform: "translateY(24px)" },
+          "100%": { opacity: "1", transform: "none" },
+        },
       },
       animation: {
         "cart-bump": "cart-bump 0.45s ease-out",
@@ -184,8 +227,10 @@ export default {
         // retoma exactamente donde se quedó.
         marquee: "marquee 100s linear infinite",
         "new-item-blink": "new-item-blink 1s ease-in-out infinite",
+        "modal-pop": "modal-pop 0.18s ease-out",
+        "sheet-up": "sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)",
       },
     },
   },
-  plugins: [],
+  plugins: [modalPanels],
 };

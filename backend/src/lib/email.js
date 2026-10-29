@@ -6,7 +6,7 @@ import { env } from "../config/env.js";
 import { getIntegrationConfig } from "../controllers/integrations.controller.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { logError } from "./errorLog.js";
-import { planAllows } from "./planConfig.js";
+import { planAllows, planDisplayName, getDefaultPlanKey, getTrialPlanKey } from "./planConfig.js";
 import { orderConfirmationEmail } from "../templates/orderConfirmation.js";
 import { newOrderVendorEmail } from "../templates/newOrderVendor.js";
 import { partnerApplicationReceivedEmail, partnerApprovedEmail, partnerKeyChangedEmail, partnerRejectedEmail } from "../templates/partnerNotices.js";
@@ -19,7 +19,7 @@ import { orderDelayVendorEmail, orderDelayCustomerEmail } from "../templates/ord
 import { loyaltyPointsEmail } from "../templates/loyaltyPoints.js";
 import { vendorMessageEmail } from "../templates/vendorMessage.js";
 import { passwordResetEmail } from "../templates/passwordReset.js";
-import { verificationUpdateEmail } from "../templates/verificationUpdate.js";
+import { verificationUpdateEmail, PLAN_BILLING_BADGE } from "../templates/verificationUpdate.js";
 import { tableOrderStatusEmail } from "../templates/tableOrderStatus.js";
 import { twoFactorCodeEmail } from "../templates/twoFactorCode.js";
 import { emailChangeCodeEmail, emailChangeNoticeEmail } from "../templates/emailChangeCode.js";
@@ -55,7 +55,7 @@ const RESEND_SANDBOX_FROM = "onboarding@resend.dev";
 // próximo envío sin reiniciar el backend.
 // Versión en texto plano del mismo correo. Gmail y otros clientes clasifican mejor (bandeja Principal y no Promociones ni
 // spam) un correo con su alternativa de texto, como haría una persona, que uno que es solo HTML.
-function htmlToText(html) {
+export function htmlToText(html) {
   return String(html ?? "")
     .replace(/<head[\s\S]*?<\/head>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -87,11 +87,16 @@ async function sendViaResend({ to, subject, html, fromName, attachments, replyTo
   const fromAddress = config.fromEmail || RESEND_SANDBOX_FROM;
   const { siteName } = await getBrandSettings();
   const displayName = fromName ? `${fromName} vía ${siteName}` : siteName;
+  // El nombre de la tienda es texto libre: con una coma ("Hermanos Pérez, S.R.L."), comillas o < > el campo From se leía
+  // como varias direcciones y el envío podía fallar sin que la tienda se enterara. Va entre comillas (RFC 5322), con las
+  // comillas y barras internas escapadas; los saltos de línea pasan a espacio y < > se quitan, porque no tienen arreglo
+  // dentro de un nombre.
+  const safeName = String(displayName ?? "").replace(/[\r\n]+/g, " ").replace(/[<>]/g, "").replace(/["\\]/g, "\\$&").trim();
 
   try {
     const resend = new Resend(config.apiKey);
     const result = await resend.emails.send({
-      from: `${displayName} <${fromAddress}>`,
+      from: safeName ? `"${safeName}" <${fromAddress}>` : fromAddress,
       to,
       subject,
       html,
@@ -357,7 +362,8 @@ export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue)
     type: "VERIFICATION_PAYMENT_REMINDER",
     vendorName: vendor.companyName,
     title: "Tu pago de suscripción vence pronto",
-    message: `Tu suscripción del Plan Business vence en ${daysUntilDue} días. Renueva desde tu panel para no perder el badge de verificación.`,
+    // El nombre del plan sale de la base (antes decía "Plan Business" fijo).
+    message: `Tu suscripción del plan ${await planDisplayName(vendor.planType ?? (await getTrialPlanKey()))} vence en ${daysUntilDue} días. Renueva desde tu panel para no perder la insignia de verificación.`,
     ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
@@ -367,13 +373,19 @@ export async function sendVerificationPaymentReminderEmail(vendor, daysUntilDue)
 
 // Avisos del cobro de un plan sin insignia (planBilling.service.js): fecha de cobro, vencimiento, pedidos pausados y
 // suspensión por falta de pago. Llevan a Suscripción, donde se paga.
-export async function sendPlanBillingEmail(vendor, { title, message }) {
+// stage (start, before, due, after, suspended) elige el sello: antes los cinco pasos llegaban con el mismo asunto
+// "Pago de tu plan: Tienda" y el mismo sello ámbar, y en la bandeja no se distinguía un recordatorio de una suspensión.
+// El asunto es el propio título del paso. Sin stage queda el sello genérico de PLAN_BILLING_NOTICE.
+export async function sendPlanBillingEmail(vendor, { title, message, stage }) {
   if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
   const { subject, html } = await verificationUpdateEmail({
     type: "PLAN_BILLING_NOTICE",
     vendorName: vendor.companyName,
     title,
     message,
+    subject: title ? `${title}: ${vendor.companyName}` : undefined,
+    badge: PLAN_BILLING_BADGE[stage],
+    ctaLabel: "Pagar mi plan",
     ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
@@ -388,11 +400,18 @@ export async function sendPlanBillingEmail(vendor, { title, message }) {
 // trialExpiry.job.js a los 7/3/1 días antes del vencimiento.
 export async function sendTrialExpiringSoonEmail(vendor, daysLeft) {
   if (!vendor.user?.email) return { ok: false, error: "Sin correo de cuenta" };
+  // Plan de la prueba (isTrialPlan) y plan al que vuelve (isDefault) desde la base: antes decía "Premium" y "Regular" fijos.
+  // Durante la prueba la tienda está en su plan de prueba: se nombra ese, no el que hoy tenga la bandera isTrialPlan (si
+  // el admin la movió a otro plan, el correo nombraría uno que la tienda no tiene). La bandera queda de respaldo.
+  const defaultKey = await getDefaultPlanKey();
+  const trialKey = vendor.planType && vendor.planType !== defaultKey ? vendor.planType : await getTrialPlanKey();
+  const trialName = await planDisplayName(trialKey);
+  const defaultName = await planDisplayName(defaultKey);
   const { subject, html } = await verificationUpdateEmail({
     type: "TRIAL_EXPIRING_SOON",
     vendorName: vendor.companyName,
-    title: "Tu prueba gratis de Premium termina pronto",
-    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} de Plan Premium gratis. Si te gustó, activa una suscripción desde tu panel antes de que termine. Si no, tu tienda vuelve al Plan Regular y pierde la insignia de verificación y las funciones Premium.`,
+    title: `Tu prueba gratis del plan ${trialName} termina pronto`,
+    message: `Te quedan ${daysLeft} día${daysLeft === 1 ? "" : "s"} del plan ${trialName} gratis. Si te gustó, activa una suscripción desde tu panel antes de que termine. Si no, tu tienda vuelve al plan ${defaultName} y pierde la insignia de verificación y las funciones del plan ${trialName}.`,
     ctaHref: `${env.frontendUrl}/vendedor/verificacion`,
   });
   const result = await sendViaResend({ to: vendor.user.email, subject, html });
@@ -614,10 +633,10 @@ export async function sendVendorReactivatedEmail(vendor, reason) {
 // A diferencia de los 3 de arriba, el destinatario es el CLIENTE (no el
 // vendedor) — `fromName` firma el correo como la tienda, mismo criterio que
 // sendOrderConfirmationEmail/sendManualOrderEmail.
-export async function sendVendorWinbackEmail({ customer, vendor, offers }) {
+export async function sendVendorWinbackEmail({ customer, vendor, offers, unsubscribeUrl }) {
   if (!customer.email) return { ok: false, error: "Cliente sin correo" };
   if (!(await storeEmailsAllowed(vendor.id))) return PLAN_SKIPPED;
-  const { subject, html } = await vendorWinbackEmail({ customer, vendor, offers });
+  const { subject, html } = await vendorWinbackEmail({ customer, vendor, offers, unsubscribeUrl });
   const result = await sendViaResend({ to: customer.email, subject, html, fromName: vendor.companyName });
   await logEmail({ vendorId: vendor.id, orderId: null, type: "VENDOR_WINBACK", to: customer.email, subject, result });
   return result;

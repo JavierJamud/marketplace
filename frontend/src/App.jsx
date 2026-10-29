@@ -72,6 +72,7 @@ const AdminDashboard = lazyRetry(() => import("./pages/admin/AdminDashboard.jsx"
 const AdminVendors = lazyRetry(() => import("./pages/admin/AdminVendors.jsx"));
 const AdminSuspendedVendors = lazyRetry(() => import("./pages/admin/AdminSuspendedVendors.jsx"));
 const AdminVendorManage = lazyRetry(() => import("./pages/admin/AdminVendorManage.jsx"));
+const AdminDeletedVendors = lazyRetry(() => import("./pages/admin/AdminDeletedVendors.jsx"));
 const AdminVerifications = lazyRetry(() => import("./pages/admin/AdminVerifications.jsx"));
 const AdminCustomers = lazyRetry(() => import("./pages/admin/AdminCustomers.jsx"));
 const AdminActivityLog = lazyRetry(() => import("./pages/admin/AdminActivityLog.jsx"));
@@ -220,10 +221,11 @@ export default function App() {
         <Route path="/carrito" element={<Cart />} />
         <Route path="/carrito-compartido/:id" element={<SharedCart />} />
         <Route path="/checkout" element={<Checkout />} />
+        {/* El dueño de una tienda conserva su cuenta de cliente: sus compras, favoritos y venta rápida. */}
         <Route
           path="/cuenta/panel"
           element={
-            <ProtectedRoute roles={["CUSTOMER"]} redirectTo="/cuenta">
+            <ProtectedRoute roles={["CUSTOMER", "VENDOR"]} redirectTo="/cuenta">
               <CustomerPanel />
             </ProtectedRoute>
           }
@@ -342,6 +344,8 @@ export default function App() {
       >
         <Route index element={<AdminDashboard />} />
         <Route path="tiendas" element={<AdminVendors />} />
+        <Route path="tiendas/eliminadas" element={<AdminDeletedVendors />} />
+        <Route path="tiendas/eliminadas/:id" element={<AdminDeletedVendors />} />
         <Route path="tiendas/:id" element={<AdminVendorManage />} />
         <Route path="tiendas-suspendidas" element={<AdminSuspendedVendors />} />
         <Route path="productos" element={<AdminProducts />} />

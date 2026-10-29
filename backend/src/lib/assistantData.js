@@ -1,7 +1,7 @@
 import { prisma } from "./prisma.js";
 import { openSessionWhere } from "./sessionPolicy.js";
-import { getPlanConfig, isPremiumActive } from "./planConfig.js";
-import { RANKING_RULES, rankFeaturedProducts, explainProductRanking, completenessScore } from "./productRanking.js";
+import { getPlanConfig, getAllPlanConfigs, isPremiumActive, planFeaturesOf } from "./planConfig.js";
+import { RANKING_RULES, rankFeaturedProducts, explainProductRanking, completenessScore, planFeaturedChecker } from "./productRanking.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { fetchRankingPool, loadRankingSignals } from "../services/productRankingSignals.service.js";
 
@@ -53,9 +53,11 @@ export async function planAndSubscription(vendorId) {
     getPlanConfig(v.planType),
     prisma.product.count({ where: { vendorId, isActive: true, overQuota: false } }),
     prisma.vendorStaff.count({ where: { vendorId, isActive: true } }),
-    prisma.table.count({ where: { vendorId } }),
+    prisma.table.count({ where: { vendorId, deletedAt: null } }),
     prisma.storeOffer.count({ where: { vendorId, active: true } }),
-    prisma.discountCode.count({ where: { vendorId, active: true } }),
+    // Mismo filtro que el tope del servidor (countedCodeWhere en discountCodes.controller.js): encendidos, sin suspender y
+    // sin vencer. Se copia aquí para que lib/ no dependa de un controlador.
+    prisma.discountCode.count({ where: { vendorId, active: true, suspendedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } }),
     prisma.subscriptionPayment.findMany({
       where: { vendorId },
       orderBy: { createdAt: "desc" },
@@ -68,9 +70,14 @@ export async function planAndSubscription(vendorId) {
   const now = Date.now();
   const daysLeft = v.nextPaymentDueDate ? Math.ceil((new Date(v.nextPaymentDueDate).getTime() - now) / DAY_MS) : null;
   const limit = (used, max) => ({ usados: used, maximo: max ?? "sin límite" });
+  // Topes efectivos del plan: con su interruptor apagado valen 0 (igual que en el panel y en la página de planes). Antes se
+  // leía la columna suelta y un plan sin usuarios de equipo, por ejemplo, decía "sin límite".
+  const caps = planFeaturesOf(config);
   return {
     tienda: v.companyName,
-    plan: v.planType,
+    // El nombre del plan sale de la base; la clave va aparte por si hace falta citarla.
+    plan: config?.displayName ?? v.planType,
+    clavePlan: v.planType,
     planDePagoActivo: premium,
     verificacion: v.verificationStatus,
     registradaEl: day(v.createdAt),
@@ -85,11 +92,11 @@ export async function planAndSubscription(vendorId) {
       : { nota: "No tiene una suscripción de pago activa, por eso no hay fecha de vencimiento." },
     pruebaGratuita: { iniciada: day(v.trialStartedAt), termina: day(v.trialEndsAt), activaAhora: !!v.trialEndsAt && new Date(v.trialEndsAt).getTime() > now },
     limitesDelPlan: {
-      productosPublicos: limit(activeProducts, config?.maxProducts),
-      usuariosDeSistema: limit(staff, config?.maxStaffUsers),
-      mesas: limit(tables, config?.maxTables),
-      ofertasDeTiendaActivas: limit(storeOffers, config?.maxActiveStoreOffers),
-      codigosDeDescuentoActivos: limit(codes, config?.maxDiscountCodes),
+      productosPublicos: limit(activeProducts, caps.maxProducts),
+      usuariosDeSistema: limit(staff, caps.maxStaffUsers),
+      mesas: limit(tables, caps.maxTables),
+      ofertasDeTiendaActivas: limit(storeOffers, caps.maxActiveStoreOffers),
+      codigosDeDescuentoActivos: limit(codes, caps.maxDiscountCodes),
     },
     ultimosPagosDeRenovacion: payments.map((p) => ({
       metodo: p.paymentMethod === "CARD" ? "tarjeta" : "transferencia CUP",
@@ -148,6 +155,7 @@ export function algorithmRules() {
       empujonProductoNuevo: `Un producto recién activado suma +${RANKING_RULES.empujonProductoNuevo} al puntaje durante sus primeros ${RANKING_RULES.diasDeEmpujonProductoNuevo} días.`,
       actividadReciente: `El peso de ventas y clics baja a la mitad cada ${RANKING_RULES.mitadDeVidaDeLaActividadEnDias} días sin actividad (nunca por debajo de ${RANKING_RULES.pesoMinimoDeLaActividadAntigua}). La completitud y las reseñas no caducan.`,
       destacadoAMano: "Un producto marcado como destacado a mano por el admin siempre queda por encima de los demás.",
+      destacadaPorElPlan: `Si el plan de la tienda incluye "Destacada en la portada" y la tienda está verificada, sus productos suman +${RANKING_RULES.empujonPorPlanDestacado} al puntaje (siempre que pasen el piso de calidad).`,
       completitudDeLaFicha: "Suma hasta 100: hasta 30 por 3 fotos, 25 por una descripción de más de 60 caracteres (12 si es más corta), 15 por etiquetas, 10 por categoría, 10 por precios por cantidad, 10 por una insignia.",
       reseñas: "Se usa un promedio que desconfía de pocas reseñas: con 2 reseñas de 5 estrellas todavía pesa poco.",
     },
@@ -206,12 +214,14 @@ export async function algorithmPosition(vendorId) {
       OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
       vendor: { isBlocked: false, status: "ACTIVE", isPrivate: false },
     },
-    include: { vendor: { select: { verificationStatus: true } }, priceTiers: { select: { id: true } } },
+    include: { vendor: { select: { verificationStatus: true, planType: true } }, priceTiers: { select: { id: true } } },
     size: POOL,
   });
-  // Sin semilla: el asistente explica la posición por puntaje, sin la rotación de cada visita.
+  // Sin semilla: el asistente explica la posición por puntaje, sin la rotación de cada visita. Con el empujón del plan,
+  // igual que el buscador, para que la posición que explica sea la real.
   const { reviewStats: stats, engagement } = await loadRankingSignals(catalog.map((p) => p.id));
-  const ranked = rankFeaturedProducts(catalog, stats, engagement);
+  const isPlanFeatured = planFeaturedChecker(await getAllPlanConfigs());
+  const ranked = rankFeaturedProducts(catalog, stats, engagement, { isPlanFeatured });
   const positions = new Map(ranked.map((p, i) => [p.id, i + 1]));
   const mineRanked = ranked.filter((p) => p.vendorId === vendorId);
   const total = ranked.length;
@@ -227,9 +237,9 @@ export async function algorithmPosition(vendorId) {
       enElTop30: mineRanked.filter((p) => positions.get(p.id) <= 30).length,
       penalizadosPorElPisoDeCalidad: mineRanked.filter((p) => !explainProductRanking(p, stats.get(p.id), now).seMuestraComoDestacado).length,
     },
-    mejoresPosiciones: mineRanked.slice(0, 6).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })),
-    peoresPosiciones: mineRanked.length > 6 ? mineRanked.slice(-4).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now) })) : [],
-    comoMejorar: "Subir la completitud de la ficha (fotos, descripción, etiquetas), conseguir reseñas buenas y mantener actividad reciente (clics, ventas, pedidos, clientes que lo guardan en el carrito o en favoritos) son las palancas reales; el orden además rota en cada visita entre productos de puntaje parecido; el algoritmo no se puede comprar ni forzar.",
+    mejoresPosiciones: mineRanked.slice(0, 6).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now, { isPlanFeatured }) })),
+    peoresPosiciones: mineRanked.length > 6 ? mineRanked.slice(-4).map((p) => ({ id: p.id, nombre: clip(p.name, 60), posicion: positions.get(p.id), de: total, ...explainProductRanking(p, stats.get(p.id), now, { isPlanFeatured }) })) : [],
+    comoMejorar: "Subir la completitud de la ficha (fotos, descripción, etiquetas), conseguir reseñas buenas y mantener actividad reciente (clics, ventas, pedidos, clientes que lo guardan en el carrito o en favoritos) son las palancas reales; el orden además rota en cada visita entre productos de puntaje parecido. Los planes con «Destacada en la portada» dan un empujón chico a las tiendas verificadas, pero no salta el piso de calidad ni le gana a un producto con mejores señales.",
   };
 }
 
@@ -285,7 +295,7 @@ export async function productsList(vendorId, { busqueda, orden, limite }) {
 }
 
 export async function productDetail(vendorId, { busqueda }) {
-  const matches = await prisma.product.findMany({ where: { vendorId, name: { contains: busqueda, mode: "insensitive" } }, take: 3, orderBy: { salesCount: "desc" }, select: { vendor: { select: { verificationStatus: true } }, ...PRODUCT_SELECT } });
+  const matches = await prisma.product.findMany({ where: { vendorId, name: { contains: busqueda, mode: "insensitive" } }, take: 3, orderBy: { salesCount: "desc" }, select: { vendor: { select: { verificationStatus: true, planType: true } }, ...PRODUCT_SELECT } });
   if (matches.length === 0) return { error: "No encontré ningún producto con ese nombre." };
   const p = matches[0];
   const since = new Date(Date.now() - 30 * DAY_MS);
@@ -308,7 +318,9 @@ export async function productDetail(vendorId, { busqueda }) {
     clicsUltimos30diasPorOrigen: clicks.map((c) => ({ origen: c.source ?? "sin dato", clics: c._count._all })),
     guardadoEnFavoritosPor: favorites,
     ultimasResenas: reviews.map((r) => ({ estrellas: r.rating, comentario: clip(r.comment, 160), fecha: day(r.createdAt) })),
-    comoLoVeElAlgoritmo: explainProductRanking(p, reviewStats._count.rating > 0 ? { avgRating: reviewStats._avg.rating, reviewCount: reviewStats._count.rating } : null),
+    comoLoVeElAlgoritmo: explainProductRanking(p, reviewStats._count.rating > 0 ? { avgRating: reviewStats._avg.rating, reviewCount: reviewStats._count.rating } : null, Date.now(), {
+      isPlanFeatured: planFeaturedChecker(await getAllPlanConfigs()),
+    }),
     otrasCoincidencias: matches.slice(1).map((m) => clip(m.name, 60)),
   };
 }
@@ -348,7 +360,7 @@ export async function offersAndCodes(vendorId) {
 export async function teamAndTables(vendorId) {
   const since = new Date(Date.now() - 30 * DAY_MS);
   const [tables, tableOrders, staff] = await Promise.all([
-    prisma.table.count({ where: { vendorId } }),
+    prisma.table.count({ where: { vendorId, deletedAt: null } }),
     prisma.tableOrder.count({ where: { table: { vendorId }, createdAt: { gte: since }, cancelledAt: null } }),
     prisma.vendorStaff.findMany({ where: { vendorId }, select: { isActive: true, staffType: true, allowedSections: true, user: { select: { fullName: true, lastLoginAt: true } } }, take: 20 }),
   ]);
@@ -580,6 +592,8 @@ export async function orderDetail(vendorId, { codigo }) {
 // dueño, para que se vea si la tienda está dormida o abandonada.
 export async function storesActivity({ days, filter, limit }) {
   const since = new Date(Date.now() - days * DAY_MS);
+  // Nombres de los planes desde la base (también los archivados: una tienda puede seguir en uno hasta que la muevan).
+  const planNames = new Map((await getAllPlanConfigs({ includeArchived: true })).map((p) => [p.planType, p.displayName]));
   const vendors = await prisma.vendor.findMany({
     where: { deletedAt: null },
     select: { id: true, companyName: true, planType: true, verificationStatus: true, status: true, isBlocked: true, isPrivate: true, createdAt: true, user: { select: { lastLoginAt: true } }, _count: { select: { products: { where: { isActive: true } } } } },
@@ -603,7 +617,7 @@ export async function storesActivity({ days, filter, limit }) {
     const reference = lastOrder ?? v.createdAt;
     return {
       tienda: clip(v.companyName, 50),
-      plan: { REGULAR: "Básico", STANDARD: "Estándar", BUSINESS: "Premium", ENTERPRISE: "Empresarial" }[v.planType] ?? v.planType,
+      plan: planNames.get(v.planType) ?? v.planType,
       verificada: v.verificationStatus === "VERIFIED" ? "Sí" : "No",
       estado: v.isBlocked ? "Bloqueada" : v.status === "SUSPENDED" ? "Suspendida" : v.isPrivate ? "Privada" : "Activa",
       pedidosEnLaVentana: count.get(v.id) ?? 0,
@@ -623,7 +637,9 @@ export async function storesActivity({ days, filter, limit }) {
       tiendasEnTotal: rows.length,
       conActividad: rows.length - inactive.length,
       sinActividad: inactive.length,
-      sinActividadPorPlan: { business: inactive.filter((r) => r.plan === "Business").length, regular: inactive.filter((r) => r.plan === "Regular").length },
+      // Una entrada por plan, con su nombre ({ "Básico": 3, "Premium": 1 }). Antes comparaba con "Business" y "Regular",
+      // nombres que ya no existían, y siempre daba 0.
+      sinActividadPorPlan: inactive.reduce((acc, r) => ({ ...acc, [r.plan]: (acc[r.plan] ?? 0) + 1 }), {}),
       sinNingunPedidoNunca: inactive.filter((r) => r.ultimoPedido === "Nunca").length,
       sinProductosActivos: inactive.filter((r) => r.productosActivos === 0).length,
     },

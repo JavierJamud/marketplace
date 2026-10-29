@@ -68,7 +68,7 @@ export default function AdminActivityLog() {
     <div className="max-w-[980px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Activity} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Actividad</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Actividad</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Registro de las acciones que hacen vendedores y clientes en sus paneles, y qué tiendas/clientes más usan la plataforma.

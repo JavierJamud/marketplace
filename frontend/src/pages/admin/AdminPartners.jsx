@@ -66,7 +66,7 @@ export default function AdminPartners() {
     <div className="max-w-[1000px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Plug} tone="blue" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Socios de la API</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Socios de la API</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">
         Empresas que muestran productos de Baznova en su sitio y traen tiendas con su enlace.{" "}

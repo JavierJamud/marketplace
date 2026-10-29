@@ -53,7 +53,7 @@ export function TrialChecklistBanner({ vendor }) {
   const percent = Math.round((done / total) * 100);
 
   return (
-    <section className="mb-5 overflow-hidden rounded-2xl border border-outline-variant/60 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-14px_rgba(15,23,42,0.18)]" aria-label={trialAccepted ? "Pasos para activar tu Premium gratis" : "Pasos para verificar tu tienda"}>
+    <section className="mb-5 overflow-hidden rounded-2xl border border-outline-variant/60 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-14px_rgba(15,23,42,0.18)]" aria-label={trialAccepted ? "Pasos para activar tu prueba gratis" : "Pasos para verificar tu tienda"}>
       <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
         <div className="flex min-w-0 items-start gap-3.5">
           <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-secondary-container/25 text-secondary">
@@ -61,12 +61,12 @@ export function TrialChecklistBanner({ vendor }) {
           </span>
           <div className="min-w-0">
             <p className="text-[11.5px] font-bold uppercase tracking-wide text-secondary">
-              Paso {done + 1} de {total} {trialAccepted ? "para tu Premium gratis" : "para verificar tu tienda"}
+              Paso {done + 1} de {total} {trialAccepted ? "para tu prueba gratis" : "para verificar tu tienda"}
             </p>
             <h2 className="mt-0.5 font-display text-[17px] font-extrabold leading-tight text-on-surface">{next.label}</h2>
             <p className="mt-1 text-[12.5px] text-on-surface-variant">
               {trialAccepted
-                ? "Cuando completes todos, tu tienda pasa a verificada y Premium sin esperar revisión de nadie."
+                ? "Cuando completes todos, tu tienda pasa a verificada y empieza tu prueba gratis sin esperar revisión de nadie."
                 : "Son obligatorios para obtener la insignia de tienda verificada. Hazlos todos desde un solo lugar."}
             </p>
           </div>

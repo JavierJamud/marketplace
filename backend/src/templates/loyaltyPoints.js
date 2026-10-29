@@ -13,7 +13,9 @@ const pointsUrl = () => `${String(env.frontendUrl).replace(/\/$/, "")}/cuenta/pa
 
 // Saldo y si ya se puede usar: lo que más le importa al cliente después de cada movimiento.
 function balanceBlock({ balance, value, currency, minRedeemPoints, maxRedeemPercent, programActive }) {
-  const lines = [`Tu saldo en esta tienda: <strong>${fmtPts(balance)}</strong>, que valen <strong>${fmtMoney(value, currency)}</strong>.`];
+  // Sin un valor en dinero válido (programa sin tasa, o un dato que no llegó) se dice solo el saldo: antes salía "valen NaN CUP".
+  const hasValue = Number.isFinite(Number(value));
+  const lines = [`Tu saldo en esta tienda: <strong>${fmtPts(balance)}</strong>${hasValue ? `, que valen <strong>${fmtMoney(value, currency)}</strong>` : ""}.`];
   if (!programActive) lines.push("La tienda pausó su programa por ahora: tus puntos se guardan y los podrás usar cuando lo vuelva a activar.");
   else if (balance >= minRedeemPoints) lines.push(`Ya puedes usarlos al confirmar tu próximo pedido aquí, para pagar hasta el ${maxRedeemPercent} % del total.`);
   else lines.push(`Te faltan <strong>${fmtPts(minRedeemPoints - balance)}</strong> para poder usarlos (se usan desde ${fmtPts(minRedeemPoints)}).`);
@@ -24,9 +26,11 @@ async function shell({ vendor, title, preview, badge, body, cta }) {
   return emailShell({
     preview,
     title,
-    storeName: esc(vendor.companyName),
+    storeName: vendor.companyName,
     storeLogoUrl: resolveAssetUrl(vendor.logoUrl),
     accentColor: "#337475",
+    // Sin esto el pie decía "desde tu pedido" también en los puntos regalados o quitados, que no tienen pedido.
+    footerNote: "Este es un correo automático: si tienes dudas sobre tus puntos, escríbele a la tienda desde su página.",
     badge,
     bodyMjml: `
       ${body}
@@ -46,7 +50,7 @@ export async function loyaltyPointsEmail({ kind, customerName, vendor, orderCode
       html: await shell({
         vendor,
         title: `Ganaste ${fmtPts(points)}`,
-        preview: `Por tu pedido ${orderCode} en ${vendor.companyName}. Tu saldo ya vale ${fmtMoney(account.value, account.currency)}.`,
+        preview: `Por tu pedido ${orderCode} en ${vendor.companyName}.${Number.isFinite(Number(account.value)) ? ` Tu saldo ya vale ${fmtMoney(account.value, account.currency)}.` : ""}`,
         badge: { label: `+${fmtPts(points)}`, color: "#1f7a4d" },
         body: `${paragraph(`${hello} recibiste tu pedido <strong>${esc(orderCode)}</strong> y <strong>${esc(vendor.companyName)}</strong> te dio <strong>${fmtPts(points)}</strong>.${extra}`)}${balanceBlock(account)}`,
       }),

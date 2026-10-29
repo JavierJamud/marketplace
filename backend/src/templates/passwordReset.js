@@ -13,14 +13,14 @@ export async function passwordResetEmail({ fullName, code }) {
     ? [`${first}, tu código para restablecer la contraseña`, `Restablece tu contraseña, ${first}`, `${first}, cambia tu contraseña con este código`]
     : ["Tu código para restablecer la contraseña", "Restablece tu contraseña", "Cambia tu contraseña con este código"]);
   const html = await emailShell({
-    preview: `Usa este código para restablecer tu contraseña — vence en ${CODE_TTL_MINUTES} minutos`,
+    preview: `Usa este código para restablecer tu contraseña: vence en ${CODE_TTL_MINUTES} minutos`,
     title: "Restablecer contraseña",
     badge: { label: "Recuperación de cuenta", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola ${esc(fullName)}, usa este código para restablecer tu contraseña. Vence en <strong>${CODE_TTL_MINUTES} minutos</strong>.`)}
       ${codeBlock(code)}
-      ${smallNote("Si no pediste este cambio, ignora este correo — tu contraseña actual sigue funcionando sin cambios.")}
+      ${smallNote("Si no pediste este cambio, ignora este correo: tu contraseña actual sigue funcionando sin cambios.")}
       ${ctaButton(`Ir a ${siteName}`, `${env.frontendUrl}/cuenta`)}
     `,
   });

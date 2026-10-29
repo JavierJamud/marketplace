@@ -55,7 +55,7 @@ export function OrderDetailModal({ order, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-title-lg font-bold text-on-surface">Pedido {o.code}</h3>

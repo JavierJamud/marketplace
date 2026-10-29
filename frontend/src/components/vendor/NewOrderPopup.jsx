@@ -157,7 +157,7 @@ export function NewOrderPopup({ vendor, enabled = true, staffSectionPermissions 
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-inverse-surface/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-fade-up">
+      <div className="modal-panel-6 w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-fade-up">
         <div className="mb-4 flex items-center gap-3">
           <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-secondary-container">
             {needsAccept ? (

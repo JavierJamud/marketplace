@@ -1,3 +1,4 @@
+import { logVendorLifecycle, LIFECYCLE_ACTIONS, vendorSnapshot } from "./vendorLifecycle.js";
 import { prisma } from "./prisma.js";
 import { releaseVendorSlugData } from "./vendorSlug.js";
 
@@ -23,6 +24,8 @@ export async function finalizeUserDeletion(userId, record = {}) {
 
   const now = new Date();
   const anonymizedEmail = `deleted+${user.id}@zeudin.invalid`;
+  // Foto de la tienda ANTES de soltar su enlace y anonimizar la cuenta: es lo que el admin ve después en Tiendas > Eliminadas.
+  const snapshot = user.vendor ? await vendorSnapshot(user.vendor.id) : null;
   // El personal de la tienda eliminada también pierde el acceso al momento: antes seguía activo y con sesión, leyendo
   // pedidos y clientes de una tienda que ya no existe (auditoría run-2).
   const staffUserIds = user.vendor
@@ -65,6 +68,18 @@ export async function finalizeUserDeletion(userId, record = {}) {
         ]
       : []),
   ]);
+
+  if (user.vendor) {
+    const how = { CUSTOMER_REQUEST: "a pedido de su dueño", ADMIN: "por un administrador", ADMIN_PENDING: "al vencer la eliminación pendiente", MODERATION: "por moderación (reportes confirmados)" }[record.source] ?? "";
+    await logVendorLifecycle({
+      vendorId: user.vendor.id,
+      actorId: record.byId ?? user.id,
+      actorRole: record.byId ? "ADMIN" : "VENDOR",
+      action: LIFECYCLE_ACTIONS.deleted,
+      description: `Se eliminó la tienda ${snapshot?.companyName ?? user.vendor.companyName}${how ? ` ${how}` : ""}.`,
+      extra: { snapshot, ownerEmail: user.email.endsWith("@zeudin.invalid") ? user.deletedEmail ?? null : user.email, ownerName: user.fullName ?? null, source: record.source ?? null, reason: record.reason ?? null, byId: record.byId ?? null },
+    });
+  }
 }
 
 // Cuentas eliminadas antes de guardar deletedEmail: se recupera el correo real solo de fuentes seguras, en este orden:

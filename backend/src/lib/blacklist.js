@@ -31,8 +31,14 @@ export async function findBlacklisted({ email, phone, idNumber, storeName, usern
   if (normStoreKey(storeName)) or.push({ storeKey: normStoreKey(storeName) });
   if (username && normalizeUsername(username)) or.push({ username: normalizeUsername(username) });
   if (!or.length) return null;
-  const notSelf = [self.userId && { userId: self.userId }, self.vendorId && { vendorId: self.vendorId }].filter(Boolean);
-  return prisma.blacklistEntry.findFirst({ where: { removedAt: null, OR: or, ...(notSelf.length ? { NOT: { OR: notSelf } } : {}) }, select: { id: true } });
+  // Se excluyen las entradas de la propia persona o tienda. Cada campo acepta también null de forma explícita: en SQL,
+  // NOT ("userId" = x) con userId null no es verdadero, y antes una entrada de cliente (sin vendorId) no frenaba a nadie
+  // cuando self traía vendorId.
+  const notSelf = [
+    self.userId && { OR: [{ userId: null }, { userId: { not: self.userId } }] },
+    self.vendorId && { OR: [{ vendorId: null }, { vendorId: { not: self.vendorId } }] },
+  ].filter(Boolean);
+  return prisma.blacklistEntry.findFirst({ where: { removedAt: null, OR: or, ...(notSelf.length ? { AND: notSelf } : {}) }, select: { id: true } });
 }
 
 // Se usa al registrarse (cliente o tienda) y al cambiar correo, teléfono, nombre de tienda o usuario. El mensaje no dice qué

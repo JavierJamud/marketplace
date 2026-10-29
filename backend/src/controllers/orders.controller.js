@@ -16,7 +16,8 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
 import { captureOrderRequest, clientInfoSchema } from "../lib/orderRequestInfo.js";
 import { upsertVendorCustomer } from "./vendorCustomers.controller.js";
-import { getPlanLimit, assertPlanAllows } from "../lib/planConfig.js";
+import { getPlanLimit, planAllows } from "../lib/planConfig.js";
+import { assertPlanAllowsWithUpsell, plansOffering, plansSentence } from "../lib/planUpsell.js";
 import { getOrderFollowUpPolicy } from "./settings.controller.js";
 import { projectedAutoCancelAt, reactivateBlocker, reactivateAutoCancelledOrder, resolveOrderNotices } from "../services/orderFollowUp.service.js";
 import { assertVendorAcceptsOrders } from "../services/planBilling.service.js";
@@ -45,7 +46,7 @@ const PERSON_NAME_REGEX = /^[\p{L}\p{M} '’.-]+$/u;
 // de contacto/entrega son obligatorios, sin excepción (Bloque 6).
 // Forma de cobro: código del catálogo del admin (cod, online, cash o las que agregue) o "table" para los pedidos de mesa.
 export const createOrderSchema = z.object({
-  vendorId: z.string(),
+  vendorId: z.string().min(1).max(40),
   channel: z.string().trim().regex(/^[a-z0-9_]{1,40}$/, "Elige una forma de pago."),
   // Nombre de persona: letras, espacios, apóstrofo, guion y punto (mismo filtro que el formulario).
   customerName: z.string().trim().min(2, "Falta el nombre del cliente.").max(80).regex(PERSON_NAME_REGEX, "El nombre solo puede llevar letras."),
@@ -55,28 +56,40 @@ export const createOrderSchema = z.object({
   recipientPhone: z.string().regex(E164_REGEX, "Falta un teléfono válido de quien recibe.").optional(),
   recipientIdType: z.enum(["CU_ID", "OTHER"]).optional(),
   recipientIdNumber: z.string().trim().max(30).optional(),
-  customerEmail: z.string().email("Falta un correo válido."),
-  shippingAddress: z.string().min(1, "Falta la dirección."),
-  shippingProvinceId: z.string().min(1, "Falta la provincia."),
-  shippingMunicipalityId: z.string().optional(),
-  tableNumber: z.number().int().positive().optional(),
+  customerEmail: z.string().email("Falta un correo válido.").max(254),
+  // Topes de tamaño en todo lo que escribe el cliente: es una ruta pública. Sin ellos un pedido podía traer miles de líneas,
+  // una dirección o unas opciones de cualquier tamaño (se guardan en el pedido y salen en correos y PDF), o una cantidad
+  // mayor que la columna Int en un producto "disponible siempre" (500 en vez de un aviso). La API de socios ya tenía topes.
+  shippingAddress: z.string().min(1, "Falta la dirección.").max(500, "La dirección puede tener hasta 500 caracteres."),
+  shippingProvinceId: z.string().min(1, "Falta la provincia.").max(40),
+  shippingMunicipalityId: z.string().max(40).optional(),
+  tableNumber: z.number().int().positive().max(100000).optional(),
   items: z
     .array(
       z.object({
-        productId: z.string(),
-        quantity: z.number().int().positive(),
-        selectedOptions: z.record(z.any()).optional(),
+        productId: z.string().min(1).max(40),
+        quantity: z.number().int().positive().max(99999, "La cantidad de un producto puede ser hasta 99 999."),
+        // Lo que eligió el cliente en el producto ({ "Punto": "Tres cuartos", "Extras": ["Queso", "Bacon"] }): texto, número,
+        // sí/no o una lista corta. Nunca objetos anidados (OrderDetailModal y el PDF los muestran como texto).
+        selectedOptions: z
+          .record(
+            z.string().max(60),
+            z.union([z.string().max(200), z.number(), z.boolean(), z.null(), z.array(z.union([z.string().max(200), z.number()])).max(30)])
+          )
+          .refine((o) => Object.keys(o).length <= 20, "Un producto puede llevar hasta 20 opciones.")
+          .optional(),
         // Bloque 52: talla elegida, solo si el producto tiene Product.sizes
         // cargadas — validado contra esa lista más abajo (nunca se confía en
         // que el string que manda el cliente sea una talla real del producto).
-        size: z.string().optional(),
+        size: z.string().max(100).optional(),
       })
     )
-    .min(1, "El pedido necesita al menos un producto"),
+    .min(1, "El pedido necesita al menos un producto")
+    .max(100, "Un pedido puede tener hasta 100 productos distintos."),
   // Bloque 52: código de descuento del vendedor aplicado en el carrito —
   // opcional, se revalida por completo acá (nunca se confía en el monto que
   // pudo haber mostrado el preview de /discount-codes/validate).
-  discountCode: z.string().trim().optional(),
+  discountCode: z.string().trim().max(60).optional(),
   // Puntos del programa de la tienda que el cliente quiere usar. Solo la cantidad: el valor y los topes los calcula el servidor.
   loyaltyPoints: z.number().int().min(1).max(10_000_000).optional(),
   // Zona horaria, pantalla e idioma que informa el navegador; solo lo ve el admin (lib/orderRequestInfo.js).
@@ -144,10 +157,12 @@ async function vendorZone(vendorId, provinceId) {
 
 // POST /orders/shipping-quote: el envío que se cobraría por este carrito, calculado igual que al crear el pedido
 // (carrito y checkout lo muestran con esto, nunca con un cálculo propio). Sin provincia, el fijo queda "pending".
+// Mismos topes que createOrderSchema: con 999 un carrito de 1000 unidades de un producto "disponible siempre" se podía
+// pedir pero no cotizar.
 const shippingQuoteSchema = z.object({
-  vendorId: z.string().min(1),
-  provinceId: z.string().min(1).nullish(),
-  items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().min(1).max(999) })).min(1).max(100),
+  vendorId: z.string().min(1).max(40),
+  provinceId: z.string().min(1).max(40).nullish(),
+  items: z.array(z.object({ productId: z.string().min(1).max(40), quantity: z.number().int().min(1).max(99999) })).min(1).max(100),
 });
 
 export async function quoteShipping(req, res) {
@@ -231,7 +246,9 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
     }
   }
 
-  const productIds = data.items.map((i) => i.productId);
+  // Un mismo producto puede venir en varias líneas (una por talla, como lo arma el carrito), pero findMany devuelve una
+  // fila por producto: se comparan ids únicos. Antes un carrito con la talla S y la M del mismo producto se rechazaba siempre.
+  const productIds = [...new Set(data.items.map((i) => i.productId))];
   const products = await prisma.product.findMany({ where: { id: { in: productIds } }, include: { priceTiers: true } });
 
   if (products.length !== productIds.length) throw new AppError("Uno o más productos ya no están disponibles.", 400);
@@ -269,7 +286,15 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
   // Pendiente — es intencional, el vendedor decide cuál confirmar. Bloque
   // 52: si el ítem lleva talla, el disponible es el de ESA talla, no el
   // total del producto.
-  const quickCheck = data.items
+  // Las cantidades se suman por producto y talla antes de comparar: dos líneas del mismo producto (sin talla, o con la
+  // misma talla repetida) se comparan juntas contra lo disponible, no cada una por separado contra el total.
+  const requestedByLine = new Map();
+  for (const i of data.items) {
+    const key = `${i.productId}|${i.size ?? ""}`;
+    const prev = requestedByLine.get(key);
+    requestedByLine.set(key, { productId: i.productId, size: i.size, quantity: (prev?.quantity ?? 0) + i.quantity });
+  }
+  const quickCheck = [...requestedByLine.values()]
     .map((i) => {
       const product = productById[i.productId];
       // Bloque 56: "disponible siempre" — nunca entra a este chequeo, sin
@@ -458,19 +483,150 @@ export async function placeOrder(data, { customerId, partnerId = null, idempoten
 
 // --- Panel de vendedor -------------------------------------------------
 
+// Filtros y páginas de GET /orders/me. Sin parámetros responde lo mismo que siempre (los 50 más recientes de cada lista),
+// que es lo que sondean cada 8 s el panel y el aviso de pedido nuevo. Con ellos la búsqueda y los enlaces de los avisos ya
+// no dependen de que el pedido esté entre esos 50: antes un pedido más viejo terminaba en "No hay pedidos que coincidan".
+//   q             nombre, correo, teléfono o número del pedido; en mesas, nombre del cliente, mesa o número (#123).
+//                 Cada palabra tiene que aparecer en algún campo, igual que el buscador del panel.
+//   status        NEW (pendientes), SOLD (vendidos) o CANCELLED (anulados): los mismos grupos que statusBucket del panel.
+//   channel       forma de cobro del pedido (COD, ONLINE...) o TABLE para ver solo los de mesa.
+//   ordersBefore  id del último pedido recibido: trae los 50 siguientes (más viejos). Lo mismo tablesBefore para mesas.
+//                 Con alguno de los dos es una página: la lista sin cursor no se vuelve a mandar (ya se terminó).
+//   include       id de un pedido o pedido de mesa que tiene que venir aunque quede fuera de la página o del filtro
+//                 (enlace ?ver= de un aviso o del buscador global). Llega en la primera respuesta; si el panel lo sigue
+//                 mandando en las páginas, ahí se salta, porque ya lo tiene. Sin él en las páginas hay que quitar repetidos.
+const ORDERS_PAGE_SIZE = 50;
+const ORDER_LIST_INCLUDE = { items: true, events: { orderBy: { createdAt: "asc" } }, discountCode: { select: { code: true } } };
+const listMyOrdersQuerySchema = z.object({
+  q: z.string().trim().max(80).optional(),
+  status: z.enum(["all", "NEW", "SOLD", "CANCELLED"]).optional(),
+  channel: z.string().trim().regex(/^[A-Za-z0-9_]{1,40}$/).optional(),
+  ordersBefore: z.string().min(1).max(40).optional(),
+  tablesBefore: z.string().min(1).max(40).optional(),
+  include: z.string().min(1).max(40).optional(),
+});
+
+// Hasta 6 palabras: más no afinan la búsqueda y cada una suma condiciones a la consulta.
+const searchWords = (q) => (q ?? "").toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6);
+const textMatch = (word) => ({ contains: word, mode: "insensitive" });
+
+function orderWordWhere(word) {
+  return { OR: [{ code: textMatch(word) }, { customerName: textMatch(word) }, { customerEmail: textMatch(word) }, { customerPhone: textMatch(word) }] };
+}
+
+const ORDER_STATUS_WHERE = { NEW: { status: "NEW" }, CANCELLED: { status: "CANCELLED" }, SOLD: { status: { notIn: ["NEW", "CANCELLED"] } } };
+
+// Pedidos de mesa en SQL y no con Prisma: el panel busca los números por pedazos ("12" encuentra el #123 y la Mesa 12) y
+// Prisma no puede buscar texto dentro de un número. Comparar exacto devolvía menos que el buscador de siempre.
+// Cada palabra se busca en lo mismo que muestra el panel: "Mesa 4" (o el nombre que le puso la tienda), el cliente y "#123".
+const likePattern = (word) => `%${word.replace(/[\\%_]/g, "\\$&")}%`;
+function tableWordSql(word) {
+  const like = likePattern(word);
+  const or = [Prisma.sql`o."customerName" ILIKE ${like}`, Prisma.sql`t.label ILIKE ${like}`];
+  const number = /^(#?)(\d{1,9})$/.exec(word);
+  if (number) {
+    // "#12" solo puede ser el comienzo de un número de pedido; "12" puede estar en cualquier parte del número o de "Mesa 12".
+    if (number[1]) or.push(Prisma.sql`CAST(o."orderNumber" AS TEXT) LIKE ${`${number[2]}%`}`);
+    else or.push(Prisma.sql`CAST(o."orderNumber" AS TEXT) LIKE ${like}`, Prisma.sql`(t.label IS NULL AND CAST(t."tableNumber" AS TEXT) LIKE ${like})`);
+  }
+  if ("mesa".includes(word)) or.push(Prisma.sql`t.label IS NULL`);
+  return Prisma.sql`(${Prisma.join(or, " OR ")})`;
+}
+// Igual que statusBucket en VendorOrders.jsx: un pedido de mesa anulado se queda en RECEIVED, por eso se mira cancelledAt primero.
+const TABLE_STATUS_SQL = {
+  NEW: Prisma.sql`o."cancelledAt" IS NULL AND o."kitchenStatus" = 'RECEIVED'`,
+  CANCELLED: Prisma.sql`o."cancelledAt" IS NOT NULL`,
+  SOLD: Prisma.sql`o."cancelledAt" IS NULL AND o."kitchenStatus" <> 'RECEIVED'`,
+};
+
+// Página por (createdAt, id): con dos pedidos del mismo instante ninguno se pierde ni se repite entre páginas.
+async function cursorRow(model, id, scope) {
+  const row = await model.findFirst({ where: { id, ...scope }, select: { id: true, createdAt: true } });
+  if (!row) throw new AppError("No encontramos desde dónde seguir la lista. Vuelve a cargar los pedidos.", 400);
+  return row;
+}
+async function beforeCursorWhere(model, id, scope) {
+  const row = await cursorRow(model, id, scope);
+  return { OR: [{ createdAt: { lt: row.createdAt } }, { createdAt: row.createdAt, id: { lt: row.id } }] };
+}
+
+// Trae una página y dice desde dónde sigue (null = no hay más).
+async function pageOf(model, args) {
+  const rows = await model.findMany({ ...args, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: ORDERS_PAGE_SIZE + 1 });
+  const more = rows.length > ORDERS_PAGE_SIZE;
+  const page = more ? rows.slice(0, ORDERS_PAGE_SIZE) : rows;
+  return { page, next: more ? page[page.length - 1].id : null };
+}
+
+// La página de pedidos de mesa: el SQL elige los ids (búsqueda, estado y cursor) y Prisma trae esas filas con su mesa.
+async function tableOrdersPage(vendorId, words, status, beforeId, skipId) {
+  const and = [Prisma.sql`t."vendorId" = ${vendorId}`, ...words.map(tableWordSql)];
+  if (status) and.push(TABLE_STATUS_SQL[status]);
+  if (skipId) and.push(Prisma.sql`o.id <> ${skipId}`);
+  if (beforeId) {
+    const row = await cursorRow(prisma.tableOrder, beforeId, { table: { vendorId } });
+    and.push(Prisma.sql`(o."createdAt" < ${row.createdAt} OR (o."createdAt" = ${row.createdAt} AND o.id < ${row.id}))`);
+  }
+  const found = await prisma.$queryRaw`
+    SELECT o.id FROM "TableOrder" o JOIN "Table" t ON t.id = o."tableId"
+    WHERE ${Prisma.join(and, " AND ")}
+    ORDER BY o."createdAt" DESC, o.id DESC
+    LIMIT ${ORDERS_PAGE_SIZE + 1}`;
+  const more = found.length > ORDERS_PAGE_SIZE;
+  const pageIds = (more ? found.slice(0, ORDERS_PAGE_SIZE) : found).map((r) => r.id);
+  const rows = pageIds.length ? await prisma.tableOrder.findMany({ where: { id: { in: pageIds } }, include: { table: true } }) : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return { page: pageIds.map((id) => byId.get(id)).filter(Boolean), next: more ? pageIds[pageIds.length - 1] : null };
+}
+
 // Lista unificada: pedidos "normales" (whatsapp/cod/transfer) + pedidos de
 // mesa (si el vendedor es restaurante), ambos filtrados server-side por el
 // vendorId del usuario autenticado.
 export async function listMyOrders(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
+  const query = listMyOrdersQuerySchema.parse(req.query);
+  const words = searchWords(query.q);
+  const status = query.status && query.status !== "all" ? query.status : null;
+  const channel = query.channel && query.channel.toLowerCase() !== "all" ? query.channel.toUpperCase() : null;
+  const paging = !!(query.ordersBefore || query.tablesBefore);
+  const tableScope = { table: { vendorId: vendor.id } };
+  // El pedido del enlace ya llegó en la primera respuesta (abajo): en una página se salta para no repetirlo.
+  const skipId = paging ? query.include : undefined;
 
-  const orders = await prisma.order.findMany({
-    where: { vendorId: vendor.id },
+  // Pedidos normales: no van si se pidió solo mesa, ni en una página que no los pidió.
+  let orders = [];
+  let nextOrdersBefore = null;
+  if (channel !== "TABLE" && (!paging || !!query.ordersBefore)) {
+    const and = [{ vendorId: vendor.id }, ...words.map(orderWordWhere)];
+    if (status) and.push(ORDER_STATUS_WHERE[status]);
+    if (channel) and.push({ channel });
+    if (skipId) and.push({ id: { not: skipId } });
+    if (query.ordersBefore) and.push(await beforeCursorWhere(prisma.order, query.ordersBefore, { vendorId: vendor.id }));
     // Nunca requestInfo (IP y dispositivo): es solo para el admin.
-    include: { items: true, events: { orderBy: { createdAt: "asc" } }, discountCode: { select: { code: true } } },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+    const r = await pageOf(prisma.order, { where: { AND: and }, include: ORDER_LIST_INCLUDE });
+    orders = r.page;
+    nextOrdersBefore = r.next;
+  }
+
+  let tableOrders = [];
+  let nextTablesBefore = null;
+  if (vendor.isRestaurant && (!channel || channel === "TABLE") && (!paging || !!query.tablesBefore)) {
+    const r = await tableOrdersPage(vendor.id, words, status, query.tablesBefore, skipId);
+    tableOrders = r.page;
+    nextTablesBefore = r.next;
+  }
+
+  // El pedido de un enlace llega siempre, aunque sea más viejo que la página o no cumpla el filtro. Se agrega al final:
+  // el panel ordena por fecha, y los cursores de arriba no cambian. Solo en la primera respuesta: en una página ya llegó
+  // antes, y repetirlo duplicaba la fila (misma key de React) al sumar las páginas en el panel.
+  if (query.include && !paging && !orders.some((o) => o.id === query.include) && !tableOrders.some((t) => t.id === query.include)) {
+    const extra = await prisma.order.findFirst({ where: { id: query.include, vendorId: vendor.id }, include: ORDER_LIST_INCLUDE });
+    if (extra) orders.push(extra);
+    else if (vendor.isRestaurant) {
+      const extraTable = await prisma.tableOrder.findFirst({ where: { id: query.include, ...tableScope }, include: { table: true } });
+      if (extraTable) tableOrders.push(extraTable);
+    }
+  }
 
   // Provincia y municipio de entrega por nombre: el pedido guarda solo los ids, y la tienda veía únicamente la dirección escrita.
   const [provinces, municipalities] = await Promise.all([
@@ -485,16 +641,6 @@ export async function listMyOrders(req, res) {
     countryName: provinceById.get(o.shippingProvinceId)?.country?.name ?? null,
     municipalityName: municipalityById.get(o.shippingMunicipalityId) ?? null,
   });
-
-  let tableOrders = [];
-  if (vendor.isRestaurant) {
-    tableOrders = await prisma.tableOrder.findMany({
-      where: { table: { vendorId: vendor.id } },
-      include: { table: true },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
-  }
 
   // Ventas de caja: cada una ya es un pedido; se le agregan los datos del mostrador (número, cómo se pagó, vuelto, quién cobró,
   // a qué hora estuvo lista y se recogió) para verlos en el mismo detalle.
@@ -531,7 +677,13 @@ export async function listMyOrders(req, res) {
     ...(o.autoCancelledAt ? { canReactivate: !reactivateBlocker(o, now), reactivateBlockedReason: reactivateBlocker(o, now) } : {}),
   });
 
-  res.json({ orders: orders.map((o) => withFollowUp(withPlace(posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o))), followUpHours: followUp.enabled ? followUp.cancelHours : null, tableOrders });
+  res.json({
+    orders: orders.map((o) => withFollowUp(withPlace(posByOrder.has(o.id) ? { ...o, pos: posByOrder.get(o.id) } : o))),
+    followUpHours: followUp.enabled ? followUp.cancelHours : null,
+    tableOrders,
+    nextOrdersBefore,
+    nextTablesBefore,
+  });
 }
 
 // Bloque 52: decremento/incremento atómico de stock POR TALLA. `sizeStock`
@@ -938,17 +1090,25 @@ async function countManualEmailsThisMonth(vendorId) {
 
 export async function getEmailUsage(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
+  // Sin correos a clientes en el plan, el tope vacío no quiere decir "sin límite": sendManualEmail rechaza todo. Antes esto
+  // respondía unlimited:true y el panel podía mostrar un envío ilimitado que el servidor no deja hacer (mismo criterio que
+  // planFeaturesOf, que da 0 cuando el interruptor está apagado).
+  if (!(await planAllows(vendor, "allowCustomerEmails"))) {
+    return res.json({ unlimited: false, used: await countManualEmailsThisMonth(vendor.id), limit: 0, allowed: false });
+  }
   const limit = await getPlanLimit(vendor, "maxMonthlyOrderEmails");
   if (limit === null) {
-    return res.json({ unlimited: true, used: null, limit: null });
+    return res.json({ unlimited: true, used: null, limit: null, allowed: true });
   }
   const used = await countManualEmailsThisMonth(vendor.id);
-  res.json({ unlimited: false, used, limit });
+  res.json({ unlimited: false, used, limit, allowed: true });
 }
 
+// Topes de largo: el asunto va en el título del correo y en la bandeja del cliente; sin tope, la tienda podía mandar un
+// texto de cualquier tamaño con la marca de la plataforma.
 const manualEmailSchema = z.object({
-  subject: z.string().min(2),
-  message: z.string().min(2),
+  subject: z.string().trim().min(2, "Escribe un asunto.").max(150, "El asunto puede tener hasta 150 caracteres."),
+  message: z.string().trim().min(2, "Escribe el mensaje.").max(5000, "El mensaje puede tener hasta 5000 caracteres."),
 });
 
 export async function sendManualEmail(req, res) {
@@ -960,15 +1120,18 @@ export async function sendManualEmail(req, res) {
   if (!order || order.vendorId !== vendor.id) throw new AppError("Pedido no encontrado.", 404);
   if (!order.customerEmail) throw new AppError("Este pedido no tiene un correo de cliente registrado.", 400);
 
-  await assertPlanAllows(vendor, "allowCustomerEmails", "Enviar correos a tus clientes es del Plan Premium. Escríbele por WhatsApp o cambia de plan.");
+  // Los planes que nombran estos avisos salen de la base (antes decían "Plan Premium" fijo).
+  await assertPlanAllowsWithUpsell(vendor, "allowCustomerEmails", { lead: "Enviar correos a tus clientes no está en tu plan.", action: "Mientras tanto, escríbele por WhatsApp.", fallback: "Escríbele por WhatsApp." });
   const monthlyEmailLimit = await getPlanLimit(vendor, "maxMonthlyOrderEmails");
   if (monthlyEmailLimit !== null) {
     const used = await countManualEmailsThisMonth(vendor.id);
     if (used >= monthlyEmailLimit) {
-      throw new AppError(
-        `Alcanzaste el límite de ${monthlyEmailLimit} emails manuales de tu plan este mes. Verificate para pasar a Premium y enviar sin límite.`,
-        403
-      );
+      // Solo se nombran los planes con un tope mayor (o sin tope); si no hay ninguno, el aviso no promete un cambio de plan.
+      const more = plansSentence(await plansOffering("allowCustomerEmails", { limitKey: "maxMonthlyOrderEmails", above: monthlyEmailLimit }), {
+        one: "Para enviar más, cámbiate al plan",
+        many: "Para enviar más, cámbiate a uno de estos planes:",
+      });
+      throw new AppError([`Alcanzaste el límite de ${monthlyEmailLimit} correos escritos a mano de tu plan este mes.`, more].filter(Boolean).join(" "), 403);
     }
   }
 

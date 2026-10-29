@@ -25,7 +25,7 @@ const SERVICE_META = {
   groq: { name: "Groq", desc: "Proveedor principal de IA (se usa primero): chat de las tiendas y 'Mejorar con IA'. También transcribe audio (Whisper)", emoji: "⚡", iconBg: "rgba(138,81,0,0.1)" },
   nvidia: { name: "NVIDIA NIM", desc: "Segundo respaldo de IA: entra si Groq está inactivo o falla (más lento que Groq)", emoji: "🟩", iconBg: "rgba(118,185,0,0.12)" },
   resend: { name: "Resend", desc: "Correos: verificación, avisos de plan, campañas", emoji: "✉️", iconBg: "rgba(51,116,117,0.1)" },
-  stripe: { name: "Stripe", desc: "Cobro de suscripción Business de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
+  stripe: { name: "Stripe", desc: "Cobro de los planes de pago de la plataforma", emoji: "💳", iconBg: "rgba(97,160,161,0.15)" },
 };
 const ORDER = ["groq", "nvidia", "gemini", "resend", "stripe"];
 // Bloque 43/45/245: estos tres tienen modelos administrables — Resend/Stripe no.
@@ -48,8 +48,8 @@ function HealthLine({ models }) {
   const down = measured.filter((m) => m.health.status === "down");
   if (down.length === 0) {
     return (
-      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-[#087A38]">
-        <span className="h-2 w-2 rounded-full bg-[#0CAE53]" aria-hidden="true" />
+      <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-verified-dark">
+        <span className="h-2 w-2 rounded-full bg-verified" aria-hidden="true" />
         {active.length === 1 ? "Respondiendo bien" : `Respondiendo bien (${active.length} modelos activos)`}
       </div>
     );
@@ -362,7 +362,7 @@ export default function AdminIntegrations({ embedded = false }) {
         <>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Plug} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Integraciones</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Integraciones</h1>
       </div>
       <p className="mb-2 text-[13.5px] text-outline">Configura las claves de servicios. Se guardan cifradas (AES-256-GCM), nunca en texto plano.</p>
         </>
@@ -414,7 +414,7 @@ export default function AdminIntegrations({ embedded = false }) {
         )}
       </div>
       <p className="mt-[18px] text-[12px] text-outline">
-        Nota: Stripe se usa <strong>solo</strong> para cobrar la suscripción Business a {siteName}, nunca en las ventas entre vendedor y cliente.
+        Nota: Stripe se usa <strong>solo</strong> para cobrar los planes de pago de {siteName}, nunca en las ventas entre vendedor y cliente.
       </p>
     </div>
   );

@@ -30,7 +30,7 @@ export async function lowStockAlertEmail({ vendor, products }) {
     bodyMjml: `
       ${paragraph(`Hola equipo de <strong>${esc(vendor.companyName)}</strong>, ${products.length === 1 ? "este producto está" : "estos productos están"} quedándose sin stock:`)}
       ${paragraph(`<table role="presentation" width="100%" style="width:100%;border-collapse:collapse;">${rows}</table>`, { padding: "4px 0 8px" })}
-      ${smallNote("Repón el stock (o marca el producto como \"disponible siempre\" si no le llevas seguimiento) antes de que se agote y deje de venderse. Te avisamos una sola vez por esta baja — si vuelve a subir y a bajar del umbral, te lo recordamos de nuevo.")}
+      ${smallNote("Repón el stock (o marca el producto como \"disponible siempre\" si no le llevas seguimiento) antes de que se agote y deje de venderse. Te avisamos una sola vez por esta baja: si vuelve a subir y a bajar del umbral, te lo recordamos de nuevo.")}
       ${ctaButton("Ver mis productos", `${env.frontendUrl}/vendedor/productos`)}
     `,
   });

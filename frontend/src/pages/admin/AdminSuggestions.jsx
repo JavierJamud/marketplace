@@ -42,7 +42,7 @@ export default function AdminSuggestions() {
     <div className="max-w-[820px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={MessageSquare} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Sugerencias</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Sugerencias</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Buzón de mejoras enviadas por vendedores y clientes.</p>
 

@@ -19,8 +19,9 @@ export default function PartnerAccount() {
 
   const save = useMutation({
     mutationFn: async () => (await api.patch("/auth/me/password", { currentPassword, newPassword, confirmPassword })).data,
-    onSuccess: () => {
-      toast.success("Contraseña actualizada.");
+    onSuccess: (data) => {
+      // El servidor cierra las sesiones de los otros dispositivos al cambiar la contraseña: se avisa cuántas había.
+      toast.success(data?.closedSessions > 0 ? "Contraseña actualizada. Cerramos tu sesión en los demás dispositivos." : "Contraseña actualizada.");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -32,7 +33,7 @@ export default function PartnerAccount() {
     <div className="max-w-[820px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={UserCog} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mi cuenta</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mi cuenta</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">Tus datos de acceso al panel del socio.</p>
 
@@ -60,7 +61,7 @@ export default function PartnerAccount() {
       </div>
 
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <KeyRound className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Cambiar contraseña
         </div>
         <p className="mb-4 text-[12.5px] text-outline">Necesitas tu contraseña actual para cambiarla.</p>

@@ -104,7 +104,7 @@ export function CreateManualOrderModal({ tableId, tableLabel, onClose, onCreated
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Crear pedido — {tableLabel}</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">

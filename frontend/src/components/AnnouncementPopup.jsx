@@ -54,18 +54,19 @@ export function AnnouncementPopup() {
         if (e.target === e.currentTarget) dismiss(current.id);
       }}
     >
-      <div className="relative w-full max-w-[420px] overflow-hidden rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up">
+      {/* No pasa del alto de la pantalla: con un aviso largo o una imagen alta, el texto se desliza por dentro. */}
+      <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[420px] flex-col overflow-hidden rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up">
         <button
           onClick={() => dismiss(current.id)}
           aria-label="Cerrar aviso"
-          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60"
+          className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60"
         >
           <X className="h-4 w-4" />
         </button>
         {current.imageUrl && (
-          <img src={`${api.defaults.baseURL}${current.imageUrl}`} alt="" className="h-[200px] w-full object-cover" />
+          <img src={`${api.defaults.baseURL}${current.imageUrl}`} alt="" className="h-[150px] w-full flex-shrink-0 object-cover sm:h-[200px]" />
         )}
-        <div className="p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
           <h2 className="mb-1.5 font-display text-[19px] font-bold text-on-surface">{current.title}</h2>
           {current.body && <p className="text-[13.5px] leading-relaxed text-on-surface-variant">{current.body}</p>}
         </div>

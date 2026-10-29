@@ -20,8 +20,7 @@ import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { SuspendedVendorsList, useSuspendedVendors } from "./AdminSuspendedVendors.jsx";
 import { OrderLookup } from "../../components/admin/OrderLookup.jsx";
 import { VendorAvatar } from "../../components/ui/VendorAvatar.jsx";
-import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
-import { vendorPlanStatus } from "../../lib/planStatus.js";
+import { trialDaysLeft } from "../../lib/planStatus.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -195,7 +194,7 @@ export function EditVendorModal({ vendor, onSave, onCancel, saving }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">Editar tienda</h2>
         <div className="flex flex-col gap-3.5">
           <Input label="Nombre de la tienda" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
@@ -336,7 +335,7 @@ export function StatsModal({ vendorName, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-title-lg font-bold text-on-surface">{vendorName.companyName}</h2>
           <button onClick={onClose} className="text-outline hover:text-on-surface">
@@ -399,7 +398,49 @@ export function StatsModal({ vendorName, onClose }) {
 // vistazo": plan, verificación, productos, pedidos, ventas de 30 días,
 // valoración, último acceso y alertas de ranking pendientes. Las acciones
 // pasan al menú "⋮" (antes 6 botones por fila).
-const LIST_DEFAULTS = { q: "", status: "all", province: "", municipality: "", sort: "recent", dir: "desc", page: 1, pageSize: 25 };
+// `plan` es la clave de un plan (?plan=PLAN_RESTAURANTE): la tarjeta de cada plan en Suscripciones enlaza aquí.
+const LIST_DEFAULTS = { q: "", status: "all", province: "", municipality: "", plan: "", sort: "recent", dir: "desc", page: 1, pageSize: 25 };
+
+// Planes de la base (los de /settings: sin archivados, con los ocultos), en su orden. Misma queryKey que
+// usePlatformSettings, así react-query comparte una sola copia. Ya no hay 4 planes fijos: el admin crea y archiva.
+// No se usa usePlatformSettings().plans porque ese hook no expone si /settings sigue cargando o falló, y el modal de
+// activar un plan (AdminVendorManage) necesita distinguir "cargando", "no se pudo cargar" y "no hay planes".
+export function useAdminPlanList() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+    staleTime: 5 * 60 * 1000,
+  });
+  const plans = [...(data?.plans ?? [])].filter((p) => !p.archivedAt).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  return { plans, isLoading, isError };
+}
+
+// Grupos de planes que acepta GET /admin/vendors en ?plan= además de una clave (ver vendorsQuerySchema en admin.controller).
+const PLAN_GROUP_FILTERS = ["PAID", "DEFAULT"];
+function defaultPlanFilterLabel(plans) {
+  const name = plans.find((p) => p.isDefault)?.displayName;
+  return name ? `Plan por defecto (${name})` : "Plan por defecto";
+}
+
+// Plan en el que está una tienda, como lo ve el admin. Un plan que no es el por defecto está activo si la tienda está
+// verificada en él o, en un plan sin insignia, mientras tenga tiempo pagado (mismo criterio que isPremiumActive del
+// backend); si no, rige el plan por defecto. El plan por defecto se reconoce por su bandera isDefault, no por su clave.
+function vendorPlanLabel(vendor, plans) {
+  const defaultPlan = plans.find((p) => p.isDefault);
+  const current = plans.find((p) => p.planType === vendor.planType);
+  const onDefault = defaultPlan ? vendor.planType === defaultPlan.planType : false;
+  const paidTime = !!vendor.nextPaymentDueDate && new Date(vendor.nextPaymentDueDate) > new Date();
+  const premium = !onDefault && (vendor.verificationStatus === "VERIFIED" || paidTime);
+  const name = current?.displayName ?? vendor.planName ?? vendor.planType;
+  const daysLeft = premium ? trialDaysLeft(vendor.trialEndsAt) : null;
+  return {
+    premium,
+    trial: daysLeft != null,
+    daysLeft,
+    label: premium ? (daysLeft != null ? `${name} · Prueba gratis` : name) : defaultPlan?.displayName ?? name,
+    daysLabel: daysLeft == null ? null : daysLeft === 1 ? "Queda 1 día" : `Quedan ${daysLeft} días`,
+  };
+}
 
 const SORT_OPTIONS = [
   { value: "recent:desc", label: "Más recientes" },
@@ -420,16 +461,24 @@ const VERIFICATION_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   REJECTED: "Rechazada",
   SUSPENDED: "Verificación suspendida",
-  PLAN_ENDED: "Volvió a Básico",
+  // Volvió al plan por defecto: el nombre real lo pone la fila (sale de la base).
+  PLAN_ENDED: "Volvió al plan por defecto",
 };
 
-function VendorRow({ v }) {
+function verificationLabel(status, plans) {
+  if (status === "PLAN_ENDED") {
+    const name = plans.find((p) => p.isDefault)?.displayName;
+    if (name) return `Volvió a ${name}`;
+  }
+  return VERIFICATION_LABEL[status] ?? status;
+}
+
+function VendorRow({ v, plans }) {
   // Provincia y municipios donde presta servicio ("Segundo Frente (Santiago de Cuba)"), armado en el servidor.
   const place = v.zones?.length ? v.zones.join(" · ") : null;
   const hasSales = v.sales30 > 0;
   const pending = !!v.adminDeletionRequestedAt;
-  const { planNames } = usePlatformSettings();
-  const plan = vendorPlanStatus(v, planNames);
+  const plan = vendorPlanLabel(v, plans);
   const planChip = (size) => (
     <span className={`rounded-full px-2 py-0.5 ${size} font-bold ${plan.trial ? "bg-tertiary-accent/10 text-tertiary-accent" : plan.premium ? "bg-secondary-container/25 text-secondary" : "bg-surface-container text-on-surface-variant"}`}>
       {plan.label}
@@ -467,7 +516,7 @@ function VendorRow({ v }) {
               </Link>
             )}
           </div>
-          <div className="truncate text-[11.5px] text-outline" title={place ?? undefined}>{[v.category?.name, place].filter(Boolean).join(" · ") || "Sin rubro ni zona"}</div>
+          <div className="truncate text-[11.5px] text-outline" title={place ?? undefined}>{[v.businessCategory?.name ?? v.category?.name, place].filter(Boolean).join(" · ") || "Sin rubro ni zona"}</div>
           {pending && v.deletionScheduledFor && (
             <div className="mt-0.5 text-[11.5px] font-semibold text-error">
               Se elimina definitivamente el {new Date(v.deletionScheduledFor).toLocaleDateString("es-CU", { day: "numeric", month: "short", year: "numeric" })}
@@ -481,7 +530,7 @@ function VendorRow({ v }) {
       <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 pl-[52px] text-[12px] text-on-surface-variant md:hidden">
         {planChip("text-[10.5px]")}
         {plan.trial && <span className={plan.daysLeft <= 7 ? "font-semibold text-error" : ""}>{plan.daysLabel}</span>}
-        {!v.isVerified && <span>{VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}</span>}
+        {!v.isVerified && <span>{verificationLabel(v.verificationStatus, plans)}</span>}
         <span>{v.productCount} {v.productCount === 1 ? "producto" : "productos"}</span>
         <span>{v.orders30} {v.orders30 === 1 ? "pedido" : "pedidos"} (30 d)</span>
         {hasSales && <span className="font-semibold text-on-surface">{formatPrice(v.sales30, v.currency)}</span>}
@@ -496,7 +545,7 @@ function VendorRow({ v }) {
       <div className="hidden flex-col items-start gap-1 md:flex">
         {planChip("text-[11px]")}
         <span className={`text-[11px] ${plan.trial && plan.daysLeft <= 7 ? "font-semibold text-error" : "text-outline"}`}>
-          {plan.trial ? plan.daysLabel : v.isVerified ? "Verificada" : VERIFICATION_LABEL[v.verificationStatus] ?? v.verificationStatus}
+          {plan.trial ? plan.daysLabel : v.isVerified ? "Verificada" : verificationLabel(v.verificationStatus, plans)}
         </span>
       </div>
       <div className="hidden text-right text-[13px] text-on-surface md:block">{v.productCount}</div>
@@ -548,6 +597,7 @@ export default function AdminVendors() {
             status: listStatus,
             provinceId: params.province || undefined,
             municipalityId: (params.province && params.municipality) || undefined,
+            plan: params.plan || undefined,
             sort: params.sort,
             dir: params.dir,
             page: params.page,
@@ -577,8 +627,13 @@ export default function AdminVendors() {
   }, [data, params.page, setParams]);
 
   const kpis = data?.kpis;
-  const { planNames } = usePlatformSettings();
-  const hasFilters = params.q || params.status !== "all" || params.province;
+  const { plans, isError: plansError } = useAdminPlanList();
+  // Una clave en la URL que ya no está entre los planes (archivado o mal escrito) se muestra igual, para que el filtro
+  // activo se vea y se pueda quitar. PAID y DEFAULT no son claves sino los dos grupos que acepta el servidor (planes de
+  // pago y plan por defecto), con su propia opción.
+  const unknownPlanFilter =
+    params.plan && !PLAN_GROUP_FILTERS.includes(params.plan) && plans.length > 0 && !plans.some((p) => p.planType === params.plan);
+  const hasFilters = params.q || params.status !== "all" || params.province || params.plan;
   // Municipios de la provincia elegida, para filtrar más fino (Santiago de Cuba > Segundo Frente).
   const { data: municipalities } = useQuery({
     queryKey: ["admin-municipalities", params.province],
@@ -591,7 +646,7 @@ export default function AdminVendors() {
     { key: "verified", label: "Verificadas", value: kpis?.verified },
     { key: "inprocess", label: "En proceso", value: kpis?.inprocess, hint: "Verificación" },
     { key: "unverified", label: "Sin verificar", value: kpis?.unverified },
-    { key: "business", label: planNames.BUSINESS, value: kpis?.business, hint: "Pagado o en prueba" },
+    { key: "business", label: "Planes de pago", value: kpis?.business, hint: "Pagado o en prueba" },
     { key: "inactive", label: "Inactivas", value: kpis?.inactive, hint: "30 días sin entrar", tone: "warn" },
     { key: "flagged", label: "Con alertas", value: kpis?.flagged, hint: "Ranking", tone: "danger" },
     { key: "suspended", label: "Suspendidas", value: suspended.data?.length, hint: "Bloqueadas o sin uso", tone: "danger" },
@@ -603,7 +658,7 @@ export default function AdminVendors() {
     <div className="max-w-[1180px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Store} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Tiendas</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Tiendas</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Gestiona, verifica a dedo, edita o elimina tiendas. El bloqueo oculta, no borra.</p>
 
@@ -627,7 +682,7 @@ export default function AdminVendors() {
         <SuspendedVendorsList />
       ) : (
       <>
-      <div className={`mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${params.province ? "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]"}`}>
+      <div className={`mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${params.province ? "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]"}`}>
         <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por nombre, enlace o correo" className="sm:col-span-2 lg:col-span-1" />
         <select
           value={params.province}
@@ -657,6 +712,25 @@ export default function AdminVendors() {
             ))}
           </select>
         )}
+        <select
+          value={params.plan}
+          onChange={(e) => setParams({ plan: e.target.value })}
+          aria-label="Filtrar por plan"
+          className="h-11 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13px] md:h-10"
+        >
+          <option value="">{plansError ? "Todos los planes (no se pudo cargar la lista)" : "Todos los planes"}</option>
+          <option value="PAID">Planes de pago</option>
+          <option value="DEFAULT">{defaultPlanFilterLabel(plans)}</option>
+          {plans.map((p) => (
+            <option key={p.planType} value={p.planType}>
+              {p.displayName}
+              {p.isPublic === false ? " (oculto)" : ""}
+            </option>
+          ))}
+          {(unknownPlanFilter || (params.plan && !plans.length && !PLAN_GROUP_FILTERS.includes(params.plan))) && (
+            <option value={params.plan}>Plan {params.plan}</option>
+          )}
+        </select>
         <select
           value={sortValue}
           onChange={(e) => {
@@ -695,11 +769,17 @@ export default function AdminVendors() {
             <Button variant="outline" onClick={() => refetch()}>
               Reintentar
             </Button>
+            {/* Un ?plan= que no existe responde 400: sin este botón el error no tendría salida. */}
+            {params.plan && (
+              <Button variant="ghost" onClick={() => setParams({ plan: "" })}>
+                Quitar el filtro de plan
+              </Button>
+            )}
           </div>
         )}
 
         {data?.vendors.map((v) => (
-          <VendorRow key={v.id} v={v} />
+          <VendorRow key={v.id} v={v} plans={plans} />
         ))}
 
         {data && data.vendors.length === 0 && (
@@ -707,7 +787,7 @@ export default function AdminVendors() {
             <Store className="h-6 w-6 text-outline" />
             <p className="text-body-md text-on-surface-variant">{hasFilters ? "Ninguna tienda coincide con estos filtros." : "Todavía no hay tiendas registradas."}</p>
             {hasFilters && (
-              <Button variant="outline" onClick={() => setParams({ q: "", status: "all", province: "", municipality: "" })}>
+              <Button variant="outline" onClick={() => setParams({ q: "", status: "all", province: "", municipality: "", plan: "" })}>
                 Limpiar filtros
               </Button>
             )}

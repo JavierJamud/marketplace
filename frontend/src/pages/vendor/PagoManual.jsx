@@ -20,7 +20,7 @@ function CopyRow({ label, value }) {
       await copyToClipboard(value);
       toast.success("Copiado.");
     } catch {
-      toast.error("No se pudo copiar — selecciona el texto a mano.");
+      toast.error("No se pudo copiar. Selecciona el texto a mano.");
     }
   }
   return (
@@ -96,7 +96,8 @@ export default function PagoManual() {
   const isLoading = loadingVerification || loadingSubscription;
   // Renovación: solo cuando la tienda YA está VERIFIED y hay una renovación
   // en curso — si no, es el ciclo inicial de siempre.
-  // También un plan sin insignia que se cobra (el Básico de pago): se paga como renovación, sin verificación.
+  // También un plan sin insignia que se cobra (por ejemplo, el plan por defecto si deja de ser gratis): se paga como
+  // renovación, sin verificación.
   const isRenewal = (vendor?.verificationStatus === "VERIFIED" || !!subscription?.paysWithoutBadge) && !!subscription?.pendingRenewal;
   // Normaliza los 2 orígenes a la misma forma para no repetir el resto del
   // componente 2 veces.
@@ -105,7 +106,10 @@ export default function PagoManual() {
         paymentMethod: subscription.pendingRenewal.paymentMethod,
         paymentMonths: subscription.pendingRenewal.months,
         expectedAmount: subscription.pendingRenewal.expectedAmount,
-        paymentPlanName: subscription.planName,
+        // El plan que se está pagando, no el actual: una renovación puede cambiar de plan (el servidor guarda la clave en
+        // la renovación pendiente y manda su nombre).
+        paymentPlanName: subscription.pendingRenewal.planName ?? subscription.planName,
+        paymentPlanType: subscription.pendingRenewal.planType ?? subscription.planType,
         discountPercent: subscription.pendingRenewal.discountPercent ?? 0,
         stripeCheckoutUrl: subscription.pendingRenewal.stripeCheckoutUrl,
         stripePaidAt: subscription.pendingRenewal.stripePaidAt,
@@ -124,6 +128,10 @@ export default function PagoManual() {
   }, [vendor?.ownerName]);
 
   const isCup = data?.paymentMethod === "CUP_TRANSFER";
+  // Plan que se está pagando: el que quedó guardado en el pago (paymentPlanName, del servidor), no un plan fijo. Antes decía
+  // siempre el nombre de "BUSINESS", aunque la tienda estuviera pagando otro plan.
+  const payingPlanName = data?.paymentPlanName ?? planNames[data?.paymentPlanType] ?? null;
+  const payingPlan = payingPlanName ? `tu plan ${payingPlanName}` : "tu plan";
 
   const claimPayment = useMutation({
     mutationFn: async () => {
@@ -146,7 +154,7 @@ export default function PagoManual() {
       return (await api.post(endpoint, form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: () => {
-      toast.success(`Aviso enviado — el equipo de ${settings?.siteName || "Baznova"} confirma tu pago en unas horas.`);
+      toast.success(`Aviso enviado. El equipo de ${settings?.siteName || "Baznova"} confirma tu pago en unas horas.`);
       setProofFile(null);
       queryClient.invalidateQueries({ queryKey: ["my-verification"] });
       queryClient.invalidateQueries({ queryKey: ["my-subscription"] });
@@ -194,8 +202,8 @@ export default function PagoManual() {
           : data.verificationStatus === "PAYMENT_FAILED"
             ? "Tu ciclo anterior venció: completa este aviso para recuperar la insignia de verificación."
             : isCup
-              ? `Completa la transferencia y sube el comprobante para activar tu Plan ${planNames.BUSINESS}.`
-              : `Sube la captura del pago (o indica que no pudiste) para que el equipo confirme y active tu Plan ${planNames.BUSINESS}.`}
+              ? `Completa la transferencia y sube el comprobante para activar ${payingPlan}.`
+              : `Sube la captura del pago (o indica que no pudiste) para que el equipo confirme y active ${payingPlan}.`}
       </p>
 
       <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-6">
@@ -255,7 +263,7 @@ export default function PagoManual() {
             </div>
           ) : (
             <p className="mb-4 rounded-md bg-surface-container p-4 text-[13px] text-outline">
-              Todavía no hay una cuenta bancaria cargada — contacta al equipo de {settings?.siteName || "Baznova"} para coordinar el pago.
+              Todavía no hay una cuenta bancaria cargada. Contacta al equipo de {settings?.siteName || "Baznova"} para coordinar el pago.
             </p>
           )
         ) : (
@@ -266,7 +274,7 @@ export default function PagoManual() {
               </p>
             ) : (
               <p className="mb-1.5 flex items-center gap-1.5 text-outline">
-                <Clock className="h-4 w-4 flex-shrink-0" /> Confirmando tu pago con Stripe — puede tardar unos segundos. Ya puedes completar el
+                <Clock className="h-4 w-4 flex-shrink-0" /> Confirmando tu pago con Stripe. Puede tardar unos segundos. Ya puedes completar el
                 aviso igual.
               </p>
             )}
@@ -301,7 +309,7 @@ export default function PagoManual() {
 
         {data.paymentClaimedAt ? (
           <p className="flex items-center gap-2 text-[13px] font-semibold text-verified-dark">
-            <Check className="h-4 w-4" /> Avisaste que ya pagaste — el equipo de {settings?.siteName || "Baznova"} confirma en unas horas.
+            <Check className="h-4 w-4" /> Avisaste que ya pagaste. El equipo de {settings?.siteName || "Baznova"} confirma en unas horas.
           </p>
         ) : (
           <div className="flex flex-col gap-3.5">
@@ -337,10 +345,13 @@ export default function PagoManual() {
               </>
             )}
 
-            <label className="flex w-fit cursor-pointer items-center gap-2 rounded border border-outline-variant px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container">
-              <Upload className="h-4 w-4" />
-              {proofFile ? proofFile.name : isCup ? "Adjuntar comprobante (opcional)" : "Adjuntar captura del pago"}
-              <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => setProofFile(e.target.files?.[0] ?? null)} />
+            {/* max-w-full + truncate: los nombres de captura de Android ("Screenshot_20261028-...jpg") no tienen espacios
+                y, sin cortar, empujaban la página a lo ancho en el celular. El input queda sr-only (no hidden) para que
+                también se pueda elegir el archivo con el teclado. */}
+            <label className="flex min-h-11 w-fit min-w-0 max-w-full cursor-pointer items-center gap-2 rounded border border-outline-variant px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container focus-within:ring-2 focus-within:ring-primary">
+              <Upload className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">{proofFile ? proofFile.name : isCup ? "Adjuntar comprobante (opcional)" : "Adjuntar captura del pago"}</span>
+              <input type="file" accept="image/*,.pdf" className="sr-only" onChange={(e) => setProofFile(e.target.files?.[0] ?? null)} />
             </label>
 
             {/* Bloque 150 (pedido explícito — "en caso de que el cliente no
@@ -357,7 +368,7 @@ export default function PagoManual() {
             {!isCup && proofUnavailable && !proofFile && (
               <div className="flex flex-col gap-3.5 rounded-full border border-outline-variant p-3.5">
                 <p className="text-[12px] text-outline">
-                  Sin captura, estos datos nos ayudan a confirmar tu pago igual — nunca pedimos el número completo de la tarjeta.
+                  Sin captura, estos datos nos ayudan a confirmar tu pago igual. Nunca pedimos el número completo de la tarjeta.
                 </p>
                 <Input label="Teléfono" required value={payerPhone} onChange={(e) => setPayerPhone(e.target.value)} />
                 <Input label="Dirección" required value={payerAddress} onChange={(e) => setPayerAddress(e.target.value)} />

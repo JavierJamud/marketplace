@@ -65,13 +65,13 @@ export function TargetedOfferPopup({ enabled = true }) {
       className="fixed inset-0 z-[100] flex items-center justify-center bg-inverse-surface/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) dismiss.mutate(offer.id); }}
     >
-      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up">
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-surface-container-lowest shadow-2xl animate-fade-up">
         {offer.imageUrl && (
-          <div className="aspect-[16/9] w-full overflow-hidden bg-surface-container">
+          <div className="aspect-[16/9] max-h-[30dvh] w-full flex-shrink-0 overflow-hidden bg-surface-container">
             <img src={imgUrl(offer.imageUrl)} alt="" className="h-full w-full object-cover" />
           </div>
         )}
-        <div className="p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6">
           <div className="mb-3 flex items-start gap-3">
             {!offer.imageUrl && (
               <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-secondary-container">
@@ -84,7 +84,7 @@ export function TargetedOfferPopup({ enabled = true }) {
             <button
               onClick={() => dismiss.mutate(offer.id)}
               disabled={dismissingId === offer.id}
-              className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-variant"
+              className="-mr-2 -mt-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-outline hover:bg-surface-variant"
               aria-label="Cerrar"
             >
               <X className="h-4 w-4" />
@@ -92,7 +92,10 @@ export function TargetedOfferPopup({ enabled = true }) {
           </div>
 
           <p className="mb-5 whitespace-pre-line text-[13.5px] leading-relaxed text-on-surface-variant">{offer.message}</p>
+        </div>
 
+        {/* Botones en un pie que no se desliza: un mensaje largo ya no los empuja fuera de la pantalla. */}
+        <div className="flex-shrink-0 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <div className="flex flex-col gap-2 sm:flex-row">
             {offer.ctaLabel && offer.ctaUrl && (
               external ? (
@@ -101,7 +104,7 @@ export function TargetedOfferPopup({ enabled = true }) {
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => dismiss.mutate(offer.id)}
-                  className="flex flex-1 items-center justify-center rounded-xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-primary/90"
+                  className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-primary/90"
                 >
                   {offer.ctaLabel}
                 </a>
@@ -109,7 +112,7 @@ export function TargetedOfferPopup({ enabled = true }) {
                 <Link
                   to={offer.ctaUrl}
                   onClick={() => dismiss.mutate(offer.id)}
-                  className="flex flex-1 items-center justify-center rounded-xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-primary/90"
+                  className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-white transition hover:bg-primary/90"
                 >
                   {offer.ctaLabel}
                 </Link>
@@ -118,7 +121,7 @@ export function TargetedOfferPopup({ enabled = true }) {
             <button
               onClick={() => dismiss.mutate(offer.id)}
               disabled={dismissingId === offer.id}
-              className="flex-1 rounded-xl border border-outline-variant px-5 py-2.5 text-[13px] font-semibold text-on-surface transition hover:bg-surface-variant disabled:opacity-50"
+              className="min-h-11 flex-1 rounded-xl border border-outline-variant px-5 py-2.5 text-[13px] font-semibold text-on-surface transition hover:bg-surface-variant disabled:opacity-50"
             >
               {offer.ctaLabel ? "Ahora no" : "Cerrar"}
             </button>

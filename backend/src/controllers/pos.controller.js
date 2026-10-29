@@ -4,11 +4,14 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
-import { planAllows } from "../lib/planConfig.js";
+import { planAllows, assertPlanAllows } from "../lib/planConfig.js";
+import { assertPlanAllowsWithUpsell } from "../lib/planUpsell.js";
+import { filterVisibleStoreOffers, publicStoreOfferWhere } from "../lib/storeOfferVisibility.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { assertBarcodeFree } from "./products.controller.js";
 import { recordOrderEvent } from "../lib/orderEvents.js";
+import { lockTable, lockTableOrder } from "./tables.controller.js";
 
 // Caja con código de barras (ver PosSale en schema.prisma). Todo lo que cobra o descuenta stock se decide aquí: el panel
 // solo manda qué se escaneó y cuánto efectivo entregó el cliente.
@@ -107,19 +110,29 @@ function startOfToday(tz = "America/Havana") {
   return new Date(local.getTime() + offset);
 }
 
+// Movimientos que se listan en "Movimientos de hoy". Solo limita la lista: el efectivo en caja se suma en la base con todos.
+const CASH_ENTRIES_SHOWN = 200;
+
 async function cashSummary(vendor) {
   const since = startOfToday(vendor.timezone);
-  const [entries, paid] = await Promise.all([
-    prisma.cashEntry.findMany({ where: { vendorId: vendor.id, createdAt: { gte: since } }, orderBy: { createdAt: "desc" }, take: 200 }),
+  const where = { vendorId: vendor.id, createdAt: { gte: since } };
+  // El total sale de un groupBy sobre todos los movimientos del día: antes se sumaban los 200 más recientes de la lista y un
+  // día con mucho movimiento daba "Efectivo en caja hoy" de menos, sin ningún aviso.
+  const [entries, totals, paid] = await Promise.all([
+    prisma.cashEntry.findMany({ where, orderBy: { createdAt: "desc" }, take: CASH_ENTRIES_SHOWN }),
+    prisma.cashEntry.groupBy({ by: ["currency"], where, _sum: { amount: true }, _count: { _all: true } }),
     prisma.posSale.groupBy({ by: ["paymentMethod", "currency"], where: { vendorId: vendor.id, status: "PAID", paidAt: { gte: since } }, _sum: { total: true }, _count: { _all: true } }),
   ]);
   const byCurrency = {};
-  for (const e of entries) byCurrency[e.currency] = money((byCurrency[e.currency] ?? 0) + Number(e.amount));
+  for (const t of totals) byCurrency[t.currency] = money(t._sum.amount ?? 0);
+  const entriesTotal = totals.reduce((n, t) => n + t._count._all, 0);
   return {
     since,
     cashInDrawer: byCurrency,
     sales: paid.map((p) => ({ method: p.paymentMethod, currency: p.currency, total: money(p._sum.total ?? 0), count: p._count._all })),
     entries: entries.map((e) => ({ id: e.id, type: e.type, amount: Number(e.amount), currency: e.currency, note: e.note, posSaleId: e.posSaleId, createdAt: e.createdAt })),
+    // Cuántos movimientos del día quedaron fuera de la lista (para un "y N más").
+    entriesMore: Math.max(0, entriesTotal - entries.length),
   };
 }
 
@@ -154,11 +167,15 @@ export async function getState(req, res) {
   const since = startOfToday(vendor.timezone);
   const posSettings = await settingsFor(vendor.id);
   await autoPickupExpired(vendor.id, posSettings.readyAutoClearMinutes);
-  const [settings, open, pendingTable, todayRaw, cash] = await Promise.all([
+  // take:80 de "Ventas de hoy" solo acorta la lista: los totales por método salen de un groupBy aparte (cashSummary). Se cuenta
+  // el total para que la pantalla pueda avisar cuántas no se listan.
+  const todayWhere = { vendorId: vendor.id, status: { in: ["PAID", "SENT_TO_TABLE"] }, OR: [{ paidAt: { gte: since } }, { updatedAt: { gte: since } }] };
+  const [settings, open, pendingTable, todayRaw, todayCount, cash] = await Promise.all([
     settingsFor(vendor.id),
     prisma.posSale.findMany({ where: { vendorId: vendor.id, status: "OPEN" }, orderBy: { updatedAt: "desc" }, take: 20 }),
     prisma.posSale.findMany({ where: { vendorId: vendor.id, status: "PENDING_TABLE" }, orderBy: { updatedAt: "desc" }, take: 20 }),
-    prisma.posSale.findMany({ where: { vendorId: vendor.id, status: { in: ["PAID", "SENT_TO_TABLE"] }, OR: [{ paidAt: { gte: since } }, { updatedAt: { gte: since } }] }, orderBy: { paidAt: "desc" }, take: 80 }),
+    prisma.posSale.findMany({ where: todayWhere, orderBy: { paidAt: "desc" }, take: 80 }),
+    prisma.posSale.count({ where: todayWhere }),
     cashSummary(vendor),
   ]);
   const images = await imagesFor([...open, ...pendingTable, ...todayRaw]);
@@ -172,6 +189,7 @@ export async function getState(req, res) {
     open: open.map((s) => withImages(s, images)),
     pendingTable: pendingTable.map((s) => withImages(s, images)),
     today: todayRaw.map((s) => ({ ...withImages(s, images), createdByName: nameOf.get(s.createdById) ?? null })),
+    todayMore: Math.max(0, todayCount - todayRaw.length),
     cash,
   });
 }
@@ -303,6 +321,8 @@ export async function pay(req, res) {
 export async function sendToTable(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   if (!vendor.isRestaurant) throw new AppError("Solo los restaurantes tienen mesas.", 400);
+  // Igual que claimForTable y que abrir cuentas desde el panel: sin mesas con QR en el plan no se manda nada a una mesa.
+  await assertPlanAllows(vendor, "allowQrTables", "Tu plan actual no incluye mesas con QR.");
   const sale = await ownSale(vendor.id, req.params.id, ["OPEN"]);
   if (!sale.items.length) throw new AppError("La venta no tiene productos.", 400);
   const updated = await prisma.posSale.update({ where: { id: sale.id }, data: { status: "PENDING_TABLE" } });
@@ -315,6 +335,14 @@ export async function attachSaleToTable({ sale, table, actorName }) {
   if (sale.status !== "PENDING_TABLE") throw new AppError("Esta venta no está esperando una mesa.", 409);
   if (table.vendorId !== sale.vendorId) throw new AppError("Ese QR es de otra tienda.", 400);
   return prisma.$transaction(async (tx) => {
+    // Mismo orden de candados que tables.controller.js (mesa, cuenta y después producto). Antes la caja descontaba stock y
+    // después escribía la cuenta sin candado: podía trabarse con un pedido por QR (orden inverso) o abrir una segunda
+    // cuenta en la misma mesa a la vez que el QR o el mesero.
+    const fresh = await lockTable(tx, table.id);
+    if (!fresh || fresh.deletedAt) throw new AppError("Mesa no encontrada.", 404);
+    const openRef = await tx.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null }, select: { id: true } });
+    let open = openRef ? await lockTableOrder(tx, openRef.id) : null;
+    if (open && (open.cancelledAt || open.clearedAt)) open = null;
     const claimed = await tx.posSale.updateMany({ where: { id: sale.id, status: "PENDING_TABLE" }, data: { status: "SENT_TO_TABLE", tableNumber: table.tableNumber } });
     if (claimed.count === 0) throw new AppError("Esta venta ya se pasó a una mesa.", 409);
     const newItems = [];
@@ -324,9 +352,10 @@ export async function attachSaleToTable({ sale, table, actorName }) {
         const r = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } });
         if (r.count === 0) throw new AppError(`Ya no alcanza el stock de "${product.name}" (quedan ${product.stock}).`, 409);
       }
-      newItems.push({ id: crypto.randomUUID(), productId: item.productId, name: item.name, price: item.price, quantity: item.quantity, source: "staff", addedByName: actorName ?? `Caja ${sale.code}`, status: "PREPARING" });
+      // stockTaken: el stock ya se descontó aquí. Si la mesa tiene una cuenta todavía en Recibido, al aceptarla no se vuelve a
+      // descontar, y si se cancela se devuelve (ver lineStockTaken en tables.controller.js).
+      newItems.push({ id: crypto.randomUUID(), productId: item.productId, name: item.name, price: item.price, quantity: item.quantity, source: "staff", addedByName: actorName ?? `Caja ${sale.code}`, status: "PREPARING", stockTaken: true });
     }
-    const open = await tx.tableOrder.findFirst({ where: { tableId: table.id, cancelledAt: null, clearedAt: null } });
     const tableOrder = open
       ? await tx.tableOrder.update({ where: { id: open.id }, data: { items: [...open.items, ...newItems], total: money(Number(open.total) + totalOf(newItems)) } })
       : await tx.tableOrder.create({ data: { tableId: table.id, items: newItems, total: totalOf(newItems), kitchenStatus: "PREPARING", customerName: sale.customerName || `Mesa #${table.tableNumber}` } });
@@ -344,9 +373,10 @@ const qrTokenFrom = (value) => {
 export async function attachToTable(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { qr } = z.object({ qr: z.string().trim().min(5).max(300) }).parse(req.body);
+  await assertPlanAllows(vendor, "allowQrTables", "Tu plan actual no incluye mesas con QR.");
   const sale = await ownSale(vendor.id, req.params.id, ["PENDING_TABLE"]);
   const table = await prisma.table.findUnique({ where: { qrToken: qrTokenFrom(qr) } });
-  if (!table || table.vendorId !== vendor.id) throw new AppError("Ese código no es el QR de una de tus mesas.", 400);
+  if (!table || table.deletedAt || table.vendorId !== vendor.id) throw new AppError("Ese código no es el QR de una de tus mesas.", 400);
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } });
   const result = await attachSaleToTable({ sale, table, actorName: user?.fullName });
   res.json(result);
@@ -362,12 +392,18 @@ export async function cancelSale(req, res) {
 // Estado de un pedido de caja ↔ estado del pedido en Pedidos.
 export const ORDER_STATUS_FOR_FULFILLMENT = { PREPARING: "PREPARING", READY: "READY", PICKED_UP: "DELIVERED" };
 export const FULFILLMENT_FOR_ORDER_STATUS = { PREPARING: "PREPARING", READY: "READY", DELIVERED: "PICKED_UP" };
+const FULFILLMENT_RANK = { PREPARING: 0, READY: 1, PICKED_UP: 2 };
 const FULFILLMENT_EVENT = { READY: "Listo para recoger", PICKED_UP: "Recogido por el cliente" };
 
 export async function setFulfillment(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const { fulfillment } = z.object({ fulfillment: z.enum(["PREPARING", "READY", "PICKED_UP"]) }).parse(req.body);
   const sale = await ownSale(vendor.id, req.params.id, ["PAID"]);
+  // Solo hacia adelante: un toque tardío (otra pantalla, doble clic) no devuelve a "preparando" un pedido ya recogido, ni
+  // el pedido enlazado en Pedidos.
+  const current = FULFILLMENT_RANK[sale.fulfillment ?? "PREPARING"];
+  if (FULFILLMENT_RANK[fulfillment] === current) return res.json({ sale });
+  if (FULFILLMENT_RANK[fulfillment] < current) throw new AppError("Ese pedido ya pasó por ese estado.", 409);
   const now = new Date();
   const updated = await prisma.posSale.update({
     where: { id: sale.id },
@@ -476,7 +512,8 @@ const SHOWCASE_MS = 5 * 60 * 1000;
 const showcaseCache = new Map();
 const shortText = (t, max) => (!t ? null : t.length > max ? `${t.slice(0, max).replace(/\s+\S*$/, "")}…` : t);
 
-async function showcaseFor(vendorId) {
+// `vendor` (planType y verificationStatus) decide qué ofertas puede mostrar la pantalla, con las mismas reglas que la tienda.
+async function showcaseFor(vendorId, vendor) {
   const hit = showcaseCache.get(vendorId);
   if (hit && Date.now() - hit.at < SHOWCASE_MS) return hit.data;
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
@@ -492,11 +529,13 @@ async function showcaseFor(vendorId) {
       _sum: { quantity: true },
     }),
     prisma.storeOffer.findMany({
-      where: { vendorId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }], AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] }] },
+      where: { vendorId, ...publicStoreOfferWhere() },
       include: { discountCode: { select: { code: true, type: true, value: true, currency: true, active: true } } },
+      orderBy: { createdAt: "desc" },
       take: 5,
     }),
   ]);
+  const visibleOffers = await filterVisibleStoreOffers(vendor, offers);
   const sold14 = new Map(recent.map((r) => [r.productId, r._sum.quantity ?? 0]));
   const score = (p) => (sold14.get(p.id) ?? 0) * 10 + p.salesCount * 3 + p.clickCount * 2 + p.viewCount / 5;
   const ranked = [...products].sort((x, y) => score(y) - score(x));
@@ -528,7 +567,7 @@ async function showcaseFor(vendorId) {
   const data = {
     products: grid,
     spotlight: spotlightIds.filter((id) => grid.some((g) => g.id === id)),
-    offers: offers
+    offers: visibleOffers
       .filter((o) => o.discountCode?.active)
       .map((o) => ({
         id: o.id,
@@ -548,7 +587,8 @@ async function showcaseFor(vendorId) {
 // Middleware de las rutas del panel: la tienda (del dueño o del personal) tiene que tener la caja en su plan.
 export async function requirePosPlan(req, _res, next) {
   const vendor = await resolveMyVendor(req.user.id);
-  if (!(await planAllows(vendor.planType, "allowPos"))) throw new AppError("La caja con código de barras es del Plan Premium. Cambia de plan para usarla.", 403, { planRequired: "allowPos" });
+  // El mensaje nombra los planes que traen la caja, leídos de la base (antes decía "Plan Premium" fijo).
+  await assertPlanAllowsWithUpsell(vendor, "allowPos", { lead: "La caja con código de barras no está en tu plan.", action: "Cambia de plan para usarla." });
   next();
 }
 
@@ -570,7 +610,7 @@ export async function getDisplay(req, res) {
     idleImageUrl: settings.idleImageUrl,
     state,
     idleMode: settings.idleMode,
-    showcase: state === "idle" && settings.idleMode !== "IMAGE" ? await showcaseFor(settings.vendorId) : null,
+    showcase: state === "idle" && settings.idleMode !== "IMAGE" ? await showcaseFor(settings.vendorId, settings.vendor) : null,
     sale: sale
       ? {
           code: sale.code,

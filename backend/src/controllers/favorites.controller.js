@@ -3,6 +3,17 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 
+// Las mismas condiciones con las que getVendorBySlug y getProductBySlug (products.controller.js) responden 404.
+const vendorIsPublic = (v) => !!v && !v.isBlocked && v.status === "ACTIVE" && !v.deletedAt;
+const productIsPublic = (p) =>
+  !!p &&
+  p.isActive &&
+  !p.hiddenFromStore &&
+  !p.overQuota &&
+  !p.suspendedAt &&
+  vendorIsPublic(p.vendor) &&
+  !(p.availableForTableMenu && p.vendor.menuPublic === false);
+
 // Bloque 22: favoritos de producto (ya existía el modelo, nunca se había
 // construido ni el endpoint ni la UI) y de tienda (nuevo) — mismo modelo
 // Favorite, exactamente uno de productId/vendorId por fila. Se incluye todo
@@ -21,13 +32,19 @@ export async function listMyFavorites(req, res) {
           locations: { include: { province: true, municipality: true } },
           category: true,
           businessCategory: true,
-          _count: { select: { products: { where: { isActive: true } } } },
+          // Mismo conteo que listVendors (vendors.controller.js): lo solo de mesa o fuera del cupo del plan no se ve en la
+          // tienda, así que tampoco suma en la tarjeta.
+          _count: { select: { products: { where: { isActive: true, hiddenFromStore: false, overQuota: false } } } },
         },
       },
     },
   });
+  // Solo se devuelve lo que el cliente puede abrir: una tienda bloqueada, suspendida o eliminada (o un producto que la
+  // ficha pública da por "no encontrado") salía en la pestaña Favoritos y al tocarlo llevaba a una página de error. La fila
+  // no se borra: si la tienda o el producto vuelven a estar visibles, reaparece sola.
+  const visible = favorites.filter((fav) => (fav.vendorId ? vendorIsPublic(fav.vendor) : productIsPublic(fav.product)));
   // La fila Vendor completa lleva datos legales y de facturación del dueño: al cliente solo le llega la parte pública.
-  const safe = favorites.map((fav) => ({
+  const safe = visible.map((fav) => ({
     ...fav,
     vendor: toPublicVendor(fav.vendor),
     product: fav.product ? { ...fav.product, vendor: toPublicVendor(fav.product.vendor) } : fav.product,

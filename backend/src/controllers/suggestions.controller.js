@@ -3,7 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { logActivity } from "../lib/activityLog.js";
 
-const createSchema = z.object({ message: z.string().min(5, "Cuéntanos un poco más.") });
+// Mismo tope que el buzón (SuggestionBox.jsx); el texto se guarda recortado.
+const createSchema = z.object({ message: z.string().trim().min(5, "Cuéntanos un poco más.").max(2000, "La sugerencia admite hasta 2000 caracteres.") });
 
 // authorType nunca viene del body — se deriva del role real del JWT, así no
 // se puede falsear "mandé esto como vendedor" siendo cliente (o viceversa).
@@ -36,12 +37,15 @@ function authorLabel(user, vendor) {
 }
 
 export async function listSuggestions(req, res) {
-  const { type, status } = req.query;
+  // Filtros validados: antes un ?type desconocido llegaba a Prisma como valor de enum y respondía 500.
+  const upper = (v) => (typeof v === "string" && v ? v.toUpperCase() : undefined);
+  const { type, status } = z
+    .object({ type: z.enum(["VENDOR", "CUSTOMER"]).optional(), status: z.enum(["NEW", "REVIEWED"]).optional() })
+    .parse({ type: upper(req.query.type), status: upper(req.query.status) });
   const suggestions = await prisma.suggestion.findMany({
-    where: {
-      authorType: type ? String(type).toUpperCase() : undefined,
-      status: status ? String(status).toUpperCase() : undefined,
-    },
+    where: { authorType: type, status },
+    // Tope para que la lista no crezca sin fin en una sola respuesta (las más nuevas primero).
+    take: 500,
     include: { author: { select: { id: true, fullName: true, email: true, vendor: { select: { companyName: true } } } } },
     orderBy: { createdAt: "desc" },
   });

@@ -29,7 +29,8 @@ export function productVisibility(p, vendor) {
   if (!p.isActive) hidden.push("Pausado");
   if (p.overQuota) hidden.push("Fuera del cupo de productos del plan");
   if (p.hiddenFromStore) hidden.push("Solo para pedidos de mesa");
-  if (p.availableForTableMenu && vendor?.menuPublic === false) partial.push("Menú visible solo con el QR de la mesa");
+  // La ficha pública da 404 en este caso (getProductBySlug): para el admin es oculto, no "se ve en parte".
+  if (p.availableForTableMenu && vendor?.menuPublic === false) hidden.push("Plato del menú de mesa con el menú oculto: solo se ve con el QR");
   if (vendor?.isPrivate) partial.push("Tienda privada: no sale en el catálogo");
   if (!p.unlimitedStock && Number(p.stock) <= 0) partial.push("Agotado: solo se ve en su tienda");
   return { visible: hidden.length === 0, hidden, partial };

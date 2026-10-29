@@ -25,7 +25,7 @@ function imgUrl(path) {
 // es de solo lectura salvo la contraseña — reusa el mismo endpoint
 // genérico PATCH /auth/me/password que ya usa VendorProfile/AdminProfile.
 export default function StaffProfile() {
-  const { data: profile, isLoading } = useQuery({
+  const { data: profile, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["my-staff-profile"],
     queryFn: async () => (await api.get("/vendor-staff/me/profile")).data,
   });
@@ -36,8 +36,9 @@ export default function StaffProfile() {
 
   const changePassword = useMutation({
     mutationFn: async () => (await api.patch("/auth/me/password", { currentPassword, newPassword, confirmPassword })).data,
-    onSuccess: () => {
-      toast.success("Contraseña actualizada.");
+    onSuccess: (data) => {
+      // El servidor cierra las sesiones de los otros dispositivos al cambiar la contraseña: se avisa cuántas había.
+      toast.success(data?.closedSessions > 0 ? "Contraseña actualizada. Cerramos tu sesión en los demás dispositivos." : "Contraseña actualizada.");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -47,11 +48,27 @@ export default function StaffProfile() {
 
   if (isLoading) return <PanelSkeleton />;
 
+  // Si la carga falla, `profile` queda vacío y profile.photoUrl rompía la pantalla entera. Se avisa y se deja reintentar.
+  // Solo sin datos: el panel refresca esta ficha cada 10 s (VendorLayout.jsx) y un refresco fallido conserva la anterior.
+  if (!profile) {
+    return (
+      <div className="mx-auto max-w-lg">
+        <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mi perfil</h1>
+        <div role="alert" className="rounded-2xl border border-error/30 bg-error/[0.06] p-6 text-center">
+          <p className="mb-3 text-[13.5px] font-semibold text-on-surface">No se pudo cargar tu perfil. Revisa tu conexión y vuelve a intentarlo.</p>
+          <Button variant="outline" disabled={isFetching} onClick={() => refetch()}>
+            {isFetching ? "Cargando..." : "Reintentar"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const photo = imgUrl(profile.photoUrl);
 
   return (
     <div className="mx-auto max-w-lg">
-      <h1 className="mb-5 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mi perfil</h1>
+      <h1 className="mb-5 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mi perfil</h1>
 
       <div className="mb-5 flex flex-col items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-center">
         {photo ? (
@@ -77,7 +94,7 @@ export default function StaffProfile() {
         <div>
           <p className="mb-1.5 text-[12px] font-semibold text-outline">Acceso a:</p>
           {profile.allowedSections.length === 0 ? (
-            <p className="text-[12px] text-outline">Todavía no tienes acceso a ninguna sección — pídeselo a tu administrador.</p>
+            <p className="text-[12px] text-outline">Todavía no tienes acceso a ninguna sección. Pídeselo a tu administrador.</p>
           ) : (
             <div className="flex flex-wrap justify-center gap-1.5">
               {profile.allowedSections.map((key) => {
@@ -97,7 +114,7 @@ export default function StaffProfile() {
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6">
         <h2 className="mb-1 text-title-lg font-bold text-on-surface">Cambiar mi contraseña</h2>
         <p className="mb-4 text-[12.5px] text-outline">
-          Tu nombre y correo los administra {profile.vendorName} — si necesitas corregirlos, pídeselo a tu administrador.
+          Tu nombre y correo los administra {profile.vendorName}. Si necesitas corregirlos, pídeselo a tu administrador.
         </p>
         <div className="flex flex-col gap-3">
           <Input label="Contraseña actual" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />

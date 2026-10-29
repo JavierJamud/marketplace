@@ -69,7 +69,7 @@ export async function orderDelayCustomerEmail({ order, hours }) {
   const html = await emailShell({
     preview: `Tu pedido sigue ${stage}. Te dejamos el contacto de la tienda por si quieres escribirle.`,
     title: "Tu pedido va con retraso",
-    storeName: esc(v.companyName),
+    storeName: v.companyName,
     storeLogoUrl: resolveAssetUrl(v.logoUrl),
     accentColor: "#337475",
     badge: { label: "Con retraso", color: "#8A5100" },

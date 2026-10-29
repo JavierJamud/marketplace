@@ -31,12 +31,12 @@ function OrderCard({ order, ready, accent, now }) {
   const justReady = ready && order.readyAt && now - new Date(order.readyAt).getTime() < JUST_READY_MS;
   return (
     <li
-      className={`min-w-0 rounded-2xl p-4 ${ready ? "bg-white text-[#0e1a28]" : "bg-white/[0.07] text-white"} ${justReady ? "ring-4 motion-safe:animate-pulse" : ""}`}
+      className={`min-w-0 rounded-2xl p-4 ${ready ? "bg-white text-primary" : "bg-white/[0.07] text-white"} ${justReady ? "ring-4 motion-safe:animate-pulse" : ""}`}
       style={justReady ? { "--tw-ring-color": accent } : undefined}
     >
       <p className="font-display text-[40px] font-extrabold leading-none tracking-[0.1em]">{order.code}</p>
-      <p className={`mt-1 truncate text-[22px] font-bold ${order.name ? "" : ready ? "text-[#0e1a28]/45" : "text-white/40"}`}>{order.name || "Sin nombre"}</p>
-      <ul className={`mt-2 space-y-0.5 text-[15px] ${ready ? "text-[#0e1a28]/75" : "text-white/70"}`}>
+      <p className={`mt-1 truncate text-[22px] font-bold ${order.name ? "" : ready ? "text-primary/45" : "text-white/40"}`}>{order.name || "Sin nombre"}</p>
+      <ul className={`mt-2 space-y-0.5 text-[15px] ${ready ? "text-primary/75" : "text-white/70"}`}>
         {order.summary.map((line) => (
           <li key={line} className="truncate">
             {line}
@@ -44,7 +44,7 @@ function OrderCard({ order, ready, accent, now }) {
         ))}
         {order.more > 0 && <li>y {order.more} más</li>}
       </ul>
-      <p className={`mt-2 text-[14px] font-semibold ${ready ? "text-[#0e1a28]/60" : "text-white/55"}`}>
+      <p className={`mt-2 text-[14px] font-semibold ${ready ? "text-primary/60" : "text-white/55"}`}>
         {ready ? sinceText(order.readyAt, now, "Listo") : sinceText(order.paidAt, now, "Pedido")}
       </p>
     </li>
@@ -86,13 +86,13 @@ export default function PosBoard() {
   }, [data?.vendor?.name]);
 
   if (error?.response?.status === 404) {
-    return <div className="fixed inset-0 flex items-center justify-center bg-[#0e1a28] px-6 text-center text-[18px] text-white/85">{error.response.data?.error ?? "Este enlace ya no es válido."}</div>;
+    return <div className="fixed inset-0 flex items-center justify-center bg-primary px-6 text-center text-[18px] text-white/85">{error.response.data?.error ?? "Este enlace ya no es válido."}</div>;
   }
-  if (!data) return <div className="fixed inset-0 flex items-center justify-center bg-[#0e1a28] text-[18px] text-white/70">Conectando...</div>;
+  if (!data) return <div className="fixed inset-0 flex items-center justify-center bg-primary text-[18px] text-white/70">Conectando...</div>;
   const accent = readableAccent(data.vendor.color);
 
   return (
-    <div className="fixed inset-0 flex flex-col gap-4 bg-[#0e1a28] p-5 text-white">
+    <div className="fixed inset-0 flex flex-col gap-4 bg-primary p-5 text-white">
       <header className="flex items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           {data.vendor.logoUrl && <img src={imgUrl(data.vendor.logoUrl)} alt="" className="h-14 w-14 flex-shrink-0 rounded-full bg-white object-cover" />}

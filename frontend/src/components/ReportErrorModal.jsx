@@ -57,7 +57,7 @@ export default function ReportErrorModal() {
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-4" onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
-      <div role="dialog" aria-modal="true" aria-labelledby="report-title" className="relative max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-5 shadow-2xl sm:p-6">
+      <div role="dialog" aria-modal="true" aria-labelledby="report-title" className="modal-panel-5 relative w-full max-w-md rounded-2xl bg-surface-container-lowest p-5 shadow-2xl sm:p-6">
         <button onClick={() => setOpen(false)} aria-label="Cerrar" className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full text-outline hover:bg-surface-container">
           <X className="h-5 w-5" aria-hidden="true" />
         </button>

@@ -29,7 +29,7 @@ export function CartConflictModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-surface-container-lowest p-6 shadow-lg">
+      <div className="modal-panel-6 w-full max-w-sm rounded-lg bg-surface-container-lowest p-6 shadow-lg">
         <AlertTriangle className="mb-3 h-8 w-8 text-secondary-container" />
         <h3 className="mb-2 text-title-lg text-on-surface">Tu carrito tiene otra tienda</h3>
         <p className="mb-6 text-body-md text-on-surface-variant">

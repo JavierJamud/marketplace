@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Plus, Minus, UtensilsCrossed, Clock, ChefHat, PartyPopper, XCircle, CheckCircle2, Store, Sparkles } from "lucide-react";
+import { Plus, Minus, UtensilsCrossed, Clock, ChefHat, PartyPopper, XCircle, CheckCircle2, Store, Sparkles, WifiOff } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { Button } from "../../components/ui/Button.jsx";
 import { Input } from "../../components/ui/Input.jsx";
@@ -10,10 +10,34 @@ import { EmptyState } from "../../components/ui/EmptyState.jsx";
 import { StoreHeaderBanner } from "../../components/StoreHeaderBanner.jsx";
 import { DigitalMenuProductCard, DigitalMenuGridSkeleton, DIGITAL_MENU_GRID_CLASS } from "../../components/DigitalMenuProductCard.jsx";
 import { Skeleton } from "../../components/ui/Skeleton.jsx";
+import { formatPrice } from "../../lib/format.js";
 
-function fmtCUP(n) {
-  return `${Number(n).toLocaleString("es-CU")} CUP`;
+// Cada plato tiene su propia moneda (Product.currency). Antes todo se pintaba con " CUP" fijo, así que un plato de 5 USD
+// salía como "5 CUP" y el total sumaba monedas distintas en un solo número. No hay tipo de cambio en el sistema: el total
+// va con una línea por moneda, igual que el carrito (formatMixedTotal en lib/format.js).
+function totalsByCurrency(lines) {
+  const byCurrency = new Map();
+  for (const { amount, currency } of lines) byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + amount);
+  return [...byCurrency.entries()];
 }
+
+// Total en una o varias líneas (una por moneda). Sin líneas muestra 0 en la moneda de la tienda.
+function CurrencyTotals({ totals, fallbackCurrency }) {
+  const rows = totals.length ? totals : [[fallbackCurrency, 0]];
+  return (
+    <div className="flex flex-col items-end">
+      {rows.map(([currency, amount]) => (
+        <p key={currency} className="text-headline-md text-primary">
+          {formatPrice(amount, currency)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// Lo que StoreHeaderBanner y la moneda de la cuenta necesitan de la tienda. Si table.vendor (GET /tables/qr/:token) no
+// trae todas estas claves, se completan con GET /vendors/:slug.
+const TABLE_VENDOR_BANNER_FIELDS = ["isOpenNow", "isVerified", "socialLinks", "businessCategory", "currency"];
 
 function imgUrl(path) {
   if (!path) return null;
@@ -29,10 +53,10 @@ function imgUrl(path) {
 // siempre después de "Listo" (no hay un valor DELIVERED en el enum), así
 // que acá se resuelve el paso mostrado combinando los dos.
 const KITCHEN_STEPS = [
-  { status: "RECEIVED", label: "Recibido", icon: Clock, description: "El equipo ya lo vio — en breve lo confirman contigo en la mesa." },
+  { status: "RECEIVED", label: "Recibido", icon: Clock, description: "El equipo ya lo vio. En breve lo confirman contigo en la mesa." },
   { status: "PREPARING", label: "Preparando", icon: ChefHat, description: "Tu pedido se está preparando." },
   { status: "READY", label: "¡Listo!", icon: PartyPopper, description: "Tu pedido está listo." },
-  { status: "DELIVERED", label: "¡Servido en tu mesa!", icon: CheckCircle2, description: "Ya te lo llevaron a la mesa — ¡buen provecho!" },
+  { status: "DELIVERED", label: "¡Servido en tu mesa!", icon: CheckCircle2, description: "Ya te lo llevaron a la mesa. ¡Buen provecho!" },
 ];
 
 function resolveDisplayStatus(activeOrder) {
@@ -106,7 +130,8 @@ function ItemSourceBadge({ source }) {
 // es de LA MESA, no de quien la pidió, y este componente solo refleja lo
 // que trae getTableByToken (table.activeOrder), con polling propio para
 // verse en vivo sin recargar. No guarda nada en localStorage.
-function ActiveOrderView({ activeOrder, vendorName }) {
+// `currencyOf(item)` resuelve la moneda de cada línea (ver TableOrder): las líneas guardadas no traen la suya.
+function ActiveOrderView({ activeOrder, vendorName, currencyOf }) {
   const displayStatus = resolveDisplayStatus(activeOrder);
   const stepIndex = KITCHEN_STEPS.findIndex((s) => s.status === displayStatus);
   const currentStep = KITCHEN_STEPS[stepIndex] ?? KITCHEN_STEPS[0];
@@ -141,9 +166,9 @@ function ActiveOrderView({ activeOrder, vendorName }) {
                   {/* Bloque 185 (pedido explícito — "el cliente... podrá ver
                       en la cuenta de la mesa el precio por unidad de cada
                       producto"). */}
-                  <p className="text-[11px] text-outline">{fmtCUP(it.price)} c/u</p>
+                  <p className="text-[11px] text-outline">{formatPrice(it.price, currencyOf(it))} c/u</p>
                 </div>
-                <span className="flex-shrink-0 text-label-md font-semibold text-on-surface-variant">{fmtCUP(it.price * it.quantity)}</span>
+                <span className="flex-shrink-0 text-label-md font-semibold text-on-surface-variant">{formatPrice(it.price * it.quantity, currencyOf(it))}</span>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 {it.source && <ItemSourceBadge source={it.source} />}
@@ -161,9 +186,14 @@ function ActiveOrderView({ activeOrder, vendorName }) {
         })}
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-surface-container-high pt-4">
+      {/* Se suma por moneda desde las líneas (activeOrder.total del servidor es la suma de todas sin distinguir moneda;
+          con una sola moneda da lo mismo). */}
+      <div className="mt-4 flex items-start justify-between gap-3 border-t border-surface-container-high pt-4">
         <p className="text-title-lg text-on-surface">Total</p>
-        <p className="text-headline-md text-primary">{fmtCUP(activeOrder.total)}</p>
+        <CurrencyTotals
+          totals={totalsByCurrency(activeOrder.items.map((it) => ({ amount: Number(it.price) * it.quantity, currency: currencyOf(it) })))}
+          fallbackCurrency={currencyOf({})}
+        />
       </div>
 
       {!canOrderMore && (
@@ -188,8 +218,8 @@ function ThankYouScreen({ vendorName, onContinue }) {
     <div className="flex flex-col items-center rounded-lg border border-verified/30 bg-verified/5 px-6 py-10 text-center">
       <Sparkles className="mb-3 h-9 w-9 text-verified" />
       <h2 className="mb-1.5 font-display text-title-lg text-on-surface">{timeOfDayGreeting()}</h2>
-      <p className="mb-1 text-body-md font-semibold text-on-surface">Ha sido un placer atenderle.</p>
-      <p className="mb-6 max-w-sm text-[13px] text-on-surface-variant">Gracias por visitar {vendorName} — esperamos verlo pronto de nuevo.</p>
+      <p className="mb-1 text-body-md font-semibold text-on-surface">Fue un placer atenderte.</p>
+      <p className="mb-6 max-w-sm text-[13px] text-on-surface-variant">Gracias por visitar {vendorName}. Esperamos verte pronto.</p>
       <Button size="lg" onClick={onContinue}>
         Seguir ordenando en esta mesa
       </Button>
@@ -251,16 +281,25 @@ export default function TableOrder() {
   // Bloque 172: única fuente de verdad — trae table.activeOrder (o null si
   // la mesa no tiene ninguna cuenta abierta ahora mismo). Polling propio
   // para que el cambio de estado/consumo se vea solo, sin recargar.
-  const { data: table, isLoading } = useQuery({
+  const { data: table, isLoading, error: tableError, refetch: refetchTable, isRefetching: tableRefetching } = useQuery({
     queryKey: ["table", qrToken],
     queryFn: async () => (await api.get(`/tables/qr/${qrToken}`)).data.table,
     refetchInterval: 5000,
   });
 
-  const { data: vendorFull } = useQuery({
+  // El banner (sello, descripción, redes, abierto o cerrado) salía SOLO de /vendors/:slug, y ese endpoint devuelve una
+  // forma reducida (sin horario ni sello, con hasPublishedProducts:false) justo para los restaurantes con el menú solo por
+  // QR: no tienen productos públicos. Además, si fallaba, la pantalla se quedaba en el esqueleto para siempre. Ahora la
+  // base es table.vendor (lo que trae el propio QR) y /vendors/:slug solo la completa cuando trae la forma completa.
+  // La consulta extra se salta solo si el QR ya trae TODO lo que usa el banner: con mirar solo isOpenNow, el día que el
+  // servidor mandara el horario sin el sello, las redes o la moneda, el banner los perdería sin que nada avisara.
+  // Se mira la clave y no el valor: isOpenNow llega null cuando la tienda no cargó horario, y eso también es una respuesta.
+  const tableVendorHasBanner = !!table?.vendor && TABLE_VENDOR_BANNER_FIELDS.every((field) => field in table.vendor);
+  const { data: vendorFull, isLoading: vendorLoading } = useQuery({
     queryKey: ["vendor", table?.vendor?.slug],
     queryFn: async () => (await api.get(`/vendors/${table.vendor.slug}`)).data.vendor,
-    enabled: !!table?.vendor?.slug,
+    enabled: !!table?.vendor?.slug && !tableVendorHasBanner,
+    retry: 1,
   });
 
   const activeOrder = table?.activeOrder ?? null;
@@ -279,10 +318,13 @@ export default function TableOrder() {
   // canceló) puramente a partir de lo que ya trae el polling — sin guardar
   // nada propio, sin re-fetch extra. justClosed solo dispara un cartel
   // breve antes de caer sola al formulario de pedir en blanco.
+  // Se compara contra `?? null`: antes era `activeOrder?.id` (undefined sin cuenta) contra el null guardado, nunca
+  // coincidían y al cerrarse la cuenta cada render volvía a llamar setHadOrderId: "Too many re-renders" y la pantalla caía.
   const [hadOrderId, setHadOrderId] = useState(undefined);
-  if (activeOrder?.id !== hadOrderId) {
+  const currentOrderId = activeOrder?.id ?? null;
+  if (currentOrderId !== hadOrderId) {
     if (hadOrderId && !activeOrder) setJustClosed(true);
-    setHadOrderId(activeOrder?.id ?? null);
+    setHadOrderId(currentOrderId);
   }
 
   const placeOrder = useMutation({
@@ -307,7 +349,25 @@ export default function TableOrder() {
 
   if (isLoading) return <div className="container-app py-8"><Skeleton width={200} height={26} className="mb-5" /><DigitalMenuGridSkeleton /></div>;
 
+  // Antes cualquier fallo (sin señal, un 500) caía en "Mesa no encontrada" y el cliente creía que el QR estaba mal. Solo
+  // un 404 lo es; lo demás se puede reintentar. Si la mesa ya había cargado y falla un sondeo, se sigue mostrando lo último.
   if (!table) {
+    if (tableError && tableError.response?.status !== 404) {
+      return (
+        <div className="container-app py-14">
+          <EmptyState
+            icon={WifiOff}
+            title="No pudimos cargar la mesa"
+            description="Revisa tu conexión y vuelve a intentarlo."
+            action={
+              <Button className="min-h-11" onClick={() => refetchTable()} disabled={tableRefetching}>
+                {tableRefetching ? "Cargando..." : "Reintentar"}
+              </Button>
+            }
+          />
+        </div>
+      );
+    }
     return (
       <div className="container-app py-14">
         <EmptyState icon={UtensilsCrossed} title="Mesa no encontrada" description="Este código QR no corresponde a ninguna mesa activa." />
@@ -315,14 +375,35 @@ export default function TableOrder() {
     );
   }
 
-  if (!vendorFull) return <div className="container-app py-8"><Skeleton width={200} height={26} className="mb-5" /><DigitalMenuGridSkeleton /></div>;
+  // Solo se espera a /vendors/:slug mientras carga; si falla o trae la forma reducida, se sigue con table.vendor.
+  if (!tableVendorHasBanner && vendorLoading) return <div className="container-app py-8"><Skeleton width={200} height={26} className="mb-5" /><DigitalMenuGridSkeleton /></div>;
 
-  const total = Object.entries(cart).reduce((sum, [productId, qty]) => {
-    const product = table.vendor.products.find((p) => p.id === productId);
-    return sum + (product ? Number(product.price) * qty : 0);
-  }, 0);
+  const usableVendorFull = !tableVendorHasBanner && vendorFull && vendorFull.hasPublishedProducts !== false ? vendorFull : null;
+  // table.vendor gana en lo que trae (sus productos son los del menú de ESTA mesa); vendorFull solo suma lo que falta.
+  const vendor = { ...(usableVendorFull ?? {}), ...table.vendor };
+  // Moneda de cada plato del menú y, para las líneas que ya no están en el menú (o las que cargó el mesero a mano), la
+  // moneda principal de la tienda si se conoce. Product.currency y Vendor.currency valen "CUP" por defecto en la base.
+  const storeCurrency = vendor.currency ?? "CUP";
+  const productCurrency = new Map(table.vendor.products.map((p) => [p.id, p.currency ?? storeCurrency]));
+  const currencyOf = (item) => item.currency ?? (item.productId && productCurrency.get(item.productId)) ?? storeCurrency;
+
+  const cartTotals = totalsByCurrency(
+    Object.entries(cart).flatMap(([productId, qty]) => {
+      const product = table.vendor.products.find((p) => p.id === productId);
+      return product && qty > 0 ? [{ amount: Number(product.price) * qty, currency: product.currency ?? storeCurrency }] : [];
+    })
+  );
+  // Igual que antes con el total único: sin nada que cobrar no se envía (el servidor rechaza precios en 0).
+  const cartHasItems = cartTotals.some(([, amount]) => amount > 0);
   const validName = customerName.trim().length > 0;
-  const isClosed = vendorFull.isOpenNow === false;
+  // Sin isOpenNow (forma reducida o consulta fallida) no se sabe si está abierto: no se bloquea aquí y el servidor, que
+  // sí revisa el horario al recibir el pedido (createTableOrder), responde con el motivo si está cerrado.
+  const isClosed = vendor.isOpenNow === false;
+  // La mesa no recibe pedidos por el QR (la tienda dejó de ser restaurante, su plan no trae mesas con QR o tiene el cobro
+  // atrasado; lo calcula getTableByToken con las mismas reglas que createTableOrder). Antes el cliente armaba el carrito,
+  // escribía su nombre y recién al enviar le salía el error: ahora ve el menú sin carrito y el aviso de pedir al personal.
+  // `!== false`: si el servidor no manda el dato, se deja pedir como antes y el servidor responde si no corresponde.
+  const acceptsOrders = table.acceptsOrders !== false;
   // Bloque 172: mientras el pedido de la mesa sigue RECEIVED (todavía sin
   // que el mesero lo confirme), no se puede mandar otro — evita 2 cuentas
   // sueltas a la vez sobre la misma mesa.
@@ -330,7 +411,7 @@ export default function TableOrder() {
 
   return (
     <div>
-      <StoreHeaderBanner vendor={vendorFull} tableLabel={table.label || `Mesa ${table.tableNumber}`} minimal underHeader={false} />
+      <StoreHeaderBanner vendor={vendor} tableLabel={table.label || `Mesa ${table.tableNumber}`} minimal underHeader={false} />
 
       {/* Misma "hoja" que Store.jsx — ver el comentario largo ahí:
           -mt-10/rounded-t-[40px] superpuesto sobre el "colchón" de color
@@ -354,21 +435,30 @@ export default function TableOrder() {
 
         {activeOrder && (
           <div className="mb-5">
-            <ActiveOrderView activeOrder={activeOrder} vendorName={table.vendor.companyName} />
+            <ActiveOrderView activeOrder={activeOrder} vendorName={table.vendor.companyName} currencyOf={currencyOf} />
           </div>
         )}
 
         {blockedByPendingApproval ? null : (
           <>
-            <PosClaim qrToken={qrToken} onClaimed={() => queryClient.invalidateQueries({ queryKey: ["table", qrToken] })} />
-            {activeOrder && (
+            {/* Sumar un pedido de caja también pasa por el QR (claimForTable pide mesas con QR en el plan): sin pedidos
+                por aquí, ese paso lo hace el personal desde su panel. */}
+            {acceptsOrders && (
+              <PosClaim qrToken={qrToken} onClaimed={() => queryClient.invalidateQueries({ queryKey: ["table", qrToken] })} />
+            )}
+            {activeOrder && acceptsOrders && (
               <h3 className="mb-3 font-display text-title-md text-on-surface">Agregar a la cuenta</h3>
             )}
 
-            {isClosed && (
+            {!acceptsOrders ? (
+              <div className="mb-4 rounded-lg border border-error/30 bg-error/5 p-4 text-center">
+                <p className="font-bold text-error">Esta mesa no recibe pedidos por aquí ahora</p>
+                <p className="mt-1.5 text-[13px] text-on-surface-variant">Puedes ver el menú. Para pedir, llama al personal.</p>
+              </div>
+            ) : isClosed && (
               <div className="mb-4 rounded-lg border border-error/30 bg-error/5 p-4 text-center">
                 <p className="font-bold text-error">Este local está cerrado ahora</p>
-                {vendorFull.nextOpenLabel && <p className="mt-0.5 text-[13px] text-on-surface-variant">{vendorFull.nextOpenLabel}</p>}
+                {vendor.nextOpenLabel && <p className="mt-0.5 text-[13px] text-on-surface-variant">{vendor.nextOpenLabel}</p>}
                 <p className="mt-1.5 text-[12px] text-outline">Puedes ver el menú, pero no se puede enviar un pedido hasta que abra.</p>
               </div>
             )}
@@ -392,21 +482,28 @@ export default function TableOrder() {
                         <span className="flex-shrink-0 rounded-full bg-error/10 px-2 py-0.5 text-[10px] font-bold text-error">Sin stock</span>
                       ) : null
                     }
-                    price={fmtCUP(p.price)}
-                    oldPrice={p.oldPrice ? fmtCUP(p.oldPrice) : null}
+                    price={formatPrice(p.price, p.currency ?? storeCurrency)}
+                    oldPrice={p.oldPrice ? formatPrice(p.oldPrice, p.currency ?? storeCurrency) : null}
                     discountPercent={p.oldPrice ? Math.round(100 - (Number(p.price) / Number(p.oldPrice)) * 100) : null}
                     action={
-                      !outOfStock && (
-                        <div className="flex flex-shrink-0 items-center gap-2">
+                      acceptsOrders && !outOfStock ? (
+                        // Botones de 44px (antes unos 28px, difíciles de tocar con el dedo) y con nombre para el lector de pantalla.
+                        // Contador y separación al mínimo: a 390px la fila del precio comparte unos 226px con este bloque, y
+                        // cada píxel de más se lo quita a precios largos como "1,250,000 CUP".
+                        <div className="flex flex-shrink-0 items-center gap-0.5">
                           <button
-                            className="rounded border border-outline-variant p-1.5"
+                            type="button"
+                            aria-label={`Quitar uno de ${p.name}`}
+                            className="flex h-11 w-11 items-center justify-center rounded border border-outline-variant"
                             onClick={() => setCart((c) => ({ ...c, [p.id]: Math.max(0, (c[p.id] ?? 0) - 1) }))}
                           >
                             <Minus className="h-4 w-4" />
                           </button>
-                          <span className="w-6 text-center">{cart[p.id] ?? 0}</span>
+                          <span className="w-5 text-center" aria-live="polite">{cart[p.id] ?? 0}</span>
                           <button
-                            className="rounded border border-outline-variant p-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+                            type="button"
+                            aria-label={`Agregar uno de ${p.name}`}
+                            className="flex h-11 w-11 items-center justify-center rounded border border-outline-variant disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={atStockLimit}
                             title={atStockLimit ? "No hay más stock disponible" : undefined}
                             onClick={() =>
@@ -420,7 +517,7 @@ export default function TableOrder() {
                             <Plus className="h-4 w-4" />
                           </button>
                         </div>
-                      )
+                      ) : null
                     }
                   />
                 );
@@ -430,9 +527,11 @@ export default function TableOrder() {
               )}
             </div>
 
-            <div className="mt-6 flex items-center justify-between border-t border-surface-container-high pt-4">
+            {acceptsOrders && (
+              <>
+            <div className="mt-6 flex items-start justify-between gap-3 border-t border-surface-container-high pt-4">
               <p className="text-title-lg text-on-surface">Total</p>
-              <p className="text-headline-md text-primary">{fmtCUP(total)}</p>
+              <CurrencyTotals totals={cartTotals} fallbackCurrency={storeCurrency} />
             </div>
 
             {!activeOrder && (
@@ -451,11 +550,13 @@ export default function TableOrder() {
             <Button
               size="lg"
               className="mt-4 w-full"
-              disabled={total === 0 || (!activeOrder && !validName) || placeOrder.isPending || isClosed}
+              disabled={!cartHasItems || (!activeOrder && !validName) || placeOrder.isPending || isClosed}
               onClick={() => placeOrder.mutate()}
             >
               {placeOrder.isPending ? "Enviando..." : isClosed ? "Cerrado ahora" : activeOrder ? "Agregar a la cuenta" : "Enviar pedido a cocina"}
             </Button>
+              </>
+            )}
           </>
         )}
           </>

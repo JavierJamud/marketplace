@@ -238,6 +238,35 @@ export default function Checkout() {
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo aplicar el código."),
   });
 
+  // El monto del código se calcula al aplicarlo; si después cambian los productos o las cantidades (aquí o en el carrito), se
+  // vuelve a pedir al servidor para que el resumen muestre el descuento real. Si el código ya no aplica, se quita con un aviso.
+  const itemsKey = items.map((i) => `${i.productId}:${i.size ?? ""}:${i.quantity}`).join("|");
+  const discountCode = discount?.code;
+  useEffect(() => {
+    if (!discountCode || !vendorId || !itemsKey) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await api.post("/discount-codes/validate", { vendorId, code: discountCode, items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })) });
+        const fresh = data.discount;
+        // Mismo monto: se deja el objeto anterior para no volver a guardar ni sincronizar el carrito por nada.
+        if (!cancelled) setDiscount((prev) => (!prev || prev.code !== fresh.code ? prev : prev.amount === fresh.amount && prev.currency === fresh.currency ? prev : fresh));
+      } catch (err) {
+        // Solo un rechazo del código lo quita; un corte de red, un error del servidor o el límite de peticiones (429) lo dejan
+        // como estaba (el pedido lo revalida igual al confirmarse).
+        if (cancelled || !err.response || err.response.status >= 500 || err.response.status === 429) return;
+        clearDiscount();
+        toast.error(`Quitamos el código ${discountCode}: ${err.response.data?.error ?? "ya no aplica a tu pedido."}`);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // items se lee dentro, pero itemsKey ya cambia con cada producto o cantidad.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsKey, discountCode, vendorId]);
+
   // Si la tienda entrega solo en algunos municipios de esa provincia, el cliente solo ve esos.
   const deliverableMunicipalities = useMemo(() => {
     const allowedIds = new Set(
@@ -283,13 +312,17 @@ export default function Checkout() {
   const shippingQuote = useShippingQuote({ vendorId, items, provinceId: form.provinceId || null });
   const quote = shippingQuote.data;
   const lineFor = (productId) => (quote?.source === "PRODUCT" ? quote.lines.find((l) => l.productId === productId) : null);
-  // Productos por moneda, ya con descuento o puntos (que solo existen con una sola moneda).
+  // Productos por moneda, ya con descuento o puntos (los puntos solo existen con una sola moneda).
   const unitPriceOf = (i) => resolveUnitPrice(i.price, i.priceTiers, i.quantity);
-  const productTotals = loyalty.used
-    ? { [loyalty.program.currency]: loyalty.total }
-    : discount
-    ? { [discount.currency]: Math.max(0, items.reduce((s, i) => s + unitPriceOf(i) * i.quantity, 0) - discount.amount) }
-    : itemsTotalsByCurrency(items, unitPriceOf);
+  const totalsWithDiscount = () => {
+    const totals = itemsTotalsByCurrency(items, unitPriceOf);
+    // El código solo descuenta los productos de su moneda (como en el servidor); los de otra moneda quedan igual.
+    // Si ya no queda ningún producto en esa moneda no se crea la entrada: saldría "0 USD + ..." hasta que la
+    // revalidación quite el código.
+    if (discount && totals[discount.currency] != null) totals[discount.currency] = Math.max(0, totals[discount.currency] - discount.amount);
+    return totals;
+  };
+  const productTotals = loyalty.used ? { [loyalty.program.currency]: loyalty.total } : totalsWithDiscount();
   const productsLabel = combineTotalsLabel(productTotals);
 
   const placeOrder = useMutation({
@@ -308,7 +341,8 @@ export default function Checkout() {
           recipientIdNumber: form.forSomeoneElse ? form.recipientIdNumber.replace(/\s+/g, "").toUpperCase() : undefined,
           shippingProvinceId: form.provinceId || undefined,
           shippingMunicipalityId: form.municipalityId || undefined,
-          shippingAddress: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(" — ") || undefined,
+          // Municipio y dirección separados con coma: este texto se muestra tal cual en el panel de la tienda, los correos y el WhatsApp.
+          shippingAddress: [form.municipalityId ? selectedMunicipalityName : form.cityOther, form.address].filter(Boolean).join(", ") || undefined,
           items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, selectedOptions: i.selectedOptions, size: i.size ?? undefined })),
           discountCode: discount?.code ?? undefined,
           loyaltyPoints: loyalty.used || undefined,
@@ -320,7 +354,19 @@ export default function Checkout() {
       // WhatsApp bien formateado (con los datos reales que el cliente
       // ACABA de completar en el formulario) sin tener que reconsultar nada.
       // El envío sale del pedido ya creado (lo que cobró el servidor), no de la cotización previa.
-      const orderTotals = loyalty.used ? { [loyalty.program.currency]: Number(order.total) } : productTotals;
+      // Productos, descuento y puntos también salen del pedido guardado, no del carrito: el descuento del carrito se calculó al
+      // aplicar el código y, si después cambiaron las cantidades, el ticket y el WhatsApp mostrarían otro total que el de la tienda.
+      const orderItems = (order.items ?? []).map((i) => ({ name: i.name, quantity: i.quantity, size: i.size, unitPrice: Number(i.price), currency: i.currency ?? "CUP" }));
+      const orderTotals = itemsTotalsByCurrency(orderItems, (i) => i.unitPrice);
+      const onlyCurrency = Object.keys(orderTotals).length === 1 ? Object.keys(orderTotals)[0] : null;
+      const discountAmount = Number(order.discountAmount ?? 0);
+      // El código solo descuenta los productos de su moneda (resolveDiscountForOrder en el servidor).
+      const discountCurrency = discount?.currency ?? onlyCurrency;
+      if (discountAmount > 0 && discountCurrency) orderTotals[discountCurrency] = Math.max(0, (orderTotals[discountCurrency] ?? 0) - discountAmount);
+      const loyaltyDiscount = Number(order.loyaltyDiscount ?? 0);
+      // Los puntos solo se usan con todo el pedido en la moneda de la tienda.
+      const loyaltyCurrency = loyalty.program?.currency ?? onlyCurrency;
+      if (loyaltyDiscount > 0 && loyaltyCurrency) orderTotals[loyaltyCurrency] = Math.max(0, (orderTotals[loyaltyCurrency] ?? 0) - loyaltyDiscount);
       const shippingFees = order.shippingFees ?? [];
       const totalLabel = combineTotalsLabel(orderTotals, shippingFees);
       const shippingText = shippingRowText({ fees: shippingFees, coordinate: order.shippingCoordinate });
@@ -340,21 +386,15 @@ export default function Checkout() {
         vendorWhatsapp: vendor?.whatsapp,
         orderCode: order.code,
         createdAt: order.createdAt,
-        items: items.map((i) => ({
-          name: i.name,
-          quantity: i.quantity,
-          size: i.size,
-          unitPrice: resolveUnitPrice(i.price, i.priceTiers, i.quantity),
-          currency: i.currency,
-        })),
+        items: orderItems,
         totalLabel,
         productsLabel: combineTotalsLabel(orderTotals),
         shippingText,
         shippingCoordinate: order.shippingCoordinate,
-        discount,
-        loyaltyPoints: loyalty.used,
-        loyaltyDiscount: loyalty.discount,
-        loyaltyCurrency: loyalty.program?.currency,
+        discount: discountAmount > 0 ? { code: discount?.code ?? "", amount: discountAmount, currency: discountCurrency } : null,
+        loyaltyPoints: order.loyaltyPointsRedeemed ?? 0,
+        loyaltyDiscount,
+        loyaltyCurrency,
         customerName: form.customerName,
         customerPhone: form.customerPhone,
         recipient: form.forSomeoneElse
@@ -512,7 +552,7 @@ export default function Checkout() {
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-label-lg font-bold text-primary shadow hover:opacity-90"
+              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-whatsapp text-label-lg font-bold text-primary shadow hover:opacity-90"
             >
               <MessageCircle className="h-5 w-5" aria-hidden="true" /> Enviar también por WhatsApp
             </a>
@@ -685,7 +725,7 @@ export default function Checkout() {
                     }}
                     className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-3.5 text-body-md outline-none focus:border-tertiary-accent"
                   >
-                    <option value="">Seleccionar País</option>
+                    <option value="">Elige el país</option>
                     {vendorCountries.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name} ({c.code})
@@ -693,13 +733,13 @@ export default function Checkout() {
                     ))}
                   </select>
                 </div>
-              ) : (
+              ) : vendorCountries.length === 1 ? (
                 <div className="flex h-11 items-center gap-2 rounded border border-outline-variant bg-surface-container px-3.5 text-body-md text-on-surface-variant">
                   <Globe2 className="h-4 w-4 text-tertiary-accent" />
-                  {vendorCountries[0]?.name ?? "Cuba"}
+                  {vendorCountries[0].name}
                   <span className="ml-auto text-[11.5px] text-outline">País de entrega</span>
                 </div>
-              )}
+              ) : null /* Sin país resuelto no se inventa uno: la lista de abajo ya trae provincias y estados con su tipo. */}
 
               {/* State / Province & Municipality inputs */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -841,8 +881,15 @@ export default function Checkout() {
                   <span className="flex items-center gap-1.5">
                     <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount, discount.currency)})
                   </span>
-                  <button onClick={clearDiscount} className="rounded-full p-1 hover:bg-verified/15" title="Quitar código">
-                    <X className="h-3.5 w-3.5" />
+                  {/* Área táctil de 44px; los márgenes negativos evitan que la franja del código crezca de más. */}
+                  <button
+                    type="button"
+                    onClick={clearDiscount}
+                    aria-label="Quitar código"
+                    title="Quitar código"
+                    className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-verified/15"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 </div>
               ) : (
@@ -892,7 +939,7 @@ export default function Checkout() {
               disabled={!allFieldsFilled || placeOrder.isPending}
               className="w-full h-12 rounded-xl bg-secondary-container text-label-lg font-bold text-on-secondary-container shadow-md hover:bg-secondary-container/90 disabled:opacity-40 transition-all"
             >
-              {placeOrder.isPending ? "Confirmando pedido..." : "Confirmar Pedido"}
+              {placeOrder.isPending ? "Confirmando pedido..." : "Confirmar pedido"}
             </button>
             {!allFieldsFilled && (
               <p className="mt-2 text-center text-[11.5px] text-outline">

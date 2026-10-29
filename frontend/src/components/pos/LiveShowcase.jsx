@@ -31,7 +31,7 @@ function Card({ p, active, accent, cardRef }) {
       <div className="relative aspect-square bg-white">
         <img src={imgUrl(p.image)} alt="" className="h-full w-full object-contain" loading="lazy" />
         {p.reason?.kind !== "popular" && (
-          <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-bold text-[#0e1a28]" style={{ background: accent }}>
+          <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-bold text-primary" style={{ background: accent }}>
             <Icon className="h-3.5 w-3.5" aria-hidden="true" />
             {p.reason.kind === "offer" ? p.reason.label.replace("Oferta: ", "") : p.reason.kind === "new" ? "Nuevo" : "Popular"}
           </span>
@@ -73,7 +73,7 @@ function ProductDetail({ p, accent }) {
         )}
       </div>
       <div className="min-w-0 md:w-[44%]">
-        <p className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[16px] font-bold text-[#0e1a28]" style={{ background: accent }}>
+        <p className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[16px] font-bold text-primary" style={{ background: accent }}>
           <Icon className="h-4 w-4" aria-hidden="true" /> {p.reason?.label}
         </p>
         <p className="mt-5 font-display text-[40px] font-extrabold leading-[1.1] lg:text-[52px]">{p.name}</p>
@@ -93,7 +93,7 @@ function ProductDetail({ p, accent }) {
 function OfferDetail({ o, accent }) {
   return (
     <div className="flex h-full flex-col items-center justify-center p-10 text-center">
-      <p className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[17px] font-bold text-[#0e1a28]" style={{ background: accent }}>
+      <p className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[17px] font-bold text-primary" style={{ background: accent }}>
         <TicketPercent className="h-5 w-5" aria-hidden="true" /> Oferta de la tienda
       </p>
       <p className="mt-6 max-w-4xl font-display text-[48px] font-extrabold leading-tight lg:text-[64px]">{o.title}</p>
@@ -237,8 +237,8 @@ export function LiveShowcase({ showcase, vendor, accent }) {
         </ul>
       </div>
       {/* Degradados arriba y abajo: la cuadrícula entra y sale de la pantalla en vez de cortarse en seco. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-[#0e1a28] to-transparent" aria-hidden="true" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#0e1a28] to-transparent" aria-hidden="true" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-primary to-transparent" aria-hidden="true" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-primary to-transparent" aria-hidden="true" />
 
       {panelStyle && (stop?.kind === "offer" || product) && (
         <div

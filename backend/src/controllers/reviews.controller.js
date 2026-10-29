@@ -13,6 +13,8 @@ import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { assertPlanAllows } from "../lib/planConfig.js";
 import { sendReviewReplyEmail } from "../lib/email.js";
 import { env } from "../config/env.js";
+import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
+import { requireVendorWrite } from "../middleware/requireVendorAccess.js";
 
 // Bloque 117/118 (pedido explícito): un mismo usuario logueado puede dejar
 // hasta `maxPerProduct` comentarios por ventana de tiempo POR PRODUCTO
@@ -85,8 +87,8 @@ export async function createReview(req, res) {
     if (commentsInWindow >= max) {
       throw new AppError(
         data.productId
-          ? "Ya alcanzaste el límite de reseñas para este producto por ahora — puedes volver a intentarlo más tarde."
-          : "Ya alcanzaste el límite de comentarios para esta tienda por ahora — puedes volver a intentarlo más tarde.",
+          ? "Ya alcanzaste el límite de reseñas para este producto por ahora. Puedes volver a intentarlo más tarde."
+          : "Ya alcanzaste el límite de comentarios para esta tienda por ahora. Puedes volver a intentarlo más tarde.",
         429
       );
     }
@@ -250,15 +252,17 @@ async function notifyReviewReply(review, { responder, reply, fromStore = false }
 
 // --- Reportar (Bloque 69, pedido explícito) ---------------------------------
 // Un solo endpoint para los 2 lugares desde donde se puede reportar: el
-// panel de vendedor (sobre reseñas de SU propia tienda, VendorReviews.jsx) y
-// la cuenta de cualquier cliente logueado (sobre cualquier reseña que vea en
-// Store.jsx/Product.jsx, nunca la propia). No hay gate de "solo el dueño de
-// la tienda" acá a propósito — cualquier usuario autenticado puede reportar
-// contenido que ve, igual que un vendedor navegando otra tienda como
-// cliente; lo único que nunca se permite es reportar tu propio comentario.
+// panel de vendedor (VendorReviews.jsx) y la cuenta de cualquier cliente
+// logueado (Store.jsx/Product.jsx). Reglas, todas en reportReview:
+// - Un cliente puede reportar cualquier comentario que ve, nunca el propio.
+// - El dueño de la tienda y su personal actúan por la tienda: necesitan
+//   nivel "Modificar" en "resenas" (requireVendorWrite), y el personal solo
+//   reporta comentarios de la tienda para la que trabaja.
+// - Hay topes: REPORTS_PER_DAY por cuenta y MAX_PENDING_TEAM_REPORTS por
+//   equipo de tienda (ver más abajo).
 function assertReportable(review) {
   if (review.reportStatus === "KEPT") {
-    throw new AppError("Este comentario ya fue revisado por el equipo y se decidió mantenerlo — no se puede volver a reportar.", 409);
+    throw new AppError("Este comentario ya fue revisado por el equipo y se decidió mantenerlo. No se puede volver a reportar.", 409);
   }
   if (review.reportStatus === "REPORTED") {
     throw new AppError("Este comentario ya está reportado y esperando revisión del admin.", 409);
@@ -270,38 +274,95 @@ function assertReportable(review) {
 
 const reportReviewSchema = z.object({ reason: z.string().trim().max(300).optional() });
 
+// Topes del reporte. Ocultar al instante es a propósito (Bloque 69), pero sin topes una tienda podía reportar todas sus
+// reseñas negativas, dejarlas ocultas y subir su nota hasta que el admin revisara, y cualquier cuenta podía vaciar los
+// comentarios de una tienda ajena. Se cuentan en la base (reportedById y reportedAt quedan guardados en cada reseña), así
+// valen igual después de reiniciar el servidor y entre varias instancias.
+// - REPORTS_PER_DAY: reportes de una misma cuenta en 24 horas, en cualquier tienda.
+// - MAX_PENDING_TEAM_REPORTS: reseñas de una tienda reportadas por su propio equipo (dueño o personal) que esperan revisión a
+//   la vez. Cuando el admin resuelve una, se libera el lugar.
+const REPORTS_PER_DAY = 5;
+const MAX_PENDING_TEAM_REPORTS = 3;
+
 export async function reportReview(req, res) {
   const { id } = req.params;
   const { reason } = reportReviewSchema.parse(req.body);
 
   const review = await prisma.review.findUnique({
     where: { id },
-    include: { vendor: { select: { companyName: true, userId: true } } },
+    include: { vendor: { select: { id: true, companyName: true, userId: true } } },
   });
   if (!review) throw new AppError("Comentario no encontrado.", 404);
   if (review.userId === req.user.id) throw new AppError("No puedes reportar tu propio comentario.", 400);
   assertReportable(review);
 
-  const updated = await prisma.review.update({
-    where: { id },
-    data: {
-      isHidden: true,
-      reportStatus: "REPORTED",
-      reportedById: req.user.id,
-      reportReason: reason || null,
-      reportedAt: new Date(),
-    },
+  // Quien reporta desde el panel de la tienda actúa por ella: mismas reglas que responder una reseña (sección "Reseñas" con
+  // nivel "Modificar", tienda no bloqueada y, para el personal, plan con usuarios del equipo). Antes la ruta solo pedía
+  // sesión y el personal de solo lectura también podía ocultar reseñas. El personal no es un cliente: solo reporta reseñas
+  // de la tienda para la que trabaja.
+  const reporterIsVendorOwner = !!review.vendor && review.vendor.userId === req.user.id;
+  const reporterIsStaff = req.user.role === "VENDOR_STAFF";
+  if (reporterIsVendorOwner || reporterIsStaff) {
+    await requireVendorWrite("resenas")(req, null, () => {});
+    if (reporterIsStaff && req.vendorStaff?.vendorId !== review.vendorId) {
+      throw new AppError("Solo puedes reportar comentarios de la tienda para la que trabajas.", 403);
+    }
+  }
+  const reporterIsTeam = reporterIsVendorOwner || reporterIsStaff;
+
+  // Contar los topes y marcar el reporte van en una sola transacción, detrás de candados de Postgres por cuenta y por
+  // tienda: sin ellos, varios reportes a la vez (de la misma cuenta, o del mismo equipo sobre reseñas distintas) pasaban
+  // los dos conteos antes de que ninguno guardara y superaban el tope. Los candados se sueltan solos al cerrar la
+  // transacción. Siempre se toma primero el de la cuenta y después el de la tienda, así dos reportes no se traban entre sí.
+  const count = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`review-report:user:${req.user.id}`})::bigint)`;
+    if (reporterIsTeam && review.vendorId) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`review-report:vendor:${review.vendorId}`})::bigint)`;
+    }
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const reportedToday = await tx.review.count({ where: { reportedById: req.user.id, reportedAt: { gte: since } } });
+    if (reportedToday >= REPORTS_PER_DAY) {
+      throw new AppError(`Ya reportaste ${REPORTS_PER_DAY} comentarios en las últimas 24 horas. Podrás reportar otro más tarde.`, 429);
+    }
+    if (reporterIsTeam && review.vendorId) {
+      const staff = await tx.vendorStaff.findMany({ where: { vendorId: review.vendorId }, select: { userId: true } });
+      const teamIds = [review.vendor.userId, ...staff.map((s) => s.userId)].filter(Boolean);
+      const pendingFromTeam = await tx.review.count({
+        where: { vendorId: review.vendorId, reportStatus: "REPORTED", reportedById: { in: teamIds } },
+      });
+      if (pendingFromTeam >= MAX_PENDING_TEAM_REPORTS) {
+        throw new AppError(
+          `Tu tienda ya tiene ${MAX_PENDING_TEAM_REPORTS} comentarios reportados esperando revisión. Podrás reportar otro cuando el equipo de la plataforma los revise.`,
+          429
+        );
+      }
+    }
+
+    // Solo si nadie lo reportó entretanto: dos reportes a la vez del mismo comentario pisaban al primero (y su motivo).
+    const result = await tx.review.updateMany({
+      where: { id, reportStatus: null },
+      data: {
+        isHidden: true,
+        reportStatus: "REPORTED",
+        reportedById: req.user.id,
+        reportReason: reason || null,
+        reportedAt: new Date(),
+      },
+    });
+    return result.count;
   });
+  if (count === 0) throw new AppError("Este comentario ya está reportado y esperando revisión del admin.", 409);
+  const updated = await prisma.review.findUnique({ where: { id } });
   if (updated.vendorId && updated.rating) await recalculateVendorRating(updated.vendorId);
   if (updated.productId && updated.rating) await recalculateProductRating(updated.productId);
 
   // Bloque 69 (pedido explícito): "el admin siempre debe estar notificado de
   // todas estas acciones de los vendedores y clientes también" — cubre los
   // 2 orígenes posibles con el mismo aviso, solo cambia la redacción.
-  const reporterIsVendorOwner = review.vendor?.userId === req.user.id;
   logActivity({
     actorId: req.user.id,
-    actorRole: reporterIsVendorOwner ? "VENDOR" : "CUSTOMER",
+    actorRole: reporterIsTeam ? actorRoleForVendorAction(req) : "CUSTOMER",
     vendorId: review.vendorId ?? undefined,
     action: "review_reported",
     description: `Reportó un comentario${review.vendor ? ` en "${review.vendor.companyName}"` : ""}`,
@@ -309,9 +370,9 @@ export async function reportReview(req, res) {
   });
   await notifyAdminActionNeeded(
     "Un comentario fue reportado",
-    `${reporterIsVendorOwner ? `El vendedor de "${review.vendor?.companyName}"` : "Un cliente"} reportó un comentario${
+    `${reporterIsTeam ? `${reporterIsStaff ? "El personal" : "El vendedor"} de "${review.vendor?.companyName}"` : "Un cliente"} reportó un comentario${
       reason ? ` (motivo: "${reason}")` : ""
-    } — quedó oculto mientras lo revisas en el panel de administración.`,
+    }. Quedó oculto mientras lo revisas en el panel de administración.`,
     review.vendorId ?? undefined,
     { url: `/admin/comentarios?review=${id}` }
   );
@@ -323,19 +384,64 @@ export async function reportReview(req, res) {
 // El vendedor no puede tocar esto — solo el admin oculta o borra un
 // comentario. "Ocultar" es reversible (isHidden), "eliminar" es definitivo.
 
-export async function listAllReviews(_req, res) {
-  const reviews = await prisma.review.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      vendor: { select: { id: true, companyName: true, slug: true } },
-      product: { select: { id: true, name: true, slug: true } },
-      // Bloque 69: quién reportó — el admin necesita saber si fue el
-      // vendedor de la propia tienda o un cliente cualquiera para decidir.
-      reportedBy: { select: { fullName: true, role: true } },
-    },
-    take: 200,
-  });
-  res.json({ reviews });
+const ADMIN_REVIEW_INCLUDE = {
+  vendor: { select: { id: true, companyName: true, slug: true } },
+  product: { select: { id: true, name: true, slug: true } },
+  // Bloque 69: quién reportó. El admin necesita saber si fue el
+  // vendedor de la propia tienda o un cliente cualquiera para decidir.
+  reportedBy: { select: { fullName: true, role: true } },
+};
+
+// Filtro por estado del reporte. NONE = nunca reportados. Sin page, pageSize ni reportStatus responde como antes (una sola
+// lista), para que la pantalla actual siga funcionando mientras no pida páginas.
+const adminReviewsQuerySchema = paginationQuerySchema.partial().extend({
+  reportStatus: z.enum(["REPORTED", "KEPT", "SUSPENDED", "NONE"]).optional(),
+});
+const LEGACY_LIST_SIZE = 200;
+
+// Cuántos hay en cada estado, para los contadores de las pestañas.
+async function reviewReportCounts() {
+  const [grouped, total] = await Promise.all([
+    prisma.review.groupBy({ by: ["reportStatus"], _count: { _all: true } }),
+    prisma.review.count(),
+  ]);
+  const counts = { total, REPORTED: 0, KEPT: 0, SUSPENDED: 0, NONE: 0 };
+  for (const g of grouped) counts[g.reportStatus ?? "NONE"] = g._count._all;
+  return counts;
+}
+
+export async function listAllReviews(req, res) {
+  const query = adminReviewsQuerySchema.parse(req.query ?? {});
+  const counts = await reviewReportCounts();
+
+  if (query.page === undefined && query.pageSize === undefined && !query.reportStatus) {
+    // Antes eran solo los 200 más nuevos: un comentario reportado más viejo no salía en la lista y el aviso de la campana
+    // (?review=id) llevaba a una pantalla sin él. Los reportados pendientes van siempre, primero (son lo que hay que resolver).
+    const [pending, latest] = await Promise.all([
+      prisma.review.findMany({ where: { reportStatus: "REPORTED" }, orderBy: { reportedAt: "asc" }, include: ADMIN_REVIEW_INCLUDE, take: LEGACY_LIST_SIZE }),
+      prisma.review.findMany({ orderBy: { createdAt: "desc" }, include: ADMIN_REVIEW_INCLUDE, take: LEGACY_LIST_SIZE }),
+    ]);
+    const pendingIds = new Set(pending.map((r) => r.id));
+    return res.json({ reviews: [...pending, ...latest.filter((r) => !pendingIds.has(r.id))], counts });
+  }
+
+  const paging = paginationQuerySchema.parse({ page: query.page, pageSize: query.pageSize });
+  const where = query.reportStatus === "NONE" ? { reportStatus: null } : query.reportStatus ? { reportStatus: query.reportStatus } : {};
+  // Los reportados pendientes, del más antiguo al más nuevo: el que lleva más tiempo oculto se revisa primero.
+  const orderBy = query.reportStatus === "REPORTED" ? { reportedAt: "asc" } : { createdAt: "desc" };
+  const [reviews, total] = await Promise.all([
+    prisma.review.findMany({ where, orderBy, include: ADMIN_REVIEW_INCLUDE, ...pageArgs(paging) }),
+    prisma.review.count({ where }),
+  ]);
+  res.json({ reviews, counts, ...pageMeta(paging, total) });
+}
+
+// Un comentario suelto para el admin: el aviso de la campana lleva a ?review=id, y ese comentario puede no estar en la
+// página que se cargó. Necesita la ruta GET /admin/reviews/:id en admin.routes.js.
+export async function getAdminReview(req, res) {
+  const review = await prisma.review.findUnique({ where: { id: req.params.id }, include: ADMIN_REVIEW_INCLUDE });
+  if (!review) throw new AppError("Comentario no encontrado.", 404);
+  res.json({ review });
 }
 
 // Promedio y cantidad de reseñas: un solo cálculo para todo el sitio (ver lib/ratings.js).
@@ -350,6 +456,15 @@ export async function setReviewHidden(req, res) {
 
   const existing = await prisma.review.findUnique({ where: { id } });
   if (!existing) throw new AppError("Comentario no encontrado.", 404);
+  // "Mostrar" no puede saltarse el reporte: un comentario reportado se vuelve a mostrar con "Mantener" (que además lo sella
+  // contra nuevos reportes) y uno suspendido queda oculto hasta que se elimine. Antes "Mostrar" lo publicaba igual y el
+  // reporte quedaba pendiente con el comentario a la vista.
+  if (!isHidden && existing.reportStatus === "REPORTED") {
+    throw new AppError("Este comentario tiene un reporte sin resolver. Usa Mantener para volver a mostrarlo.", 409);
+  }
+  if (!isHidden && existing.reportStatus === "SUSPENDED") {
+    throw new AppError("Este comentario fue suspendido por un reporte y no se puede volver a mostrar. Solo puedes eliminarlo.", 409);
+  }
 
   const review = await prisma.review.update({ where: { id }, data: { isHidden } });
   if (review.vendorId && review.rating) await recalculateVendorRating(review.vendorId);

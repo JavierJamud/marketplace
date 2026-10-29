@@ -49,7 +49,7 @@ function PersonalDataCard() {
 
   return (
     <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <IdCard className="h-5 w-5 text-tertiary-accent" /> Datos personales (privados)
       </div>
       <p className="mb-4 text-[12.5px] text-outline">Solo tú los ves. No se muestran a nadie ni se envían a ningún lado.</p>
@@ -71,8 +71,9 @@ function PasswordCard() {
 
   const save = useMutation({
     mutationFn: async () => (await api.patch("/auth/me/password", { currentPassword, newPassword, confirmPassword })).data,
-    onSuccess: () => {
-      toast.success("Contraseña actualizada.");
+    onSuccess: (data) => {
+      // El servidor cierra las sesiones de los otros dispositivos al cambiar la contraseña: se avisa cuántas había.
+      toast.success(data?.closedSessions > 0 ? "Contraseña actualizada. Cerramos tu sesión en los demás dispositivos." : "Contraseña actualizada.");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -82,7 +83,7 @@ function PasswordCard() {
 
   return (
     <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <KeyRound className="h-5 w-5 text-tertiary-accent" /> Cambiar contraseña
       </div>
       <p className="mb-4 text-[12.5px] text-outline">Necesitas tu contraseña actual para cambiarla.</p>
@@ -111,7 +112,7 @@ export default function AdminProfile() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={UserCog} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Mi perfil</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mi perfil</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Tu cuenta de administrador y la marca de la plataforma.</p>
 
@@ -136,7 +137,7 @@ export default function AdminProfile() {
           </div>
 
           <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-            <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+            <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
               <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta
             </div>
             <p className="mb-4 text-[13.5px] text-on-surface-variant">{user?.email}</p>

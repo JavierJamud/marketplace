@@ -112,7 +112,7 @@ function AnnouncementModal({ announcement, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{announcement ? "Editar anuncio" : "Nuevo anuncio"}</h2>
 
         <div className="flex flex-col gap-3.5">
@@ -233,7 +233,7 @@ export default function AdminAnnouncements() {
     <div className="max-w-[900px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Image} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Anuncios</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Anuncios</h1>
       </div>
       <p className="mb-2 text-[13.5px] text-outline">
         Banners programados para el Home o Tiendas del sitio público — solo se muestran dentro de su rango de fechas y con "Activo" encendido.

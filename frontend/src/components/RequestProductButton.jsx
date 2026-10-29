@@ -57,7 +57,7 @@ export function RequestProductButton({ productId, alreadyRequested = false, size
   // establecido en el proyecto para "bajo stock"/estados de aviso, ver
   // STATUS_STYLE.low en VendorProducts.jsx) para que se note de un vistazo
   // que ya está enviado, sin tener que leer el texto.
-  const doneStyle = "border-2 border-[#8a5100] bg-[#8a5100]/10 text-[#8a5100]";
+  const doneStyle = "border-2 border-secondary bg-secondary/10 text-secondary";
   const idleStyle = "bg-surface-container-high text-on-surface-variant hover:brightness-95";
 
   if (size === "sm") {

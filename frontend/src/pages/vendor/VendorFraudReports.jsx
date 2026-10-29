@@ -9,7 +9,7 @@ export default function VendorFraudReports() {
     <div>
       <div className="mb-4 flex items-center gap-3">
         <IconCircle icon={ShieldAlert} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Reportes</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Reportes</h1>
       </div>
       <ReportsCenter audience="vendor" />
     </div>

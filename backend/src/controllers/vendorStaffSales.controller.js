@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity } from "../lib/activityLog.js";
 import { pruneSectionPermissions } from "../constants/vendorSections.js";
+import { startOfDayInTimezone } from "../lib/timezone.js";
 
 // Bloque 198 (pedido explícito — "una nueva sección... con el objetivo para
 // darle acceso a los usuarios a ella... podrán agregar ventas que se
@@ -34,41 +35,56 @@ function assertOwnerOrAdmin(req) {
   if (req.user.role === "VENDOR_STAFF") throw new AppError("Esta acción es solo para el dueño de la tienda.", 403);
 }
 
-function periodSince(period) {
+// Inicio de hoy, de la semana (lunes) o del mes en la zona horaria de la tienda, igual que la caja (startOfToday en
+// pos.controller.js). Antes usaba la hora del proceso: en un servidor en UTC, "hoy" en Cuba empezaba a las 19:00 o 20:00
+// del día anterior y las ventas de esa noche caían en el día equivocado.
+function periodSince(period, timezone) {
+  const tz = timezone || "America/Havana";
   const now = new Date();
-  if (period === "today") return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (period === "week") {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // lunes de esta semana
-    return d;
-  }
-  if (period === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+  const today = startOfDayInTimezone(now, tz);
+  if (period === "today") return today;
+  // Día calendario en la tienda (no en el servidor) para saber qué día de la semana y del mes es.
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(now).split("-").map(Number);
+  // Retrocede N días desde la medianoche local y vuelve a buscar la medianoche de ese día: el mediodía evita que un
+  // cambio de horario (días de 23 o 25 horas) haga caer el cálculo en el día de al lado.
+  const daysBack = (n) => startOfDayInTimezone(new Date(today.getTime() - n * 86400000 + 12 * 3600000), tz);
+  if (period === "week") return daysBack((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7); // lunes de esta semana
+  if (period === "month") return daysBack(d - 1);
   return null;
 }
 
 // Bloque 198: límites del período de cuadre de caja VIGENTE, según la
-// frecuencia configurada por el vendedor (Vendor.cashCloseFrequency) — se
-// exporta porque cashCloseReminder.job.js necesita el mismo cálculo exacto
-// para saber "hoy es el día" antes de mandar el recordatorio.
-export function periodBounds(frequency, refDate = new Date()) {
-  const d = new Date(refDate);
-  if (frequency === "DAILY") {
-    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    return { start, end };
-  }
-  if (frequency === "MONTHLY") {
-    const start = new Date(d.getFullYear(), d.getMonth(), 1);
-    const end = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-    return { start, end };
-  }
-  // WEEKLY (default) — lunes a lunes.
-  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  const end = new Date(start);
-  end.setDate(end.getDate() + 7);
-  return { start, end };
+// frecuencia configurada por el vendedor (Vendor.cashCloseFrequency): el día,
+// la semana de lunes a lunes o el mes en curso. Va con los días de la tienda,
+// igual que periodSince. Se exporta porque cashCloseReminder.job.js suma con
+// ella las ventas del correo de recordatorio: antes usaba la hora del proceso
+// y, en un servidor en UTC, la pantalla del cuadre partía el día a las 19:00
+// o 20:00 de Cuba mientras el correo sumaba el día de Cuba.
+export function periodBounds(frequency, refDate = new Date(), timezone = "America/Havana") {
+  const tz = timezone || "America/Havana";
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(refDate)).split("-").map(Number);
+  // Medianoche local del día y/m/d (d puede salirse del mes: Date.UTC lo corrige). Se parte del mediodía UTC de ese
+  // día para que startOfDayInTimezone lea siempre ese mismo día.
+  const midnight = (day, month = m) => startOfDayInTimezone(new Date(Date.UTC(y, month - 1, day, 12)), tz);
+  if (frequency === "DAILY") return { start: midnight(d), end: midnight(d + 1) };
+  if (frequency === "MONTHLY") return { start: midnight(1), end: midnight(1, m + 1) };
+  // WEEKLY (default): lunes a lunes.
+  const monday = d - ((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7);
+  return { start: midnight(monday), end: midnight(monday + 7) };
+}
+
+// Filtro del cuadre ya guardado para el período [start, end). Los cuadres
+// guardados antes de pasar a la zona de la tienda tienen periodStart con la
+// medianoche del servidor, unas horas antes o después de la de la tienda: con
+// una coincidencia exacta no se encontrarían y la persona podría reportar dos
+// veces el mismo período. Doce horas de margen bastan para esas diferencias y
+// no alcanzan al período de al lado (el más corto, el diario, dura 24 horas).
+const PERIOD_MATCH_MARGIN_MS = 12 * 3600000;
+function samePeriodWhere(start, end) {
+  return {
+    periodStart: { gt: new Date(start.getTime() - PERIOD_MATCH_MARGIN_MS), lt: new Date(start.getTime() + PERIOD_MATCH_MARGIN_MS) },
+    periodEnd: { gt: new Date(end.getTime() - PERIOD_MATCH_MARGIN_MS), lt: new Date(end.getTime() + PERIOD_MATCH_MARGIN_MS) },
+  };
 }
 
 // Bloque 198 (pedido explícito — "si a uno de los usuarios se le agota el
@@ -147,7 +163,7 @@ const claimSchema = z.object({ productId: z.string(), quantity: z.coerce.number(
 // UI nunca es la única barrera real.
 export async function claimAllocation(req, res) {
   if (req.user.role === "VENDOR_STAFF") {
-    throw new AppError("Ya no puedes reclamar stock por tu cuenta — pídele al dueño que te asigne los productos desde Usuarios.", 403);
+    throw new AppError("Ya no puedes reclamar stock por tu cuenta. Pídele al dueño que te asigne los productos desde Usuarios.", 403);
   }
   const staff = requireStaffActor(req);
   const vendor = await resolveMyVendor(req.user.id);
@@ -259,7 +275,7 @@ async function notifyOwnerOfShortage(vendorId, staffName, productName) {
       vendorId,
       type: "VENDOR_STAFF_OUT_OF_STOCK",
       title: "Un usuario se quedó sin stock",
-      body: `${staffName} intentó vender "${productName}" pero ya no tiene stock reclamado — reasignale más desde Agentes de Ventas.`,
+      body: `${staffName} intentó vender "${productName}" pero ya no tiene stock reclamado. Reasígnale más desde Agentes de Ventas.`,
     },
   });
 }
@@ -293,6 +309,7 @@ export async function registerManualSale(req, res) {
         quantity,
         unitPrice: product.price,
         total: Number(product.price) * quantity,
+        currency: product.currency ?? null,
         note: note?.trim() || null,
       },
     });
@@ -344,7 +361,7 @@ export async function registerManualSale(req, res) {
     });
     if (stockUpdate.count === 0) {
       throw new AppError(
-        `"${product.name}" no tiene suficiente stock real disponible en este momento — puede que se haya vendido en línea. Avisale al dueño de la tienda para reconciliar.`,
+        `"${product.name}" no tiene suficiente stock real disponible en este momento. Puede que se haya vendido en línea. Avísale al dueño de la tienda para reconciliar.`,
         409
       );
     }
@@ -358,6 +375,7 @@ export async function registerManualSale(req, res) {
         quantity,
         unitPrice: product.price,
         total: Number(product.price) * quantity,
+        currency: product.currency ?? null,
         note: note?.trim() || null,
       },
     });
@@ -447,7 +465,7 @@ export async function registerManualSalesBatch(req, res) {
           data: { stock: { decrement: item.quantity } },
         });
         if (stockUpdate.count === 0) {
-          throw new AppError(`"${product.name}" no tiene suficiente stock real disponible — puede que se haya vendido en línea.`, 409);
+          throw new AppError(`"${product.name}" no tiene suficiente stock real disponible. Puede que se haya vendido en línea.`, 409);
         }
       }
       created.push(
@@ -460,6 +478,7 @@ export async function registerManualSalesBatch(req, res) {
             quantity: item.quantity,
             unitPrice: product.price,
             total: Number(product.price) * item.quantity,
+            currency: product.currency ?? null,
             note: item.note?.trim() || null,
           },
         })
@@ -483,13 +502,25 @@ export async function registerManualSalesBatch(req, res) {
 
 export async function listMySales(req, res) {
   const staff = requireStaffActor(req);
-  const since = periodSince(req.query.period);
+  const vendor = await prisma.vendor.findUnique({ where: { id: staff.vendorId }, select: { timezone: true } });
+  const since = periodSince(req.query.period, vendor?.timezone);
   const sales = await prisma.vendorStaffSale.findMany({
     where: { vendorStaffId: staff.id, ...(since ? { createdAt: { gte: since } } : {}) },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  res.json({ sales, total: sales.reduce((sum, s) => sum + Number(s.total), 0) });
+  res.json({ sales, total: sales.reduce((sum, s) => sum + Number(s.total), 0), totalsByCurrency: totalsByCurrency(sales) });
+}
+
+// Suma de ventas separada por moneda (una venta de un producto en USD no se mezcla con las de CUP). Las ventas viejas de
+// un producto ya borrado no tienen moneda: van bajo la clave "" y el panel las muestra sin moneda.
+function totalsByCurrency(sales) {
+  const out = {};
+  for (const s of sales) {
+    const key = s.currency ?? "";
+    out[key] = (out[key] ?? 0) + Number(s.total);
+  }
+  return out;
 }
 
 // Bloque 199 (pedido explícito — "sí podrá registrar ventas, devoluciones y
@@ -549,7 +580,7 @@ export async function returnManualSale(req, res) {
     actorRole: "VENDOR_STAFF",
     vendorId: vendor.id,
     action: "staff_manual_sale_returned",
-    description: `Registró una devolución: ${returnQty} × "${sale.productName}"${reason ? ` — ${reason}` : ""}.`,
+    description: `Registró una devolución: ${returnQty} × "${sale.productName}"${reason ? `. Motivo: ${reason.replace(/[.\s]+$/, "")}` : ""}.`,
     meta: { saleId: sale.id, productId: sale.productId, quantity: returnQty, reason: reason ?? null },
   });
 
@@ -562,11 +593,11 @@ export async function getMyCashCloseStatus(req, res) {
   const staff = requireStaffActor(req);
   const vendor = await resolveMyVendor(req.user.id);
   const frequency = vendor.cashCloseFrequency ?? "WEEKLY";
-  const { start, end } = periodBounds(frequency);
+  const { start, end } = periodBounds(frequency, new Date(), vendor.timezone);
 
-  const [agg, existing] = await Promise.all([
-    prisma.vendorStaffSale.aggregate({ where: { vendorStaffId: staff.id, createdAt: { gte: start, lt: end } }, _sum: { total: true } }),
-    prisma.vendorStaffCashClose.findFirst({ where: { vendorStaffId: staff.id, periodStart: start, periodEnd: end } }),
+  const [byCurrency, existing] = await Promise.all([
+    prisma.vendorStaffSale.groupBy({ by: ["currency"], where: { vendorStaffId: staff.id, createdAt: { gte: start, lt: end } }, _sum: { total: true } }),
+    prisma.vendorStaffCashClose.findFirst({ where: { vendorStaffId: staff.id, ...samePeriodWhere(start, end) } }),
   ]);
 
   res.json({
@@ -575,7 +606,9 @@ export async function getMyCashCloseStatus(req, res) {
     frequency: vendor.cashCloseFrequency, // null = el dueño nunca configuró recordatorio
     cashCloseDayOfWeek: vendor.cashCloseDayOfWeek,
     cashCloseDayOfMonth: vendor.cashCloseDayOfMonth,
-    totalSales: Number(agg._sum.total ?? 0),
+    totalSales: byCurrency.reduce((sum, g) => sum + Number(g._sum.total ?? 0), 0),
+    // Lo mismo separado por moneda, para no mostrar CUP y USD sumados como una sola cifra.
+    totalsByCurrency: Object.fromEntries(byCurrency.map((g) => [g.currency ?? "", Number(g._sum.total ?? 0)])),
     reported: !!existing,
   });
 }
@@ -589,9 +622,9 @@ export async function markMyCashClose(req, res) {
   const staff = requireStaffActor(req);
   const vendor = await resolveMyVendor(req.user.id);
   const frequency = vendor.cashCloseFrequency ?? "WEEKLY";
-  const { start, end } = periodBounds(frequency);
+  const { start, end } = periodBounds(frequency, new Date(), vendor.timezone);
 
-  const existing = await prisma.vendorStaffCashClose.findFirst({ where: { vendorStaffId: staff.id, periodStart: start, periodEnd: end } });
+  const existing = await prisma.vendorStaffCashClose.findFirst({ where: { vendorStaffId: staff.id, ...samePeriodWhere(start, end) } });
   if (existing) throw new AppError("Ya reportaste este período.", 409);
 
   const agg = await prisma.vendorStaffSale.aggregate({
@@ -632,7 +665,7 @@ export async function listStaffRoster(req, res) {
     orderBy: { createdAt: "asc" },
   });
 
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const monthStart = periodSince("month", vendor.timezone);
   const salesAgg = staff.length
     ? await prisma.vendorStaffSale.groupBy({
         by: ["vendorStaffId"],
@@ -673,7 +706,7 @@ export async function getStaffAnalytics(req, res) {
   if (!staff) throw new AppError("Usuario no encontrado.", 404);
 
   const eightWeeksAgo = new Date(Date.now() - 56 * 24 * 60 * 60 * 1000);
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const monthStart = periodSince("month", vendor.timezone);
 
   const [dailyRows, bestProducts] = await Promise.all([
     prisma.$queryRaw`
@@ -706,7 +739,7 @@ export async function getStaffAnalytics(req, res) {
 export async function getProductsTracking(req, res) {
   assertOwnerOrAdmin(req);
   const vendor = await resolveMyVendor(req.user.id);
-  const since = periodSince(req.query.period) ?? new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const since = periodSince(req.query.period, vendor.timezone) ?? periodSince("month", vendor.timezone);
 
   const rows = await prisma.vendorStaffSale.groupBy({
     by: ["productId", "productName"],
@@ -729,7 +762,7 @@ export async function listAllSales(req, res) {
   assertOwnerOrAdmin(req);
   const vendor = await resolveMyVendor(req.user.id);
   const { staffId } = req.query;
-  const since = periodSince(req.query.period);
+  const since = periodSince(req.query.period, vendor.timezone);
 
   const sales = await prisma.vendorStaffSale.findMany({
     where: { vendorId: vendor.id, ...(staffId ? { vendorStaffId: staffId } : {}), ...(since ? { createdAt: { gte: since } } : {}) },
@@ -743,13 +776,23 @@ export async function listAllSales(req, res) {
 const updateSaleSchema = z.object({
   quantity: z.coerce.number().int().positive().optional(),
   unitPrice: z.coerce.number().positive().optional(),
-  note: z.string().trim().max(280).optional(),
+  // nullable: el formulario de edición manda null (o "") para vaciar la nota;
+  // sin esto Zod rechazaba con 400 cualquier edición de una venta sin nota.
+  note: z.string().trim().max(280).nullable().optional(),
 });
 
 // Bloque 198 (pedido explícito — "el administrador podrá verificar,
 // modificar, eliminar y supervisar todo este contenido"): corrige una venta
 // mal cargada — el AJUSTE (delta de cantidad, si cambia) es lo único que
 // mueve los 2 ledgers, nunca el valor absoluto nuevo directo.
+// ¿Hay que mover stock y asignación para la venta de este producto? Se lee dentro de la transacción. Un producto
+// "siempre disponible" o ya borrado no tiene ledger que tocar. Misma regla que adminVendorStaffSales.controller.js.
+async function productTracksStock(tx, productId) {
+  if (!productId) return false;
+  const product = await tx.product.findUnique({ where: { id: productId }, select: { unlimitedStock: true } });
+  return !!product && !product.unlimitedStock;
+}
+
 export async function updateManualSale(req, res) {
   assertOwnerOrAdmin(req);
   const vendor = await resolveMyVendor(req.user.id);
@@ -762,7 +805,8 @@ export async function updateManualSale(req, res) {
   const qtyDelta = newQuantity - sale.quantity;
 
   const updated = await prisma.$transaction(async (tx) => {
-    if (qtyDelta !== 0 && sale.productId) {
+    // "Siempre disponible" no movió ningún ledger al vender: tampoco al corregir (igual que returnManualSale).
+    if (qtyDelta !== 0 && (await productTracksStock(tx, sale.productId))) {
       if (qtyDelta > 0) {
         const allocUpdate = await tx.vendorStaffAllocation.updateMany({
           where: { vendorStaffId: sale.vendorStaffId, productId: sale.productId, remainingQty: { gte: qtyDelta } },
@@ -806,7 +850,7 @@ export async function deleteManualSale(req, res) {
   if (!sale || sale.vendorId !== vendor.id) throw new AppError("Venta no encontrada.", 404);
 
   await prisma.$transaction(async (tx) => {
-    if (sale.productId) {
+    if (await productTracksStock(tx, sale.productId)) {
       await tx.vendorStaffAllocation.updateMany({
         where: { vendorStaffId: sale.vendorStaffId, productId: sale.productId },
         data: { remainingQty: { increment: sale.quantity } },
@@ -1029,7 +1073,7 @@ export async function getCashCloseStatus(req, res) {
   assertOwnerOrAdmin(req);
   const vendor = await resolveMyVendor(req.user.id);
   const frequency = vendor.cashCloseFrequency ?? "WEEKLY";
-  const { start, end } = periodBounds(frequency);
+  const { start, end } = periodBounds(frequency, new Date(), vendor.timezone);
 
   const staff = await prisma.vendorStaff.findMany({ where: { vendorId: vendor.id, isActive: true }, include: { user: { select: { fullName: true } } } });
   const [salesAgg, closes] = await Promise.all([
@@ -1037,7 +1081,7 @@ export async function getCashCloseStatus(req, res) {
       ? prisma.vendorStaffSale.groupBy({ by: ["vendorStaffId"], where: { vendorId: vendor.id, createdAt: { gte: start, lt: end } }, _sum: { total: true } })
       : [],
     staff.length
-      ? prisma.vendorStaffCashClose.findMany({ where: { periodStart: start, periodEnd: end, vendorStaffId: { in: staff.map((s) => s.id) } } })
+      ? prisma.vendorStaffCashClose.findMany({ where: { ...samePeriodWhere(start, end), vendorStaffId: { in: staff.map((s) => s.id) } } })
       : [],
   ]);
   const salesByStaff = new Map(salesAgg.map((s) => [s.vendorStaffId, Number(s._sum.total ?? 0)]));

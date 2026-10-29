@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ShoppingCart, UtensilsCrossed, Package, LayoutGrid, X, ScanBarcode, Contact, Tag, Gift, Star } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { planIncludesFlag } from "../../lib/planStatus.js";
 
 function fmtCUP(n, currency = "CUP") {
   return `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currency}`;
@@ -14,7 +15,7 @@ function fmtCUP(n, currency = "CUP") {
 const PRODUCT_STATUS = {
   active: { label: "Disponible", cls: "bg-verified/10 text-verified-dark" },
   unlimited: { label: "Siempre disponible", cls: "bg-verified/10 text-verified-dark" },
-  low: { label: "Stock bajo", cls: "bg-secondary/10 text-[#8A5100]" },
+  low: { label: "Stock bajo", cls: "bg-secondary/10 text-secondary" },
   out: { label: "Sin stock", cls: "bg-error/10 text-error" },
   paused: { label: "Pausado", cls: "bg-surface-container-high text-on-surface-variant" },
   quota: { label: "Fuera del cupo", cls: "bg-surface-container-high text-on-surface-variant" },
@@ -41,18 +42,24 @@ const rowCls = "flex w-full items-center justify-between gap-2 rounded-md px-2.5
 // productos sí van al backend (searchMyVendor, vendors.controller.js).
 // `restaurantOnly` oculta "Mesas / QR" para tiendas que no son restaurante,
 // mismo criterio que el menú lateral (VendorLayout.jsx, NAV).
+// `planFlag`: interruptor del plan sin el cual la sección no se ofrece, el mismo que usa el menú (NAV de VendorLayout.jsx) con
+// la misma regla compartida (planIncludesFlag, lib/planStatus.js). Antes el buscador seguía ofreciendo Caja, Mesas, Usuarios u
+// Ofertas a una tienda cuyo plan no las trae, y el enlace terminaba en el aviso de "no está en tu plan".
 const SECTIONS = [
   { label: "Dashboard", path: "/vendedor" },
   { label: "Productos", path: "/vendedor/productos" },
+  { label: "Caja", path: "/vendedor/caja", keywords: "punto de venta codigo de barras cobrar mostrador", planFlag: "allowPos" },
+  { label: "Clientes", path: "/vendedor/clientes", keywords: "compradores contactos" },
+  { label: "Programa de fidelidad", path: "/vendedor/puntos", keywords: "puntos recompensas" },
   // Bloque 232: las 2 de abajo apuntan a la misma página fusionada (con
   // pestañas adentro) — cada una conserva su propio `key` de permiso (no
   // el de SECTION_KEY_BY_PATH, que es por-path y ya no alcanza con 2
   // entradas compartiendo el mismo path) para seguir filtrándose por
   // separado según qué sección tenga de verdad el usuario de sistema.
-  { label: "Códigos de descuento", path: "/vendedor/ofertas-tienda", key: "codigos-descuento" },
-  { label: "Ofertas de tienda", path: "/vendedor/ofertas-tienda", key: "ofertas-tienda" },
+  { label: "Códigos de descuento", path: "/vendedor/ofertas-tienda", key: "codigos-descuento", planFlag: "allowDiscountCodes" },
+  { label: "Ofertas de tienda", path: "/vendedor/ofertas-tienda", key: "ofertas-tienda", planFlag: "allowStoreOffers" },
   { label: "Pedidos", path: "/vendedor/pedidos" },
-  { label: "Mesas / QR", path: "/vendedor/mesas", restaurantOnly: true },
+  { label: "Mesas / QR", path: "/vendedor/mesas", restaurantOnly: true, planFlag: "allowQrTables" },
   { label: "Suscripción", path: "/vendedor/verificacion" },
   { label: "Mensajes", path: "/vendedor/mensajes" },
   { label: "Reseñas", path: "/vendedor/resenas" },
@@ -71,7 +78,7 @@ const SECTIONS = [
   { label: "Configuración: Seguridad", path: "/vendedor/configuracion?tab=seguridad", keywords: "contrasena verificacion en dos pasos autenticador sesiones" },
   { label: "Configuración: Equipo y caja", path: "/vendedor/configuracion?tab=equipo", keywords: "usuarios agentes de ventas meseros cierre de caja" },
   { label: "Cierre de caja", path: "/vendedor/configuracion?tab=equipo", keywords: "caja frecuencia semanal mensual" },
-  { label: "Usuarios de sistema", path: "/vendedor/usuarios", keywords: "agentes de ventas meseros equipo personal" },
+  { label: "Usuarios de sistema", path: "/vendedor/usuarios", keywords: "agentes de ventas meseros equipo personal", planFlag: "allowStaffUsers" },
   { label: "Mi perfil", path: "/vendedor/perfil", keywords: "contrasena correo cuenta verificacion en dos pasos" },
 ];
 
@@ -90,6 +97,9 @@ const SECTIONS = [
 // dict por-path ya no puede distinguir cuál es cuál.
 const SECTION_KEY_BY_PATH = {
   "/vendedor/productos": "productos",
+  "/vendedor/caja": "caja",
+  "/vendedor/clientes": "clientes",
+  "/vendedor/puntos": "puntos",
   "/vendedor/pedidos": "pedidos",
   "/vendedor/mesas": "mesas",
   "/vendedor/mensajes": "mensajes",
@@ -140,8 +150,10 @@ export function VendorSearchBar({ vendor, staffSections }) {
 
   // Se filtra primero por lo que esta persona puede ver (tienda restaurante, usuario de sistema) y
   // después se busca sin importar tildes ni mayúsculas (lib/sectionSearch.js).
+  const planFeatures = vendor?.planFeatures;
   const allowedSections = SECTIONS.filter((s) => {
     if (s.restaurantOnly && !vendor?.isRestaurant) return false;
+    if (!planIncludesFlag(s.planFlag, planFeatures)) return false;
     if (isStaff) {
       const base = s.path.split("?")[0];
       if (OWNER_ONLY_SEARCH_PATHS.has(base)) return false;
@@ -174,10 +186,12 @@ export function VendorSearchBar({ vendor, staffSections }) {
   const visibleTableOrders = data?.tableOrders ?? [];
   const visibleOrders = canSeeOrderResults ? data?.orders ?? [] : [];
   const visibleProducts = canSeeProductResults ? data?.products ?? [] : [];
-  const posSales = data?.posSales ?? [];
+  // Ventas de caja, códigos y ofertas viejos siguen en la base aunque el plan ya no traiga la sección (el servidor los devuelve
+  // igual): no se listan, porque cada fila lleva a una sección que este plan no abre.
+  const posSales = planIncludesFlag("allowPos", planFeatures) ? data?.posSales ?? [] : [];
   const customers = data?.customers ?? [];
-  const discountCodes = data?.discountCodes ?? [];
-  const storeOffers = data?.storeOffers ?? [];
+  const discountCodes = planIncludesFlag("allowDiscountCodes", planFeatures) ? data?.discountCodes ?? [] : [];
+  const storeOffers = planIncludesFlag("allowStoreOffers", planFeatures) ? data?.storeOffers ?? [] : [];
   const reviews = data?.reviews ?? [];
   const statusFilter = data?.statusFilter ?? null;
   const productTotal = data?.productTotal ?? 0;
@@ -204,8 +218,15 @@ export function VendorSearchBar({ vendor, staffSections }) {
           className="w-full min-w-0 bg-transparent text-[13px] text-on-surface outline-none placeholder:text-outline"
         />
         {query && (
-          <button onClick={() => setQuery("")} className="flex-shrink-0 text-outline hover:text-on-surface">
-            <X className="h-3.5 w-3.5" />
+          // Área táctil de 44px aunque el icono mida 14px: el margen negativo la come del relleno de la barra para que no la
+          // agrande ni empuje el campo.
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            aria-label="Borrar la búsqueda"
+            className="-my-1 -mr-3 flex h-11 w-11 flex-shrink-0 items-center justify-center text-outline hover:text-on-surface"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         )}
       </div>

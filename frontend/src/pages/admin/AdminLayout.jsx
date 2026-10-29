@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
+import { Trash2, LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -14,9 +14,12 @@ import { GroupedNav } from "../../components/layout/GroupedNav.jsx";
 // tiene entrada propia: es el filtro "Suspendidas" de Tiendas.
 const NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/tiendas", label: "Tiendas", icon: Store, group: "tiendas" },
+  // notUnder: "Tiendas" no se marca también cuando se está en Tiendas eliminadas (que vive bajo /admin/tiendas/).
+  { to: "/admin/tiendas", label: "Tiendas", icon: Store, group: "tiendas", notUnder: "/admin/tiendas/eliminadas" },
   { to: "/admin/verificaciones", label: "Verificaciones", icon: ShieldCheck, badge: "verificaciones", group: "tiendas" },
   { to: "/admin/suscripciones", label: "Suscripciones", icon: CreditCard, group: "tiendas" },
+  // Tiendas eliminadas o por eliminarse, con su historial (AdminDeletedVendors.jsx).
+  { to: "/admin/tiendas/eliminadas", label: "Tiendas eliminadas", icon: Trash2, group: "tiendas" },
   { to: "/admin/ventas-manuales", label: "Agentes de Ventas", icon: Wallet, group: "tiendas" },
   { to: "/admin/reportes-fraude", label: "Reportes y moderación", icon: ShieldAlert, badge: "fraudReportsCount", group: "tiendas" },
   { to: "/admin/anomalias-ranking", label: "Anomalías del ranking", icon: Radar, badge: "rankingAnomaliesCount", group: "tiendas" },
@@ -62,14 +65,18 @@ const CONFIG = "/admin/configuracion";
 const ADMIN_EXTRA_SECTIONS = [
   { label: "Configuración: General", to: CONFIG, keywords: "nombre de la plataforma marca redes sociales whatsapp soporte zona horaria imagen principal hero home logo" },
   { label: "Configuración: Tiendas y productos", to: `${CONFIG}?tab=catalogo`, keywords: "etiquetas productos nuevo popular politicas ofertas venta rapida comentarios resenas anuncios enlaces de imagen" },
-  { label: "Configuración: Planes y pagos", to: `${CONFIG}?tab=planes`, keywords: "planes precios suscripcion business regular pago cup transferencia tarjeta moneda" },
-  { label: "Configuración: Seguridad", to: `${CONFIG}?tab=seguridad`, keywords: "eliminacion de tiendas dias codigo de confirmacion verificacion en dos pasos autenticador asistente plan gratis mensajes por dia" },
+  // Sin nombres ni claves de plan: los planes los crea y renombra el admin, una palabra fija aquí quedaría vieja.
+  { label: "Configuración: Planes y pagos", to: `${CONFIG}?tab=planes`, keywords: "planes precios suscripcion pago cup transferencia tarjeta moneda" },
+  { label: "Configuración: Seguridad", to: `${CONFIG}?tab=seguridad`, keywords: "eliminacion de tiendas dias codigo de confirmacion asistente mensajes por dia" },
   { label: "Configuración: Integraciones", to: `${CONFIG}?tab=integraciones`, keywords: "ia groq nvidia gemini modelos claves api resend correo stripe pagos" },
   { label: "Marca de la plataforma", to: "/admin/marca", keywords: "nombre logo imagen principal del sitio hero home redes whatsapp soporte" },
   { label: "Imagen principal del sitio", to: "/admin/marca", keywords: "hero home portada banner" },
   { label: "Eliminación pendiente de tiendas", to: `${CONFIG}?tab=seguridad`, keywords: "dias borrar tiendas plazo" },
-  { label: "Límite del asistente en el plan gratis", to: `${CONFIG}?tab=seguridad`, keywords: "mensajes por dia asistente de negocio" },
-  { label: "Verificación en dos pasos (mi cuenta)", to: "/admin/perfil", keywords: "autenticador app qr contrasena correo cambiar" },
+  { label: "Límite diario del asistente de negocio", to: `${CONFIG}?tab=seguridad`, keywords: "mensajes por dia tope plan gratis" },
+  // La tarjeta de dos pasos (TwoFactorCard) vive en Configuración > Seguridad, no en Mi perfil: antes este resultado
+  // llevaba a una pantalla donde no estaba. Mi perfil tiene la contraseña y el correo, y va como resultado aparte.
+  { label: "Verificación en dos pasos (mi cuenta)", to: `${CONFIG}?tab=seguridad`, keywords: "autenticador app qr codigo 2fa" },
+  { label: "Mi perfil: contraseña y correo", to: "/admin/perfil", keywords: "cambiar contrasena correo cuenta" },
   { label: "Modelos de IA y claves", to: `${CONFIG}?tab=integraciones`, keywords: "groq nvidia gemini api" },
 ];
 
@@ -409,14 +416,14 @@ export default function AdminLayout() {
             groups={NAV_GROUPS}
             storageKey="admin-nav-groups"
             badgeFor={(n) => badgeCounts[n.badge] ?? 0}
-            renderLink={({ to, label, icon: Icon, end, badge }) => (
+            renderLink={({ to, label, icon: Icon, end, badge, notUnder }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
               className={({ isActive }) =>
                 `flex items-center gap-[11px] rounded px-3 py-2.5 text-[13.5px] font-semibold ${
-                  isActive ? "bg-tertiary-accent-light text-tertiary" : "text-white/70 hover:bg-white/5 hover:text-white"
+                  isActive && !(notUnder && location.pathname.startsWith(notUnder)) ? "bg-tertiary-accent-light text-tertiary" : "text-white/70 hover:bg-white/5 hover:text-white"
                 }`
               }
             >

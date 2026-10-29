@@ -23,6 +23,7 @@ import {
   CalendarDays,
   CalendarRange,
   BarChart3,
+  Layers,
 } from "lucide-react";
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { api } from "../../lib/api.js";
@@ -97,6 +98,155 @@ function SeriesTooltip({ active, payload, label }) {
   );
 }
 
+// Montos de cobro: los USD llevan centavos (un plan de 9,99 USD), los CUP no suelen. Nunca se mezclan monedas.
+function fmtPlanMoney(amount, currency) {
+  return `${Number(amount ?? 0).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currency}`;
+}
+
+function ymdLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const PLAN_ROW_GRID = "sm:grid sm:grid-cols-[minmax(0,1.6fr)_72px_minmax(0,1fr)_minmax(0,1fr)] sm:items-center sm:gap-3";
+
+// Ingresos por plan de este mes, con CUP y USD en columnas separadas (nunca se convierten ni se suman entre sí), y las
+// tiendas de cada plan. Sale de `revenueByPlan` de GET /admin/dashboard (mismo mes del negocio que el resto de la
+// página); si el servidor no lo manda, de GET /admin/plan-stats con el mes en curso. Los dos usan el cálculo sin doble
+// cuenta entre el pago inicial y la renovación. Los planes no son fijos (el admin crea y archiva), así que las filas
+// salen de la respuesta tal cual; cada una enlaza a Tiendas filtrada por ese plan (?plan=CLAVE).
+function PlanRevenueCard({ dashboard, dashboardLoading, dashboardError, retryDashboard }) {
+  const fromDashboard = dashboard?.revenueByPlan ?? null;
+  const now = new Date();
+  const from = ymdLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+  const to = ymdLocal(now);
+  const stats = useQuery({
+    queryKey: ["admin-plan-stats", from, to],
+    queryFn: async () => (await api.get("/admin/plan-stats", { params: { from, to } })).data,
+    enabled: !!dashboard && !fromDashboard,
+  });
+  const data = fromDashboard ?? stats.data;
+  const isLoading = !data && (dashboardLoading || stats.isLoading);
+  const isError = !data && (dashboardError || stats.isError);
+  const isFetching = stats.isFetching;
+  const refetch = () => (dashboardError ? retryDashboard() : stats.refetch());
+  const rows = data?.plans ?? [];
+  const totals = data?.totals;
+  const noRevenue = rows.length > 0 && !Number(totals?.revenue?.CUP) && !Number(totals?.revenue?.USD);
+
+  return (
+    <div className={`${CARD} mb-5 p-6`}>
+      <CardHeader
+        icon={Layers}
+        tone="teal"
+        title="Ingresos por plan"
+        subtitle="Cobrado este mes y tiendas de cada plan. CUP y USD van por separado."
+        to="/admin/suscripciones"
+        linkLabel="Ver suscripciones"
+      />
+      {isLoading ? (
+        <div className="mt-4">
+          <ListSkeleton rows={4} />
+        </div>
+      ) : isError ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p className="text-[13px] text-error">No se pudieron cargar los ingresos por plan.</p>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="min-h-11 rounded-lg border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
+          >
+            {isFetching ? "Reintentando..." : "Reintentar"}
+          </button>
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="mt-4 text-[13px] text-on-surface-variant">Todavía no hay planes configurados.</p>
+      ) : (
+        <div className="mt-4">
+          <div className={`hidden border-b border-surface-container-high px-2 pb-2 text-[11px] font-semibold text-outline ${PLAN_ROW_GRID}`}>
+            <span>Plan</span>
+            <span className="text-right">Tiendas</span>
+            <span className="text-right">Cobrado en CUP</span>
+            <span className="text-right">Cobrado en USD</span>
+          </div>
+          <ul className="divide-y divide-surface-container-high">
+            {rows.map((r) => {
+              const name = r.displayName ?? r.planType;
+              const inner = (
+                <>
+                  <div className="flex min-w-0 items-baseline justify-between gap-3 sm:block">
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-semibold text-on-surface">
+                        {name}
+                        {r.archived ? <span className="font-normal text-on-surface-variant"> (archivado)</span> : null}
+                      </div>
+                      <div className="truncate text-[11.5px] text-on-surface-variant">
+                        {/* "paying" en el dashboard, "upToDate" en plan-stats: tiendas con el pago al día. En un plan gratis
+                            no hay pago que llevar al día ("0 al día" se leería como un problema). */}
+                        {r.isFree ? "Gratis" : `${r.upToDate ?? r.paying ?? 0} al día`}
+                        {r.inTrial ? ` · ${r.inTrial} en prueba` : ""}
+                        {r.overdue ? ` · ${r.overdue} con cobro atrasado` : ""}
+                      </div>
+                    </div>
+                    <span className="flex-shrink-0 text-[12.5px] font-semibold text-on-surface sm:hidden">
+                      {r.vendors} {r.vendors === 1 ? "tienda" : "tiendas"}
+                    </span>
+                  </div>
+                  <span className="hidden text-right text-[13px] font-semibold text-on-surface sm:block">{r.vendors}</span>
+                  <div className="mt-1 flex flex-wrap gap-x-4 text-[12.5px] sm:contents">
+                    <span className="text-on-surface sm:text-right sm:text-[13px]">{fmtPlanMoney(r.revenue?.CUP, "CUP")}</span>
+                    <span className="text-on-surface sm:text-right sm:text-[13px]">{fmtPlanMoney(r.revenue?.USD, "USD")}</span>
+                  </div>
+                </>
+              );
+              const rowClass = `block min-h-11 px-2 py-2.5 ${PLAN_ROW_GRID}`;
+              return (
+                <li key={r.planType}>
+                  {r.archived ? (
+                    <div className={rowClass}>{inner}</div>
+                  ) : (
+                    // Sin aria-label: reemplazaría el contenido y el lector de pantalla no leería las tiendas ni las cifras.
+                    // El texto oculto al final dice adónde lleva el enlace.
+                    <Link
+                      to={`/admin/tiendas?plan=${encodeURIComponent(r.planType)}`}
+                      className={`${rowClass} rounded-xl transition-colors hover:bg-surface-container/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent`}
+                    >
+                      {inner}
+                      <span className="sr-only">. Ver las tiendas del plan {name}</span>
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {totals && (
+            <div className={`mt-1 border-t border-surface-container-high px-2 pt-2.5 ${PLAN_ROW_GRID}`}>
+              <div className="flex items-baseline justify-between gap-3 sm:block">
+                <span className="text-[13px] font-bold text-on-surface">Total</span>
+                <span className="text-[12.5px] font-bold text-on-surface sm:hidden">
+                  {totals.vendors} {totals.vendors === 1 ? "tienda" : "tiendas"}
+                </span>
+              </div>
+              <span className="hidden text-right text-[13px] font-bold text-on-surface sm:block">{totals.vendors}</span>
+              <div className="mt-1 flex flex-wrap gap-x-4 text-[12.5px] font-bold sm:contents">
+                <span className="text-on-surface sm:text-right sm:text-[13px]">{fmtPlanMoney(totals.revenue?.CUP, "CUP")}</span>
+                <span className="text-on-surface sm:text-right sm:text-[13px]">{fmtPlanMoney(totals.revenue?.USD, "USD")}</span>
+              </div>
+            </div>
+          )}
+          {noRevenue && <p className="mt-3 text-[12px] text-on-surface-variant">Todavía no hay cobros confirmados este mes.</p>}
+          {/* Las cifras de tiendas usan el mismo alcance que la lista de Tiendas (buildRevenueByPlan, LISTED_VENDOR_SCOPE),
+              así que al abrir un plan se ve el mismo número. Lo cobrado sí incluye a todas: es dinero ya recibido. */}
+          {fromDashboard && (
+            <p className="mt-3 text-[12px] text-on-surface-variant">
+              No cuenta las tiendas bloqueadas, suspendidas ni con eliminación pendiente, igual que la lista de Tiendas. Lo cobrado sí las incluye.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Bloque 48: etapas "de flujo" del embudo de verificación — las 3 terminales/
 // especiales (pago fallido, suspendida, rechazada) se muestran aparte, nunca
 // mezcladas con el avance normal del trámite.
@@ -115,7 +265,7 @@ const MAIN_FUNNEL_STAGES = ["NOT_STARTED", "PENDING_DOCS", "IN_REVIEW", "PENDING
 export default function AdminDashboard() {
   const { user } = useAuth();
 
-  const { data } = useQuery({
+  const { data, isLoading: dashboardLoading, isError: dashboardError, isFetching: dashboardFetching, refetch: refetchDashboard } = useQuery({
     queryKey: ["admin-dashboard"],
     queryFn: async () => (await api.get("/admin/dashboard")).data,
   });
@@ -125,34 +275,33 @@ export default function AdminDashboard() {
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
 
-  const { data: newSuggestions } = useQuery({
-    queryKey: ["admin-suggestions", "new-count"],
-    queryFn: async () => (await api.get("/admin/suggestions", { params: { status: "new" } })).data.suggestions,
+  // Sugerencias nuevas, pagos de renovación por confirmar y cambios de datos pendientes: los mismos contadores que el menú
+  // lateral (AdminLayout.jsx, misma queryKey, así llegan del caché). Antes se bajaban las tres listas completas solo para
+  // contarlas.
+  const sectionCountsQuery = useQuery({
+    queryKey: ["admin-section-counts"],
+    queryFn: async () => (await api.get("/admin/section-counts")).data,
   });
+  const sectionCounts = sectionCountsQuery.data;
 
   // Bloque 48: mismas queryKeys que AdminLayout.jsx usa para el badge del
   // sidebar — React Query comparte el caché, así que estas 3 llegan gratis
   // (sin pegarle de nuevo al servidor) cuando el sidebar ya las pidió.
-  const { data: fraudReportsCountData } = useQuery({
+  const fraudReportsQuery = useQuery({
     queryKey: ["admin-fraud-reports-count"],
     queryFn: async () => (await api.get("/admin/reports/pending-count")).data,
   });
-  const { data: rankingAnomaliesCountData } = useQuery({
+  const fraudReportsCountData = fraudReportsQuery.data;
+  const rankingAnomaliesQuery = useQuery({
     queryKey: ["admin-ranking-anomalies-count"],
     queryFn: async () => (await api.get("/admin/ranking-anomalies/pending-count")).data,
   });
-  const { data: errorCountData } = useQuery({
+  const rankingAnomaliesCountData = rankingAnomaliesQuery.data;
+  const errorCountQuery = useQuery({
     queryKey: ["admin-errors-unresolved-count"],
     queryFn: async () => (await api.get("/admin/errors/unresolved-count")).data,
   });
-  const { data: pendingSubPayments } = useQuery({
-    queryKey: ["admin-subscription-payments-pending"],
-    queryFn: async () => (await api.get("/admin/subscription-payments/pending")).data.payments,
-  });
-  const { data: pendingChangeRequests } = useQuery({
-    queryKey: ["admin-change-requests-pending"],
-    queryFn: async () => (await api.get("/admin/change-requests")).data.requests,
-  });
+  const errorCountData = errorCountQuery.data;
 
   const [granularity, setGranularity] = useState("month");
   const [range, setRange] = useState({ from: "", to: "" });
@@ -175,20 +324,30 @@ export default function AdminDashboard() {
   const rawMonth = new Date().toLocaleDateString("es-CU", { month: "long", year: "numeric" });
   const monthLabel = rawMonth.charAt(0).toUpperCase() + rawMonth.slice(1);
   const pending = data?.pendingVerifications ?? 0;
-  const suggestionsCount = newSuggestions?.length ?? 0;
+  const suggestionsCount = sectionCounts?.sugerencias?.total ?? 0;
   const fraudReportsCount = fraudReportsCountData?.count ?? 0;
   const rankingAnomaliesCount = rankingAnomaliesCountData?.count ?? 0;
   const errorCount = errorCountData?.count ?? 0;
-  const pendingSubPaymentsCount = pendingSubPayments?.length ?? 0;
-  const pendingChangeRequestsCount = pendingChangeRequests?.length ?? 0;
+  const pendingSubPaymentsCount = sectionCounts?.verificaciones?.tabs?.renovaciones ?? 0;
+  const pendingChangeRequestsCount = sectionCounts?.verificaciones?.tabs?.cambios ?? 0;
 
   const series = seriesData?.series ?? [];
   const angleTicks = granularity === "day" || granularity === "week" || series.length > 8;
 
   // Franja de KPIs — números reales, sin inventar tendencias que el backend
-  // no calcula. GMV/ticket promedio se muestran sin sufijo de moneda a
-  // propósito: Order.total mezcla monedas por ítem (OrderItem.currency), así
-  // que un solo "CUP" al lado sería un dato falso, no una simplificación.
+  // no calcula. Valor de pedidos y ticket promedio van por moneda
+  // (gmvMonthByCurrency / aovByCurrency): CUP arriba y USD debajo, nunca
+  // sumados. Con un servidor viejo sin esos campos, la cifra sin moneda de antes.
+  const gmvByCurrency = data?.metrics?.gmvMonthByCurrency ?? null;
+  const aovByCurrency = data?.metrics?.aovByCurrency ?? null;
+  // Ticket promedio de una moneda sin pedidos este mes: el servidor manda null. Sin redondear: fmtPlanMoney ya deja dos
+  // decimales (un ticket de 7,81 USD se leía "8 USD").
+  const fmtAov = (value, currency) => (value == null ? `sin pedidos en ${currency}` : fmtPlanMoney(value, currency));
+  // Monedas activadas por el admin aparte de CUP y USD (assertActiveCurrency): sus pedidos llegan en los mismos campos y
+  // van en el subtítulo, solo las que tuvieron pedidos este mes.
+  const otherCurrencies = (byCurrency, hasValue) =>
+    Object.entries(byCurrency ?? {}).filter(([c, v]) => c !== "CUP" && c !== "USD" && hasValue(v));
+  const subLine = (byCurrency, fmt, hasValue) => [`Y ${fmt(byCurrency.USD, "USD")}`, ...otherCurrencies(byCurrency, hasValue).map(([c, v]) => fmt(v, c))].join(" · ");
   const kpis = [
     { key: "activeVendors", icon: Store, label: "Tiendas activas", value: data ? data.metrics.activeVendors : "—", to: "/admin/tiendas" },
     { key: "orders", icon: ShoppingBag, label: "Pedidos (mes)", value: data ? data.metrics.ordersThisMonth : "—", to: "/admin/actividad" },
@@ -196,23 +355,54 @@ export default function AdminDashboard() {
       key: "gmv",
       icon: Wallet,
       label: "Valor de pedidos (mes)",
-      value: data ? Number(data.metrics.gmv).toLocaleString("es-CU") : "—",
-      sub: "Todas las monedas",
+      // gmvMonth (no gmv, que es el total de toda la historia): mismo mes y
+      // mismo criterio sin cancelados que "Pedidos (mes)" y la gráfica de ventas.
+      // Si el servidor manda el valor por moneda (gmvMonthByCurrency), CUP y USD
+      // van por separado y nunca se suman; mientras no, la suma sin moneda.
+      // El número va grande y la moneda en pequeño al lado (unit): con "12 345 678 CUP" a 18 px la tarjeta de 2 columnas
+      // a 390 px cortaba justo la moneda.
+      value: data
+        ? gmvByCurrency
+          ? Number(gmvByCurrency.CUP ?? 0).toLocaleString("es-CU", { maximumFractionDigits: 2 })
+          : Number(data.metrics.gmvMonth ?? 0).toLocaleString("es-CU", { maximumFractionDigits: 2 })
+        : "—",
+      unit: data && gmvByCurrency ? "CUP" : null,
+      sub: gmvByCurrency ? subLine(gmvByCurrency, fmtPlanMoney, (v) => Number(v) > 0) : "Todas las monedas",
     },
     {
       key: "aov",
       icon: Receipt,
       label: "Ticket promedio (mes)",
-      value: data ? Number(data.metrics.aov).toLocaleString("es-CU", { maximumFractionDigits: 0 }) : "—",
-      sub: "Todas las monedas",
+      // Sin pedidos en CUP el valor es "Sin pedidos" (no 0, que se leería como pedidos de 0) y "En CUP" abre el subtítulo:
+      // como unidad al lado, a 390 px partía el texto en tres líneas.
+      value: data
+        ? aovByCurrency
+          ? aovByCurrency.CUP == null
+            ? "Sin pedidos"
+            : Number(aovByCurrency.CUP).toLocaleString("es-CU", { maximumFractionDigits: 2 })
+          : Number(data.metrics.aov).toLocaleString("es-CU", { maximumFractionDigits: 0 })
+        : "—",
+      unit: data && aovByCurrency && aovByCurrency.CUP != null ? "CUP" : null,
+      sub: aovByCurrency
+        ? `${aovByCurrency.CUP == null ? "En CUP. " : ""}${subLine(aovByCurrency, fmtAov, (v) => v != null)}`
+        : "Todas las monedas",
     },
     { key: "customers", icon: Users, label: "Clientes registrados", value: data ? data.metrics.totalCustomers : "—", to: "/admin/clientes" },
     {
       key: "mrr",
       icon: CreditCard,
-      label: "MRR (Business)",
-      value: data ? fmtMoney(data.metrics.mrrUsd, "USD") : "—",
-      sub: data ? `${data.metrics.activeSubscriptions} tiendas activas` : "",
+      // Sin la sigla en inglés: lo que entra cada mes por las tiendas al día en un plan de pago.
+      // "Estimado": es el precio mensual de las tiendas al día, no lo que entró este mes (eso está en Ingresos por plan).
+      label: "Ingreso mensual estimado (planes de pago)",
+      // Lo cobrado en USD arriba y lo de CUP debajo (también el plan por defecto
+      // cuando se cobra): nunca se convierten ni se suman. Sin mrrByCurrency
+      // (servidor viejo) queda solo el USD, como antes.
+      value: data ? fmtPlanMoney(data.metrics.mrrByCurrency?.USD ?? data.metrics.mrrUsd, "USD") : "—",
+      sub: data
+        ? `${data.metrics.mrrByCurrency ? `Y ${fmtPlanMoney(data.metrics.mrrByCurrency.CUP, "CUP")} · ` : ""}${data.metrics.activeSubscriptions} ${
+            data.metrics.activeSubscriptions === 1 ? "tienda activa" : "tiendas activas"
+          }`
+        : "",
       to: "/admin/suscripciones",
     },
   ];
@@ -221,35 +411,54 @@ export default function AdminDashboard() {
   // sueltos en el sidebar o en tarjetas separadas, en un solo lugar
   // ordenable de un vistazo.
   const attentionItems = [
-    { key: "verifications", icon: ShieldCheck, label: "Verificaciones KYC pendientes", count: pending, loading: !data, to: "/admin/verificaciones" },
-    { key: "fraud", icon: ShieldAlert, label: "Reportes de fraude", count: fraudReportsCount, loading: !fraudReportsCountData, to: "/admin/reportes-fraude" },
+    {
+      key: "verifications",
+      icon: ShieldCheck,
+      label: "Verificaciones KYC pendientes",
+      count: pending,
+      query: { data, isError: dashboardError, isFetching: dashboardFetching, refetch: refetchDashboard },
+      to: "/admin/verificaciones",
+    },
+    { key: "fraud", icon: ShieldAlert, label: "Reportes de fraude", count: fraudReportsCount, query: fraudReportsQuery, to: "/admin/reportes-fraude" },
     {
       key: "ranking",
       icon: Radar,
       label: "Anomalías del ranking",
       count: rankingAnomaliesCount,
-      loading: !rankingAnomaliesCountData,
+      query: rankingAnomaliesQuery,
       to: "/admin/anomalias-ranking",
     },
-    { key: "errors", icon: AlertTriangle, label: "Errores del sistema", count: errorCount, loading: !errorCountData, to: "/admin/errores" },
-    { key: "suggestions", icon: MessageSquare, label: "Sugerencias nuevas", count: suggestionsCount, loading: !newSuggestions, to: "/admin/sugerencias" },
+    { key: "errors", icon: AlertTriangle, label: "Errores del sistema", count: errorCount, query: errorCountQuery, to: "/admin/errores" },
+    { key: "suggestions", icon: MessageSquare, label: "Sugerencias nuevas", count: suggestionsCount, query: sectionCountsQuery, to: "/admin/sugerencias" },
+    // Los pagos de renovación y los cambios de datos se confirman en Verificaciones, cada uno en su pestaña. Antes llevaban a
+    // Suscripciones y a Tiendas, donde no aparece lo pendiente.
     {
       key: "subPayments",
       icon: CreditCard,
       label: "Pagos de suscripción por confirmar",
       count: pendingSubPaymentsCount,
-      loading: !pendingSubPayments,
-      to: "/admin/suscripciones",
+      query: sectionCountsQuery,
+      to: "/admin/verificaciones?tab=renovaciones",
     },
     {
       key: "changeRequests",
       icon: Pencil,
       label: "Solicitudes de cambio pendientes",
       count: pendingChangeRequestsCount,
-      loading: !pendingChangeRequests,
-      to: "/admin/tiendas",
+      query: sectionCountsQuery,
+      to: "/admin/verificaciones?tab=cambios",
     },
-  ];
+  ].map((i) => ({
+    ...i,
+    // Sin dato y con error: la consulta falló. Antes quedaba en "cargando" para siempre, y como las tres de section-counts
+    // salen de una sola consulta, un fallo dejaba colgadas las tres sin forma de reintentar.
+    failed: !i.query.data && !!i.query.isError,
+    loading: !i.query.data && !i.query.isError,
+  }));
+  const failedAttention = attentionItems.filter((i) => i.failed);
+  const retryingAttention = failedAttention.some((i) => i.query.isFetching);
+  // Una sola consulta puede alimentar varias filas (section-counts): se reintenta una vez cada una.
+  const retryAttention = () => [...new Set(failedAttention.map((i) => i.query.refetch))].forEach((refetch) => refetch());
   const totalAttention = attentionItems.reduce((sum, i) => sum + i.count, 0);
 
   const mainFunnel = data?.verificationFunnel?.filter((s) => MAIN_FUNNEL_STAGES.includes(s.status)) ?? [];
@@ -285,8 +494,12 @@ export default function AdminDashboard() {
               <IconCircle icon={k.icon} tone="teal" />
               <div className="min-w-0">
                 <div className="text-[11px] leading-tight text-outline">{k.label}</div>
-                <div className="mt-0.5 truncate font-display text-[18px] font-extrabold tracking-tight text-on-surface">{k.value}</div>
-                {k.sub && <div className="truncate text-[10.5px] text-outline">{k.sub}</div>}
+                {/* Sin truncate: con varias monedas el valor y el subtítulo pasan a otra línea en vez de cortar la moneda. */}
+                <div className="mt-0.5 font-display text-[18px] font-extrabold tracking-tight text-on-surface [overflow-wrap:anywhere]">
+                  {k.value}
+                  {k.unit && <span className="ml-1 whitespace-nowrap text-[12px] font-bold text-on-surface-variant">{k.unit}</span>}
+                </div>
+                {k.sub && <div className="text-[10.5px] leading-snug text-outline [overflow-wrap:anywhere]">{k.sub}</div>}
               </div>
             </div>
           );
@@ -452,7 +665,7 @@ export default function AdminDashboard() {
                 );
               })
             ) : (
-              <p className="text-label-sm text-outline">Ninguna tienda llega hoy a ese umbral — vuelve a mirar cuando haya más actividad.</p>
+              <p className="text-label-sm text-outline">Ninguna tienda llega hoy a ese umbral. Vuelve a mirar cuando haya más actividad.</p>
             )}
           </div>
         </div>
@@ -473,10 +686,25 @@ export default function AdminDashboard() {
                     item.count > 0 ? "bg-secondary/15 text-secondary" : "text-outline"
                   }`}
                 >
-                  {item.loading ? "—" : item.count}
+                  {item.loading ? <span aria-label="Cargando">...</span> : item.failed ? <span aria-label="Sin dato">-</span> : item.count}
                 </span>
               </Link>
             ))}
+            {failedAttention.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-surface-container-high/70 pt-2.5">
+                <p className="text-[12.5px] text-error">
+                  {failedAttention.length === 1 ? "No se pudo cargar un contador." : `No se pudieron cargar ${failedAttention.length} contadores.`}
+                </p>
+                <button
+                  type="button"
+                  onClick={retryAttention}
+                  disabled={retryingAttention}
+                  className="min-h-11 rounded-lg border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
+                >
+                  {retryingAttention ? "Reintentando..." : "Reintentar"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -499,7 +727,13 @@ export default function AdminDashboard() {
                 {specialFunnel.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1.5 border-t border-surface-container-high/70 pt-2.5">
                     {specialFunnel.map((s) => (
-                      <span key={s.status} className="rounded-full bg-error/10 px-2 py-1 text-[10.5px] font-bold text-error">
+                      // Volver al plan por defecto no es un error: tono neutro, como STATUS_BADGE.PLAN_ENDED en AdminVerifications.
+                      <span
+                        key={s.status}
+                        className={`rounded-full px-2 py-1 text-[10.5px] font-bold ${
+                          s.status === "PLAN_ENDED" ? "bg-surface-container text-on-surface-variant" : "bg-error/10 text-error"
+                        }`}
+                      >
                         {s.label}: {s.count}
                       </span>
                     ))}
@@ -510,6 +744,8 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      <PlanRevenueCard dashboard={data} dashboardLoading={dashboardLoading} dashboardError={dashboardError} retryDashboard={refetchDashboard} />
 
       <NewVendorsCard />
 
@@ -573,7 +809,7 @@ export default function AdminDashboard() {
             </div>
             <div className="relative mt-5 flex items-end justify-between">
               <div className="h-6 w-8 rounded-[4px] bg-gradient-to-br from-secondary-container to-secondary" />
-              <div className="text-right text-[11px] font-semibold text-white/75">{data ? `${data.metrics.businessVendors} tiendas Business` : ""}</div>
+              <div className="text-right text-[11px] font-semibold text-white/75">{data ? `${data.metrics.businessVendors} ${data.metrics.businessVendors === 1 ? "tienda" : "tiendas"} con plan de pago` : ""}</div>
             </div>
           </Link>
 

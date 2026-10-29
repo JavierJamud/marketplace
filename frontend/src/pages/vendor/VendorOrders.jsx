@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { orderTotalLabel } from "../../lib/shipping.js";
-import { useSearchParams } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { MessageCircle, Mail, CheckCircle2, XCircle, Pencil, Trash2, FileText, ShieldCheck, Eye, ShoppingCart, RotateCcw, Clock } from "lucide-react";
@@ -23,6 +23,7 @@ import { TableOrderDetailModal } from "../../components/vendor/TableOrderDetailM
 import { OrderDetailModal } from "../../components/vendor/OrderDetailModal.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 import { channelLabel } from "../../lib/catalog.js";
+import { canWriteSection } from "../../lib/vendorSections.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -57,6 +58,9 @@ const AUTO_CLOSED_COLOR = "#5f6368";
 const isAutoClosed = (o) => !o.isTable && o.status === "CANCELLED" && !!o.raw?.autoCancelledAt;
 const statusLabelFor = (o, status) => (isAutoClosed(o) && status === "CANCELLED" ? AUTO_CLOSED_LABEL : (o.pos && POS_STATUS_LABEL[status]) || STATUS_LABEL[status]);
 const statusColorFor = (o) => (isAutoClosed(o) ? AUTO_CLOSED_COLOR : STATUS_COLOR[o.status]);
+// Texto de la insignia: el verde de Entregado (#0CAE53) sobre su propio fondo claro no llega a 4,5:1; el texto va más oscuro.
+const STATUS_TEXT_COLOR = { ...STATUS_COLOR, DELIVERED: "#087A38" };
+const statusTextColorFor = (o) => (isAutoClosed(o) ? AUTO_CLOSED_COLOR : STATUS_TEXT_COLOR[o.status]);
 // "dom, 27 oct, 2:00 p. m.": cuándo se cerraría solo un pedido sin respuesta.
 const closeTime = (d) => new Date(d).toLocaleString("es-CU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const KITCHEN_STEPS = ["RECEIVED", "PREPARING", "READY"];
@@ -119,7 +123,7 @@ function EmailModal({ order, onClose, onSent }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="w-full max-w-md rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-lg bg-surface-container-lowest p-6">
         <h3 className="mb-1 text-title-lg text-on-surface">Enviar email al cliente</h3>
         <p className="mb-4 text-[12.5px] text-outline">Para {order.customer} · {order.customerEmail} · pedido {order.id}</p>
         <div className="flex flex-col gap-3">
@@ -163,6 +167,11 @@ function EmailModal({ order, onClose, onSent }) {
 export default function VendorOrders() {
   const { siteName } = usePlatformSettings();
   const queryClient = useQueryClient();
+  // Personal con "solo ver" en Pedidos: cada acción de esta lista pide requireVendorWrite("pedidos") (orders.routes.js y
+  // tables.routes.js) y volvía con 403. Se ocultan; Ver pedido, Factura y Garantía (descarga) siguen, son de lectura.
+  // Dueño y admin llegan con permisos null y siempre pueden (canWriteSection).
+  const { staffSectionPermissions } = useOutletContext() ?? {};
+  const canManage = canWriteSection(staffSectionPermissions ?? null, "pedidos");
   const [searchParams, setSearchParams] = useSearchParams();
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -197,7 +206,7 @@ export default function VendorOrders() {
     return () => clearInterval(id);
   }, []);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["my-orders"],
     queryFn: async () => (await api.get("/orders/me")).data,
     // Bloque 168: mismo criterio que VendorTables.jsx — estados en tiempo
@@ -213,9 +222,15 @@ export default function VendorOrders() {
     queryFn: async () => (await api.get("/vendors/me")).data.vendor,
   });
 
+  // Correos a clientes solo si el plan los trae (planFeatures, GET /vendors/me). Sin ellos no se muestra el botón "Email" ni
+  // el contador: antes salía un "0/0 usados" y un botón que el servidor rechazaba con 403. Mientras /vendors/me no responde
+  // se da por permitido, como antes; el servidor decide igual.
+  // Mandar un correo también es escribir en Pedidos: sin ese permiso no se muestran ni el botón ni el contador.
+  const canEmailCustomers = vendor?.planFeatures?.allowCustomerEmails !== false && canManage;
   const { data: emailUsage } = useQuery({
     queryKey: ["email-usage"],
     queryFn: async () => (await api.get("/orders/me/email-usage")).data,
+    enabled: canEmailCustomers,
   });
 
   // Bloque 180 (bug real reportado en vivo — "cuando hago clic en ver
@@ -255,7 +270,7 @@ export default function VendorOrders() {
         ? (await api.patch(`/tables/orders/${id}/cancel`, { reason })).data
         : (await api.patch(`/orders/${id}/status`, { status: "CANCELLED", reason })).data,
     onSuccess: () => {
-      toast.success("Pedido anulado — no cuenta como venta ni descuenta inventario.");
+      toast.success("Pedido anulado: no cuenta como venta ni descuenta inventario.");
       setCancelTarget(null);
       setCancelReason("");
       invalidateOrders();
@@ -366,11 +381,30 @@ export default function VendorOrders() {
       customer: riskOrder.customerName ?? "Cliente",
       customerEmail: riskOrder.customerEmail,
       defaultSubject: `Sobre tu pedido ${riskOrder.code}`,
-      defaultMessage: `Hola${riskOrder.customerName ? ` ${riskOrder.customerName}` : ""}, te escribimos porque ${productNames} se agotó y por ahora no podemos completar tu pedido ${riskOrder.code}. Te avisamos apenas repongamos stock — si prefieres, cuéntanos y vemos una alternativa.`,
+      defaultMessage: `Hola${riskOrder.customerName ? ` ${riskOrder.customerName}` : ""}, te escribimos porque ${productNames} se agotó y por ahora no podemos completar tu pedido ${riskOrder.code}. Te avisamos apenas repongamos stock. Si prefieres, cuéntanos y vemos una alternativa.`,
     });
   }
 
   if (isLoading) return <PanelSkeleton />;
+
+  // Antes un fallo de carga caía en "No hay pedidos en este filtro", como si la tienda no tuviera pedidos. Si ya había datos
+  // y solo falló un refresco de los 8 s, se sigue mostrando la lista.
+  if (isError && !data) {
+    return (
+      <div>
+        <div className="mb-5 flex items-center gap-3">
+          <IconCircle icon={ShoppingCart} tone="green" />
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Pedidos</h1>
+        </div>
+        <div role="alert" className="flex max-w-[520px] flex-col items-start gap-3 rounded-2xl border border-error/30 bg-error/[0.06] p-5">
+          <p className="text-body-md text-on-surface">No se pudieron cargar los pedidos. Revisa tu conexión y vuelve a intentarlo.</p>
+          <Button variant="outline" disabled={isFetching} onClick={() => refetch()}>
+            {isFetching ? "Cargando..." : "Reintentar"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const merged = [
     ...(data?.orders ?? []).map((o) => ({
@@ -435,7 +469,7 @@ export default function VendorOrders() {
         <div className="flex items-center gap-3">
           <IconCircle icon={ShoppingCart} tone="green" />
           <div>
-            <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Pedidos</h1>
+            <h1 className="mb-1 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Pedidos</h1>
             <p className="text-[13.5px] text-outline">Gestiona pedidos de WhatsApp, contra entrega y de mesa (cocina).</p>
           </div>
         </div>
@@ -446,7 +480,7 @@ export default function VendorOrders() {
             completo. Con Plan Regular sí hay un cupo real que se puede
             agotar, ahí el badge se queda (incluida la alerta roja al llegar
             al límite). */}
-        {emailUsage && !emailUsage.unlimited && (
+        {canEmailCustomers && emailUsage && !emailUsage.unlimited && (
           <div
             className="rounded-md px-3.5 py-2 text-[12.5px] font-semibold"
             style={
@@ -459,6 +493,13 @@ export default function VendorOrders() {
           </div>
         )}
       </div>
+
+      {!canManage && (
+        <p className="mb-4 max-w-[640px] rounded-lg border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-3.5 text-[12.5px] font-semibold text-on-surface">
+          Tienes acceso de solo lectura a Pedidos: puedes ver los pedidos y descargar facturas y garantías, pero no cambiarlos. Si lo
+          necesitas, pídele permiso a tu administrador.
+        </p>
+      )}
 
       <SearchBox
         className="mb-3 max-w-[520px]"
@@ -546,7 +587,7 @@ export default function VendorOrders() {
                 </div>
                 {/* Pedido sin respuesta: cuándo lo cierra el sistema si nadie lo confirma ni lo rechaza. */}
                 {!o.isTable && o.status === "NEW" && o.raw?.autoCancelAt && (
-                  <div className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-[#8A5100]">
+                  <div className="mt-1 flex items-center gap-1 text-[12px] font-semibold text-secondary">
                     <Clock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
                     <span>Se cierra solo si no lo respondes: {closeTime(o.raw.autoCancelAt)}</span>
                   </div>
@@ -571,7 +612,7 @@ export default function VendorOrders() {
               {!o.isTable && (
                 <span
                   className="rounded-full px-3 py-1.5 text-[11.5px] font-bold"
-                  style={{ background: `${statusColorFor(o)}1f`, color: statusColorFor(o) }}
+                  style={{ background: `${statusColorFor(o)}1f`, color: statusTextColorFor(o) }}
                 >
                   {statusLabelFor(o, o.status)}
                 </span>
@@ -583,13 +624,13 @@ export default function VendorOrders() {
                   target="_blank"
                   rel="noreferrer"
                   title="Contactar cliente por WhatsApp"
-                  className="flex items-center gap-1.5 rounded-[7px] bg-[#25D366]/10 px-2.5 py-1.5 text-[11.5px] font-bold text-[#128C7E]"
+                  className="flex items-center gap-1.5 rounded-[7px] bg-whatsapp/10 px-2.5 py-1.5 text-[11.5px] font-bold text-[#128C7E]"
                 >
                   <MessageCircle className="h-3.5 w-3.5" /> Contactar cliente
                 </a>
               )}
 
-              {!o.isTable && o.customerEmail && (
+              {canEmailCustomers && !o.isTable && o.customerEmail && (
                 <button
                   onClick={() => (atEmailLimit ? toast.error("Alcanzaste el límite de correos manuales de tu plan este mes.") : setEmailTarget(o))}
                   title="Enviar email al cliente"
@@ -609,6 +650,17 @@ export default function VendorOrders() {
                 <div className="flex max-w-[280px] flex-col gap-0.5 rounded-[7px] bg-error/10 px-2.5 py-1.5">
                   <span className="text-[11.5px] font-bold text-error">Cancelado</span>
                   {o.cancelReason && <span className="text-[11px] text-error/80">{o.cancelReason}</span>}
+                </div>
+              ) : o.isTable && !canManage ? (
+                // Solo lectura: el paso de cocina actual y si la mesa ya se liberó, sin botones.
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-[7px] bg-primary px-2.5 py-1.5 text-[11.5px] font-bold text-white">{KITCHEN_LABEL[o.status] ?? o.status}</span>
+                  {o.deliveredAt && !o.clearedAt && (
+                    <span className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[11.5px] font-bold text-on-surface-variant">Entregado</span>
+                  )}
+                  {o.clearedAt && (
+                    <span className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[11.5px] font-bold text-on-surface-variant">Mesa liberada</span>
+                  )}
                 </div>
               ) : o.isTable ? (
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -656,7 +708,7 @@ export default function VendorOrders() {
                     <button
                       onClick={() => markDelivered.mutate(o.rawId)}
                       disabled={markDelivered.isPending}
-                      title="El pedido ya le llegó a la mesa — desbloquea la mesa para pedidos nuevos"
+                      title="El pedido ya le llegó a la mesa: desbloquea la mesa para pedidos nuevos"
                       className="rounded-[7px] bg-primary-container/10 px-2.5 py-1.5 text-[11.5px] font-bold text-primary-container disabled:opacity-50"
                     >
                       Marcar como entregado
@@ -666,7 +718,7 @@ export default function VendorOrders() {
                     <button
                       onClick={() => clearTable.mutate(o.rawId)}
                       disabled={clearTable.isPending}
-                      title="El cliente ya pagó y se retiró — libera la mesa"
+                      title="El cliente ya pagó y se retiró: libera la mesa"
                       className="rounded-[7px] bg-verified/10 px-2.5 py-1.5 text-[11.5px] font-bold text-verified-dark disabled:opacity-50"
                     >
                       Marcar pagado y liberar mesa
@@ -685,7 +737,7 @@ export default function VendorOrders() {
                   {!o.clearedAt && (
                     <button
                       onClick={() => setCancelTarget(o)}
-                      title="Anula el pedido — no cuenta como venta ni descuenta inventario, y libera la mesa"
+                      title="Anula el pedido: no cuenta como venta ni descuenta inventario, y libera la mesa"
                       className="flex items-center gap-1.5 rounded-[7px] bg-error/10 px-2.5 py-1.5 text-[11.5px] font-bold text-error"
                     >
                       <XCircle className="h-3.5 w-3.5" /> Anular pedido
@@ -693,11 +745,13 @@ export default function VendorOrders() {
                   )}
                 </div>
               ) : o.status === "NEW" ? (
+                // Solo lectura: el estado "Pendiente" ya se ve en la etiqueta de al lado.
+                canManage && (
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     onClick={() => confirmSale.mutate(o.rawId)}
                     disabled={confirmSale.isPending}
-                    className="flex items-center gap-1.5 rounded-[7px] bg-[#087A38]/10 px-2.5 py-1.5 text-[11.5px] font-bold text-[#087A38] disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-[7px] bg-verified-dark/10 px-2.5 py-1.5 text-[11.5px] font-bold text-verified-dark disabled:opacity-50"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar pedido
                   </button>
@@ -720,6 +774,7 @@ export default function VendorOrders() {
                     <Trash2 className="h-3.5 w-3.5" /> Eliminar
                   </button>
                 </div>
+                )
               ) : o.status === "CANCELLED" ? (
                 // Bloque 197: mismo tratamiento que un pedido de mesa
                 // cancelado (arriba) — solo el aviso con el motivo, sin
@@ -729,7 +784,7 @@ export default function VendorOrders() {
                   <div className="flex max-w-[340px] flex-col gap-1.5 rounded-[7px] bg-surface-container px-2.5 py-2">
                     <span className="text-[11.5px] font-bold text-on-surface">{AUTO_CLOSED_LABEL}</span>
                     <span className="text-[11.5px] text-on-surface-variant">Pasó el plazo sin confirmar y le avisamos al cliente. Si te escribe y puedes atenderlo, reactívalo.</span>
-                    {o.raw.canReactivate ? (
+                    {!canManage ? null : o.raw.canReactivate ? (
                       <button
                         onClick={() => setReactivateTarget(o)}
                         className="flex min-h-11 items-center justify-center gap-1.5 rounded-[7px] bg-primary px-3 text-[12.5px] font-bold text-white hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
@@ -764,7 +819,7 @@ export default function VendorOrders() {
                       </button>
                     </>
                   )}
-                  {ORDER_TRANSITIONS[o.status]?.map((next) => (
+                  {canManage && ORDER_TRANSITIONS[o.status]?.map((next) => (
                     <button
                       key={next}
                       onClick={() => updateStatus.mutate({ id: o.rawId, status: next })}
@@ -778,13 +833,15 @@ export default function VendorOrders() {
                       pedido ya vendido (Vendido/Listo/Entregado) — antes
                       DELIVERED/READY eran terminales sin forma de corregir
                       un error notado tarde. */}
-                  <button
-                    onClick={() => setCancelTarget(o)}
-                    title="Anula el pedido — no cuenta como venta ni descuenta inventario"
-                    className="flex items-center gap-1.5 rounded-[7px] bg-error/10 px-2.5 py-1.5 text-[11.5px] font-bold text-error"
-                  >
-                    <XCircle className="h-3.5 w-3.5" /> Anular pedido
-                  </button>
+                  {canManage && (
+                    <button
+                      onClick={() => setCancelTarget(o)}
+                      title="Anula el pedido: no cuenta como venta ni descuenta inventario"
+                      className="flex items-center gap-1.5 rounded-[7px] bg-error/10 px-2.5 py-1.5 text-[11.5px] font-bold text-error"
+                    >
+                      <XCircle className="h-3.5 w-3.5" /> Anular pedido
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -836,7 +893,7 @@ export default function VendorOrders() {
       )}
 
       {docTarget && (
-        <DocumentModal kind={docTarget.kind} order={docTarget.order} vendor={vendor} onClose={() => setDocTarget(null)} />
+        <DocumentModal kind={docTarget.kind} order={docTarget.order} vendor={vendor} canEmail={canManage} onClose={() => setDocTarget(null)} />
       )}
 
       {stockRisk && <StockRiskModal atRiskOrders={stockRisk} onNotify={handleNotifyFromRisk} onClose={() => setStockRisk(null)} />}
@@ -866,10 +923,10 @@ export default function VendorOrders() {
           }
           message={
             cancelTarget.isTable
-              ? `Queda anulado y visible en tu historial de Pedidos — no cuenta como venta ni descuenta inventario, y libera la mesa. El cliente también va a ver este motivo.`
+              ? `Queda anulado y visible en tu historial de Pedidos. No cuenta como venta ni descuenta inventario, y libera la mesa. El cliente también va a ver este motivo.`
               : cancelTarget.status === "NEW"
               ? "El pedido pasa a Rechazado. Esta acción no se puede deshacer."
-              : "Queda anulado y visible en tu historial de Pedidos — no cuenta como venta ni descuenta inventario. Esta acción no se puede deshacer."
+              : "Queda anulado y visible en tu historial de Pedidos. No cuenta como venta ni descuenta inventario. Esta acción no se puede deshacer."
           }
           confirmLabel={
             voidOrder.isPending
@@ -895,7 +952,7 @@ export default function VendorOrders() {
           <textarea
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="Motivo (obligatorio) — ej. pedido duplicado, agotados, error al cargarlo..."
+            placeholder="Motivo (obligatorio), ej. pedido duplicado, agotados, error al cargarlo..."
             rows={3}
             className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2 text-[13px] outline-none focus:border-primary-container"
           />

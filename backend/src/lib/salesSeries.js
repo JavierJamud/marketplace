@@ -25,6 +25,45 @@ export async function rawSalesSeries(vendorId, granularity, from, to) {
   return rows.map((r) => ({ bucket: new Date(r.bucket), total: Number(r.total), orders: r.orders }));
 }
 
+// Valor y cantidad de pedidos entre `from` y `to` (sin cancelados, mismo criterio que rawSalesSeries) por moneda. Order.total
+// no guarda moneda y sumar CUP con USD da una cifra que no es ninguna de las dos. La moneda sale de los productos
+// (OrderItem.currency, la de cada producto al pedir): un pedido con productos en varias monedas también suma en Order.total
+// cifras de monedas distintas, así que su total se reparte entre ellas según lo que suma cada una en sus ítems
+// (precio × cantidad), con el descuento y los puntos prorrateados igual (total / suma de ítems), y el pedido cuenta en cada
+// moneda que tiene. Un pedido sin ítems y uno de mesa (sin ítems en tabla) van enteros en la moneda de la tienda
+// (Vendor.currency), como hace summary.controller.js.
+// Devuelve { CUP: { total, orders }, USD: { total, orders }, ... } con CUP y USD siempre presentes.
+export async function salesByCurrency(vendorId, from, to) {
+  const rows = await prisma.$queryRaw`
+    SELECT t.currency, COALESCE(SUM(t.total), 0)::numeric AS total, COUNT(DISTINCT t.ref)::int AS orders
+    FROM (
+      SELECT 'o' || o.id AS ref, s.currency,
+             CASE WHEN s."allSum" > 0 THEN o.total * s."curSum" / s."allSum" ELSE o.total / s."parts" END AS total
+      FROM "Order" o
+      JOIN (
+        SELECT oi."orderId", oi.currency, SUM(oi.price * oi.quantity) AS "curSum",
+               SUM(SUM(oi.price * oi.quantity)) OVER (PARTITION BY oi."orderId") AS "allSum",
+               COUNT(*) OVER (PARTITION BY oi."orderId") AS "parts"
+        FROM "OrderItem" oi
+        GROUP BY oi."orderId", oi.currency
+      ) s ON s."orderId" = o.id
+      WHERE (${vendorId}::text IS NULL OR o."vendorId" = ${vendorId}) AND o."createdAt" >= ${from} AND o."createdAt" < ${to} AND o.status != 'CANCELLED'
+      UNION ALL
+      SELECT 'o' || o.id, v.currency, o.total FROM "Order" o JOIN "Vendor" v ON v.id = o."vendorId"
+      WHERE (${vendorId}::text IS NULL OR o."vendorId" = ${vendorId}) AND o."createdAt" >= ${from} AND o."createdAt" < ${to} AND o.status != 'CANCELLED'
+        AND NOT EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."orderId" = o.id)
+      UNION ALL
+      SELECT 't' || o.id, v.currency, o.total FROM "TableOrder" o JOIN "Table" tb ON tb.id = o."tableId" JOIN "Vendor" v ON v.id = tb."vendorId"
+      WHERE (${vendorId}::text IS NULL OR tb."vendorId" = ${vendorId}) AND o."createdAt" >= ${from} AND o."createdAt" < ${to} AND o."cancelledAt" IS NULL
+    ) t
+    GROUP BY t.currency
+  `;
+  const out = { CUP: { total: 0, orders: 0 }, USD: { total: 0, orders: 0 } };
+  // Redondeo a centavos: el reparto de un pedido con varias monedas deja decimales largos.
+  for (const r of rows) out[r.currency ?? "CUP"] = { total: Math.round(Number(r.total) * 100) / 100, orders: r.orders };
+  return out;
+}
+
 // Misma lógica de truncado que Postgres DATE_TRUNC (semana = lunes ISO) —
 // tiene que coincidir exacto con lo que ya agrupó la consulta de arriba,
 // para que cada fila real caiga en la misma casilla que se va a rellenar acá.

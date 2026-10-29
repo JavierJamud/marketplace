@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { ShieldCheck, MessageSquare, Flag, Star } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { canWriteSection } from "../../lib/vendorSections.js";
 import { StarRating } from "../../components/ui/StarRating.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
@@ -20,25 +22,30 @@ function fmtDate(iso) {
 // (y si la mantiene, queda sellada para siempre — ver assertReportable en
 // reviews.controller.js).
 const REPORT_STATUS_META = {
-  REPORTED: { label: "Reportado — esperando revisión", className: "bg-tertiary-accent/10 text-tertiary-accent" },
+  REPORTED: { label: "Reportado, esperando revisión", className: "bg-tertiary-accent/10 text-tertiary-accent" },
   KEPT: { label: "El admin decidió mantenerlo", className: "bg-verified/10 text-verified-dark" },
   SUSPENDED: { label: "Suspendido por el admin", className: "bg-error/10 text-error" },
 };
 
 // El vendedor solo puede responder — nunca ocultar ni borrar un comentario
-// (eso es exclusivo del admin, ver AdminReviews.jsx).
-function ReviewReplyForm({ review, onReply, pending }) {
+// (eso es exclusivo del admin, ver AdminReviews.jsx). Con `canWrite` en false (personal de solo lectura en Reseñas) solo se
+// muestra la respuesta ya publicada: responder pide requireVendorWrite("resenas") y el servidor devolvía 403.
+function ReviewReplyForm({ review, onReply, pending, canWrite }) {
   const [editing, setEditing] = useState(!review.vendorReply);
   const [text, setText] = useState(review.vendorReply ?? "");
 
-  if (!editing) {
+  if (!canWrite && !review.vendorReply) return null;
+
+  if (!editing || !canWrite) {
     return (
       <div className="mt-3 rounded-md bg-surface-container p-3">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[12px] font-bold text-tertiary-accent">Tu respuesta</span>
-          <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
-            Editar
-          </button>
+          <span className="text-[12px] font-bold text-tertiary-accent">{canWrite ? "Tu respuesta" : "Respuesta de la tienda"}</span>
+          {canWrite && (
+            <button onClick={() => setEditing(true)} className="text-[11.5px] font-semibold text-tertiary-accent hover:underline">
+              Editar
+            </button>
+          )}
         </div>
         <p className="text-[13px] leading-5 text-on-surface-variant">{review.vendorReply}</p>
       </div>
@@ -69,8 +76,10 @@ export default function VendorReviews() {
   const queryClient = useQueryClient();
   const [reportTarget, setReportTarget] = useState(null);
   const [reportReason, setReportReason] = useState("");
+  const { staffSectionPermissions } = useOutletContext() ?? {};
+  const canWrite = canWriteSection(staffSectionPermissions ?? null, "resenas");
 
-  const { data: reviews, isLoading } = useQuery({
+  const { data: reviews, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["vendor-reviews"],
     queryFn: async () => (await api.get("/vendors/me/reviews")).data.reviews,
   });
@@ -91,7 +100,7 @@ export default function VendorReviews() {
   const reportReview = useMutation({
     mutationFn: async () => (await api.post(`/reviews/${reportTarget.id}/report`, { reason: reportReason.trim() || undefined })).data,
     onSuccess: () => {
-      toast.success("Comentario reportado — el equipo lo va a revisar.");
+      toast.success("Comentario reportado. El equipo lo va a revisar.");
       setReportTarget(null);
       setReportReason("");
       queryClient.invalidateQueries({ queryKey: ["vendor-reviews"] });
@@ -107,16 +116,32 @@ export default function VendorReviews() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Star} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Reseñas</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Reseñas</h1>
       </div>
       <p className="mb-[26px] text-[13.5px] text-outline">
-        Comentarios y calificaciones que dejaron tus clientes. Puedes responder públicamente o reportar uno que te parezca abusivo/falso — no
-        puedes ocultarlo ni borrarlo directamente (eso lo decide el equipo de {siteName} al revisar el reporte).
+        {canWrite
+          ? `Comentarios y calificaciones que dejaron tus clientes. Puedes responder públicamente o reportar uno que te parezca abusivo o falso. No puedes ocultarlo ni borrarlo directamente: eso lo decide el equipo de ${siteName} al revisar el reporte.`
+          : "Comentarios y calificaciones que dejaron tus clientes. Tienes acceso de solo lectura: puedes verlos, pero no responder ni reportar. Si lo necesitas, pídele permiso a tu administrador."}
       </p>
 
       {isLoading && <ListSkeleton />}
 
-      {!isLoading && !reviews?.length && (
+      {/* Antes un fallo de carga caía en "Todavía no tienes reseñas", como si la tienda no tuviera ninguna. */}
+      {isError && !reviews && (
+        <div role="alert" className="flex max-w-[640px] flex-col items-center gap-3 rounded-2xl border border-error/30 bg-error/[0.06] px-4 py-10 text-center">
+          <p className="text-body-md text-on-surface">No se pudieron cargar las reseñas.</p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="min-h-11 rounded-xl border border-outline px-4 text-[13px] font-bold text-on-surface hover:bg-surface-container disabled:opacity-50"
+          >
+            {isFetching ? "Cargando..." : "Reintentar"}
+          </button>
+        </div>
+      )}
+
+      {!isLoading && reviews?.length === 0 && (
         <div className="max-w-[640px] rounded-2xl border border-surface-container-high bg-surface-container-lowest py-16 text-center text-body-md text-on-surface-variant">
           <MessageSquare className="mx-auto mb-3 h-8 w-8 text-outline-variant" />
           Todavía no tienes reseñas.
@@ -136,8 +161,11 @@ export default function VendorReviews() {
                 <div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-label-md font-bold text-on-surface">{r.authorName}</span>
+                    {/* Mismo texto que ve el público en la tienda (ReviewsList.jsx): toda reseña exige sesión de cliente, y
+                        "Compra verificada" solo sale si compró en la tienda antes de comentar (isVerifiedPurchase). Antes
+                        aquí decía "Cliente verificado" en todas y la tienda no podía distinguir las de compras reales. */}
                     <span className="flex items-center gap-1 rounded-full bg-verified/10 px-2 py-0.5 text-[10.5px] font-bold text-verified-dark">
-                      <ShieldCheck className="h-3 w-3" /> Cliente verificado
+                      <ShieldCheck className="h-3 w-3" aria-hidden="true" /> {r.isVerifiedPurchase ? "Compra verificada" : "Cliente verificado"}
                     </span>
                     {r.product ? (
                       <span className="rounded-full bg-secondary-container/25 px-2 py-0.5 text-[10.5px] font-bold text-on-secondary-container">Reseña del producto · {r.product.name}</span>
@@ -178,11 +206,13 @@ export default function VendorReviews() {
               )}
               <ReviewReplyForm
                 review={r}
+                canWrite={canWrite}
                 pending={reply.isPending}
                 onReply={(text, onDone) => reply.mutate({ id: r.id, reply: text, onDone })}
               />
 
-              {!r.reportStatus && (
+              {/* Reportar también pide permiso de escritura en Reseñas (reportReview, reviews.controller.js). */}
+              {canWrite && !r.reportStatus && (
                 <button
                   onClick={() => setReportTarget(r)}
                   className="mt-2.5 flex items-center gap-1.5 text-[11.5px] font-semibold text-error hover:underline"
@@ -198,7 +228,7 @@ export default function VendorReviews() {
       <ConfirmModal
         open={!!reportTarget}
         title="¿Reportar este comentario?"
-        message={`El equipo de ${siteName} lo revisa antes de decidir — mientras tanto deja de mostrarse en tu tienda.`}
+        message={`El equipo de ${siteName} lo revisa antes de decidir. Mientras tanto deja de mostrarse en tu tienda.`}
         confirmLabel={reportReview.isPending ? "Reportando..." : "Reportar"}
         danger
         onConfirm={() => reportReview.mutate()}

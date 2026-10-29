@@ -260,8 +260,9 @@ export default function PartnerDetail({ id, onBack }) {
     onSuccess: (d) => {
       setRegen(null);
       setSecret({ value: d.secret, emailed: d.emailed, regenerated: true });
+      // La credencial nueva llega con otro id: al refrescar la ficha, ApiKeyBox se monta de nuevo (ver su `key`) y olvida la
+      // llave revocada que tenía abierta.
       qc.invalidateQueries({ queryKey: ["admin-partner", id] });
-      qc.invalidateQueries({ queryKey: ["admin-partner-api-key", id] });
     },
     onError: (e) => toast.error(errMsg(e, "No se pudo regenerar la credencial.")),
   });
@@ -277,6 +278,7 @@ export default function PartnerDetail({ id, onBack }) {
 
   if (isLoading || !data) return <PanelSkeleton />;
   const { partner, keys, usage } = data;
+  const activeKey = keys.find((k) => k.status === "ACTIVE");
   const maxDay = Math.max(1, ...usage.byDay.map((d) => d.requests));
 
   return (
@@ -284,7 +286,7 @@ export default function PartnerDetail({ id, onBack }) {
       <button onClick={onBack} className={`${BTN_GHOST} mb-4`}><ArrowLeft className="h-4 w-4" /> Socios</button>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">{partner.name}</h1>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">{partner.name}</h1>
           <p className="text-[13px] text-outline">{partner.contactEmail}{partner.contactName ? ` · ${partner.contactName}` : ""}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -332,7 +334,9 @@ export default function PartnerDetail({ id, onBack }) {
         <h2 className="text-[16px] font-bold text-on-surface">Credencial de la API</h2>
         {!keys.some((k) => k.status === "ACTIVE") && <button className={BTN_PRIMARY} onClick={() => setKeyModal({})}><Plus className="h-4 w-4" /> Crear credencial</button>}
       </div>
-      <ApiKeyBox partnerId={id} activeKey={keys.find((k) => k.status === "ACTIVE")} />
+      {/* key: la caja guarda la llave que el admin abrió; con otra credencial vigente (regenerada) se reinicia para no seguir
+          mostrando ni copiando la revocada. */}
+      <ApiKeyBox key={activeKey?.id ?? "none"} partnerId={id} activeKey={activeKey} />
       {keys.length === 0 ? (
         <EmptyState icon={KeyRound} title="Sin credencial" description="Crea la credencial del socio para que empiece a usar la API." />
       ) : (

@@ -106,7 +106,7 @@ export async function orderAutoCancelledCustomerEmail({ order, hours }) {
   const html = await emailShell({
     preview: `${v.companyName} no alcanzó a confirmar tu pedido. Puedes escribirle directo para retomarlo.`,
     title: "Tu pedido no se confirmó a tiempo",
-    storeName: esc(v.companyName),
+    storeName: v.companyName,
     storeLogoUrl: resolveAssetUrl(v.logoUrl),
     accentColor: "#337475",
     badge: { label: "Cerrado sin confirmar", color: "#65676c" },
@@ -129,7 +129,7 @@ export async function orderReactivatedCustomerEmail({ order }) {
   const html = await emailShell({
     preview: `${v.companyName} retomó tu pedido ${order.code} y lo está revisando.`,
     title: "La tienda retomó tu pedido",
-    storeName: esc(v.companyName),
+    storeName: v.companyName,
     storeLogoUrl: resolveAssetUrl(v.logoUrl),
     accentColor: "#337475",
     badge: { label: "Reactivado", color: "#337475" },

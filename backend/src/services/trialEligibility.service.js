@@ -1,12 +1,12 @@
 import { prisma } from "../lib/prisma.js";
 import { transitionVendorVerification } from "./vendorVerification.service.js";
-import { recalcVendorProductQuota } from "../lib/planConfig.js";
+import { recalcVendorProductQuota, getDefaultPlanKey, getTrialPlanKey, planDisplayName, getPlanConfig } from "../lib/planConfig.js";
 import { logActivity } from "../lib/activityLog.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { getTrialDays } from "../controllers/settings.controller.js";
 
-// Bloque 235 (pedido explícito — trial gratuito de 30 días del Plan
-// Premium, gancho de lanzamiento): único lugar que calcula si una tienda
+// Bloque 235 (pedido explícito — trial gratuito de 30 días del plan de
+// prueba, hoy Premium, gancho de lanzamiento): único lugar que calcula si una tienda
 // completó todo lo necesario para que su trial se active solo, y el único
 // que dispara esa activación. Mismo criterio que vendorVerification.service.js
 // ("un solo lugar permitido para cambiar el estado") — acá es "un solo
@@ -76,9 +76,10 @@ export async function missingBeforeVerification(vendorOrId) {
   return checklist.filter((item) => !item.done && !KYC_FORM_KEYS.has(item.key));
 }
 
-// La prueba gratis es para tiendas que nunca tuvieron Premium. Una que ya pagó (o ya usó su prueba) no la puede pedir ni
-// recibir: antes se le ofrecía a cualquiera sin trialStartedAt, aunque estuviera pagando, y al vencer una prueba
-// (trialEndsAt vuelve a null) el siguiente guardado de perfil la volvía a activar gratis.
+// La prueba gratis es para tiendas que nunca tuvieron un plan de pago. Una que ya pagó (o ya usó su prueba) no la puede
+// pedir ni recibir: antes se le ofrecía a cualquiera sin trialStartedAt, aunque estuviera pagando, y al vencer una prueba
+// (trialEndsAt vuelve a null) el siguiente guardado de perfil la volvía a activar gratis. El nombre se conserva por los
+// llamadores; "Premium" aquí significa cualquier plan que se cobre (no gratis) distinto del plan por defecto (isDefault).
 const PREMIUM_HISTORY_STATUSES = new Set(["VERIFIED", "PLAN_ENDED"]);
 
 export async function hasHadPremium(vendorId) {
@@ -87,7 +88,14 @@ export async function hasHadPremium(vendorId) {
     select: { verificationStatus: true, planType: true, nextPaymentDueDate: true, stripeSubscriptionId: true, verification: { select: { paymentConfirmedAt: true } } },
   });
   if (!vendor) return false;
-  if (PREMIUM_HISTORY_STATUSES.has(vendor.verificationStatus) || vendor.planType !== "REGULAR") return true;
+  if (PREMIUM_HISTORY_STATUSES.has(vendor.verificationStatus)) return true;
+  // Se mira si su plan se cobra, no solo si es distinto del plan por defecto ACTUAL: si el admin pasa la bandera isDefault
+  // a otro plan gratis, las tiendas que siguen en el plan por defecto anterior nunca pagaron y conservan la prueba.
+  // "Por WhatsApp" (contactOnly) sí cuenta: es un plan de pago que cobra el equipo.
+  if (vendor.planType !== (await getDefaultPlanKey())) {
+    const config = await getPlanConfig(vendor.planType);
+    if (config && !config.isFree) return true;
+  }
   if (vendor.nextPaymentDueDate || vendor.stripeSubscriptionId || vendor.verification?.paymentConfirmedAt) return true;
   const everVerified = await prisma.verificationStatusLog.findFirst({ where: { vendorId, toStatus: "VERIFIED" }, select: { id: true } });
   return !!everVerified;
@@ -132,15 +140,20 @@ export async function activateVendorTrial(vendorOrId, { trialEndsAt: fixedEnd = 
   // La duración la define el admin en Suscripciones; con tarjeta la fija Stripe (fixedEnd) con ese mismo valor.
   const trialDays = await getTrialDays();
   const trialEndsAt = fixedEnd ?? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+  // El plan de la prueba sale de su bandera (isTrialPlan) y su nombre de la base: el admin puede cambiar cuál es.
+  const trialKey = await getTrialPlanKey();
+  const trialName = await planDisplayName(trialKey);
   // Mismo molde que grantBusinessPlan (admin.controller.js) — la única
   // diferencia real es `source` (acá VENDOR_ACTION, nunca ADMIN_ACTION,
   // porque no hubo ningún admin de por medio) y que trialEndsAt sí se
   // guarda (grantBusinessPlan nunca inicia un trial, es Premium real).
   const updated = await transitionVendorVerification(vendor.id, "VERIFIED", {
-    reason: reason ?? `Activación automática de la prueba gratis de ${trialDays} días del Plan Premium.`,
+    reason: reason ?? `Activación automática de la prueba gratis de ${trialDays} días del plan ${trialName}.`,
     source: "VENDOR_ACTION",
-    extraData: { planType: "BUSINESS", trialEndsAt, ...extra },
+    extraData: { planType: trialKey, trialEndsAt, ...extra },
     notify: { type: "TRIAL_ACTIVATED" },
+    // transitionVendorVerification anota el cambio de plan (VendorPlanChange) en su transacción.
+    planChangeReason: "trial_start",
   });
   await recalcVendorProductQuota(vendor.id);
   // actorId = el propio usuario dueño de la tienda (ActivityLog.actorId es
@@ -151,11 +164,11 @@ export async function activateVendorTrial(vendorOrId, { trialEndsAt: fixedEnd = 
     actorRole: "VENDOR",
     vendorId: vendor.id,
     action: "trial_activated",
-    description: `Se activó sola la prueba gratis de ${trialDays} días del Plan Premium al completar todos los requisitos.`,
+    description: `Se activó sola la prueba gratis de ${trialDays} días del plan ${trialName} al completar todos los requisitos.`,
   });
   void notifyAdminActionNeeded(
     `Prueba gratis activada: ${vendor.companyName}`,
-    `${vendor.companyName} completó todos los requisitos y ya tiene activa la prueba gratis del Plan Premium (hasta el ${trialEndsAt.toLocaleDateString("es-CU", { timeZone: "America/Havana" })}).`,
+    `${vendor.companyName} completó todos los requisitos y ya tiene activa la prueba gratis del plan ${trialName} (hasta el ${trialEndsAt.toLocaleDateString("es-CU", { timeZone: "America/Havana" })}).`,
     vendor.id,
     { url: `/admin/tiendas/${vendor.id}` }
   ).catch(() => {});

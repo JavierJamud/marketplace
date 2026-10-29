@@ -33,9 +33,12 @@ export function PaymentChooser({ initialPlanType, title = "¿Cómo vas a pagar t
   const [cardMonths, setCardMonths] = useState(1);
   const [cupMonths, setCupMonths] = useState(1);
   const { data: plansData, isLoading: plansLoading, isError: plansError, refetch } = usePublicPlans();
+  // Al pasar a tarjeta con tiempo ya pagado, el servidor solo acepta el plan actual (cambiar de plan ahí lo dejaría usar el
+  // nuevo gratis hasta el vencimiento), así que no se ofrece elegir otro.
+  const lockedPlanType = onlyPlanType ?? (switching ? initialPlanType : undefined);
   const plans = useMemo(
-    () => (plansData?.plans ?? []).filter((p) => (onlyPlanType ? p.planType === onlyPlanType : p.grantsBadge) && !p.isFree && !p.contactOnly),
-    [plansData, onlyPlanType]
+    () => (plansData?.plans ?? []).filter((p) => (lockedPlanType ? p.planType === lockedPlanType : p.grantsBadge) && !p.isFree && !p.contactOnly),
+    [plansData, lockedPlanType]
   );
   const [planType, setPlanType] = useState(null);
   // Si se elige otro plan desde fuera (las tarjetas de planes de la misma pantalla), el pago lo sigue.

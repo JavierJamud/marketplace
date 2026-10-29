@@ -7,14 +7,14 @@ import { env } from "../config/env.js";
 // aunque la noticia sea buena, para que quede claro que el caso se cerró.
 export async function fraudReportDismissedEmail({ fullName, targetLabel, ctaUrl }) {
   const { siteName } = await getBrandSettings();
-  const subject = `Revisamos el reporte sobre tu ${targetLabel} — todo en orden`;
+  const subject = `Revisamos el reporte sobre tu ${targetLabel} · todo en orden`;
   const html = await emailShell({
     preview: "Revisamos tu respuesta y no vamos a tomar ninguna acción",
     title: "Reporte cerrado sin acción",
     badge: { label: "Resuelto", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${esc(fullName)}, revisamos el reporte sobre tu <strong>${targetLabel}</strong> junto con tu respuesta y no vamos a tomar ninguna acción — sigue funcionando con normalidad.`)}
+      ${paragraph(`Hola ${esc(fullName)}, revisamos el reporte sobre tu <strong>${targetLabel}</strong> junto con tu respuesta y no vamos a tomar ninguna acción: sigue funcionando con normalidad.`)}
       ${smallNote("Gracias por responder a tiempo. Esto no queda como un antecedente contra tu cuenta.")}
       ${ctaButton(`Ir a ${siteName}`, ctaUrl ?? env.frontendUrl)}
     `,

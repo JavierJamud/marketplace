@@ -52,12 +52,14 @@ const LOW_STOCK_THRESHOLD = 3;
 const SECTION_BOX = "rounded-xl border border-surface-container-high bg-surface-container/30 p-4";
 
 const ROW_TINT = {
-  out: "bg-[#ba1a1a]/[0.03]",
-  low: "bg-[#8a5100]/[0.04]",
+  out: "bg-error/[0.03]",
+  low: "bg-secondary/[0.04]",
   active: "",
   paused: "",
   unlimited: "",
-  "no-photos": "bg-[#ba1a1a]/[0.03]",
+  "no-photos": "bg-error/[0.03]",
+  suspended: "bg-error/[0.03]",
+  "over-quota": "bg-secondary/[0.04]",
 };
 
 // Bloque 56: un producto sin ninguna foto queda pausado de forma forzada por
@@ -67,10 +69,19 @@ function stockStatus(p) {
   // Suspendido por un reporte confirmado: no se puede reactivar desde aquí, solo apelando en Reportes.
   if (p.suspendedAt) return "suspended";
   if (!p.isActive) return p.images?.length > 0 ? "paused" : "no-photos";
+  // Activo pero sin lugar en el cupo del plan (overQuota): ningún listado público lo muestra. Antes caía en "En venta" y la
+  // tienda creía que sus clientes lo veían.
+  if (p.overQuota) return "over-quota";
   if (p.unlimitedStock) return "unlimited";
   if (p.stock <= 0) return "out";
   if (p.stock <= LOW_STOCK_THRESHOLD) return "low";
   return "active";
+}
+
+// Productos publicados = activos y dentro del cupo, el mismo conteo con que el servidor aplica el tope del plan
+// (createProduct en products.controller.js). Antes se contaban todos, también los pausados y los de fuera del cupo.
+function countPublished(products) {
+  return products.filter((p) => p.isActive && !p.overQuota).length;
 }
 
 // Bloque 263 (pedido explícito — "agrupar mejor los productos identificados como
@@ -89,10 +100,13 @@ const TAGS = {
   paused: { label: "Pausado", meaning: "Tus clientes no lo ven hasta que lo actives.", style: { background: "rgba(90,92,96,0.14)", color: "#4A4C50" } },
   suspended: { label: "Suspendido por un reporte", meaning: "Lo suspendimos tras revisar un reporte. Puedes apelar desde Reportes antes de que se elimine.", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
   "no-photos": { label: "Sin fotos (pausado)", meaning: "Un producto necesita al menos una foto para publicarse.", style: { background: "rgba(186,26,26,0.12)", color: "#A11616" } },
+  "over-quota": { label: "Fuera de tu plan (no visible)", meaning: "Está activo pero fuera del cupo de tu plan y tus clientes no lo ven. Usa \"Hacer visible\" para publicarlo (si el plan está lleno, se cambia por otro) o mejora tu plan.", style: { background: "rgba(138,81,0,0.14)", color: "#7A4700" } },
   active: { label: "En venta", meaning: "Publicado y con stock suficiente.", style: { background: "rgba(12,174,83,0.12)", color: "#0A7A3A" } },
 };
 // Orden de los grupos y a cuál pertenece cada producto (el primero que cumpla).
 const GROUPS = [
+  // Primero: es lo único que pide una acción de la tienda (sus clientes no ven esos productos).
+  { id: "over-quota", title: "Fuera de tu plan" },
   { id: "top", title: "Más vendidos" },
   { id: "low", title: "Stock bajo" },
   { id: "out", title: "Sin stock" },
@@ -353,7 +367,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
       // Bloque 56: un producto recién creado se guarda en pausa hasta que
       // tenga al menos 1 foto (ver createProduct en el backend) — el toast
       // deja claro por qué, así el vendedor no piensa que algo falló.
-      toast.success(savedProduct ? "Producto actualizado." : "Producto creado — sube al menos 1 foto para que salga a la venta.");
+      toast.success(savedProduct ? "Producto actualizado." : "Producto creado. Sube al menos 1 foto para que salga a la venta.");
       setSavedProduct(data.product);
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
       // Bloque 66 (bug real reportado en vivo): el modal se quedaba abierto
@@ -482,7 +496,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-xl rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <IconCircle icon={Package} tone="teal" />
@@ -508,7 +522,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
               <span className="flex-shrink-0 text-label-sm text-outline">{form.description.length} caracteres</span>
             </div>
             <p className="mb-1.5 text-label-sm text-outline">
-              Obligatoria — es la que ven los clientes resumida en la tarjeta del producto. Cuanto más corta y concreta, mejor se lee.
+              Obligatoria: es la que ven los clientes resumida en la tarjeta del producto. Cuanto más corta y concreta, mejor se lee.
             </p>
             <AiGenerateButton
               kind="product"
@@ -577,7 +591,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
                 <span>
                   Disponible siempre (sin stock definido)
                   <span className="mt-1 block text-label-sm font-normal text-outline">
-                    Para productos que no se agotan o que siempre repones al momento — el stock deja de ser obligatorio. Ojo: no vas a tener ningún
+                    Para productos que no se agotan o que siempre repones al momento: el stock deja de ser obligatorio. Ojo: no vas a tener ningún
                     seguimiento de este producto (no aparece en "stock bajo" ni "sin stock" aunque en algún momento se te termine de verdad).
                   </span>
                 </span>
@@ -720,7 +734,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             </Select>
             {!savedProduct && (
               <p className="mt-1 text-label-sm text-outline">
-                Todo producto nuevo sale con "Nuevo" — se quita sola a los {siteSettings?.newBadgeDurationDays ?? 14} días, o puedes
+                Todo producto nuevo sale con la etiqueta "Nuevo", que se quita sola a los {siteSettings?.newBadgeDurationDays ?? 14} días, o puedes
                 cambiarla ahora.
               </p>
             )}
@@ -794,7 +808,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
                         checked={form.hiddenFromStore}
                         onChange={(e) => setForm({ ...form, hiddenFromStore: e.target.checked })}
                       />
-                      Ocultar de la tienda — solo se pide desde la mesa
+                      Ocultar de la tienda: solo se pide desde la mesa
                     </label>
 
                     <label className="ml-5 flex items-center gap-2 text-body-md text-on-surface">
@@ -896,7 +910,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
                 <p className="text-label-sm text-outline">
                   {uploadImages.isPending
                     ? "Subiendo foto..."
-                    : "Tamaño recomendado: 1400×800px (relación 7:4) — al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP."}
+                    : "Tamaño recomendado: 1400×800px (relación 7:4). Al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP."}
                   {savedProduct.images?.length > 1 && " Arrastra una foto (o usa la estrella) para elegir la portada."}
                 </p>
 
@@ -935,7 +949,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
                 // producto sin ninguna foto — queda pausado y sin avisar
                 // resulta en vendedores que creen haber terminado.
                 if (savedProduct && !savedProduct.images?.length) {
-                  toast.error("Sube al menos 1 foto antes de terminar — sin fotos el producto queda pausado y no se muestra en tu tienda.");
+                  toast.error("Sube al menos 1 foto antes de terminar: sin fotos el producto queda pausado y no se muestra en tu tienda.");
                   return;
                 }
                 onClose();
@@ -982,7 +996,7 @@ export default function VendorProducts() {
   // El buscador del panel llega con ?q= (texto) o ?filtro= (estado: low, out, paused, top).
   // La leyenda arranca abierta en pantallas grandes y cerrada en el celular.
   const [legendOpenAtStart] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches);
-  const [stockFilter, setStockFilter] = useState(() => (["top", "low", "out", "paused"].includes(searchParams.get("filtro")) ? searchParams.get("filtro") : "all"));
+  const [stockFilter, setStockFilter] = useState(() => (["top", "low", "out", "paused", "over-quota"].includes(searchParams.get("filtro")) ? searchParams.get("filtro") : "all"));
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [requestSortDesc, setRequestSortDesc] = useState(true);
 
@@ -994,6 +1008,23 @@ export default function VendorProducts() {
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: async () => (await api.get("/categories")).data.categories,
+  });
+
+  // Bloque 52: el backend ya tenía POST /products/:id/activate-quota (swapProductQuota), pero ninguna pantalla lo llamaba y
+  // un producto fuera del cupo no tenía forma de volver a verse. Si el cupo está lleno, el servidor saca de la vista el
+  // publicado que menos merece estar, y tiene un tope de cambios por día (429 con su propio mensaje).
+  const [quotaTarget, setQuotaTarget] = useState(null);
+  const activateQuota = useMutation({
+    mutationFn: async (id) => api.post(`/products/${id}/activate-quota`),
+    onSuccess: () => {
+      toast.success("Listo: tus clientes ya ven este producto.");
+      setQuotaTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["my-products"] });
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.error ?? "No se pudo hacer visible. Intenta de nuevo.");
+      setQuotaTarget(null);
+    },
   });
 
   const deleteProduct = useMutation({
@@ -1026,7 +1057,7 @@ export default function VendorProducts() {
   const wantsNew = searchParams.get("nuevo");
   useEffect(() => {
     if (!wantsNew || isLoading) return;
-    if (!(data?.limit != null && (data?.products?.length ?? 0) >= data.limit)) setModalState({ mode: "new" });
+    if (!(data?.limit != null && countPublished(data?.products ?? []) >= data.limit)) setModalState({ mode: "new" });
     const next = new URLSearchParams(searchParams);
     next.delete("nuevo");
     setSearchParams(next, { replace: true });
@@ -1038,7 +1069,15 @@ export default function VendorProducts() {
   }
 
   const products = data?.products ?? [];
-  const atLimit = data?.limit && products.length >= data.limit;
+  // limit null = sin tope; 0 = el plan no permite publicar (antes `data?.limit &&` tomaba el 0 como "sin límite").
+  const limit = data?.limit ?? null;
+  const publishedCount = countPublished(products);
+  const atLimit = limit != null && publishedCount >= limit;
+  // Borrar o pausar un producto publicado no pasa solo al cupo uno de los de fuera (solo placeProductInQuota y
+  // recalcVendorProductQuota tocan overQuota), así que puede haber lugar libre y aun así productos "Fuera de tu plan".
+  // Con lugar libre, "Hacer visible" lo publica sin sacar a ningún otro (swapProductQuota en lib/planConfig.js).
+  const hasRoom = !atLimit;
+  const overQuotaCount = products.filter((p) => stockStatus(p) === "over-quota").length;
 
   // Bloque 23: mismo criterio que outOfStockProducts/lowStockProducts en
   // vendors.controller.js (getDashboard) — solo cuenta productos activos,
@@ -1065,6 +1104,7 @@ export default function VendorProducts() {
   function groupOf(p) {
     const status = stockStatus(p);
     if (status === "paused" || status === "no-photos" || status === "suspended") return "paused";
+    if (status === "over-quota") return "over-quota";
     if (topSellerIds.has(p.id)) return "top";
     return status;
   }
@@ -1078,6 +1118,7 @@ export default function VendorProducts() {
     : stockFilter === "low" ? searched.filter((p) => stockStatus(p) === "low")
     : stockFilter === "out" ? searched.filter((p) => stockStatus(p) === "out")
     : stockFilter === "paused" ? searched.filter((p) => groupOf(p) === "paused")
+    : stockFilter === "over-quota" ? searched.filter((p) => groupOf(p) === "over-quota")
     : searched;
 
   // El conteo de solicitudes solo importa (y solo se muestra como columna)
@@ -1100,7 +1141,10 @@ export default function VendorProducts() {
     { id: "low", label: "Stock bajo", count: lowStockCount },
     { id: "out", label: "Sin stock", count: outOfStockCount },
     { id: "paused", label: "Pausados", count: pausedCount },
+    // Solo aparece cuando hay alguno (o si se llegó con ?filtro=over-quota), para no sumar una pestaña vacía a todas las tiendas.
+    ...(overQuotaCount > 0 || stockFilter === "over-quota" ? [{ id: "over-quota", label: "Fuera de tu plan", count: overQuotaCount }] : []),
   ];
+  const limitText = limit === 0 ? "Tu plan no permite publicar productos." : `Alcanzaste el límite de ${limit} ${limit === 1 ? "producto publicado" : "productos publicados"} de tu plan.`;
 
   return (
     <div>
@@ -1110,13 +1154,15 @@ export default function VendorProducts() {
         <div className="flex items-center gap-3">
           <IconCircle icon={Package} tone="teal" />
           <div>
-            <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos</h1>
-            <p className="text-[13.5px] text-outline">{products.length} productos publicados</p>
+            <h1 className="mb-1 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Productos</h1>
+            <p className="text-[13.5px] text-outline">
+              {limit != null ? `${publishedCount} de ${limit}` : publishedCount} {publishedCount === 1 && limit == null ? "producto publicado" : "productos publicados"}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2.5">
           <button
-            onClick={() => (atLimit ? toast.error(`Alcanzaste el límite de ${data.limit} productos de tu plan.`) : setModalState({ mode: "new" }))}
+            onClick={() => (atLimit ? toast.error(limitText) : setModalState({ mode: "new" }))}
             className="rounded-full bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
           >
             + Nuevo producto
@@ -1133,7 +1179,7 @@ export default function VendorProducts() {
           <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
         </summary>
         <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-          {["top", "low", "out", "paused", "unlimited", "active"].map((id) => (
+          {[...(overQuotaCount > 0 ? ["over-quota"] : []), "top", "low", "out", "paused", "unlimited", "active"].map((id) => (
             <div key={id} className="flex items-start gap-2">
               <dt className="flex-shrink-0">
                 <span className="inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold" style={TAGS[id].style}>
@@ -1246,6 +1292,22 @@ export default function VendorProducts() {
                     </span>
                   )}
                   </div>
+                  {status === "over-quota" && (
+                    <div className="col-span-full flex flex-wrap items-center justify-between gap-2 rounded-lg bg-secondary/[0.06] px-3 py-2 order-last">
+                      <span className="min-w-0 flex-1 text-[12px] text-on-surface-variant">
+                        {hasRoom
+                          ? "Tus clientes no lo ven. Tienes lugar libre en tu plan: toca Hacer visible para publicarlo."
+                          : "Tus clientes no lo ven: tu plan ya tiene todos sus productos publicados."}
+                      </span>
+                      <button
+                        onClick={() => setQuotaTarget(p)}
+                        disabled={activateQuota.isPending}
+                        className="min-h-11 rounded-full bg-primary px-4 text-[12.5px] font-bold text-white hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        Hacer visible
+                      </button>
+                    </div>
+                  )}
                   <div className="flex justify-end gap-1">
                     <button
                       onClick={() => setSalesTarget(p)}
@@ -1298,7 +1360,11 @@ export default function VendorProducts() {
 
       <div className="mt-4 flex items-center gap-2 rounded-md border border-secondary-container/25 bg-secondary-container/[0.08] px-[18px] py-3.5 text-[12.5px] text-secondary">
         {/* Sale del límite real de su plan (lo configura el admin): ni el número ni el nombre del plan van fijos aquí. */}
-        💡 {data?.limit ? `Tu plan permite hasta ${data.limit} productos publicados. Para publicar más, mejora tu plan en Suscripción.` : "Tu plan te permite publicar productos sin límite."}
+        💡 {limit == null
+          ? "Tu plan te permite publicar productos sin límite."
+          : limit === 0
+            ? "Tu plan no permite publicar productos. Para publicarlos, mejora tu plan en Suscripción."
+            : `Tu plan permite hasta ${limit} ${limit === 1 ? "producto publicado" : "productos publicados"}. Para publicar más, mejora tu plan en Suscripción.`}
       </div>
 
       {modalState && (
@@ -1315,6 +1381,17 @@ export default function VendorProducts() {
       {salesTarget && (
         <ProductSalesModal productName={salesTarget.name} endpoint={`/products/me/${salesTarget.id}/sales`} onClose={() => setSalesTarget(null)} />
       )}
+      <ConfirmModal
+        open={!!quotaTarget}
+        title={quotaTarget ? `¿Hacer visible "${quotaTarget.name}"?` : ""}
+        message={hasRoom
+          ? "Tienes lugar libre en tu plan, así que ningún otro producto deja de verse. Hay un tope de cambios por día."
+          : "Tu plan ya está lleno: deja de verse el producto publicado con menos ventas y valoraciones, y pasa a Fuera de tu plan. Hay un tope de cambios por día."}
+        confirmLabel={activateQuota.isPending ? "Cambiando..." : "Hacer visible"}
+        confirmDisabled={activateQuota.isPending}
+        onConfirm={() => activateQuota.mutate(quotaTarget.id)}
+        onCancel={() => setQuotaTarget(null)}
+      />
       {deleteTarget && (
         <ConfirmDeleteModal
           title={`¿Eliminar "${deleteTarget.name}"?`}

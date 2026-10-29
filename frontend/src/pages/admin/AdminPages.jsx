@@ -69,7 +69,7 @@ function EditPageModal({ page, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-surface-container-lowest p-4 sm:p-6">
+      <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-surface-container-lowest p-4 sm:p-6 max-h-[calc(100dvh-2rem)]">
         <div className="mb-1 flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <h2 className="text-title-lg font-bold text-on-surface">{PAGE_META[page.slug].label}</h2>
           <a
@@ -146,7 +146,7 @@ export default function AdminPages() {
     <div className="max-w-[720px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={FileText} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Términos y privacidad</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Términos y privacidad</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Edita el HTML libre de estas dos páginas legales, o déjalas con su contenido predeterminado.

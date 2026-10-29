@@ -38,10 +38,10 @@ function imgUrl(path) {
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 function fmtDate(iso) {
-  return iso ? new Date(iso).toLocaleString("es-CU") : "—";
+  return iso ? new Date(iso).toLocaleString("es-CU") : "Sin dato";
 }
 function fmtDateShort(iso) {
-  return iso ? new Date(iso).toLocaleDateString("es-CU") : "—";
+  return iso ? new Date(iso).toLocaleDateString("es-CU") : "Sin dato";
 }
 function fmtMoney(amount, currency) {
   return `${Number(amount ?? 0).toLocaleString("es-CU")} ${currency || "CUP"}`;
@@ -84,6 +84,35 @@ function SalesTooltip({ active, payload, label }) {
 // forma de configurar el nivel view/manage, ver Bloque 185/187 en
 // admin.controller.js).
 
+// "Recibe notificaciones de pedidos nuevos". Antes solo aparecía en restaurantes porque los avisos eran de pedidos de mesa;
+// desde el Bloque 231 VendorLayout también monta NewRegularOrderPopup para TODAS las tiendas con la misma condición
+// (sección "pedidos" + receivesOrderNotifications), así que en una tienda que no es restaurante el personal no podía
+// recibir nunca el aviso de un pedido nuevo. El aviso solo llega si además tiene la sección Pedidos: se dice al lado.
+function OrderNotificationsToggle({ checked, onChange, isRestaurant, hasOrdersSection, legacyHint = false }) {
+  return (
+    <label className="flex min-h-11 items-start gap-2.5 rounded-2xl border border-outline-variant px-3 py-2.5">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 flex-shrink-0 accent-tertiary-accent"
+      />
+      <span>
+        <span className="block text-[13px] font-semibold text-on-surface">Recibe notificaciones de pedidos nuevos</span>
+        <span className="block text-[11.5px] text-outline">
+          Le va a sonar y aparecer el aviso en pantalla cada vez que entra un pedido.{isRestaurant ? " Normalmente para meseros." : ""}
+          {!hasOrdersSection && " Solo le llega si también tiene acceso a Pedidos."}
+        </span>
+        {legacyHint && (
+          <span className="mt-1 block text-[11.5px] font-semibold text-on-surface-variant">
+            Antes esta opción no estaba disponible en tu tienda: márcala para que reciba los avisos de pedidos nuevos.
+          </span>
+        )}
+      </span>
+    </label>
+  );
+}
+
 // Bloque 183 (pedido explícito — "vamos a crear una nueva sección para
 // crear usuarios de sistema o administrar... también se podrán administrar
 // los usuarios y poder ver el historial de qué ha hecho cada usuario"):
@@ -104,6 +133,8 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
   // elige un tipo (ver handleStaffTypeChange), y el dueño la puede tocar a
   // mano en cualquier momento después.
   const [receivesOrderNotifications, setReceivesOrderNotifications] = useState(false);
+  // Si el dueño ya tocó la casilla a mano, nada la vuelve a cambiar sola.
+  const [notifTouched, setNotifTouched] = useState(false);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -119,13 +150,16 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
       return (await api.post("/vendor-staff", formData, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: () => {
-      toast.success(`Se creó el usuario "${fullName.trim()}" — le mandamos un correo con las instrucciones para entrar.`);
+      toast.success(`Se creó el usuario "${fullName.trim()}". Le mandamos un correo con las instrucciones para entrar.`);
       onCreated();
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo crear el usuario."),
   });
 
   function toggleSection(key) {
+    // Fuera de restaurantes no hay meseros: quien recibe la sección Pedidos es quien atiende los pedidos, así que la casilla
+    // de avisos se marca sola al darle esa sección (en restaurantes sigue el criterio del Bloque 205, por tipo de usuario).
+    if (key === "pedidos" && !isRestaurant && !notifTouched && !sections.includes(key)) setReceivesOrderNotifications(true);
     setSections((prev) => (prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]));
   }
   function setLevel(key, level) {
@@ -142,6 +176,8 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
     setStaffType(next);
     const defaults = STAFF_TYPE_DEFAULT_SECTIONS[next] ?? [];
     if (defaults.length > 0) setSections((prev) => [...new Set([...prev, ...defaults])]);
+    // Fuera de restaurantes el valor por defecto lo decide la sección Pedidos (ver toggleSection), no el tipo de usuario.
+    if (notifTouched || !isRestaurant) return;
     setReceivesOrderNotifications(next === "WAITER");
   }
 
@@ -167,7 +203,7 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Crear usuario de sistema</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -186,7 +222,7 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
           />
           <p className="text-[12px] text-outline">
             Le vamos a mandar un aviso a este correo. La primera vez que intente entrar, el sistema le va a pedir crear su
-            propia contraseña con un código — nunca la defines tú.
+            propia contraseña con un código: nunca la defines tú.
           </p>
           <Input label="Teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+53 5555 5555" />
 
@@ -199,32 +235,22 @@ function CreateStaffModal({ onClose, onCreated, isRestaurant }) {
           </Select>
           {staffType && (
             <p className="text-[12px] text-outline">
-              Le habilitamos ya mismo la sección que necesita — puedes sumarle o sacarle otras abajo.
+              Le habilitamos ya mismo la sección que necesita. Puedes sumarle o sacarle otras abajo.
             </p>
           )}
 
-          {/* Bloque 205 (pedido explícito — "especificar si el usuario
-              recibe las notificaciones de nuevos pedidos... los meseros la
-              llevarán marcada predeterminadamente, pero los agentes de
-              ventas no"): solo tiene sentido en restaurantes/cafeterías
-              (NewOrderPopup/StaleOrderAlert son exclusivos de vendor con
-              mesas, ver VendorLayout.jsx). */}
-          {isRestaurant && (
-            <label className="flex items-start gap-2.5 rounded-full border border-outline-variant px-3 py-2.5">
-              <input
-                type="checkbox"
-                checked={receivesOrderNotifications}
-                onChange={(e) => setReceivesOrderNotifications(e.target.checked)}
-                className="mt-0.5 h-4 w-4 flex-shrink-0 accent-tertiary-accent"
-              />
-              <span>
-                <span className="block text-[13px] font-semibold text-on-surface">Recibe notificaciones de pedidos nuevos</span>
-                <span className="block text-[11.5px] text-outline">
-                  Le va a sonar y aparecer el aviso en pantalla cada vez que entra un pedido — normalmente para meseros.
-                </span>
-              </span>
-            </label>
-          )}
+          {/* Bloque 205 (pedido explícito: "especificar si el usuario recibe las notificaciones de nuevos pedidos... los
+              meseros la llevarán marcada predeterminadamente, pero los agentes de ventas no"). Se muestra en todas las
+              tiendas: ver OrderNotificationsToggle. */}
+          <OrderNotificationsToggle
+            checked={receivesOrderNotifications}
+            onChange={(v) => {
+              setNotifTouched(true);
+              setReceivesOrderNotifications(v);
+            }}
+            isRestaurant={isRestaurant}
+            hasOrdersSection={sections.includes("pedidos")}
+          />
 
           <SectionAccessPicker sections={sections} permissions={permissions} onToggleSection={toggleSection} onSetLevel={setLevel} />
 
@@ -271,6 +297,12 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
   const [sections, setSections] = useState(staff.allowedSections);
   const [permissions, setPermissions] = useState(staff.sectionPermissions ?? {});
   const [receivesOrderNotifications, setReceivesOrderNotifications] = useState(!!staff.receivesOrderNotifications);
+  const [notifTouched, setNotifTouched] = useState(false);
+  // El personal que ya tenía Pedidos en una tienda que no es restaurante quedó con el aviso apagado: la casilla no se mostraba
+  // y el servidor solo lo encendía para meseros. Como la sección ya viene marcada, toggleSection no lo enciende solo; se le
+  // explica al dueño hasta que toque la casilla (sin migración de datos, para no encender avisos que nadie pidió).
+  const showLegacyNotifHint =
+    !isRestaurant && !staff.receivesOrderNotifications && !notifTouched && !receivesOrderNotifications && sections.includes("pedidos");
   const [changingPhoto, setChangingPhoto] = useState(false);
   const [photoBlob, setPhotoBlob] = useState(null);
 
@@ -302,6 +334,8 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
   });
 
   function toggleSection(key) {
+    // Mismo criterio que al crear: fuera de restaurantes, darle Pedidos marca la casilla de avisos si nadie la tocó.
+    if (key === "pedidos" && !isRestaurant && !notifTouched && !sections.includes(key)) setReceivesOrderNotifications(true);
     setSections((prev) => (prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key]));
   }
   function setLevel(key, level) {
@@ -332,7 +366,7 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Editar usuario</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -351,22 +385,16 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
             ))}
           </Select>
 
-          {isRestaurant && (
-            <label className="flex items-start gap-2.5 rounded-full border border-outline-variant px-3 py-2.5">
-              <input
-                type="checkbox"
-                checked={receivesOrderNotifications}
-                onChange={(e) => setReceivesOrderNotifications(e.target.checked)}
-                className="mt-0.5 h-4 w-4 flex-shrink-0 accent-tertiary-accent"
-              />
-              <span>
-                <span className="block text-[13px] font-semibold text-on-surface">Recibe notificaciones de pedidos nuevos</span>
-                <span className="block text-[11.5px] text-outline">
-                  Le va a sonar y aparecer el aviso en pantalla cada vez que entra un pedido — normalmente para meseros.
-                </span>
-              </span>
-            </label>
-          )}
+          <OrderNotificationsToggle
+            checked={receivesOrderNotifications}
+            onChange={(v) => {
+              setNotifTouched(true);
+              setReceivesOrderNotifications(v);
+            }}
+            isRestaurant={isRestaurant}
+            hasOrdersSection={sections.includes("pedidos")}
+            legacyHint={showLegacyNotifHint}
+          />
 
           <SectionAccessPicker sections={sections} permissions={permissions} onToggleSection={toggleSection} onSetLevel={setLevel} />
 
@@ -429,7 +457,7 @@ function StaffHistoryModal({ staff, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-3 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">{staff.fullName}</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -658,7 +686,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
   const resetPassword = useMutation({
     mutationFn: async () => (await api.post(`/vendor-staff/${staff.id}/reset-password`)).data,
     onSuccess: () => {
-      toast.success("Se restableció la contraseña — la próxima vez que entre, va a tener que crear una nueva.");
+      toast.success("Se restableció la contraseña. La próxima vez que entre, va a tener que crear una nueva.");
       setConfirmReset(false);
     },
     onError: (err) => {
@@ -670,7 +698,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
   const toggleActive = useMutation({
     mutationFn: async () => (await api.patch(`/vendor-staff/${staff.id}`, { isActive: !staff.isActive })).data,
     onSuccess: () => {
-      toast.success(staff.isActive ? "Usuario desactivado — ya no puede entrar." : "Usuario reactivado.");
+      toast.success(staff.isActive ? "Usuario desactivado: ya no puede entrar." : "Usuario reactivado.");
       setConfirmToggle(false);
       invalidateRoster();
     },
@@ -685,7 +713,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <div className="flex min-w-0 items-center gap-3">
             {photo ? (
@@ -750,7 +778,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
             </div>
             <div className="rounded-md bg-surface-container p-2">
               <p className="text-[10.5px] text-outline">Vendido (mes)</p>
-              <p className="text-[14px] font-bold text-[#087A38]">{staff.unitsSoldThisMonth} u.</p>
+              <p className="text-[14px] font-bold text-verified-dark">{staff.unitsSoldThisMonth} u.</p>
             </div>
           </div>
         )}
@@ -787,7 +815,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
             <ListSkeleton rows={3} />
           ) : allocations.length === 0 ? (
             <p className="rounded-md border border-dashed border-outline-variant p-4 text-center text-[13px] text-on-surface-variant">
-              Todavía no tiene productos asignados — usa "Reasignar stock" arriba para darle stock.
+              Todavía no tiene productos asignados. Usa "Reasignar stock" arriba para darle stock.
             </p>
           ) : (
             <div className="flex flex-col gap-2">
@@ -802,7 +830,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
       <ConfirmModal
         open={confirmReset}
         title="¿Restablecer la contraseña?"
-        message={`"${staff.fullName}" va a tener que crear una contraseña nueva la próxima vez que intente entrar — le cerramos cualquier sesión activa ahora mismo.`}
+        message={`"${staff.fullName}" va a tener que crear una contraseña nueva la próxima vez que intente entrar. Le cerramos cualquier sesión activa ahora mismo.`}
         confirmLabel={resetPassword.isPending ? "Restableciendo..." : "Restablecer"}
         confirmDisabled={resetPassword.isPending}
         onConfirm={() => resetPassword.mutate()}
@@ -813,7 +841,7 @@ function StaffDetailModal({ staff, onClose, onEdit, onHistory, onReassign }) {
         title={staff.isActive ? `¿Desactivar a "${staff.fullName}"?` : `¿Reactivar a "${staff.fullName}"?`}
         message={
           staff.isActive
-            ? "Pierde el acceso al panel de inmediato — su historial se conserva igual, por si lo necesitas después."
+            ? "Pierde el acceso al panel de inmediato. Su historial se conserva igual, por si lo necesitas después."
             : "Vuelve a poder entrar al panel con las secciones que tenía asignadas."
         }
         confirmLabel={toggleActive.isPending ? "Guardando..." : staff.isActive ? "Desactivar" : "Reactivar"}
@@ -855,7 +883,7 @@ function ReassignModal({ staffList, onClose, initialToId }) {
         })
       ).data,
     onSuccess: () => {
-      toast.success("Stock reasignado — ya está en su inventario, listo para vender.");
+      toast.success("Stock reasignado: ya está en su inventario, listo para vender.");
       queryClient.invalidateQueries({ queryKey: ["staff-sales-staff"] });
       queryClient.invalidateQueries({ queryKey: ["my-staff"] });
       onClose();
@@ -868,7 +896,7 @@ function ReassignModal({ staffList, onClose, initialToId }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Reasignar stock</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -1080,7 +1108,7 @@ function SaleEditModal({ sale, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-sm rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-sm rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Editar venta</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -1205,7 +1233,7 @@ function SalesLogSection({ staffList }) {
                   <td className="px-3 py-2.5">{s.productName}</td>
                   <td className="px-3 py-2.5">{s.quantity}</td>
                   <td className="px-3 py-2.5 font-bold text-on-surface">{fmtMoney(s.total)}</td>
-                  <td className="px-3 py-2.5 text-outline">{s.note || "—"}</td>
+                  <td className="px-3 py-2.5 text-outline">{s.note || "Sin nota"}</td>
                   <td className="px-3 py-2.5">
                     <div className="flex justify-end gap-1">
                       <button onClick={() => setEditingSale(s)} className="rounded p-1.5 text-on-surface-variant hover:bg-surface-container">
@@ -1344,7 +1372,7 @@ function ManualSalesOversight({ staffList }) {
       <div>
         <h2 className="mb-1 text-[18px] font-bold text-on-surface">Ventas manuales del equipo</h2>
         <p className="text-[13px] text-outline">
-          Stock reclamado, ventas de campo y cuadre de caja — reasigna stock desde cada tarjeta de arriba.
+          Stock reclamado, ventas de campo y cuadre de caja. Reasigna stock desde cada tarjeta de arriba.
         </p>
       </div>
 
@@ -1448,6 +1476,10 @@ export default function VendorUsers() {
   const salesStatsById = new Map((salesStaff ?? []).map((s) => [s.id, s]));
   const mergedStaff = (data ?? []).map((s) => ({ ...s, ...salesStatsById.get(s.id) }));
   const viewingStaff = mergedStaff.find((s) => s.id === viewingStaffId) ?? null;
+  // Tope de usuarios del plan: el servidor cuenta solo los activos (desactivar a alguien libera su lugar). null = sin tope.
+  const maxStaff = vendor?.planFeatures?.maxStaffUsers ?? null;
+  const activeStaff = mergedStaff.filter((s) => s.isActive).length;
+  const staffFull = maxStaff != null && activeStaff >= maxStaff;
 
   return (
     <div>
@@ -1455,16 +1487,24 @@ export default function VendorUsers() {
         <div className="flex items-center gap-3">
           <IconCircle icon={Users} tone="teal" />
           <div>
-            <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Usuarios</h1>
+            <h1 className="mb-1 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Usuarios</h1>
             <p className="text-[13.5px] text-outline">
-              Crea cuentas para tu equipo con acceso solo a las secciones del panel que elijas — cada acción que hagan queda
+              Crea cuentas para tu equipo con acceso solo a las secciones del panel que elijas. Cada acción que hagan queda
               registrada a su nombre.
             </p>
           </div>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <UserPlus className="h-4 w-4" /> Crear usuario
-        </Button>
+        <div className="flex flex-col items-start gap-1 sm:items-end">
+          <Button onClick={() => setCreating(true)} disabled={staffFull}>
+            <UserPlus className="h-4 w-4" /> Crear usuario
+          </Button>
+          {maxStaff != null && (
+            <p className="text-[12.5px] text-on-surface-variant">
+              {activeStaff} de {maxStaff} {maxStaff === 1 ? "usuario activo" : "usuarios activos"} de tu plan
+              {staffFull ? ". Desactiva a alguien o cambia de plan para agregar otro." : ""}
+            </p>
+          )}
+        </div>
       </div>
 
       {mergedStaff.length === 0 && (
@@ -1500,6 +1540,17 @@ export default function VendorUsers() {
           }}
         />
       )}
+      {/* La ficha va antes que Editar e Historial: los tres son fixed z-50 y gana el último en el DOM, así que con la ficha
+          al final "Editar" e "Historial" se abrían debajo de ella y no se podían usar. */}
+      {viewingStaff && (
+        <StaffDetailModal
+          staff={viewingStaff}
+          onClose={() => setViewingStaffId(null)}
+          onEdit={setEditing}
+          onHistory={setViewingHistory}
+          onReassign={(s) => setReassigningStaffId(s.id)}
+        />
+      )}
       {editing && (
         <EditStaffModal
           staff={editing}
@@ -1512,15 +1563,6 @@ export default function VendorUsers() {
         />
       )}
       {viewingHistory && <StaffHistoryModal staff={viewingHistory} onClose={() => setViewingHistory(null)} />}
-      {viewingStaff && (
-        <StaffDetailModal
-          staff={viewingStaff}
-          onClose={() => setViewingStaffId(null)}
-          onEdit={setEditing}
-          onHistory={setViewingHistory}
-          onReassign={(s) => setReassigningStaffId(s.id)}
-        />
-      )}
       {reassigningStaffId && (
         <ReassignModal staffList={mergedStaff} initialToId={reassigningStaffId} onClose={() => setReassigningStaffId(null)} />
       )}

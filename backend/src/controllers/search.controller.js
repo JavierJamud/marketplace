@@ -4,7 +4,7 @@ import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { correctSearchQuery } from "../lib/ai.js";
 import { productPriceTiersInclude, expireNewBadges, attachBestSellerFlag } from "./products.controller.js";
 import { withComputedVendorFields, withComputedVendorFieldsList } from "../services/vendorVerification.service.js";
-import { rankFeaturedProducts, rotationSeed } from "../lib/productRanking.js";
+import { rankFeaturedProducts, rotationSeed, planFeaturedChecker } from "../lib/productRanking.js";
 import { fetchRankingPool, loadRankingSignals } from "../services/productRankingSignals.service.js";
 import { getAllPlanConfigs } from "../lib/planConfig.js";
 import { recordSearchTerm, getTrendingSearches, getTrendingSearchesForZone } from "../lib/trendingSearches.js";
@@ -197,6 +197,13 @@ async function searchElsewhere(q, where, include, findIds = findProductIdsByName
   };
 }
 
+// El plan de la tienda solo se carga para el ranking: no viaja en la respuesta pública (el autocompletado tampoco lo manda).
+function publicVendor(vendor) {
+  if (!vendor) return vendor;
+  const { planType: _planType, ...rest } = vendor;
+  return withComputedVendorFields(rest);
+}
+
 // Búsqueda estructurada (pills de categoría, selector de provincia/municipio,
 // sidebar de filtros de Shop, buscador de texto): la que consume el catálogo
 // y la Home.
@@ -267,6 +274,8 @@ export async function structuredSearch(req, res) {
         companyName: true,
         slug: true,
         verificationStatus: true,
+        // Para el empujón de "Destacada en la portada" del plan (planFeaturedChecker en productRanking.js).
+        planType: true,
         isBlocked: true,
         color: true,
         whatsapp: true,
@@ -348,7 +357,10 @@ export async function structuredSearch(req, res) {
   // rota: ahí manda encontrar lo pedido, no turnar.
   if (!sort || sort === "relevance") {
     const { reviewStats, engagement } = await loadRankingSignals(products.map((p) => p.id));
-    const options = cleanQ ? {} : { seed: rotationSeed(req.query.seed) };
+    // El beneficio "Destacada en la portada" del plan (featuredInHome) empuja también con texto buscado, igual que en el
+    // autocompletado. Los planes salen de la caché de 5 s de planConfig.js: apagarlo en el admin se nota casi al instante.
+    const isPlanFeatured = planFeaturedChecker(await getAllPlanConfigs());
+    const options = cleanQ ? { isPlanFeatured } : { seed: rotationSeed(req.query.seed), isPlanFeatured };
     products = rankFeaturedProducts(products, reviewStats, engagement, options).slice(0, 60);
   }
 
@@ -370,12 +382,12 @@ export async function structuredSearch(req, res) {
   if (products.length === 0 && cleanQ && vendorZoneWhere({ countryId, provinceId, municipalityId })) {
     const anyZoneWhere = { ...baseWhere, vendor: { ...baseWhere.vendor, locations: undefined } };
     elsewhere = await searchElsewhere(cleanQ, anyZoneWhere, includeOpts);
-    if (elsewhere) elsewhere.products = elsewhere.products.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) }));
+    if (elsewhere) elsewhere.products = elsewhere.products.map((p) => ({ ...p, vendor: publicVendor(p.vendor) }));
   }
 
   const withBestSeller = await attachBestSellerFlag(products);
   if (cleanQ) recordSearchTerm(cleanQ, withBestSeller.length);
-  res.json({ products: withBestSeller.map((p) => ({ ...p, vendor: withComputedVendorFields(p.vendor) })), nearbyProvinces, elsewhere });
+  res.json({ products: withBestSeller.map((p) => ({ ...p, vendor: publicVendor(p.vendor) })), nearbyProvinces, elsewhere });
 }
 
 // Lo más buscado por los clientes (ya filtrado y redactado por IA). Lo lee la portada.
@@ -486,8 +498,7 @@ export async function autocompleteSearch(req, res) {
   // que tener featuredInHome encendido. Los 2 planes se piden una sola vez
   // (ya cacheados 5s en lib/planConfig.js) para no hacer N llamadas async
   // dentro del .map() de abajo.
-  const plansByType = Object.fromEntries((await getAllPlanConfigs()).map((p) => [p.planType, p]));
-  const isFeaturedVendor = (vendor) => vendor.verificationStatus === "VERIFIED" && !!plansByType[vendor.planType]?.featuredInHome;
+  const isFeaturedVendor = planFeaturedChecker(await getAllPlanConfigs());
   const ranked = fuzzy
     ? candidates
     : candidates

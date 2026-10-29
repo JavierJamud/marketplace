@@ -59,8 +59,8 @@ async function autoResolveExpiredReports() {
   for (const report of reports) {
     // Mismo camino que la decisión del admin (suspensión con plazo para apelar, correos y avisos acumulados).
     const reason = "No respondió al pedido de evidencia dentro del plazo, así que se suspendió automáticamente.";
-    await confirmAndSuspend(report, { reason, autoResolved: true });
-    resolved++;
+    // Devuelve null si otra decisión ganó o llegó evidencia a último momento: esas no cuentan como resueltas aquí.
+    if (await confirmAndSuspend(report, { reason, autoResolved: true })) resolved++;
   }
   return resolved;
 }

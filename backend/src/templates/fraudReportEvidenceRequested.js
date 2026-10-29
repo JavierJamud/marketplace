@@ -11,7 +11,7 @@ export async function fraudReportEvidenceRequestedEmail({ fullName, targetLabel,
   const { siteName } = await getBrandSettings();
   const subject = isLastReminder
     ? `Último aviso: mañana se suspende tu ${targetLabel} si no respondes`
-    : `Reportaron tu ${targetLabel} — necesitamos que respondas`;
+    : `Reportaron tu ${targetLabel}: necesitamos que respondas`;
   const html = await emailShell({
     preview: isLastReminder ? "Mañana vence el plazo para responder" : `Tienes ${deadlineDays} días para responder antes de que se suspenda`,
     title: isLastReminder ? "Último aviso antes de suspender" : "Un cliente reportó tu publicación",
@@ -25,7 +25,7 @@ export async function fraudReportEvidenceRequestedEmail({ fullName, targetLabel,
       )}
       ${!isLastReminder ? paragraph(`"${esc(message)}"`, { color: "#232F3E", padding: "0 0 14px", size: "13.5px" }) : ""}
       ${smallNote(`Tienes <strong>${deadlineDays} días</strong> desde el reporte para responder con una explicación (y, si tienes, una captura que lo respalde). Si no respondes a tiempo, se suspende automáticamente por fraude.`)}
-      ${paragraph("Si esto es un malentendido o ya resolviste el problema con el cliente, cuéntanoslo — no se toma ninguna acción si tu explicación es razonable.")}
+      ${paragraph("Si esto es un malentendido o ya resolviste el problema con el cliente, cuéntanoslo: no se toma ninguna acción si tu explicación es razonable.")}
       ${ctaButton("Responder al reporte", ctaUrl)}
     `,
   });

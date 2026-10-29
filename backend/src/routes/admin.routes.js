@@ -1,3 +1,4 @@
+import * as adminDeletedVendors from "../controllers/adminDeletedVendors.controller.js";
 import * as usageController from "../controllers/usage.controller.js";
 import * as vendorManage from "../controllers/adminVendorManage.controller.js";
 import * as adminOrders from "../controllers/adminOrders.controller.js";
@@ -12,6 +13,7 @@ import * as aiModelsController from "../controllers/aiModels.controller.js";
 import * as businessAssistantController from "../controllers/businessAssistant.controller.js";
 import { assistantRateLimit } from "../middleware/rateLimit.js";
 import * as settingsController from "../controllers/settings.controller.js";
+import * as adminPlans from "../controllers/adminPlans.controller.js";
 import * as catalogController from "../controllers/adminCatalog.controller.js";
 import * as userHistoryController from "../controllers/adminUserHistory.controller.js";
 import * as suggestionsController from "../controllers/suggestions.controller.js";
@@ -44,6 +46,15 @@ import { offerUpload } from "../middleware/offerUpload.js";
 
 const router = Router();
 
+// Editar un socio pide el código solo si cambia su estado (suspender o reactivar le corta o le devuelve el acceso a la
+// API, ver partnerAuth.js); editar el nombre, el contacto o "mostrar en el marketplace" no.
+const partnerStatusCode = (req, res, next) => (req.body?.status !== undefined ? requireActionCode("PARTNER_MANAGE")(req, res, next) : next());
+
+// Envíos masivos (campañas y ofertas dirigidas: crear y reenviar mandan correo a toda una audiencia). Siempre piden el
+// código: si a MASS_EMAIL le faltara su texto en ACTION_LABELS (lib/adminActionCode.js), el envío queda bloqueado en vez
+// de salir sin confirmar.
+const massEmailCode = requireActionCode("MASS_EMAIL");
+
 // Todo el módulo admin exige rol ADMIN (rechaza 403 a vendedor/cliente).
 router.use(authenticate, requireRole("ADMIN"), notifyVendorChoice);
 
@@ -52,7 +63,7 @@ router.get("/partners/scopes", partnersController.listScopes);
 router.get("/partners", partnersController.listPartners);
 router.post("/partners", partnersController.createPartner);
 router.get("/partners/:id", partnersController.getPartner);
-router.patch("/partners/:id", partnersController.updatePartner);
+router.patch("/partners/:id", partnerStatusCode, partnersController.updatePartner);
 router.get("/partners/:id/usage", partnersController.getPartnerUsage);
 router.get("/partners/:id/movements", partnersController.getPartnerMovements);
 // Bloque 303: todo lo que cambia el acceso o la credencial de un socio pide el código de confirmación del admin.
@@ -233,6 +244,10 @@ router.post("/emails", adminController.sendAdminEmail);
 
 // Bloque 70 (pedido explícito): historial de acciones de vendedores/clientes
 // + estadísticas de uso (top vendedores/clientes por día/semana/mes).
+// Tiendas eliminadas o con eliminación pendiente, con su historial completo (creación, dispositivos, eliminación).
+router.get("/deleted-vendors", adminDeletedVendors.listDeletedVendors);
+router.get("/deleted-vendors/:id", adminDeletedVendors.getDeletedVendor);
+router.get("/vendors/:id/history", adminDeletedVendors.getVendorHistory);
 router.get("/activity-log", adminController.listActivityLog);
 router.get("/activity-log/stats", adminController.getActivityStats);
 
@@ -245,9 +260,13 @@ router.post("/messages/:vendorId", adminController.sendConversationMessage);
 router.patch("/messages/:vendorId/read", adminController.markConversationRead);
 
 router.get("/campaigns", campaignsController.listCampaigns);
-router.post("/campaigns", siteUpload.single("image"), campaignsController.createCampaign);
+// Antes de "/campaigns/:id": cuántos recibirían la campaña con los mismos filtros que el envío (sin bajas ni cuentas en
+// eliminación).
+router.get("/campaigns/estimate", campaignsController.estimateCampaignRecipients);
+// El código va ANTES de siteUpload (como /settings/hero-images): si falta, no queda una imagen subida sin dueño.
+router.post("/campaigns", massEmailCode, siteUpload.single("image"), campaignsController.createCampaign);
 router.patch("/campaigns/:id", siteUpload.single("image"), campaignsController.updateCampaign);
-router.post("/campaigns/:id/resend", campaignsController.resendCampaign);
+router.post("/campaigns/:id/resend", massEmailCode, campaignsController.resendCampaign);
 router.delete("/campaigns/:id", campaignsController.deleteCampaign);
 
 router.get("/integrations", integrationsController.listIntegrations);
@@ -315,6 +334,20 @@ router.delete("/settings/hero-images", requireActionCode("PLATFORM_BRANDING"), s
 router.get("/plan-configs", settingsController.listPlanConfigs);
 router.get("/plan-configs/vendor-counts", settingsController.planVendorCounts);
 router.patch("/plan-configs", requireActionCode("PLAN_CONFIG_CHANGE"), settingsController.updatePlanConfig);
+// Planes dinámicos (Configuración > Planes y pagos): crear, editar, archivar con plan destino, restaurar, vista previa del
+// impacto, catálogo de funciones y estadísticas por plan. Las rutas de arriba siguen hasta que la pantalla vieja migre.
+// Archivar lleva su propio código (PLAN_ARCHIVE): mueve tiendas de plan en bloque. Lecturas y vista previa no piden código.
+router.get("/plans", adminPlans.listPlans);
+router.post("/plans", requireActionCode("PLAN_CONFIG_CHANGE"), adminPlans.createPlan);
+router.patch("/plans/:key", requireActionCode("PLAN_CONFIG_CHANGE"), adminPlans.updatePlan);
+router.post("/plans/:key/archive", requireActionCode("PLAN_ARCHIVE"), adminPlans.archivePlan);
+router.post("/plans/:key/restore", requireActionCode("PLAN_CONFIG_CHANGE"), adminPlans.restorePlan);
+router.post("/plans/:key/preview-impact", adminPlans.previewPlanImpact);
+router.get("/plan-features", adminPlans.listPlanFeatures);
+router.post("/plan-features", requireActionCode("PLAN_CONFIG_CHANGE"), adminPlans.createPlanFeature);
+router.patch("/plan-features/:key", requireActionCode("PLAN_CONFIG_CHANGE"), adminPlans.updatePlanFeature);
+router.delete("/plan-features/:key", requireActionCode("PLAN_CONFIG_CHANGE"), adminPlans.deletePlanFeature);
+router.get("/plan-stats", adminPlans.getPlanStats);
 router.patch("/settings/product-settings", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateProductSettings);
 router.patch("/settings/offer-policy", requireActionCode("PLATFORM_SETTINGS"), settingsController.updateOfferPolicy);
 // Bloque 237: política de "Venta rápida" (anuncios de clientes), misma
@@ -390,6 +423,8 @@ router.patch("/store-offers/:id/active", requireActionCode("VENDOR_CHANGE"), sto
 // ninguna de estas tres (ver vendors.routes.js para lo que sí puede: listar
 // los suyos y responder).
 router.get("/reviews", reviewsController.listAllReviews);
+// Una sola reseña: el aviso de reporte enlaza con ?review=id y puede no estar en la página cargada.
+router.get("/reviews/:id", reviewsController.getAdminReview);
 router.patch("/reviews/:id/reply", reviewsController.adminReplyToReview);
 router.patch("/reviews/:id/hidden", requireActionCode("CONTENT_MODERATION"), reviewsController.setReviewHidden);
 router.patch("/reviews/:id/resolve-report", requireActionCode("CONTENT_MODERATION"), reviewsController.resolveReviewReport);
@@ -420,9 +455,10 @@ router.delete("/offers/:id", adminOffersController.deleteAdminOffer);
 // arriba (mismo criterio — sin router propio para el lado admin), con
 // siteUpload para la imagen opcional (mismo middleware que /campaigns).
 router.get("/targeted-offers", targetedOffersController.listAdminTargetedOffers);
-router.post("/targeted-offers", siteUpload.single("image"), targetedOffersController.createTargetedOffer);
+// Crear pide el código aunque sea solo popup: el cuerpo llega en multipart y antes de siteUpload no se sabe si manda correo.
+router.post("/targeted-offers", massEmailCode, siteUpload.single("image"), targetedOffersController.createTargetedOffer);
 router.patch("/targeted-offers/:id", siteUpload.single("image"), targetedOffersController.updateTargetedOffer);
-router.post("/targeted-offers/:id/resend-email", targetedOffersController.resendTargetedOfferEmail);
+router.post("/targeted-offers/:id/resend-email", massEmailCode, targetedOffersController.resendTargetedOfferEmail);
 router.delete("/targeted-offers/:id", targetedOffersController.deleteTargetedOffer);
 
 // Bloque 37: revisión de conversaciones reales + ejemplos curados de

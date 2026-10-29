@@ -34,7 +34,9 @@ function SocialLink({ href, label, Icon }) {
 }
 
 export function Footer() {
-  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl, pwaEnabled } = usePlatformSettings();
+  const { siteName, logoUrl, whatsappUrl, instagramUrl, facebookUrl, pwaEnabled, plans } = usePlatformSettings();
+  // "Gratis" solo si el plan por defecto (el de las tiendas nuevas) lo es: el admin puede cobrarlo.
+  const signupIsFree = plans.find((p) => p.isDefault)?.isFree === true;
   return (
     <footer className="rounded-t-[28px] bg-primary">
       <div className="container-app grid gap-8 pb-2 pt-10 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:gap-8 md:pt-11">
@@ -86,7 +88,7 @@ export function Footer() {
             <nav aria-label="Vender">
               <div className={HEADING}>Vender</div>
               <div className="flex flex-col md:gap-2.5">
-                <Link to="/vendedor/ingresar?tab=registro" className={LINK}>Registrarse gratis</Link>
+                <Link to="/vendedor/ingresar?tab=registro" className={LINK}>{signupIsFree ? "Registrarse gratis" : "Crear mi tienda"}</Link>
                 <Link to="/planes" className={LINK}>Planes y precios</Link>
                 <Link to="/api-socios" className={LINK}>API para socios</Link>
               </div>

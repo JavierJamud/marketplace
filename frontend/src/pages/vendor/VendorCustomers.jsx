@@ -89,8 +89,8 @@ function CustomerDetail({ customerId, canWrite, onClose }) {
   });
 
   return (
-    <div className="fixed inset-0 z-[65] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl">
+    <div className="fixed inset-0 z-[65] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="flex w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl max-h-[calc(100dvh-2rem)]">
         <div className="flex items-start justify-between gap-3 border-b border-surface-container-high px-5 py-4">
           <div className="min-w-0">
             <h2 className="truncate font-display text-[20px] font-extrabold text-on-surface">{customer?.name ?? "Cliente"}</h2>
@@ -208,7 +208,7 @@ export default function VendorCustomers() {
     <div className="max-w-[920px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Contact} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Clientes</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Clientes</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Quienes han comprado en tu tienda, con todos sus pedidos y movimientos. Se registran solos con cada pedido.</p>
 
@@ -273,7 +273,7 @@ export default function VendorCustomers() {
                 <ShoppingCart className="h-4 w-4" /> Ver pedidos y movimientos
               </button>
               {c.phone && (
-                <a href={waLink(c.phone, `Hola ${c.name ?? ""}, te escribimos de la tienda.`)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-[#25D366]/15 px-3.5 text-[12.5px] font-bold text-[#0a7a3c]">
+                <a href={waLink(c.phone, `Hola ${c.name ?? ""}, te escribimos de la tienda.`)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-whatsapp/15 px-3.5 text-[12.5px] font-bold text-[#0a7a3c]">
                   <MessageCircle className="h-4 w-4" /> WhatsApp
                 </a>
               )}

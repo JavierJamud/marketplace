@@ -82,7 +82,13 @@ export function CompactStoreCard({ vendor }) {
         )}
         <div className="mt-auto flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <StarRating value={Number(vendor.rating ?? 0)} size="h-3 w-3" showValue />
+            {/* Sin reseñas, "0.0" con cinco estrellas vacías parecía una tienda mal calificada. Mismo criterio que
+                StoreCard.jsx y el banner de la tienda: el texto lo dice y, con reseñas, se ve cuántas son. */}
+            {vendor.reviewCount > 0 ? (
+              <StarRating value={Number(vendor.rating ?? 0)} size="h-3 w-3" showValue count={vendor.reviewCount} />
+            ) : (
+              <span className="text-[11.5px] text-outline">Sin reseñas todavía</span>
+            )}
             <span className="flex items-center gap-1 text-[11.5px] font-bold text-tertiary-accent">
               Ver <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
             </span>
@@ -90,7 +96,7 @@ export function CompactStoreCard({ vendor }) {
           <div className="text-[11px] text-outline">
             {vendor._count?.products ?? 0} producto{vendor._count?.products === 1 ? "" : "s"}
             {" · "}
-            {vendor.category?.name ?? (vendor.isRestaurant ? "Restaurante" : "Tienda")}
+            {vendor.businessCategory?.name ?? vendor.category?.name ?? (vendor.isRestaurant ? "Restaurante" : "Tienda")}
             {vendor.isRestaurant && <UtensilsCrossed className="ml-1 inline h-3 w-3 align-text-bottom" />}
           </div>
         </div>

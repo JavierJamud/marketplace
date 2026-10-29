@@ -15,8 +15,8 @@ export const BTN_DANGER = `${BTN} border border-error/40 text-error hover:bg-err
 
 export function Modal({ title, onClose, children, wide }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.45)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`relative max-h-[90vh] w-full ${wide ? "max-w-xl" : "max-w-md"} overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`modal-panel-6 relative w-full ${wide ? "max-w-xl" : "max-w-md"} rounded-2xl bg-surface-container-lowest p-6 shadow-2xl`}>
         <button onClick={onClose} aria-label="Cerrar" className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full text-outline hover:bg-surface-variant">
           <X className="h-4 w-4" />
         </button>

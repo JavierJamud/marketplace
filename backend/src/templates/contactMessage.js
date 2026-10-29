@@ -23,7 +23,7 @@ export async function contactMessageEmail({ name, email, message }) {
     storeName: siteName,
     footerNote: "Mensaje recibido desde el formulario de contacto. Pulsa Responder para contestarle directamente a esta persona.",
     bodyMjml: `
-      ${paragraph(`De <strong style="color:#1b1b1d;">${escapeHtml(name)}</strong> (${escapeHtml(email)}), vía el formulario de /contacto.`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
+      ${paragraph(`De <strong style="color:#1b1b1d;">${escapeHtml(name)}</strong> (${escapeHtml(email)}), vía el formulario de /contacto.`, { color: "#5f6368", size: "12.5px", padding: "0 0 14px" })}
       ${paragraph(safeMessage, { color: "#44474c", size: "14px", lineHeight: "22px" })}
     `,
   });

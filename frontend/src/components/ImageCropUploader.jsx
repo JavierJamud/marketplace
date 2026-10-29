@@ -106,7 +106,7 @@ export function ImageCropUploader({
 
       {rawSrc && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/50 p-4">
-          <div className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-surface-container-lowest p-5">
+          <div className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-surface-container-lowest p-5 max-h-[calc(100dvh-2rem)]">
             <h4 className="mb-1 text-title-md text-on-surface">Acomoda tu foto</h4>
             <p className="mb-3 text-[12px] text-outline">El marco es exactamente lo que se verá en la tarjeta del producto. Arrastra la foto para moverla y usa el control para acercarla o alejarla.</p>
             <div className="relative h-[280px] w-full overflow-hidden rounded-lg bg-black">

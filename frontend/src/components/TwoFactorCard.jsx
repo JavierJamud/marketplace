@@ -79,11 +79,11 @@ export default function TwoFactorCard() {
 
   return (
     <section className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex flex-wrap items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <Smartphone className="h-5 w-5 text-tertiary-accent" aria-hidden="true" />
         <h2>Verificación en dos pasos con aplicación</h2>
         {!isLoading && (
-          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${enabled ? "bg-[#0CAE53]/15 text-[#087A38]" : "bg-surface-container text-on-surface-variant"}`}>
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${enabled ? "bg-verified/15 text-verified-dark" : "bg-surface-container text-on-surface-variant"}`}>
             {enabled ? "Activada" : "No activada"}
           </span>
         )}

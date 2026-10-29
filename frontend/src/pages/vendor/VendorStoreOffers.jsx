@@ -15,6 +15,14 @@ import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { DiscountCodeFormModal } from "../../components/vendor/DiscountCodeFormModal.jsx";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { canWriteSection } from "../../lib/vendorSections.js";
+
+// Una sola forma para la caché ["my-discount-codes"], que comparten las dos pestañas (y el formulario de oferta): la lista y
+// el cupo del plan (`limit: { maxActive, activeCount }`, maxActive null = sin tope) de GET /discount-codes/me/list.
+async function fetchMyDiscountCodes() {
+  const { discountCodes, limit } = (await api.get("/discount-codes/me/list")).data;
+  return { discountCodes: discountCodes ?? [], limit: limit ?? null };
+}
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -39,7 +47,13 @@ function discountLabel(code) {
 // "startsAt" junto al "expiresAt" que ya existía, y `atLimit` (viene del
 // padre, que ya sabe cuántas activas tiene contra la política del admin)
 // para avisar ANTES de que el backend rechace el intento.
-function StoreOfferFormModal({ offer, discountCodes, atLimit, maxActive, onClose, onSaved }) {
+// `canCreateCodes`: "+ Crear nuevo" abre el alta de un código (POST /discount-codes), que pide escritura en la sección
+// "codigos-descuento" y que el plan los incluya; sin eso el botón no sale. `codesError`: la lista de códigos no cargó (por
+// ejemplo, un usuario del equipo con "ofertas-tienda" pero sin "codigos-descuento" mientras el servidor no le abra la lista).
+// `atCodeLimit`/`maxActiveCodes`: el cupo de códigos activos del plan, el mismo que mira la pestaña Códigos; en el tope
+// "+ Crear nuevo" queda apagado, porque el servidor rechaza el alta (assertCodeSlotAvailable). `planHasCodes`: el plan de
+// la tienda trae códigos (planFeatures.allowDiscountCodes); sin eso no sirve pedirle al dueño que cree uno.
+function StoreOfferFormModal({ offer, discountCodes, codesError, onRetryCodes, canCreateCodes, atCodeLimit, maxActiveCodes, planHasCodes, isStaff, atLimit, maxActive, onClose, onSaved }) {
   const queryClient = useQueryClient();
   const isEdit = !!offer;
   const [title, setTitle] = useState(isEdit ? offer.title : "");
@@ -91,12 +105,42 @@ function StoreOfferFormModal({ offer, discountCodes, atLimit, maxActive, onClose
   const canSaveNow = !!title.trim() && !!discountCodeId && !(isLimitedTime && !expiresAt) && !invalidRange && !wantsActiveButBlocked;
   const dirtyModal = useDirtyModal({ isDirty, onClose, onSave: canSaveNow ? () => save.mutateAsync() : undefined });
 
+  // Aviso bajo el selector de código. Un 403 de la lista solo es "te falta la sección" para el personal y cuando el
+  // servidor no manda `details`: con details el motivo es otro (tienda bloqueada o suspendida por pago, o el plan sin
+  // usuarios del equipo) y se muestra el mensaje del servidor tal cual. Si el plan no trae códigos, eso va primero: ni
+  // la sección ni el dueño lo resuelven.
+  const planNoCodesNote = isStaff
+    ? "El plan de la tienda no incluye códigos de descuento, y cada oferta necesita uno."
+    : "Tu plan no incluye códigos de descuento, y cada oferta necesita uno.";
+  let codesErrorNote = null;
+  if (codesError?.response?.status === 403) {
+    const data = codesError.response.data;
+    if (data?.details) codesErrorNote = data.error ?? "No tienes acceso a los códigos de descuento de la tienda.";
+    else if (!planHasCodes) codesErrorNote = planNoCodesNote;
+    else if (isStaff) codesErrorNote = "No tienes acceso a los códigos de descuento de la tienda. Pide al dueño que te dé la sección Códigos de descuento.";
+    else codesErrorNote = data?.error ?? "No tienes acceso a los códigos de descuento de la tienda.";
+  }
+  const codeLimitNote =
+    canCreateCodes && atCodeLimit
+      ? maxActiveCodes === 0
+        ? "Tu plan no incluye códigos de descuento activos."
+        : "Llegaste al tope de códigos activos de tu plan. Reusa uno o desactiva otro."
+      : null;
+  let emptyCodesNote = null;
+  if (discountCodes && !discountCodes.length) {
+    if (!planHasCodes) emptyCodesNote = planNoCodesNote;
+    // En el tope ya lo explica codeLimitNote; "Crea uno" sería falso.
+    else if (canCreateCodes) emptyCodesNote = atCodeLimit ? null : "Todavía no tienes códigos de descuento. Crea uno para esta oferta.";
+    else if (isStaff) emptyCodesNote = "La tienda todavía no tiene códigos de descuento. Pide al dueño que cree uno.";
+    else emptyCodesNote = "Todavía no tienes códigos de descuento.";
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">{isEdit ? "Editar oferta de tienda" : "Nueva oferta de tienda"}</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -132,22 +176,48 @@ function StoreOfferFormModal({ offer, discountCodes, atLimit, maxActive, onClose
                 className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none"
               >
                 <option value="">Elige un código...</option>
+                {/* Un código suspendido por el administrador no se puede usar en una oferta (el servidor lo rechaza). Se deja
+                    elegible solo si ya era el de esta oferta, para que el select no quede vacío al editarla. */}
                 {discountCodes?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} ({discountLabel(c)}) {c.active ? "" : "· inactivo"}
+                  <option key={c.id} value={c.id} disabled={!!c.suspendedAt && c.id !== discountCodeId}>
+                    {c.code} ({discountLabel(c)}) {c.suspendedAt ? "· suspendido" : c.active ? "" : "· inactivo"}
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() => setShowCreateCode(true)}
-                className="flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[12.5px] font-bold text-tertiary-accent hover:bg-surface-container"
-              >
-                + Crear nuevo
-              </button>
+              {canCreateCodes && (
+                <button
+                  type="button"
+                  onClick={() => setShowCreateCode(true)}
+                  disabled={atCodeLimit}
+                  title={atCodeLimit ? "Llegaste al tope de códigos activos de tu plan" : undefined}
+                  className="min-h-11 flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[12.5px] font-bold text-tertiary-accent hover:bg-surface-container disabled:cursor-not-allowed disabled:text-outline disabled:hover:bg-transparent"
+                >
+                  + Crear nuevo
+                </button>
+              )}
             </div>
-            {!discountCodes?.length && (
-              <p className="mt-1.5 text-[11px] text-outline">Todavía no tienes códigos de descuento — crea uno para esta oferta.</p>
+            {codesError ? (
+              codesErrorNote ? (
+                <p role="alert" className="mt-1.5 text-[11.5px] font-semibold text-error">
+                  {codesErrorNote}
+                </p>
+              ) : (
+                <p role="alert" className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11.5px] font-semibold text-error">
+                  No pudimos cargar tus códigos de descuento.
+                  <button type="button" onClick={onRetryCodes} className="min-h-11 font-bold text-tertiary-accent underline">
+                    Reintentar
+                  </button>
+                </p>
+              )
+            ) : (
+              <>
+                {codeLimitNote && (
+                  <p role="status" className="mt-1.5 text-[11.5px] text-on-surface-variant">
+                    {codeLimitNote}
+                  </p>
+                )}
+                {emptyCodesNote && <p className="mt-1.5 text-[11.5px] text-outline">{emptyCodesNote}</p>}
+              </>
             )}
           </div>
 
@@ -188,8 +258,9 @@ function StoreOfferFormModal({ offer, discountCodes, atLimit, maxActive, onClose
               {!discountCodeExclusive && (
                 <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-tertiary-accent/[0.08] p-2.5 text-[11.5px] text-on-surface">
                   <Sparkles className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-tertiary-accent" />
-                  Recomendado: usa un código exclusivo para esta oferta (con "+ Crear nuevo") — se desactiva solo cuando la oferta vence.
-                  Si reusas uno existente, tú decides cuándo desactivarlo.
+                  {canCreateCodes && !atCodeLimit
+                    ? 'Recomendado: usa un código exclusivo para esta oferta (con "+ Crear nuevo"). Se desactiva solo cuando la oferta vence. Si reusas uno existente, tú decides cuándo desactivarlo.'
+                    : "Si reusas un código que ya existe, no se desactiva solo cuando la oferta vence: hay que desactivarlo a mano."}
                 </p>
               )}
             </div>
@@ -206,8 +277,8 @@ function StoreOfferFormModal({ offer, discountCodes, atLimit, maxActive, onClose
                 Publicarla de inmediato
                 <span className="mt-1 block text-label-sm font-normal text-outline">
                   {atLimit
-                    ? `Ya tienes el máximo de ofertas activas permitidas (${maxActive}) — guárdala como borrador y activa esta cuando desactives otra.`
-                    : "Destildado, queda guardada como borrador — podrás activarla más adelante desde la lista."}
+                    ? `Ya tienes el máximo de ofertas activas permitidas (${maxActive}). Guárdala como borrador y activa esta cuando desactives otra.`
+                    : "Destildado, queda guardada como borrador: podrás activarla más adelante desde la lista."}
                 </span>
               </span>
             </label>
@@ -254,7 +325,9 @@ function StoreOfferFormModal({ offer, discountCodes, atLimit, maxActive, onClose
 // Bloque 232: pestaña "Ofertas" — antes toda esta página; ahora vive
 // separada para compartir espacio con "Códigos de descuento" dentro de la
 // misma sección (ver el componente default de abajo).
-function StoreOffersTab({ vendor }) {
+// `canWrite`: escritura en "ofertas-tienda" (un usuario del equipo en solo lectura ve las ofertas sin botones que el
+// servidor le rechaza). `canCreateCodes`: ver StoreOfferFormModal.
+function StoreOffersTab({ vendor, isStaff, canWrite, canCreateCodes }) {
   const queryClient = useQueryClient();
   const [formTarget, setFormTarget] = useState(null); // null cerrado, {} crear, offer editar
 
@@ -263,10 +336,23 @@ function StoreOffersTab({ vendor }) {
     queryFn: async () => (await api.get("/store-offers/me/list")).data.storeOffers,
     enabled: !!vendor?.isVerified,
   });
-  const { data: discountCodes } = useQuery({
+  // Hace falta para elegir el código de cada oferta. Si falla (un 403 al personal sin "codigos-descuento" mientras el
+  // servidor no le abra la lista), el formulario lo explica en vez de mostrar un selector vacío como si no hubiera códigos.
+  const {
+    data: codesData,
+    error: codesError,
+    refetch: refetchCodes,
+  } = useQuery({
     queryKey: ["my-discount-codes"],
-    queryFn: async () => (await api.get("/discount-codes/me/list")).data.discountCodes,
+    queryFn: fetchMyDiscountCodes,
+    retry: (count, err) => err?.response?.status !== 403 && count < 2,
   });
+  const discountCodes = codesData?.discountCodes;
+  // Mismo cupo de códigos que la pestaña Códigos (codesData.limit), para que "+ Crear nuevo" del formulario no abra un
+  // alta que el servidor rechaza en el tope.
+  const maxActiveCodes = codesData?.limit?.maxActive ?? null;
+  const atCodeLimit = maxActiveCodes !== null && (codesData?.limit?.activeCount ?? 0) >= maxActiveCodes;
+  const planHasCodes = !vendor?.planFeatures || !!vendor.planFeatures.allowDiscountCodes;
   const { data: siteSettings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
@@ -309,15 +395,17 @@ function StoreOffersTab({ vendor }) {
             {activeCount}/{maxActive ?? "∞"} {maxActive === 1 ? "oferta activa" : "ofertas activas"}
           </span>
         )}
-        <div className="ml-auto" title={!vendor?.isVerified ? "Disponible solo para tiendas verificadas" : undefined}>
-          <Button className="rounded-xl font-bold" disabled={!vendor?.isVerified} onClick={() => setFormTarget({})}>
-            <Plus className="mr-1 h-4 w-4" /> Agregar oferta
-          </Button>
-        </div>
+        {canWrite && (
+          <div className="ml-auto" title={!vendor?.isVerified ? "Disponible solo para tiendas verificadas" : undefined}>
+            <Button className="rounded-xl font-bold" disabled={!vendor?.isVerified} onClick={() => setFormTarget({})}>
+              <Plus className="mr-1 h-4 w-4" /> Agregar oferta
+            </Button>
+          </div>
+        )}
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Se muestran en la página pública de tu tienda mientras estén activas y dentro de su fecha programada. Cada una
-        lleva un código de descuento asignado — puedes reusar uno ya existente o crear uno nuevo exclusivo para la oferta.
+        lleva un código de descuento asignado: puedes reusar uno ya existente o crear uno nuevo exclusivo para la oferta.
       </p>
 
       {!vendor?.isVerified && (
@@ -342,7 +430,7 @@ function StoreOffersTab({ vendor }) {
         <EmptyState
           icon={Gift}
           title="Todavía no publicaste ninguna oferta de tienda"
-          description="Agrega un título, descripción y un código de descuento — se muestra en tu tienda mientras esté activa."
+          description="Agrega un título, descripción y un código de descuento. Se muestra en tu tienda mientras esté activa."
         />
       )}
 
@@ -350,28 +438,39 @@ function StoreOffersTab({ vendor }) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {storeOffers.map((o) => {
             const scheduled = o.active && o.startsAt && new Date(o.startsAt) > new Date();
+            // Suspendida por el administrador: la tienda no puede reactivarla (el servidor responde 403), así que no se
+            // ofrece el botón y se muestra el motivo si el admin lo escribió.
+            const suspended = !!o.suspendedAt;
             return (
               <div key={o.id} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest shadow-sm">
                 <div className="p-3.5">
-                  <div className="mb-2 flex items-center gap-1.5">
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
                     <span
                       className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${
-                        scheduled
-                          ? "bg-[#8A5100]/10 text-[#8A5100]"
+                        suspended
+                          ? "bg-error/10 text-error"
+                          : scheduled
+                          ? "bg-secondary/10 text-secondary"
                           : o.active
                           ? "bg-verified/10 text-verified-dark"
                           : "bg-surface-container text-outline"
                       }`}
                     >
-                      {scheduled ? "Programada" : o.active ? "Activa" : "Inactiva"}
+                      {suspended ? "Suspendida por el administrador" : scheduled ? "Programada" : o.active ? "Activa" : "Inactiva"}
                     </span>
                     <span className="rounded-full bg-error/10 px-2.5 py-1 text-[10.5px] font-bold text-error">
                       {o.discountCode.code} · {discountLabel(o.discountCode)}
                     </span>
                   </div>
                   <div className="mb-1 truncate text-[13.5px] font-semibold text-on-surface">{o.title}</div>
+                  {suspended && (
+                    <p className="mb-2 flex items-start gap-1.5 text-[11.5px] text-error">
+                      <ShieldAlert className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                      <span>{o.suspendedReason ? `Motivo: ${o.suspendedReason}` : "No se muestra en tu tienda. Si crees que es un error, escríbenos."}</span>
+                    </p>
+                  )}
                   {o.isLimitedTime && scheduled && (
-                    <div className="mb-1 flex items-center gap-1.5 text-[11.5px] text-[#8A5100]">
+                    <div className="mb-1 flex items-center gap-1.5 text-[11.5px] text-secondary">
                       <CalendarClock className="h-3 w-3 flex-shrink-0" /> Empieza el {fmtDate(o.startsAt)}
                     </div>
                   )}
@@ -380,22 +479,26 @@ function StoreOffersTab({ vendor }) {
                       <Clock className="h-3 w-3 flex-shrink-0" /> Vence el {fmtDate(o.expiresAt)}
                     </div>
                   )}
-                  <div className="flex items-center gap-3.5">
-                    <button
-                      onClick={() => setFormTarget(o)}
-                      className="flex items-center gap-1.5 text-[12px] font-semibold text-tertiary-accent hover:underline"
-                    >
-                      <Pencil className="h-3.5 w-3.5" /> Editar
-                    </button>
-                    <button
-                      onClick={() => toggleActive.mutate({ id: o.id, active: !o.active })}
-                      disabled={toggleActive.isPending || (!o.active && atLimit)}
-                      title={!o.active && atLimit ? `Ya tienes ${maxActive}/${maxActive} ofertas activas — desactiva otra primero.` : undefined}
-                      className="flex items-center gap-1.5 text-[12px] font-semibold text-error hover:underline disabled:cursor-not-allowed disabled:text-outline disabled:no-underline"
-                    >
-                      <Power className="h-3.5 w-3.5" /> {o.active ? "Retirar" : "Reactivar"}
-                    </button>
-                  </div>
+                  {canWrite && (
+                    <div className="flex items-center gap-3.5">
+                      <button
+                        onClick={() => setFormTarget(o)}
+                        className="flex min-h-11 items-center gap-1.5 text-[12px] font-semibold text-tertiary-accent hover:underline"
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Editar
+                      </button>
+                      {!suspended && (
+                        <button
+                          onClick={() => toggleActive.mutate({ id: o.id, active: !o.active })}
+                          disabled={toggleActive.isPending || (!o.active && atLimit)}
+                          title={!o.active && atLimit ? `Ya tienes ${maxActive}/${maxActive} ofertas activas. Desactiva otra primero.` : undefined}
+                          className="flex min-h-11 items-center gap-1.5 text-[12px] font-semibold text-error hover:underline disabled:cursor-not-allowed disabled:text-outline disabled:no-underline"
+                        >
+                          <Power className="h-3.5 w-3.5" /> {o.active ? "Retirar" : "Reactivar"}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -407,6 +510,13 @@ function StoreOffersTab({ vendor }) {
         <StoreOfferFormModal
           offer={formTarget.id ? formTarget : null}
           discountCodes={discountCodes}
+          codesError={codesError}
+          onRetryCodes={() => refetchCodes()}
+          canCreateCodes={canCreateCodes}
+          atCodeLimit={atCodeLimit}
+          maxActiveCodes={maxActiveCodes}
+          planHasCodes={planHasCodes}
+          isStaff={isStaff}
           atLimit={atLimit}
           maxActive={maxActive}
           onClose={closeForm}
@@ -430,15 +540,25 @@ function valueLabel(c) {
   return c.type === "PERCENTAGE" ? `${Number(c.value)}% · productos en ${c.currency ?? "CUP"}` : `${Number(c.value).toLocaleString("es-CU")} ${c.currency ?? "CUP"}`;
 }
 
-function DiscountCodesTab() {
+// `canWrite`: escritura en "codigos-descuento" (en solo lectura no salen crear, activar, editar ni eliminar, que el servidor
+// rechaza).
+function DiscountCodesTab({ canWrite }) {
   const queryClient = useQueryClient();
   const [formTarget, setFormTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const { data: discountCodes, isLoading } = useQuery({
+  const { data: codesData, isLoading, error: codesError, refetch: refetchCodes, isFetching: codesFetching } = useQuery({
     queryKey: ["my-discount-codes"],
-    queryFn: async () => (await api.get("/discount-codes/me/list")).data.discountCodes,
+    queryFn: fetchMyDiscountCodes,
   });
+  const discountCodes = codesData?.discountCodes;
+  // Cupo del plan: solo cuentan los códigos encendidos, sin suspender y sin vencer (countedCodeWhere en
+  // discountCodes.controller.js), así que desactivar uno libera su lugar. Se muestra "X/N" y, en el tope, no se ofrece
+  // crear ni encender otro que contaría, en vez de esperar al error del servidor.
+  const maxActiveCodes = codesData?.limit?.maxActive ?? null;
+  const activeCodes = codesData?.limit?.activeCount ?? 0;
+  const atCodeLimit = maxActiveCodes !== null && activeCodes >= maxActiveCodes;
+  const wouldCount = (c) => !c.suspendedAt && (!c.expiresAt || new Date(c.expiresAt) > new Date());
 
   const toggleActive = useMutation({
     mutationFn: async ({ id, active }) => (await api.patch(`/discount-codes/${id}`, { active })).data,
@@ -461,19 +581,52 @@ function DiscountCodesTab() {
 
   return (
     <div>
-      <div className="mb-1 flex flex-wrap items-center justify-end gap-3">
-        <Button className="rounded-xl font-bold" onClick={() => setFormTarget({})}>
-          <Plus className="mr-1 h-4 w-4" /> Crear código
-        </Button>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        {codesData?.limit && discountCodes.length > 0 && (
+          <span
+            className="rounded-full px-3 py-1.5 text-[12px] font-bold"
+            style={atCodeLimit ? { background: "rgba(138,81,0,0.12)", color: "#8A5100" } : { background: "rgba(12,174,83,0.12)", color: "#087A38" }}
+          >
+            {activeCodes}/{maxActiveCodes ?? "∞"} {maxActiveCodes === 1 ? "código activo" : "códigos activos"}
+          </span>
+        )}
+        {canWrite && (
+          <div className="ml-auto" title={atCodeLimit ? "Llegaste al tope de códigos activos de tu plan" : undefined}>
+            <Button className="rounded-xl font-bold" disabled={atCodeLimit} onClick={() => setFormTarget({})}>
+              <Plus className="mr-1 h-4 w-4" /> Crear código
+            </Button>
+          </div>
+        )}
       </div>
+      {canWrite && atCodeLimit && (
+        <p role="status" className="mb-3 mt-2 rounded-xl border border-secondary/30 bg-secondary/[0.06] px-4 py-3 text-[13px] text-on-surface">
+          {maxActiveCodes === 0
+            ? "Tu plan actual no incluye códigos de descuento activos."
+            : `Tu plan permite hasta ${maxActiveCodes === 1 ? "1 código activo" : `${maxActiveCodes} códigos activos`}. Desactiva uno o mejora tu plan para crear otro.`}
+        </p>
+      )}
       <p className="mb-[22px] text-[13.5px] text-outline">
         Códigos que tus clientes pueden aplicar en el carrito para llevarse un descuento. Un código ya usado no se puede
-        editar ni eliminar — solo activar o desactivar.
+        editar ni eliminar: solo activar o desactivar.
       </p>
 
       {isLoading && <ListSkeleton />}
 
-      {!isLoading && !discountCodes?.length && (
+      {!isLoading && codesError && !codesData && (
+        <div role="alert" className="rounded-2xl border border-error/30 bg-error/[0.06] p-5 text-[13.5px] text-on-surface-variant">
+          <p className="font-bold text-on-surface">No pudimos cargar tus códigos de descuento.</p>
+          <button
+            type="button"
+            onClick={() => refetchCodes()}
+            disabled={codesFetching}
+            className="mt-2 inline-flex min-h-11 items-center font-bold text-tertiary-accent underline disabled:opacity-60"
+          >
+            {codesFetching ? "Reintentando..." : "Reintentar"}
+          </button>
+        </div>
+      )}
+
+      {!isLoading && !codesError && !discountCodes?.length && (
         <EmptyState
           icon={Percent}
           title="Todavía no creaste ningún código"
@@ -491,7 +644,7 @@ function DiscountCodesTab() {
                 <th className="px-4 py-3">Vigencia</th>
                 <th className="px-4 py-3">Usos</th>
                 <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Acciones</th>
+                {canWrite && <th className="px-4 py-3">Acciones</th>}
               </tr>
             </thead>
             <tbody>
@@ -505,42 +658,49 @@ function DiscountCodesTab() {
                     {c.maxUses != null ? ` / ${c.maxUses}` : " / ∞"}
                   </td>
                   <td className="px-4 py-3">
+                    {/* Suspendido por el administrador: no se puede activar ni eliminar desde aquí (el servidor lo rechaza). */}
                     <span
-                      className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${
-                        c.active ? "bg-verified/10 text-verified-dark" : "bg-surface-container-high text-outline"
+                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10.5px] font-bold ${
+                        c.suspendedAt ? "bg-error/10 text-error" : c.active ? "bg-verified/10 text-verified-dark" : "bg-surface-container-high text-outline"
                       }`}
                     >
-                      {c.active ? "Activo" : "Inactivo"}
+                      {c.suspendedAt ? "Suspendido por el administrador" : c.active ? "Activo" : "Inactivo"}
                     </span>
+                    {c.suspendedAt && c.suspendedReason && <p className="mt-1.5 max-w-[240px] text-[11.5px] text-error">Motivo: {c.suspendedReason}</p>}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => toggleActive.mutate({ id: c.id, active: !c.active })}
-                        disabled={toggleActive.isPending}
-                        title={c.active ? "Desactivar" : "Activar"}
-                        className="flex items-center gap-1 text-[12px] font-semibold text-tertiary-accent hover:underline disabled:opacity-50"
-                      >
-                        <Power className="h-3.5 w-3.5" /> {c.active ? "Desactivar" : "Activar"}
-                      </button>
-                      {c.usesCount === 0 && (
-                        <>
+                  {canWrite && (
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {!c.suspendedAt && (
                           <button
-                            onClick={() => setFormTarget(c)}
-                            className="flex items-center gap-1 text-[12px] font-semibold text-tertiary-accent hover:underline"
+                            onClick={() => toggleActive.mutate({ id: c.id, active: !c.active })}
+                            // Encender uno que contaría (sin vencer) en el tope lo rechaza el servidor: se deja apagado aquí.
+                            disabled={toggleActive.isPending || (!c.active && atCodeLimit && wouldCount(c))}
+                            title={!c.active && atCodeLimit && wouldCount(c) ? "Llegaste al tope de códigos activos de tu plan" : c.active ? "Desactivar" : "Activar"}
+                            className="flex min-h-11 items-center gap-1 text-[12px] font-semibold text-tertiary-accent hover:underline disabled:cursor-not-allowed disabled:text-outline disabled:no-underline"
                           >
-                            <Pencil className="h-3.5 w-3.5" /> Editar
+                            <Power className="h-3.5 w-3.5" /> {c.active ? "Desactivar" : "Activar"}
                           </button>
-                          <button
-                            onClick={() => setDeleteTarget(c)}
-                            className="flex items-center gap-1 text-[12px] font-semibold text-error hover:underline"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" /> Eliminar
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
+                        )}
+                        {c.usesCount === 0 && !c.suspendedAt && (
+                          <>
+                            <button
+                              onClick={() => setFormTarget(c)}
+                              className="flex min-h-11 items-center gap-1 text-[12px] font-semibold text-tertiary-accent hover:underline"
+                            >
+                              <Pencil className="h-3.5 w-3.5" /> Editar
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(c)}
+                              className="flex min-h-11 items-center gap-1 text-[12px] font-semibold text-error hover:underline"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Eliminar
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -587,20 +747,30 @@ const TABS = [
 // tener una sola de las 2 asignadas — ver VendorLayout.jsx, que ahora deja
 // entrar acá con CUALQUIERA de las 2).
 export default function VendorStoreOffers() {
-  const { vendor, isStaff, mySections } = useOutletContext();
-  const canViewOfertas = !isStaff || mySections?.includes("ofertas-tienda");
-  const canViewCodigos = !isStaff || mySections?.includes("codigos-descuento");
+  const { vendor, isStaff, mySections, staffSectionPermissions } = useOutletContext();
+  // Además del permiso de sección, cada pestaña sale solo si el plan trae su función (planFeatures, GET /vendors/me): un
+  // plan con códigos y sin ofertas no ve un "Agregar oferta" que el servidor rechaza. Sin ninguna de las dos, VendorLayout
+  // ya muestra el aviso del plan en lugar de esta pantalla.
+  const planFeatures = vendor?.planFeatures;
+  const canViewOfertas = (!isStaff || mySections?.includes("ofertas-tienda")) && (!planFeatures || planFeatures.allowStoreOffers);
+  const canViewCodigos = (!isStaff || mySections?.includes("codigos-descuento")) && (!planFeatures || planFeatures.allowDiscountCodes);
   const visibleTabs = TABS.filter((t) => (t.id === "ofertas-tienda" ? canViewOfertas : canViewCodigos));
   const [tab, setTab] = useState(visibleTabs[0]?.id ?? "ofertas-tienda");
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0]?.id;
+  // Nivel de cada sección (Bloque 185: "manage" escribe, "view" solo mira; null para el dueño = todo). "+ Crear nuevo" del
+  // formulario de oferta crea un código: pide la sección de códigos con escritura y que el plan los incluya (mismas reglas
+  // que POST /discount-codes), aunque se use desde la pestaña Ofertas.
+  const canWriteOfertas = canWriteSection(staffSectionPermissions, "ofertas-tienda");
+  const canWriteCodigos = canWriteSection(staffSectionPermissions, "codigos-descuento");
+  const canCreateCodes = canViewCodigos && canWriteCodigos;
 
   return (
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Gift} tone="orange" />
         <div>
-          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Ofertas y códigos</h1>
-          <p className="text-[12px] text-outline">Ofertas dentro de tu tienda y los códigos de descuento que usan — distintas de la sección "Ofertas" del Home.</p>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Ofertas y códigos</h1>
+          <p className="text-[12px] text-outline">Ofertas dentro de tu tienda y los códigos de descuento que usan. Son distintas de la sección "Ofertas" del Home.</p>
         </div>
       </div>
 
@@ -610,8 +780,8 @@ export default function VendorStoreOffers() {
       {visibleTabs.length > 1 && <Tabs tabs={visibleTabs} value={activeTab} onChange={setTab} className="mb-5 mt-4" />}
       {visibleTabs.length <= 1 && <div className="mt-4" />}
 
-      {activeTab === "ofertas-tienda" && <StoreOffersTab vendor={vendor} />}
-      {activeTab === "codigos-descuento" && <DiscountCodesTab />}
+      {activeTab === "ofertas-tienda" && <StoreOffersTab vendor={vendor} isStaff={isStaff} canWrite={canWriteOfertas} canCreateCodes={canCreateCodes} />}
+      {activeTab === "codigos-descuento" && <DiscountCodesTab canWrite={canWriteCodigos} />}
     </div>
   );
 }

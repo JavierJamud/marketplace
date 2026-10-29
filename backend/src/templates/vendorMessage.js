@@ -11,14 +11,14 @@ export async function vendorMessageEmail({ order, subject, message }) {
   const html = await emailShell({
     preview: message.slice(0, 120),
     title: subject,
-    storeName: esc(order.vendor.companyName),
+    storeName: order.vendor.companyName,
     storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     // Si la tienda tiene su propio color de marca, el header lo usa — si no,
     // cae al navy genérico de la plataforma (mismo comportamiento que el
     // avatar de la tienda en VendorLayout/Store.jsx).
     accentColor: order.vendor.color || undefined,
     bodyMjml: `
-      ${paragraph(`Mensaje de <strong style="color:#1b1b1d;">${esc(order.vendor.companyName)}</strong> sobre tu pedido ${esc(order.code)}`, { color: "#75777c", size: "12.5px", padding: "0 0 14px" })}
+      ${paragraph(`Mensaje de <strong style="color:#1b1b1d;">${esc(order.vendor.companyName)}</strong> sobre tu pedido ${esc(order.code)}`, { color: "#5f6368", size: "12.5px", padding: "0 0 14px" })}
       ${paragraph(esc(message).replace(/\n/g, "<br/>"), { color: "#44474c", size: "14px", lineHeight: "22px" })}
       ${ctaButton("Ver mi pedido", `${env.frontendUrl}/rastrear-pedido?pedido=${encodeURIComponent(order.code)}`)}
     `,

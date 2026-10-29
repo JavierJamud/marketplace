@@ -416,7 +416,7 @@ export function MarketplaceChatWidget() {
   const resetPopoverRef = useRef(null);
   const sessionIdRef = useRef(null);
   // El asistente solo conoce lo que hay en el lugar de entrega que eligió el cliente (siempre el vigente al enviar).
-  const { zoneParams, applyZone } = useZone();
+  const { zoneParams, zoneKey, waiting: zoneLoading, applyZone } = useZone();
   // Cambio de lugar en curso desde el chat: qué pregunta sigue. Se manda de vuelta en cada mensaje hasta que termina.
   const zoneFlowRef = useRef(null);
   const zoneParamsRef = useRef(zoneParams);
@@ -449,16 +449,15 @@ export function MarketplaceChatWidget() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Bloque 34: mismo queryKey que Home.jsx (CategoryMarquee) — si este
-  // widget se monta ahí (que es el único lugar donde vive, Home.jsx), el
-  // caché de react-query ya suele estar tibio, sin pedir nada de más solo
-  // para armar los chips iniciales. Bloque 39 (Parte 3, pedido explícito):
-  // ya NO se elige al azar — se usa la categoría con MÁS tiendas activas
-  // reales (vendorCount, ver businessCategories.controller.js), así el chip
-  // siempre apunta a un rubro realmente relevante del marketplace.
+  // Bloque 34: misma consulta que Home.jsx (fila de categorías): misma clave ["business-categories", zoneKey] y mismos
+  // parámetros (zona del cliente + inUse), así en la portada el caché ya está tibio y no se pide nada de más. Antes pedía
+  // sin zona y con otra clave: una petición extra y un chip que podía proponer un rubro sin tiendas en la zona del cliente.
+  // Bloque 39 (Parte 3, pedido explícito): se usa la categoría con MÁS tiendas reales (vendorCount, ver
+  // businessCategories.controller.js), así el chip siempre apunta a un rubro relevante.
   const { data: businessCategories } = useQuery({
-    queryKey: ["business-categories"],
-    queryFn: async () => (await api.get("/business-categories")).data.categories,
+    queryKey: ["business-categories", zoneKey],
+    queryFn: async () => (await api.get("/business-categories", { params: { ...zoneParams, inUse: true } })).data.categories,
+    enabled: !zoneLoading,
     staleTime: 5 * 60 * 1000,
   });
   // Preguntas sugeridas al abrir el chat: el servidor las arma con lo que preguntan y buscan los clientes (o las base).
@@ -469,8 +468,10 @@ export function MarketplaceChatWidget() {
     enabled: open,
   });
   const featuredCategory = useMemo(() => {
-    if (!businessCategories?.length) return null;
-    return [...businessCategories].sort((a, b) => (b.vendorCount ?? 0) - (a.vendorCount ?? 0))[0].name;
+    // Un rubro sin tiendas en la zona no se propone: el chip llevaría a una búsqueda vacía.
+    const withStores = (businessCategories ?? []).filter((c) => c.vendorCount > 0);
+    if (!withStores.length) return null;
+    return [...withStores].sort((a, b) => b.vendorCount - a.vendorCount)[0].name;
   }, [businessCategories]);
 
   useEffect(() => {
@@ -582,7 +583,7 @@ export function MarketplaceChatWidget() {
   // escrito. Sin login (a diferencia del límite de fotos que reemplaza).
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia) {
-      toast.error("Tu navegador no soporta grabación de audio — escribe tu mensaje.");
+      toast.error("Tu navegador no permite grabar audio. Escribe tu mensaje.");
       return;
     }
     let stream;
@@ -592,7 +593,7 @@ export function MarketplaceChatWidget() {
       // El mensaje/prompt de permiso ya lo mostró el navegador — acá solo
       // se informa que el micrófono no quedó disponible, el input de texto
       // sigue funcionando igual.
-      toast.error("No se pudo acceder al micrófono — revisa los permisos del navegador o escribe tu mensaje.");
+      toast.error("No se pudo usar el micrófono. Revisa los permisos del navegador o escribe tu mensaje.");
       return;
     }
     streamRef.current = stream;
@@ -643,7 +644,7 @@ export function MarketplaceChatWidget() {
     });
     stopStream();
     if (durationMs < MIN_RECORDING_MS) {
-      toast.error("No se detectó audio — mantén presionado y habla.");
+      toast.error("La grabación fue muy corta. Graba de nuevo y habla un poco más.");
       setRecordingState("idle");
       return;
     }
@@ -656,13 +657,13 @@ export function MarketplaceChatWidget() {
         // Bloque 39 (pedido explícito): audio real pero sin habla detectable
         // (silencio, ruido de fondo) — nunca se manda nada al chat ni se le
         // pide a la IA que "invente" una pregunta a partir de esto.
-        toast.error("No pude entender el audio — prueba de nuevo o escribe tu mensaje.");
+        toast.error("No pude entender el audio. Prueba de nuevo o escribe tu mensaje.");
         return;
       }
       setRecordingState("idle");
       await revealText(transcribed, (word, first) => setText((prev) => appendWord(prev, word, first)));
     } catch {
-      toast.error("No pude entender el audio — prueba de nuevo o escribe tu mensaje.");
+      toast.error("No pude entender el audio. Prueba de nuevo o escribe tu mensaje.");
     } finally {
       setRecordingState("idle");
     }
@@ -789,9 +790,13 @@ export function MarketplaceChatWidget() {
               <div className="truncate text-label-md font-bold">Nova</div>
               <div className="text-[11px] text-white/70">Asistente de compras</div>
             </div>
-            {/* Bloque 38: mute toggle — clave compartida con el chat de
+            {/* Los tres botones miden 44px para tocarlos cómodo en el celular (antes 18px, solo el ícono). El -my-1.5 hace que
+                no estiren la barra (44px contra los 32px del avatar) y el -mr-3 deja el último ícono donde estaba. */}
+            <div className="-my-1.5 -mr-3 flex flex-shrink-0 items-center">
+            {/* Bloque 38: mute toggle, clave compartida con el chat de
                 tienda (ver chatSound.js), persiste entre recargas. */}
             <button
+              type="button"
               onClick={() => {
                 const next = !muted;
                 setMuted(next);
@@ -799,31 +804,33 @@ export function MarketplaceChatWidget() {
               }}
               aria-label={muted ? "Activar sonido" : "Silenciar sonido"}
               title={muted ? "Activar sonido" : "Silenciar sonido"}
-              className="flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center text-white/70 hover:text-white"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-white"
             >
               {muted ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}
             </button>
             <div ref={resetPopoverRef} className="relative flex-shrink-0">
               <button
+                type="button"
                 onClick={handleNewChat}
                 aria-label="Nueva conversación"
                 title="Nueva conversación"
-                className="flex h-[18px] w-[18px] items-center justify-center text-white/70 hover:text-white"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-white"
               >
                 <RotateCcw className="h-[18px] w-[18px]" />
               </button>
               {confirmingReset && (
-                <div className="absolute right-0 top-[calc(100%+10px)] z-10 w-[210px] rounded-lg border border-surface-container-high bg-surface-container-lowest p-3.5 text-left shadow-lg animate-fade-up">
+                <div className="absolute right-0 top-[calc(100%+4px)] z-10 w-[210px] rounded-lg border border-surface-container-high bg-surface-container-lowest p-3.5 text-left shadow-lg animate-fade-up">
                   <p className="mb-1 text-[12.5px] font-bold text-on-surface">¿Reiniciar conversación?</p>
-                  <p className="mb-3 text-[11px] leading-4 text-outline">Se limpia la vista actual — el historial queda guardado igual.</p>
+                  <p className="mb-3 text-[11px] leading-4 text-on-surface-variant">Se limpia la vista actual. El historial queda guardado.</p>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       onClick={() => setConfirmingReset(false)}
-                      className="flex-1 rounded border border-outline-variant py-1.5 text-[11.5px] font-semibold text-on-surface-variant hover:bg-surface-container"
+                      className="min-h-11 flex-1 rounded border border-outline-variant text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container"
                     >
                       Cancelar
                     </button>
-                    <button onClick={reallyResetChat} className="flex-1 rounded bg-error py-1.5 text-[11.5px] font-bold text-white hover:brightness-95">
+                    <button type="button" onClick={reallyResetChat} className="min-h-11 flex-1 rounded bg-error text-[12px] font-bold text-white hover:brightness-95">
                       Reiniciar
                     </button>
                   </div>
@@ -831,12 +838,14 @@ export function MarketplaceChatWidget() {
               )}
             </div>
             <button
+              type="button"
               onClick={() => setOpen(false)}
               aria-label="Cerrar chat"
-              className="flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center text-white/70 hover:text-white"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-white"
             >
               <X className="h-[18px] w-[18px]" />
             </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
@@ -898,7 +907,7 @@ export function MarketplaceChatWidget() {
                       carrusel horizontal) — scroll propio si no entran
                       todas. */}
                   {m.products?.length > 0 && (
-                    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2 overflow-y-auto pb-1" style={{ maxHeight: 280 }}>
+                    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2 overflow-y-auto pb-1 max-h-[280px]">
                       {m.products.map((p) => (
                         <MarketplaceProductCard key={p.id} product={p} />
                       ))}
@@ -913,7 +922,7 @@ export function MarketplaceChatWidget() {
                       puntual O botón a "ver todas" — nunca los dos juntos
                       (el backend ya garantiza que no vengan ambos a la vez). */}
                   {m.vendors?.length > 0 && (
-                    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2" style={{ maxHeight: 280 }}>
+                    <div className="-mt-1.5 mb-3 flex w-full max-w-[95%] flex-col gap-2 max-h-[280px]">
                       {m.vendors.map((v) => (
                         <MarketplaceVendorCard key={v.id} vendor={v} />
                       ))}
@@ -996,7 +1005,7 @@ export function MarketplaceChatWidget() {
               disabled={sending || transcribing}
               aria-label={recording ? "Detener y pasar a texto" : "Grabar audio"}
               title={recording ? "Detener y pasar a texto" : "Grabar mensaje de voz"}
-              className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50 ${
+              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full disabled:opacity-50 ${
                 recording ? "bg-error text-white" : "bg-surface-container text-on-surface-variant"
               }`}
             >
@@ -1008,7 +1017,7 @@ export function MarketplaceChatWidget() {
                 onClick={() => handleSend()}
                 disabled={!text.trim() || sending}
                 aria-label="Enviar mensaje"
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent text-white disabled:opacity-50"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent text-white disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />
               </button>

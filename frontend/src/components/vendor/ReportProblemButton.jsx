@@ -141,14 +141,14 @@ function ReportDialog({ shot, page, onRetake, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/45 sm:items-center sm:p-4" data-no-capture onClick={() => !sending && onClose()}>
+    <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/45 sm:items-center sm:p-4 p-4" data-no-capture onClick={() => !sending && onClose()}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="report-problem-title"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[94dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl"
+        className="flex w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl max-h-[calc(100dvh-2rem)]"
       >
         <div className="flex items-center justify-between gap-2 border-b border-surface-container-high px-4 py-3">
           <h2 id="report-problem-title" className="flex items-center gap-2 text-[15px] font-bold text-on-surface">
@@ -259,7 +259,7 @@ function ReportDialog({ shot, page, onRetake, onClose }) {
       </div>
       {zoom && shot?.url && (
         <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/85 p-3" onClick={(e) => { e.stopPropagation(); setZoom(false); }}>
-          <img src={shot.url} alt="Captura en grande" className="max-h-full max-w-full object-contain" />
+          <img src={shot.url} alt="Captura en grande" className="modal-panel max-h-full max-w-full object-contain" />
         </div>
       )}
     </div>

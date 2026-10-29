@@ -1,13 +1,15 @@
+import { logVendorLifecycle, LIFECYCLE_ACTIONS } from "../lib/vendorLifecycle.js";
 import { assertPhoneFree } from "../lib/phoneUniqueness.js";
 import { CODE_TTL_MINUTES } from "../lib/codeTtl.js";
 import { assertNotBlacklisted } from "../lib/blacklist.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
+import { emailField } from "../utils/emailField.js";
 import { hashToken } from "../utils/hashToken.js";
 import { consumeTotpCode } from "./twoFactorApp.controller.js";
 import { confirmActionCode } from "../lib/adminActionCode.js";
@@ -22,6 +24,44 @@ import {
 import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 import { TRUSTED_DEVICE_TTL_MS, isSessionIdle, revokeSession, IDLE_MESSAGE } from "../lib/sessionPolicy.js";
+
+// El correo ya llega en minúsculas (emailField). La búsqueda exacta usa el índice único; si no encuentra, se reintenta sin
+// distinguir mayúsculas para las cuentas viejas que la migración 20261128050000 no pudo pasar a minúsculas (pares que solo
+// difieren en mayúsculas): así ninguna cuenta queda sin poder entrar mientras el dueño decide qué hacer con esos pares.
+async function findUserByEmail(email) {
+  return (
+    (await prisma.user.findUnique({ where: { email } })) ??
+    (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, orderBy: { createdAt: "asc" } }))
+  );
+}
+
+// Códigos de un solo uso que van por correo (registro, restablecer la contraseña, segundo paso del login, cambio de correo).
+// Con crypto.randomInt y no Math.random: Math.random no es un generador criptográfico y su secuencia se puede deducir a
+// partir de salidas anteriores.
+function numericCode(length) {
+  return String(randomInt(0, 10 ** length)).padStart(length, "0");
+}
+
+// Tope de intentos por código: cada código admite MAX_CODE_ATTEMPTS pruebas y después hay que pedir otro (el contador vuelve
+// a 0 cada vez que se emite uno nuevo). Antes el único freno era el límite por IP (passwordResetRateLimit) y, repartiendo
+// IPs, se podía recorrer el millón de combinaciones de un código de 6 dígitos. El intento se reserva ANTES de comparar, con
+// un updateMany que solo suma si todavía quedan: dos pruebas a la vez no pueden pasarse del tope. Va en la base y no en
+// memoria (como el tope de la app autenticadora en twoFactorApp.controller.js) porque está atado a cada código: sobrevive a
+// un reinicio y se libera solo con el código siguiente.
+// Contrapartida: quien sepa el correo de alguien puede gastarle los intentos de un código en curso. Lo único que pierde esa
+// persona es ese código: pide otro y sigue (el restablecimiento ya lo podía pedir cualquiera, y el del login exige la
+// contraseña).
+const MAX_CODE_ATTEMPTS = 5;
+const CODE_LOCKED_MESSAGE = "Te equivocaste demasiadas veces con este código. Pide uno nuevo.";
+
+// model: "user" o "pendingRegistration"; field: la columna de intentos de ese código.
+async function takeCodeAttempt(model, id, field) {
+  const { count } = await prisma[model].updateMany({
+    where: { id, [field]: { lt: MAX_CODE_ATTEMPTS } },
+    data: { [field]: { increment: 1 } },
+  });
+  if (count === 0) throw new AppError(CODE_LOCKED_MESSAGE, 429, { codeLocked: true });
+}
 
 // Tope absoluto de una sesión; en la práctica se cierra antes, a los 30 minutos sin actividad (ver lib/sessionPolicy.js).
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -120,7 +160,7 @@ const E164_REGEX = /^\+\d{7,15}$/;
 // cliente como para vendedor — el registro de vendedor es este mismo
 // endpoint + un POST /vendors después (ver el comentario más abajo).
 const registerSchema = z.object({
-  email: z.string().email("Ingresa un correo electrónico válido."),
+  email: emailField(),
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres."),
   fullName: z.string().min(2, "Ingresa tu nombre completo."),
   phone: z.string().regex(E164_REGEX, "El teléfono debe incluir código de país (ej. +5355512345)."),
@@ -134,7 +174,22 @@ const registerSchema = z.object({
   // Bloque 114: fuera de Cuba, en vez de provinceId/municipalityId reales.
   stateOther: z.string().trim().min(1).max(80).optional(),
   address: z.string().trim().min(1).max(300).optional(),
+  // El registro viene del formulario de tienda (/vendedor/ingresar). Con el correo de una cuenta de cliente sin tienda, no se
+  // corta: la tienda se une a esa cuenta al verificar el código (pedido del dueño: menos pasos para el cliente).
+  forStore: z.boolean().optional(),
 });
+
+// Una cuenta de cliente a la que se puede unir una tienda nueva: cliente, sin tienda, sin eliminar, sin eliminación pendiente
+// y sin app autenticadora (con ella el código del correo no basta: tendría que iniciar sesión con su segundo factor).
+async function mergeableCustomer(email) {
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true, role: true, deletedAt: true, deletionRequestedAt: true, totpEnabledAt: true, phone: true, vendor: { select: { id: true } } },
+  });
+  if (!user) return { user: null, mergeable: false };
+  const mergeable = user.role === "CUSTOMER" && !user.vendor && !user.deletedAt && !user.deletionRequestedAt && !user.totpEnabledAt;
+  return { user, mergeable };
+}
 
 // Bloque 59 (pedido explícito): antes de crear la cuenta de verdad (cliente
 // o vendedor — el registro de vendedor es este mismo endpoint + un POST
@@ -149,17 +204,26 @@ const REGISTER_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 export async function register(req, res) {
   const data = registerSchema.parse(req.body);
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email } });
+  // Sin distinguir mayúsculas, igual que checkVendorAvailability: si quedara alguna cuenta vieja guardada con mayúsculas
+  // (de antes de normalizar los correos), "juan@x.com" no puede abrir una segunda cuenta al lado de "Juan@x.com".
+  const { user: existing, mergeable } = await mergeableCustomer(data.email);
   // Nunca se puede registrar dos veces el mismo correo — en vez de un error
   // seco, `duplicate: true` en `details` le avisa al frontend que mande
   // directo al flujo de "olvidé mi contraseña" (ver Account.jsx).
-  if (existing) {
+  // Excepción: quien abre su tienda con el correo de su cuenta de cliente. Cliente y tienda son roles de la misma persona:
+  // sigue el registro y, al verificar el código, la tienda queda en esa misma cuenta.
+  const mergeIntoCustomer = !!existing && mergeable && data.forStore === true;
+  if (existing && !mergeIntoCustomer) {
+    if (data.forStore && existing.totpEnabledAt) {
+      throw new AppError("Esta cuenta tiene la app autenticadora activada. Inicia sesión con ella para crear tu tienda.", 409, { duplicate: true });
+    }
     throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
   }
   // Lista negra (personas eliminadas por reportes de fraude confirmados): no pueden volver a registrarse.
   await assertNotBlacklisted({ email: data.email, phone: data.phone });
-  // Un teléfono es de una sola persona: no puede ser el de otra cuenta ni el WhatsApp de la tienda de otro.
-  await assertPhoneFree(data.phone);
+  // Un teléfono es de una sola persona: no puede ser el de otra cuenta ni el WhatsApp de la tienda de otro. El de su propia
+  // cuenta de cliente sí vale.
+  await assertPhoneFree(data.phone, mergeIntoCustomer ? { userId: existing.id } : {});
 
   // El país del teléfono tiene que estar habilitado en el panel del admin (la pantalla solo ofrece esos; esto cubre llamadas directas).
   const phoneCountry = await prisma.country.findFirst({ where: { code: data.country.toUpperCase(), isActive: true }, select: { id: true } });
@@ -181,7 +245,7 @@ export async function register(req, res) {
   });
 
   const passwordHash = await bcrypt.hash(data.password, 10);
-  const code = String(Math.floor(Math.random() * 10 ** REGISTER_CODE_LENGTH)).padStart(REGISTER_CODE_LENGTH, "0");
+  const code = numericCode(REGISTER_CODE_LENGTH);
   const codeHash = await bcrypt.hash(code, 10);
   const codeExpiresAt = new Date(Date.now() + REGISTER_CODE_TTL_MINUTES * 60 * 1000);
 
@@ -200,8 +264,8 @@ export async function register(req, res) {
   };
   await prisma.pendingRegistration.upsert({
     where: { email: data.email },
-    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt },
-    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt },
+    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, codeAttempts: 0, forStore: mergeIntoCustomer },
+    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, forStore: mergeIntoCustomer },
   });
 
   await sendRegistrationCodeEmail({ fullName: data.fullName, email: data.email }, code);
@@ -209,7 +273,7 @@ export async function register(req, res) {
 }
 
 const verifyRegistrationSchema = z.object({
-  email: z.string().email("Ingresa un correo electrónico válido."),
+  email: emailField(),
   code: z.string().length(REGISTER_CODE_LENGTH, `El código debe tener ${REGISTER_CODE_LENGTH} dígitos.`),
   browserId: z.string().nullish(),
 });
@@ -220,15 +284,52 @@ export async function verifyRegistration(req, res) {
   const { email, code, browserId } = verifyRegistrationSchema.parse(req.body);
 
   const pending = await prisma.pendingRegistration.findUnique({ where: { email } });
-  const valid = pending && pending.codeExpiresAt.getTime() > Date.now() ? await bcrypt.compare(code, pending.codeHash) : false;
+  const live = !!pending && pending.codeExpiresAt.getTime() > Date.now();
+  if (live) await takeCodeAttempt("pendingRegistration", pending.id, "codeAttempts");
+  const valid = live ? await bcrypt.compare(code, pending.codeHash) : false;
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
   // Carrera improbable pero barata de chequear: la cuenta se creó por otro
   // medio mientras este código estaba pendiente.
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
+  const { user: existing, mergeable } = await mergeableCustomer(email);
   // Por si entró en la lista negra mientras el código estaba pendiente.
   await assertNotBlacklisted({ email, phone: pending.phone });
+
+  // Tienda nueva sobre la cuenta de cliente de la misma persona. El código que acaba de escribir llegó a ese correo: prueba que
+  // la cuenta es suya, igual que "¿Olvidaste tu contraseña?". Se vuelve a comprobar que siga siendo unible (pudo abrir una
+  // tienda o activar la app autenticadora mientras tanto). Sus pedidos, favoritos, puntos y venta rápida siguen en la misma
+  // cuenta. La contraseña pasa a ser la que eligió en este registro (es la que tiene en la cabeza ahora), y los datos de
+  // contacto y ubicación se completan con los nuevos solo donde la cuenta no tenía nada.
+  if (existing && pending.forStore && mergeable) {
+    await assertPhoneFree(pending.phone, { userId: existing.id });
+    const current = await prisma.user.findUnique({ where: { id: existing.id } });
+    const fill = (field) => (current[field] ? {} : pending[field] ? { [field]: pending[field] } : {});
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: existing.id },
+        data: {
+          passwordHash: pending.passwordHash,
+          lastLoginAt: new Date(),
+          ...fill("phone"),
+          ...fill("registrationCountryId"),
+          ...fill("registrationCountryOther"),
+          ...fill("provinceId"),
+          ...fill("municipalityId"),
+          ...fill("municipalityOther"),
+          ...fill("stateOther"),
+          ...fill("address"),
+        },
+      });
+      await tx.pendingRegistration.delete({ where: { email } });
+      return updated;
+    });
+    // La contraseña cambió: las sesiones abiertas en otros dispositivos se cierran, como en resetPassword.
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+    const deviceToken = await issueTrustedDevice(user.id);
+    const tokens = await createSession(user, browserId, req.get("user-agent"));
+    return res.status(200).json({ user: publicUser(user), ...tokens, deviceToken, linkedOrdersCount: 0, mergedIntoCustomer: true });
+  }
+  if (existing) throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
   await assertPhoneFree(pending.phone);
 
   const { user, linkedOrdersCount } = await prisma.$transaction(async (tx) => {
@@ -262,7 +363,8 @@ export async function verifyRegistration(req, res) {
     // customerId/customerEmail), pero el customerId real es lo que de
     // verdad cuenta para las estadísticas del vendedor ("clientes
     // potenciales", "ya compró", etc. filtran por customerId, no por email).
-    const linked = await tx.order.updateMany({ where: { customerEmail: email, customerId: null }, data: { customerId: created.id } });
+    // Sin distinguir mayúsculas: el pedido de invitado guarda el correo tal como lo escribieron en el checkout.
+    const linked = await tx.order.updateMany({ where: { customerEmail: { equals: email, mode: "insensitive" }, customerId: null }, data: { customerId: created.id } });
 
     return { user: created, linkedOrdersCount: linked.count };
   });
@@ -289,7 +391,7 @@ export async function verifyRegistration(req, res) {
 }
 
 const loginSchema = z.object({
-  email: z.string().email("Ingresa un correo electrónico válido."),
+  email: emailField(),
   // Bloque 183 (pedido explícito — "el usuario podrá solo ingresar su
   // correo... el sistema detecta que ese usuario no tiene una contraseña
   // válida aún"): un usuario de sistema recién creado todavía no tiene
@@ -363,13 +465,13 @@ const RESET_CODE_LENGTH = 6;
 const RESET_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 
 function generateResetCode() {
-  return String(Math.floor(Math.random() * 10 ** RESET_CODE_LENGTH)).padStart(RESET_CODE_LENGTH, "0");
+  return numericCode(RESET_CODE_LENGTH);
 }
 
 export async function login(req, res) {
   const data = loginSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({ where: { email: data.email } });
+  const user = await findUserByEmail(data.email);
   if (!user) throw new AppError("No existe ninguna cuenta con ese correo.", 401);
 
   await assertRoleMatchesContext(user, data.context);
@@ -387,7 +489,7 @@ export async function login(req, res) {
     const code = generateResetCode();
     const resetCodeHash = await bcrypt.hash(code, 10);
     const resetCodeExpiresAt = new Date(Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000);
-    await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt } });
+    await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt, resetCodeAttempts: 0 } });
     await sendPasswordResetEmail(user, code);
     return res.json({ requiresPasswordSetup: true, email: user.email });
   }
@@ -422,10 +524,10 @@ export async function login(req, res) {
   }
 
   if (!trustedDevice) {
-    const code = String(Math.floor(Math.random() * 10 ** TWO_FACTOR_CODE_LENGTH)).padStart(TWO_FACTOR_CODE_LENGTH, "0");
+    const code = numericCode(TWO_FACTOR_CODE_LENGTH);
     const twoFactorCodeHash = await bcrypt.hash(code, 10);
     const twoFactorCodeExpiresAt = new Date(Date.now() + TWO_FACTOR_CODE_TTL_MINUTES * 60 * 1000);
-    await prisma.user.update({ where: { id: user.id }, data: { twoFactorCodeHash, twoFactorCodeExpiresAt } });
+    await prisma.user.update({ where: { id: user.id }, data: { twoFactorCodeHash, twoFactorCodeExpiresAt, twoFactorCodeAttempts: 0 } });
     const emailResult = await sendTwoFactorCodeEmail(user, code);
     // Bug real reportado en vivo — primer arranque en un hosting nuevo, sin
     // ninguna integración de correo configurada todavía: el código se
@@ -496,17 +598,17 @@ export async function sendMyEmailCode(req, res) {
 }
 
 async function issueEmailTwoFactorCode(user) {
-  const code = String(Math.floor(Math.random() * 10 ** TWO_FACTOR_CODE_LENGTH)).padStart(TWO_FACTOR_CODE_LENGTH, "0");
+  const code = numericCode(TWO_FACTOR_CODE_LENGTH);
   const twoFactorCodeHash = await bcrypt.hash(code, 10);
   const twoFactorCodeExpiresAt = new Date(Date.now() + TWO_FACTOR_CODE_TTL_MINUTES * 60 * 1000);
-  await prisma.user.update({ where: { id: user.id }, data: { twoFactorCodeHash, twoFactorCodeExpiresAt } });
+  await prisma.user.update({ where: { id: user.id }, data: { twoFactorCodeHash, twoFactorCodeExpiresAt, twoFactorCodeAttempts: 0 } });
   const emailResult = await sendTwoFactorCodeEmail(user, code);
   if (!emailResult.ok) console.warn(`[2FA] No se pudo enviar el código por correo (${emailResult.error}) — código de emergencia para ${user.email}: ${code}`);
   return twoFactorCodeExpiresAt;
 }
 
 const verifyTwoFactorSchema = z.object({
-  email: z.string().email(),
+  email: emailField(),
   code: z.string().length(TWO_FACTOR_CODE_LENGTH),
   browserId: z.string().nullish(),
   // Bloque 76: defensa en profundidad — login() ya corta antes de mandar el
@@ -531,17 +633,16 @@ function isChallengeFor(user, challengeToken) {
 
 export async function verifyTwoFactorLogin(req, res) {
   const { email, code, browserId, context, challengeToken } = verifyTwoFactorSchema.parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await findUserByEmail(email);
 
   // Bloque 273: el código puede ser el de la app autenticadora (predeterminado, si la tiene
   // activada) o el enviado al correo (siempre disponible como respaldo).
   // La app solo cuenta como segundo factor si la contraseña ya pasó (challengeToken del login).
+  // La app tiene su propio tope de intentos (consumeTotpCode); el de abajo es el del código del correo.
   const viaApp = user && isChallengeFor(user, challengeToken) ? await consumeTotpCode(user, code) : false;
-  const valid =
-    viaApp ||
-    (user?.twoFactorCodeHash && user?.twoFactorCodeExpiresAt && user.twoFactorCodeExpiresAt.getTime() > Date.now()
-      ? await bcrypt.compare(code, user.twoFactorCodeHash)
-      : false);
+  const emailCodeLive = !viaApp && !!user?.twoFactorCodeHash && !!user?.twoFactorCodeExpiresAt && user.twoFactorCodeExpiresAt.getTime() > Date.now();
+  if (emailCodeLive) await takeCodeAttempt("user", user.id, "twoFactorCodeAttempts");
+  const valid = viaApp || (emailCodeLive ? await bcrypt.compare(code, user.twoFactorCodeHash) : false);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
   // Misma regla que login(): una cuenta suspendida o eliminada no abre sesión aunque el código sea válido.
@@ -553,7 +654,7 @@ export async function verifyTwoFactorLogin(req, res) {
   // login. Bloque 62: mismo update ya de paso registra el login exitoso.
   await prisma.user.update({
     where: { id: user.id },
-    data: { twoFactorCodeHash: null, twoFactorCodeExpiresAt: null, lastLoginAt: new Date() },
+    data: { twoFactorCodeHash: null, twoFactorCodeExpiresAt: null, twoFactorCodeAttempts: 0, lastLoginAt: new Date() },
   });
 
   // Bloque 60: este navegador acaba de probar que tiene acceso al correo de
@@ -690,6 +791,18 @@ export async function requestAccountDeletion(req, res) {
       : []),
   ]);
 
+  if (user.vendor) {
+    void logVendorLifecycle({
+      vendorId: user.vendor.id,
+      actorId: user.id,
+      actorRole: "VENDOR",
+      action: LIFECYCLE_ACTIONS.deletionRequested,
+      description: `Pidió eliminar su cuenta y la tienda ${user.vendor.companyName}. Se elimina el ${scheduledFor.toISOString().slice(0, 10)} si no lo cancela.`,
+      req,
+      clientInfo: req.body?.clientInfo,
+      extra: { scheduledFor },
+    });
+  }
   await sendAccountDeletionRequestedEmail(user, scheduledFor);
   res.json({ scheduledFor });
 }
@@ -698,6 +811,16 @@ export async function cancelAccountDeletion(req, res) {
   const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { vendor: true } });
   if (!user) throw new AppError("Usuario no encontrado.", 404);
   if (!user.deletionRequestedAt) throw new AppError("Tu cuenta no está en proceso de eliminación.", 400);
+  if (user.vendor) {
+    void logVendorLifecycle({
+      vendorId: user.vendor.id,
+      actorId: user.id,
+      actorRole: "VENDOR",
+      action: LIFECYCLE_ACTIONS.deletionCancelled,
+      description: `Canceló la eliminación de la tienda ${user.vendor.companyName}.`,
+      req,
+    });
+  }
 
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { deletionRequestedAt: null, deletionReminderSentAt: null } }),
@@ -726,13 +849,16 @@ export async function cancelAccountDeletion(req, res) {
 // arriba, junto a login() (Bloque 183) — la primera vez que este archivo
 // necesitó ese código fue de ahí para abajo, ahora también lo usa login().
 
+// Cada comprobación gasta un intento del código (takeCodeAttempt), también la previa de verifyResetCode: si no, esa ruta
+// servía para probar códigos sin tope.
 async function isResetCodeValid(user, code) {
   if (!user || !user.resetCodeHash || !user.resetCodeExpiresAt) return false;
   if (user.resetCodeExpiresAt.getTime() < Date.now()) return false;
+  await takeCodeAttempt("user", user.id, "resetCodeAttempts");
   return bcrypt.compare(code, user.resetCodeHash);
 }
 
-const forgotPasswordSchema = z.object({ email: z.string().email() });
+const forgotPasswordSchema = z.object({ email: emailField() });
 
 // Bloque 279 (pedido explícito — "cualquier persona pone un correo y el sistema dice que envió el
 // código aunque ese correo no esté registrado: debe avisar que no está registrado y no enviar el
@@ -742,34 +868,37 @@ const forgotPasswordSchema = z.object({ email: z.string().email() });
 // de passwordResetRateLimit.
 export async function forgotPassword(req, res) {
   const { email } = forgotPasswordSchema.parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await findUserByEmail(email);
   if (!user || user.deletedAt) throw new AppError("Ese correo no está registrado en ninguna cuenta. Revisa que esté bien escrito o crea una cuenta.", 404);
 
   const code = generateResetCode();
   const resetCodeHash = await bcrypt.hash(code, 10);
   const resetCodeExpiresAt = new Date(Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000);
-  await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt } });
+  await prisma.user.update({ where: { id: user.id }, data: { resetCodeHash, resetCodeExpiresAt, resetCodeAttempts: 0 } });
   await sendPasswordResetEmail(user, code);
 
   res.json({ ok: true, message: "Te enviamos un código de verificación a tu correo.", codeExpiresAt: resetCodeExpiresAt });
 }
 
-const verifyResetCodeSchema = z.object({ email: z.string().email(), code: z.string().length(RESET_CODE_LENGTH) });
+const verifyResetCodeSchema = z.object({ email: emailField(), code: z.string().length(RESET_CODE_LENGTH) });
 
 // Chequeo previo (no consume el código) para dar feedback inmediato en el
 // paso 2 del flujo antes de mostrarle al usuario los campos de contraseña
 // nueva — la validación real y definitiva se repite en resetPassword.
 export async function verifyResetCode(req, res) {
   const { email, code } = verifyResetCodeSchema.parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await findUserByEmail(email);
   const valid = await isResetCodeValid(user, code);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
+  // El código correcto devuelve los intentos: resetPassword lo vuelve a comprobar y quien acertó al quinto intento no puede
+  // quedar bloqueado en el paso siguiente.
+  await prisma.user.update({ where: { id: user.id }, data: { resetCodeAttempts: 0 } });
   res.json({ valid: true });
 }
 
 const resetPasswordSchema = z
   .object({
-    email: z.string().email(),
+    email: emailField(),
     code: z.string().length(RESET_CODE_LENGTH),
     newPassword: z.string().min(8),
     confirmPassword: z.string().min(8),
@@ -779,7 +908,7 @@ const resetPasswordSchema = z
 export async function resetPassword(req, res) {
   const data = resetPasswordSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({ where: { email: data.email } });
+  const user = await findUserByEmail(data.email);
   const valid = await isResetCodeValid(user, data.code);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
@@ -789,10 +918,18 @@ export async function resetPassword(req, res) {
   // del primer login de un usuario de sistema — a partir de este momento
   // esa contraseña recién puesta es la real, login() ya no vuelve a mandar
   // por este mismo camino la próxima vez.
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { passwordHash, resetCodeHash: null, resetCodeExpiresAt: null, mustSetPassword: false },
-  });
+  // Con la contraseña nueva se cierran TODAS las sesiones y se olvida el dispositivo de confianza (como logoutAllDevices):
+  // quien restablece suele ser alguien que perdió el control de su cuenta, y antes la sesión del intruso seguía viva (su
+  // refresh token la renovaba 30 días) y su dispositivo de confianza le saltaba el código del login. Todo junto, para que
+  // no quede la contraseña cambiada con las sesiones abiertas.
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, resetCodeHash: null, resetCodeExpiresAt: null, resetCodeAttempts: 0, mustSetPassword: false },
+    }),
+    prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
+    prisma.trustedDevice.deleteMany({ where: { userId: user.id } }),
+  ]);
 
   res.json({ ok: true });
 }
@@ -817,12 +954,12 @@ const EMAIL_CHANGE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin 0/
 function generateEmailChangeCode() {
   let code = "";
   for (let i = 0; i < EMAIL_CHANGE_CODE_LENGTH; i++) {
-    code += EMAIL_CHANGE_CODE_ALPHABET[Math.floor(Math.random() * EMAIL_CHANGE_CODE_ALPHABET.length)];
+    code += EMAIL_CHANGE_CODE_ALPHABET[randomInt(EMAIL_CHANGE_CODE_ALPHABET.length)];
   }
   return code;
 }
 
-const requestEmailChangeSchema = z.object({ newEmail: z.string().trim().toLowerCase().email(), currentPassword: z.string().min(1) });
+const requestEmailChangeSchema = z.object({ newEmail: emailField(), currentPassword: z.string().min(1) });
 
 export async function requestMyEmailChange(req, res) {
   const { newEmail, currentPassword } = requestEmailChangeSchema.parse(req.body);
@@ -914,8 +1051,15 @@ export async function updateMyPassword(req, res) {
   if (user.role === "ADMIN" && !(await confirmActionCode(req, res, "ADMIN_PASSWORD_CHANGE"))) return;
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
-  res.json({ ok: true });
+  // Se cierran las demás sesiones (no la de quien cambia la contraseña): si alguien más tenía la cuenta abierta, cambiar la
+  // contraseña tiene que sacarlo. El dispositivo de confianza se conserva: sin la contraseña nueva no sirve para entrar, y
+  // borrarlo le volvería a pedir el código a la propia persona en su dispositivo. `closedSessions` deja que la pantalla
+  // avise "Cerramos tu sesión en los demás dispositivos".
+  const [, closed] = await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
+    prisma.session.updateMany({ where: { userId: user.id, revokedAt: null, id: { not: req.user.sid } }, data: { revokedAt: new Date() } }),
+  ]);
+  res.json({ ok: true, closedSessions: closed.count });
 }
 
 // Nombre y apellidos privados del administrador ("Mi perfil" → "Datos

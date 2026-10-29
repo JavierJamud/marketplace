@@ -318,7 +318,7 @@ function StoreCard({ order }) {
           href={wa}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] text-[14px] font-bold text-primary hover:opacity-90"
+          className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-whatsapp text-[14px] font-bold text-primary hover:opacity-90"
         >
           <MessageCircle className="h-4 w-4" aria-hidden="true" /> Escribir a la tienda por este pedido
         </a>

@@ -90,7 +90,7 @@ export function DiscountCodeFormModal({ code, onClose, onSaved }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">{isEdit ? "Editar código de descuento" : "Crear código de descuento"}</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">

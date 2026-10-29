@@ -13,6 +13,19 @@ import { AppError } from "../utils/AppError.js";
 // `sale.vendorId === vendor.id de quien llama` (el admin no tiene un
 // "vendor propio"), así que compartir la función haría más frágil, no más
 // simple, distinguir los 2 casos de autorización.
+// Un producto "siempre disponible" (unlimitedStock) nunca movió ningún ledger
+// al venderse (registerManualSalesBatch), así que editar o borrar su venta
+// tampoco los mueve: antes se le sumaba o restaba stock a un producto que no
+// lo lleva y a la asignación del usuario. Mismo criterio que returnManualSale.
+
+// ¿Hay que mover stock y asignación para la venta de este producto? Se lee
+// dentro de la transacción. Si el producto ya no existe tampoco hay ledger
+// que tocar (sus asignaciones se fueron con él), igual que returnManualSale.
+async function productTracksStock(tx, productId) {
+  if (!productId) return false;
+  const product = await tx.product.findUnique({ where: { id: productId }, select: { unlimitedStock: true } });
+  return !!product && !product.unlimitedStock;
+}
 
 const listQuerySchema = z.object({
   vendorId: z.string().optional(),
@@ -43,7 +56,9 @@ export async function listAllStaffSales(req, res) {
 const updateSaleSchema = z.object({
   quantity: z.coerce.number().int().positive().optional(),
   unitPrice: z.coerce.number().positive().optional(),
-  note: z.string().trim().max(280).optional(),
+  // nullable: el formulario de edición manda null (o "") para vaciar la nota;
+  // sin esto Zod rechazaba con 400 cualquier edición de una venta sin nota.
+  note: z.string().trim().max(280).nullable().optional(),
 });
 
 export async function updateStaffSale(req, res) {
@@ -56,7 +71,7 @@ export async function updateStaffSale(req, res) {
   const qtyDelta = newQuantity - sale.quantity;
 
   const updated = await prisma.$transaction(async (tx) => {
-    if (qtyDelta !== 0 && sale.productId) {
+    if (qtyDelta !== 0 && (await productTracksStock(tx, sale.productId))) {
       if (qtyDelta > 0) {
         const allocUpdate = await tx.vendorStaffAllocation.updateMany({
           where: { vendorStaffId: sale.vendorStaffId, productId: sale.productId, remainingQty: { gte: qtyDelta } },
@@ -96,7 +111,7 @@ export async function deleteStaffSale(req, res) {
   if (!sale) throw new AppError("Venta no encontrada.", 404);
 
   await prisma.$transaction(async (tx) => {
-    if (sale.productId) {
+    if (await productTracksStock(tx, sale.productId)) {
       await tx.vendorStaffAllocation.updateMany({
         where: { vendorStaffId: sale.vendorStaffId, productId: sale.productId },
         data: { remainingQty: { increment: sale.quantity } },

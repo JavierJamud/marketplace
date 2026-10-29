@@ -58,7 +58,7 @@ export function DocsApprovedPopup({ vendor }) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="docs-approved-title"
-            className="relative max-h-[92dvh] w-full max-w-[440px] overflow-y-auto rounded-3xl bg-surface-container-lowest text-center shadow-2xl"
+            className="modal-panel relative w-full max-w-[440px] rounded-3xl bg-surface-container-lowest text-center shadow-2xl"
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}

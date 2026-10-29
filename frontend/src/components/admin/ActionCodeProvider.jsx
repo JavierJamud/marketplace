@@ -80,7 +80,7 @@ export function ActionCodeProvider() {
           e.preventDefault();
           if (code.length === 6) finish(code);
         }}
-        className="w-full max-w-[420px] rounded-3xl bg-surface-container-lowest p-6 shadow-2xl"
+        className="modal-panel-6 w-full max-w-[420px] rounded-3xl bg-surface-container-lowest p-6 shadow-2xl"
       >
         <div className="mb-3 flex items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-secondary-container">

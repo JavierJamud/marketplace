@@ -52,21 +52,24 @@ function ProductEditModal({ product, categories, onClose }) {
   const initialFormSnapshot = useRef(JSON.stringify(form));
   const isDirty = JSON.stringify(form) !== initialFormSnapshot.current;
 
+  // Solo viaja lo que el admin cambió: antes se mandaba todo y, por ejemplo, el stock leído al abrir pisaba una venta que
+  // entró mientras el modal estaba abierto. Con tallas, el stock es por talla y no se manda nunca.
   const save = useMutation({
-    mutationFn: async () =>
-      (
-        await api.patch(`/admin/products/${product.id}`, {
-          name: form.name,
-          description: form.description || null,
-          categoryId: form.categoryId || undefined,
-          price: Number(form.price),
-          oldPrice: form.oldPrice ? Number(form.oldPrice) : null,
-          stock: Number(form.stock),
-          badge: form.badge || null,
-          isActive: form.isActive,
-          isFeatured: form.isFeatured,
-        })
-      ).data,
+    mutationFn: async () => {
+      const initial = JSON.parse(initialFormSnapshot.current);
+      const changed = (key) => form[key] !== initial[key];
+      const payload = {};
+      if (changed("name")) payload.name = form.name;
+      if (changed("description")) payload.description = form.description || null;
+      if (changed("categoryId") && form.categoryId) payload.categoryId = form.categoryId;
+      if (changed("price")) payload.price = Number(form.price);
+      if (changed("oldPrice")) payload.oldPrice = form.oldPrice ? Number(form.oldPrice) : null;
+      if (changed("stock") && !(product.sizes?.length > 0)) payload.stock = Number(form.stock);
+      if (changed("badge")) payload.badge = form.badge || null;
+      if (changed("isActive")) payload.isActive = form.isActive;
+      if (changed("isFeatured")) payload.isFeatured = form.isFeatured;
+      return (await api.patch(`/admin/products/${product.id}`, payload)).data;
+    },
     onSuccess: () => {
       toast.success("Producto actualizado.");
       queryClient.invalidateQueries({ queryKey: ["admin-list-products"] });
@@ -85,7 +88,7 @@ function ProductEditModal({ product, categories, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Editar producto</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -96,7 +99,7 @@ function ProductEditModal({ product, categories, onClose }) {
           Tienda: <span className="font-semibold text-on-surface">{product.vendor?.companyName}</span>
           {product.sizes?.length > 0 && (
             <span className="ml-2 rounded-full bg-tertiary-accent/10 px-2 py-0.5 text-[11px] font-bold text-tertiary-accent">
-              {product.sizes.length} tallas — stock por talla se edita desde el panel del vendedor
+              {product.sizes.length} tallas: el stock de cada talla se edita desde el panel de la tienda
             </span>
           )}
         </p>
@@ -112,7 +115,8 @@ function ProductEditModal({ product, categories, onClose }) {
             />
           </div>
           <Select label="Categoría" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
-            <option value="">Sin categoría</option>
+            {/* La categoría es obligatoria en el servidor: el vacío solo aparece si el producto no tenía una, y no se manda. */}
+            {!product.categoryId && <option value="">Elige una categoría</option>}
             {categories?.map((c) =>
               c.children?.length ? (
                 <optgroup key={c.id} label={c.name}>
@@ -521,7 +525,7 @@ export default function AdminProducts({ vendorId, embedded = false } = {}) {
         <>
           <div className="mb-1 flex items-center gap-3">
             <IconCircle icon={Package} tone="teal" />
-            <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos</h1>
+            <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Productos</h1>
           </div>
           <p className="mb-4 text-[13.5px] text-outline">
             Todo lo que cargan los vendedores. Toca un producto para ver sus estadísticas reales, o usa los contadores para filtrar por estado.

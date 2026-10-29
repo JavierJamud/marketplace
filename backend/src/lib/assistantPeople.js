@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { DAY_MS, clip, money } from "./assistantData.js";
+import { planDisplayName, getAllPlanConfigs } from "./planConfig.js";
 
 // Bloque 276 (pedido explícito — "el asistente debe poder decir cuántas tiendas están suspendidas,
 // quién es Pedro Sosa, qué tiendas tienen agentes de ventas, y ver los clientes, sus compras y
@@ -31,6 +32,8 @@ export async function storesByState() {
       select: { companyName: true, planType: true, verificationStatus: true, status: true, suspendedAt: true, suspensionReason: true, isBlocked: true, blockedAt: true, blockReason: true, adminDeletionRequestedAt: true },
     }),
   ]);
+  // Nombre del plan desde la base (la IA lo repite tal cual; la clave interna no le dice nada al admin).
+  const planNames = new Map((await getAllPlanConfigs({ includeArchived: true })).map((p) => [p.planType, p.displayName]));
   const rows = notOperating.map((v) => {
     const motivos = [];
     if (v.adminDeletionRequestedAt) motivos.push("eliminación pendiente");
@@ -38,7 +41,7 @@ export async function storesByState() {
     if (v.status === "SUSPENDED") motivos.push("suspendida por inactividad");
     if (v.verificationStatus === "SUSPENDED") motivos.push("suscripción suspendida");
     const since = v.adminDeletionRequestedAt ?? (v.isBlocked ? v.blockedAt : null) ?? v.suspendedAt;
-    return { tienda: clip(v.companyName, 50), estado: motivos.join(" y "), desde: day(since), motivo: clip(v.blockReason ?? v.suspensionReason, 100) || null, plan: v.planType };
+    return { tienda: clip(v.companyName, 50), estado: motivos.join(" y "), desde: day(since), motivo: clip(v.blockReason ?? v.suspensionReason, 100) || null, plan: planNames.get(v.planType) ?? v.planType };
   });
   const count = (label) => rows.filter((r) => r.estado.includes(label)).length;
   return {
@@ -113,7 +116,7 @@ export async function findPerson(search) {
           whatsapp: v.whatsapp,
           correoDeLaTienda: v.email,
           direccion: v.companyAddress,
-          plan: v.planType,
+          plan: await planDisplayName(v.planType),
           verificacion: v.verificationStatus,
           estado: v.isBlocked ? "bloqueada" : v.status === "SUSPENDED" ? "suspendida" : "activa",
           moneda: v.currency,
@@ -277,7 +280,7 @@ export async function representativeSummary(search) {
         }
       : { aviso: "Esta tienda todavía no envió documentos de verificación." },
     cuentaDelDueno: { nombre: v.user?.fullName, correo: v.user?.email, telefono: v.user?.phone, ultimoAcceso: day(v.user?.lastLoginAt), cuentaCreadaEl: day(v.user?.createdAt) },
-    estadoDeLaTienda: { plan: v.planType, verificacion: v.verificationStatus, estado: v.isBlocked ? "bloqueada" : v.status === "SUSPENDED" ? "suspendida" : "activa", motivoDeBloqueo: clip(v.blockReason, 160) || null, motivoDeSuspension: clip(v.suspensionReason, 160) || null, enEliminacionDesde: day(v.adminDeletionRequestedAt) },
+    estadoDeLaTienda: { plan: await planDisplayName(v.planType), verificacion: v.verificationStatus, estado: v.isBlocked ? "bloqueada" : v.status === "SUSPENDED" ? "suspendida" : "activa", motivoDeBloqueo: clip(v.blockReason, 160) || null, motivoDeSuspension: clip(v.suspensionReason, 160) || null, enEliminacionDesde: day(v.adminDeletionRequestedAt) },
     notasDeLaRevision: clip(file.requestNotes, 300) || null,
     incumplimientosYReportes: { total: file.reports.length, ultimos: file.reports.slice(0, 5).map((r) => ({ fecha: day(r.createdAt), estado: r.status, motivo: clip(r.message, 140), resolucion: clip(r.resolutionNote, 140) || null })) },
     historialDeEstados: file.statusLog.slice(0, 5).map((s) => ({ fecha: day(s.at), de: s.fromStatus, a: s.toStatus, motivo: clip(s.reason, 120) || null })),

@@ -15,7 +15,7 @@ const MAX_LEN = 160; // un mensaje largo suele ser una búsqueda o una pregunta 
 const RE = {
   cancel: /(cancel|anul|elimin|deshac|ya no quiero|no quiero (el|mi|este) (pedido|orden)).{0,40}(pedido|orden|compra)|(pedido|orden|compra).{0,30}(cancel|anul|equivoc|errone|por error)|me equivoque (en|con) (el|mi) pedido/,
   order: /(estado|seguimiento|rastre|donde (esta|va|anda)|como va|consult|revis|ver|saber|verific).{0,30}(pedido|orden|compra)|(mi|el) (pedido|orden)|numero de (pedido|orden)|ya (hice|realice) (un|mi) pedido/,
-  plans: /\bplanes\b|\bplan (business|regular|gratis|premium)\b|que plan\b|suscripci|membresia|cuanto cuesta (vender|abrir|tener|la tienda)|precio.{0,15}(vender|tienda|business)/,
+  plans: /\bplanes\b|\bplan (business|regular|gratis|premium|basico|estandar|empresarial)\b|que plan\b|suscripci|membresia|cuanto cuesta (vender|abrir|tener|la tienda)|precio.{0,15}(vender|tienda|business)/,
   sell: /(como|quiero|puedo|deseo|necesito|donde).{0,30}(vender|abrir.{0,10}tienda|crear.{0,10}tienda|registrar.{0,10}(tienda|negocio)|tener.{0,10}tienda)|registrar mi (tienda|negocio)|vender en /,
   buy: /como (compro|comprar|hago (un|mi) pedido|pido|se compra|funciona la compra)|quiero comprar$|como pedir/,
   verification: /verific(ar|acion|ada).{0,25}(tienda|negocio|cuenta|vendedor)|insignia|badge|sello de verificad|como (me )?verifico/,

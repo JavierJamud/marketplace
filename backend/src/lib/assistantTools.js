@@ -15,6 +15,7 @@ import {
 } from "./assistantData.js";
 import { makeQueryTool } from "./assistantQuery.js";
 import { storesByState, findPerson, salesAgents, quickSales, customerDetail, representativeSummary } from "./assistantPeople.js";
+import { getPaidPlanKeys } from "./planConfig.js";
 
 // Bloque 246 (pedido explícito — asistente de negocio con IA que "lee toda la
 // base de datos, estadísticas y algoritmos" y solo recomienda): registro de
@@ -97,7 +98,8 @@ const VENDOR_TOOLS = {
     args: "{}",
     schema: z.object({}).strict(),
     async run(_args, { vendorId }) {
-      const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { companyName: true, currency: true, planType: true, verificationStatus: true, rating: true } });
+      // El nombre del plan sale de la base (relación Vendor.plan), no de la clave: la IA lo dice tal cual al vendedor.
+      const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { companyName: true, currency: true, planType: true, plan: { select: { displayName: true } }, verificationStatus: true, rating: true } });
       const [hoy, d7, d30, newOrders, newTableOrders, activeProducts, reviews, health] = await Promise.all([
         salesSince(vendorId, utcDayStart()),
         salesSince(vendorId, new Date(Date.now() - 7 * DAY_MS)),
@@ -111,7 +113,7 @@ const VENDOR_TOOLS = {
       return {
         tienda: vendor.companyName,
         moneda: vendor.currency,
-        plan: vendor.planType,
+        plan: vendor.plan?.displayName ?? vendor.planType,
         verificada: vendor.verificationStatus === "VERIFIED",
         hoy,
         ultimos7dias: d7,
@@ -360,9 +362,9 @@ async function platformTop(period, limit, by) {
     byVendor.set(t.table.vendorId, cur);
   }
   const ranked = [...byVendor.entries()].sort((a, b) => (by === "pedidos" ? b[1].pedidos - a[1].pedidos : b[1].ventas - a[1].ventas)).slice(0, limit);
-  const vendors = await prisma.vendor.findMany({ where: { id: { in: ranked.map(([id]) => id) } }, select: { id: true, companyName: true, currency: true, planType: true } });
+  const vendors = await prisma.vendor.findMany({ where: { id: { in: ranked.map(([id]) => id) } }, select: { id: true, companyName: true, currency: true, planType: true, plan: { select: { displayName: true } } } });
   const byId = Object.fromEntries(vendors.map((v) => [v.id, v]));
-  return ranked.map(([id, v]) => ({ tienda: clip(byId[id]?.companyName, 60), moneda: byId[id]?.currency, plan: byId[id]?.planType, ventas: money(v.ventas), pedidos: v.pedidos }));
+  return ranked.map(([id, v]) => ({ tienda: clip(byId[id]?.companyName, 60), moneda: byId[id]?.currency, plan: byId[id]?.plan?.displayName ?? byId[id]?.planType, ventas: money(v.ventas), pedidos: v.pedidos }));
 }
 
 const ADMIN_TOOLS = {
@@ -381,11 +383,15 @@ const ADMIN_TOOLS = {
           clientesRegistrados: d.metrics.totalCustomers,
           pedidosDelMesCalendario: d.metrics.ordersThisMonth,
           ventasTotalesDeTodaLaHistoria: money(d.metrics.gmv),
-          ticketPromedioSegunElPanel: money(d.metrics.aov),
+          // El ticket promedio de antes sumaba CUP con USD: va por moneda (null = sin pedidos en esa moneda este mes).
+          ticketPromedioDelMesPorMoneda: d.metrics.aovByCurrency,
+          valorDePedidosDelMesPorMoneda: d.metrics.gmvMonthByCurrency,
           tiendasConPlanDePago: d.metrics.businessVendors,
           suscripcionesActivas: d.metrics.activeSubscriptions,
           ingresosPorSuscripcionEsteMes: d.metrics.subscriptionRevenueByCurrency,
           ingresoMensualRecurrenteUsd: d.metrics.mrrUsd,
+          // mrrUsd es solo lo cobrado en USD; el CUP (la moneda principal en Cuba) va aparte, nunca convertido.
+          ingresoMensualRecurrentePorMoneda: d.metrics.mrrByCurrency,
         },
         verificacionesPendientes: d.pendingVerifications,
         actividadDeTiendas: d.vendorActivity,
@@ -435,7 +441,7 @@ const ADMIN_TOOLS = {
     async run({ busqueda }) {
       const vendors = await prisma.vendor.findMany({
         where: { deletedAt: null, OR: [{ companyName: { contains: busqueda, mode: "insensitive" } }, { slug: { contains: busqueda, mode: "insensitive" } }] },
-        select: { id: true, companyName: true, slug: true, planType: true, verificationStatus: true, status: true, isBlocked: true, currency: true, rating: true, createdAt: true, user: { select: { lastLoginAt: true } }, _count: { select: { products: { where: { isActive: true } } } } },
+        select: { id: true, companyName: true, slug: true, planType: true, plan: { select: { displayName: true } }, verificationStatus: true, status: true, isBlocked: true, currency: true, rating: true, createdAt: true, user: { select: { lastLoginAt: true } }, _count: { select: { products: { where: { isActive: true } } } } },
         take: 3,
       });
       const since = new Date(Date.now() - 30 * DAY_MS);
@@ -443,7 +449,7 @@ const ADMIN_TOOLS = {
         coincidencias: await Promise.all(
           vendors.map(async (v) => ({
             tienda: v.companyName,
-            plan: v.planType,
+            plan: v.plan?.displayName ?? v.planType,
             verificacion: v.verificationStatus,
             estado: v.isBlocked ? "BLOQUEADA" : v.status,
             moneda: v.currency,
@@ -553,19 +559,25 @@ const ADMIN_TOOLS = {
       const now = new Date();
       const in14 = new Date(Date.now() + 14 * DAY_MS);
       const since = new Date(Date.now() - 30 * DAY_MS);
-      const [byPlan, byVerification, expiring, cancelling, trials, pending, confirmed] = await Promise.all([
+      // Planes de pago calculados (ni el por defecto, ni gratis, ni archivados), no la lista fija de antes: un plan nuevo
+      // que el admin crea también sale en los vencimientos. Sin exigir VERIFIED: los planes de pago sin insignia se pagan
+      // sin verificación y también vencen (antes quedaban fuera, como si pagar fuera lo mismo que estar verificada).
+      const paidKeys = await getPaidPlanKeys();
+      const [byPlan, byVerification, expiring, cancelling, trials, pending, confirmed, planRows] = await Promise.all([
         prisma.vendor.groupBy({ by: ["planType"], where: { deletedAt: null }, _count: { _all: true } }),
         prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
-        prisma.vendor.findMany({ where: { deletedAt: null, planType: { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] }, verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: in14 } }, orderBy: { nextPaymentDueDate: "asc" }, take: 10, select: { companyName: true, nextPaymentDueDate: true, cancelAtPeriodEnd: true, stripeSubscriptionId: true } }),
+        prisma.vendor.findMany({ where: { deletedAt: null, planType: { in: paidKeys }, nextPaymentDueDate: { not: null, lte: in14 } }, orderBy: { nextPaymentDueDate: "asc" }, take: 10, select: { companyName: true, nextPaymentDueDate: true, cancelAtPeriodEnd: true, stripeSubscriptionId: true, plan: { select: { displayName: true } } } }),
         prisma.vendor.count({ where: { deletedAt: null, cancelAtPeriodEnd: true } }),
         prisma.vendor.count({ where: { deletedAt: null, trialEndsAt: { gt: now } } }),
         prisma.subscriptionPayment.findMany({ where: { claimedAt: { not: null }, confirmedAt: null }, orderBy: { claimedAt: "asc" }, take: 8, select: { claimedAt: true, months: true, amount: true, currency: true, vendor: { select: { companyName: true } } } }),
         prisma.subscriptionPayment.groupBy({ by: ["currency"], where: { confirmedAt: { gte: since } }, _count: { _all: true }, _sum: { amount: true } }),
+        prisma.planConfig.findMany({ select: { planType: true, displayName: true } }),
       ]);
+      const planNames = new Map(planRows.map((p) => [p.planType, p.displayName]));
       return {
-        tiendasPorPlan: byPlan.map((r) => ({ plan: r.planType, tiendas: r._count._all })),
+        tiendasPorPlan: byPlan.map((r) => ({ plan: planNames.get(r.planType) ?? r.planType, tiendas: r._count._all })),
         tiendasPorVerificacion: byVerification.map((r) => ({ estado: r.verificationStatus, tiendas: r._count._all })),
-        vencenEnLosProximos14dias: expiring.map((v) => ({ tienda: clip(v.companyName, 50), vence: v.nextPaymentDueDate?.toISOString().slice(0, 10) ?? null, diasRestantes: v.nextPaymentDueDate ? Math.ceil((v.nextPaymentDueDate.getTime() - Date.now()) / DAY_MS) : null, seCancela: v.cancelAtPeriodEnd, cobro: v.stripeSubscriptionId ? "tarjeta" : "transferencia" })),
+        vencenEnLosProximos14dias: expiring.map((v) => ({ tienda: clip(v.companyName, 50), plan: v.plan?.displayName ?? null, vence: v.nextPaymentDueDate?.toISOString().slice(0, 10) ?? null, diasRestantes: v.nextPaymentDueDate ? Math.ceil((v.nextPaymentDueDate.getTime() - Date.now()) / DAY_MS) : null, seCancela: v.cancelAtPeriodEnd, cobro: v.stripeSubscriptionId ? "tarjeta" : "transferencia" })),
         cancelacionesProgramadas: cancelling,
         pruebasGratuitasActivas: trials,
         pagosPorConfirmar: pending.map((p) => ({ tienda: clip(p.vendor?.companyName, 50), desde: p.claimedAt?.toISOString().slice(0, 10), meses: p.months, monto: p.amount != null ? money(p.amount) : null, moneda: p.currency })),

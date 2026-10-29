@@ -13,7 +13,9 @@ export const VENDOR_SECTIONS = [
   // visible.
   { key: "resumen", label: "Dashboard" },
   { key: "productos", label: "Productos" },
-  { key: "ofertas", label: "Ofertas" },
+  // Sin "ofertas": el Bloque 297 la quitó del backend (los vendedores ya no
+  // publican en la portada) y el back valida con z.enum, así que una casilla
+  // de más acá hacía fallar con 400 el alta y la edición de personal.
   { key: "codigos-descuento", label: "Códigos de descuento" },
   { key: "ofertas-tienda", label: "Ofertas de tienda" },
   { key: "pedidos", label: "Pedidos" },
@@ -71,12 +73,26 @@ const API_SECTION = [
   [/^\/(api\/)?(loyalty)/, "Programa de fidelidad"],
   [/^\/(api\/)?(verification)/, "Verificación"],
   [/^\/(api\/)?vendors\/me\/assistant/, "Asistente de negocio"],
+  // Antes que la de "vendor-staff": esa expresión también encaja con /vendor-staff-sales.
+  [/^\/(api\/)?vendor-staff-sales/, "Productos Asignados"],
   [/^\/(api\/)?vendors\/me\/staff|vendor-staff/, "Usuarios del sistema"],
   [/^\/(api\/)?vendors\/me/, "Perfil y configuración"],
   [/^\/(api\/)?(chat|ai)/, "Chat con IA"],
   [/^\/(api\/)?reviews/, "Reseñas"],
 ];
-const PAGE_SECTION = { completar: "Completa tu tienda", perfil: "Perfil", configuracion: "Configuración", verificacion: "Verificación", plan: "Plan" };
+// Páginas del panel que no son secciones delegables (ver VendorLayout.jsx); "ofertas" y "suscripcion" son
+// redirecciones viejas que se siguen viendo en reportes guardados.
+const PAGE_SECTION = {
+  completar: "Completa tu tienda",
+  perfil: "Perfil",
+  configuracion: "Configuración",
+  verificacion: "Verificación",
+  suscripcion: "Verificación",
+  plan: "Plan",
+  usuarios: "Usuarios del sistema",
+  "pago-manual": "Pago manual",
+  ofertas: "Ofertas de tienda",
+};
 
 export function sectionForPath(path) {
   if (!path) return null;

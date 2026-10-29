@@ -4,6 +4,8 @@ import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { computeVendorHealthScore, bestSellingWeekday } from "./vendors.controller.js";
 import { algorithmPosition } from "../lib/assistantData.js";
+import { getPaidPlanKeys } from "../lib/planConfig.js";
+import { billedPlanConfigs } from "../services/planBilling.service.js";
 
 // Bloque 290 (pedido explícito — "un mensaje de bienvenida en el dashboard del vendedor, del admin y
 // del cliente, con un resumen de cómo va su plataforma, semanal"): resumen de los últimos 7 días,
@@ -114,12 +116,29 @@ async function vendorNarrative(vendor, s) {
 async function adminNarrative(s) {
   const w = windows();
   const by = Object.fromEntries(s.stats.map((x) => [x.key, x]));
-  const [notOperating, expiring, paymentsToConfirm, anomalies, business] = await Promise.all([
+  // Planes de pago leídos de PlanConfig (getPaidPlanKeys: ni el plan por defecto, ni gratis, ni archivados), no una lista fija.
+  const paidKeys = await getPaidPlanKeys();
+  const billedKeys = (await billedPlanConfigs()).map((c) => c.planType);
+  const [notOperating, expiring, billingOverdue, paymentsToConfirm, anomalies, business] = await Promise.all([
     prisma.vendor.count({ where: { deletedAt: null, OR: [{ verificationStatus: "SUSPENDED" }, { status: "SUSPENDED" }, { isBlocked: true }] } }),
-    prisma.vendor.count({ where: { deletedAt: null, planType: { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] }, verificationStatus: "VERIFIED", nextPaymentDueDate: { lte: new Date(w.now.getTime() + 7 * DAY_MS) } } }),
+    // Vencen en 7 días: los planes de pago con insignia (VERIFIED) y las tiendas que cobra planBilling (billingNoticeStage),
+    // también el plan por defecto cuando no es gratis. Una activación "sin vencimiento" no tiene fecha y no entra. Solo
+    // fechas por delante: las ya vencidas (hasta unpaidSuspendDays atrás) inflaban "vencen en los próximos 7 días".
+    prisma.vendor.count({
+      where: {
+        deletedAt: null,
+        nextPaymentDueDate: { gt: w.now, lte: new Date(w.now.getTime() + 7 * DAY_MS) },
+        OR: [{ planType: { in: paidKeys }, verificationStatus: "VERIFIED" }, { billingNoticeStage: { not: null } }],
+      },
+    }),
+    // Cobro atrasado (planBilling): pasó su fecha sin pagar, sigue visible pero sin pedidos nuevos. Las ya suspendidas por
+    // falta de pago van en "no operan" (su status es SUSPENDED). Mismo criterio que isBillingOverdue.
+    prisma.vendor.count({
+      where: { deletedAt: null, planType: { in: billedKeys }, billingNoticeStage: { not: null }, billingSuspendedAt: null, nextPaymentDueDate: { lte: w.now } },
+    }),
     prisma.subscriptionPayment.count({ where: { claimedAt: { not: null }, confirmedAt: null } }),
     prisma.rankingAnomaly.count({ where: { status: "PENDING" } }),
-    prisma.vendor.count({ where: { deletedAt: null, planType: { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] } } }),
+    prisma.vendor.count({ where: { deletedAt: null, planType: { in: paidKeys } } }),
   ]);
   const paragraphs = [];
   paragraphs.push(
@@ -133,12 +152,13 @@ async function adminNarrative(s) {
   if (paymentsToConfirm > 0) todo.push(`${plural(paymentsToConfirm, "pago de suscripción espera", "pagos de suscripción esperan")} confirmación`);
   if (by.openReports.value > 0) todo.push(`${plural(by.openReports.value, "reporte de fraude está abierto", "reportes de fraude están abiertos")}`);
   if (anomalies > 0) todo.push(`${plural(anomalies, "anomalía del ranking espera", "anomalías del ranking esperan")} decisión`);
-  if (expiring > 0) todo.push(`${plural(expiring, "suscripción Business vence", "suscripciones Business vencen")} en los próximos 7 días`);
+  if (expiring > 0) todo.push(`${plural(expiring, "plan de pago vence", "planes de pago vencen")} en los próximos 7 días`);
+  if (billingOverdue > 0) todo.push(`${plural(billingOverdue, "tienda tiene", "tiendas tienen")} el cobro de su plan atrasado (siguen visibles, sin pedidos nuevos)`);
   paragraphs.push(todo.length ? `Pendiente de ti: ${todo.join("; ")}.` : "No hay verificaciones, pagos, reportes ni anomalías esperando tu decisión.");
   const health = [];
   if (notOperating > 0) health.push(`${plural(notOperating, "tienda no opera", "tiendas no operan")} con normalidad (suspendidas, bloqueadas o en eliminación)`);
   if (by.errors.value > 0) health.push(`hay ${plural(by.errors.value, "error sin resolver", "errores sin resolver")} en el registro del sistema`);
-  health.push(`${plural(business, "tienda tiene", "tiendas tienen")} el plan Business`);
+  health.push(`${plural(business, "tienda tiene", "tiendas tienen")} un plan de pago`);
   paragraphs.push(`Estado de la plataforma: ${health.join("; ")}.`);
   return paragraphs;
 }

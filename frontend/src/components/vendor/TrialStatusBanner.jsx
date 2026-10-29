@@ -9,7 +9,13 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 const DAY = 24 * 60 * 60 * 1000;
 
 export function TrialStatusBanner({ vendor }) {
-  const { planNames } = usePlatformSettings();
+  // El plan en prueba es el plan actual de la tienda (la prueba la pasa al plan de prueba): se nombra por su clave real y no
+  // por la bandera, por si el admin cambió el plan de prueba después de empezar ésta. Al terminar pasa al plan por defecto.
+  // Antes eran planNames.BUSINESS y planNames.REGULAR, fijos.
+  const { planNames, trialPlanName, defaultPlanName } = usePlatformSettings();
+  const trialName = planNames[vendor?.planType] ?? trialPlanName;
+  const inPlan = trialName ? `en ${trialName}` : "en tu plan";
+  const toDefault = defaultPlanName ? `a ${defaultPlanName}` : "al plan por defecto";
   const { data } = useQuery({
     queryKey: ["vendor-trial"],
     queryFn: async () => (await api.get("/vendors/me/trial")).data.trial,
@@ -33,18 +39,18 @@ export function TrialStatusBanner({ vendor }) {
         {ending ? <Clock className="mt-0.5 h-5 w-5 flex-shrink-0 text-error" aria-hidden="true" /> : <Sparkles className="mt-0.5 h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />}
         <div className="min-w-0">
           <p className="text-[13.5px] font-bold text-on-surface">
-            Plan {planNames.BUSINESS} · Prueba gratis · {left}
+            {trialName ? `Plan ${trialName} · ` : ""}Prueba gratis · {left}
           </p>
           {/* Mientras falta más de una semana, en el celular basta con la línea de arriba: el detalle ocupaba media pantalla en
               cada sección del panel. Cerca del final se muestra siempre, porque ahí sí hay que actuar. */}
           <p className={`text-[12.5px] leading-[18px] text-on-surface-variant ${ending ? "" : "hidden sm:block"}`}>
             {ending
-              ? `Tu prueba gratis termina el ${endLabel}. Elige cómo pagar para seguir en ${planNames.BUSINESS}; si no, tu tienda pasa sola a ${planNames.REGULAR}: pierde la insignia de verificada y los productos que pasen de su límite quedan ocultos (no se borran).`
-              : `Tienes todas las funciones ${planNames.BUSINESS} gratis hasta el ${endLabel}.`}
+              ? `Tu prueba gratis termina el ${endLabel}. Elige cómo pagar para seguir ${inPlan}; si no, tu tienda pasa sola ${toDefault}: pierde la insignia de verificada y los productos que pasen de su límite quedan ocultos (no se borran).`
+              : `Tienes todas las funciones ${trialName ? `del plan ${trialName}` : "de tu plan"} gratis hasta el ${endLabel}.`}
           </p>
         </div>
       </div>
-      <Link to="/vendedor/verificacion" className={`inline-flex min-h-10 flex-shrink-0 items-center justify-center rounded-lg px-3 text-[12.5px] font-bold ${ending ? "bg-primary text-on-primary" : "border border-outline-variant text-on-surface"}`}>
+      <Link to="/vendedor/verificacion" className={`inline-flex min-h-11 flex-shrink-0 items-center justify-center rounded-lg px-3 text-[12.5px] font-bold ${ending ? "bg-primary text-on-primary" : "border border-outline-variant text-on-surface"}`}>
         {ending ? "Elegir cómo pagar" : "Ver mi plan"}
       </Link>
     </div>

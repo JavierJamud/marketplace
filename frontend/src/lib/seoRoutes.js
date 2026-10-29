@@ -19,7 +19,7 @@ export function staticSeoFor(path, siteName) {
   const table = {
     "/": {
       title: `${n} | Marketplace para comprar y vender en Cuba`,
-      description: `Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en ${n} gratis y sin comisión por venta.`,
+      description: `Compra en tiendas y restaurantes de toda Cuba y pide por WhatsApp o en la web. ¿Tienes un negocio? Abre tu tienda en ${n} sin comisión por venta.`,
       keywords: [...common, "comida a domicilio Cuba", "restaurantes La Habana", "tiendas verificadas", "comprar productos en Cuba", "vender en Cuba"],
     },
     "/tiendas": {
@@ -36,6 +36,12 @@ export function staticSeoFor(path, siteName) {
       title: `Ventas rápidas entre personas en Cuba | ${n}`,
       description: `Anuncios de ventas rápidas de particulares en Cuba: artículos usados y ofertas de última hora. Publica o encuentra lo que buscas en ${n}.`,
       keywords: ["ventas rápidas Cuba", "artículos usados Cuba", "compraventa Cuba", "anuncios clasificados Cuba"],
+    },
+    // Mismo texto que el respaldo plansSeo() de Plans.jsx.
+    "/planes": {
+      title: `Planes y precios para tu tienda | ${n}`,
+      description: `Compara los planes para vender en ${n}: precio por mes en CUP o en USD, descuento al pagar varios meses juntos y lo que incluye cada uno. Sin comisiones por venta.`,
+      keywords: ["planes para tiendas", "precios", "vender en Cuba", "tienda en línea Cuba", "abrir una tienda en línea"],
     },
     "/faq": {
       title: `Preguntas frecuentes | ${n}`,

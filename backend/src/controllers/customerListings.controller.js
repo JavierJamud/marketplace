@@ -309,9 +309,13 @@ const PUBLIC_OWNER = { select: { fullName: true, phone: true, province: { select
 // El lugar del anuncio con sus nombres (país, provincia o estado y municipio).
 const PUBLIC_LOCATION = { country: { select: { name: true } }, province: { select: { name: true } }, municipality: { select: { name: true } } };
 
+// Tope de la página completa de venta rápida (sin ?limit): los más nuevos primero. La página busca y filtra en el navegador,
+// así que sin tope bajaría todos los anuncios de una vez, cosa que con datos móviles pesa.
+export const PUBLIC_LISTINGS_MAX = 200;
+
 export async function listPublicListings(req, res) {
-  // ?limit=N (máx. 24) para la portada; sin límite, la página completa de venta rápida.
-  const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 24) || undefined;
+  // ?limit=N (máx. 24) para la portada; sin límite, la página completa de venta rápida hasta PUBLIC_LISTINGS_MAX.
+  const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 24) || PUBLIC_LISTINGS_MAX;
   const listings = await prisma.customerListing.findMany({
     // Bloque 237: ciclo de vida en 2 etapas — a los publicVisibilityDays
     // días el anuncio deja de mostrarse acá aunque siga existiendo y
@@ -328,11 +332,15 @@ export async function listPublicListings(req, res) {
     },
     include: { owner: PUBLIC_OWNER, ...PUBLIC_LOCATION },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    // Uno de más para saber si quedaron anuncios fuera del tope.
+    take: limit + 1,
   });
-  res.json({ listings: listings.map(toPublicListing) });
+  const hasMore = listings.length > limit;
+  res.json({ listings: listings.slice(0, limit).map(toPublicListing), hasMore });
 }
 
+// Un anuncio vendido no se filtra aquí a propósito: el enlace compartido sigue abriendo la ficha, que trae isSold para que la
+// pantalla muestre "Vendido" en lugar de los botones de contacto.
 export async function getPublicListing(req, res) {
   const { id } = req.params;
   const listing = await prisma.customerListing.findFirst({
@@ -346,7 +354,8 @@ export async function getPublicListing(req, res) {
 }
 
 // Clic en "contactar" de la ficha pública (WhatsApp): analítica para el admin al revisar un reporte.
+// Un anuncio vendido sigue abierto por enlace (para no romper los compartidos), pero sus clics ya no cuentan como interés.
 export async function trackListingContact(req, res) {
-  await prisma.customerListing.updateMany({ where: { id: req.params.id, isActive: true }, data: { contactClickCount: { increment: 1 } } });
+  await prisma.customerListing.updateMany({ where: { id: req.params.id, isActive: true, isSold: false }, data: { contactClickCount: { increment: 1 } } });
   res.json({ ok: true });
 }

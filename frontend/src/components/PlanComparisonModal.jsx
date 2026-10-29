@@ -1,105 +1,159 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import { Check, X } from "lucide-react";
-import { api } from "../lib/api.js";
 import { Skeleton } from "./ui/Skeleton.jsx";
+import { usePublicPlans, suggestedUpgradePlan } from "./plans/PlansCatalog.jsx";
+import { planComparisonRows } from "../lib/verificationMeta.js";
 
-// Bloque 52 (pedido explícito — "debe haber una concordancia con todo"):
-// antes esta tabla era un array ROWS 100% hardcodeado, sin ninguna relación
-// con lo que el backend realmente aplicaba (podía decir "Business: IA,
-// destacado, horarios" aunque el admin hubiera apagado esas funciones para
-// ese plan). Ahora se arma en vivo a partir de settings.plans (PlanConfig
-// del backend, GET /settings) — la MISMA fuente que usa el admin
-// (AdminSubscriptions.jsx → "Configuración de planes") y el propio panel de
-// vendedor (VendorVerification.jsx), así las 3 pantallas nunca pueden
-// mostrar algo distinto entre sí.
-function buildRows(regular, business) {
-  if (!regular || !business) return [];
-  const limitLabel = (n) => (n === null ? "Ilimitados" : `Hasta ${n}`);
-  return [
-    { label: "Productos publicados", regular: limitLabel(regular.maxProducts), business: limitLabel(business.maxProducts) },
-    { label: "Correos a tus clientes", regular: regular.allowCustomerEmails, business: business.allowCustomerEmails },
-    { label: "Caja con código de barras", regular: regular.allowPos, business: business.allowPos },
-    { label: "Códigos de descuento", regular: regular.allowDiscountCodes, business: business.allowDiscountCodes },
-    { label: "Mesas con QR", regular: regular.allowQrTables, business: business.allowQrTables },
-    { label: "Usuarios del equipo", regular: regular.allowStaffUsers, business: business.allowStaffUsers },
-    { label: "Pedidos en tu panel", regular: true, business: true },
-    { label: "Pedido también por WhatsApp", regular: regular.allowWhatsappOrders, business: business.allowWhatsappOrders },
-    { label: "Badge de tienda verificada", regular: false, business: true },
-    { label: "Destacada en la home", regular: regular.featuredInHome, business: business.featuredInHome },
-    { label: "Chatbot con IA", regular: regular.allowAiChatbot, business: business.allowAiChatbot },
-    { label: "Horarios de atención", regular: regular.allowSchedules, business: business.allowSchedules },
-    { label: "Ofertas de tienda", regular: regular.allowStoreOffers, business: business.allowStoreOffers },
-    { label: "Programa de fidelidad", regular: regular.allowLoyalty, business: business.allowLoyalty },
-  ];
-}
+// Bloque 52 (pedido explícito — "debe haber una concordancia con todo"): antes esta tabla era un array ROWS hardcodeado, sin
+// relación con lo que el backend aplicaba. Después se armó con las columnas de PlanConfig, pero con una lista fija de filas y
+// dos planes fijos ("REGULAR" contra el que llegaba). Ahora sale entera de GET /settings/plans (misma consulta y caché que la
+// página pública de planes): las filas son el catálogo de funciones de cada plan, con las funciones personalizadas que crea
+// el admin (planComparisonRows, lib/verificationMeta.js), y los planes se eligen por bandera. Un plan o una función nueva
+// aparece sola.
 
 function Cell({ value }) {
-  if (value === true) return <Check className="mx-auto h-4 w-4 text-verified" strokeWidth={2.5} />;
-  if (value === false) return <X className="mx-auto h-4 w-4 text-outline/50" strokeWidth={2.5} />;
+  if (value === true)
+    return (
+      <>
+        <Check className="mx-auto h-4 w-4 text-verified" strokeWidth={2.5} aria-hidden="true" />
+        <span className="sr-only">Incluido</span>
+      </>
+    );
+  if (value === false)
+    return (
+      <>
+        <X className="mx-auto h-4 w-4 text-outline" strokeWidth={2.5} aria-hidden="true" />
+        <span className="sr-only">No incluido</span>
+      </>
+    );
   return <span className="text-[12.5px] font-semibold text-on-surface">{value}</span>;
 }
 
-// Se muestra una sola vez, justo después de crear una tienda (Account.jsx
-// stepper) — nunca en el login, así que no hace falta persistir un flag de
-// "ya lo vio": está atado al onSuccess del create.
-export function PlanComparisonModal({ onContinueRegular, planType = "BUSINESS", businessHref = "/vendedor/configuracion" }) {
-  const { data: settings } = useQuery({
-    queryKey: ["site-settings"],
-    queryFn: async () => (await api.get("/settings")).data.settings,
-  });
-  const regular = settings?.plans?.find((p) => p.planType === "REGULAR");
-  const business = settings?.plans?.find((p) => p.planType === planType);
-  const rows = buildRows(regular, business);
+const planName = (p) => p?.name ?? p?.displayName ?? null;
+
+// Se muestra una sola vez, justo después de crear una tienda (Account.jsx stepper) — nunca en el login, así que no hace falta
+// persistir un flag de "ya lo vio": está atado al onSuccess del create.
+// `planType`: clave del plan sugerido. El plan con el que se compara sale de suggestedUpgradePlan (PlansCatalog.jsx), la
+// misma función que usa Account.jsx: solo planes con insignia que se pagan con la verificación (el servidor rechaza ahí uno
+// sin insignia o a medida, así que el botón nunca lleva a un "no se puede") y el mismo orden de reserva en las dos
+// pantallas. `businessHref`: adónde lleva el botón mientras los planes cargan.
+export function PlanComparisonModal({ onContinueRegular, planType, businessHref }) {
+  const { data, isLoading, isError, refetch } = usePublicPlans();
+  const dialogRef = useRef(null);
+  const titleRef = useRef(null);
+
+  // Al abrirse, el foco pasa al título del modal (si no, se queda en el formulario de registro que hay detrás y el lector de
+  // pantalla no anuncia nada). Escape equivale a "Continuar con" el plan de inicio, igual que cerrar en ConfirmModal, y Tab
+  // queda dentro del modal mientras está abierto.
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
+
+  function onKeyDown(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onContinueRegular?.();
+      return;
+    }
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    const focusables = [...dialogRef.current.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === titleRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  const plans = data?.plans ?? [];
+  const startPlan = plans.find((p) => p.isDefault) ?? null;
+  const target = suggestedUpgradePlan(plans, planType);
+  const columns = [startPlan, target].filter(Boolean);
+  const rows = planComparisonRows(columns);
+  const href = target ? `/vendedor/verificacion?plan=${encodeURIComponent(target.planType)}` : businessHref ?? "/vendedor/verificacion";
+  const targetCta = target ? `Conocer ${planName(target)}` : null;
+  const gridStyle = { gridTemplateColumns: `1.4fr repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface-container-lowest p-6 sm:p-8">
+    <div
+      ref={dialogRef}
+      onKeyDown={onKeyDown}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="plan-compare-title"
+    >
+      <div className="modal-panel-6 w-full max-w-lg rounded-xl bg-surface-container-lowest p-6 sm:p-8">
         <div className="mb-1 text-center font-display text-[13px] font-bold uppercase tracking-wide text-secondary">
           ¡Tu tienda ya existe!
         </div>
-        <h2 className="mb-2 text-center font-display text-headline-md text-on-surface">Elige cómo empezar</h2>
-        <p className="mb-6 text-center text-[13px] text-outline">
-          Arrancas en el Plan {regular?.displayName ?? "Básico"}{regular?.isFree === false ? "" : ", gratis"}. Puedes pasar a {business?.displayName ?? "Premium"} cuando
-          quieras desde tu panel.
+        <h2 id="plan-compare-title" ref={titleRef} tabIndex={-1} className="mb-2 text-center outline-none font-display text-headline-md text-on-surface">
+          Elige cómo empezar
+        </h2>
+        <p className="mb-6 text-center text-[13px] text-on-surface-variant">
+          {startPlan ? `Arrancas en el plan ${planName(startPlan)}${startPlan.isFree ? ", gratis" : ""}. ` : ""}
+          {target ? `Puedes pasar a ${planName(target)} cuando quieras desde tu panel.` : "Puedes cambiar de plan cuando quieras desde tu panel."}
         </p>
 
         <div className="mb-6 overflow-hidden rounded-lg border border-surface-container-high">
-          <div className="grid grid-cols-[1.4fr_1fr_1fr] bg-surface-container text-center text-[11.5px] font-bold text-on-surface-variant">
-            <div className="px-3 py-2.5 text-left">Incluye</div>
-            <div className="px-3 py-2.5">{regular?.displayName ?? "Básico"}</div>
-            <div className="px-3 py-2.5 text-secondary">{business?.displayName ?? "Premium"}</div>
-          </div>
-          {rows.length ? (
-            rows.map((row) => (
-              <div key={row.label} className="grid grid-cols-[1.4fr_1fr_1fr] items-center border-t border-surface-container-high text-center">
-                <div className="px-3 py-2.5 text-left text-[12px] text-on-surface-variant">{row.label}</div>
-                <div className="px-3 py-2.5">
-                  <Cell value={row.regular} />
-                </div>
-                <div className="px-3 py-2.5">
-                  <Cell value={row.business} />
-                </div>
-              </div>
-            ))
+          {isLoading ? (
+            <div className="px-3 py-4">
+              <Skeleton count={4} height={14} className="mb-2" />
+            </div>
+          ) : isError ? (
+            <p className="px-3 py-4 text-center text-[13px] text-error">
+              No se pudieron cargar los planes.{" "}
+              <button type="button" onClick={() => refetch()} className="inline-flex min-h-11 items-center font-semibold underline">
+                Reintentar
+              </button>
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="px-3 py-4 text-center text-[13px] text-on-surface-variant">Todavía no hay planes para comparar.</p>
           ) : (
-            <div className="px-3 py-4"><Skeleton count={4} height={14} className="mb-2" /></div>
+            <>
+              <div className="grid bg-surface-container text-center text-[11.5px] font-bold text-on-surface-variant" style={gridStyle}>
+                <div className="px-3 py-2.5 text-left">Incluye</div>
+                {columns.map((p) => (
+                  <div key={p.planType} className={`break-words px-2 py-2.5 ${p === target ? "text-secondary" : ""}`}>
+                    {planName(p)}
+                  </div>
+                ))}
+              </div>
+              {rows.map((row) => (
+                <div key={row.key} className="grid items-center border-t border-surface-container-high text-center" style={gridStyle}>
+                  <div className="break-words px-3 py-2.5 text-left text-[12px] text-on-surface-variant">{row.label}</div>
+                  {row.values.map((value, i) => (
+                    <div key={columns[i].planType} className="px-2 py-2.5">
+                      <Cell value={value} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
           )}
         </div>
 
         <div className="flex flex-col gap-2.5 sm:flex-row">
           <button
+            type="button"
             onClick={onContinueRegular}
-            className="flex-1 rounded bg-primary-container py-3 text-label-md font-bold text-white hover:bg-primary"
+            className="min-h-11 flex-1 rounded bg-primary-container py-3 text-label-md font-bold text-white hover:bg-primary"
           >
-            Continuar con {regular?.displayName ?? "Básico"}
+            {startPlan ? `Continuar con ${planName(startPlan)}` : "Continuar"}
           </button>
-          <Link
-            to={businessHref}
-            className="flex-1 rounded bg-secondary-container py-3 text-center text-label-md font-bold text-on-secondary-container hover:brightness-95"
-          >
-            Conocer {business?.displayName ?? "Premium"}
-          </Link>
+          {(target || isLoading) && (
+            <Link
+              to={href}
+              className="flex min-h-11 flex-1 items-center justify-center rounded bg-secondary-container py-3 text-center text-label-md font-bold text-on-secondary-container hover:brightness-95"
+            >
+              {targetCta ?? "Conocer los planes de pago"}
+            </Link>
+          )}
         </div>
         <Link to="/planes" className="mt-3 flex min-h-11 items-center justify-center text-[12.5px] font-semibold text-tertiary-accent hover:underline">
           Ver todos los planes y precios

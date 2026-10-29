@@ -26,7 +26,7 @@ export default function AdminSupportCases() {
     <div className="max-w-[820px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={LifeBuoy} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Casos de soporte</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Casos de soporte</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">Lo que los clientes reportan desde el asistente, con sus datos de contacto.</p>
 

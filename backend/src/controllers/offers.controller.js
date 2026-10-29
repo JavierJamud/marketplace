@@ -84,8 +84,26 @@ export async function listActiveOffers(req, res) {
   await expireStaleOffers();
   // Con un lugar elegido, solo salen las ofertas de la casa (sin tienda) y las de tiendas de ese lugar.
   const zone = vendorZoneWhere(req.query);
+  // Una oferta de producto solo sale si su ficha se puede abrir: mismo criterio que la ficha pública (getProductBySlug en
+  // products.controller.js: producto activo, no solo de mesa, dentro del cupo del plan, tienda activa y sin bloquear, y
+  // ningún plato del menú de mesa si la tienda tiene el menú oculto). Antes seguía en la portada con el producto apagado o
+  // la tienda suspendida y el enlace terminaba en 404.
+  const visibleProduct = {
+    OR: [
+      { contentType: { not: "PRODUCT" } },
+      {
+        product: {
+          isActive: true,
+          hiddenFromStore: false,
+          overQuota: false,
+          vendor: { status: "ACTIVE", isBlocked: false, deletedAt: null },
+          NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
+        },
+      },
+    ],
+  };
   const offers = await prisma.offer.findMany({
-    where: { status: "ACTIVE", createdByAdmin: true, ...(zone ? { OR: [{ vendorId: null }, { vendor: { locations: zone } }] } : {}) },
+    where: { status: "ACTIVE", createdByAdmin: true, AND: [visibleProduct, ...(zone ? [{ OR: [{ vendorId: null }, { vendor: { locations: zone } }] }] : [])] },
     orderBy: { createdAt: "desc" },
     select: {
       ...offerSummarySelect,

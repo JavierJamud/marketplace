@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
+import { AppError } from "../utils/AppError.js";
 
 // Bloque 54: carrito persistente por cuenta — una sola fila por usuario
 // (upsert), pisada en cada cambio (ver PUT). Solo tiene sentido para
@@ -17,7 +18,9 @@ export async function getMyCart(req, res) {
 
 const saveCartSchema = z.object({
   vendorMeta: z.record(z.any()),
-  items: z.array(z.record(z.any())),
+  // Tope de líneas y de tamaño: el carrito se guarda tal cual en la base en cada cambio, y sin tope una sola cuenta podía
+  // guardar un JSON enorme. 100 líneas es el mismo tope que crear un pedido.
+  items: z.array(z.record(z.string().max(60), z.any())).max(100, "El carrito admite hasta 100 productos distintos."),
   discount: z.record(z.any()).nullable().optional(),
 });
 
@@ -25,6 +28,7 @@ const saveCartSchema = z.object({
 // sesión activa: agregar/quitar/cambiar cantidad, aplicar código, etc.
 export async function saveMyCart(req, res) {
   const data = saveCartSchema.parse(req.body);
+  if (JSON.stringify(data).length > 100_000) throw new AppError("El carrito es demasiado grande para guardarlo.", 400);
   await prisma.cartSnapshot.upsert({
     where: { userId: req.user.id },
     update: { vendorMeta: data.vendorMeta, items: data.items, discount: data.discount ?? null },

@@ -135,7 +135,7 @@ export function InsightsGrid({ insights }) {
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[12px] leading-[17px] text-on-surface-variant">Suben más las fichas completas, con reseñas buenas y con clics o ventas recientes. El orden no se puede comprar.</p>
+            <p className="mt-2 text-[12px] leading-[17px] text-on-surface-variant">Suben más las fichas completas, con reseñas buenas y con clics o ventas recientes. Algunos planes dan un empujón chico, pero el mérito de cada producto manda.</p>
           </>
         ) : (
           <p className="mt-3 text-[13px] text-error">Tus productos no aparecen en el catálogo público: {ranking.problems?.join("; ") || "revisa que tengas productos activos con stock"}.</p>

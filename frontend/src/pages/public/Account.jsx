@@ -1,3 +1,4 @@
+import { clientInfo } from "../../lib/clientInfo.js";
 import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -15,11 +16,90 @@ import { Select } from "../../components/ui/Select.jsx";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { Spinner } from "../../components/ui/Spinner.jsx";
 import { PlanComparisonModal } from "../../components/PlanComparisonModal.jsx";
+import { enterpriseWhatsappLink, isBadgeUpgrade, suggestedUpgradePlan } from "../../components/plans/PlansCatalog.jsx";
+import { PLAN_KEY_PATTERN } from "../../lib/planStatus.js";
 import { LocationPicker } from "../../components/LocationPicker.jsx";
 import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { capturePartnerRef, getPartnerCode, clearPartnerRef } from "../../lib/partnerRef.js";
 import { preloadPanel } from "../../lib/panelPreload.js";
 import { UsernameField } from "../../components/UsernameField.jsx";
+import { ShoppingBag, Store, ChevronRight } from "lucide-react";
+
+// "¿Cómo quieres crear tu cuenta?": lo primero que ve quien toca "Crear cuenta". Muchos dueños de negocio entraban por
+// "Mi cuenta", creaban una cuenta de cliente creyendo que abrían su tienda y no encontraban dónde vender (pedido del dueño).
+// Cada opción explica para qué sirve; la de la otra pantalla lleva a su registro (cliente en /cuenta, tienda en
+// /vendedor/ingresar), y la de esta pantalla sigue aquí mismo.
+function AccountTypePicker({ onPick }) {
+  const OPTIONS = [
+    {
+      id: "customer",
+      icon: ShoppingBag,
+      title: "Como cliente",
+      text: "Para comprar productos, encontrar tiendas cerca de ti o en todo el país, guardar favoritos y seguir tus pedidos.",
+    },
+    {
+      id: "vendor",
+      icon: Store,
+      title: "Como vendedor",
+      text: "Para abrir tu tienda en línea: publica tus productos, recibe pedidos y administra tu negocio desde tu panel.",
+    },
+  ];
+  return (
+    <>
+      <h1 className="mb-1 text-headline-md text-on-surface">¿Cómo quieres crear tu cuenta?</h1>
+      <p className="mb-6 text-body-md text-on-surface-variant">Elige una opción. Si después quieres abrir tu tienda, puedes hacerlo con esta misma cuenta.</p>
+      <div className="grid gap-3">
+        {OPTIONS.map((o) => {
+          const Icon = o.icon;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => onPick(o.id)}
+              className="flex min-h-11 w-full items-center gap-3.5 rounded-2xl border border-outline-variant bg-surface-container-lowest p-4 text-left transition-colors hover:border-tertiary-accent hover:bg-tertiary-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+            >
+              <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10 text-tertiary-accent">
+                <Icon className="h-6 w-6" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[16px] font-bold text-on-surface">{o.title}</span>
+                <span className="mt-0.5 block text-[13px] leading-snug text-on-surface-variant">{o.text}</span>
+              </span>
+              <ChevronRight className="h-5 w-5 flex-shrink-0 text-outline" aria-hidden="true" />
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// PLAN_KEY_PATTERN (lib/planStatus.js, copia del de backend/src/lib/planConfig.js) solo filtra basura del enlace: si la
+// clave no es de un plan publicado, se ignora más abajo.
+
+// Adónde va una tienda recién creada según el plan que eligió en /planes (?plan=CLAVE). `plans` es la lista pública
+// (GET /settings/plans) y `supportWhatsapp` el número de soporte que viene en esa misma respuesta; el papel de cada plan
+// sale de sus banderas, nunca de su clave.
+//  - Plan con insignia que se paga: la comparación de bienvenida con ese plan, como siempre fue. Su botón lleva a la
+//    verificación con el plan marcado y "Continuar con" deja la tienda en el plan de inicio.
+//  - Cualquier otro plan que no es el de inicio (a medida, cobrado sin insignia o uno gratis distinto del de inicio): se pide al equipo, así que
+//    vuelve a /planes con un aviso. La verificación y la comparación solo cobran planes con insignia, y Mensajes le muestra
+//    un candado a toda tienda sin verificar (VendorChat.jsx), que es lo que es una tienda recién creada. En /planes el botón
+//    de ese plan ya resuelve por dónde pedirlo: WhatsApp de soporte, /contacto o Mensajes (requestPlanLink y EnterpriseCta).
+//  - Plan de inicio, plan desconocido o sin plan elegido: la comparación con el plan que sugiere suggestedUpgradePlan
+//    (PlansCatalog.jsx). Si no hay ninguno que se pague con la verificación, al panel.
+// Devuelve { go, note? } o { modal: plan }. `note` es el texto del aviso al llegar.
+function afterSignupStep(plans, chosenKey, supportWhatsapp) {
+  const chosen = chosenKey ? plans.find((p) => p.planType === chosenKey) : null;
+  if (isBadgeUpgrade(chosen)) return { modal: chosen };
+  if (chosen && !chosen.isDefault) {
+    // Mismo texto que el botón que verá en la tarjeta del plan (Plans.jsx y EnterpriseCta en PlansCatalog.jsx).
+    const button = chosen.contactOnly ? (enterpriseWhatsappLink(supportWhatsapp, chosen.name) ? "Hablar por WhatsApp" : "Escríbenos") : "Pedir este plan";
+    return { go: "/planes", note: `Toca «${button}» en el plan ${chosen.name} para pedírselo al equipo.` };
+  }
+  const offer = suggestedUpgradePlan(plans);
+  return offer ? { modal: offer } : { go: "/vendedor" };
+}
 
 function BrandStat({ value, label }) {
   return (
@@ -53,10 +133,19 @@ const SHELL_COPY = {
   },
   admin: {
     headline: "Panel de administración",
-    subtitle: "Acceso exclusivo para el equipo — inicia sesión con tu cuenta de administrador.",
+    subtitle: "Acceso exclusivo para el equipo. Inicia sesión con tu cuenta de administrador.",
     showStats: false,
   },
 };
+
+// Botones grandes de esta pantalla. Button size="lg" tiene alto fijo (h-12) y letra de 20px: un texto largo como
+// "Reintentar crear mi tienda", o el botón de enviar al lado de "Atrás", pasa a dos líneas a 390px y se salía del botón.
+// Con esto crece en vez de desbordar; min-h-12 conserva el alto de siempre cuando cabe en una línea. h-auto le gana a
+// h-12 porque Tailwind genera h-auto después en el CSS.
+const LG_FIT = "h-auto min-h-12 py-2 leading-tight";
+// Botones de solo texto (reenviar código, volver, olvidé mi contraseña): medían unos 20px de alto, poco para tocarlos con
+// el dedo. min-h-11 les da los 44px y text-left alinea el texto si se parte en dos líneas.
+const TEXT_BTN = "flex min-h-11 items-center text-left text-label-md font-semibold";
 
 // Bloque 20: contenedor visual de /cuenta (split marca + formulario), sobre
 // el mock design_references/Account.dc.html. El formulario real (login,
@@ -110,10 +199,10 @@ function RegisterAppStep({ onDone }) {
             Por defecto, al iniciar sesión te enviamos un código a tu correo. Si quieres, puedes usar además una aplicación de autenticación (Google Authenticator, Microsoft Authenticator o Authy) que genera el código en tu teléfono.
           </p>
           <div className="space-y-3">
-            <Button type="button" size="lg" className="w-full rounded-xl" onClick={start} disabled={starting}>
+            <Button type="button" size="lg" className={`w-full rounded-xl ${LG_FIT}`} onClick={start} disabled={starting}>
               {starting ? "Preparando..." : "Activar también con aplicación"}
             </Button>
-            <Button type="button" variant="outline" size="lg" className="w-full rounded-xl" onClick={onDone}>
+            <Button type="button" variant="outline" size="lg" className={`w-full rounded-xl ${LG_FIT}`} onClick={onDone}>
               Solo por correo, omitir
             </Button>
           </div>
@@ -136,7 +225,7 @@ function RegisterAppStep({ onDone }) {
             {showSecret && <p className="select-all break-all rounded-lg bg-surface-container px-3 py-2 font-mono text-[13px] tracking-wider text-on-surface">{setup.secret}</p>}
           </div>
           <OtpInput label="Código de la aplicación" autoFocus value={code} onChange={(v) => { setCode(v); setCodeError(""); }} error={codeError || undefined} />
-          <Button type="submit" size="lg" className="w-full rounded-xl" disabled={code.length !== 6 || checking}>
+          <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={code.length !== 6 || checking}>
             {checking ? "Verificando..." : "Verificar y activar"}
           </Button>
           <button type="button" onClick={onDone} className="block min-h-11 text-label-md font-semibold text-outline">
@@ -357,15 +446,35 @@ export default function Account({ mode = "customer" }) {
   const [searchParams] = useSearchParams();
   // Nunca hay que elegir — está implícito en qué URL se usó para llegar acá.
   const accountType = mode === "vendor" ? "vendor" : "customer";
-  // Bloque 294: toda tienda nueva empieza en el plan Regular; su tope de mesas lo fija el admin.
-  const { maxTablesByPlan } = usePlatformSettings();
-  const maxTables = maxTablesByPlan?.REGULAR ?? null;
+  // Bloque 294: toda tienda nueva empieza en el plan por defecto (bandera isDefault, lo elige el admin); su tope de mesas
+  // también lo fija el admin. Antes se leía siempre el de "REGULAR".
+  // El plan por defecto y su tope salen de la misma consulta (/settings): así el tope no espera a otra respuesta y la
+  // validación del número de mesas no se salta mientras carga /settings/plans.
+  const { maxTablesByPlan, defaultPlanKey, defaultPlanName } = usePlatformSettings();
+  const maxTables = defaultPlanKey ? maxTablesByPlan?.[defaultPlanKey] ?? null : null;
+  const tablesLimitText = maxTables != null ? `${defaultPlanName ? `Con el plan ${defaultPlanName}` : "Con tu plan"} puedes tener hasta ${maxTables} ${maxTables === 1 ? "mesa" : "mesas"}.` : "";
+  // Misma consulta y clave que usePublicPlans (PlansCatalog.jsx), pero solo en el ingreso de vendedor: el login de
+  // clientes, admin y socios no necesita los planes. Solo la usa afterSignupStep, al terminar de crear la tienda.
+  const { data: publicPlansData } = useQuery({
+    queryKey: ["public-plans"],
+    queryFn: async () => (await api.get("/settings/plans")).data,
+    enabled: mode === "vendor",
+  });
+  // Plan elegido en /planes (?plan=CLAVE). Se guarda al entrar: es el que la persona quiere al terminar el registro,
+  // aunque después cambie de paso o de pestaña dentro de esta pantalla.
+  const [chosenPlanKey] = useState(() => {
+    const key = searchParams.get("plan");
+    return key && PLAN_KEY_PATTERN.test(key) ? key : null;
+  });
   const canRegister = mode !== "admin" && mode !== "partner";
 
   // "login" | "register" | "register-verify" | "forgot-email" | "forgot-code" | "forgot-newpass" | "two-factor"
   // Si la pestaña se recargó mientras la persona buscaba el código en su correo, se vuelve directo a ese paso.
   const [pending2fa] = useState(() => readPending2fa(mode));
   const [view, setView] = useState(pending2fa ? "two-factor" : mode === "admin" || mode === "partner" ? "login" : searchParams.get("tab") === "registro" ? "register" : "login");
+  // Ya eligió cómo crear su cuenta (AccountTypePicker): por los botones "Crear mi tienda" / "Abrir tienda" del sitio (llegan
+  // a /vendedor/ingresar?tab=registro, la intención ya es clara) o por ?como= al pasar de una pantalla a la otra.
+  const [typeChosen, setTypeChosen] = useState(() => !!searchParams.get("como") || (mode === "vendor" && searchParams.get("tab") === "registro"));
   const [twoFactorEmail, setTwoFactorEmail] = useState(pending2fa?.email ?? "");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   // Bloque 46 (pedido explícito — "vamos a corregir que en el inicio de
@@ -414,11 +523,21 @@ export default function Account({ mode = "customer" }) {
   // Sesión ya aceptada y bajando el panel: el formulario sigue bloqueado hasta que el panel aparece.
   const [entering, setEntering] = useState(false);
   const enteringRef = useRef(false);
+  // Pestañas "Iniciar sesión" y "Crear cuenta": al cambiar con las flechas, el foco pasa a la pestaña nueva.
+  const loginTabRef = useRef(null);
+  const registerTabRef = useRef(null);
 
   const [loginForm, setLoginForm] = useState({ email: pending2fa?.email ?? "", password: "" });
   const [form, setForm] = useState(emptyRegisterForm);
+  // Cambia un campo del registro sobre el estado más reciente, nunca sobre una copia vieja de `form`. El valor se lee
+  // del evento antes de encolar la actualización, porque React puede aplicar la función más tarde.
+  const setFormField = (key) => (e) => {
+    const value = e.target.value;
+    setForm((f) => ({ ...f, [key]: value }));
+  };
   const [storeForm, setStoreForm] = useState(emptyStoreForm);
-  const [showPlanModal, setShowPlanModal] = useState(false);
+  // Plan que se ofrece en la comparación de bienvenida al crear la tienda (null = sin comparación). Ver afterSignupStep.
+  const [planModalOffer, setPlanModalOffer] = useState(null);
 
   const [resetEmail, setResetEmail] = useState("");
   const [resetCode, setResetCode] = useState("");
@@ -453,10 +572,29 @@ export default function Account({ mode = "customer" }) {
     icon: <CategoryIcon name={c.icon} className="h-5 w-5 text-tertiary-accent" />,
   }));
 
+  // codeError lo comparten los tres pasos de código (2FA, verificar el correo y recuperar la contraseña): se limpia en
+  // cada entrada a uno de ellos para que el "código incorrecto" de un paso no aparezca en el siguiente.
   function switchView(next) {
+    // Al tocar la pestaña "Crear cuenta" se vuelve a preguntar cómo quiere crearla.
+    if (next === "register" && view !== "register") setTypeChosen(false);
     setView(next);
     setStep(1);
     setCompletingStore(false);
+    setCodeError("");
+  }
+
+  // Respuesta de "¿Cómo quieres crear tu cuenta?". La opción de esta pantalla sigue aquí; la otra lleva a su registro con
+  // ?como= para no volver a preguntar (y conserva ?plan= y ?socio= si llegaron).
+  function pickAccountType(type) {
+    if (type === accountType) {
+      setTypeChosen(true);
+      return;
+    }
+    const next = new URLSearchParams();
+    next.set("tab", "registro");
+    next.set("como", type === "vendor" ? "vendedor" : "cliente");
+    for (const k of ["plan", "socio"]) if (searchParams.get(k)) next.set(k, searchParams.get(k));
+    navigate(`${type === "vendor" ? "/vendedor/ingresar" : "/cuenta"}?${next.toString()}`);
   }
 
   // Cuenta de cliente sin tienda: se precargan sus datos y se pasa directo a "Tu tienda".
@@ -525,6 +663,7 @@ export default function Account({ mode = "customer" }) {
           setTwoFactorExpiresAt(result.twoFactorExpiresAt);
           setTwoFactorMethod(result.method ?? "email");
           setChallengeToken(result.challengeToken ?? "");
+          setCodeError("");
           clearPending2fa(mode);
           setView("two-factor");
           if ((result.method ?? "email") === "email") toast.success("Te enviamos un código a tu correo.");
@@ -540,6 +679,7 @@ export default function Account({ mode = "customer" }) {
         if (result?.requiresPasswordSetup) {
           setResetEmail(result.email);
           setResetCode("");
+          setCodeError("");
           setView("forgot-code");
           toast.success("Es tu primera vez por aquí: te mandamos un código para crear tu contraseña.");
           return;
@@ -623,6 +763,8 @@ export default function Account({ mode = "customer" }) {
     if (accountType === "vendor") {
       return {
         ...base,
+        // Con el correo de su cuenta de cliente, la tienda se une a esa cuenta al verificar el código.
+        forStore: true,
         registrationCountryId: storeForm.countryId || undefined,
         registrationCountryOther: storeForm.countryOther.trim() || undefined,
         provinceId: storeForm.provinceId || undefined,
@@ -670,7 +812,7 @@ export default function Account({ mode = "customer" }) {
         return;
       }
       if (storeForm.isRestaurant && maxTables != null && Number(storeForm.tableCount) > maxTables) {
-        toast.error(`Con el plan gratis puedes tener hasta ${maxTables} mesas. Escribe ${maxTables} o menos.`);
+        toast.error(`${tablesLimitText} Escribe ${maxTables} o menos.`);
         return;
       }
       if (!storeForm.businessCategoryId) {
@@ -680,10 +822,19 @@ export default function Account({ mode = "customer" }) {
       // Antes de crear la cuenta: si el nombre, el WhatsApp o el correo ya son de otra tienda, se avisa aquí y no se sigue.
       try {
         const { data } = await api.post("/vendors/check-availability", { companyName: storeForm.companyName, whatsapp: form.phone, email: form.email, username: storeForm.username || undefined });
-        if (data.accountExists && !completingStore) {
-          toast.warning("Ya tienes una cuenta con este correo", "Inicia sesión para entrar a tu tienda. Si no recuerdas la contraseña, toca «¿Olvidaste tu contraseña?».");
-          setLoginForm((f) => ({ ...f, email: form.email, password: "" }));
-          setView("login");
+        // Correo de una cuenta que ya existe: no se le pide iniciar sesión. El registro sigue y, si es una cuenta de cliente,
+        // al verificar el código la tienda queda en esa misma cuenta (forStore en register). Si es de otro tipo, el servidor
+        // responde "duplicate" y se lleva a iniciar sesión (catch de abajo).
+        // Ese número es el de una cuenta de cliente con otro correo: no se puede unir sin probar que el número es suyo, así que
+        // se le muestra una pista del correo de esa cuenta para que lo use.
+        if (data.phoneAccountExists && !completingStore) {
+          toast.warning(
+            "Ese número ya está en una cuenta de cliente",
+            data.phoneAccountEmailHint
+              ? `Si es tuya, escribe su correo (${data.phoneAccountEmailHint}) y tu tienda quedará en esa misma cuenta, con tus compras y anuncios.`
+              : "Si es tuya, escribe el correo de esa cuenta y tu tienda quedará en ella."
+          );
+          setStep(1);
           return;
         }
         const first = Object.values(data.conflicts ?? {})[0];
@@ -715,6 +866,7 @@ export default function Account({ mode = "customer" }) {
         setAccountCreated(false);
         setVendorError("");
         setRegisterCode("");
+        setCodeError("");
         setView("register-verify");
         toast.success("Te mandamos un código de verificación a tu correo.");
       });
@@ -740,6 +892,8 @@ export default function Account({ mode = "customer" }) {
   // Crea la tienda con los datos del formulario. Se separa de la verificación del correo para poder reintentarla sola si falla.
   async function createVendorFromForm() {
     await api.post("/vendors", {
+      // Zona horaria, pantalla e idioma del navegador: quedan en el historial de la tienda que ve el admin.
+      clientInfo: clientInfo(),
       partnerCode: getPartnerCode(),
       companyName: storeForm.companyName,
       username: storeForm.username || undefined,
@@ -774,7 +928,29 @@ export default function Account({ mode = "customer" }) {
     // apenas se cierre el modal y se navegue al panel.
     await refreshRole();
     clearPartnerRef();
-    setShowPlanModal(true);
+    // La tienda ya existe: lo que sigue depende del plan elegido en /planes. La lista de planes casi siempre ya está en
+    // caché; si no, se pide aquí. Si tampoco llega, con un plan elegido se va a la verificación (esa pantalla ignora una
+    // clave que no sea de pago) y sin plan, al panel. Nada de esto debe hacer fallar el alta: la tienda ya se creó.
+    let plansData = publicPlansData?.plans ? publicPlansData : null;
+    if (!plansData) {
+      try {
+        const { data } = await api.get("/settings/plans");
+        plansData = { ...data, plans: data.plans ?? [] };
+      } catch {
+        plansData = null;
+      }
+    }
+    // `next` y no `step`: `step` es el paso del formulario (useState de arriba) y aquí no se toca.
+    const next = plansData
+      ? afterSignupStep(plansData.plans, chosenPlanKey, plansData.supportWhatsapp)
+      : { go: chosenPlanKey ? `/vendedor/verificacion?plan=${encodeURIComponent(chosenPlanKey)}` : "/vendedor" };
+    if (next.modal) {
+      setPlanModalOffer(next.modal);
+      return;
+    }
+    if (next.note) toast.success("¡Tu tienda ya existe!", next.note);
+    else toast.success("¡Tu tienda ya existe!");
+    navigate(next.go);
   }
 
   // Segundo paso del registro — recién acá se crea la cuenta de verdad. Si es vendedor, después crea la tienda. Si la tienda
@@ -788,8 +964,10 @@ export default function Account({ mode = "customer" }) {
     try {
       await withMinDelay(async () => {
         let linkedOrdersCount = 0;
+        let mergedIntoCustomer = false;
         if (!accountCreated) {
-          ({ linkedOrdersCount } = await verifyRegistration(form.email, registerCode));
+          ({ linkedOrdersCount, mergedIntoCustomer } = await verifyRegistration(form.email, registerCode));
+          if (mergedIntoCustomer) toast.success("Unimos tu tienda a tu cuenta de cliente", "Tus compras, favoritos y anuncios siguen ahí. Desde ahora entras con la contraseña que acabas de elegir.");
           setAccountCreated(true);
         }
 
@@ -856,6 +1034,7 @@ export default function Account({ mode = "customer" }) {
       setTwoFactorMethod("email");
       setTwoFactorExpiresAt(data.twoFactorExpiresAt);
       setTwoFactorCode("");
+      setCodeError("");
       toast.success("Te enviamos un código a tu correo.");
     } catch (err) {
       toast.error(err.response?.data?.error ?? "No se pudo enviar el código. Vuelve a iniciar sesión.");
@@ -878,6 +1057,7 @@ export default function Account({ mode = "customer" }) {
       if (result?.requiresTwoFactor) {
         setTwoFactorExpiresAt(result.twoFactorExpiresAt);
         setTwoFactorCode("");
+        setCodeError("");
         toast.success("Te mandamos un nuevo código.");
       }
     } catch (err) {
@@ -894,6 +1074,8 @@ export default function Account({ mode = "customer" }) {
       await withMinDelay(async () => {
         const { data } = await api.post("/auth/forgot-password", { email: resetEmail });
         setResetExpiresAt(data.codeExpiresAt);
+        setResetCode("");
+        setCodeError("");
         toast.success(data.message ?? "Revisa tu correo.");
         setView("forgot-code");
       });
@@ -961,14 +1143,15 @@ export default function Account({ mode = "customer" }) {
   }
 
   function closePlanModal() {
-    setShowPlanModal(false);
+    setPlanModalOffer(null);
     navigate("/vendedor");
   }
 
-  if (showPlanModal) {
-    // Si llegó desde /planes eligiendo un plan de pago, la comparación y el botón son de ese plan.
-    const chosenPlan = ["STANDARD", "BUSINESS"].includes(searchParams.get("plan")) ? searchParams.get("plan") : "BUSINESS";
-    return <PlanComparisonModal onContinueRegular={closePlanModal} planType={chosenPlan} businessHref={`/vendedor/verificacion?plan=${chosenPlan}`} />;
+  if (planModalOffer) {
+    // Comparación de bienvenida con el plan que sugiere afterSignupStep: siempre uno con insignia que se paga con la
+    // verificación (un plan a medida o sin insignia ya no llega aquí, ver afterSignupStep).
+    const key = planModalOffer.planType;
+    return <PlanComparisonModal onContinueRegular={closePlanModal} planType={key} businessHref={`/vendedor/verificacion?plan=${encodeURIComponent(key)}`} />;
   }
 
   // Bloque 47: segundo paso del login cuando la cuenta tiene 2FA activo —
@@ -1001,12 +1184,12 @@ export default function Account({ mode = "customer" }) {
           )}
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
             <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={(v) => { setTwoFactorCode(v); setCodeError(""); }} error={codeError || undefined} />
-            <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || twoFactorCode.length !== 6}>
+            <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || twoFactorCode.length !== 6}>
               {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Verificar e ingresar"}
             </Button>
           </form>
           {twoFactorMethod === "totp" ? (
-            <button type="button" onClick={handleSendEmailCodeInstead} disabled={resendingCode} className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50">
+            <button type="button" onClick={handleSendEmailCodeInstead} disabled={resendingCode} className={`mt-2 ${TEXT_BTN} text-tertiary-accent disabled:opacity-50`}>
               {resendingCode ? "Enviando..." : "No tengo acceso a mi app: enviar el código a mi correo"}
             </button>
           ) : (
@@ -1015,18 +1198,18 @@ export default function Account({ mode = "customer" }) {
                 type="button"
                 onClick={handleResendTwoFactorCode}
                 disabled={twoFactorSecondsLeft > 0 || resendingCode}
-                className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
+                className={`mt-2 ${TEXT_BTN} text-tertiary-accent disabled:opacity-50`}
               >
                 {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
               </button>
               {challengeToken && (
-                <button type="button" onClick={() => { setTwoFactorMethod("totp"); setTwoFactorCode(""); }} className="mt-3 block text-label-md font-semibold text-tertiary-accent">
+                <button type="button" onClick={() => { setTwoFactorMethod("totp"); setTwoFactorCode(""); setCodeError(""); }} className={`${TEXT_BTN} text-tertiary-accent`}>
                   Usar el código de mi aplicación
                 </button>
               )}
             </>
           )}
-          <button onClick={() => switchView("login")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
+          <button type="button" onClick={() => switchView("login")} className={`${TEXT_BTN} text-tertiary-accent`}>
             ← Volver al login
           </button>
         </div>
@@ -1074,7 +1257,7 @@ export default function Account({ mode = "customer" }) {
             {!accountCreated && (
               <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
             )}
-            <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || (!accountCreated && registerCode.length !== 6)}>
+            <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || (!accountCreated && registerCode.length !== 6)}>
               {loading ? (
                 <>
                   <Spinner className="text-white" /> {accountType === "vendor" ? "Creando tu tienda..." : "Creando tu cuenta..."}
@@ -1092,11 +1275,11 @@ export default function Account({ mode = "customer" }) {
                 type="button"
                 onClick={handleResendRegistrationCode}
                 disabled={resendingCode || registerSecondsLeft > 0}
-                className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50"
+                className={`mt-2 ${TEXT_BTN} text-tertiary-accent disabled:opacity-50`}
               >
                 {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
               </button>
-              <button onClick={() => switchView("register")} className="mt-2 block text-label-md font-semibold text-outline">
+              <button type="button" onClick={() => switchView("register")} className={`${TEXT_BTN} text-outline`}>
                 ← Volver a editar mis datos
               </button>
             </>
@@ -1115,12 +1298,12 @@ export default function Account({ mode = "customer" }) {
               <h1 className="mb-2 text-headline-md text-on-surface">¿Olvidaste tu contraseña?</h1>
               <p className="mb-6 text-body-md text-on-surface-variant">Ingresa tu correo y te mandamos un código de verificación.</p>
               <form onSubmit={handleForgotEmail} className="space-y-4">
-                <Input label="Correo" type="email" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} />
-                <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading}>
+                <Input label="Correo" type="email" autoComplete="email" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} />
+                <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                   {loading ? (<><Spinner className="text-white" /> Enviando...</>) : "Enviar código"}
                 </Button>
               </form>
-              <button onClick={() => switchView("login")} className="mt-4 text-label-md font-semibold text-tertiary-accent">
+              <button type="button" onClick={() => switchView("login")} className={`mt-2 ${TEXT_BTN} text-tertiary-accent`}>
                 ← Volver al login
               </button>
             </>
@@ -1145,14 +1328,14 @@ export default function Account({ mode = "customer" }) {
               </p>
               <form onSubmit={handleVerifyCode} className="space-y-4">
                 <OtpInput label="Código de verificación" required autoFocus value={resetCode} onChange={(v) => { setResetCode(v); setCodeError(""); }} error={codeError || undefined} />
-                <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading || resetCode.length !== 6}>
+                <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || resetCode.length !== 6}>
                   {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar código"}
                 </Button>
               </form>
-              <button type="button" onClick={handleResendResetCode} disabled={resetSecondsLeft > 0 || resendingCode} className="mt-4 block text-label-md font-semibold text-tertiary-accent disabled:opacity-50">
+              <button type="button" onClick={handleResendResetCode} disabled={resetSecondsLeft > 0 || resendingCode} className={`mt-2 ${TEXT_BTN} text-tertiary-accent disabled:opacity-50`}>
                 {resendingCode ? "Reenviando..." : "Enviar código nuevamente"}
               </button>
-              <button onClick={() => setView("forgot-email")} className="mt-2 block text-label-md font-semibold text-outline">
+              <button type="button" onClick={() => setView("forgot-email")} className={`${TEXT_BTN} text-outline`}>
                 ← Cambiar el correo
               </button>
             </>
@@ -1163,9 +1346,9 @@ export default function Account({ mode = "customer" }) {
               <h1 className="mb-2 text-headline-md text-on-surface">Nueva contraseña</h1>
               <p className="mb-6 text-body-md text-on-surface-variant">Escríbela dos veces para confirmar.</p>
               <form onSubmit={handleResetPassword} className="space-y-4">
-                <PasswordInput label="Nueva contraseña" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                <PasswordInput label="Confirmar contraseña" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
-                <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading}>
+                <PasswordInput label="Nueva contraseña" autoComplete="new-password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                <PasswordInput label="Confirmar contraseña" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                   {loading ? (<><Spinner className="text-white" /> Guardando...</>) : "Restablecer contraseña"}
                 </Button>
               </form>
@@ -1182,18 +1365,45 @@ export default function Account({ mode = "customer" }) {
           comentario arriba del componente) — ahí no tiene sentido mostrar
           este toggle. */}
       {canRegister && (
-        <div className="mb-7 flex rounded-full bg-surface-container p-1">
+        // Pestañas accesibles: el lector de pantalla anuncia cuál está elegida, y con las flechas se cambia de una a otra
+        // (la elegida es la única que recibe el foco con Tab, como piden las pestañas de ARIA). min-h-11: antes medían 40px.
+        <div
+          role="tablist"
+          aria-label="Iniciar sesión o crear cuenta"
+          className="mb-7 flex rounded-full bg-surface-container p-1"
+          onKeyDown={(e) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+            e.preventDefault();
+            const next = e.key === "Home" ? "login" : e.key === "End" ? "register" : isLogin ? "register" : "login";
+            switchView(next);
+            (next === "login" ? loginTabRef : registerTabRef).current?.focus();
+          }}
+        >
           <button
+            ref={loginTabRef}
+            type="button"
+            role="tab"
+            id="cuenta-tab-login"
+            aria-selected={isLogin}
+            aria-controls="cuenta-panel"
+            tabIndex={isLogin ? 0 : -1}
             onClick={() => switchView("login")}
-            className={`flex-1 rounded-full py-2.5 text-label-md font-semibold transition-colors duration-200 ${
+            className={`min-h-11 flex-1 rounded-full py-2.5 text-label-md font-semibold transition-colors duration-200 ${
               isLogin ? "bg-surface-container-lowest text-on-surface shadow-sm" : "text-outline"
             }`}
           >
             Iniciar sesión
           </button>
           <button
+            ref={registerTabRef}
+            type="button"
+            role="tab"
+            id="cuenta-tab-registro"
+            aria-selected={!isLogin}
+            aria-controls="cuenta-panel"
+            tabIndex={isLogin ? -1 : 0}
             onClick={() => switchView("register")}
-            className={`flex-1 rounded-full py-2.5 text-label-md font-semibold transition-colors duration-200 ${
+            className={`min-h-11 flex-1 rounded-full py-2.5 text-label-md font-semibold transition-colors duration-200 ${
               !isLogin ? "bg-surface-container-lowest text-on-surface shadow-sm" : "text-outline"
             }`}
           >
@@ -1202,7 +1412,12 @@ export default function Account({ mode = "customer" }) {
         </div>
       )}
 
-      <div key={view} className="animate-step-in">
+      <div
+        key={view}
+        id="cuenta-panel"
+        {...(canRegister ? { role: "tabpanel", "aria-labelledby": isLogin ? "cuenta-tab-login" : "cuenta-tab-registro" } : {})}
+        className="animate-step-in"
+      >
         {isLogin ? (
           <>
             <h1 className="mb-1 text-headline-md text-on-surface">
@@ -1211,6 +1426,8 @@ export default function Account({ mode = "customer" }) {
             <p className="mb-6 text-body-md text-on-surface-variant">
               {mode === "admin"
                 ? "Solo cuentas de administrador pueden entrar aquí."
+                : mode === "partner"
+                ? "Ingresa con tu cuenta de socio para ver el uso de tu API."
                 : mode === "vendor"
                 ? "Ingresa con tu cuenta de vendedor para gestionar tu tienda."
                 : "Ingresa para comprar o gestionar tu tienda."}
@@ -1218,7 +1435,9 @@ export default function Account({ mode = "customer" }) {
             <form onSubmit={handleLogin} aria-busy={loading}>
               {/* Mientras se revisa la cuenta y se abre el panel no se puede escribir ni volver a enviar. */}
               <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
-              <Input label="Correo" type="email" required value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} />
+              {/* autoComplete: el celular y los gestores de contraseñas ofrecen rellenar la cuenta guardada. "username" (no "email")
+                  es lo que buscan para asociar el correo con su contraseña en un formulario de ingreso. */}
+              <Input label="Correo" type="email" autoComplete="username" required value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} />
               {/* Bloque 183 (pedido explícito — "el usuario podrá solo
                   ingresar su correo... el sistema automáticamente detecte
                   que ese usuario no tiene una contraseña válida aún"): sin
@@ -1231,13 +1450,14 @@ export default function Account({ mode = "customer" }) {
                   (login(), auth.controller.js). */}
               <PasswordInput
                 label="Contraseña"
+                autoComplete="current-password"
                 value={loginForm.password}
                 onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
               />
-              <button type="button" onClick={() => setView("forgot-email")} className="block text-label-sm font-semibold text-tertiary-accent">
+              <button type="button" onClick={() => setView("forgot-email")} className="flex min-h-11 items-center text-left text-label-sm font-semibold text-tertiary-accent">
                 ¿Olvidaste tu contraseña?
               </button>
-              <Button type="submit" size="lg" className="w-full rounded-xl" disabled={loading}>
+              <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                 {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Entrar"}
               </Button>
               {mode === "partner" && (
@@ -1248,6 +1468,8 @@ export default function Account({ mode = "customer" }) {
               </fieldset>
             </form>
           </>
+        ) : !typeChosen && !completingStore ? (
+          <AccountTypePicker onPick={pickAccountType} />
         ) : (
           <>
             <h1 className="mb-1 text-headline-md text-on-surface">
@@ -1280,20 +1502,26 @@ export default function Account({ mode = "customer" }) {
                   {/* Bloque 114 (pedido explícito): nombre y apellidos por
                       separado, no un solo "Nombre completo". */}
                   <div className="grid grid-cols-2 gap-3">
-                    <Input data-guard="name" label="Nombre" required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
-                    <Input data-guard="name" label="Apellidos" required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                    <Input data-guard="name" label="Nombre" autoComplete="given-name" required value={form.firstName} onChange={setFormField("firstName")} />
+                    <Input data-guard="name" label="Apellidos" autoComplete="family-name" required value={form.lastName} onChange={setFormField("lastName")} />
                   </div>
-                  <Input label="Correo" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  <Input label="Correo" type="email" autoComplete="email" required value={form.email} onChange={setFormField("email")} />
                   <div>
+                    {/* Forma con función a propósito: PhoneInput avisa número y país en el mismo evento, y con
+                        { ...form } el segundo setForm devolvía el número viejo (el país no se podía cambiar). */}
                     <PhoneInput
                       label="Teléfono (WhatsApp)"
                       required
                       value={form.phone}
-                      onChange={(phone) => setForm({ ...form, phone })}
-                      onCountryChange={(country) => setForm({ ...form, country })}
+                      onChange={(phone) => setForm((f) => ({ ...f, phone }))}
+                      onCountryChange={(country) => setForm((f) => ({ ...f, country }))}
                     />
+                    {/* El paso 1 es el mismo para cliente y tienda: el aviso cambia según quién se registra. El del cliente
+                        sale de Checkout.jsx, que rellena con este número el teléfono del pedido que recibe la tienda. */}
                     <p className="mt-1.5 rounded-lg bg-surface-container px-3 py-2 text-label-sm text-on-surface-variant">
-                      Este es el número por el que los clientes te contactarán para comprar productos o hacer preguntas.
+                      {accountType === "vendor"
+                        ? "Este es el número por el que los clientes te contactarán para comprar productos o hacer preguntas."
+                        : "Lo usan las tiendas para coordinar tus pedidos contigo."}
                     </p>
                   </div>
                 </div>
@@ -1301,13 +1529,15 @@ export default function Account({ mode = "customer" }) {
 
               {step === 2 && (
                 <div key="step-2" className="animate-step-in space-y-4">
-                  <PasswordInput label="Contraseña" required minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                  {/* new-password: el navegador ofrece una contraseña segura y la guarda junto al correo del paso 1. */}
+                  <PasswordInput label="Contraseña" autoComplete="new-password" required minLength={8} value={form.password} onChange={setFormField("password")} />
                   <PasswordInput
                     label="Confirmar contraseña"
+                    autoComplete="new-password"
                     required
                     minLength={8}
                     value={form.confirmPassword}
-                    onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                    onChange={setFormField("confirmPassword")}
                   />
                 </div>
               )}
@@ -1366,6 +1596,7 @@ export default function Account({ mode = "customer" }) {
                   <h2 className="text-title-lg font-bold text-on-surface">Tu tienda</h2>
                   <Input
                     label="Nombre de la tienda (público)"
+                    autoComplete="organization"
                     required
                     value={storeForm.companyName}
                     onChange={(e) => setStoreForm({ ...storeForm, companyName: e.target.value })}
@@ -1380,12 +1611,16 @@ export default function Account({ mode = "customer" }) {
                       apellidos que ya cargó en el paso 1. Solo un aviso de
                       que debe coincidir con su identificación, ya que se
                       puede llegar a verificar más adelante (KYC). */}
+                  {/* Sin nombre (una cuenta vieja sin nombre completo) no se muestra la línea del responsable: antes salía
+                      "Responsable del negocio: —". */}
                   <div className="rounded-lg border border-outline-variant bg-surface-container p-3.5">
-                    <p className="text-label-sm font-semibold text-on-surface">
-                      Responsable del negocio: <span className="font-bold">{`${form.firstName} ${form.lastName}`.trim() || "—"}</span>
-                    </p>
-                    <p className="mt-1 text-label-sm text-outline">
-                      Este nombre debe coincidir con tu documento de identidad — se puede llegar a verificar más adelante, de ser necesario.
+                    {`${form.firstName} ${form.lastName}`.trim() && (
+                      <p className="mb-1 text-label-sm font-semibold text-on-surface">
+                        Responsable del negocio: <span className="font-bold">{`${form.firstName} ${form.lastName}`.trim()}</span>
+                      </p>
+                    )}
+                    <p className="text-label-sm text-outline">
+                      El nombre del responsable debe coincidir con tu documento de identidad, por si más adelante hace falta verificarlo.
                     </p>
                   </div>
 
@@ -1424,7 +1659,7 @@ export default function Account({ mode = "customer" }) {
                       />
                       <p className="mt-1 text-label-sm text-outline">
                         Generamos un código QR por cada mesa apenas creas la tienda. Los pedidos te van a llegar al panel de vendedor.
-                        {maxTables != null && ` Con el plan gratis puedes tener hasta ${maxTables} mesas.`}
+                        {maxTables != null && ` ${tablesLimitText}`}
                       </p>
                     </div>
                   )}
@@ -1465,11 +1700,11 @@ export default function Account({ mode = "customer" }) {
 
               <div className="flex gap-2.5">
                 {step > (completingStore ? 3 : 1) && (
-                  <Button type="button" variant="outline" size="lg" onClick={() => setStep((s) => s - 1)} disabled={loading} className="rounded-xl">
+                  <Button type="button" variant="outline" size="lg" onClick={() => setStep((s) => s - 1)} disabled={loading} className={`rounded-xl ${LG_FIT}`}>
                     Atrás
                   </Button>
                 )}
-                <Button type="submit" size="lg" className="flex-1 rounded-xl" disabled={loading}>
+                <Button type="submit" size="lg" className={`flex-1 rounded-xl ${LG_FIT}`} disabled={loading}>
                   {loading ? (
                     <>
                       <Spinner className="text-white" />
@@ -1480,7 +1715,8 @@ export default function Account({ mode = "customer" }) {
                   ) : completingStore ? (
                     "Crear mi tienda"
                   ) : (
-                    "Enviar código de verificación"
+                    // Corto a propósito: comparte la fila con "Atrás" y a 390px el texto largo no cabía en una línea.
+                    "Enviar código"
                   )}
                 </Button>
               </div>

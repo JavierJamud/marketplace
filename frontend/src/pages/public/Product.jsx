@@ -815,7 +815,8 @@ export default function Product() {
           </div>
 
           {/* Bloque 52 (criterio de Store.jsx): fotos solo en tiendas verificadas. */}
-          {user && v.isVerified && (
+          {/* reviewPhotosAllowed: misma regla que el servidor al publicar (tienda verificada y plan con fotos en reseñas). */}
+          {user && (v.reviewPhotosAllowed ?? v.isVerified) && (
             <div className="mt-3 border-t border-surface-container-high pt-3">
               <div className="flex flex-wrap items-center gap-2.5">
                 {reviewImages.map((file, i) => (

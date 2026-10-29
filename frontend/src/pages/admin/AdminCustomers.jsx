@@ -39,7 +39,7 @@ function EditCustomerModal({ customer, onSave, onCancel, saving }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">Editar cliente</h2>
         <div className="flex flex-col gap-3.5">
           <Input data-guard="name" label="Nombre completo" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
@@ -253,7 +253,7 @@ export default function AdminCustomers() {
     <div className="max-w-[1180px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Users} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Clientes</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Clientes</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Usa los contadores para filtrar; en cada fila puedes editar, suspender o eliminar la cuenta.</p>
 

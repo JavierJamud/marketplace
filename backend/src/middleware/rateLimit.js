@@ -61,6 +61,26 @@ export const ordersRateLimit = rateLimit({
   message: { error: "Demasiados pedidos en poco tiempo. Prueba de nuevo en unos minutos." },
 });
 
+// Cotizar el envío de un carrito es público y recorre todas sus líneas: un tope por IP para que no se use como bomba de
+// consultas. 60 por minuto sobra para una persona que cambia cantidades o dirección en el checkout.
+export const shippingQuoteRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiadas consultas de envío en poco tiempo. Prueba de nuevo en un minuto." },
+});
+
+// Compartir un carrito crea una fila pública sin login: sin tope se podía llenar la tabla desde un script. Mensaje propio
+// porque el de ordersRateLimit habla de pedidos.
+export const sharedCartRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Compartiste demasiados carritos en poco tiempo. Prueba de nuevo en unos minutos." },
+});
+
 // Cubre forgot-password / verify-reset-code / reset-password — generoso para
 // no entorpecer pruebas manuales (varios intentos de código típico), pero
 // evita que un script fuerce bruto los 6 dígitos del código.

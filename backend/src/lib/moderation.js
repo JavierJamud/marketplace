@@ -5,6 +5,7 @@ import { sendModerationEmail } from "./email.js";
 import { deleteUploadedImages } from "./uploadFiles.js";
 import { finalizeUserDeletion } from "./accountDeletion.js";
 import { addToBlacklist } from "./blacklist.js";
+import { placeProductInQuota } from "./planConfig.js";
 
 // Moderación por reportes (pedido del dueño). Reglas, todas con valores editables por el admin (SiteSettings):
 // - Un reporte confirmado SUSPENDE el producto o la venta rápida: sale del sitio y el dueño tiene `suspendedItemAppealDays`
@@ -230,7 +231,12 @@ export async function notifyReportOutcome(report, { suspended, reason, deleteAt 
 
 // Apelación aceptada: lo suspendido vuelve a publicarse y ese reporte deja de contar como aviso.
 export async function restoreAfterAppeal(report, note) {
-  if (report.productId) await prisma.product.update({ where: { id: report.productId }, data: { isActive: true, suspendedAt: null, suspendedReason: null } });
+  if (report.productId) {
+    const p = await prisma.product.update({ where: { id: report.productId }, data: { isActive: true, suspendedAt: null, suspendedReason: null } });
+    // Vuelve a publicarse pasando por el cupo del plan, como cualquier otra activación: si mientras estuvo suspendido la
+    // tienda llenó su cupo con otros, queda "Fuera del cupo" y la tienda elige si lo cambia por otro.
+    await placeProductInQuota(p.vendorId, p.id);
+  }
   if (report.customerListingId) {
     const l = await prisma.customerListing.findUnique({ where: { id: report.customerListingId }, select: { images: true } });
     await prisma.customerListing.update({ where: { id: report.customerListingId }, data: { isActive: (l?.images?.length ?? 0) > 0, suspendedAt: null, suspendedReason: null } });
@@ -268,10 +274,16 @@ export async function clearCustomerFraudBlock(userId) {
   await prisma.user.update({ where: { id: userId }, data: { isSuspended: false, fraudBlockedAt: null, fraudClaimDueAt: null, fraudStrikesResetAt: new Date() } });
 }
 export async function clearVendorFraudBlock(vendorId) {
-  await prisma.vendor.update({
-    where: { id: vendorId },
-    data: { isBlocked: false, blockReason: null, blockedAt: null, fraudSuspendedAt: null, fraudContactDueAt: null, fraudDeleteAt: null, fraudStrikesResetAt: new Date() },
-  });
+  const fraudFields = { fraudSuspendedAt: null, fraudContactDueAt: null, fraudDeleteAt: null, fraudStrikesResetAt: new Date() };
+  const current = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { adminDeletionRequestedAt: true } });
+  // Tienda en eliminación pendiente: el bloqueo visible es el de la eliminación y tiene que seguir (si no, quedaba a la
+  // vista mientras el cron la borraba igual). Se levanta solo el fraude y se olvida el bloqueo de antes guardado por
+  // deleteVendor, que era este mismo: si el admin restaura la tienda, queda visible.
+  if (current?.adminDeletionRequestedAt) {
+    await prisma.vendor.update({ where: { id: vendorId }, data: { ...fraudFields, preDeletionBlockReason: null, preDeletionBlockedAt: null } });
+    return;
+  }
+  await prisma.vendor.update({ where: { id: vendorId }, data: { isBlocked: false, blockReason: null, blockedAt: null, ...fraudFields } });
 }
 
 // Elimina una cuenta o tienda sancionada y la pone en la lista negra (antes de anonimizar el correo).

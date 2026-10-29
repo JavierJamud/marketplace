@@ -29,7 +29,7 @@ const SECTIONS = [
     kind: "PRODUCT_PAYMENT",
     icon: ShoppingBag,
     title: "Formas de pago del producto",
-    intro: "La universal va en todos los productos y es la única del plan Básico. Puedes elegir cuál es.",
+    intro: "La universal va en todos los productos y es la única del plan por defecto. Puedes elegir cuál es.",
     noun: "forma de pago",
     labelField: "Nombre",
     descriptionField: "Explicación (opcional)",

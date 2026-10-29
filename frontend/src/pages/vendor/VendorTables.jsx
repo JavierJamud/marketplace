@@ -193,7 +193,7 @@ function TableCard({ table, logoDataUrl, tableUrl, canManageTable, canManageOrde
   const regenerateQr = useMutation({
     mutationFn: async () => (await api.post(`/tables/me/${table.id}/regenerate-qr`)).data,
     onSuccess: () => {
-      toast.success("QR regenerado — el anterior dejó de funcionar. Reimprime el nuevo.");
+      toast.success("QR regenerado. El anterior dejó de funcionar: reimprime el nuevo.");
       setConfirmAction(null);
       invalidate();
     },
@@ -413,11 +413,11 @@ export default function VendorTables() {
   // Bloque 185: null para dueño/admin (sin restricción) — un usuario de
   // sistema en "solo lectura" en mesas/pedidos puede seguir viendo esta
   // pantalla en vivo, pero sin ningún botón de acción real.
-  const { staffSectionPermissions } = useOutletContext() ?? {};
+  const { staffSectionPermissions, isStaff, vendor: layoutVendor } = useOutletContext() ?? {};
   const canManageTable = canWriteSection(staffSectionPermissions, "mesas");
   const canManageOrders = canWriteSection(staffSectionPermissions, "mesas") || canWriteSection(staffSectionPermissions, "pedidos");
 
-  const { data, isLoading, error: tablesError } = useQuery({
+  const { data, isLoading, error: tablesError, refetch: refetchTables, isFetching: tablesFetching } = useQuery({
     queryKey: ["my-tables"],
     queryFn: async () => (await api.get("/tables/me")).data.tables,
     // Bloque 168 (pedido explícito — "los cambios de los estados de los
@@ -435,6 +435,17 @@ export default function VendorTables() {
     queryKey: ["my-vendor-settings"],
     queryFn: async () => (await api.get("/vendors/me")).data.vendor,
   });
+
+  // Cupo de mesas del plan (regla 3: el límite se ve antes de chocar con él). Sale de planFeatures de GET /vendors/me, que
+  // ya trae maxTables con su interruptor aplicado (0 si el plan no incluye mesas, null sin tope). Antes el tope solo
+  // aparecía en el aviso de error al tocar "Agregar mesa". Se cuentan las mesas de la lista, que son las mismas que cuenta
+  // createTable en el servidor (las no eliminadas).
+  const vendorInfo = vendor ?? layoutVendor;
+  const planFeatures = vendorInfo?.planFeatures;
+  const planHasTables = !planFeatures || !!planFeatures.allowQrTables;
+  const maxTables = planFeatures ? planFeatures.maxTables ?? null : null;
+  const tableCount = data?.length ?? 0;
+  const atTableLimit = !planHasTables || (maxTables !== null && tableCount >= maxTables);
 
   // Bloque 141: el logo se resuelve UNA vez por vendedor (no por mesa) y se
   // reusa en todos los QR — mismo criterio de absoluta/relativa que el
@@ -474,18 +485,80 @@ export default function VendorTables() {
   // esta sección en vez de mostrar una lista vacía con un "Agregar mesa" que el servidor rechaza.
   const blocked = tablesError?.response?.status === 403;
   if (blocked) {
+    // Tres motivos distintos con su propia salida: el plan no trae mesas (details.planRequired del servidor), la tienda no es
+    // restaurante, o el usuario del equipo no tiene la sección. Antes los tres decían "cambia el tipo de negocio", que no
+    // ayuda a quien solo necesita otro plan o un permiso. Se distinguen por la respuesta del servidor y no por el
+    // vendorInfo ya leído: al personal sin "mesas" lo frena el middleware antes de mirar si la tienda es restaurante, así que
+    // con solo isRestaurant leía "cambia el tipo de negocio" en vez de "pide acceso". Y GET /tables/me no mira el plan, así
+    // que deducir "plan sin mesas" del plan leído solo acertaba por casualidad. Con otros `details` (tienda bloqueada,
+    // suspendida por pago, plan sin usuarios del equipo) basta el mensaje del servidor.
+    const errData = tablesError.response.data;
+    const details = errData?.details;
+    const planBlocked = details?.planRequired === "allowQrTables";
+    const notRestaurant =
+      !details && (errData?.error ? errData.error === "Esta función es solo para tiendas tipo restaurante." : !!vendorInfo && !vendorInfo.isRestaurant);
+    const sectionDenied = isStaff && !details && !notRestaurant;
     return (
       <div>
         <div className="mb-4 flex items-center gap-3">
           <IconCircle icon={UtensilsCrossed} tone="teal" />
-          <h1 className="font-display text-[22px] font-extrabold tracking-tight text-on-surface sm:text-[26px]">Mesas y códigos QR</h1>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mesas y códigos QR</h1>
         </div>
         <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 text-[14px] text-on-surface-variant">
           <p className="font-bold text-on-surface">{tablesError.response.data?.error ?? "No tienes acceso a esta sección."}</p>
-          <p className="mt-1">Las mesas con QR sirven para que los clientes pidan desde su mesa. Si tu negocio es un restaurante o cafetería, cambia el tipo de negocio en Configuración.</p>
-          <Link to="/vendedor/configuracion" className="mt-3 inline-flex min-h-11 items-center font-bold text-tertiary-accent underline">
-            Ir a Configuración
-          </Link>
+          {planBlocked && (
+            <>
+              <p className="mt-1">Las mesas con QR sirven para que los clientes pidan desde su mesa. Para usarlas, la tienda necesita un plan que las incluya.</p>
+              {isStaff ? (
+                <p className="mt-1">Pide al dueño de la tienda que cambie de plan.</p>
+              ) : (
+                <Link to="/vendedor/verificacion" className="mt-3 inline-flex min-h-11 items-center font-bold text-tertiary-accent underline">
+                  Ver planes en Suscripción
+                </Link>
+              )}
+            </>
+          )}
+          {notRestaurant && (
+            <>
+              <p className="mt-1">
+                Las mesas con QR sirven para que los clientes pidan desde su mesa.{" "}
+                {isStaff
+                  ? "Solo el dueño puede cambiar el tipo de negocio en Configuración."
+                  : "Si tu negocio es un restaurante o cafetería, cambia el tipo de negocio en Configuración."}
+              </p>
+              {!isStaff && (
+                <Link to="/vendedor/configuracion" className="mt-3 inline-flex min-h-11 items-center font-bold text-tertiary-accent underline">
+                  Ir a Configuración
+                </Link>
+              )}
+            </>
+          )}
+          {sectionDenied && <p className="mt-1">Pide al dueño de la tienda que te dé acceso a Mesas.</p>}
+        </div>
+      </div>
+    );
+  }
+
+  // Fallo de red o del servidor sin ninguna mesa cargada: antes la pantalla quedaba vacía, sin aviso ni forma de reintentar.
+  // Si ya había mesas, un fallo de un sondeo suelto no tapa la lista (se reintenta solo a los 4 s).
+  if (tablesError && !data) {
+    return (
+      <div>
+        <div className="mb-4 flex items-center gap-3">
+          <IconCircle icon={UtensilsCrossed} tone="teal" />
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mesas y códigos QR</h1>
+        </div>
+        <div role="alert" className="rounded-2xl border border-error/30 bg-error/[0.06] p-6 text-[14px] text-on-surface-variant">
+          <p className="font-bold text-on-surface">No pudimos cargar tus mesas.</p>
+          <p className="mt-1">Revisa tu conexión e inténtalo de nuevo.</p>
+          <button
+            type="button"
+            onClick={() => refetchTables()}
+            disabled={tablesFetching}
+            className="mt-3 inline-flex min-h-11 items-center rounded-full bg-secondary-container px-[18px] text-[13.5px] font-bold text-on-secondary-container disabled:opacity-60"
+          >
+            {tablesFetching ? "Reintentando..." : "Reintentar"}
+          </button>
         </div>
       </div>
     );
@@ -497,22 +570,53 @@ export default function VendorTables() {
         <div className="flex items-center gap-3">
           <IconCircle icon={UtensilsCrossed} tone="teal" />
           <div>
-            <h1 className="mb-1 font-display text-[22px] font-extrabold tracking-tight text-on-surface sm:text-[26px]">Mesas y códigos QR</h1>
+            <h1 className="mb-1 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mesas y códigos QR</h1>
             <p className="text-[13px] text-outline sm:text-[13.5px]">
-              Cada mesa tiene un QR único y real — el cliente lo escanea, ve el menú y pide sin necesitar cuenta.
+              Cada mesa tiene un QR único y real: el cliente lo escanea, ve el menú y pide sin necesitar cuenta.
             </p>
           </div>
         </div>
-        {canManageTable && (
-          <button
-            onClick={() => addTable.mutate()}
-            disabled={addTable.isPending}
-            className="flex-shrink-0 rounded-full bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
-          >
-            + Agregar mesa
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* "3 de 5 mesas": solo con tope (sin tope no hay nada que contar contra el plan). */}
+          {planHasTables && maxTables !== null && maxTables > 0 && (
+            <span
+              className={`rounded-full px-3 py-1.5 text-[12px] font-bold ${atTableLimit ? "bg-secondary/10 text-secondary" : "bg-verified/10 text-verified-dark"}`}
+            >
+              {tableCount} de {maxTables} {maxTables === 1 ? "mesa" : "mesas"}
+            </span>
+          )}
+          {canManageTable && (
+            <button
+              onClick={() => addTable.mutate()}
+              disabled={addTable.isPending || atTableLimit}
+              title={atTableLimit ? "Llegaste al tope de mesas de tu plan" : undefined}
+              className="min-h-11 flex-shrink-0 rounded-full bg-secondary-container px-[18px] text-[13.5px] font-bold text-on-secondary-container disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant"
+            >
+              + Agregar mesa
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Tope del plan alcanzado (o superado tras bajar de plan): se dice por qué no se puede agregar y dónde se cambia. El
+          personal no puede cambiar el plan (Suscripción es solo del dueño), así que a él se le pide que avise. */}
+      {canManageTable && planHasTables && atTableLimit && (
+        <div role="status" className="mb-5 rounded-xl border border-secondary/30 bg-secondary/[0.06] px-4 py-3 text-[13px] text-on-surface">
+          <p>
+            {maxTables === 0
+              ? "Tu plan no incluye mesas nuevas."
+              : tableCount > maxTables
+                ? `Tu plan permite hasta ${maxTables} ${maxTables === 1 ? "mesa" : "mesas"} y tienes ${tableCount}. No puedes agregar más.`
+                : `Llegaste al tope de tu plan: ${maxTables} ${maxTables === 1 ? "mesa" : "mesas"}.`}{" "}
+            {isStaff ? "Para agregar más, pide al dueño de la tienda que mejore el plan." : "Para agregar más, mejora tu plan."}
+          </p>
+          {!isStaff && (
+            <Link to="/vendedor/verificacion" className="inline-flex min-h-11 items-center font-bold text-tertiary-accent underline">
+              Ver planes en Suscripción
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Bloque 141 (pedido explícito — "busca alguna alternativa para
           cuando le hacen una foto al QR y lo usan desde afuera"): la
@@ -521,7 +625,7 @@ export default function VendorTables() {
           en cada tarjeta. */}
       <div className="mb-5 rounded-lg bg-tertiary-accent/10 px-4 py-3 text-[12.5px] text-tertiary-accent">
         💡 Si sospechas que alguien fotografió y está usando el QR de una mesa desde afuera del local, toca "Nuevo QR"
-        en esa mesa — el código viejo deja de funcionar al instante y puedes imprimir uno nuevo.
+        en esa mesa. El código viejo deja de funcionar al instante y puedes imprimir uno nuevo.
       </div>
 
       {/* Bloque 175 (pedido explícito — "quiero que la sección de mesas QR

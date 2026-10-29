@@ -328,9 +328,18 @@ export default function Store() {
   const [commentTitle, setCommentTitle] = useState("");
   const [commentRating, setCommentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
-  // Bloque 52: fotos adjuntas al comentario — solo tiendas verificadas
-  // (el selector ni se renderiza si no lo está, ver más abajo).
+  // Bloque 52: fotos adjuntas al comentario — solo tiendas verificadas cuyo
+  // plan las incluye (el selector ni se renderiza si no, ver más abajo).
   const [reviewImages, setReviewImages] = useState([]); // File[]
+  // Vista previa de esas fotos. Antes se llamaba a URL.createObjectURL en cada render y nunca se liberaba: cada tecla
+  // en el comentario dejaba una URL nueva retenida en memoria. Ahora se crean una vez por cambio de fotos y se liberan al
+  // quitar una foto, al publicar o al salir de la página (el estado y el efecto aguantan el doble montaje de StrictMode).
+  const [reviewPreviews, setReviewPreviews] = useState([]); // string[]
+  useEffect(() => {
+    const urls = reviewImages.map((file) => URL.createObjectURL(file));
+    setReviewPreviews(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [reviewImages]);
   const [lightboxSrc, setLightboxSrc] = useState(null);
   // Bloque 69 (pedido explícito): reportar un comentario — desde la cuenta
   // de cualquier cliente logueado (nunca el propio, ver ReviewsList.jsx).
@@ -345,6 +354,36 @@ export default function Store() {
     queryKey: ["vendor", slug, "store", VISIT_SEED],
     queryFn: async () => (await api.get(`/vendors/${slug}`, { params: { seed: VISIT_SEED } })).data.vendor,
   });
+
+  // "Ver más productos": /vendors/:slug trae la primera página (60). Las siguientes se piden con el productSeed de esa
+  // respuesta, para que el orden no cambie entre páginas (ver listVendorProducts en vendors.controller.js).
+  const [moreProducts, setMoreProducts] = useState([]);
+  const [morePage, setMorePage] = useState(1);
+  const [moreHasMore, setMoreHasMore] = useState(null);
+  const [moreStatus, setMoreStatus] = useState("idle"); // idle | loading | error
+  useEffect(() => {
+    setMoreProducts([]);
+    setMorePage(1);
+    setMoreHasMore(null);
+    setMoreStatus("idle");
+  }, [data?.id, data?.productSeed]);
+  const loadMoreProducts = async () => {
+    if (!data || moreStatus === "loading") return;
+    setMoreStatus("loading");
+    try {
+      const next = morePage + 1;
+      const res = (await api.get(`/vendors/${data.slug}/products`, { params: { page: next, rankSeed: data.productSeed || undefined, seed: VISIT_SEED } })).data;
+      setMoreProducts((prev) => {
+        const seen = new Set([...(data.products ?? []), ...prev].map((p) => p.id));
+        return [...prev, ...res.products.filter((p) => !seen.has(p.id))];
+      });
+      setMorePage(next);
+      setMoreHasMore(!!res.hasMore);
+      setMoreStatus("idle");
+    } catch {
+      setMoreStatus("error");
+    }
+  };
 
   // Enlace anterior de la tienda (el servidor la encontró igual): la dirección pasa al enlace actual, sin sumar un paso al
   // botón de volver.
@@ -387,7 +426,7 @@ export default function Store() {
   const reportReview = useMutation({
     mutationFn: async () => (await api.post(`/reviews/${reportTarget.id}/report`, { reason: reportReason.trim() || undefined })).data,
     onSuccess: () => {
-      toast.success("Comentario reportado — el equipo lo va a revisar.");
+      toast.success("Comentario reportado. El equipo lo va a revisar.");
       setReportTarget(null);
       setReportReason("");
       queryClient.invalidateQueries({ queryKey: ["vendor", slug] });
@@ -463,7 +502,7 @@ export default function Store() {
         <EmptyState
           icon={StoreIcon}
           title={`${data.companyName} aún no está disponible`}
-          description="Esta tienda todavía no publicó ningún producto — vuelve a visitarla más adelante."
+          description="Esta tienda todavía no publicó ningún producto. Vuelve a visitarla más adelante."
           action={
             <Link to="/tiendas" className="rounded bg-primary-container px-5 py-2.5 text-label-md font-bold text-white hover:brightness-95">
               Ver todas las tiendas →
@@ -480,8 +519,10 @@ export default function Store() {
   // con botón "Solicitar" en vez de "Agregar al carrito".
   // Bloque 56: "disponible siempre" siempre cae en "disponibles", sin
   // importar lo que tenga guardado en `stock` (no se le lleva seguimiento).
-  const availableProducts = v.products?.filter((p) => p.unlimitedStock || p.stock > 0) ?? [];
-  const outOfStockProducts = v.products?.filter((p) => !p.unlimitedStock && p.stock <= 0) ?? [];
+  const allProducts = [...(v.products ?? []), ...moreProducts];
+  const canLoadMore = moreHasMore ?? !!v.hasMoreProducts;
+  const availableProducts = allProducts.filter((p) => p.unlimitedStock || p.stock > 0);
+  const outOfStockProducts = allProducts.filter((p) => !p.unlimitedStock && p.stock <= 0);
 
   // Bloque 141: menú del local (availableForTableMenu, el mismo flag que ya
   // filtra qué se ve al escanear el QR de mesa — ver getTableByToken,
@@ -527,7 +568,7 @@ export default function Store() {
       {v.storeOffers?.length > 0 && (
         <div className="container-app pt-8">
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Ofertas</h2>
-          <p className="mb-5 text-label-sm text-outline">Descuentos exclusivos de {v.companyName} — aplica el código en el carrito.</p>
+          <p className="mb-5 text-label-sm text-outline">Descuentos exclusivos de {v.companyName}: aplica el código en el carrito.</p>
           {/* Bloque 232: banners horizontales apilados, no una grilla — por
               default solo hay 1 oferta activa a la vez por tienda (el admin
               puede subir ese límite, ver AdminStoreOffers.jsx), así que un
@@ -586,14 +627,15 @@ export default function Store() {
                     reviewCount={p.reviewCount}
                     badge={
                       !p.unlimitedStock && p.stock <= LOW_STOCK_THRESHOLD ? (
-                        <span className="flex-shrink-0 rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
+                        <span className="flex-shrink-0 rounded-full bg-secondary/10 px-2 py-0.5 text-[10px] font-bold text-secondary">
                           ¡Últimas {p.stock}!
                         </span>
                       ) : null
                     }
                     price={formatPrice(p.price, p.currency)}
-                    oldPrice={p.oldPrice ? formatPrice(p.oldPrice, p.currency) : null}
-                    discountPercent={p.oldPrice ? Math.round(100 - (Number(p.price) / Number(p.oldPrice)) * 100) : null}
+                    // Precio anterior solo si de verdad es mayor que el actual (un dato mal cargado daba "-0 %" o un descuento negativo).
+                    oldPrice={Number(p.oldPrice) > Number(p.price) ? formatPrice(p.oldPrice, p.currency) : null}
+                    discountPercent={Number(p.oldPrice) > Number(p.price) && Math.round(100 - (Number(p.price) / Number(p.oldPrice)) * 100) > 0 ? Math.round(100 - (Number(p.price) / Number(p.oldPrice)) * 100) : null}
                     action={
                       <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} onMouseDown={(e) => e.stopPropagation()}>
                         <AddToCartControl product={{ ...p, vendorId: v.id, vendor: v }} size="sm" variant="circle" />
@@ -618,10 +660,28 @@ export default function Store() {
           ) : (
             <p className="text-body-md text-on-surface-variant">
               {outOfStockProducts.length
-                ? "Todos los productos de esta tienda están agotados por ahora — mira “Próximamente disponibles” más abajo."
+                ? "Todos los productos de esta tienda están agotados por ahora. Mira “Próximamente disponibles” más abajo."
                 : "Esta tienda todavía no publicó productos."}
             </p>
           )}
+        </div>
+      )}
+
+      {canLoadMore && (
+        <div className="container-app flex flex-col items-center gap-2 pt-6">
+          {moreStatus === "error" && (
+            <p role="alert" className="text-body-md text-error">
+              No se pudieron cargar más productos.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={loadMoreProducts}
+            disabled={moreStatus === "loading"}
+            className="min-h-11 rounded-lg border border-outline-variant bg-surface-container-lowest px-5 text-label-md font-semibold text-on-surface hover:bg-surface-container disabled:opacity-60"
+          >
+            {moreStatus === "loading" ? "Cargando..." : moreStatus === "error" ? "Reintentar" : "Ver más productos"}
+          </button>
         </div>
       )}
 
@@ -652,7 +712,7 @@ export default function Store() {
           <h2 className="mb-1 font-display text-title-lg text-on-surface">Formas de pago que acepta esta tienda</h2>
           <p className="mb-4 flex items-start gap-1.5 text-label-sm text-outline">
             <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-tertiary-accent" />
-            Coordinas el pago directo con {v.companyName} — {siteName} no cobra ni interviene en la transacción.
+            Coordinas el pago directo con {v.companyName}. {siteName} no cobra ni interviene en la transacción.
           </p>
           <div className="flex flex-wrap gap-2.5">
             {v.acceptedPaymentMethods.map((methodId) => {
@@ -695,7 +755,7 @@ export default function Store() {
       <div ref={reviewsRef} id="resenas" className="container-app pb-16 pt-11">
         <h2 className="mb-1 font-display text-title-lg text-on-surface">Comentarios de compradores</h2>
         <p className="mb-5 text-label-sm text-outline">
-          Públicos y visibles para todos. Solo compradores registrados pueden comentar —{" "}
+          Públicos y visibles para todos. Solo compradores registrados pueden comentar:{" "}
           {describeReviewLimit(reviewDedupHours, maxReviewsPerStorePerPeriod, "tienda")}.
         </p>
 
@@ -752,19 +812,31 @@ export default function Store() {
 
           {/* Bloque 52: fotos en la reseña — solo tiendas VERIFICADAS. En
               tiendas no verificadas el formulario sigue igual que antes, sin
-              esta opción. */}
-          {user && v.isVerified && (
+              esta opción. Además el plan de la tienda tiene que incluir
+              allowReviewPhotos: el servidor lo exige (reviews.controller) y,
+              sin esto, el cliente elegía las fotos, escribía y recién al
+              publicar recibía un 403. reviewPhotosAllowed lo calcula el
+              servidor (insignia + plan); si todavía no viene, se mantiene la
+              regla de antes (solo verificada). */}
+          {user && (v.reviewPhotosAllowed ?? v.isVerified) && (
             <div className="mt-3 border-t border-surface-container-high pt-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                {reviewImages.map((file, i) => (
-                  <div key={i} className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-outline-variant">
-                    <img src={URL.createObjectURL(file)} alt="" className="h-full w-full object-cover" />
+              <div className="flex flex-wrap items-center gap-3">
+                {reviewPreviews.map((src, i) => (
+                  // El recorte (overflow-hidden) va en un envoltorio aparte para que el área táctil invisible del botón
+                  // (before:, 44x44px) pueda salir de la miniatura de 56px: el círculo visible sigue siendo de 16px.
+                  // Esa área sale 12px por arriba y por la derecha; por eso la separación es gap-3 (12px) y no pisa
+                  // la miniatura ni el botón "Foto" de al lado.
+                  <div key={src} className="relative h-14 w-14 flex-shrink-0">
+                    <div className="h-full w-full overflow-hidden rounded-lg border border-outline-variant">
+                      <img src={src} alt="" className="h-full w-full object-cover" />
+                    </div>
                     <button
                       type="button"
+                      aria-label="Quitar foto"
                       onClick={() => removeReviewImage(i)}
-                      className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                      className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white before:absolute before:-inset-[14px] before:content-[''] hover:bg-black/80"
                     >
-                      <XIcon className="h-3 w-3" />
+                      <XIcon className="h-3 w-3" aria-hidden="true" />
                     </button>
                   </div>
                 ))}
@@ -803,7 +875,7 @@ export default function Store() {
       <ConfirmModal
         open={!!reportTarget}
         title="¿Reportar este comentario?"
-        message={`El equipo de ${siteName} lo revisa antes de decidir — mientras tanto deja de mostrarse.`}
+        message={`El equipo de ${siteName} lo revisa antes de decidir. Mientras tanto deja de mostrarse.`}
         confirmLabel={reportReview.isPending ? "Reportando..." : "Reportar"}
         danger
         onConfirm={() => reportReview.mutate()}

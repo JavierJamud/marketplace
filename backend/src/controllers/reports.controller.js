@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { reportTargetSnapshot } from "../lib/moderation.js";
+import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 
 // Feature B (pedido explícito): reportes de fraude sobre producto/tienda/
 // venta rápida — patrón "exactamente uno de estos 3 campos" (mismo criterio
@@ -59,6 +60,19 @@ export async function resolveReportTarget({ productId, vendorId, customerListing
   return { field: "customerListingId", kind: "CUSTOMER_LISTING", vendorId: null, user: listing.owner, label: `anuncio "${listing.name}"` };
 }
 
+// Usuario del equipo (VENDOR_STAFF) con la sección "Reportes": actúa por la tienda, no por sí mismo. Su req.user.id no es
+// dueño de nada, así que buscando por usuario su lista salía vacía y no podía responder, aunque el dueño le hubiera dado la
+// sección. Las rutas /reports/* son de cualquier cuenta con sesión (clientes incluidos) y no pueden llevar el guardia del
+// panel delante, por eso se llama aquí: mismas reglas que el resto del panel (sección activa, nivel "Modificar" para
+// responder o apelar, tienda no bloqueada y plan con usuarios del equipo). Devuelve el id de la tienda, null si quien llama
+// no es del equipo, y lanza 403 si es del equipo sin permiso.
+async function staffStoreId(req, { write = false } = {}) {
+  if (req.user?.role !== "VENDOR_STAFF") return null;
+  const guard = write ? requireVendorWrite("reportes") : requireVendorAccess("reportes");
+  await guard(req, null, () => {});
+  return req.vendorStaff.vendorId;
+}
+
 // Reportes donde el usuario logueado es el REPORTADO (no el que reportó) —
 // un solo endpoint para las 2 superficies de FB-8: VendorFraudReports.jsx
 // (vendedor, directo o vía uno de sus productos) y el banner de la tab
@@ -66,15 +80,29 @@ export async function resolveReportTarget({ productId, vendorId, customerListing
 // `OR` cubre las 3 formas reales de ser el reportado, mismo criterio que
 // resolveReportTarget de arriba pero en sentido inverso (buscar POR
 // userId en vez de resolver un userId A PARTIR de ids del reporte).
+// Un usuario del equipo con la sección "Reportes" ve los de la tienda para la que trabaja (ver staffStoreId).
 export async function listMyReportsAgainstMe(req, res) {
+  let storeId = null;
+  if (req.user.role === "VENDOR_STAFF") {
+    // VendorLayout pide esta lista a todo el panel para el contador del menú: a quien no tiene la sección se le responde
+    // vacío en vez de un 403 cada 20 segundos. Solo se traga el "no tienes permiso"; un fallo de la base sigue saliendo.
+    storeId = await staffStoreId(req).catch((err) => {
+      if (err instanceof AppError) return null;
+      throw err;
+    });
+    if (!storeId) return res.json({ reports: [] });
+  }
   const reports = await prisma.report.findMany({
     where: {
-      OR: [
-        { targetOwnerId: req.user.id },
-        { vendor: { userId: req.user.id } },
-        { product: { vendor: { userId: req.user.id } } },
-        { customerListing: { ownerId: req.user.id } },
-      ],
+      // targetVendorId cubre también los reportes de un producto que la tienda ya borró (la relación queda en null).
+      OR: storeId
+        ? [{ targetVendorId: storeId }, { vendorId: storeId }, { product: { vendorId: storeId } }]
+        : [
+            { targetOwnerId: req.user.id },
+            { vendor: { userId: req.user.id } },
+            { product: { vendor: { userId: req.user.id } } },
+            { customerListing: { ownerId: req.user.id } },
+          ],
     },
     include: {
       product: { select: { name: true, slug: true, vendor: { select: { slug: true } } } },
@@ -173,8 +201,10 @@ const appealSchema = z.object({ appealMessage: z.string().trim().min(10, "Cuént
 export async function submitAppeal(req, res) {
   const files = uploadedFiles(req);
   try {
+    const storeId = await staffStoreId(req, { write: true });
     const report = await prisma.report.findUnique({ where: { id: req.params.id } });
-    if (!report || report.targetOwnerId !== req.user.id) throw new AppError("Reporte no encontrado.", 404);
+    const isMine = storeId ? report?.targetVendorId === storeId : report?.targetOwnerId === req.user.id;
+    if (!report || !isMine) throw new AppError("Reporte no encontrado.", 404);
     if (report.status !== "RESOLVED_SUSPENDED" || !report.itemDeleteAt) throw new AppError("Esta suspensión no admite apelación.", 400);
     if (report.appealSentAt) throw new AppError("Ya enviaste tu apelación. Te avisaremos por correo cuando la revisemos.", 409);
     if (report.itemDeleteAt < new Date()) throw new AppError("Venció el plazo para apelar.", 400);
@@ -185,7 +215,9 @@ export async function submitAppeal(req, res) {
     });
     void notifyAdminActionNeeded(
       "Apelación de una suspensión",
-      `El dueño de ${report.targetLabel ?? "una publicación suspendida"} envió su apelación: "${appealMessage.slice(0, 300)}"`,
+      // targetLabel ya lleva su tipo ('producto "X"', 'tienda "Y"', 'venta rápida "Z"'), con géneros distintos: "sobre" sirve
+      // para los tres sin artículo.
+      `${storeId ? "Un usuario del equipo de la tienda" : "El dueño"} envió una apelación sobre ${report.targetLabel ?? "una publicación suspendida"}: "${appealMessage.slice(0, 300)}"`,
       report.targetVendorId ?? undefined,
       { url: `/admin/reportes-fraude?report=${report.id}` }
     ).catch(() => {});
@@ -209,15 +241,29 @@ const submitEvidenceSchema = z.object({
 export async function submitEvidence(req, res) {
   try {
     const { id } = req.params;
+    // Antes de leer el reporte: a quien no tiene la sección no se le dice si el id existe.
+    const storeId = await staffStoreId(req, { write: true });
     const report = await prisma.report.findUnique({ where: { id } });
     if (!report) throw new AppError("Reporte no encontrado.", 404);
+
+    // La propiedad se comprueba antes que el estado y responde igual que un id inexistente (como submitAppeal): antes, con
+    // el estado primero y un 403 aparte, cualquier cuenta con sesión podía saber si un id de reporte ajeno existía y si
+    // estaba esperando evidencia. Si el objetivo ya se borró, resolveReportTarget da su propio 404 ("Producto no
+    // encontrado."), que también delataría el reporte: se responde con el mismo texto. Si el producto se borró, la relación
+    // queda en null y el reporte no tiene ninguno de los tres ids: sin este cuidado, resolveReportTarget buscaba un anuncio
+    // con id undefined y salía un 500.
+    const hasTarget = !!(report.productId || report.vendorId || report.customerListingId);
+    const target = hasTarget
+      ? await resolveReportTarget(report).catch((err) => {
+          if (err instanceof AppError && err.statusCode === 404) return null;
+          throw err;
+        })
+      : null;
+    const canAnswer = !!target && (storeId ? target.kind === "VENDOR" && target.vendorId === storeId : target.user.id === req.user.id);
+    if (!canAnswer) throw new AppError("Reporte no encontrado.", 404);
+
     if (report.status !== "EVIDENCE_REQUESTED") {
       throw new AppError("Este reporte no está esperando evidencia en este momento.", 400);
-    }
-
-    const target = await resolveReportTarget(report);
-    if (target.user.id !== req.user.id) {
-      throw new AppError("No tienes permiso para responder a este reporte.", 403);
     }
 
     const data = submitEvidenceSchema.parse(req.body);

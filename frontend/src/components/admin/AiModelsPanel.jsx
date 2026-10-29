@@ -25,8 +25,8 @@ function ModelHealth({ model }) {
   if (!h) return <span className="text-[12px] text-outline">Sin medir todavía</span>;
   if (h.status === "healthy") {
     return (
-      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[#087A38]">
-        <span className="h-2 w-2 rounded-full bg-[#0CAE53]" aria-hidden="true" />
+      <span className="flex items-center gap-1.5 text-[12px] font-semibold text-verified-dark">
+        <span className="h-2 w-2 rounded-full bg-verified" aria-hidden="true" />
         Responde bien{h.lastLatencyMs ? ` (${(h.lastLatencyMs / 1000).toFixed(1)} s)` : ""}
       </span>
     );

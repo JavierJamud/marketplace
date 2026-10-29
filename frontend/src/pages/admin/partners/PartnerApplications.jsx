@@ -9,7 +9,7 @@ import { BTN, BTN_PRIMARY, BTN_GHOST, BTN_DANGER, INPUT, LABEL, fmtDate, linesTo
 import { ListSkeleton } from "../../../components/ui/Skeleton.jsx";
 
 const STATUS = {
-  PENDING: { label: "En revisión", cls: "bg-[#fe9800]/15 text-[#8A5100]" },
+  PENDING: { label: "En revisión", cls: "bg-secondary-container/15 text-secondary" },
   APPROVED: { label: "Aprobada", cls: "bg-verified/10 text-verified-dark" },
   REJECTED: { label: "Rechazada", cls: "bg-error/10 text-error" },
 };

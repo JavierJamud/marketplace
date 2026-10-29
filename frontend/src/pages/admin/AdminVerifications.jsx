@@ -49,7 +49,8 @@ const STATUS_BADGE = {
   PAYMENT_FAILED: { label: "Pago fallido", className: "bg-error/10 text-error" },
   SUSPENDED: { label: "Suspendida", className: "bg-error/10 text-error" },
   REJECTED: { label: "Rechazada", className: "bg-error/10 text-error" },
-  PLAN_ENDED: { label: "Volvió a Básico", className: "bg-surface-container text-on-surface-variant" },
+  // El nombre real del plan por defecto lo pone la lista (sale de /settings); este es el texto de reserva.
+  PLAN_ENDED: { label: "Volvió al plan por defecto", className: "bg-surface-container text-on-surface-variant" },
 };
 
 function fmtDate(iso) {
@@ -297,9 +298,9 @@ function VerificationArchiveModal({ vendor, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[85vh] w-full max-w-[720px] overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-[720px] rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <h2 className="flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
             <Archive className="h-5 w-5 text-tertiary-accent" /> Archivo de verificación: {vendor.companyName || archives?.[0]?.companyName || "tienda"}
           </h2>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full text-outline hover:bg-surface-container">
@@ -576,6 +577,14 @@ export default function AdminVerifications() {
     queryFn: async () => (await api.get("/admin/section-counts")).data,
     refetchInterval: 30000,
   });
+  // Nombre del plan por defecto (por su bandera isDefault, no por la clave) para "Volvió a ...". Misma queryKey que
+  // usePlatformSettings, así se comparte la copia en caché.
+  const { data: siteSettings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+    staleTime: 5 * 60 * 1000,
+  });
+  const defaultPlanName = siteSettings?.plans?.find((p) => p.isDefault && !p.archivedAt)?.displayName ?? null;
   const inTab = (t, v) => t.key === "ALL" || t.key.split(",").includes(v.verificationStatus);
   const tabCount = (t) =>
     t.key === "RENEWALS" ? sectionCounts?.verificaciones?.tabs?.renovaciones ?? 0 : t.key === "CHANGE_REQUESTS" ? sectionCounts?.verificaciones?.tabs?.cambios ?? 0 : (all ?? []).filter((v) => inTab(t, v)).length;
@@ -623,7 +632,8 @@ export default function AdminVerifications() {
   const manualPayment = useMutation({
     mutationFn: async ({ id, payload }) => (await api.post(`/admin/verifications/${id}/manual-payment`, payload, notify.config(id))).data,
     onSuccess: (d) => {
-      toast.success("Pago registrado", `La tienda queda verificada hasta el ${fmtDate(d.periodEnd)}.`);
+      // Una tienda "sin vencimiento" (activada a mano) conserva su estado: el servidor responde noExpiry y no hay fecha.
+      toast.success("Pago registrado", d.noExpiry ? "La tienda sigue verificada, sin fecha de vencimiento." : `La tienda queda verificada hasta el ${fmtDate(d.periodEnd)}.`);
       setManualTarget(null);
       invalidate();
     },
@@ -649,7 +659,7 @@ export default function AdminVerifications() {
     <div className="max-w-[900px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ShieldCheck} tone="green" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Verificaciones y cobro de suscripción</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Verificaciones y cobro de suscripción</h1>
       </div>
       <p className="mb-2 text-[13.5px] text-outline">
         Fase 1: revisa la identidad del responsable y aprueba o rechaza los documentos. Fase 2: resuelve el cobro de la
@@ -707,7 +717,10 @@ export default function AdminVerifications() {
 
       <div className="flex flex-col gap-4">
         {data?.map((v) => {
-          const badge = STATUS_BADGE[v.verificationStatus];
+          const badge =
+            v.verificationStatus === "PLAN_ENDED" && defaultPlanName
+              ? { ...STATUS_BADGE.PLAN_ENDED, label: `Volvió a ${defaultPlanName}` }
+              : STATUS_BADGE[v.verificationStatus];
           const autoConfirmed = v.verificationStatus === "VERIFIED" && v.paymentMethod === "CARD" && !v.paymentConfirmedById;
           const docsComplete = !!(v.selfieUrl && v.idPhotoFrontUrl);
           // Bloque 66 (bug real reportado en vivo): antes esto incluía
@@ -1151,11 +1164,19 @@ function SubmittedData({ v, open, withDocuments }) {
 // Registrar un pago a mano: meses pagados (1 a 24), motivo obligatorio y, si se sabe, monto, moneda y referencia. Al
 // confirmar se pide el código de seguridad del admin (igual que para confirmar un pago).
 function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
-  // Planes que se pueden activar así: los que dan la insignia (también Empresarial, que se contrata hablando con el equipo).
-  const { data: planConfigs } = useQuery({ queryKey: ["admin-plan-configs"], queryFn: async () => (await api.get("/admin/plan-configs")).data.plans });
-  const plans = (planConfigs ?? []).filter((p) => p.grantsBadge && !p.isFree).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  const [planType, setPlanType] = useState(verification.paymentPlanType ?? "BUSINESS");
-  const planName = plans.find((p) => p.planType === planType)?.displayName ?? planType;
+  // Planes que se pueden activar así: los que dan la insignia y no son gratis (también los que se contratan hablando con
+  // el equipo), sin los archivados: no se venden ni se asignan aunque /admin/plan-configs los traiga.
+  const { data: planConfigs, isLoading: plansLoading, isError: plansError } = useQuery({
+    queryKey: ["admin-plan-configs"],
+    queryFn: async () => (await api.get("/admin/plan-configs")).data.plans,
+  });
+  const plans = (planConfigs ?? []).filter((p) => p.grantsBadge && !p.isFree && !p.archivedAt).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const [pickedPlan, setPlanType] = useState(verification.paymentPlanType ?? null);
+  // El plan que eligió la tienda al pagar; si ya no se puede activar (o no eligió), el plan de prueba y si no, el primero.
+  // Antes caía en "BUSINESS" fijo, que deja de existir si el admin renombra o archiva planes.
+  const selectedPlan = plans.find((p) => p.planType === pickedPlan) ?? plans.find((p) => p.isTrialPlan) ?? plans[0] ?? null;
+  const planType = selectedPlan?.planType ?? null;
+  const planName = selectedPlan?.displayName ?? "El plan que eligió la tienda";
   const [months, setMonths] = useState(1);
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
@@ -1165,7 +1186,7 @@ function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
   const valid = reason.trim().length >= 5 && (amount === "" || Number(amount) >= 0);
   const field = "min-h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none focus:border-tertiary-accent";
   return (
-    <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/45 sm:items-center sm:p-4" onClick={() => !pending && onCancel()}>
+    <div className="fixed inset-0 z-[160] flex items-end justify-center bg-black/45 sm:items-center sm:p-4 p-4" onClick={() => !pending && onCancel()}>
       <form
         role="dialog"
         aria-modal="true"
@@ -1174,9 +1195,9 @@ function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!valid || pending) return;
-          onConfirm({ months, planType, reason: reason.trim(), ...(amount !== "" ? { amount: Number(amount), currency } : {}), ...(reference.trim() ? { reference: reference.trim() } : {}) });
+          onConfirm({ months, ...(planType ? { planType } : {}), reason: reason.trim(), ...(amount !== "" ? { amount: Number(amount), currency } : {}), ...(reference.trim() ? { reference: reference.trim() } : {}) });
         }}
-        className="flex max-h-[92dvh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
+        className="modal-panel-5 flex w-full max-w-md flex-col gap-3 rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl"
       >
         <div className="flex items-start justify-between gap-2">
           <h2 id="manual-payment-title" className="text-[16px] font-bold text-on-surface">
@@ -1189,12 +1210,14 @@ function ManualPaymentModal({ verification, pending, onCancel, onConfirm }) {
         <p className="text-[12.5px] text-on-surface-variant">
           La tienda queda verificada con el plan elegido como si hubiera pagado. Queda registrado quién lo hizo, cuándo, los meses y el motivo, y la tienda recibe el aviso.
         </p>
+        {plansLoading && <p className="text-[12.5px] text-on-surface-variant">Cargando los planes...</p>}
+        {plansError && <p className="text-[12.5px] text-error">No se pudieron cargar los planes: se registra con el plan que eligió la tienda.</p>}
         {plans.length > 0 && (
           <>
             <label className="text-[12.5px] font-semibold text-on-surface" htmlFor="mp-plan">
               Plan
             </label>
-            <select id="mp-plan" value={planType} onChange={(e) => setPlanType(e.target.value)} className={field}>
+            <select id="mp-plan" value={planType ?? ""} onChange={(e) => setPlanType(e.target.value)} className={field}>
               {plans.map((p) => (
                 <option key={p.planType} value={p.planType}>
                   {p.displayName}

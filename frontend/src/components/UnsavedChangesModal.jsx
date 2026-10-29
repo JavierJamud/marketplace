@@ -12,11 +12,10 @@ export function UnsavedChangesModal({ open, onSave, onDiscard, onCancel, saving 
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/45"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
-      <div className="relative w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6 shadow-2xl" style={{ animation: "modal-pop 0.18s ease-out" }}>
+      <div className="modal-panel-6 relative w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6 shadow-2xl motion-safe:animate-modal-pop">
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary-container/30">
           <AlertTriangle className="h-6 w-6 text-primary" />
         </div>
@@ -49,12 +48,6 @@ export function UnsavedChangesModal({ open, onSave, onDiscard, onCancel, saving 
         </div>
       </div>
 
-      <style>{`
-        @keyframes modal-pop {
-          from { opacity: 0; transform: scale(0.94) translateY(8px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }

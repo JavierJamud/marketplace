@@ -33,7 +33,9 @@ const abs = (path) => (!path ? null : /^https?:\/\//i.test(path) ? path : `${env
 
 // Un producto o tienda solo se publica si la tienda está activa, no bloqueada y no es privada.
 const publicVendorWhere = { isBlocked: false, status: "ACTIVE", isPrivate: false };
-const visibleProductWhere = { isActive: true, hiddenFromStore: false, overQuota: false };
+// Un plato del menú de mesa con el menú oculto (menuPublic false) solo se ve con el QR: la ficha da 404 (getProductBySlug,
+// Bloque 208), así que tampoco va al sitemap, a la tienda SSR ni a la portada.
+const visibleProductWhere = { isActive: true, hiddenFromStore: false, overQuota: false, NOT: { availableForTableMenu: true, vendor: { menuPublic: false } } };
 
 // ---------------------------------------------------------------- sitemap
 
@@ -42,6 +44,7 @@ const STATIC_PAGES = [
   ["/tiendas", 0.9, "daily"],
   ["/catalogo", 0.9, "daily"],
   ["/ventas-rapidas", 0.6, "daily"],
+  ["/planes", 0.7, "weekly"],
   ["/faq", 0.7, "weekly"],
   ["/ayuda", 0.6, "monthly"],
   ["/contacto", 0.5, "monthly"],
@@ -386,7 +389,7 @@ async function buildSeoHome() {
       select: { name: true },
     }),
     prisma.faqItem.findMany({ where: { audience: "CUSTOMER" }, orderBy: { createdAt: "asc" }, take: 6, select: { question: true, answer: true } }),
-    prisma.siteSettings.findFirst({ select: { facebookUrl: true, instagramUrl: true, trialDays: true } }),
+    prisma.siteSettings.findFirst({ select: { trialDays: true } }),
     getAllPlanConfigs(),
   ]);
 
@@ -426,12 +429,15 @@ async function buildSeoHome() {
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
     .map((p) => {
       const price = p.contactOnly ? "precio a la medida" : p.isFree ? "gratis" : `${Number(p.priceCup).toLocaleString("es-CU")} CUP o ${p.priceUsd} USD al mes`;
-      const trial = p.planType === "BUSINESS" && trialDays > 0 ? `, con ${plural(trialDays, "día", "días")} de prueba gratis` : "";
+      // La prueba gratis es del plan marcado como plan de prueba (isTrialPlan), no de una clave fija: si el admin la mueve a
+      // otro plan, la página la anuncia en el plan correcto.
+      const trial = p.isTrialPlan && trialDays > 0 ? `, con ${plural(trialDays, "día", "días")} de prueba gratis` : "";
       return `<h3>Plan ${esc(p.displayName)}, ${esc(price)}${trial}</h3>\n<ul>\n${buildPlanIncludes(p).map((t) => `<li>${esc(t)}</li>`).join("\n")}\n</ul>`;
     })
     .join("\n");
 
-  const sameAs = [settings?.facebookUrl, settings?.instagramUrl].filter((u) => typeof u === "string" && /^https:\/\//i.test(u));
+  // Redes de la plataforma ya validadas por getBrandSettings (un enlace guardado que no es de esa red llega en null).
+  const sameAs = [brand?.facebookUrl, brand?.instagramUrl].filter((u) => typeof u === "string" && /^https:\/\//i.test(u));
   const jsonLd = {
     "@context": "https://schema.org",
     "@graph": [

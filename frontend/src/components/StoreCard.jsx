@@ -68,19 +68,26 @@ export function StoreGridSkeleton({ count = 6, className = "grid grid-cols-1 gap
   );
 }
 
-export function StoreCard({ vendor }) {
+// topRightSlot: control para la esquina superior derecha de la portada (el corazón de Favoritos), igual que en ProductCard.
+// Cuando viene, la insignia VERIFICADA pasa a la esquina izquierda para que el control no la tape. El slot se pinta fuera
+// del <Link> (en una capa encima) y no adentro: un botón dentro de un enlace es HTML inválido y su clic navegaría a la tienda.
+export function StoreCard({ vendor, topRightSlot = null }) {
   const color = vendor.color ?? colorFor(vendor.id);
   const location = vendor.locations?.[0];
   // Bloque 207 (pedido explícito): mismo patrón de íconos del banner grande
   // (Store.jsx), a menor densidad — esta tarjeta es mucho más chica.
 
-  return (
+  const card = (
     <Link to={`/tienda/${vendor.slug}`} className="group flex h-full flex-col overflow-hidden rounded-lg border border-surface-container-high bg-surface-container-lowest shadow-sm transition-shadow hover:shadow-md">
       <div className="relative h-[120px] w-full" style={{ background: color }}>
         <BannerIcons vendor={vendor} cell={46} minSize={14} maxSize={26} />
         <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-primary/10 to-transparent" />
         {vendor.isVerified && (
-          <div className="absolute right-3 top-3 flex items-center gap-1.5 rounded-full bg-white/95 py-1 pl-1.5 pr-2.5">
+          <div
+            className={`absolute top-3 flex items-center gap-1.5 rounded-full bg-white/95 py-1 pl-1.5 pr-2.5 ${
+              topRightSlot ? "left-3" : "right-3"
+            }`}
+          >
             <VerifiedBadge size="sm" />
             <span className="text-[10px] font-bold text-primary">VERIFICADA</span>
           </div>
@@ -127,11 +134,21 @@ export function StoreCard({ vendor }) {
           <div className="text-[11.5px] text-outline">
             {vendor._count?.products ?? 0} producto{vendor._count?.products === 1 ? "" : "s"}
             {" · "}
-            {vendor.category?.name ?? (vendor.isRestaurant ? "Restaurante" : "Tienda")}
+            {/* El rubro es businessCategory (el que elige la tienda al registrarse y en su perfil); Vendor.category ya no lo
+                llena nadie desde que se unificaron las categorías, por eso antes salía siempre "Tienda" o "Restaurante". */}
+            {vendor.businessCategory?.name ?? (vendor.isRestaurant ? "Restaurante" : "Tienda")}
             {vendor.isRestaurant && <UtensilsCrossed className="ml-1.5 inline h-3.5 w-3.5 align-text-bottom" />}
           </div>
         </div>
       </div>
     </Link>
+  );
+
+  if (!topRightSlot) return card;
+  return (
+    <div className="relative h-full">
+      {card}
+      <div className="absolute right-1 top-1 z-10">{topRightSlot}</div>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
-import { getAllPlanConfigs } from "./planConfig.js";
-import { getSubscriptionPricing } from "../controllers/settings.controller.js";
+import { getAllPlanConfigs, buildPlanIncludes, normalizeMonthDiscounts } from "./planConfig.js";
+import { planFeatureList } from "./planFeatures.js";
 
 // Datos de la plataforma que el asistente da a los clientes (planes, precios, límites). Salen SIEMPRE de la base de datos
 // en el momento de la pregunta, nunca de un texto fijo: si el admin cambia un plan o un precio, la respuesta cambia sola.
@@ -20,90 +20,123 @@ export const ASSISTANT_LINKS = {
   privacy: { label: "Política de privacidad", href: "/privacidad" },
   partnerApi: { label: "API para socios", href: "/api-socios" },
   partnerRequest: { label: "Solicitar acceso de socio", href: "/socios/solicitar" },
+  plans: { label: "Ver los planes", href: "/planes" },
 };
 
 const link = (key) => ASSISTANT_LINKS[key];
 
 const limit = (n, unit = "") => (n == null ? "Sin límite" : `${n}${unit ? ` ${unit}` : ""}`);
-const yesNo = (v) => (v ? "Sí" : "No");
 
-let cache = { at: 0, value: null };
-const TTL_MS = 30 * 1000;
-
-// Planes y precios vigentes. Caché de 30 s: lo bastante corta para que un cambio del admin se note casi al instante.
+// Planes públicos vigentes (los mismos que muestra /planes), en su orden. Sin caché propia: getAllPlanConfigs ya guarda 5 s y
+// se invalida al guardar un plan en el admin, así Nova cambia de respuesta en cuanto cambia el plan. Antes esto leía los precios
+// de SiteSettings (que ya no se editan en ninguna pantalla) y solo conocía dos planes, Regular y Business.
 export async function getPlansFacts() {
-  if (cache.value && Date.now() - cache.at < TTL_MS) return cache.value;
-  const [plans, pricing] = await Promise.all([getAllPlanConfigs(), getSubscriptionPricing()]);
-  const byType = Object.fromEntries(plans.map((p) => [p.planType, p]));
-  cache = { at: Date.now(), value: { regular: byType.REGULAR ?? null, business: byType.BUSINESS ?? null, pricing } };
-  return cache.value;
+  const plans = (await getAllPlanConfigs()).filter((p) => p.isPublic);
+  return { plans };
 }
 
-function businessPriceText(pricing) {
-  const parts = [];
-  if (pricing?.cupPricePerMonth != null) parts.push(`${Number(pricing.cupPricePerMonth).toLocaleString("es-CU")} CUP al mes`);
-  if (pricing?.cardPricePerMonthUsd != null) parts.push(`${Number(pricing.cardPricePerMonthUsd).toLocaleString("es-CU")} USD al mes con tarjeta`);
-  return parts.length ? parts.join(" o ") : "consulta el precio en tu panel";
-}
+// Mismo formato que la página de planes (fmt en PlansCatalog.jsx).
+const money = (n, currency) =>
+  `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: currency === "USD" ? 2 : 0, minimumFractionDigits: currency === "USD" && n % 1 ? 2 : 0 })} ${currency}`;
 
-// Texto compacto para el prompt del modelo cuando la pregunta toca planes (solo se envía en esos casos).
-export async function planFactsForPrompt() {
-  const { regular, business, pricing } = await getPlansFacts();
-  const line = (p, price) =>
-    p
-      ? `- ${p.displayName} (${price}): productos ${limit(p.maxProducts)}; provincias ${limit(p.maxProvinces)}; mesas QR ${p.allowQrTables ? limit(p.maxTables) : "no"}; usuarios de equipo ${p.allowStaffUsers ? limit(p.maxStaffUsers) : "no"}; pedidos en el panel sí, copia del pedido por WhatsApp ${yesNo(p.allowWhatsappOrders)}; destacada en la Home ${yesNo(p.featuredInHome)}; asistente de IA ${yesNo(p.allowAiChatbot)}; caja ${yesNo(p.allowPos)}; fidelidad ${yesNo(p.allowLoyalty)}; correos a clientes ${yesNo(p.allowCustomerEmails)}${p.features?.length ? `; beneficios: ${p.features.join(", ")}` : ""}.`
-      : null;
-  return [line(regular, "gratis"), line(business, businessPriceText(pricing))].filter(Boolean).join("\n");
-}
-
-// Respuesta lista para el chat (tabla en markdown) con los planes reales.
-export async function plansAnswer() {
-  const { regular, business, pricing } = await getPlansFacts();
-  if (!regular && !business) {
-    return { text: "Los planes se muestran al registrar tu tienda. Entra a tu panel de vendedor para verlos.", links: [link("registerVendor")] };
+// Precio de un plan tal como lo muestra la página de planes (PlansCatalog.jsx): "a la medida" si se contrata por WhatsApp,
+// gratis con el precio normal al lado si por ahora no se cobra, o el precio mensual en CUP y con tarjeta en USD.
+function priceText(p) {
+  if (p.contactOnly) return "precio a la medida, se contrata hablando con el equipo por WhatsApp";
+  if (p.isFree) {
+    const list = [p.listPriceCup > 0 && money(p.listPriceCup, "CUP"), p.listPriceUsd > 0 && money(p.listPriceUsd, "USD")].filter(Boolean);
+    return list.length ? `gratis por ahora (precio normal: ${list.join(" o ")} al mes)` : "gratis por ahora";
   }
-  const r = regular;
-  const b = business;
+  const parts = [];
+  if (Number(p.priceCup) > 0) parts.push(`${money(p.priceCup, "CUP")} al mes por transferencia`);
+  if (Number(p.priceUsd) > 0) parts.push(`${money(p.priceUsd, "USD")} al mes con tarjeta`);
+  return parts.length ? parts.join(" o ") : "consulta el precio en la página de planes";
+}
+
+// Descuentos por pagar varios meses juntos (PlanConfig.monthDiscounts), en texto. Vacío si el plan no tiene o no se cobra.
+function discountsText(p) {
+  if (p.isFree || p.contactOnly) return "";
+  return normalizeMonthDiscounts(p.monthDiscounts)
+    .map((d) => (d.cup === d.usd ? `${d.months} meses: ${d.cup} % menos` : `${d.months} meses: ${d.cup} % menos en CUP y ${d.usd} % con tarjeta`))
+    .join("; ");
+}
+
+const capitalize = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+
+// Texto compacto para el prompt del modelo cuando la pregunta toca planes (solo se envía en esos casos). Lo que incluye cada
+// plan sale de buildPlanIncludes, el mismo texto de la página de planes: nunca dicen cosas distintas.
+export async function planFactsForPrompt() {
+  const { plans } = await getPlansFacts();
+  if (plans.length === 0) return "- Los planes se muestran en la página de planes (/planes).";
+  return plans
+    .map((p) => {
+      const discounts = discountsText(p);
+      return `- Plan ${p.displayName}. Precio: ${priceText(p)}.${discounts ? ` Descuentos por pagar varios meses: ${discounts}.` : ""} Incluye: ${buildPlanIncludes(p).join("; ")}.`;
+    })
+    .join("\n");
+}
+
+// Respuesta lista para el chat (tabla en markdown) con todos los planes públicos, una columna por plan.
+// Las filas salen del catálogo de funciones (planFeatureList, el mismo de la página de planes): antes eran una lista fija
+// aquí y no mostraban las funciones nuevas ni las personalizadas que crea el admin. Un interruptor con tope (usuarios,
+// mesas, códigos, ofertas, correos) va en UNA fila con el nombre del interruptor y el valor del tope ("No" si está apagado).
+export async function plansAnswer() {
+  const { plans } = await getPlansFacts();
+  if (plans.length === 0) {
+    return { text: "Los planes se muestran al registrar tu tienda. Entra a tu panel de vendedor para verlos.", links: [link("plans"), link("registerVendor")] };
+  }
+  const cell = (fn) => plans.map(fn);
+  const lists = plans.map((p) => planFeatureList(p));
+  const labelOf = (key) => lists[0].find((f) => f.key === key)?.label ?? key;
+  // Valor de una función en un plan: tope ("Sin límite", el número o "No") o Sí/No.
+  const valueOf = (f) => (!f?.enabled ? "No" : f.kind === "limit" ? limit(f.limit) : "Sí");
+  const featureRows = lists[0]
+    .filter((f) => !f.pairedLimit)
+    .map((f) => [f.governedBy ? labelOf(f.governedBy) : f.label, ...lists.map((list) => valueOf(list.find((x) => x.key === f.key)))]);
   const rows = [
-    ["Precio", "Gratis", b ? businessPriceText(pricing) : "—"],
-    ["Productos publicados", limit(r?.maxProducts), limit(b?.maxProducts)],
-    ["Provincias donde vendes", limit(r?.maxProvinces), limit(b?.maxProvinces)],
-    ["Pedidos en tu panel", "Sí", b ? "Sí" : "—"],
-    ["Pedido también por WhatsApp", yesNo(r?.allowWhatsappOrders), yesNo(b?.allowWhatsappOrders)],
-    ["Mesas con QR (restaurantes)", r?.allowQrTables ? limit(r?.maxTables) : "No", b?.allowQrTables ? limit(b?.maxTables) : "No"],
-    ["Usuarios de equipo", r?.allowStaffUsers ? limit(r?.maxStaffUsers) : "No", b?.allowStaffUsers ? limit(b?.maxStaffUsers) : "No"],
-    ["Ofertas de tienda activas", r?.allowStoreOffers ? limit(r?.maxActiveStoreOffers) : "No", b?.allowStoreOffers ? limit(b?.maxActiveStoreOffers) : "No"],
-    ["Códigos de descuento", r?.allowDiscountCodes ? limit(r?.maxDiscountCodes) : "No", b?.allowDiscountCodes ? limit(b?.maxDiscountCodes) : "No"],
-    ["Asistente de IA en tu tienda", yesNo(r?.allowAiChatbot), yesNo(b?.allowAiChatbot)],
-    ["Caja con código de barras", yesNo(r?.allowPos), yesNo(b?.allowPos)],
-    ["Programa de fidelidad", yesNo(r?.allowLoyalty), yesNo(b?.allowLoyalty)],
-    ["Correos a tus clientes", yesNo(r?.allowCustomerEmails), yesNo(b?.allowCustomerEmails)],
-    ["Destacada en la Home y búsquedas", yesNo(r?.featuredInHome), yesNo(b?.featuredInHome)],
-    ["Insignia de tienda verificada", "No", "Sí, tras la verificación"],
+    ["Precio", ...cell((p) => capitalize(priceText(p)))],
+    ["Pedidos en tu panel", ...cell(() => "Sí")],
+    ...featureRows,
+    ["Insignia de tienda verificada", ...cell((p) => (p.grantsBadge ? "Sí, tras la verificación" : "No"))],
   ];
-  const table = [`| Característica | ${r?.displayName ?? "Regular"} | ${b?.displayName ?? "Business"} |`, "|---|---|---|", ...rows.map((row) => `| ${row.join(" | ")} |`)].join("\n");
-  const text = `Estos son los planes vigentes:\n\n${table}\n\nEmpiezas gratis y puedes pasar a ${b?.displayName ?? "Business"} cuando quieras desde tu panel.`;
-  return { text, links: [link("registerVendor"), link("faq")] };
+  const table = [`| Característica | ${plans.map((p) => p.displayName).join(" | ")} |`, `|---|${plans.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row.join(" | ")} |`)].join("\n");
+  const discountLines = plans.map((p) => [p.displayName, discountsText(p)]).filter(([, d]) => d);
+  const discounts = discountLines.length ? `\n\nDescuentos por pagar varios meses juntos:\n${discountLines.map(([name, d]) => `- ${name}: ${d}`).join("\n")}` : "";
+  // Toda tienda nueva entra en el plan por defecto (isDefault): solo se puede decir "empieza gratis" si ESE plan es gratis.
+  const start = plans.find((p) => p.isDefault && p.isFree);
+  const outro = start ? `Puedes empezar gratis con el plan ${start.displayName} y cambiar de plan cuando quieras desde tu panel.` : "Puedes cambiar de plan cuando quieras desde tu panel.";
+  const text = `Estos son los planes vigentes:\n\n${table}${discounts}\n\n${outro}`;
+  return { text, links: [link("plans"), link("registerVendor")] };
+}
+
+// Planes de pago con insignia (los que piden la verificación), con su precio. Ej.: "Estándar (…) o Premium (…)".
+function badgePlansText(plans, joiner = "o") {
+  const list = plans.filter((p) => p.grantsBadge && !p.contactOnly && !p.isFree).map((p) => `${p.displayName} (${priceText(p)})`);
+  if (list.length <= 1) return list[0] ?? "";
+  return `${list.slice(0, -1).join(", ")} ${joiner} ${list[list.length - 1]}`;
 }
 
 // Respuestas fijas de procedimiento. Los pasos describen el recorrido real de la plataforma; los datos que cambian (planes
 // y precios) se piden siempre a la base.
 export async function sellAnswer() {
-  const { business, pricing } = await getPlansFacts();
+  const { plans } = await getPlansFacts();
+  // El plan en el que se abre la tienda es el por defecto (isDefault); "gratis" solo si ese plan lo es.
+  const free = plans.find((p) => p.isDefault && p.isFree);
+  const badgePlans = badgePlansText(plans);
   const text = [
-    "Abrir tu tienda en Baznova es gratis:",
+    free ? `Abrir tu tienda en Baznova es gratis con el plan ${free.displayName}:` : "Así abres tu tienda en Baznova:",
     "",
     "1. Crea tu cuenta de vendedor.",
     "2. Confirma tu correo con el código que te enviamos.",
     "3. Completa los datos de tu tienda y publica tus productos.",
     "4. Recibe pedidos por WhatsApp o por tu panel.",
     "",
-    business ? `Cuando quieras más funciones y la insignia de verificada, pasa al ${business.displayName} (${businessPriceText(pricing)}).` : "",
+    badgePlans ? `Cuando quieras más funciones y la insignia de tienda verificada, pasa a ${badgePlans}.` : "",
   ]
     .filter((l, i, a) => !(l === "" && a[i - 1] === ""))
     .join("\n")
     .trim();
-  return { text, links: [link("registerVendor"), link("loginVendor")] };
+  return { text, links: [link("registerVendor"), link("plans")] };
 }
 
 export function buyAnswer() {
@@ -124,16 +157,18 @@ export function loginAnswer({ vendor }) {
 }
 
 export async function verificationAnswer() {
-  const { business, pricing } = await getPlansFacts();
+  const { plans } = await getPlansFacts();
+  const badgePlans = badgePlansText(plans, "y");
   const text = [
     "Así se verifica una tienda:",
     "",
     "1. Entra a tu panel de vendedor, sección Verificación.",
     "2. Sube tus documentos, una foto de tu rostro y un video corto.",
     "3. Nuestro equipo los revisa.",
-    `4. Si se aprueba, eliges los meses del ${business?.displayName ?? "plan Business"} (${businessPriceText(pricing)}) y envías el comprobante de pago.`,
+    "4. Si se aprueba, eliges el plan y los meses y envías el comprobante de pago.",
     "",
+    ...(badgePlans ? [`Los planes con insignia de tienda verificada son ${badgePlans}.`, ""] : []),
     "La insignia indica que revisamos la identidad del negocio; no es una garantía de calidad.",
   ].join("\n");
-  return { text, links: [link("loginVendor"), link("faq")] };
+  return { text, links: [link("loginVendor"), link("plans")] };
 }

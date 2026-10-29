@@ -82,7 +82,10 @@ export default function QuickSaleDetail() {
             {conditionLabel(listing.condition) && <span className="rounded-full bg-secondary-container/30 px-3 py-1 text-[11.5px] font-bold text-on-secondary-container">{conditionLabel(listing.condition)}</span>}
             {listing.quantity > 1 && <span className="rounded-full bg-surface-container px-3 py-1 text-[11.5px] font-bold text-on-surface-variant">{listing.quantity} disponibles</span>}
           </div>
-          <h1 className="mb-2 text-headline-md text-on-surface">{listing.name}</h1>
+          <h1 className="mb-2 text-headline-md text-on-surface">
+            {listing.name}
+            {listing.isSold && <span className="ml-2 inline-block rounded-full bg-on-surface px-2.5 py-0.5 align-middle text-[12px] font-bold text-surface">Vendido</span>}
+          </h1>
           <div className="mb-1 text-title-lg font-bold text-secondary">
             {formatPrice(listing.price, listing.currency)}
             {(listing.quantity > 1 || tiers.length > 0) && <span className="ml-1.5 text-[13px] font-semibold text-outline">por unidad</span>}
@@ -120,14 +123,25 @@ export default function QuickSaleDetail() {
           <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
             <div className="text-[12px] font-bold uppercase tracking-wide text-outline">Contacta a quien lo vende</div>
             <div className="mt-1 text-[15px] font-bold text-on-surface">{listing.owner?.name ?? "Cliente de " + siteName}</div>
+            {/* Vendido: el enlace compartido sigue abriendo la ficha, pero ya no se ofrece contactar para comprarlo. */}
+            {listing.isSold ? (
+              <>
+                <p className="mt-2 text-[13.5px] text-on-surface-variant">Este anuncio ya se vendió.</p>
+                <Link to="/ventas-rapidas" className="mt-3 inline-flex min-h-12 items-center justify-center rounded-xl border border-outline-variant px-5 text-label-md font-bold text-on-surface hover:bg-surface-container">
+                  Ver otros anuncios
+                </Link>
+              </>
+            ) : (
+            <>
             {listing.owner?.phone && <div className="mt-0.5 flex items-center gap-1.5 text-[14px] text-on-surface-variant"><Phone className="h-4 w-4" aria-hidden="true" /> {listing.owner.phone}</div>}
+            {listing.owner?.phone && (
             <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <a
                 href={waLink(listing.owner.phone, message)}
                 onClick={() => api.post(`/customer-listings/${listing.id}/contact-click`).catch(() => {})}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-95"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-whatsapp px-5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-95"
               >
                 <MessageCircle className="h-[18px] w-[18px]" />
                 Pedir por WhatsApp
@@ -137,6 +151,9 @@ export default function QuickSaleDetail() {
                 Llamar
               </a>
             </div>
+            )}
+            </>
+            )}
           </div>
 
           {/* Reportar: cualquier cuenta con sesión (el servidor no deja reportar lo propio). Botón discreto, a pedido del dueño. */}

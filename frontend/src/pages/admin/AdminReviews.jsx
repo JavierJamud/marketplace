@@ -253,7 +253,7 @@ export default function AdminReviews() {
     <div className="max-w-[860px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Star} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Comentarios</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Comentarios</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         Todos los comentarios y reseñas del sitio. Ocultar es reversible (deja de verse en la tienda y en el panel del vendedor, pero

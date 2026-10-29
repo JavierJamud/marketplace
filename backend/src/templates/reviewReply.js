@@ -13,8 +13,8 @@ export async function reviewReplyEmail({ customerName, responder, targetLabel, c
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola <strong>${esc(customerName)}</strong>, <strong>${esc(responder)}</strong> respondió a tu comentario sobre <strong>${esc(targetLabel)}</strong>.`)}
-      ${paragraph(`<span style="color:#74777c;font-size:12px;">Tu comentario</span><br/><em>“${esc(comment)}”</em>`)}
-      ${paragraph(`<span style="color:#74777c;font-size:12px;">Su respuesta</span><br/><strong>${esc(reply)}</strong>`)}
+      ${paragraph(`<span style="color:#5f6368;font-size:12px;">Tu comentario</span><br/><em>“${esc(comment)}”</em>`)}
+      ${paragraph(`<span style="color:#5f6368;font-size:12px;">Su respuesta</span><br/><strong>${esc(reply)}</strong>`)}
       ${ctaButton("Ver la respuesta", ctaUrl)}
       ${smallNote("Recibes este correo porque dejaste un comentario en " + esc(siteName) + ".")}
     `,

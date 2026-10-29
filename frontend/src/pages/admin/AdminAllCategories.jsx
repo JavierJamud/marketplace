@@ -22,7 +22,7 @@ export default function AdminAllCategories() {
     <div className="max-w-[820px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Tags} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Categorías</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
         El rubro de cada tienda y las categorías de sus productos. Una tienda puede vender productos de cualquier categoría, aunque no sean de su rubro.

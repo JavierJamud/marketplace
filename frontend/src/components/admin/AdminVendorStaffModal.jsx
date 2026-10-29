@@ -99,7 +99,7 @@ function EditStaffModal({ staff, onClose, onSaved, isRestaurant }) {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Editar usuario (admin)</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -154,7 +154,7 @@ function StaffHistoryModal({ staff, onClose }) {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-3 flex items-start justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">{staff.fullName}</h3>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">
@@ -340,7 +340,7 @@ export function AdminVendorStaffModal({ vendor, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-title-lg font-bold text-on-surface">Usuarios de "{vendor.companyName}"</h2>
           <button onClick={onClose} className="flex-shrink-0 rounded-full p-1.5 text-outline hover:bg-surface-container">

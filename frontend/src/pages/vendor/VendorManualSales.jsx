@@ -15,14 +15,51 @@ function imgUrl(path) {
   if (!path) return null;
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
+// Antes, sin moneda se ponía "CUP" por defecto y una venta de un producto en USD salía como CUP. Ahora la moneda se pasa
+// siempre que se conoce; si no se conoce, se muestra solo el número en vez de inventarla.
 function fmtMoney(amount, currency) {
-  return `${Number(amount ?? 0).toLocaleString("es-CU")} ${currency || "CUP"}`;
+  const n = Number(amount ?? 0).toLocaleString("es-CU");
+  return currency ? `${n} ${currency}` : n;
+}
+// Suma por moneda: nunca se juntan CUP y USD en un solo número. `currencyOf` devuelve null si no se sabe la moneda.
+function sumByCurrency(rows, amountOf, currencyOf) {
+  const totals = new Map();
+  for (const row of rows ?? []) {
+    const key = currencyOf(row) ?? "";
+    totals.set(key, (totals.get(key) ?? 0) + Number(amountOf(row) ?? 0));
+  }
+  return totals;
+}
+// Clave de moneda de un total. Un objeto que arma el servidor agrupando por una columna que puede ser null convierte esa
+// clave en el texto "null" (o "undefined"); sin esto, en pantalla saldría "1.200 null". Esas ventas van sin moneda.
+function currencyKey(cur) {
+  return cur && cur !== "null" && cur !== "undefined" ? cur : null;
+}
+// "1.200 CUP + 15 USD". Acepta un Map o un objeto { CUP: 1200, USD: 15 } (como lo mandaría el servidor).
+function fmtTotals(totals) {
+  const entries = totals instanceof Map ? [...totals] : Object.entries(totals ?? {});
+  const nonZero = entries.filter(([, v]) => Number(v) !== 0);
+  if (nonZero.length === 0) return fmtMoney(0, entries.length === 1 ? currencyKey(entries[0][0]) : null);
+  return nonZero.map(([cur, v]) => fmtMoney(v, currencyKey(cur))).join(" + ");
 }
 function fmtDate(iso) {
-  return iso ? new Date(iso).toLocaleString("es-CU") : "—";
+  return iso ? new Date(iso).toLocaleString("es-CU") : "sin fecha";
 }
 function fmtDateShort(iso) {
-  return iso ? new Date(iso).toLocaleDateString("es-CU") : "—";
+  return iso ? new Date(iso).toLocaleDateString("es-CU") : "sin fecha";
+}
+
+// Error de carga con Reintentar: antes un fallo caía en "Todavía no tienes productos asignados" o "Sin ventas", como si
+// no hubiera datos.
+function LoadError({ text, query }) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-error/30 bg-error/[0.06] p-4">
+      <p className="text-body-md text-on-surface">{text}</p>
+      <Button variant="outline" disabled={query.isFetching} onClick={() => query.refetch()}>
+        {query.isFetching ? "Cargando..." : "Reintentar"}
+      </Button>
+    </div>
+  );
 }
 
 const PERIOD_TABS = [
@@ -173,13 +210,13 @@ function AllocationRow({ allocation, canWrite }) {
 
       {saleError && (
         <div className="mt-3 rounded-md border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-3">
-          <p className="text-[12.5px] font-semibold text-on-surface">Solo te quedan {saleError.yourRemaining} — no alcanza para esa cantidad.</p>
+          <p className="text-[12.5px] font-semibold text-on-surface">Solo te quedan {saleError.yourRemaining}, no alcanza para esa cantidad.</p>
           {saleError.suggestedTeammates?.length > 0 ? (
             <div className="mt-2 flex flex-col gap-1.5">
               <p className="text-[11.5px] text-outline">Tus compañeros todavía tienen stock:</p>
               {saleError.suggestedTeammates.map((t, i) => (
                 <p key={i} className="text-[12px] text-on-surface-variant">
-                  <strong className="text-on-surface">{t.fullName}</strong> — {t.remainingQty} disponibles
+                  <strong className="text-on-surface">{t.fullName}</strong>: {t.remainingQty} disponibles
                   {t.phone ? ` · ${t.phone}` : " · sin teléfono registrado"}
                 </p>
               ))}
@@ -193,7 +230,9 @@ function AllocationRow({ allocation, canWrite }) {
   );
 }
 
-function MySaleRow({ sale }) {
+// `currency`: la de la venta, o la del producto si el servidor todavía no la manda (ver StaffSelfView).
+// `canWrite`: sin permiso de escritura no se ofrece "Devolver" (el aviso de solo lectura ya lo promete y el servidor lo rechaza).
+function MySaleRow({ sale, currency, canWrite }) {
   const [returning, setReturning] = useState(false);
   const [qty, setQty] = useState(sale.quantity);
   const [reason, setReason] = useState("");
@@ -231,16 +270,19 @@ function MySaleRow({ sale }) {
           </p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
-          <p className="text-[13px] font-bold text-on-surface">{fmtMoney(sale.total)}</p>
-          <button
-            onClick={() => setReturning((v) => !v)}
-            className="rounded-[7px] bg-surface-container px-2.5 py-1.5 text-[11px] font-bold text-on-surface-variant"
-          >
-            Devolver
-          </button>
+          <p className="text-[13px] font-bold text-on-surface">{fmtMoney(sale.total, currency)}</p>
+          {canWrite && (
+            <button
+              onClick={() => setReturning((v) => !v)}
+              aria-expanded={returning}
+              className="min-h-11 rounded-[7px] bg-surface-container px-3 text-[11.5px] font-bold text-on-surface-variant"
+            >
+              Devolver
+            </button>
+          )}
         </div>
       </div>
-      {returning && (
+      {canWrite && returning && (
         <div className="flex flex-wrap items-end gap-2 border-t border-surface-container bg-surface-container/40 p-3">
           <div className="w-24">
             <Input label="Cantidad" type="number" min={1} max={sale.quantity} value={qty} onChange={(e) => setQty(e.target.value)} />
@@ -305,7 +347,8 @@ function BatchSaleBuilder({ allocations, canWrite }) {
 
   const removeFromCart = (key) => setCart((c) => c.filter((i) => i.key !== key));
 
-  const total = cart.reduce((s, i) => s + i.quantity * Number(i.unitPrice ?? 0), 0);
+  // Por moneda: un lote con productos en CUP y en USD no se puede sumar en un solo número.
+  const totals = sumByCurrency(cart, (i) => i.quantity * Number(i.unitPrice ?? 0), (i) => i.currency ?? null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["staff-sales-my-allocations"] });
@@ -398,7 +441,7 @@ function BatchSaleBuilder({ allocations, canWrite }) {
                 ))}
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[13px] font-bold text-on-surface">Total del lote: {fmtMoney(total)}</p>
+                <p className="text-[13px] font-bold text-on-surface">Total del lote: {fmtTotals(totals)}</p>
                 <Button size="sm" disabled={submitBatch.isPending} onClick={() => submitBatch.mutate()}>
                   {submitBatch.isPending ? "Registrando..." : `Registrar ${cart.length} ${cart.length === 1 ? "venta" : "ventas"}`}
                 </Button>
@@ -409,14 +452,14 @@ function BatchSaleBuilder({ allocations, canWrite }) {
           {batchError && (
             <div className="mt-3 rounded-md border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-3">
               <p className="text-[12.5px] font-semibold text-on-surface">
-                {failedItem ? `${failedItem.productName}: solo` : "Solo"} te quedan {batchError.yourRemaining} — no alcanza para esa cantidad.
+                {failedItem ? `${failedItem.productName}: solo` : "Solo"} te quedan {batchError.yourRemaining}, no alcanza para esa cantidad.
               </p>
               {batchError.suggestedTeammates?.length > 0 ? (
                 <div className="mt-2 flex flex-col gap-1.5">
                   <p className="text-[11.5px] text-outline">Tus compañeros todavía tienen stock:</p>
                   {batchError.suggestedTeammates.map((t, i) => (
                     <p key={i} className="text-[12px] text-on-surface-variant">
-                      <strong className="text-on-surface">{t.fullName}</strong> — {t.remainingQty} disponibles
+                      <strong className="text-on-surface">{t.fullName}</strong>: {t.remainingQty} disponibles
                       {t.phone ? ` · ${t.phone}` : " · sin teléfono registrado"}
                     </p>
                   ))}
@@ -436,21 +479,33 @@ function StaffSelfView({ canWrite }) {
   const [salesPeriod, setSalesPeriod] = useState("today");
   const queryClient = useQueryClient();
 
-  const { data: allocations, isLoading: allocationsLoading } = useQuery({
+  const allocationsQuery = useQuery({
     queryKey: ["staff-sales-my-allocations"],
     queryFn: async () => (await api.get("/vendor-staff-sales/me/allocations")).data.allocations,
     refetchInterval: 8000,
   });
-  const { data: salesData, isLoading: salesLoading } = useQuery({
+  const { data: allocations, isLoading: allocationsLoading } = allocationsQuery;
+  const salesQuery = useQuery({
     queryKey: ["staff-sales-my-sales", salesPeriod],
     queryFn: async () => (await api.get("/vendor-staff-sales/me/sales", { params: { period: salesPeriod } })).data,
     refetchInterval: 8000,
   });
+  const { data: salesData, isLoading: salesLoading } = salesQuery;
+
+  // Moneda de cada venta: la que guarda la venta (sale.currency) si el servidor ya la manda; si no, la del producto
+  // asignado. Así "Mis ventas" y sus totales no salen en CUP cuando el producto es en USD.
+  const currencyByProduct = new Map((allocations ?? []).map((a) => [a.productId, a.product?.currency ?? null]));
+  const saleCurrency = (s) => s.currency ?? s.product?.currency ?? currencyByProduct.get(s.productId) ?? null;
+  const periodTotals = salesData?.totalsByCurrency ?? sumByCurrency(salesData?.sales, (s) => s.total, saleCurrency);
   const { data: cashClose } = useQuery({
     queryKey: ["staff-sales-my-cash-close"],
     queryFn: async () => (await api.get("/vendor-staff-sales/me/cash-close")).data,
     refetchInterval: 8000,
   });
+  // Cuadre de caja: el servidor da un solo total. Si todavía no lo separa por moneda (totalsByCurrency), va el número sin
+  // moneda. No se saca de los productos asignados: esa lista solo trae los que aún tienen unidades, así que un producto en
+  // USD vendido entero ya no está y el total (que sí incluye esas ventas) saldría como CUP.
+  const cashCloseTotal = cashClose?.totalsByCurrency ? fmtTotals(cashClose.totalsByCurrency) : fmtMoney(cashClose?.totalSales, null);
 
   const reportCash = useMutation({
     // Sin conexión también se ejecuta: la cola guarda la operación (lib/offlineQueue.js).
@@ -468,7 +523,7 @@ function StaffSelfView({ canWrite }) {
     <div className="flex flex-col gap-6">
       {!canWrite && (
         <p className="rounded-lg border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-[14px] text-[12.5px] font-semibold text-tertiary-accent">
-          Tienes acceso de solo lectura a Productos Asignados — puedes ver tus productos y ventas, pero no vender, devolver ni registrar nada. Pídele a tu
+          Tienes acceso de solo lectura a Productos Asignados: puedes ver tus productos y ventas, pero no vender, devolver ni registrar nada. Pídele a tu
           administrador que te dé permiso de escritura si necesitas hacerlo.
         </p>
       )}
@@ -486,7 +541,7 @@ function StaffSelfView({ canWrite }) {
             <div>
               <p className="text-[15px] font-bold text-on-surface">Cuadre de caja</p>
               <p className="text-[12px] text-outline">
-                Período: {fmtDateShort(cashClose.periodStart)} – {fmtDateShort(cashClose.periodEnd)} · Total vendido: {fmtMoney(cashClose.totalSales)}
+                Período: {fmtDateShort(cashClose.periodStart)} – {fmtDateShort(cashClose.periodEnd)} · Total vendido: {cashCloseTotal}
               </p>
             </div>
             {cashClose.reported ? (
@@ -510,7 +565,7 @@ function StaffSelfView({ canWrite }) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-[15px] font-bold text-on-surface">Mis ventas</h2>
-            <p className="text-[11.5px] text-outline">Total del período: {fmtMoney(salesData?.total)}</p>
+            <p className="text-[11.5px] text-outline">Total del período: {fmtTotals(periodTotals)}</p>
           </div>
           <div className="flex gap-1.5">
             {PERIOD_TABS.map((t) => (
@@ -528,11 +583,13 @@ function StaffSelfView({ canWrite }) {
         </div>
         {salesLoading ? (
           <ListSkeleton />
+        ) : salesQuery.isError && !salesData ? (
+          <LoadError text="No se pudieron cargar tus ventas." query={salesQuery} />
         ) : (
           <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)]">
             {(salesData?.sales ?? []).length === 0 && <p className="p-4 text-body-md text-on-surface-variant">Sin ventas en este período.</p>}
             {(salesData?.sales ?? []).map((s) => (
-              <MySaleRow key={s.id} sale={s} />
+              <MySaleRow key={s.id} sale={s} currency={saleCurrency(s)} canWrite={canWrite} />
             ))}
           </div>
         )}
@@ -540,9 +597,13 @@ function StaffSelfView({ canWrite }) {
 
       <div>
         <h2 className="mb-1 text-[15px] font-bold text-on-surface">Detalle por producto</h2>
-        <p className="mb-3 text-[11.5px] text-outline">Los productos que tu tienda te asignó — vende o libera cada uno desde aquí.</p>
+        <p className="mb-3 text-[11.5px] text-outline">
+          {canWrite ? "Los productos que tu tienda te asignó. Vende o libera cada uno desde aquí." : "Los productos que tu tienda te asignó."}
+        </p>
         {allocationsLoading ? (
           <ListSkeleton rows={3} />
+        ) : allocationsQuery.isError && !allocations ? (
+          <LoadError text="No se pudieron cargar tus productos asignados." query={allocationsQuery} />
         ) : (
           <div className="flex flex-col gap-2">
             {(allocations ?? []).length === 0 && <p className="text-body-md text-on-surface-variant">Todavía no tienes productos asignados.</p>}
@@ -572,9 +633,9 @@ export default function VendorManualSales() {
       <div className="mb-5">
         <div className="mb-1 flex items-center gap-3">
           <IconCircle icon={Wallet} tone="teal" />
-          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Productos Asignados</h1>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Productos Asignados</h1>
         </div>
-        <p className="text-[13.5px] text-outline">Los productos que tu tienda te asignó — registrá tus ventas, devoluciones y tu cuadre de caja.</p>
+        <p className="text-[13.5px] text-outline">Los productos que tu tienda te asignó. Registra tus ventas, devoluciones y tu cuadre de caja.</p>
       </div>
       <StaffSelfView canWrite={canWrite} />
     </div>

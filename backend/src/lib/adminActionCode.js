@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma.js";
 import { sendAdminDirectEmail } from "./email.js";
+import { esc } from "../templates/_shared.js";
 import { AppError } from "../utils/AppError.js";
 import { CODE_TTL_MINUTES, CODE_TTL_MS } from "./codeTtl.js";
 import { consumeTotpCode } from "../controllers/twoFactorApp.controller.js";
@@ -34,6 +35,8 @@ export const ACTION_LABELS = {
   DELETE_CUSTOMER: "eliminar un cliente",
   // Reglas y configuración de la plataforma
   PLAN_CONFIG_CHANGE: "cambiar la configuración de los planes",
+  // Archivar un plan mueve todas sus tiendas a otro plan en bloque: va aparte para no heredar la gracia de una edición de precio.
+  PLAN_ARCHIVE: "archivar un plan y mover sus tiendas a otro",
   PLATFORM_SETTINGS: "cambiar una regla de la plataforma",
   CATALOG_DELETE: "eliminar un país, provincia, municipio o categoría",
   CHANGE_INTEGRATION_KEY: "cambiar una integración o su clave",
@@ -43,6 +46,8 @@ export const ACTION_LABELS = {
   ADMIN_PASSWORD_CHANGE: "cambiar tu contraseña",
   ADMIN_EMAIL_CHANGE: "cambiar el correo de tu cuenta",
   PLATFORM_BRANDING: "cambiar los datos de la plataforma (nombre, redes, soporte o zona horaria)",
+  // Campañas y ofertas dirigidas: un correo a miles de personas no se puede deshacer, por eso pide código.
+  MASS_EMAIL: "enviar un correo masivo (campaña u oferta dirigida)",
   // Bloque 303: credenciales y acceso de los socios de la API (aprobar solicitudes, regenerar o revocar llaves).
   PARTNER_MANAGE: "gestionar la credencial o el acceso de un socio de la API",
 };
@@ -58,7 +63,8 @@ const MAX_ATTEMPTS = 5;
 // Quedan fuera las que protegen el acceso a la propia cuenta: siempre piden código nuevo.
 const GRACE_MS = 30 * 60 * 1000;
 // Bloque 303: la credencial de un socio también pide código nuevo cada vez (regenerar o aprobar no se encadenan).
-const NO_GRACE = new Set(["ADMIN_PASSWORD_CHANGE", "ADMIN_EMAIL_CHANGE", "DISABLE_ADMIN_2FA", "PARTNER_MANAGE"]);
+// Archivar un plan tampoco se encadena: cada archivo mueve tiendas de plan y se confirma por separado.
+const NO_GRACE = new Set(["ADMIN_PASSWORD_CHANGE", "ADMIN_EMAIL_CHANGE", "DISABLE_ADMIN_2FA", "PARTNER_MANAGE", "PLAN_ARCHIVE"]);
 async function inGrace(userId, action) {
   if (NO_GRACE.has(action)) return false;
   const recent = await prisma.adminActionCode.findFirst({ where: { userId, action, usedAt: { gte: new Date(Date.now() - GRACE_MS) } }, select: { id: true } });
@@ -95,8 +101,9 @@ export async function sendActionCode(user, action, target = null) {
     // Saludo neutro: el nombre del admin es privado y nunca va en correos.
     recipientName: "Administrador",
     subject: `Código de confirmación: ${ACTION_LABELS[action]}${target ? ` (${target})` : ""}`,
+    // El mensaje del correo admite HTML: el objetivo (nombre de una tienda o de una persona) se escapa. El asunto lo escapa emailShell.
     message:
-      `Tu código para confirmar la acción "${ACTION_LABELS[action]}"${target ? ` sobre ${target}` : ""} es:\n\n${code}\n\n` +
+      `Tu código para confirmar la acción "${ACTION_LABELS[action]}"${target ? ` sobre ${esc(target)}` : ""} es:\n\n${code}\n\n` +
       `Vence en ${CODE_TTL_MINUTES} minutos y sirve una sola vez. Si no fuiste tú, ignora este mensaje y cambia tu contraseña.`,
   });
   if (!result?.ok) {

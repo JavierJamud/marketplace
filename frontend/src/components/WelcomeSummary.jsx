@@ -46,10 +46,10 @@ export function WelcomeHeading({ name, subtitle, className = "" }) {
   const timeZone = useTimezone();
   return (
     <div className={className}>
-      <h1 className="mb-1 font-display text-[28px] font-extrabold tracking-tight text-on-surface">
+      <h1 className="mb-1 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[28px]">
         {greetingFor(now, timeZone)}, <span className="font-medium text-on-surface-variant">{name}</span>
       </h1>
-      <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13.5px] text-outline">
+      <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-outline sm:text-[13.5px]">
         <span className="inline-flex items-center gap-1.5">
           <CalendarDays className="h-4 w-4" aria-hidden="true" />
           {formatDate(now, timeZone)}
@@ -75,12 +75,12 @@ function Delta({ stat }) {
   if (stat.previous == null) return null;
   const diff = stat.value - stat.previous;
   if (diff === 0) return <span className="text-outline">Igual que la semana pasada</span>;
-  if (stat.previous === 0) return <span className="font-semibold text-[#087A38]">Nuevo esta semana</span>;
+  if (stat.previous === 0) return <span className="font-semibold text-verified-dark">Nuevo esta semana</span>;
   const pct = Math.round((diff / stat.previous) * 100);
   const up = diff > 0;
   const Icon = up ? TrendingUp : TrendingDown;
   return (
-    <span className={`inline-flex items-center gap-1 font-semibold ${up ? "text-[#087A38]" : "text-error"}`}>
+    <span className={`inline-flex items-center gap-1 font-semibold ${up ? "text-verified-dark" : "text-error"}`}>
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
       {up ? "+" : ""}
       {pct}% vs. semana pasada

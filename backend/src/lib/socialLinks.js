@@ -47,7 +47,15 @@ function normalizeUrl(key, raw) {
     throw new AppError(`El enlace de ${net.label} tiene que ser de ${net.hosts[0]}.`, 400);
   }
   if (key === "whatsapp") {
-    // wa.me/<número> o api.whatsapp.com/send?phone=<número>: se deja siempre como wa.me/<número>.
+    // wa.me/<número> o api.whatsapp.com/send?phone=<número>: se deja siempre como wa.me/<número>. Los enlaces cortos de
+    // WhatsApp Business (wa.me/message/<código>, wa.me/qr/<código>) se guardan tal cual: antes se les sacaban las cifras
+    // del código y quedaba un número que no era de nadie.
+    if (host === "wa.me" && /^\/(message|qr)\/[A-Za-z0-9]{1,100}\/?$/i.test(url.pathname)) {
+      return `https://wa.me${url.pathname.replace(/\/$/, "")}`;
+    }
+    if (host === "wa.me" && !/^\/\+?[\d.-]{7,20}\/?$/.test(url.pathname)) {
+      throw new AppError("El enlace de WhatsApp tiene que llevar el número (por ejemplo wa.me/5351234567).", 400);
+    }
     const phone = host === "wa.me" ? url.pathname.replace(/\D/g, "") : (url.searchParams.get("phone") ?? "").replace(/\D/g, "");
     if (phone.length < 7) throw new AppError("El enlace de WhatsApp tiene que llevar el número (por ejemplo wa.me/5351234567).", 400);
     return `https://wa.me/${phone}`;

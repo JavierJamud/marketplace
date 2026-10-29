@@ -84,13 +84,11 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
     >
       <div
-        className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl"
-        style={{ animation: "modal-pop 0.18s ease-out" }}
+        className="modal-panel-6 relative w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl motion-safe:animate-modal-pop"
       >
         <button onClick={onClose} className="absolute right-4 top-4 rounded-full p-1.5 text-outline hover:bg-surface-variant hover:text-on-surface">
           <X className="h-4 w-4" />
@@ -162,12 +160,6 @@ export function ReportFraudModal({ open, onClose, targetField, targetId, targetL
         </div>
       </div>
 
-      <style>{`
-        @keyframes modal-pop {
-          from { opacity: 0; transform: scale(0.94) translateY(8px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { Tabs } from "../../components/ui/Tabs.jsx";
 import AdminBranding from "./AdminBranding.jsx";
 import AdminSecurity from "./AdminSecurity.jsx";
 import AdminIntegrations from "./AdminIntegrations.jsx";
-import { PlanConfigTab, CupPaymentSettingsCard } from "./AdminSubscriptions.jsx";
+import { PlanConfigTab, CupPaymentSettingsCard, TrialSettingsCard } from "./AdminSubscriptions.jsx";
 import { ListingPolicyCard } from "./AdminOffers.jsx";
 import { ReviewPolicyCard } from "./AdminReviews.jsx";
 import { ProductImageLinksPanel } from "./AdminLocations.jsx";
@@ -35,7 +35,7 @@ export default function AdminSettings() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Settings} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Configuración</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Configuración</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">Todos los ajustes de la plataforma en un solo lugar.</p>
 
@@ -62,9 +62,12 @@ export default function AdminSettings() {
         </div>
       )}
       {tab === "planes" && (
-        <div className="max-w-[820px]">
+        // La rejilla de planes (4 columnas en escritorio) necesita más ancho que los formularios: en 820px las tarjetas
+        // quedaban de 193px. El formulario del cobro en CUP sigue en el ancho de lectura de las demás pestañas.
+        <div className="max-w-[1280px]">
           <PlanConfigTab />
-          <div className="mt-6">
+          <div className="mt-6 max-w-[820px] space-y-6">
+            <TrialSettingsCard />
             <CupPaymentSettingsCard />
           </div>
         </div>

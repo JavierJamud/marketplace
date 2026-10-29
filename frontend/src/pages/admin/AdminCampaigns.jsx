@@ -11,12 +11,39 @@ import { Button } from "../../components/ui/Button.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 
-const SEGMENTS = [
-  { id: "all_customers", label: "Todos los clientes" },
-  { id: "all_vendors", label: "Todos los vendedores" },
-  { id: "regular_vendors", label: "Tiendas en el plan Básico" },
-  { id: "business_vendors", label: "Tiendas con plan de pago" },
-];
+// Los ids no cambian porque las campañas guardadas los usan: "regular_vendors" = tiendas del plan por defecto (bandera
+// isDefault, ya no la clave REGULAR) y "business_vendors" = tiendas en cualquier plan de pago. El nombre del plan por
+// defecto sale de la base (/settings), nunca escrito aquí.
+function defaultPlanOf(siteSettings) {
+  return siteSettings?.plans?.find((p) => p.isDefault && !p.archivedAt) ?? null;
+}
+
+// Además de los cuatro públicos de siempre, uno por cada plan no archivado (su clave, ej. "PLAN_RESTAURANTE"), que el
+// servidor ya acepta (lib/planSegments.js). El plan por defecto no se repite: ya está en "regular_vendors". `extra` es el
+// público guardado de una campaña que ya no está entre las opciones (un plan archivado después): sin esa opción el select
+// mostraría la primera y, al guardar, se cambiaría el público sin avisar.
+function campaignSegments(siteSettings, extra = null) {
+  const defaultName = defaultPlanOf(siteSettings)?.displayName;
+  const planOptions = [...(siteSettings?.plans ?? [])]
+    .filter((p) => !p.archivedAt && !p.isDefault)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((p) => ({ id: p.planType, label: `Tiendas del plan ${p.displayName}${p.isPublic === false ? " (oculto)" : ""}` }));
+  const list = [
+    { id: "all_customers", label: "Todos los clientes" },
+    { id: "all_vendors", label: "Todos los vendedores" },
+    { id: "regular_vendors", label: defaultName ? `Tiendas del plan ${defaultName}` : "Tiendas del plan por defecto" },
+    { id: "business_vendors", label: "Tiendas con plan de pago" },
+    ...planOptions,
+  ];
+  if (extra?.id && !list.some((s) => s.id === extra.id)) list.push({ id: extra.id, label: extra.label ?? extra.id });
+  return list;
+}
+
+// Etiqueta de un público: la del servidor (segmentLabel, con el nombre del plan de la base, también de uno archivado) y,
+// si no viene, la de las opciones; la clave cruda solo como último recurso.
+function segmentLabelOf(campaign, segments) {
+  return campaign?.segmentLabel ?? segments.find((s) => s.id === campaign?.segment)?.label ?? campaign?.segment ?? "";
+}
 
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
@@ -54,6 +81,7 @@ function CampaignFieldset({
   setCtaUrl,
   provinces,
   siteSettings,
+  savedSegment = null,
 }) {
   return (
     <div className="flex flex-col gap-3.5">
@@ -74,7 +102,7 @@ function CampaignFieldset({
             onChange={(e) => setSegment(e.target.value)}
             className="h-11 w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 text-[14px] outline-none"
           >
-            {SEGMENTS.map((s) => (
+            {campaignSegments(siteSettings, savedSegment).map((s) => (
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
@@ -236,7 +264,7 @@ function CampaignEditModal({ campaign, provinces, siteSettings, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-2xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Editar campaña</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -265,6 +293,7 @@ function CampaignEditModal({ campaign, provinces, siteSettings, onClose }) {
           setCtaUrl={setCtaUrl}
           provinces={provinces}
           siteSettings={siteSettings}
+          savedSegment={{ id: campaign.segment, label: campaign.segmentLabel }}
         />
 
         <div className="mt-5 flex gap-2.5">
@@ -308,45 +337,28 @@ export default function AdminCampaigns() {
     queryKey: ["locations-provinces"],
     queryFn: async () => (await api.get("/locations/provinces")).data.provinces,
   });
-  // Bloque 242: GET /admin/customers ahora pagina — acá solo hace falta
-  // CUÁNTOS destinatarios tendría la campaña, así que se pide una página de 1
-  // fila y se lee el `total` (antes se bajaba la lista completa de clientes
-  // al navegador solo para contarla). "active" = cuenta no suspendida.
-  const { data: customerCount } = useQuery({
-    queryKey: ["admin-list-customer-count", provinceId],
-    queryFn: async () =>
-      (await api.get("/admin/customers", { params: { status: "active", provinceId: provinceId || undefined, pageSize: 1 } })).data.total,
-    enabled: segment === "all_customers",
-  });
-  // Bloque 243: igual que arriba — GET /admin/vendors pagina, y para estimar
-  // destinatarios alcanza con el `total` de una página de 1 fila filtrada por
-  // plan y provincia (la lista ya excluye tiendas bloqueadas y suspendidas).
-  const { data: vendorCount } = useQuery({
-    queryKey: ["admin-list-vendor-count", segment, provinceId],
-    queryFn: async () =>
-      (
-        await api.get("/admin/vendors", {
-          params: {
-            plan: segment === "regular_vendors" ? "REGULAR" : segment === "business_vendors" ? "PAID" : undefined,
-            provinceId: provinceId || undefined,
-            pageSize: 1,
-          },
-        })
-      ).data.total,
-    enabled: segment !== "all_customers",
-  });
-  const { data: history } = useQuery({
-    queryKey: ["admin-campaigns"],
-    queryFn: async () => (await api.get("/admin/campaigns")).data.campaigns,
+  // Destinatarios: el servidor cuenta con el mismo criterio que el envío real (sin bajas de promociones ni cuentas que se
+  // están borrando). Antes se estimaba con el total de /admin/customers y /admin/vendors, que no coincidía con el envío.
+  const {
+    data: estimate,
+    isLoading: estimateLoading,
+    isError: estimateError,
+  } = useQuery({
+    queryKey: ["admin-campaign-estimate", segment, provinceId],
+    queryFn: async () => (await api.get("/admin/campaigns/estimate", { params: { segment, provinceId: provinceId || undefined } })).data,
   });
   const { data: siteSettings } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
+  const segments = campaignSegments(siteSettings);
+  const { data: history } = useQuery({
+    queryKey: ["admin-campaigns"],
+    queryFn: async () => (await api.get("/admin/campaigns")).data.campaigns,
+  });
 
   const provinceName = useMemo(() => Object.fromEntries((provinces ?? []).map((p) => [p.id, p.name])), [provinces]);
 
-  const recipientEstimate = segment === "all_customers" ? customerCount ?? 0 : vendorCount ?? 0;
 
   const ctaMismatch = !!ctaLabel !== !!ctaUrl;
 
@@ -363,7 +375,10 @@ export default function AdminCampaigns() {
       if (ctaUrl.trim()) form.append("ctaUrl", ctaUrl.trim());
       return (await api.post("/admin/campaigns", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Envío a medias (algún lote rechazado por Resend): la campaña queda enviada con los que sí salieron y se avisa
+      // cuántos faltaron, para no reenviarla entera y duplicársela a quien ya la recibió.
+      if (data?.warning) toast.error(data.warning);
       queryClient.invalidateQueries({ queryKey: ["admin-campaigns"] });
       setJustSent(true);
       setSubject("");
@@ -379,8 +394,9 @@ export default function AdminCampaigns() {
 
   const resend = useMutation({
     mutationFn: async (id) => (await api.post(`/admin/campaigns/${id}/resend`)).data,
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success("Campaña reenviada.");
+      if (data?.warning) toast.error(data.warning);
       queryClient.invalidateQueries({ queryKey: ["admin-campaigns"] });
       setConfirmTarget(null);
     },
@@ -407,7 +423,7 @@ export default function AdminCampaigns() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Megaphone} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Campañas</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Campañas</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">Envía correos masivos (Resend) a clientes o vendedores segmentados.</p>
 
@@ -438,7 +454,20 @@ export default function AdminCampaigns() {
           />
           <div className="mt-3.5 flex items-center justify-between pt-1.5">
             <span className="text-[12.5px] text-outline">
-              Destinatarios estimados: <strong className="text-on-surface">{recipientEstimate.toLocaleString("es-CU")}</strong>
+              {estimateLoading ? (
+                "Calculando destinatarios..."
+              ) : estimateError ? (
+                <span className="text-error">No se pudo calcular a cuántos les llega.</span>
+              ) : (
+                <>
+                  Destinatarios estimados: <strong className="text-on-surface">{(estimate?.recipients ?? 0).toLocaleString("es-CU")}</strong>
+                  {estimate?.optedOut > 0 && (
+                    <span className="block">
+                      {estimate.optedOut.toLocaleString("es-CU")} {estimate.optedOut === 1 ? "se dio de baja" : "se dieron de baja"} de los correos de promoción y no lo {estimate.optedOut === 1 ? "recibirá" : "recibirán"}.
+                    </span>
+                  )}
+                </>
+              )}
             </span>
             <button
               onClick={() => send.mutate()}
@@ -460,7 +489,7 @@ export default function AdminCampaigns() {
           <div className="flex flex-col gap-3">
             {!history?.length && <p className="text-label-sm text-outline">Todavía no se envió ninguna campaña.</p>}
             {history?.map((h) => {
-              const segLabel = SEGMENTS.find((s) => s.id === h.segment)?.label ?? h.segment;
+              const segLabel = segmentLabelOf(h, segments);
               const pct = h.sentCount > 0 && h.openCount > 0 ? Math.round((h.openCount / h.sentCount) * 100) : null;
               return (
                 <div key={h.id} className="rounded-[10px] border border-surface-container-high p-3.5">
@@ -525,7 +554,7 @@ export default function AdminCampaigns() {
         message={
           confirmTarget?.type === "delete"
             ? "Se quita del historial. Esto no afecta los correos que ya llegaron a las bandejas de entrada."
-            : `Se manda de nuevo, ahora mismo, a los destinatarios vigentes del segmento "${SEGMENTS.find((s) => s.id === confirmTarget?.campaign?.segment)?.label ?? ""}". Queda como un envío nuevo en el historial.`
+            : `Se manda de nuevo, ahora mismo, a los destinatarios vigentes del segmento "${segmentLabelOf(confirmTarget?.campaign, segments)}". Queda como un envío nuevo en el historial.`
         }
         confirmLabel={
           confirmTarget?.type === "delete"

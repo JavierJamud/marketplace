@@ -7,11 +7,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { emailField } from "../utils/emailField.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { logActivity } from "../lib/activityLog.js";
 import { sendVendorStaffInviteEmail } from "../lib/email.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 import { assertPlanAllows, getPlanLimit } from "../lib/planConfig.js";
+import { plansOffering, plansSentence } from "../lib/planUpsell.js";
 import { deleteUploadedImages } from "../lib/uploadFiles.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -60,7 +62,7 @@ const sectionPermissionsSchema = z
   .pipe(z.record(z.enum(VENDOR_SECTION_KEYS), z.enum(["view", "manage"])));
 
 const createStaffSchema = z.object({
-  email: z.string().email("Ingresa un correo electrónico válido."),
+  email: emailField(),
   fullName: z.string().trim().min(2, "Ingresa el nombre del usuario."),
   // Bloque 198 (pedido explícito — "ventas manuales"): opcional — solo hace
   // falta si el vendedor le va a dar acceso a esa sección, pero se pide
@@ -105,6 +107,23 @@ const createStaffSchema = z.object({
   sectionPermissions: sectionPermissionsSchema,
 });
 
+// Tope de usuarios del plan (maxStaffUsers). Cuenta solo los activos: desactivar a alguien (no se borra, para conservar su
+// historial de ventas y actividad) libera su cupo. Antes contaba también a los desactivados, así que al llegar al tope el
+// dueño no podía reemplazar a un empleado que se fue. Lo usan el alta y la reactivación.
+async function assertStaffSlotFree(vendor) {
+  const maxStaffUsers = await getPlanLimit(vendor, "maxStaffUsers");
+  if (maxStaffUsers === null) return;
+  const activeCount = await prisma.vendorStaff.count({ where: { vendorId: vendor.id, isActive: true } });
+  if (activeCount < maxStaffUsers) return;
+  // Los planes con más usuarios salen de la base (planUpsell.js), nunca de una lista escrita aquí.
+  const more = plansSentence(await plansOffering("allowStaffUsers", { limitKey: "maxStaffUsers", above: maxStaffUsers }), {
+    one: "Para tener más, cámbiate al plan",
+    many: "Para tener más, cámbiate a uno de estos planes:",
+  });
+  const lead = `Tu plan permite hasta ${maxStaffUsers} ${maxStaffUsers === 1 ? "usuario activo" : "usuarios activos"} del equipo. Desactiva a uno para liberar su lugar.`;
+  throw new AppError([lead, more].filter(Boolean).join(" "), 403, { planRequired: "maxStaffUsers" });
+}
+
 // Bloque 187: pruneSectionPermissions ahora vive en
 // constants/vendorSections.js (compartida con admin.controller.js, que
 // necesita el mismo recorte al editar un usuario ajeno).
@@ -123,13 +142,7 @@ export async function createMyStaff(req, res) {
   // podemos permitir o no... y todo por el estilo" aplicado a personal):
   // antes cualquier tienda podía crear usuarios de sistema sin límite.
   await assertPlanAllows(vendor, "allowStaffUsers", "Tu plan actual no incluye personal de tienda.");
-  const maxStaffUsers = await getPlanLimit(vendor, "maxStaffUsers");
-  if (maxStaffUsers !== null) {
-    const currentCount = await prisma.vendorStaff.count({ where: { vendorId: vendor.id } });
-    if (currentCount >= maxStaffUsers) {
-      throw new AppError(`Tu plan permite hasta ${maxStaffUsers} usuario(s) de sistema.`, 403);
-    }
-  }
+  await assertStaffSlotFree(vendor);
   const data = createStaffSchema.parse(req.body);
   const email = data.email.trim().toLowerCase();
 
@@ -205,7 +218,7 @@ async function findMyStaffOr404(vendorId, staffId) {
 
 const updateStaffSchema = z.object({
   fullName: z.string().trim().min(2).optional(),
-  email: z.string().email().optional(),
+  email: emailField().optional(),
   phone: z.string().trim().nullable().optional(),
   // Bloque 200: ya NO exige mínimo 1 — mismo criterio que createStaffSchema.
   allowedSections: z.array(z.enum(VENDOR_SECTION_KEYS)).optional(),
@@ -232,6 +245,8 @@ export async function updateMyStaff(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
   const staff = await findMyStaffOr404(vendor.id, req.params.id);
   const data = updateStaffSchema.parse(req.body);
+  // Reactivar a alguien vuelve a ocupar un lugar del plan: mismo tope que el alta.
+  if (data.isActive === true && !staff.isActive) await assertStaffSlotFree(vendor);
 
   let emailChanged = false;
   if (data.email) {
@@ -344,7 +359,7 @@ export async function resetMyStaffPassword(req, res) {
     actorRole: "VENDOR",
     vendorId: vendor.id,
     action: "vendor_staff_password_reset",
-    description: `Restableció la contraseña de "${staff.user.fullName}" (${staff.user.email}) — deberá crear una nueva al entrar.`,
+    description: `Restableció la contraseña de "${staff.user.fullName}" (${staff.user.email}). Deberá crear una nueva al entrar.`,
     meta: { staffUserId: staff.userId },
   });
 

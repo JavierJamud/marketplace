@@ -26,7 +26,7 @@ export function AutoClosedOrderHelp({ code, store, className = "" }) {
               href={waLink(digits, message)}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex min-h-11 items-center gap-2 rounded-xl bg-[#25D366] px-4 text-[13.5px] font-bold text-primary hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-whatsapp px-4 text-[13.5px] font-bold text-primary hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
             >
               <MessageCircle className="h-4 w-4" aria-hidden="true" /> Escribir por WhatsApp
             </a>

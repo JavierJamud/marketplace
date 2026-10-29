@@ -8,6 +8,7 @@ import { z } from "zod";
 import { plansForPartner } from "./partnerOrders.controller.js";
 import { revealKeyValue } from "./partners.controller.js";
 import { logActivity } from "../lib/activityLog.js";
+import { PLAN_KEY_PATTERN } from "../lib/planConfig.js";
 
 // Panel del socio (/partner-portal). El socio ve sus métricas, su credencial completa (siempre visible), sus cuotas y
 // movimientos, y fija el precio final de sus planes. NO puede crear, regenerar ni cambiar la credencial: eso solo lo hace
@@ -71,7 +72,10 @@ const planPriceBody = z.object({
 
 export async function setPortalPlanPrice(req, res) {
   const partner = await myPartner(req);
-  const planType = z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE"]).parse(req.params.planType);
+  // La clave del plan no es una lista fija: el admin crea y archiva planes. Se valida el formato aquí y la existencia con
+  // plansForPartner, que solo trae los planes vigentes (no archivados): un plan archivado responde 404, igual que uno que no
+  // existe, y así nunca llega a la base una clave que la clave foránea rechazaría.
+  const planType = z.string().regex(PLAN_KEY_PATTERN, "Plan no encontrado.").parse(req.params.planType);
   const { finalCup, finalUsd } = planPriceBody.parse(req.body);
   const current = (await plansForPartner(partner.id)).find((p) => p.planType === planType);
   if (!current) throw new AppError("Plan no encontrado.", 404);
@@ -85,6 +89,6 @@ export async function setPortalPlanPrice(req, res) {
     create: { partnerId: partner.id, planType, extraCup, extraUsd },
     update: { extraCup, extraUsd },
   });
-  logActivity({ actorId: req.user.id, actorRole: "PARTNER", action: "partner_plan_price_set", description: `El socio "${partner.name}" fijó el precio del plan ${planType}`, meta: { partnerId: partner.id, planType, extraCup, extraUsd } });
+  logActivity({ actorId: req.user.id, actorRole: "PARTNER", action: "partner_plan_price_set", description: `El socio "${partner.name}" fijó el precio del plan ${current.name ?? planType}`, meta: { partnerId: partner.id, planType, extraCup, extraUsd } });
   res.json({ plans: await plansForPartner(partner.id) });
 }

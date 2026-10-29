@@ -94,7 +94,11 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
   const firstImage = product.images?.[0];
   const image = imgUrl(firstImage);
   const thumb = thumbUrl(firstImage);
-  const discount = product.oldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : null;
+  // El precio anterior solo cuenta si es mayor que el actual: el servidor no lo exige al guardar, y con uno más bajo salía
+  // "--20%" y un tachado más caro que el precio real. Si el redondeo da 0% tampoco se muestra (y así React no pinta un "0").
+  const hasOldPrice = product.oldPrice != null && Number(product.oldPrice) > Number(product.price);
+  const discountPct = hasOldPrice ? Math.round(100 - (Number(product.price) / Number(product.oldPrice)) * 100) : 0;
+  const discount = discountPct > 0 ? discountPct : null;
   // Bloque 56: "disponible siempre" nunca se muestra como agotado/bajo stock.
   const isOutOfStock = !product.unlimitedStock && product.stock === 0;
   const isLowStock = !product.unlimitedStock && !isOutOfStock && product.stock != null && product.stock <= LOW_STOCK_THRESHOLD;
@@ -144,7 +148,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
           )}
           {product.isBestSeller && (
             <span
-              className={`absolute z-10 flex max-w-[48%] items-center gap-0.5 rounded-full bg-[#8a5100] px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:gap-1 sm:px-2 sm:text-[10.5px] ${
+              className={`absolute z-10 flex max-w-[48%] items-center gap-0.5 rounded-full bg-secondary px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:gap-1 sm:px-2 sm:text-[10.5px] ${
                 topRightSlot ? "bottom-1.5 left-1.5 sm:bottom-2 sm:left-2" : "right-1.5 top-1.5 sm:right-2 sm:top-2"
               }`}
             >
@@ -211,7 +215,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
           <p className="mb-1 max-sm:hidden line-clamp-2 text-[11.5px] leading-4 text-on-surface-variant">{product.description}</p>
         )}
         {isLowStock && (
-          <span className="mb-1.5 w-fit rounded-full bg-[#8a5100]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a5100]">
+          <span className="mb-1.5 w-fit rounded-full bg-secondary/10 px-2 py-0.5 text-[10px] font-bold text-secondary">
             ¡Últimas {product.stock} unidades!
           </span>
         )}
@@ -229,7 +233,7 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
               en su propia línea. */}
           <div className="flex flex-col">
             <span className="whitespace-nowrap text-[14.5px] font-bold text-on-surface">{formatPrice(product.price, product.currency)}</span>
-            {product.oldPrice && (
+            {hasOldPrice && (
               <span className="text-[11.5px] leading-tight text-outline line-through">{formatPrice(product.oldPrice, product.currency)}</span>
             )}
           </div>

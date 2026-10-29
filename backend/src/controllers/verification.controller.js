@@ -1,3 +1,4 @@
+import { mirrorInitialPayment } from "../lib/initialPayment.js";
 import { z } from "zod";
 import { readFile, stat } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -29,7 +30,21 @@ import { getBrandSettings, getTrialDays } from "./settings.controller.js";
 import { notifyAdminActionNeeded } from "../lib/adminNotify.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { maybeAutoActivateTrial, missingBeforeVerification, activateVendorTrial, isTrialChecklistComplete, hasHadPremium } from "../services/trialEligibility.service.js";
-import { recalcVendorProductQuota, getPlanConfig, buildPlanIncludes, quotePlan, paymentPlanOf } from "../lib/planConfig.js";
+import {
+  recalcVendorProductQuota,
+  getPlanConfig,
+  getAllPlanConfigs,
+  buildPlanIncludes,
+  quotePlan,
+  paymentPlanOf,
+  getTrialPlanKey,
+  getDefaultPlanKey,
+  planDisplayName,
+  isPaidConfig,
+  PLAN_KEY_PATTERN,
+} from "../lib/planConfig.js";
+import { sendVerificationUpdateEmail } from "../lib/email.js";
+import { env } from "../config/env.js";
 import { resolveLegalLocation } from "../services/registrationLocation.service.js";
 import { applyPlanDowngrade } from "../services/planDowngrade.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
@@ -39,8 +54,31 @@ import { recordLocationSuggestions } from "../services/locationSuggestions.servi
 // en cada punto que lo necesita, ver quotePlan en lib/planConfig.js (precio y descuento del plan elegido).
 const MIN_PAYMENT_MONTHS = 1;
 const MAX_PAYMENT_MONTHS = 24;
-// Planes que una tienda puede elegir al pagar (el gratis y el "por WhatsApp" se rechazan en quotePlan).
-const PAYABLE_PLAN = z.enum(["REGULAR", "STANDARD", "BUSINESS"]);
+// Plan que una tienda puede elegir al pagar: cualquier clave con el formato de la base. Antes era una lista fija de 3 claves
+// y un plan creado por el admin no se podía pagar. Que exista, no esté archivado y se ofrezca lo comprueba assertOfferedPlan;
+// el gratis y el "por WhatsApp" se rechazan en quotePlan.
+const PAYABLE_PLAN = z.string().trim().regex(PLAN_KEY_PATTERN, "Ese plan no existe.");
+
+// Un plan que la tienda elige para pagar: tiene que existir, no estar archivado y estar a la venta (público). El plan que la
+// tienda ya tiene vale aunque esté oculto (lo sigue pagando). getPlanConfig devuelve también los archivados (para el
+// historial), por eso no alcanza con que exista.
+async function assertOfferedPlan(key, vendor) {
+  const config = await getPlanConfig(key);
+  if (!config || config.archivedAt) throw new AppError("Ese plan ya no está disponible. Elige otro.", 400);
+  if (!config.isPublic && key !== vendor?.planType) throw new AppError("Ese plan no está disponible. Elige otro.", 400);
+  return config;
+}
+
+// Rechazo de un plan sin insignia (o el por defecto) en el pago de la verificación. El texto depende de dónde está la
+// tienda: si ya tiene ese plan, lo renueva desde Suscripción; si no, la tienda no puede pasarse sola a un plan sin
+// insignia (renewalPlanFor responde "escríbenos desde Mensajes"), así que decirle "págalo desde Suscripción" la dejaba
+// sin salida. Es el mismo texto que muestra VendorVerification.jsx.
+function noVerificationPlanError(config, vendor) {
+  const name = config.displayName;
+  if (config.isDefault) return new AppError(`El plan ${name} no necesita verificación.`, 400);
+  if (vendor?.planType === config.planType) return new AppError(`El plan ${name} no necesita verificación: renuévalo desde Suscripción.`, 400);
+  return new AppError(`El plan ${name} no lleva verificación: para pasarte a él, escríbenos desde Mensajes.`, 400);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const KYC_UPLOAD_DIR = join(__dirname, "..", "..", "uploads", "kyc");
@@ -210,7 +248,7 @@ export async function submitVerification(req, res) {
 
   if (vendor.verificationStatus !== "NOT_STARTED" && vendor.verificationStatus !== "REJECTED") {
     const { siteName } = await getBrandSettings();
-    throw new AppError(`Ya tienes una solicitud en curso — espera la resolución del equipo de ${siteName}.`, 409);
+    throw new AppError(`Ya tienes una solicitud en curso. Espera la resolución del equipo de ${siteName}.`, 409);
   }
 
   // La insignia exige la tienda completa: datos, descripción, dónde opera, logo y un producto publicado van antes que los
@@ -358,7 +396,7 @@ export async function submitVerification(req, res) {
   // quien tiene que actuar, y antes no se enteraba hasta entrar al panel.
   await notifyAdminActionNeeded(
     "Nueva verificación pendiente de revisión",
-    `${vendor.companyName} envió sus documentos de verificación — revísalos en el panel de administración.`,
+    `${vendor.companyName} envió sus documentos de verificación. Revísalos en el panel de administración.`,
     vendor.id
   );
   logActivity({
@@ -388,7 +426,7 @@ export async function submitVerification(req, res) {
 const paymentMethodSchema = z.object({
   method: z.enum(["CARD", "CUP_TRANSFER"]),
   months: z.number().int().min(MIN_PAYMENT_MONTHS).max(MAX_PAYMENT_MONTHS),
-  // Plan que paga con la verificación (Estándar o Premium). Sin plan, Premium, como antes.
+  // Plan con insignia que paga con la verificación. Sin plan, el de prueba (isTrialPlan, hoy Premium), como antes.
   planType: PAYABLE_PLAN.optional(),
 });
 
@@ -433,10 +471,14 @@ export async function chooseMyPaymentMethod(req, res) {
     throw new AppError("Todavía no llegaste a la fase de cobro de la suscripción.", 409);
   }
 
-  const { method, months, planType = "BUSINESS" } = paymentMethodSchema.parse(req.body);
+  const body = paymentMethodSchema.parse(req.body);
+  const { method, months } = body;
+  const planType = body.planType ?? (await getTrialPlanKey());
+  await assertOfferedPlan(planType, vendor);
   const quote = await quotePlan(planType, months, method);
-  // La verificación de documentos es para los planes que dan la insignia.
-  if (!quote.config.grantsBadge) throw new AppError(`El plan ${quote.config.displayName} no necesita verificación: págalo desde Suscripción.`, 400);
+  // La verificación de documentos es para los planes que dan la insignia. El plan por defecto nunca la da aunque el admin
+  // le deje grantsBadge con precio: transitionVendorVerification pasaría VERIFIED a PLAN_ENDED después de cobrarle.
+  if (!quote.config.grantsBadge || planType === (await getDefaultPlanKey())) throw noVerificationPlanError(quote.config, vendor);
   const paymentCurrency = method === "CARD" ? "USD" : "CUP";
 
   // Arrancar un ciclo nuevo (típicamente tras SUSPENDED/PAYMENT_FAILED)
@@ -486,6 +528,7 @@ export async function chooseMyPaymentMethod(req, res) {
       paymentMonths: verification.paymentMonths,
       paymentCurrency: verification.paymentCurrency,
       paymentPlanType: planType,
+      planName: quote.config.displayName,
       discountPercent: quote.discountPercent,
       expectedAmount: quote.total,
       stripeCheckoutUrl: verification.stripeCheckoutUrl,
@@ -506,7 +549,12 @@ export async function retryMyStripeCheckout(req, res) {
     throw new AppError("Elige tarjeta como método de pago antes de generar un link de Stripe.", 409);
   }
 
-  const quote = await quotePlan(v.paymentPlanType, v.paymentMonths, "CARD");
+  // Mismas reglas que al elegirlo (chooseMyPaymentMethod): si el plan se archivó, se ocultó o dejó de dar la insignia
+  // después de elegirlo, no se abre un cobro nuevo y la tienda elige otro plan.
+  const planType = paymentPlanOf(v.paymentPlanType);
+  await assertOfferedPlan(planType, vendor);
+  const quote = await quotePlan(planType, v.paymentMonths, "CARD");
+  if (!quote.config.grantsBadge || planType === (await getDefaultPlanKey())) throw new AppError(`El plan ${quote.config.displayName} ya no se paga con la verificación. Elige otro plan.`, 409);
   const verification = await createAndSaveCheckoutSession(vendor, v, quote.total);
   res.json({
     verification: {
@@ -535,7 +583,7 @@ export async function retryMyStripeCheckout(req, res) {
 // venir del cliente — antes era un número que el vendedor tipeaba a mano
 // (aunque prellenado), lo que técnicamente permitía declarar cualquier
 // monto. Ahora se calcula siempre server-side (precio vigente × meses
-// elegidos, ver getSubscriptionPricing) en el momento del reclamo — el
+// elegidos, con el descuento del plan: ver quotePlan en lib/planConfig.js) en el momento del reclamo — el
 // mismo criterio "estricto" que ya regía para el monto ESPERADO que ve el
 // admin, ahora también para el monto que queda archivado como "lo pagado".
 // FormData manda todo como string — z.coerce.boolean() volvería "false"
@@ -608,10 +656,10 @@ export async function uploadMyPaymentProof(req, res) {
 
   const methodLabel = isCup ? "transferencia CUP" : "pago con tarjeta";
   await notifyAdminActionNeeded(
-    `Pago reclamado (${methodLabel}) — esperando confirmación`,
+    `Pago reclamado (${methodLabel}): esperando confirmación`,
     `${vendor.companyName} marcó "Ya pagué" su ${methodLabel} (${strictAmount} ${v.paymentCurrency ?? ""})${
-      hasProofFile ? " y adjuntó una captura" : " — sin captura, con datos de respaldo"
-    } — confírmalo en el panel de administración.`,
+      hasProofFile ? " y adjuntó una captura" : ", sin captura y con datos de respaldo"
+    }. Confírmalo en el panel de administración.`,
     vendor.id
   );
   logActivity({
@@ -652,14 +700,17 @@ export async function getMySubscription(req, res) {
   const relevant = paysWithoutBadge || vendor.verificationStatus === "VERIFIED" || (["PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(vendor.verificationStatus) && (vendor.stripeCustomerId || vendor.nextPaymentDueDate));
   if (!relevant) return res.json({ subscription: null });
 
-  const [plan, lastConfirmed, pending, history, firstVerified, card] = await Promise.all([
+  const [plan, lastConfirmed, pending, history, firstVerified, card, allPlans] = await Promise.all([
     getPlanConfig(vendor.planType),
     prisma.subscriptionPayment.findFirst({ where: { vendorId: vendor.id, confirmedAt: { not: null } }, orderBy: { confirmedAt: "desc" } }),
     prisma.subscriptionPayment.findFirst({ where: { vendorId: vendor.id, confirmedAt: null }, orderBy: { createdAt: "desc" } }),
     prisma.subscriptionPayment.findMany({ where: { vendorId: vendor.id, confirmedAt: { not: null } }, orderBy: { confirmedAt: "desc" }, take: 24 }),
     prisma.verificationStatusLog.findFirst({ where: { vendorId: vendor.id, toStatus: "VERIFIED" }, orderBy: { at: "asc" }, select: { at: true } }),
     getCardSubscriptionInfo(vendor),
+    // Con los archivados: un pago viejo puede ser de un plan que ya no se vende y tiene que mostrar su nombre.
+    getAllPlanConfigs({ includeArchived: true }),
   ]);
+  const nameOf = (key) => allPlans.find((c) => c.planType === key)?.displayName ?? key;
 
   const v = vendor.verification;
   const inTrial = !!vendor.trialEndsAt && vendor.trialEndsAt > new Date();
@@ -681,6 +732,7 @@ export async function getMySubscription(req, res) {
       months: pending.months,
       currency: pending.currency,
       planType: pending.planType ?? vendor.planType,
+      planName: nameOf(pending.planType ?? vendor.planType),
       discountPercent: pendingQuote?.discountPercent ?? 0,
       expectedAmount: pendingQuote?.total ?? null,
       stripeCheckoutUrl: pending.stripeCheckoutUrl,
@@ -709,7 +761,7 @@ export async function getMySubscription(req, res) {
       periodEnd,
       daysRemaining: periodEnd ? Math.ceil((new Date(periodEnd).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null,
       cancelAtPeriodEnd: vendor.cancelAtPeriodEnd,
-      // Cambio a Regular programado por el admin (fecha y motivo): la tienda lo ve en Suscripción.
+      // Cambio al plan por defecto programado por el admin (fecha y motivo): la tienda lo ve en Suscripción.
       planDowngradeAt: vendor.planDowngradeAt,
       planDowngradeReason: vendor.planDowngradeReason,
       autoRenews,
@@ -717,7 +769,10 @@ export async function getMySubscription(req, res) {
       card: card?.card ?? null,
       cardStatus: card?.status ?? null,
       paymentFailed: vendor.verificationStatus === "PAYMENT_FAILED" || card?.status === "past_due" || card?.status === "unpaid",
-      canReactivate: !vendor.planDowngradeAt && (vendor.verificationStatus === "VERIFIED" && vendor.cancelAtPeriodEnd) || (["SUSPENDED", "PAYMENT_FAILED"].includes(vendor.verificationStatus) && !!vendor.stripeCustomerId),
+      // Mismas condiciones que reactivateMySubscription, en el mismo orden: el cambio programado por el admin bloquea los dos
+      // casos. Antes faltaban los paréntesis y con planDowngradeAt solo se bloqueaba el primero: se mostraba "Reactivar" a una
+      // tienda suspendida con tarjeta y el servidor después respondía 409.
+      canReactivate: !vendor.planDowngradeAt && ((vendor.verificationStatus === "VERIFIED" && vendor.cancelAtPeriodEnd) || (["SUSPENDED", "PAYMENT_FAILED"].includes(vendor.verificationStatus) && !!vendor.stripeCustomerId)),
       cardIntervals: CARD_INTERVAL_MONTHS,
       cardPricePerMonthUsd: plan?.priceUsd ?? null,
       priceCup: plan?.priceCup ?? null,
@@ -728,6 +783,9 @@ export async function getMySubscription(req, res) {
         months: h.months,
         amount: h.amount,
         currency: h.currency,
+        // De qué plan fue cada pago (los de antes de los planes configurables no lo guardan: eran del plan de prueba).
+        planType: paymentPlanOf(h.planType),
+        planName: nameOf(paymentPlanOf(h.planType)),
         periodStart: h.periodStart,
         periodEnd: h.periodEnd,
         claimedAt: h.claimedAt,
@@ -742,18 +800,29 @@ export async function getMySubscription(req, res) {
 const renewalMethodSchema = z.object({
   method: z.enum(["CARD", "CUP_TRANSFER"]),
   months: z.number().int().min(MIN_PAYMENT_MONTHS).max(MAX_PAYMENT_MONTHS),
-  // Plan a pagar: el actual o, si está verificada, otro plan con insignia (subir o bajar entre Estándar y Premium).
+  // Plan a pagar: el actual o, si está verificada, otro plan con insignia (subir o bajar entre los planes con insignia).
   planType: PAYABLE_PLAN.optional(),
 });
 
 // Quién puede pagar una renovación y de qué plan. Verificada: su plan o cualquier otro con insignia. Un plan sin insignia
-// que se cobra (el Básico cuando deja de ser gratis): solo ese plan, sin verificación.
-async function renewalPlanFor(vendor, requested) {
+// que se cobra (el Básico cuando deja de ser gratis): solo ese plan, sin verificación. Un plan archivado no se renueva, y
+// pasar a otro plan exige que ese otro esté a la venta (assertOfferedPlan).
+// `allowArchivedPending`: solo para avisar "Ya pagué" de una renovación ya elegida. Si el plan se archivó u ocultó después
+// de elegirlo, la tienda pudo haber transferido ya: el aviso tiene que llegar al admin, que decide al confirmar. Los demás
+// requisitos (estar verificada, o pagar un plan sin insignia) se siguen pidiendo.
+async function renewalPlanFor(vendor, requested, { allowArchivedPending = false } = {}) {
   const target = requested ?? vendor.planType;
   const targetConfig = await getPlanConfig(target);
   if (!targetConfig) throw new AppError("Ese plan no existe.", 400);
+  if (!allowArchivedPending) {
+    if (targetConfig.archivedAt) throw new AppError(`El plan ${targetConfig.displayName} ya no se ofrece. Elige otro plan.`, 409);
+    if (target !== vendor.planType) await assertOfferedPlan(target, vendor);
+  }
   if (vendor.verificationStatus === "VERIFIED") {
-    if (target !== vendor.planType && !targetConfig.grantsBadge) throw new AppError(`Para pasar al plan ${targetConfig.displayName} escríbenos desde Mensajes.`, 409);
+    // El plan por defecto nunca va con la insignia (transitionVendorVerification lo fuerza), aunque tenga grantsBadge.
+    if (target !== vendor.planType && (!targetConfig.grantsBadge || target === (await getDefaultPlanKey()))) {
+      throw new AppError(`Para pasar al plan ${targetConfig.displayName} escríbenos desde Mensajes.`, 409);
+    }
     return target;
   }
   const own = await getPlanConfig(vendor.planType);
@@ -761,6 +830,18 @@ async function renewalPlanFor(vendor, requested) {
   if (ownPaysWithoutBadge && target === vendor.planType) return target;
   if (targetConfig.grantsBadge) throw new AppError(`Para pasar al plan ${targetConfig.displayName} completa primero la verificación de tu tienda.`, 409);
   throw new AppError("Solo puedes renovar mientras tu tienda está verificada.", 409);
+}
+
+// La misma regla que renewalPlanFor, en sí o no, para el webhook de Stripe: así el cobro con tarjeta que se aceptó al
+// abrir el pago (por ejemplo, el del Básico de pago, que no pasa por la verificación) también se registra al llegar.
+async function canPayRenewal(vendor, planType) {
+  try {
+    await renewalPlanFor(vendor, planType ?? undefined);
+    return true;
+  } catch (err) {
+    if (err instanceof AppError) return false;
+    throw err;
+  }
 }
 
 // Elegir método+meses para una renovación — si ya había una sin confirmar,
@@ -779,6 +860,15 @@ export async function chooseMyRenewalPayment(req, res) {
     where: { vendorId: vendor.id, confirmedAt: null },
     orderBy: { createdAt: "desc" },
   });
+  // Solo se reemplaza una renovación sin dinero de por medio. Antes se borraba también la que ya tenía comprobante enviado
+  // ("Ya pagué") o cobro de Stripe, y ese pago quedaba sin registro; con un enlace de tarjeta abierto, el webhook llegaba
+  // después a un pago borrado.
+  if (existingPending?.claimedAt || existingPending?.stripePaidAt) {
+    throw new AppError("Ya tienes un pago de renovación en revisión. Espera a que el equipo lo confirme o escríbenos en Mensajes.", 409);
+  }
+  if (existingPending?.paymentMethod === "CARD" && existingPending.stripeCheckoutSessionId && existingPending.stripeCheckoutExpiresAt && new Date(existingPending.stripeCheckoutExpiresAt) > new Date()) {
+    throw new AppError("Tienes un pago con tarjeta en curso. Termínalo desde «Pago con tarjeta en curso» o espera a que venza el enlace para elegir otra forma de pago.", 409);
+  }
   if (existingPending) await prisma.subscriptionPayment.delete({ where: { id: existingPending.id } });
 
   let payment = await prisma.subscriptionPayment.create({
@@ -800,6 +890,7 @@ export async function chooseMyRenewalPayment(req, res) {
       months: payment.months,
       currency: payment.currency,
       planType,
+      planName: quote.config.displayName,
       discountPercent: quote.discountPercent,
       expectedAmount: quote.total,
       stripeCheckoutUrl: payment.stripeCheckoutUrl,
@@ -818,7 +909,9 @@ export async function retryRenewalStripeCheckout(req, res) {
   });
   if (!payment) throw new AppError("Elige tarjeta como método de pago antes de generar un link de Stripe.", 409);
 
-  const planType = payment.planType ?? vendor.planType;
+  // Se vuelve a validar el plan: si se archivó u ocultó después de elegirlo, no se abre un cobro nuevo de un plan que ya
+  // no se vende (la tienda elige otro plan).
+  const planType = await renewalPlanFor(vendor, payment.planType ?? undefined);
   const quote = await quotePlan(planType, payment.months, "CARD");
   const session = await createRenewalCheckoutSession({
     subscriptionPayment: payment,
@@ -841,11 +934,14 @@ export async function retryRenewalStripeCheckout(req, res) {
 export async function claimRenewalPayment(req, res) {
   const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.id } });
   if (!vendor) throw new AppError("No tienes una tienda registrada.", 404);
-  const pendingFirst = await prisma.subscriptionPayment.findFirst({ where: { vendorId: vendor.id, confirmedAt: null }, orderBy: { createdAt: "desc" } });
-  await renewalPlanFor(vendor, pendingFirst?.planType ?? undefined);
-
   const pending = await prisma.subscriptionPayment.findFirst({ where: { vendorId: vendor.id, confirmedAt: null }, orderBy: { createdAt: "desc" } });
   if (!pending) throw new AppError("Elige un método de pago antes de reclamar la renovación.", 409);
+  // Un plan archivado u oculto después de elegirlo no frena el aviso: la transferencia pudo estar hecha. El admin lo ve
+  // marcado en la notificación y decide al confirmar.
+  const pendingPlanType = pending.planType ?? vendor.planType;
+  await renewalPlanFor(vendor, pendingPlanType, { allowArchivedPending: true });
+  const pendingPlan = await getPlanConfig(pendingPlanType);
+  const planNoLongerSold = !!pendingPlan && (!!pendingPlan.archivedAt || (!pendingPlan.isPublic && pendingPlanType !== vendor.planType));
 
   const data = claimPaymentSchema.parse(req.body);
   const isCup = pending.paymentMethod === "CUP_TRANSFER";
@@ -860,7 +956,7 @@ export async function claimRenewalPayment(req, res) {
     throw new AppError("Sin captura, indica al menos tu teléfono, dirección y país para poder conciliar el pago.", 400);
   }
 
-  const strictAmount = (await quotePlan(pending.planType ?? vendor.planType, pending.months, pending.paymentMethod)).total;
+  const strictAmount = (await quotePlan(pendingPlanType, pending.months, pending.paymentMethod)).total;
 
   const updated = await prisma.subscriptionPayment.update({
     where: { id: pending.id },
@@ -880,10 +976,12 @@ export async function claimRenewalPayment(req, res) {
 
   const methodLabel = isCup ? "transferencia CUP" : "pago con tarjeta";
   await notifyAdminActionNeeded(
-    `Renovación reclamada (${methodLabel}) — esperando confirmación`,
+    `Renovación reclamada (${methodLabel}): esperando confirmación`,
     `${vendor.companyName} marcó "Ya pagué" la renovación de su suscripción (${pending.months} ${pending.months === 1 ? "mes" : "meses"}, ${strictAmount} ${pending.currency})${
-      hasProofFile ? " y adjuntó una captura" : " — sin captura, con datos de respaldo"
-    } — confírmalo en el panel de administración.`,
+      hasProofFile ? " y adjuntó una captura" : ", sin captura y con datos de respaldo"
+    }. Confírmalo en el panel de administración.${
+      planNoLongerSold ? ` Ojo: el plan ${pendingPlan.displayName} ya no está a la venta; revisa a qué plan pasa la tienda antes de confirmar.` : ""
+    }`,
     vendor.id
   );
   logActivity({
@@ -1027,37 +1125,75 @@ async function handleCheckoutCompleted(session) {
 // admin igual confirma a mano antes de extender `nextPaymentDueDate`.
 async function handleRenewalCheckoutCompleted(session) {
   const paymentId = session.metadata.subscriptionPaymentId;
-  const payment = await prisma.subscriptionPayment.findUnique({ where: { id: paymentId }, include: { vendor: true } });
+  const payment = await prisma.subscriptionPayment.findUnique({ where: { id: paymentId }, include: { vendor: { include: { user: { select: { email: true } } } } } });
   if (!payment) return;
 
   if (payment.stripePaidAt || payment.confirmedAt) return; // idempotencia
-  if (payment.paymentMethod !== "CARD" || payment.vendor.verificationStatus !== "VERIFIED") return;
+  if (payment.paymentMethod !== "CARD") return;
   if (payment.stripeCheckoutSessionId !== session.id) return; // sesión vieja
 
+  // Antes solo pasaban las tiendas verificadas, y el Básico de pago (que renueva sin verificación) quedaba cobrado por
+  // Stripe sin ningún registro. Ahora se usa la misma regla que al abrir el pago. Y si la tienda ya no puede pagar ese
+  // plan (cambió de estado entre abrir el pago y pagar), el cobro igual queda anotado: Stripe ya cobró y el equipo tiene
+  // que verlo para devolverlo o ajustarlo, en vez de perderse en silencio.
   await prisma.subscriptionPayment.update({
     where: { id: payment.id },
     data: { stripePaidAt: new Date(), stripePaymentIntentId: session.payment_intent ?? null },
   });
-  await notifyVerificationEvent(payment.vendor, "VERIFICATION_STRIPE_PAID");
+  if (await canPayRenewal(payment.vendor, payment.planType)) {
+    await notifyRenewalStripePaid(payment);
+    return;
+  }
+  const amount = session.amount_total != null ? `${session.amount_total / 100} USD` : "un pago";
+  await notifyAdminActionNeeded(
+    "Cobro con tarjeta de una renovación que ya no corresponde",
+    `Stripe cobró ${amount} a ${payment.vendor.companyName} por ${payment.months} ${payment.months === 1 ? "mes" : "meses"} de su plan, pero la tienda ya no puede renovar ese plan. Revisa el pago para devolverlo o registrarlo a mano.`,
+    payment.vendorId,
+    { url: "/admin/suscripciones" }
+  );
 }
 
+// Aviso a la tienda de que Stripe cobró una renovación. No usa notifyVerificationEvent("VERIFICATION_STRIPE_PAID"): ese
+// texto habla de "activar tu verificación", y en una renovación la tienda ya está verificada (o paga un plan sin
+// insignia). Mismo tipo de aviso en la campanita y mismo correo, con el texto de la renovación y el nombre del plan.
+async function notifyRenewalStripePaid(payment) {
+  const vendor = payment.vendor;
+  const planName = await planDisplayName(payment.planType ?? vendor.planType);
+  const title = "Recibimos el pago de tu renovación";
+  const body = `Stripe confirmó el pago de ${payment.months} ${payment.months === 1 ? "mes" : "meses"} de tu plan ${planName}. Sube la captura del pago (o indica que no pudiste hacerla) desde Suscripción para que el equipo lo confirme y sume ese tiempo a tu plan.`;
+  await Promise.all([
+    prisma.vendorNotification.create({ data: { vendorId: vendor.id, type: "VERIFICATION_STRIPE_PAID", title, body } }),
+    sendVerificationUpdateEmail({ vendor, type: "VERIFICATION_STRIPE_PAID", title, message: body, ctaHref: `${env.frontendUrl}/vendedor/verificacion` }),
+  ]);
+}
 
 // --- Suscripción con tarjeta y cobro automático ---------------------------------------------------------------------------
 // La tienda elige el plazo (1, 3, 6 o 12 meses) y va directo a la página de pago de Stripe. Cuando Stripe confirma el pago
-// (webhook), la tienda queda verificada con Premium sola: sin comprobante y sin revisión del admin. Stripe renueva la
+// (webhook), la tienda queda verificada con su plan sola: sin comprobante y sin revisión del admin. Stripe renueva la
 // suscripción por el mismo plazo hasta que la tienda la cancele. Las tiendas que pagan en CUP siguen con el pago manual.
 const cardCheckoutSchema = z.object({
   months: z.number().int().refine((m) => CARD_INTERVAL_MONTHS.includes(m), "Elige 1, 3, 6 o 12 meses."),
   planType: PAYABLE_PLAN.optional(),
 });
 
-// Plan que pagaba una tienda (para reactivar su suscripción): el de su último pago confirmado, el de su verificación o, si
-// no hay registro, Premium (antes de los planes configurables todo pago era de Premium).
+// Plan que pagaba una tienda (para reactivar su suscripción): el suyo si se cobra, el de su último pago confirmado, el de su
+// verificación o, si no hay registro, el plan de prueba (antes de los planes configurables todo pago era de Premium, que es
+// el de prueba). Solo cuenta un plan que hoy se pueda cobrar: ni archivado, ni gratis, ni "por WhatsApp". Tampoco el plan
+// por defecto aunque se cobre: reactivar es recuperar el plan con insignia, y una tienda VERIFIED nunca queda en el plan
+// por defecto (transitionVendorVerification la pasaría a PLAN_ENDED después de cobrarle). Y tiene que dar la insignia: la
+// reactivación termina en VERIFIED, y un plan sin insignia con VERIFIED queda en un estado que nada corrige.
 async function lastPaidPlan(vendor) {
-  const own = await getPlanConfig(vendor.planType);
-  if (own && !own.isFree && !own.contactOnly) return vendor.planType;
+  const defaultKey = await getDefaultPlanKey();
+  const usable = async (key) => {
+    const config = key && key !== defaultKey ? await getPlanConfig(key) : null;
+    return !!config && !config.archivedAt && isPaidConfig(config) && config.grantsBadge;
+  };
+  if (await usable(vendor.planType)) return vendor.planType;
   const last = await prisma.subscriptionPayment.findFirst({ where: { vendorId: vendor.id, confirmedAt: { not: null }, planType: { not: null } }, orderBy: { confirmedAt: "desc" }, select: { planType: true } });
-  return last?.planType ?? vendor.verification?.paymentPlanType ?? "BUSINESS";
+  for (const key of [last?.planType, vendor.verification?.paymentPlanType]) {
+    if (await usable(key)) return key;
+  }
+  return getTrialPlanKey();
 }
 
 async function loadMyVendor(req) {
@@ -1075,14 +1211,24 @@ export async function startMyCardSubscription(req, res) {
   const { months } = body;
   const status = vendor.verificationStatus;
   const switching = status === "VERIFIED"; // ya verificada (pagaba en CUP o a mano) y pasa a cobro automático
-  // Ya verificada: su plan u otro con insignia. Primera vez: el plan con insignia que elige (Premium si no dice).
-  const planType = switching ? await renewalPlanFor(vendor, body.planType) : body.planType ?? "BUSINESS";
+  // Ya verificada: su plan u otro con insignia. Primera vez: el plan con insignia que elige (el de prueba si no dice).
+  const planType = switching ? await renewalPlanFor(vendor, body.planType) : body.planType ?? (await getTrialPlanKey());
+  if (!switching) await assertOfferedPlan(planType, vendor);
   const quote = await quotePlan(planType, months, "CARD");
-  if (!switching && !quote.config.grantsBadge) throw new AppError(`El plan ${quote.config.displayName} no necesita verificación: págalo desde Suscripción.`, 400);
+  // Igual que chooseMyPaymentMethod: el plan por defecto nunca da la insignia, aunque tenga grantsBadge y precio.
+  if (!switching && (!quote.config.grantsBadge || planType === (await getDefaultPlanKey()))) throw noVerificationPlanError(quote.config, vendor);
   if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED", "VERIFIED"].includes(status)) {
     throw new AppError("Todavía no llegaste a la fase de pago de la suscripción.", 409);
   }
   if (switching && vendor.trialEndsAt) throw new AppError("Estás en la prueba gratis: el cobro empieza cuando termine.", 409);
+  // Si ya tenía tiempo pagado, el primer cobro con tarjeta es al vencer ese tiempo (no se le cobra dos veces).
+  const paidUntil = switching && vendor.nextPaymentDueDate > new Date() ? vendor.nextPaymentDueDate : null;
+  // Ese periodo sin cobro es para no cobrar dos veces el MISMO plan. Con otro plan, el cambio se aplica al instante y la
+  // tienda usaría el plan nuevo gratis hasta el vencimiento (y, si cancela antes, nunca lo pagaría). Por eso, mientras le
+  // quede tiempo pagado, pasar a tarjeta solo se puede con su plan actual.
+  if (paidUntil && planType !== vendor.planType) {
+    throw new AppError("Para cambiar de plan escríbenos desde Mensajes o espera a que venza lo que ya pagaste.", 409);
+  }
 
   // Una suscripción anterior que quedó sin pagar se cierra antes de abrir otra, para no cobrar dos veces.
   if (vendor.stripeSubscriptionId) {
@@ -1105,8 +1251,7 @@ export async function startMyCardSubscription(req, res) {
     totalUsd: quote.total,
     planType,
     purpose: "subscribe",
-    // Si ya tenía tiempo pagado, el primer cobro con tarjeta es al vencer ese tiempo (no se le cobra dos veces).
-    trialEnd: switching && vendor.nextPaymentDueDate > new Date() ? vendor.nextPaymentDueDate : null,
+    trialEnd: paidUntil,
   });
   res.json({ url: session.url });
 }
@@ -1116,19 +1261,24 @@ export async function startMyTrialCard(req, res) {
   const vendor = await loadMyVendor(req);
   if (!vendor.trialStartedAt || vendor.trialBilling !== "CARD") throw new AppError("Primero acepta la prueba gratis con tarjeta.", 409);
   if (vendor.trialEndsAt || vendor.verificationStatus === "VERIFIED") throw new AppError("Tu prueba gratis ya está activa.", 409);
-  if (await hasHadPremium(vendor.id)) throw new AppError("La prueba gratis es solo para tiendas que nunca tuvieron Premium.", 409);
+  if (await hasHadPremium(vendor.id)) throw new AppError("La prueba gratis es solo para tiendas que nunca tuvieron un plan de pago.", 409);
   if (!(await isTrialChecklistComplete(vendor.id))) throw new AppError("Completa todos los pasos de tu tienda antes de registrar la tarjeta.", 409);
-  const quote = await quotePlan("BUSINESS", 1, "CARD");
-  const session = await createCardSubscriptionCheckout({ vendor, months: 1, totalUsd: quote.total, planType: "BUSINESS", purpose: "trial", trialDays: await getTrialDays() });
+  // El plan de la prueba sale de su bandera (isTrialPlan): el admin puede cambiar cuál es.
+  const trialKey = await getTrialPlanKey();
+  const quote = await quotePlan(trialKey, 1, "CARD");
+  const session = await createCardSubscriptionCheckout({ vendor, months: 1, totalUsd: quote.total, planType: trialKey, purpose: "trial", trialDays: await getTrialDays() });
   res.json({ url: session.url });
 }
 
-// POST /verification/me/card-subscription/cancel: sigue con Premium hasta el final de lo pagado (o de la prueba).
+// POST /verification/me/card-subscription/cancel: sigue con su plan hasta el final de lo pagado (o de la prueba).
 export async function cancelMySubscription(req, res) {
   const vendor = await loadMyVendor(req);
   const own = await getPlanConfig(vendor.planType);
   const paid = !!own && !own.isFree && !own.contactOnly;
   if (!paid || (vendor.verificationStatus !== "VERIFIED" && own.grantsBadge)) throw new AppError("No tienes una suscripción activa para cancelar.", 409);
+  // El plan por defecto (cuando se cobra) no se cancela: cancelar es bajar a él, así que la tienda quedaba en el mismo plan
+  // sin fecha de cobro y lo usaba gratis. La regla vive aquí y no solo en el botón oculto de SubscriptionOverview.jsx.
+  if (own.isDefault) throw new AppError(`El plan ${own.displayName} es el plan base de todas las tiendas: no se cancela.`, 409);
   if (vendor.cancelAtPeriodEnd) return res.json({ ok: true });
   if (vendor.stripeSubscriptionId) await setCardSubscriptionCancelAtPeriodEnd(vendor.stripeSubscriptionId, true);
   await prisma.vendor.update({ where: { id: vendor.id }, data: { cancelAtPeriodEnd: true } });
@@ -1142,7 +1292,10 @@ export async function cancelMySubscription(req, res) {
 //    página de pago de Stripe para poner otra tarjeta y pagar.
 export async function reactivateMySubscription(req, res) {
   const vendor = await loadMyVendor(req);
-  if (vendor.planDowngradeAt) throw new AppError("El equipo de la plataforma programó el paso de tu tienda al plan Regular. Escríbenos en Mensajes si quieres mantener Premium.", 409);
+  if (vendor.planDowngradeAt) {
+    const [defaultName, ownName] = await Promise.all([planDisplayName(await getDefaultPlanKey()), planDisplayName(vendor.planType)]);
+    throw new AppError(`El equipo de la plataforma programó el paso de tu tienda al plan ${defaultName}. Escríbenos en Mensajes si quieres mantener el plan ${ownName}.`, 409);
+  }
   if (vendor.verificationStatus === "VERIFIED" && vendor.cancelAtPeriodEnd) {
     if (vendor.stripeSubscriptionId) await setCardSubscriptionCancelAtPeriodEnd(vendor.stripeSubscriptionId, false);
     await prisma.vendor.update({ where: { id: vendor.id }, data: { cancelAtPeriodEnd: false } });
@@ -1179,9 +1332,11 @@ export async function updateMyCard(req, res) {
 // Activa la tienda con su suscripción de tarjeta confirmada por Stripe. Se usa desde el webhook (pago o prueba) y al
 // reactivar con la tarjeta guardada. Todo queda registrado como un pago confirmado: en la solicitud y su archivo, en el
 // historial de estados y en la actividad de la tienda.
-async function activateFromCardSubscription(vendorId, sub, { purpose, months, amountUsd, planType = "BUSINESS" }) {
+// `planType` llega ya resuelto (planFromStripeMetadata o el plan cotizado); sin él, el plan de prueba.
+async function activateFromCardSubscription(vendorId, sub, { purpose, months, amountUsd, planType }) {
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, include: { verification: true } });
   if (!vendor) return;
+  const plan = planType ?? (await getTrialPlanKey());
   const period = subscriptionPeriod(sub);
   const stripeData = { stripeSubscriptionId: sub.id, stripeCustomerId: typeof sub.customer === "string" ? sub.customer : sub.customer?.id, stripeIntervalMonths: months, cancelAtPeriodEnd: false };
 
@@ -1198,8 +1353,12 @@ async function activateFromCardSubscription(vendorId, sub, { purpose, months, am
   const now = new Date();
   if (vendor.verification) {
     const paymentData = { paymentMethod: "CARD", paymentMonths: months, paymentCurrency: "USD", paymentAmount: amountUsd ?? null, paymentClaimedAt: now, paymentConfirmedAt: now, paymentConfirmedById: null, paymentNote: "Cobro automático con tarjeta (Stripe)" };
-    await prisma.verificationRequest.update({ where: { id: vendor.verification.id }, data: { ...paymentData, stripePaidAt: now } });
+    // El plan del cobro va en la solicitud (no en el archivo, que no tiene esa columna): sin él, una reactivación quedaba
+    // con el plan del pago anterior y los ingresos se contaban en otro plan.
+    await prisma.verificationRequest.update({ where: { id: vendor.verification.id }, data: { ...paymentData, paymentPlanType: plan, stripePaidAt: now } });
     await syncVerificationArchive(vendor.id, { ...paymentData, stripePaidAt: now });
+    // El cobro con tarjeta también queda en el historial de pagos (SubscriptionPayment).
+    await mirrorInitialPayment(vendor.id);
   }
   const wasVerified = vendor.verificationStatus === "VERIFIED";
   // Pasar de CUP a tarjeta con tiempo pagado: el periodo actual de Stripe es de prueba hasta ese vencimiento.
@@ -1207,8 +1366,9 @@ async function activateFromCardSubscription(vendorId, sub, { purpose, months, am
   await transitionVendorVerification(vendor.id, "VERIFIED", {
     source: "STRIPE_WEBHOOK",
     reason: `Suscripción con tarjeta confirmada por Stripe: se cobra cada ${months} ${months === 1 ? "mes" : "meses"}.`,
-    extraData: { planType, nextPaymentDueDate, trialEndsAt: null, ...stripeData },
+    extraData: { planType: plan, nextPaymentDueDate, trialEndsAt: null, ...stripeData },
     notify: wasVerified ? undefined : { type: "VERIFICATION_VERIFIED" },
+    planChangeReason: "card_subscription",
   });
   await recalcVendorProductQuota(vendor.id);
   logActivity({
@@ -1218,6 +1378,27 @@ async function activateFromCardSubscription(vendorId, sub, { purpose, months, am
     action: purpose === "reactivate" ? "subscription_card_reactivated" : "subscription_card_started",
     description: `${purpose === "reactivate" ? "Reactivó" : "Activó"} su suscripción con tarjeta: cobro automático cada ${months} ${months === 1 ? "mes" : "meses"}${amountUsd ? ` (${amountUsd} USD)` : ""}.`,
   });
+}
+
+// Plan que viene en la metadata de una suscripción o de un pago de Stripe. Antes solo valían 3 claves fijas y cualquier otra
+// (un plan creado por el admin) se convertía en "BUSINESS". Ahora vale cualquier plan que exista y se cobre.
+//  - vendorPlan: el que se le asigna a la tienda. Tiene que existir, no estar archivado y cobrarse (isPaidConfig). Si la
+//    clave no sirve (suscripción de antes de los planes configurables, o el plan se archivó después), se queda con el suyo
+//    si se cobra y no es el plan por defecto (al perder la insignia la tienda pasa a ese, y volver a él con VERIFIED la
+//    dejaría en PLAN_ENDED); si no, el plan de prueba (todo pago de antes era de Premium, que es el de prueba).
+//  - paymentPlan: el que se anota en el pago. Es la clave de la metadata si existe aunque esté archivada (el cobro fue de
+//    ese plan y las estadísticas lo cuentan ahí); si no, el mismo que vendorPlan.
+// vendorPlan siempre acaba con VERIFIED: por eso nunca es el plan por defecto (la transición lo pasaría a PLAN_ENDED
+// después de cobrar), ni siquiera si el admin le dejó grantsBadge con precio. El respaldo `own` además tiene que dar la
+// insignia: devolverle a una tienda VERIFIED un plan sin insignia la dejaba en un estado que nada corrige.
+async function planFromStripeMetadata(raw, vendor) {
+  const defaultKey = await getDefaultPlanKey();
+  const key = typeof raw === "string" && PLAN_KEY_PATTERN.test(raw) ? raw : null;
+  const config = key ? await getPlanConfig(key) : null;
+  if (config && key !== defaultKey && !config.archivedAt && isPaidConfig(config)) return { vendorPlan: key, paymentPlan: key };
+  const own = vendor?.planType && vendor.planType !== defaultKey ? await getPlanConfig(vendor.planType) : null;
+  const vendorPlan = own && !own.archivedAt && isPaidConfig(own) && own.grantsBadge ? vendor.planType : await getTrialPlanKey();
+  return { vendorPlan, paymentPlan: config ? key : vendorPlan };
 }
 
 async function vendorForSubscription(subscriptionId, metadata = {}) {
@@ -1249,8 +1430,8 @@ async function handleCardCheckoutCompleted(session) {
   // Si tenía otra suscripción activa (no debería), se cancela para no cobrarle dos veces.
   if (vendor.stripeSubscriptionId && vendor.stripeSubscriptionId !== sub.id) await cancelStripeSubscription(vendor.stripeSubscriptionId);
   const months = Number(session.metadata?.months) || 1;
-  const planType = ["REGULAR", "STANDARD", "BUSINESS"].includes(session.metadata?.planType) ? session.metadata.planType : "BUSINESS";
-  await activateFromCardSubscription(vendor.id, sub, { purpose, months, amountUsd: session.amount_total != null ? session.amount_total / 100 : null, planType });
+  const { vendorPlan } = await planFromStripeMetadata(session.metadata?.planType, vendor);
+  await activateFromCardSubscription(vendor.id, sub, { purpose, months, amountUsd: session.amount_total != null ? session.amount_total / 100 : null, planType: vendorPlan });
 }
 
 // Cobro de la suscripción hecho (el primero, cada renovación o el pago de una factura que había fallado).
@@ -1260,8 +1441,8 @@ async function handleCardInvoicePaid(invoice) {
   const subMetadata = invoiceSubscriptionMetadata(invoice) ?? {};
   const vendor = await vendorForSubscription(subId, subMetadata);
   if (!vendor || vendor.stripeSubscriptionId !== subId) return; // el primer cobro lo anota la activación (checkout)
-  // Plan de la suscripción (viene en sus datos); las suscripciones de antes no lo traen y eran de Premium.
-  const subscriptionPlanType = ["REGULAR", "STANDARD", "BUSINESS"].includes(subMetadata.planType) ? subMetadata.planType : "BUSINESS";
+  // Plan de la suscripción (viene en sus datos); las suscripciones de antes no lo traen y eran del plan de prueba.
+  const { vendorPlan, paymentPlan } = await planFromStripeMetadata(subMetadata.planType, vendor);
   const amount = (invoice.amount_paid ?? 0) / 100;
   const line = invoice.lines?.data?.[0];
   const periodStart = line?.period?.start ? new Date(line.period.start * 1000) : new Date();
@@ -1277,7 +1458,7 @@ async function handleCardInvoicePaid(invoice) {
         amount,
         currency: String(invoice.currency ?? "usd").toUpperCase(),
         payerName: "Cobro automático con tarjeta",
-        planType: subscriptionPlanType,
+        planType: paymentPlan,
         claimedAt: new Date(),
         confirmedAt: new Date(),
         stripePaidAt: new Date(),
@@ -1294,8 +1475,9 @@ async function handleCardInvoicePaid(invoice) {
     await transitionVendorVerification(vendor.id, "VERIFIED", {
       source: "STRIPE_WEBHOOK",
       reason: "Stripe cobró la suscripción con tarjeta.",
-      extraData: { ...data, planType: subscriptionPlanType },
+      extraData: { ...data, planType: vendorPlan },
       notify: { type: "VERIFICATION_VERIFIED" },
+      planChangeReason: "payment_confirmed",
     });
     await recalcVendorProductQuota(vendor.id);
   } else if (Object.keys(data).length) {
@@ -1310,13 +1492,14 @@ async function handleCardInvoiceFailed(invoice) {
   const vendor = await vendorForSubscription(subId, invoiceSubscriptionMetadata(invoice));
   if (!vendor || vendor.stripeSubscriptionId !== subId || vendor.verificationStatus !== "VERIFIED") return;
   if (vendor.trialEndsAt) {
-    // Terminó la prueba y la tarjeta no pasó: vuelve al plan Regular, sin insignia, hasta que ponga otra tarjeta; al
-    // cobrarse, recupera Premium.
+    // Terminó la prueba y la tarjeta no pasó: vuelve al plan por defecto, sin insignia, hasta que ponga otra tarjeta; al
+    // cobrarse, recupera el plan de la suscripción (handleCardInvoicePaid).
     await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "STRIPE_WEBHOOK",
       reason: "Terminó la prueba gratis y Stripe no pudo cobrar la tarjeta.",
       extraData: { trialEndsAt: null },
       notify: { type: "VERIFICATION_PAYMENT_FAILED" },
+      planChangeReason: "trial_end",
     });
     return;
   }
@@ -1324,6 +1507,7 @@ async function handleCardInvoiceFailed(invoice) {
     source: "STRIPE_WEBHOOK",
     reason: "Stripe no pudo cobrar la renovación con tarjeta.",
     notify: { type: "VERIFICATION_PAYMENT_FAILED" },
+    planChangeReason: "downgrade_unpaid",
   });
 }
 
@@ -1342,28 +1526,33 @@ async function handleCardSubscriptionUpdated(sub) {
 async function handleCardSubscriptionDeleted(sub) {
   const vendor = await prisma.vendor.findFirst({ where: { stripeSubscriptionId: sub.id } });
   if (!vendor) return;
-  // El admin había programado el paso a Regular al terminar el periodo: se aplica eso.
+  // El admin había programado el paso al plan por defecto al terminar el periodo: se aplica eso.
   if (vendor.planDowngradeAt) {
     await prisma.vendor.update({ where: { id: vendor.id }, data: { stripeSubscriptionId: null } });
     await applyPlanDowngrade(vendor.id, { source: "STRIPE_WEBHOOK" });
     return;
   }
   if (vendor.trialEndsAt || vendor.verificationStatus === "PLAN_ENDED") {
-    // Canceló durante la prueba (o la prueba no llegó a cobrarse): vuelve al plan Regular, sin insignia.
+    // Canceló durante la prueba (o la prueba no llegó a cobrarse): vuelve al plan por defecto, sin insignia.
     await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "STRIPE_WEBHOOK",
       reason: "Terminó la suscripción de la prueba gratis.",
       extraData: { trialEndsAt: null, stripeSubscriptionId: null, cancelAtPeriodEnd: false },
       notify: vendor.trialEndsAt ? { type: "TRIAL_EXPIRED" } : undefined,
+      planChangeReason: "trial_end",
     });
     return;
   }
-  // La tienda pidió cancelar y llegó el final de lo pagado: vuelve al plan Regular (no es una suspensión).
+  // La tienda pidió cancelar y llegó el final de lo pagado: vuelve al plan por defecto (no es una suspensión).
+  // planType va explícito: transitionVendorVerification solo pone el plan por defecto al salir de VERIFIED, y una tienda de
+  // un plan de pago sin insignia (pagado con tarjeta sin verificarse) se quedaba en ese plan sin pagarlo.
+  const defaultKey = await getDefaultPlanKey();
   if (sub.cancellation_details?.reason === "cancellation_requested") {
     await transitionVendorVerification(vendor.id, "PLAN_ENDED", {
       source: "STRIPE_WEBHOOK",
       reason: "La tienda canceló la suscripción y llegó el final de lo pagado.",
-      extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false },
+      extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false, planType: defaultKey },
+      planChangeReason: "downgrade_cancelled",
     });
     return;
   }
@@ -1372,8 +1561,9 @@ async function handleCardSubscriptionDeleted(sub) {
   await transitionVendorVerification(vendor.id, "SUSPENDED", {
     source: "STRIPE_WEBHOOK",
     reason: "La suscripción con tarjeta terminó (Stripe no pudo cobrar).",
-    extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false },
+    extraData: { stripeSubscriptionId: null, cancelAtPeriodEnd: false, planType: defaultKey },
     notify: { type: "VERIFICATION_SUSPENDED" },
+    planChangeReason: "downgrade_unpaid",
   });
 }
 

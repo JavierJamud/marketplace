@@ -23,7 +23,7 @@ function Modal({ title, onClose, onBackdropClick, children }) {
           una pantalla chica, con muchos municipios listados, se podía
           cortar contra los bordes de la ventana sin forma de scrollear el
           modal completo). */}
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+      <div className="modal-panel-6 w-full max-w-md rounded-2xl bg-surface-container-lowest p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{title}</h2>
         {children}
       </div>

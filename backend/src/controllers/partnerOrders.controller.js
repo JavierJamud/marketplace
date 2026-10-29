@@ -6,7 +6,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { placeOrder } from "./orders.controller.js";
 import { captureOrderRequest } from "../lib/orderRequestInfo.js";
-import { getAllPlanConfigs } from "../lib/planConfig.js";
+import { getAllPlanConfigs, publicPlan } from "../lib/planConfig.js";
+import { isBillingOverdue } from "../services/planBilling.service.js";
 import { visibleVendorWhere, visibleProductWhere, absUrl, siteUrl } from "../lib/partnerDto.js";
 import { orderWhatsAppText, whatsappUrl, mixedTotalLabel } from "../lib/orderWhatsapp.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
@@ -55,7 +56,11 @@ function consumeOrderSlot(keyId) {
   }
   hits.push(now);
   orderHits.set(keyId, hits);
-  if (orderHits.size > 2000) orderHits.clear();
+  // Limpieza: solo se borran las credenciales sin pedidos dentro de la ventana. Antes se vaciaba todo el mapa y una
+  // credencial que estaba en el tope recuperaba sus 60 pedidos de golpe.
+  if (orderHits.size > 2000) {
+    for (const [k, list] of orderHits) if (!list.length || now - list[list.length - 1] >= ORDER_WINDOW_MS) orderHits.delete(k);
+  }
   return true;
 }
 
@@ -86,16 +91,23 @@ export async function getCheckoutRequirements(req, res) {
   const store = await visibleStore(req.partner.id, req.params.slug);
   const provinces = await deliveryProvinces(store);
   const { isOpen, nextOpenLabel } = isVendorOpenNow(store.schedules, store.timezone);
+  // La misma comprobación que hace placeOrder (assertVendorAcceptsOrders): con el cobro del plan atrasado la tienda se ve
+  // pero no recibe pedidos. Así el socio lo sabe antes de armar el formulario y no al final, con un 409.
+  const overdue = await isBillingOverdue(store);
   res.json({
     data: {
       store: { slug: store.slug, name: store.companyName, url: `${siteUrl()}/tienda/${store.slug}`, whatsapp: store.whatsapp, currency: store.currency },
-      acceptsOrders: true,
+      acceptsOrders: !overdue,
+      // Por qué no acepta pedidos (null si los acepta). reasonCode es el mismo `code` que devolvería POST /orders (409).
+      // El mismo texto del 409 de assertVendorAcceptsOrders (planBilling.service.js), para que el socio muestre una sola frase.
+      reason: overdue ? "Esta tienda no está recibiendo pedidos en este momento. Prueba más tarde o escríbele directamente." : null,
+      reasonCode: overdue ? "VENDOR_BILLING_OVERDUE" : null,
       orderDestination: store.orderDestination,
       isOpenNow: isOpen,
       nextOpenLabel: nextOpenLabel ?? null,
       rules: [
         "Todos los productos de un pedido deben ser de la misma tienda.",
-        "El precio y el total los calcula Baznova; nunca se toman del cliente.",
+        "El precio y el total los calcula la plataforma; nunca se toman del cliente.",
         "El stock se confirma cuando el vendedor acepta el pedido.",
         "Cada pedido necesita una cabecera Idempotency-Key única (8 a 64 caracteres) para que un reintento no duplique el pedido.",
       ],
@@ -182,7 +194,18 @@ export async function createPartnerOrder(req, res) {
   if (previous) {
     const store = await prisma.vendor.findUnique({ where: { id: previous.vendorId } });
     // La misma clave con un pedido distinto es un error del cliente: se avisa en vez de devolverle otro pedido.
-    const sameItems = body.items.length === previous.items.length && body.items.every((i) => previous.items.some((p) => p.productId === i.productId && p.quantity === i.quantity));
+    // La talla también cuenta: la misma clave con la talla M en vez de la S es otro pedido. Una línea guardada sin talla es
+    // de un producto sin tallas (placeOrder descarta la que se mande), así que ahí no se compara. Cada línea guardada se
+    // empareja una sola vez: si no, dos líneas iguales del cuerpo coincidían con la misma línea del pedido anterior.
+    const unmatched = [...previous.items];
+    const sameItems =
+      body.items.length === previous.items.length &&
+      body.items.every((i) => {
+        const k = unmatched.findIndex((p) => p.productId === i.productId && p.quantity === i.quantity && (p.size == null || p.size === i.size));
+        if (k < 0) return false;
+        unmatched.splice(k, 1);
+        return true;
+      });
     if (store.slug !== body.storeSlug || previous.customerEmail !== body.customerEmail || !sameItems) {
       throw new AppError("Esa Idempotency-Key ya se usó con un pedido distinto. Usa una clave nueva para cada pedido.", 409, { code: "idempotency_key_reused" });
     }
@@ -195,9 +218,13 @@ export async function createPartnerOrder(req, res) {
 
   const store = await visibleStore(partnerId, body.storeSlug);
 
-  // Un producto repetido en dos líneas se rechaza: se manda una sola línea con la cantidad total.
-  const ids = body.items.map((i) => i.productId);
-  if (new Set(ids).size !== ids.length) throw new AppError("Un producto aparece en más de una línea. Junta las cantidades en una sola línea.", 400);
+  // Un mismo producto puede ir en varias líneas si cada una lleva otra talla (la S y la M de una camisa); lo que se rechaza
+  // es repetir producto y talla: ahí se manda una sola línea con la cantidad total.
+  const lineKeys = body.items.map((i) => `${i.productId}|${i.size ?? ""}`);
+  if (new Set(lineKeys).size !== lineKeys.length) {
+    throw new AppError("Un producto aparece en más de una línea con la misma talla. Junta las cantidades en una sola línea.", 400);
+  }
+  const ids = [...new Set(body.items.map((i) => i.productId))];
 
   // Más estricto que el sitio: solo se puede pedir lo que esta credencial puede VER en el catálogo (nada de productos
   // de menú oculto ni de tiendas que no le corresponden), aunque alguien conozca el id.
@@ -229,7 +256,8 @@ export async function createPartnerOrder(req, res) {
     customerName: body.customerName,
     customerPhone: body.customerPhone,
     customerEmail: body.customerEmail,
-    shippingAddress: `${place} — ${body.shippingAddress}`,
+    // Coma y no raya larga: es la misma forma que guarda el checkout del sitio y se muestra tal cual al vendedor.
+    shippingAddress: [place, body.shippingAddress].filter(Boolean).join(", "),
     shippingProvinceId: province.id,
     shippingMunicipalityId: body.shippingMunicipalityId,
     items: body.items.map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size })),
@@ -260,6 +288,13 @@ export async function getPartnerOrder(req, res) {
 }
 
 // Planes con el precio base de Baznova y el extra que este socio le suma. Se arma igual para la API y el panel.
+// Lo descriptivo sale de publicPlan, lo mismo que ve /planes: lo que incluye cada plan armado con sus límites reales
+// (buildPlanIncludes, que descarta el texto libre con números porque puede contradecir un límite) y los topes con su
+// interruptor aplicado (un tope con la función apagada vale 0). Antes salían el texto libre y los topes crudos.
+// Solo salen los planes que /settings le muestra completos a un visitante: públicos, el de registro y el de prueba. GET /plans
+// es pública para sitios de terceros, y un plan oculto (por ejemplo uno pactado a mano con una tienda) no se puede elegir:
+// ni sus precios ni sus topes deben salir, ni el socio debe poder anunciarlo. setPortalPlanPrice busca en esta misma lista,
+// así que a un plan oculto le responde 404.
 export async function plansForPartner(partnerId) {
   const [configs, extras, counts] = await Promise.all([
     getAllPlanConfigs(),
@@ -268,7 +303,7 @@ export async function plansForPartner(partnerId) {
   ]);
   const extraBy = new Map(extras.map((e) => [e.planType, e]));
   const countBy = new Map(counts.map((c) => [c.planType, c._count._all]));
-  return configs.map((c) => {
+  return configs.filter((c) => c.isPublic || c.isDefault || c.isTrialPlan).map((c) => {
     // Precio base de Baznova para ese plan (0 si es gratis por ahora o se contrata hablando con el equipo).
     const paid = !c.isFree && !c.contactOnly;
     const baseCup = paid ? Number(c.priceCup) : 0;
@@ -277,11 +312,26 @@ export async function plansForPartner(partnerId) {
     const extraCup = Number(extra?.extraCup ?? 0);
     const extraUsd = Number(extra?.extraUsd ?? 0);
     const stores = countBy.get(c.planType) ?? 0;
+    const pub = publicPlan(c);
     return {
-      planType: c.planType,
-      name: c.displayName,
-      features: c.features,
-      limits: { maxProducts: c.maxProducts, maxTables: c.maxTables, maxStaffUsers: c.maxStaffUsers, maxDiscountCodes: c.maxDiscountCodes, maxProvinces: c.maxProvinces },
+      planType: pub.planType,
+      name: pub.name,
+      tagline: pub.tagline ?? null,
+      // El papel del plan sale de sus banderas (PartnerPlans.jsx las lee: plan de inicio, gratis o a medida).
+      isDefault: pub.isDefault,
+      isTrialPlan: pub.isTrialPlan,
+      isFree: !!pub.isFree,
+      contactOnly: !!pub.contactOnly,
+      grantsBadge: !!pub.grantsBadge,
+      highlighted: !!pub.highlighted,
+      includes: pub.includes,
+      // `features` se conserva como lista de textos para los socios que ya la leen (y PartnerPlans.jsx), pero ahora trae
+      // lo mismo que `includes`. publicPlan.features es otra cosa (objetos del catálogo) y no se expone aquí.
+      features: pub.includes,
+      limits: pub.limits,
+      // Precio tachado y descuentos por pagar varios meses que configuró el admin (sobre el precio de Baznova).
+      listPrice: { cup: pub.listPriceCup != null ? Number(pub.listPriceCup) : null, usd: pub.listPriceUsd != null ? Number(pub.listPriceUsd) : null },
+      monthDiscounts: pub.monthDiscounts,
       baseMonthly: { cup: baseCup, usd: baseUsd },
       extraMonthly: { cup: extraCup, usd: extraUsd },
       finalMonthly: { cup: baseCup + extraCup, usd: baseUsd + extraUsd },

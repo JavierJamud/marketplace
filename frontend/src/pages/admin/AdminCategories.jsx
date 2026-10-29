@@ -87,7 +87,7 @@ function CategoryModal({ category, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-sm rounded-xl bg-surface-container-lowest p-6">
         <h2 className="mb-4 text-title-lg font-bold text-on-surface">{category ? "Editar categoría" : "Agregar categoría"}</h2>
 
         <div className="mb-3.5 flex flex-col gap-3.5">
@@ -231,7 +231,7 @@ export default function AdminCategories({ embedded = false } = {}) {
       {!embedded && (
         <div className="mb-1 flex items-center gap-3">
           <IconCircle icon={Tags} tone="teal" />
-          <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Categorías de tipo de negocio</h1>
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Categorías de tipo de negocio</h1>
         </div>
       )}
       <p className="mb-2 text-[13.5px] text-outline">

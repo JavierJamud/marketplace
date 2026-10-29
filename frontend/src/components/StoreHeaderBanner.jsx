@@ -105,6 +105,10 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
   const nameWords = v.companyName.trim().split(/\s+/);
   const nameLast = nameWords.pop();
   const joinedYear = new Date(v.createdAt).getFullYear();
+  // isVendorOpenNow (schedule.service.js) da null cuando la tienda no cargó horario: eso no es "cerrado", es que no se sabe.
+  // Antes el banner lo pintaba como "Cerrado ahora" con el punto gris; sin horario no se muestra ni la pastilla ni el punto,
+  // igual que el pedido de mesa, que deja pasar a las tiendas sin horario (tables.controller.js).
+  const hasSchedule = v.isOpenNow === true || v.isOpenNow === false;
 
   return (
     <>
@@ -194,12 +198,14 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                 >
                   {v.logoUrl ? <img src={imgUrl(v.logoUrl)} alt={`Logo de ${v.companyName}`} className="h-full w-full object-cover" /> : v.companyName[0]}
                 </span>
-                <span
-                  title={v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
-                  className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-[2.5px] border-white shadow sm:bottom-1.5 sm:right-1.5 ${
-                    v.isOpenNow ? "bg-verified" : "bg-outline"
-                  }`}
-                />
+                {hasSchedule && (
+                  <span
+                    title={v.isOpenNow ? "Abierto ahora" : "Cerrado ahora"}
+                    className={`absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-[2.5px] border-white shadow sm:bottom-1.5 sm:right-1.5 ${
+                      v.isOpenNow ? "bg-verified" : "bg-outline"
+                    }`}
+                  />
+                )}
               </div>
 
               <div className="min-w-0 flex-1">
@@ -221,18 +227,17 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                     {v.businessCategory.name}
                   </span>
                 )}
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                    v.isOpenNow ? "bg-verified/20 text-[#7dffb0]" : "bg-white/10 text-white/90"
-                  }`}
-                >
-                  {v.isOpenNow ? "Abierto ahora" : v.nextOpenLabel || "Cerrado ahora"}
-                </span>
-                {v.category?.name && (
-                  <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white/90">
-                    {v.category.name}
+                {hasSchedule && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                      v.isOpenNow ? "bg-verified/20 text-[#7dffb0]" : "bg-white/10 text-white/90"
+                    }`}
+                  >
+                    {v.isOpenNow ? "Abierto ahora" : v.nextOpenLabel || "Cerrado ahora"}
                   </span>
                 )}
+                {/* Aquí iba también la pastilla de v.category: nadie la llena desde que se unificaron las categorías y el rubro
+                    real (businessCategory) ya sale en la pastilla blanca de arriba. */}
                 {v.isRestaurant && (
                   <span className="inline-flex items-center rounded-full bg-secondary-container/30 px-2.5 py-0.5 text-[11px] font-semibold text-secondary-container">
                     Restaurante
@@ -295,7 +300,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
                 href={waLink(v.whatsapp, `Hola ${v.companyName}, tengo una consulta sobre sus productos.`)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-5 py-2.5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
+                className="inline-flex items-center gap-2 rounded-xl bg-whatsapp px-5 py-2.5 text-label-md font-bold text-primary shadow-md transition-all hover:brightness-105 hover:shadow-lg active:scale-95"
               >
                 <MessageCircle className="h-[17px] w-[17px]" />
                 Contactar
@@ -330,8 +335,9 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
               {/* Sin separadores verticales: al pasar a otra línea en el celular quedaban sueltos al inicio. */}
               <span className="inline-flex items-center gap-1.5 text-[12.5px] text-white/75">
                 <Package className="h-3.5 w-3.5 text-white/60" aria-hidden="true" />
-                <span className="font-bold text-white">{v.products?.length ?? 0}</span>
-                producto{(v.products?.length ?? 0) === 1 ? "" : "s"}
+                {/* productCount es el total visible; products trae solo la primera página. */}
+                <span className="font-bold text-white">{v.productCount ?? v.products?.length ?? 0}</span>
+                producto{(v.productCount ?? v.products?.length ?? 0) === 1 ? "" : "s"}
               </span>
 
               <span className="inline-flex items-center gap-1.5 text-[12.5px] text-white/75">

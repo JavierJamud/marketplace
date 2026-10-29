@@ -2,11 +2,16 @@ import { checkoutLabel } from "../lib/catalog.js";
 import { isSessionIdle } from "../lib/sessionPolicy.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { getPlanConfig } from "../lib/planConfig.js";
+import { getPlanConfig, getDefaultPlanKey, isPremiumActive } from "../lib/planConfig.js";
+import { getPlanFeatureCatalog, featureValue, planFeatureList } from "../lib/planFeatures.js";
 import { describeUserAgent } from "../lib/userAgent.js";
 import { getTrialChecklist } from "../services/trialEligibility.service.js";
+import { adminReactivationBillingData } from "../services/planBilling.service.js";
 import { ticketsForVendor } from "./supportTickets.controller.js";
 import { describeVendorZones } from "../lib/vendorZone.js";
+// Misma cuenta de provincias que el registro y la propia tienda: antes aquí la clave era otra y uno veía "excede" donde el
+// otro no.
+import { countVendorProvinces } from "../services/vendorZoneSync.service.js";
 
 // Página "Gestionar" de una tienda en el admin (/admin/tiendas/:id): todo lo de esa tienda en un solo lugar. Reemplaza el
 // menú de tres puntos de la lista. Solo lectura; las acciones (editar, plan, bloquear, eliminar) usan las rutas de siempre.
@@ -70,7 +75,7 @@ export async function getVendorManage(req, res) {
   const now = Date.now();
   const since30 = new Date(now - 30 * DAY);
 
-  const [plan, checklist, sessions, trustedDevices, activity, activeProducts, orders30, chatQuestions30, assistantQuestions30, posSales30, errors, usage] = await Promise.all([
+  const [plan, checklist, sessions, trustedDevices, activity, activeProducts, productsInQuota, activeStoreOffers, activeStaff, liveTables, countedCodes, orders30, chatQuestions30, assistantQuestions30, posSales30, errors, usage] = await Promise.all([
     getPlanConfig(vendor.planType),
     getTrialChecklist(vendor.id),
     prisma.session.findMany({
@@ -88,6 +93,22 @@ export async function getVendorManage(req, res) {
       select: { id: true, action: true, description: true, actorRole: true, createdAt: true, actor: { select: { fullName: true } } },
     }),
     prisma.product.count({ where: { vendorId: vendor.id, isActive: true, hiddenFromStore: false, overQuota: false } }),
+    // Lo que cuenta el servidor contra cada tope (no el total de filas): productos activos dentro del cupo (placeProductInQuota
+    // en lib/planConfig.js) y ofertas encendidas (assertActiveOfferLimit en storeOffers.controller.js). Con el total salía
+    // "120 de 50" en una tienda con 70 borradores o productos fuera del cupo.
+    prisma.product.count({ where: { vendorId: vendor.id, isActive: true, overQuota: false } }),
+    prisma.storeOffer.count({ where: { vendorId: vendor.id, active: true } }),
+    // Usuarios, mesas y códigos con el mismo filtro que su tope en el servidor. Con el total de filas (_count) una tienda con 3
+    // usuarios desactivados y tope 3 veía "3 de 3" en rojo mientras el servidor le dejaba crear otro.
+    // Usuarios activos: assertStaffSlotFree en vendorStaff.controller.js (desactivar libera el cupo).
+    prisma.vendorStaff.count({ where: { vendorId: vendor.id, isActive: true } }),
+    // Mesas sin eliminar: createTable en tables.controller.js (la eliminada se guarda por su historial con deletedAt).
+    prisma.table.count({ where: { vendorId: vendor.id, deletedAt: null } }),
+    // Códigos encendidos, sin suspender y sin vencer: countedCodeWhere en discountCodes.controller.js. Se copia el filtro
+    // porque esa función no se exporta; si cambia allí, cambia aquí.
+    prisma.discountCode.count({
+      where: { vendorId: vendor.id, active: true, suspendedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date(now) } }] },
+    }),
     prisma.order.count({ where: { vendorId: vendor.id, createdAt: { gte: since30 }, status: { not: "CANCELLED" } } }),
     prisma.chatQuestionLog.count({ where: { vendorId: vendor.id, createdAt: { gte: since30 } } }).catch(() => 0),
     prisma.assistantMessage.count({ where: { scope: "VENDOR", vendorId: vendor.id, role: "user", createdAt: { gte: since30 } } }),
@@ -112,10 +133,10 @@ export async function getVendorManage(req, res) {
   if (vendor._count.schedules === 0) missing.push("Horario de atención");
   if (!(vendor.checkoutPaymentOptions?.length)) missing.push("Formas de pago en el checkout");
   if (!vendor.acceptedPaymentMethods?.length) missing.push("Formas de cobro a sus clientes");
-  if (vendor.isRestaurant && vendor._count.tables === 0) missing.push("Mesas con QR (es restaurante)");
+  if (vendor.isRestaurant && liveTables === 0) missing.push("Mesas con QR (es restaurante)");
 
-  // Cada requisito del plan Premium con el dato real con el que la tienda lo completó (o vacío si le falta). Las fotos de
-  // identidad nunca se mandan aquí: solo si se subieron y cuándo (se ven en Verificaciones).
+  // Cada requisito de la prueba gratis (getTrialChecklist) con el dato real con el que la tienda lo completó (o vacío si le
+  // falta). Las fotos de identidad nunca se mandan aquí: solo si se subieron y cuándo (se ven en Verificaciones).
   const ver = vendor.verification;
   const zones = describeVendorZones(vendor.locations, { pendingMark: " · municipio por aprobar" });
   const valueFor = {
@@ -157,38 +178,74 @@ export async function getVendorManage(req, res) {
       done: !!vendor.acceptedPaymentMethods?.length,
       value: vendor.acceptedPaymentMethods ?? [],
     },
-    ...(vendor.isRestaurant ? [{ key: "tables", label: "Mesas con QR", done: vendor._count.tables > 0, value: vendor._count.tables ? `${vendor._count.tables} mesas` : null }] : []),
+    // Solo las mesas sin eliminar: una eliminada (guardada por su historial) ya no tiene QR que escanear.
+    ...(vendor.isRestaurant ? [{ key: "tables", label: "Mesas con QR", done: liveTables > 0, value: liveTables ? `${liveTables} ${liveTables === 1 ? "mesa" : "mesas"}` : null }] : []),
   ];
 
-  // Plan: si paga, si está en la prueba gratis o en el plan gratuito, y cuánto usa de cada límite.
+  // Plan: si paga, si está en la prueba gratis o en un plan gratis, y cuánto usa de cada límite. Nada de claves fijas: lo
+  // dice la fila del plan en PlanConfig (un plan creado por el admin se ve igual que los de siempre).
   const isTrial = !!vendor.trialEndsAt && trialDaysLeftOf(vendor, now) > 0;
-  const limitRows = [
-    ["Productos", "maxProducts", vendor._count.products],
-    ["Provincias donde opera", "maxProvinces", new Set(vendor.locations.map((l) => l.provinceId ?? l.stateOther ?? l.countryId)).size],
-    ["Usuarios del sistema", "maxStaffUsers", vendor._count.staff],
-    ["Mesas", "maxTables", vendor._count.tables],
-    ["Códigos de descuento", "maxDiscountCodes", vendor._count.discountCodes],
-    ["Ofertas de tienda", "maxActiveStoreOffers", vendor._count.storeOffers],
-  ].map(([label, key, used]) => ({ label, used, max: plan?.[key] ?? null }));
-  const FEATURE_LABELS = {
-    allowAiChatbot: "Chat con IA",
-    allowPos: "Caja",
-    allowQrTables: "Mesas con QR",
-    allowStaffUsers: "Usuarios del sistema",
-    allowLoyalty: "Programa de puntos",
-    allowStoreOffers: "Ofertas de tienda",
-    allowDiscountCodes: "Códigos de descuento",
-    allowCustomerEmails: "Correos a clientes",
-    featuredInHome: "Destacada en la portada",
+  const [catalog, lastGrant] = await Promise.all([
+    getPlanFeatureCatalog(),
+    // Activación a mano vigente: el último cambio hacia su plan actual fue "admin_grant" y no hubo un pago confirmado después.
+    prisma.vendorPlanChange.findFirst({ where: { vendorId: vendor.id, toPlan: vendor.planType }, orderBy: { createdAt: "desc" }, select: { reason: true, createdAt: true } }),
+    getDefaultPlanKey(), // carga la caché que usa isPremiumActive
+  ]);
+  const paidAfterGrant =
+    lastGrant?.reason === "admin_grant"
+      ? (vendor.verification?.paymentConfirmedAt && vendor.verification.paymentConfirmedAt > lastGrant.createdAt) ||
+        !!(await prisma.subscriptionPayment.findFirst({ where: { vendorId: vendor.id, confirmedAt: { gt: lastGrant.createdAt } }, select: { id: true } }))
+      : false;
+  const catalogItem = new Map(catalog.map((f) => [f.key, f]));
+  // Límite efectivo: con su interruptor apagado (por ejemplo usuarios sin "Usuarios del equipo") vale 0, no el número guardado.
+  // Las ofertas además necesitan códigos de descuento (cada oferta lleva uno) y un plan con insignia (las ofertas son
+  // requiresBadge): sin alguna de las dos el servidor no deja crear ni encender ninguna (assertCanPublishStoreOffers en
+  // lib/storeOfferVisibility.js), así que el tope que se muestra también es 0.
+  const limitOf = (key) => {
+    if (!plan) return null;
+    if (key === "maxActiveStoreOffers" && (!plan.allowDiscountCodes || !plan.grantsBadge)) return 0;
+    return catalogItem.has(key) ? featureValue(plan, catalogItem.get(key)).limit : plan[key] ?? null;
   };
+  // Cada fila cuenta lo mismo que el servidor antes de dejar crear otro (ver los conteos del Promise.all de arriba).
+  // "Productos dentro del cupo" y no "publicados": el conteo incluye los ocultos de la tienda (hiddenFromStore), que ocupan
+  // cupo aunque el cliente no los vea.
+  const limitRows = [
+    ["Productos dentro del cupo", "maxProducts", productsInQuota],
+    ["Provincias donde opera", "maxProvinces", countVendorProvinces(vendor.locations)],
+    ["Usuarios activos del sistema", "maxStaffUsers", activeStaff],
+    ["Mesas", "maxTables", liveTables],
+    ["Códigos de descuento activos", "maxDiscountCodes", countedCodes],
+    ["Ofertas de tienda encendidas", "maxActiveStoreOffers", activeStoreOffers],
+  ].map(([label, key, used]) => ({ label, used, max: limitOf(key) }));
+  // Funciones del plan desde el catálogo (interruptores y personalizadas activas, en su orden), con la etiqueta que eligió
+  // el admin. Los topes van arriba, en `limits`.
+  // Una función requiresBadge (chat con IA, ofertas...) en un plan sin insignia no se puede usar aunque su interruptor esté
+  // encendido (planHasFeature en lib/planConfig.js): sale apagada y con `badgeMissing` para que la pantalla diga por qué.
+  const features = plan
+    ? planFeatureList(plan, catalog)
+        .filter((f) => f.kind !== "limit")
+        .map((f) => {
+          const badgeMissing = !!f.enabled && !!f.requiresBadge && !plan.grantsBadge;
+          return { key: f.key, label: f.label, on: !!f.enabled && !badgeMissing, badgeMissing, custom: f.kind === "custom", requiresBadge: !!f.requiresBadge };
+        })
+    : [];
+  const paidPlanActive = !isTrial && isPremiumActive(vendor);
   const planInfo = {
-    kind: isTrial ? "TRIAL" : vendor.planType !== "REGULAR" ? "PAID" : "FREE",
+    // PAID = un plan que no es gratis (también el plan por defecto cuando se cobra y los "por WhatsApp").
+    kind: isTrial ? "TRIAL" : plan && !plan.isFree ? "PAID" : "FREE",
+    planType: vendor.planType,
     name: plan?.displayName ?? vendor.planType,
+    isDefault: !!plan?.isDefault,
+    contactOnly: !!plan?.contactOnly,
+    grantsBadge: !!plan?.grantsBadge,
     nextPaymentDueDate: vendor.nextPaymentDueDate ?? null,
+    // Activo sin fecha de vencimiento (activado a mano "Sin vencimiento", ver grantBusinessPlan en admin.controller.js).
+    noExpiry: paidPlanActive && !vendor.nextPaymentDueDate,
+    manualGrant: lastGrant?.reason === "admin_grant" && !paidAfterGrant ? { at: lastGrant.createdAt } : null,
     paymentMethod: vendor.verification?.paymentMethod ?? null,
     paymentConfirmedAt: vendor.verification?.paymentConfirmedAt ?? null,
     limits: limitRows,
-    features: Object.entries(FEATURE_LABELS).map(([flag, label]) => ({ label, on: !!plan?.[flag] })),
+    features,
   };
 
   const trialDaysLeft = vendor.trialEndsAt ? Math.max(0, Math.ceil((new Date(vendor.trialEndsAt).getTime() - now) / DAY)) : null;
@@ -217,6 +274,18 @@ export async function getVendorManage(req, res) {
       isBlocked: vendor.isBlocked,
       blockReason: vendor.blockReason ?? null,
       status: vendor.status,
+      // Por qué está suspendida: por falta de pago (billingSuspendedAt, planBilling.service.js) o por inactividad
+      // (vendorLifecycle.job.js). Antes la pantalla decía "por inactividad" en los dos casos. `reactivationDueDate` es la
+      // fecha de pago que le queda si el admin la reactiva (adminReactivationBillingData: una semana más si ya venció).
+      suspension:
+        vendor.status === "SUSPENDED"
+          ? {
+              at: vendor.suspendedAt ?? null,
+              reason: vendor.suspensionReason ?? null,
+              forBilling: !!vendor.billingSuspendedAt,
+              reactivationDueDate: vendor.billingSuspendedAt ? adminReactivationBillingData(vendor).nextPaymentDueDate ?? vendor.nextPaymentDueDate ?? null : null,
+            }
+          : null,
       isRestaurant: vendor.isRestaurant,
       currency: vendor.currency,
       // Regla de envío de la tienda (ver lib/shipping.js): nulo = cada producto define el suyo.
@@ -231,7 +300,8 @@ export async function getVendorManage(req, res) {
       adminDeletionRequestedAt: vendor.adminDeletionRequestedAt ?? null,
       trial: { startedAt: vendor.trialStartedAt, endsAt: vendor.trialEndsAt, daysLeft: trialDaysLeft, active: !!vendor.trialEndsAt && trialDaysLeft > 0 },
       nextPaymentDueDate: vendor.nextPaymentDueDate ?? null,
-      // Paso a Regular programado por el admin y hasta cuándo tiene Premium hoy (para elegir "al terminar el periodo").
+      // Paso al plan por defecto programado por el admin y hasta cuándo tiene su plan de pago hoy (para elegir "al terminar
+      // el periodo"). `premiumUntil` conserva su nombre por compatibilidad.
       planDowngradeAt: vendor.planDowngradeAt ?? null,
       planDowngradeReason: vendor.planDowngradeReason ?? null,
       premiumUntil: vendor.trialEndsAt ?? vendor.nextPaymentDueDate ?? null,

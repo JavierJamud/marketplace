@@ -27,7 +27,9 @@ function downloadBlob(blob, filename) {
 // cliente + acciones de descargar/enviar — kind="warranty" suma selección
 // de productos del pedido y días de vigencia. Se genera sobre un pedido ya
 // Vendido (confirmOrderSale ya corrió), nunca sobre uno Pendiente.
-export function DocumentModal({ kind, order, vendor, onClose }) {
+// canEmail=false: quien abre el modal no puede escribir en Pedidos (personal de solo lectura). El servidor pide escritura
+// para enviar el correo; aquí se oculta el envío sin el aviso del plan, que no es su caso.
+export function DocumentModal({ kind, order, vendor, onClose, canEmail: canEmailProp = true }) {
   const isWarranty = kind === "warranty";
   const queryClient = useQueryClient();
   const [customerName, setCustomerName] = useState(order.customerName ?? "");
@@ -39,6 +41,10 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
   // siendo editable por certificado, esto es solo el punto de partida.
   const [warrantyDays, setWarrantyDays] = useState(vendor?.warrantyDefaultDays ?? 90);
 
+  // Mandarla por correo usa los correos a clientes del plan (invoices.controller.js responde 403 sin ellos). Sin ese
+  // interruptor no se ofrece el envío: se descarga y se manda por WhatsApp, como dice el aviso de abajo.
+  const planAllowsEmail = vendor?.planFeatures?.allowCustomerEmails !== false;
+  const canEmail = canEmailProp && planAllowsEmail;
   const docLabel = isWarranty ? "garantía" : "factura";
   const endpoint = isWarranty ? "warranty" : "invoice";
 
@@ -95,7 +101,7 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center gap-2">
           {isWarranty ? <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> : <FileText className="h-5 w-5 text-tertiary-accent" />}
           <h3 className="text-title-lg text-on-surface">{isWarranty ? "Certificado de garantía" : "Factura de compra"}</h3>
@@ -137,13 +143,19 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
             </>
           )}
 
-          <Input
-            label="Enviar copia por email a (opcional)"
-            type="email"
-            value={sendTo}
-            onChange={(e) => setSendTo(e.target.value)}
-            placeholder="correo@ejemplo.com"
-          />
+          {canEmail ? (
+            <Input
+              label="Enviar copia por email a (opcional)"
+              type="email"
+              value={sendTo}
+              onChange={(e) => setSendTo(e.target.value)}
+              placeholder="correo@ejemplo.com"
+            />
+          ) : !planAllowsEmail ? (
+            <p className="rounded-md bg-surface-container px-3 py-2.5 text-[12.5px] leading-[18px] text-on-surface-variant">
+              Tu plan no incluye enviar la {docLabel} por correo. Descárgala y mándasela al cliente por WhatsApp.
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-5 flex flex-col gap-2.5">
@@ -155,9 +167,11 @@ export function DocumentModal({ kind, order, vendor, onClose }) {
               <Download className="h-4 w-4" /> {download.isPending ? "Generando..." : "Descargar PDF"}
             </Button>
           </div>
-          <Button disabled={!canGenerate || !sendTo.trim() || pending} onClick={() => sendEmail.mutate()}>
-            <Mail className="h-4 w-4" /> {sendEmail.isPending ? "Enviando..." : "Enviar por email"}
-          </Button>
+          {canEmail && (
+            <Button disabled={!canGenerate || !sendTo.trim() || pending} onClick={() => sendEmail.mutate()}>
+              <Mail className="h-4 w-4" /> {sendEmail.isPending ? "Enviando..." : "Enviar por email"}
+            </Button>
+          )}
         </div>
       </div>
 

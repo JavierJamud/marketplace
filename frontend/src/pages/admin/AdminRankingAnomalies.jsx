@@ -83,7 +83,7 @@ export default function AdminRankingAnomalies() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Radar} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Anomalías del ranking</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Anomalías del ranking</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Ráfagas de reseñas de 5★ desde cuentas nuevas y picos de clics fuera de lo normal, detectados solos por los crons de vigilancia. Ninguna se

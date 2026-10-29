@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { MapPinned, PlusCircle, ShieldCheck, Store } from "lucide-react";
+import { MapPinned, PlusCircle, ShieldCheck, ShoppingBag, Store, Tag } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { useZone } from "../../context/LocationContext.jsx";
 import { ProductCard, ProductGridSkeleton, PRODUCT_GRID_CLASS } from "../../components/ProductCard.jsx";
@@ -20,7 +20,6 @@ import { AutoCarouselLazy as AutoCarousel } from "../../components/AutoCarouselL
 import { useMediaQuery, usePrefersReducedMotion } from "../../lib/useMediaQuery.js";
 import vendorMockupImage from "../../assets/images/visualizacion_telefono.webp";
 import vendorMockupImageMobile from "../../assets/images/hero-mobile-apps.webp";
-import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 import { VISIT_SEED } from "../../lib/visitSeed.js";
 
 // Bloque 248 (auditoría 004 de la página principal, pedido explícito del
@@ -40,10 +39,14 @@ import { VISIT_SEED } from "../../lib/visitSeed.js";
 // nota. El fade en los bordes es un mask-image (no hay utilidad de Tailwind).
 const EDGE_FADE_MASK = "linear-gradient(to right, transparent 0, black 40px, black calc(100% - 40px), transparent 100%)";
 
-function CategoryPill({ c }) {
+// `copy`: la segunda vuelta del marquee. Se ve y se toca igual (con pocas categorías casi todo lo visible es la copia, y `inert`
+// la dejaría sin responder al clic, como pasó en AutoCarousel), pero los lectores de pantalla y el tabulador la saltan para no
+// recorrer dos veces las mismas categorías.
+function CategoryPill({ c, copy = false }) {
   return (
     <Link
       to={`/tiendas?businessCategoryId=${c.id}`}
+      {...(copy ? { "aria-hidden": true, tabIndex: -1 } : {})}
       className="flex min-h-11 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-outline-variant bg-surface-container-lowest px-3.5 hover:border-primary-container focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
     >
       <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10">
@@ -114,7 +117,7 @@ function CategoryMarquee({ categories }) {
       </div>
       <div className={overflowing ? "category-marquee-track flex w-max animate-marquee gap-2.5" : "flex flex-wrap justify-center gap-2.5"} style={overflowing ? { animationDuration: `${loopSeconds}s` } : undefined}>
         {track.map((c, i) => (
-          <CategoryPill key={`${c.id}-${i}`} c={c} />
+          <CategoryPill key={`${c.id}-${i}`} c={c} copy={i >= categories.length} />
         ))}
       </div>
     </div>
@@ -137,6 +140,28 @@ function SectionHead({ title, subtitle, to, cta = "Ver todo →" }) {
         </Link>
       )}
     </div>
+  );
+}
+
+// Una sección que no pudo cargar. Antes un fallo de la API caía en el vacío ("Todavía no hay...") y la portada decía que no había
+// productos ni tiendas cuando sí los había. El botón vuelve a pedir solo esa sección y queda ocupado mientras lo hace.
+function SectionLoadError({ icon, what, onRetry, retrying }) {
+  return (
+    <EmptyState
+      icon={icon}
+      title={`No pudimos cargar ${what}`}
+      description="Revisa tu conexión e inténtalo de nuevo."
+      action={
+        <button
+          type="button"
+          onClick={() => onRetry()}
+          disabled={retrying}
+          className="min-h-11 rounded-xl bg-secondary-container px-5 text-[14px] font-bold text-on-secondary-container hover:brightness-95 disabled:opacity-70"
+        >
+          {retrying ? "Cargando…" : "Reintentar"}
+        </button>
+      }
+    />
   );
 }
 
@@ -196,7 +221,6 @@ function featuredVisibility(index) {
 }
 
 export default function Home() {
-  const { planNames } = usePlatformSettings();
   const { zoneParams, zoneKey, zoneName, provinceName, hasZoneFilter, waiting: zoneLoading } = useZone();
   const [zoneDialogOpen, setZoneDialogOpen] = useState(false);
   // Bloque 252: el slider de imágenes del hero va a la derecha en escritorio y,
@@ -225,21 +249,21 @@ export default function Home() {
   }, [businessCategories]);
 
   // Ventas rápidas: anuncios de clientes sin tienda. Se muestran los más recientes y siempre hay un acceso para publicar el tuyo.
-  const { data: quickSales, isPending: quickSalesPending } = useQuery({
+  const { data: quickSales, isPending: quickSalesPending, isError: quickSalesError, isFetching: quickSalesFetching, refetch: refetchQuickSales } = useQuery({
     queryKey: ["home-quick-sales", zoneKey],
     queryFn: async () => (await api.get("/customer-listings", { params: { limit: 8, ...zoneParams } })).data.listings,
     enabled: !zoneLoading,
     staleTime: 60 * 1000,
   });
 
-  const { data: featured, isPending: featuredPending } = useQuery({
+  const { data: featured, isPending: featuredPending, isError: featuredError, isFetching: featuredFetching, refetch: refetchFeatured } = useQuery({
     // La semilla va en la clave: lo guardado de la visita anterior no se pinta primero para después saltar al orden nuevo.
     queryKey: ["home-featured", zoneKey, VISIT_SEED],
     queryFn: async () => (await api.get("/search", { params: { ...zoneParams, seed: VISIT_SEED } })).data.products,
     enabled: !zoneLoading,
   });
 
-  const { data: verifiedVendors, isPending: verifiedPending } = useQuery({
+  const { data: verifiedVendors, isPending: verifiedPending, isError: verifiedError, isFetching: verifiedFetching, refetch: refetchVerified } = useQuery({
     queryKey: ["home-verified-vendors", zoneKey],
     queryFn: async () => (await api.get("/vendors", { params: { isVerified: true, ...zoneParams } })).data.vendors,
     enabled: !zoneLoading,
@@ -258,6 +282,15 @@ export default function Home() {
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
   });
+  // Los planes los configura el admin (GET /settings trae los no archivados). Aquí no se nombra ningún plan fijo:
+  //  - "gratis" solo se promete si el plan por defecto (con el que nace toda tienda, bandera isDefault) es gratis;
+  //    mientras carga se asume que sí, como se ha mostrado siempre. Si /settings falla (o no hay plan por defecto) se usa el
+  //    texto neutro: antes el error también prometía "gratis", aunque el admin le hubiera quitado isFree a ese plan.
+  //  - la invitación a verificarse nombra el plan solo si hay uno público que da la insignia; con varios, habla de la insignia.
+  const sitePlans = settings?.plans ?? [];
+  const defaultPlan = sitePlans.find((p) => p.isDefault);
+  const signupIsFree = !!defaultPlan?.isFree || settingsStatus === "pending";
+  const badgePlans = sitePlans.filter((p) => p.isPublic && !p.archivedAt && p.grantsBadge);
   // Imágenes del Hero que sube el admin (HeroImageSlider hace el fundido entre ellas).
   const heroImages = (settings?.heroImages ?? []).map((u) => `${api.defaults.baseURL}${u}`);
   // Sin que nada salte al cargar (Google lo mide como "cambios de diseño"): mientras llegan los ajustes se reserva el lugar
@@ -351,7 +384,9 @@ export default function Home() {
             había duplicado debajo de "Abre tu tienda", y se veía como un error). */}
         {offers?.length > 0 && (
           <section className="container-app cv-auto pt-8 md:pt-11">
-            <SectionHead title="Ofertas de la semana" subtitle="De tiendas verificadas y de la casa" />
+            {/* Desde el Bloque 297 solo salen las ofertas que publica el admin (offers.controller.js, createdByAdmin), aunque
+                apunten al producto de una tienda: el subtítulo ya no promete "de tiendas verificadas". */}
+            <SectionHead title="Ofertas de la semana" subtitle={`Promociones de ${settings?.siteName || "Baznova"}`} />
             <OffersSlider offers={offers} />
           </section>
         )}
@@ -360,10 +395,13 @@ export default function Home() {
         <section className="container-app cv-auto pt-8 md:pt-11">
           <SectionHead
             title={hasZoneFilter ? `Destacados en ${zoneName}` : "Destacados en toda Cuba"}
-            subtitle={hasZoneFilter ? "De tiendas verificadas cerca de ti" : "De tiendas verificadas en todo el país"}
+            // /search sin onlyVerified incluye tiendas sin verificar a propósito (Bloque 98): no se promete "verificadas".
+            subtitle={hasZoneFilter ? "Productos de tiendas cerca de ti" : "Productos de tiendas de todo el país"}
           />
           {featuredPending ? (
             <ProductGridSkeleton count={20} itemClassName={featuredVisibility} />
+          ) : featuredError ? (
+            <SectionLoadError icon={ShoppingBag} what="los productos destacados" onRetry={refetchFeatured} retrying={featuredFetching} />
           ) : featured?.length ? (
             <>
               {/* Bloque 248 (hallazgo 15): 20 destacados en celular eran 3333px de
@@ -416,6 +454,8 @@ export default function Home() {
           </div>
           {quickSalesPending ? (
             <QuickSalesSkeleton />
+          ) : quickSalesError ? (
+            <SectionLoadError icon={Tag} what="los anuncios" onRetry={refetchQuickSales} retrying={quickSalesFetching} />
           ) : quickSales?.length > 0 ? (
             <>
               {/* Pasa de un anuncio a la vez, sin fin, y también se desliza con el dedo. Solo lleva anuncios; el botón de publicar va fijo debajo. */}
@@ -469,7 +509,7 @@ export default function Home() {
               className="pointer-events-none absolute bottom-0 hidden select-none drop-shadow-2xl md:right-4 md:block md:w-64 lg:right-8 lg:w-80"
             />
             <div className="max-w-[560px] xl:min-w-0 xl:flex-1">
-              <h3 className="mb-2 font-display text-2xl font-extrabold text-white">Abre tu tienda online gratis, hoy mismo</h3>
+              <h3 className="mb-2 font-display text-2xl font-extrabold text-white">{signupIsFree ? "Abre tu tienda online gratis, hoy mismo" : "Abre tu tienda online hoy mismo"}</h3>
               <p className="text-body-md text-white/80">
                 Para tiendas, restaurantes y comercios. Catálogo propio, pedidos por WhatsApp o desde tu panel y menú con QR si tienes un restaurante.
                 Sin comisiones por venta y con un plan para cada tamaño de negocio. Empieza a vender en minutos.
@@ -480,7 +520,7 @@ export default function Home() {
                 to="/vendedor/ingresar?tab=registro"
                 className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-secondary-container px-5 py-3 text-label-md text-on-secondary-container hover:brightness-95"
               >
-                <PlusCircle className="h-4 w-4" aria-hidden="true" /> Crear mi tienda gratis
+                <PlusCircle className="h-4 w-4" aria-hidden="true" /> {signupIsFree ? "Crear mi tienda gratis" : "Crear mi tienda"}
               </Link>
               <Link
                 to="/tiendas"
@@ -506,13 +546,22 @@ export default function Home() {
           <SectionHead title="Tiendas verificadas" to="/tiendas" />
           {verifiedPending ? (
             <VerifiedStoresSkeleton />
+          ) : verifiedError ? (
+            <SectionLoadError icon={ShieldCheck} what="las tiendas verificadas" onRetry={refetchVerified} retrying={verifiedFetching} />
           ) : verifiedVendors?.length ? (
             <VerifiedStoresSlider stores={verifiedVendors.slice(0, 12)} />
           ) : (
             <EmptyState
               icon={ShieldCheck}
               title="Todavía no hay tiendas verificadas en tu zona"
-              description={`Sé el primero en verificarte con el Plan ${planNames.BUSINESS}.`}
+              description={
+                badgePlans.length === 1
+                  ? `Sé el primero en verificarte con el plan ${badgePlans[0].displayName}.`
+                  : badgePlans.length > 1
+                    ? "Sé el primero en verificarte con un plan que incluya la insignia de tienda verificada."
+                    : // Ningún plan público da la insignia: no se invita a un trámite que hoy no se puede contratar.
+                      "¿Tienes un negocio? Crea tu tienda y empieza a vender."
+              }
               action={
                 <Link to="/vendedor/ingresar?tab=registro" className="text-label-md font-semibold text-tertiary-accent hover:underline">
                   Crear mi tienda

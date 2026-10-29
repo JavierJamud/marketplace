@@ -15,8 +15,8 @@ export async function vendorSuspendedEmail({ vendor, reason }) {
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola equipo de <strong>${vendor.companyName}</strong>, tu tienda se pausó automáticamente: <strong>${reason}</strong>.`)}
-      ${smallNote("Tus productos, pedidos y datos siguen intactos — nada se borra. Vuelve a estar visible en cuanto se reactive.")}
-      ${paragraph("Contáctanos para reactivarla — es un trámite simple, no necesitas volver a verificarte ni cargar nada de nuevo.")}
+      ${smallNote("Tus productos, pedidos y datos siguen intactos: nada se borra. Vuelve a estar visible en cuanto se reactive.")}
+      ${paragraph("Contáctanos para reactivarla: es un trámite simple, no necesitas volver a verificarte ni cargar nada de nuevo.")}
       ${ctaButton("Contactar soporte", `${env.frontendUrl}/contacto`)}
     `,
   });

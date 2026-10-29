@@ -45,6 +45,26 @@ const MIN_RATING_IF_REVIEWED = 3.0;
 // mostrarse antes de competir 100% por mérito.
 const NEW_PRODUCT_BOOST_DAYS = 14;
 const NEW_PRODUCT_BOOST = 0.08;
+
+// "Destacada en la portada" (PlanConfig.featuredInHome): la página de planes lo vende como beneficio, pero el ranking no miraba
+// el plan y solo lo cumplía el autocompletado. Empujón fijo para los productos de una tienda verificada cuyo plan lo tiene
+// encendido: más chico que el +1 del destacado a mano por el admin (ese grupo sigue siempre arriba) y sin saltarse el piso
+// de calidad (un producto que no lo pasa no recibe ningún empujón). 0.12 es lo que pesa una señal fuerte (como la ficha
+// completa): se nota, pero el mérito manda. Con 0.5 (la mitad de toda la escala) y la rotación exponencial, cualquier producto
+// del plan quedaba por encima de casi todo lo orgánico.
+const PLAN_FEATURED_BOOST = 0.12;
+
+// Arma la función que dice si la tienda de un producto tiene el beneficio, a partir de getAllPlanConfigs() (lib/planConfig.js).
+// Este archivo no consulta la base: cada llamador carga los planes y le pasa el resultado a rankFeaturedProducts.
+// featuredInHome exige insignia (requiresBadge): el plan tiene que darla, igual que planAllows en lib/planConfig.js (no se
+// importa de ahí porque planConfig.js ya importa este archivo).
+export function planFeaturedChecker(plans) {
+  const byType = Object.fromEntries((plans ?? []).map((p) => [p.planType, p]));
+  return (vendor) => {
+    const plan = byType[vendor?.planType];
+    return vendor?.verificationStatus === "VERIFIED" && !!plan?.featuredInHome && !!plan?.grantsBadge;
+  };
+}
 const MS_PER_DAY = 86_400_000;
 
 // Bloque 228 (pedido explícito — Fase 1, "blindar el ranking": "promedio
@@ -160,6 +180,8 @@ function rotate(scored, seed) {
 // reviewStatsByProductId: Map<productId, { avgRating: number, reviewCount: number }>
 // engagement: Map<productId, { favorites, orders, carts }> (services/productRankingSignals.service.js); sin él cuentan 0.
 // options.seed: si viene, el orden rota (ver rotate arriba); sin semilla es el orden puro por puntaje.
+// options.isPlanFeatured: (vendor) => boolean, ver planFeaturedChecker. Sin ella no se aplica el empujón del plan (la página
+// de una tienda, donde todos los productos son de la misma tienda y el empujón no cambiaría nada).
 export function rankFeaturedProducts(products, reviewStatsByProductId, engagement = new Map(), options = {}) {
   if (products.length === 0) return [];
   const signal = (p, k) => engagement.get(p.id)?.[k] ?? 0;
@@ -236,6 +258,7 @@ export function rankFeaturedProducts(products, reviewStatsByProductId, engagemen
     // cualquier combinación de señales automáticas — nunca lo pisa el
     // algoritmo, solo decide el orden DENTRO del grupo de destacados a mano.
     if (product.isFeatured) score += 1;
+    if (options.isPlanFeatured?.(product.vendor)) score += PLAN_FEATURED_BOOST;
 
     return { product, score };
   });
@@ -255,6 +278,7 @@ export const RANKING_RULES = {
   calificacionMinimaSiTieneResenas: MIN_RATING_IF_REVIEWED,
   diasDeEmpujonProductoNuevo: NEW_PRODUCT_BOOST_DAYS,
   empujonProductoNuevo: NEW_PRODUCT_BOOST,
+  empujonPorPlanDestacado: PLAN_FEATURED_BOOST,
   mitadDeVidaDeLaActividadEnDias: RECENCY_HALF_LIFE_DAYS,
   pesoMinimoDeLaActividadAntigua: RECENCY_FLOOR,
   ventanaDeCarritosYPedidosEnDias: 30,
@@ -266,8 +290,9 @@ export const RANKING_RULES = {
 // Las señales de UN producto tal como las ve el algoritmo (mismas funciones y
 // umbrales que rankFeaturedProducts), sin recalcular el orden. Sirve para
 // decirle al dueño POR QUÉ un producto sube o no (piso de calidad, actividad
-// reciente, completitud, empujón de producto nuevo).
-export function explainProductRanking(product, stats, now = Date.now()) {
+// reciente, completitud, empujón de producto nuevo, empujón del plan).
+// isPlanFeatured: la misma función que recibe rankFeaturedProducts; sin ella, ese dato sale como null (desconocido).
+export function explainProductRanking(product, stats, now = Date.now(), { isPlanFeatured } = {}) {
   const completeness = completenessScore(product);
   const isVerified = product.vendor?.verificationStatus === "VERIFIED";
   const minCompleteness = isVerified ? MIN_COMPLETENESS_VERIFIED : MIN_COMPLETENESS_UNVERIFIED;
@@ -287,5 +312,6 @@ export function explainProductRanking(product, stats, now = Date.now()) {
     pesoDeLaActividadReciente: Math.round(recencyMultiplier(product.lastActivityAt, now) * 100) / 100,
     empujonDeProductoNuevoActivo: daysSinceActivated !== null && daysSinceActivated <= NEW_PRODUCT_BOOST_DAYS,
     destacadoAManoPorElAdmin: !!product.isFeatured,
+    empujonPorElPlanDeLaTienda: isPlanFeatured ? reasons.length === 0 && isPlanFeatured(product.vendor) : null,
   };
 }

@@ -19,6 +19,8 @@ import { useUnsavedGuard } from "../../lib/unsavedGuard.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import { StoreShippingCard } from "../../components/vendor/ShippingFields.jsx";
+import { PlanUpsell } from "../../components/vendor/PlanUpsell.jsx";
+import { EmailPreferencesCard } from "../../components/customer/EmailPreferencesCard.jsx";
 import { ManageVendorMunicipalitiesModal, zoneUnit } from "../../components/ZoneMunicipalitiesModal.jsx";
 
 // Vendor.orderDestination: todo pedido entra siempre a "Mis pedidos" (con aviso en vivo, push y correo). La tienda solo
@@ -83,7 +85,7 @@ function VendorShareLink({ slug, isPrivate }) {
           </Button>
         </div>
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-outline">
-          <QrCode className="h-3 w-3 flex-shrink-0" /> Escaneable de verdad — imprímelo o compártelo tal cual.
+          <QrCode className="h-3 w-3 flex-shrink-0" /> Escaneable de verdad: imprímelo o compártelo tal cual.
         </p>
       </div>
     </div>
@@ -163,6 +165,13 @@ export default function VendorSettings() {
     queryKey: ["my-vendor-settings"],
     queryFn: async () => (await api.get("/vendors/me")).data.vendor,
   });
+  // Interruptor "Horarios de atención" del plan (planFeatures, GET /vendors/me), que el admin puede apagar por plan.
+  const allowSchedules = vendor?.planFeatures?.allowSchedules !== false;
+  // Tienda sin ningún horario guardado (por ejemplo, se registró con un plan sin horarios y después pasó a uno que sí los
+  // trae): el editor muestra 09:00-18:00 de ejemplo, pero en el servidor no hay nada y la tienda no sale como abierta ni
+  // cerrada. scheduleSavedHere cubre el rato entre guardarlo y que la tienda vuelva a cargarse.
+  const [scheduleSavedHere, setScheduleSavedHere] = useState(false);
+  const hasSavedSchedule = scheduleSavedHere || (vendor?.schedules?.length ?? 0) > 0;
 
   const { data: provincesForSelectedCountry } = useQuery({
     queryKey: ["provinces-for-country", newCountryForProvince],
@@ -337,8 +346,9 @@ export default function VendorSettings() {
     toast.success("Se copió el horario del lunes al resto de los días.");
   }
 
-  const invalidateVendor = () => {
-    queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
+  // keepForm: no recarga "my-vendor-settings" (la que llena este formulario), para no pisar cambios aún sin guardar.
+  const invalidateVendor = ({ keepForm = false } = {}) => {
+    if (!keepForm) queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
     queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
     queryClient.invalidateQueries({ queryKey: ["active-countries"] });
     queryClient.invalidateQueries({ queryKey: ["provinces"] });
@@ -403,21 +413,67 @@ export default function VendorSettings() {
       toast.error(`Tu plan permite hasta ${tablesCap} mesas. Escribe ${tablesCap} o menos.`);
       return false;
     }
-    try {
-      await Promise.all([saveProfile.mutateAsync(), saveSchedule.mutateAsync()]);
+    // El horario va aparte (PATCH /me/schedule) y el servidor lo rechaza si el plan no trae allowSchedules. Antes se mandaba
+    // siempre con Promise.all: con el interruptor apagado desde el admin, cada guardado salía en error aunque el resto sí se
+    // guardara. Ahora solo se manda si el plan lo permite y si los días cambiaron respecto a lo guardado. Si la tienda nunca
+    // guardó un horario, cuenta como cambio: lo que se ve es el ejemplo y, si no se manda, el horario no llega a existir.
+    const saved = baseline ? JSON.parse(baseline) : null;
+    const scheduleChanged = !saved || !hasSavedSchedule || JSON.stringify(days) !== JSON.stringify(saved.days);
+    const sendSchedule = allowSchedules && scheduleChanged;
+    // allSettled: cada parte se informa por separado, así un fallo del horario no oculta que el resto ya quedó guardado.
+    const [profileResult, scheduleResult] = await Promise.allSettled([
+      saveProfile.mutateAsync(),
+      sendSchedule ? saveSchedule.mutateAsync() : Promise.resolve(null),
+    ]);
+    const profileOk = profileResult.status === "fulfilled";
+    const scheduleOk = scheduleResult.status === "fulfilled";
+    if (sendSchedule && scheduleOk) setScheduleSavedHere(true);
+
+    if (profileOk && scheduleOk) {
       setBaseline(JSON.stringify({ form, days }));
       toast.success("Cambios guardados.");
       invalidateVendor();
       return true;
-    } catch (err) {
-      const fieldErrors = err.response?.data?.details?.fieldErrors ?? {};
+    }
+
+    // Guardado a medias: la foto de lo guardado se mueve solo en la parte que sí se guardó, para que la otra siga marcada
+    // como pendiente. No se recarga la tienda aquí: el efecto de carga pisaría lo que el vendedor todavía tiene que corregir.
+    if (profileOk || (sendSchedule && scheduleOk)) {
+      setBaseline(JSON.stringify({ form: profileOk ? form : saved?.form ?? form, days: scheduleOk ? days : saved?.days ?? days }));
+      invalidateVendor({ keepForm: true });
+    }
+    if (!profileOk) {
+      const err = profileResult.reason;
+      const fieldErrors = err?.response?.data?.details?.fieldErrors ?? {};
+      const prefix = sendSchedule && scheduleOk ? "El horario se guardó, pero el resto no. " : "";
       if (Object.keys(fieldErrors).length > 0) {
         setErrors(fieldErrors);
-        toast.error("Revisa los campos marcados en rojo.");
+        toast.error(`${prefix}Revisa los campos marcados en rojo.`);
       } else {
-        toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios.");
+        toast.error(`${prefix}${err?.response?.data?.error ?? "No se pudieron guardar los cambios."}`);
       }
-      return false;
+    }
+    if (!scheduleOk) {
+      const err = scheduleResult.reason;
+      const prefix = profileOk ? "El resto de los cambios se guardó, pero el horario no. " : "El horario tampoco se guardó. ";
+      toast.error(`${prefix}${err?.response?.data?.error ?? "Inténtalo de nuevo."}`);
+    }
+    return false;
+  }
+
+  // Guarda solo el horario, desde el aviso de "todavía no guardaste tu horario". Hace falta porque "Guardar cambios" está
+  // apagado mientras no haya cambios, y quien quiere quedarse con el horario de ejemplo tal cual no tendría cómo guardarlo.
+  // Mueve solo los días en la foto de lo guardado: el resto del formulario, si tenía cambios, sigue pendiente.
+  async function saveScheduleOnly() {
+    try {
+      await saveSchedule.mutateAsync();
+      setScheduleSavedHere(true);
+      const saved = baseline ? JSON.parse(baseline) : null;
+      setBaseline(JSON.stringify({ form: saved?.form ?? form, days }));
+      toast.success("Horario guardado.");
+      invalidateVendor({ keepForm: true });
+    } catch (err) {
+      toast.error(err?.response?.data?.error ?? "No se pudo guardar el horario. Inténtalo de nuevo.");
     }
   }
 
@@ -492,18 +548,22 @@ export default function VendorSettings() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <IconCircle icon={Settings2} tone="teal" />
-          <div>
-            <h1 className="text-display-sm font-extrabold text-on-surface">Configuración de la tienda</h1>
+          <div className="min-w-0">
+            <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Configuración de la tienda</h1>
             <p className="text-body-md text-on-surface-variant">
               Datos públicos, zonas de cobertura y métodos de entrega.
             </p>
           </div>
         </div>
-        <Button onClick={handleSaveAll} disabled={saving || !isDirty} className={`rounded-xl font-bold ${savableTab ? "" : "hidden"}`}>
-          {saving ? "Guardando..." : isDirty ? "Guardar cambios" : "Sin cambios"}
-        </Button>
+        {/* Solo aparece cuando hay algo que guardar: el botón apagado "Sin cambios" ocupaba un renglón propio en el celular y
+            parecía un error. */}
+        {savableTab && (isDirty || saving) && (
+          <Button onClick={handleSaveAll} disabled={saving} className="w-full rounded-xl font-bold sm:w-auto">
+            {saving ? "Guardando..." : "Guardar cambios"}
+          </Button>
+        )}
       </div>
 
       <Tabs tabs={SETTINGS_TABS} value={activeTab} onChange={setActiveTab} className="mb-5" />
@@ -529,11 +589,11 @@ export default function VendorSettings() {
           esta es la moneda real en la que están expresados TODOS los
           precios). Cambiarla NO convierte los precios ya cargados. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <Wallet className="h-5 w-5 text-tertiary-accent" /> Moneda oficial de tu tienda
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          En qué moneda están expresados los precios de tus productos — una tienda opera en una sola.
+          En qué moneda están expresados los precios de tus productos. Una tienda opera en una sola.
         </p>
         <Select
           label="Moneda"
@@ -547,7 +607,7 @@ export default function VendorSettings() {
         </Select>
         {form.currency !== (vendor?.currency ?? "CUP") && (
           <p className="mt-2.5 text-label-sm font-semibold text-error">
-            ⚠ Cambiar esto NO convierte los precios de tus productos ya cargados — solo cambia la etiqueta. Revísalos y
+            ⚠ Cambiar esto NO convierte los precios de tus productos ya cargados, solo cambia la etiqueta. Revísalos y
             ajústalos a mano después de guardar.
           </p>
         )}
@@ -556,11 +616,11 @@ export default function VendorSettings() {
       {/* Bloque 206 (pedido explícito): antes solo se elegía una vez al
           registrar la tienda, sin forma de cambiarlo después. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <Wallet className="h-5 w-5 text-tertiary-accent" /> Tipo de tienda
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Activa esto si atiendes en el local con mesas — habilita Mesas/QR en tu panel.
+          Activa esto si atiendes en el local con mesas: habilita Mesas/QR en tu panel.
         </p>
         <label className="flex items-center gap-2 text-body-md text-on-surface">
           <input
@@ -602,7 +662,7 @@ export default function VendorSettings() {
             <p className="mt-1 text-label-sm text-outline">
               {form.menuPublic
                 ? "Cualquiera que entre a tu tienda ve el menú, además de poder pedirlo escaneando el QR de la mesa."
-                : "El menú queda oculto de tu tienda pública — solo se ve escaneando el QR de la mesa."}
+                : "El menú queda oculto de tu tienda pública. Solo se ve escaneando el QR de la mesa."}
             </p>
           </div>
         )}
@@ -611,7 +671,7 @@ export default function VendorSettings() {
       {/* Cómo coordina el pago el cliente al terminar su compra: vale para toda la tienda (no por producto). Por defecto están
           las tres; el cliente solo ve las que dejes marcadas. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <Wallet className="h-5 w-5 text-tertiary-accent" /> Cómo coordinas el pago
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
@@ -658,11 +718,11 @@ export default function VendorSettings() {
           pudiendo coordinar otra moneda manualmente por WhatsApp si hace
           falta, no necesita configurarse acá. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <Wallet className="h-5 w-5 text-tertiary-accent" /> Métodos de pago
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Puramente informativo — se muestra en tu tienda pública para que el cliente sepa qué coordinar contigo.
+          Puramente informativo: se muestra en tu tienda pública para que el cliente sepa qué coordinar contigo.
           {siteName} no procesa nada de esto.
         </p>
 
@@ -731,7 +791,7 @@ export default function VendorSettings() {
       </div>
 
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <MessageCircle className="h-5 w-5 text-tertiary-accent" /> Cómo quieres recibir tus pedidos
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
@@ -763,7 +823,7 @@ export default function VendorSettings() {
 
       {/* Bloque 302: aviso por correo de cada pedido nuevo. Se manda al correo de la tienda, nunca al administrador. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <Mail className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Aviso de pedidos por correo
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
@@ -786,10 +846,19 @@ export default function VendorSettings() {
           la configuración de la cuenta por si el vendedor desea modificar
           sus horarios de apertura"): editor real de horario semanal, con
           varios tramos por día (ej. 9-12 y 14-18, cierre al mediodía) —
-          viaja con el mismo "Guardar cambios" de arriba (handleSaveAll). */}
+          viaja con el mismo "Guardar cambios" de arriba (handleSaveAll).
+          Si el plan no trae horarios, en su lugar va el aviso del plan: el editor no podría guardarse. */}
+      {!allowSchedules ? (
+        <div className="mb-5">
+          <PlanUpsell
+            title="Los horarios de atención no están en tu plan"
+            text="Con los horarios, tus clientes ven si estás abierto ahora mismo y, si vendes por mesa, no te llegan pedidos con el local cerrado."
+          />
+        </div>
+      ) : (
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
+          <div className="flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
             <Clock className="h-5 w-5 text-tertiary-accent" /> Horario de atención
           </div>
           <button type="button" onClick={copyMondayToAll} className="whitespace-nowrap text-[12px] font-semibold text-tertiary-accent hover:underline">
@@ -797,9 +866,22 @@ export default function VendorSettings() {
           </button>
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Se usa para avisarle al cliente si estás abierto ahora mismo — si vendes por mesa (QR), también bloquea pedidos
+          Se usa para avisarle al cliente si estás abierto ahora mismo. Si vendes por mesa (QR), también bloquea pedidos
           nuevos fuera de este horario. Puedes cargar más de un tramo el mismo día (ej. mañana y tarde, con cierre al mediodía).
         </p>
+        {!hasSavedSchedule && (
+          <div
+            role="status"
+            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tertiary-accent/30 bg-tertiary-accent/[0.06] p-4"
+          >
+            <p className="min-w-0 flex-1 basis-56 text-[12.5px] font-semibold text-on-surface">
+              Todavía no guardaste tu horario. Lo que ves abajo es un ejemplo: tus clientes no lo ven hasta que lo guardes.
+            </p>
+            <Button variant="outline" disabled={saveSchedule.isPending} onClick={saveScheduleOnly}>
+              {saveSchedule.isPending ? "Guardando..." : "Guardar este horario"}
+            </Button>
+          </div>
+        )}
         <div className="flex flex-col divide-y divide-surface-container-high">
           {days.map((d) => (
             <div key={d.dayOfWeek} className="flex flex-col gap-2.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start">
@@ -863,6 +945,7 @@ export default function VendorSettings() {
           ))}
         </div>
       </div>
+      )}
         </>
       )}
 
@@ -875,12 +958,12 @@ export default function VendorSettings() {
           catálogo/buscador o no; por eso el QR/link de acá sirven en los dos
           estados, solo cambia la explicación. */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           {form.isPrivate ? <Lock className="h-5 w-5 text-tertiary-accent" /> : <Globe className="h-5 w-5 text-tertiary-accent" />}
           Visibilidad de tu tienda
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Una tienda privada no aparece en el inicio, el catálogo, el buscador ni las recomendaciones del asistente — solo la
+          Una tienda privada no aparece en el inicio, el catálogo, el buscador ni las recomendaciones del asistente. Solo la
           ve quien tenga tu enlace directo. Sigue funcionando exactamente igual: pedidos, reseñas, todo.
         </p>
         <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -915,7 +998,7 @@ export default function VendorSettings() {
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-surface-container-high pb-4">
           <div>
-            <div className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
+            <div className="flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
               <Globe2 className="h-5 w-5 text-tertiary-accent" /> Cobertura y Países de Entrega
             </div>
             <p className="text-[12.5px] text-outline mt-0.5">
@@ -1137,6 +1220,8 @@ export default function VendorSettings() {
 
       {activeTab === "facturacion" && (
         <>
+      {/* Baja de las campañas a tiendas: el enlace de baja de esos correos manda aquí (EmailUnsubscribe.jsx). */}
+      <EmailPreferencesCard audience="vendor" />
       {/* Bloque de auditoría (2026-08-06): estos 2 campos ya se mandaban en
           el payload de saveProfile pero nunca tuvieron un input visible en
           ningún panel — el vendedor no tenía forma de completarlos, y
@@ -1144,11 +1229,11 @@ export default function VendorSettings() {
           antes de generar factura/garantía, señalando explícitamente "Puedes
           cargarlos en Configuración". */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <FileText className="h-5 w-5 text-tertiary-accent" /> Datos de facturación
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Privados — nunca se muestran en tu tienda pública. Se usan para generar las facturas y certificados de garantía de
+          Privados: nunca se muestran en tu tienda pública. Se usan para generar las facturas y certificados de garantía de
           tus pedidos.
         </p>
         {/* Bloque 153 (pedido explícito — "todos los datos de la tienda no
@@ -1169,7 +1254,7 @@ export default function VendorSettings() {
             de completarlos ella misma. */}
         {vendor?.verificationStatus === "VERIFIED" && (vendor?.ownerIdNumber || vendor?.companyAddress) && (
           <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
-            Tienda verificada — el dato ya cargado no se edita aquí. Para corregirlo, solicita un cambio desde "Mi perfil".
+            Tienda verificada: el dato ya cargado no se edita aquí. Para corregirlo, solicita un cambio desde "Mi perfil".
           </p>
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1194,7 +1279,7 @@ export default function VendorSettings() {
 
       {/* Garantías */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Garantías
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
@@ -1230,7 +1315,7 @@ export default function VendorSettings() {
 
       {/* Documento AI / KYC */}
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <FileText className="h-5 w-5 text-tertiary-accent" /> Documento de la tienda para la IA
         </div>
         <p className="mb-4 text-[12.5px] text-outline">

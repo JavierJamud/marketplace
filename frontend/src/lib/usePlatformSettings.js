@@ -32,27 +32,40 @@ const DEFAULT_SITE_NAME = "Baznova";
 // una vez por componente. El default acá solo cubre el instante antes de que
 // la primera respuesta llegue (o un fallo de red) — no es una marca fija.
 export function usePlatformSettings() {
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["site-settings"],
     queryFn: async () => (await api.get("/settings")).data.settings,
     staleTime: 5 * 60 * 1000,
   });
+  const plans = data?.plans ?? [];
+  const planNames = Object.fromEntries(plans.map((p) => [p.planType, p.displayName]));
+  const defaultPlan = plans.find((p) => p.isDefault) ?? null;
+  const trialPlan = plans.find((p) => p.isTrialPlan) ?? null;
   return {
     siteName: data?.siteName || DEFAULT_SITE_NAME,
     // Si el admin apagó la PWA no se ofrece instalar la app (botones del footer).
     pwaEnabled: data ? data.pwaEnabled !== false : false,
     // Bloque 290: zona horaria de la plataforma, para el saludo y la hora de los paneles.
     timezone: data?.timezone || null,
-    // Bloque 294: tope de mesas por plan ({ REGULAR: 10, BUSINESS: null }); null = sin tope.
+    // Bloque 294: tope de mesas por plan ({ CLAVE: 10, OTRA_CLAVE: null }); null = sin tope.
     maxTablesByPlan: data?.maxTablesByPlan ?? {},
-    // Días de la prueba gratis de Premium (los configura el admin en Suscripciones) y el nombre visible de cada plan.
+    // Días de la prueba gratis (los configura el admin en Suscripciones).
     trialDays: data?.trialDays ?? 30,
-    planNames: {
-      REGULAR: data?.plans?.find((p) => p.planType === "REGULAR")?.displayName || "Básico",
-      STANDARD: data?.plans?.find((p) => p.planType === "STANDARD")?.displayName || "Estándar",
-      BUSINESS: data?.plans?.find((p) => p.planType === "BUSINESS")?.displayName || "Premium",
-      ENTERPRISE: data?.plans?.find((p) => p.planType === "ENTERPRISE")?.displayName || "Empresarial",
-    },
+    // Planes: antes había 4 claves fijas con su nombre escrito acá ("Básico", "Premium"...) y un plan creado desde el admin
+    // no tenía nombre. Ahora todo sale de la base: `plans` son las filas de /settings: completas para los públicos, el por
+    // defecto, el de prueba y el plan propio de la tienda (todos para el admin); los demás ocultos llegan en versión mínima
+    // (nombre y banderas) o no llegan sin sesión. /settings/plans solo trae los públicos.
+    // `planNames` es { clave: nombre } y el plan por defecto y el de la prueba se reconocen por su bandera (isDefault,
+    // isTrialPlan), nunca por su clave. Mientras /settings no responde, planNames está vacío y los nombres son null.
+    plans,
+    // Estado de la consulta, para que una pantalla distinga "cargando" y "falló" de "no hay planes".
+    plansLoading: isLoading,
+    plansError: isError,
+    planNames,
+    defaultPlanKey: defaultPlan?.planType ?? null,
+    defaultPlanName: defaultPlan?.displayName ?? null,
+    trialPlanKey: trialPlan?.planType ?? null,
+    trialPlanName: trialPlan?.displayName ?? null,
     logoUrl: logo,
     // Bloque 75: número crudo (E.164) para el botón "Contactar soporte" del
     // vendedor bloqueado/suspendido — null si el admin nunca lo cargó.

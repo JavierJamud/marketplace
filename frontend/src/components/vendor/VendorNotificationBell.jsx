@@ -24,6 +24,8 @@ function destinationFor(n) {
   if (n.type === "NEW_MESSAGE") return "/vendedor/mensajes";
   if (n.type.startsWith("FRAUD_REPORT")) return "/vendedor/reportes";
   if (/^(VERIFICATION|TRIAL|SUBSCRIPTION|VENDOR_CHANGE|VENDOR_SUSPENDED)/.test(n.type)) return "/vendedor/verificacion";
+  // Aviso de cobro del plan (planBilling.service.js, PLAN_BILLING_REF en lib/notify.js): lleva a Suscripción, donde se paga.
+  if (n.type === "ADMIN_NOTICE" && n.refCode === "PLAN_BILLING") return "/vendedor/verificacion";
   return null;
 }
 

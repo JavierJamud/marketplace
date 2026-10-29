@@ -12,8 +12,8 @@ export function IdleWarningModal({ secondsLeft, onConfirm }) {
   const formatted = `${minutes}:${String(seconds).padStart(2, "0")}`;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-      <div className="relative w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6 text-center shadow-2xl" style={{ animation: "modal-pop 0.18s ease-out" }}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+      <div className="modal-panel-6 relative w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6 text-center shadow-2xl motion-safe:animate-modal-pop">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-error/10">
           <Clock className="h-6 w-6 text-error" />
         </div>
@@ -32,12 +32,6 @@ export function IdleWarningModal({ secondsLeft, onConfirm }) {
         </button>
       </div>
 
-      <style>{`
-        @keyframes modal-pop {
-          from { opacity: 0; transform: scale(0.94) translateY(8px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }

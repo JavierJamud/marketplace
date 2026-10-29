@@ -1,4 +1,5 @@
-import { WelcomeHeading, WeeklySummaryCard } from "../../components/WelcomeSummary.jsx";
+import { WelcomeHeading } from "../../components/WelcomeSummary.jsx";
+import { Tabs } from "../../components/ui/Tabs.jsx";
 import { RatingBreakdown } from "../../components/RatingBreakdown.jsx";
 import { orderTotalLabel } from "../../lib/shipping.js";
 import { useState } from "react";
@@ -25,6 +26,7 @@ import {
   Gauge,
   Eye,
   X,
+  ClipboardList,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts";
 import { api } from "../../lib/api.js";
@@ -313,7 +315,7 @@ function InventoryDetailModal({ title, subtitle, color, products, badge, onClose
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-title-lg font-bold text-on-surface">{title}</h3>
@@ -397,10 +399,17 @@ const BEST_SELLER_TABS = [
   { key: "thisMonth", label: "Este mes" },
 ];
 
+const DASH_TABS = [
+  { id: "hoy", label: "Hoy", icon: ClipboardList },
+  { id: "productos", label: "Productos", icon: Boxes },
+  { id: "rendimiento", label: "Rendimiento y clientes", icon: Gauge },
+];
+
 export default function VendorDashboard() {
   const { vendor } = useOutletContext();
   const [bestSellerTab, setBestSellerTab] = useState("thisWeek");
   const [openInventoryStat, setOpenInventoryStat] = useState(null);
+  const [dashTab, setDashTab] = useState("hoy");
 
   const { data } = useQuery({
     queryKey: ["vendor-dashboard"],
@@ -455,263 +464,301 @@ export default function VendorDashboard() {
         </div>
       </div>
 
-      <TodayTodo insights={insights} />
+      {/* El dashboard juntaba unos 20 bloques en una sola página. Ahora lo de hoy va primero y el resto en pestañas: menos
+          información de golpe en el celular y cada cosa a un toque. */}
+      <Tabs tabs={DASH_TABS} value={dashTab} onChange={setDashTab} className="mb-5" />
 
-      <WeeklySummaryCard className="mb-5" />
-
-      {/* ── Fila hero — 2 columnas (pedido explícito: "ventas por día" y
-          "ventas de este mes" van uno debajo del otro, más anchos y no tan
-          altos/estirados, en vez de 3 columnas angostas). ── */}
-      <div className="mb-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
-        {/* Columna 1: métrica chica → métrica chica con pill (pedido
-            explícito: se saca la tarjeta de membresía que iba en medio —
-            no aportaba nada que el vendedor no viera ya en Verificación). */}
-        <div className="flex flex-col gap-4">
-          <div className={`${CARD} p-5`}>
-            <CardHeader icon={TrendingUp} tone="green" title="Ventas (semana)" subtitle="Últimos 7 días" to="/vendedor/pedidos" linkLabel="Ver pedidos" />
-            <div className="mt-3 font-display text-[26px] font-extrabold tracking-tight text-on-surface">{data ? fmtCUP(data.salesThisWeek) : "—"}</div>
-          </div>
-
-          <div className={`${CARD} flex items-center justify-between gap-3 p-5`}>
-            <div className="min-w-0">
-              <div className="text-[12px] text-outline">Pedidos nuevos</div>
-              <div className="font-display text-[24px] font-extrabold tracking-tight text-on-surface">{data ? data.newOrdersCount : "—"}</div>
-            </div>
-            <Link
-              to="/vendedor/pedidos"
-              className="flex-shrink-0 rounded-full bg-secondary-container px-3 py-1.5 text-[11.5px] font-bold text-on-secondary-container transition hover:brightness-95"
-            >
-              Atender →
-            </Link>
-          </div>
-        </div>
-
-        {/* Columna 2: la gráfica única de ventas (pedido explícito — "que tu
-            gráfica de ventas por día y ventas por mes y ventas de los
-            últimos 12 meses sea una sola con varios botones de cambio"). */}
-        <SalesChartCard />
-      </div>
-
-      <InsightsTiles insights={insights} />
-
-      {/* Bloque 230 (Fase 3, pedido explícito — "score de salud de tienda
-          para el vendedor (semáforo) — reutiliza completitud, cancelaciones,
-          stock que ya calculas"): franja propia, no anidada dentro de otra
-          tarjeta — resume 3 señales que ya viven cada una en su propia
-          sección de este panel (completitud de producto abajo en
-          "Productos por agotarse"/"agotados", cancelaciones, stock), así que
-          amerita su propio espacio a simple vista. */}
-      {data?.healthScore && (
-        <div className={`${CARD} mb-5 p-6`}>
-          <CardHeader
-            icon={Gauge}
-            tone={HEALTH_LEVEL[data.healthScore.level]?.tone}
-            title="Salud de tu tienda"
-            subtitle="Completitud de productos, cancelaciones y stock, en un solo número"
-          />
-          <div className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-4">
-            <div className="flex flex-shrink-0 items-center gap-3">
-              <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ background: HEALTH_LEVEL[data.healthScore.level]?.dot }} />
-              <span className="font-display text-[30px] font-extrabold tracking-tight text-on-surface">{data.healthScore.score}/100</span>
-              <span
-                className="rounded-full px-2.5 py-1 text-[11px] font-bold"
-                style={{ background: HEALTH_LEVEL[data.healthScore.level]?.bg, color: HEALTH_LEVEL[data.healthScore.level]?.dot }}
-              >
-                {HEALTH_LEVEL[data.healthScore.level]?.label}
-              </span>
-            </div>
-            <div className="flex flex-1 flex-wrap gap-x-8 gap-y-3 border-t border-surface-container-high/70 pt-4 sm:border-t-0 sm:border-l sm:pl-8 sm:pt-0">
-              <div>
-                <div className="text-[11px] text-outline">Completitud de productos</div>
-                <div className="text-[15px] font-bold text-on-surface">{data.healthScore.completeness}%</div>
-              </div>
-              <div>
-                <div className="text-[11px] text-outline">Cancelaciones (30 días)</div>
-                <div className="text-[15px] font-bold text-on-surface">{data.healthScore.cancellationRate}%</div>
-              </div>
-              <div>
-                <div className="text-[11px] text-outline">Stock saludable</div>
-                <div className="text-[15px] font-bold text-on-surface">{data.healthScore.stockHealth}%</div>
-              </div>
-            </div>
-          </div>
-        </div>
+      {dashTab === "hoy" && (
+        <>
+        <TodayTodo insights={insights} />
+        </>
       )}
 
-      <StoreRatingCard />
+      {dashTab === "hoy" && (
+        <>
+        {/* ── Fila hero — 2 columnas (pedido explícito: "ventas por día" y
+            "ventas de este mes" van uno debajo del otro, más anchos y no tan
+            altos/estirados, en vez de 3 columnas angostas). ── */}
+        <div className="mb-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+          {/* Columna 1: métrica chica → métrica chica con pill (pedido
+              explícito: se saca la tarjeta de membresía que iba en medio —
+              no aportaba nada que el vendedor no viera ya en Verificación). */}
+          <div className="flex flex-col gap-4">
+            <div className={`${CARD} p-5`}>
+              <CardHeader icon={TrendingUp} tone="green" title="Ventas (semana)" subtitle="Últimos 7 días" to="/vendedor/pedidos" linkLabel="Ver pedidos" />
+              <div className="mt-3 font-display text-[26px] font-extrabold tracking-tight text-on-surface">{data ? fmtCUP(data.salesThisWeek) : "—"}</div>
+            </div>
 
-      {/* ── Fila 2: tabla de pedidos (2 columnas) + métrica grande con tarjeta anidada ── */}
-      <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">
-        <div className={`${CARD} p-6`}>
-          <CardHeader icon={Receipt} title="Pedidos recientes" subtitle="Lo último que entró a tu tienda" to="/vendedor/pedidos" linkLabel="Ver todos los pedidos" />
-          {data?.recentOrders?.length ? (
-            <div className="mt-4">
-              <div className="hidden items-center gap-3 px-2 pb-2 text-[11px] font-semibold text-outline sm:flex">
-                <div className="flex-1">Cliente</div>
-                <div className="w-[118px]">Fecha</div>
-                <div className="w-[104px]">Total</div>
-                <div className="w-[96px]">Estado</div>
+            <div className={`${CARD} flex items-center justify-between gap-3 p-5`}>
+              <div className="min-w-0">
+                <div className="text-[12px] text-outline">Pedidos nuevos</div>
+                <div className="font-display text-[24px] font-extrabold tracking-tight text-on-surface">{data ? data.newOrdersCount : "—"}</div>
               </div>
-              <div className="flex flex-col">
-                {data.recentOrders.map((o) => {
-                  const color = STATUS_COLOR[o.status] ?? "#65676c";
-                  return (
-                    <div key={o.id} className="flex items-center gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-surface-container/60">
-                      <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-surface-container text-[12.5px] font-bold text-on-surface-variant">
-                          {(o.customer ?? "C")[0]?.toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-[13px] font-semibold text-on-surface">{o.customer}</div>
-                          <div className="truncate text-[11px] text-outline">
-                            {o.id} · {channelLabel(o.channel)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="hidden w-[118px] text-[12px] text-on-surface-variant sm:block">
-                        {new Date(o.date).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" })}
-                      </div>
-                      <div className="w-[104px] text-[13px] font-bold text-on-surface">{orderTotalLabel(o)}</div>
-                      <div className="flex w-[96px] items-center gap-1.5 text-[12px] font-semibold" style={{ color }}>
-                        <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: color }} />
-                        <span className="truncate">{STATUS_LABEL[o.status] ?? o.status}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+              <Link
+                to="/vendedor/pedidos"
+                className="flex-shrink-0 rounded-full bg-secondary-container px-3 py-1.5 text-[11.5px] font-bold text-on-secondary-container transition hover:brightness-95"
+              >
+                Atender →
+              </Link>
+            </div>
+          </div>
+
+          {/* Columna 2: la gráfica única de ventas (pedido explícito — "que tu
+              gráfica de ventas por día y ventas por mes y ventas de los
+              últimos 12 meses sea una sola con varios botones de cambio"). */}
+          <SalesChartCard />
+        </div>
+        </>
+      )}
+
+      {dashTab === "rendimiento" && (
+        <>
+        <InsightsTiles insights={insights} />
+        </>
+      )}
+
+      {dashTab === "rendimiento" && (
+        <>
+        {/* Bloque 230 (Fase 3, pedido explícito — "score de salud de tienda
+            para el vendedor (semáforo) — reutiliza completitud, cancelaciones,
+            stock que ya calculas"): franja propia, no anidada dentro de otra
+            tarjeta — resume 3 señales que ya viven cada una en su propia
+            sección de este panel (completitud de producto abajo en
+            "Productos por agotarse"/"agotados", cancelaciones, stock), así que
+            amerita su propio espacio a simple vista. */}
+        {data?.healthScore && (
+          <div className={`${CARD} mb-5 p-6`}>
+            <CardHeader
+              icon={Gauge}
+              tone={HEALTH_LEVEL[data.healthScore.level]?.tone}
+              title="Salud de tu tienda"
+              subtitle="Completitud de productos, cancelaciones y stock, en un solo número"
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-4">
+              <div className="flex flex-shrink-0 items-center gap-3">
+                <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ background: HEALTH_LEVEL[data.healthScore.level]?.dot }} />
+                <span className="font-display text-[30px] font-extrabold tracking-tight text-on-surface">{data.healthScore.score}/100</span>
+                <span
+                  className="rounded-full px-2.5 py-1 text-[11px] font-bold"
+                  style={{ background: HEALTH_LEVEL[data.healthScore.level]?.bg, color: HEALTH_LEVEL[data.healthScore.level]?.dot }}
+                >
+                  {HEALTH_LEVEL[data.healthScore.level]?.label}
+                </span>
+              </div>
+              <div className="flex flex-1 flex-wrap gap-x-8 gap-y-3 border-t border-surface-container-high/70 pt-4 sm:border-t-0 sm:border-l sm:pl-8 sm:pt-0">
+                <div>
+                  <div className="text-[11px] text-outline">Completitud de productos</div>
+                  <div className="text-[15px] font-bold text-on-surface">{data.healthScore.completeness}%</div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-outline">Cancelaciones (30 días)</div>
+                  <div className="text-[15px] font-bold text-on-surface">{data.healthScore.cancellationRate}%</div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-outline">Stock saludable</div>
+                  <div className="text-[15px] font-bold text-on-surface">{data.healthScore.stockHealth}%</div>
+                </div>
               </div>
             </div>
-          ) : (
-            <p className="mt-4 text-body-md text-on-surface-variant">Todavía no hay pedidos.</p>
-          )}
-        </div>
+          </div>
+        )}
+        </>
+      )}
 
-        {/* Una sola tarjeta en la columna derecha (no dos apiladas): así su
-            alto queda parejo con la tabla de al lado y ninguna de las dos
-            termina estirada con un hueco en blanco adentro. */}
-        <div className={`${CARD} flex flex-col p-6`}>
-          <CardHeader icon={Boxes} tone="teal" title="Productos activos" subtitle="Visibles en tu tienda" to="/vendedor/productos" linkLabel="Ver productos" />
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <div className="font-display text-[30px] font-extrabold tracking-tight text-on-surface">{data ? data.activeProducts : "—"}</div>
-            {data && (
-              <span className="rounded-full bg-verified/10 px-2.5 py-1 text-[11px] font-bold text-verified-dark">
-                {data.maxProducts ? `de ${data.maxProducts} en tu plan` : "Sin límite en tu plan"}
-              </span>
+      {dashTab === "rendimiento" && (
+        <>
+        <StoreRatingCard />
+        </>
+      )}
+
+      {dashTab === "hoy" && (
+        <>
+        {/* ── Fila 2: tabla de pedidos (2 columnas) + métrica grande con tarjeta anidada ── */}
+        <div className="mb-7 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2.3fr)_minmax(0,1fr)]">
+          <div className={`${CARD} p-6`}>
+            <CardHeader icon={Receipt} title="Pedidos recientes" subtitle="Lo último que entró a tu tienda" to="/vendedor/pedidos" linkLabel="Ver todos los pedidos" />
+            {data?.recentOrders?.length ? (
+              <div className="mt-4">
+                <div className="hidden items-center gap-3 px-2 pb-2 text-[11px] font-semibold text-outline sm:flex">
+                  <div className="flex-1">Cliente</div>
+                  <div className="w-[118px]">Fecha</div>
+                  <div className="w-[104px]">Total</div>
+                  <div className="w-[96px]">Estado</div>
+                </div>
+                <div className="flex flex-col">
+                  {data.recentOrders.map((o) => {
+                    const color = STATUS_COLOR[o.status] ?? "#65676c";
+                    return (
+                      <div key={o.id} className="flex items-center gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-surface-container/60">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-surface-container text-[12.5px] font-bold text-on-surface-variant">
+                            {(o.customer ?? "C")[0]?.toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-[13px] font-semibold text-on-surface">{o.customer}</div>
+                            <div className="truncate text-[11px] text-outline">
+                              {o.id} · {channelLabel(o.channel)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="hidden w-[118px] text-[12px] text-on-surface-variant sm:block">
+                          {new Date(o.date).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" })}
+                        </div>
+                        <div className="w-[104px] text-[13px] font-bold text-on-surface">{orderTotalLabel(o)}</div>
+                        <div className="flex w-[96px] items-center gap-1.5 text-[12px] font-semibold" style={{ color }}>
+                          <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: color }} />
+                          <span className="truncate">{STATUS_LABEL[o.status] ?? o.status}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 text-body-md text-on-surface-variant">Todavía no hay pedidos.</p>
             )}
           </div>
 
-          <div className="mt-5 flex items-center justify-between gap-3 border-t border-surface-container-high/70 pt-4">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <IconCircle icon={Star} tone="orange" />
-              <div className="min-w-0">
-                <div className="text-[12px] text-outline">Calificación</div>
-                <div className="whitespace-nowrap font-display text-[20px] font-extrabold leading-tight tracking-tight text-on-surface">{data ? `${data.rating.toFixed(1)} ★` : "—"}</div>
-              </div>
-            </div>
-            <div className="flex flex-shrink-0 items-center gap-2">
+          {/* Una sola tarjeta en la columna derecha (no dos apiladas): así su
+              alto queda parejo con la tabla de al lado y ninguna de las dos
+              termina estirada con un hueco en blanco adentro. */}
+          <div className={`${CARD} flex flex-col p-6`}>
+            <CardHeader icon={Boxes} tone="teal" title="Productos activos" subtitle="Visibles en tu tienda" to="/vendedor/productos" linkLabel="Ver productos" />
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="font-display text-[30px] font-extrabold tracking-tight text-on-surface">{data ? data.activeProducts : "—"}</div>
               {data && (
-                <span className="rounded-full bg-secondary/10 px-2.5 py-1 text-[11px] font-bold text-secondary">
-                  {data.reviewCount} {data.reviewCount === 1 ? "reseña" : "reseñas"}
+                <span className="rounded-full bg-verified/10 px-2.5 py-1 text-[11px] font-bold text-verified-dark">
+                  {data.maxProducts ? `de ${data.maxProducts} en tu plan` : "Sin límite en tu plan"}
                 </span>
               )}
-              <ArrowLink to="/vendedor/resenas" label="Ver reseñas" />
             </div>
-          </div>
 
-          {/* Tarjeta anidada ("Mandatory Payments" en la referencia):
-              avatares superpuestos de clientes potenciales, con el detalle
-              completo (teléfono/correo) más abajo en la página. `mt-auto`
-              la deja pegada al fondo de la tarjeta, como en la referencia. */}
-          <div className="mt-auto pt-5">
-            <div className="rounded-xl border border-surface-container-high/70 bg-surface-container-low p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-[13px] font-bold text-on-surface">Clientes potenciales</div>
-                  <p className="text-[11px] text-outline">Últimos 30 días</p>
+            <div className="mt-5 flex items-center justify-between gap-3 border-t border-surface-container-high/70 pt-4">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <IconCircle icon={Star} tone="orange" />
+                <div className="min-w-0">
+                  <div className="text-[12px] text-outline">Calificación</div>
+                  <div className="whitespace-nowrap font-display text-[20px] font-extrabold leading-tight tracking-tight text-on-surface">{data ? `${data.rating.toFixed(1)} ★` : "—"}</div>
                 </div>
-                <ArrowLink hash="#clientes-potenciales" label="Ver detalle de clientes potenciales" />
               </div>
-              {potential.length ? (
-                <div className="mt-3 flex items-center">
-                  <div className="flex -space-x-2.5">
-                    {potential.slice(0, 4).map((c) => (
-                      <div
-                        key={c.id}
-                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 border-surface-container-low bg-tertiary-accent/15 text-[13px] font-bold text-tertiary-accent"
-                      >
-                        {(c.fullName ?? c.email)[0]?.toUpperCase()}
-                      </div>
-                    ))}
+              <div className="flex flex-shrink-0 items-center gap-2">
+                {data && (
+                  <span className="rounded-full bg-secondary/10 px-2.5 py-1 text-[11px] font-bold text-secondary">
+                    {data.reviewCount} {data.reviewCount === 1 ? "reseña" : "reseñas"}
+                  </span>
+                )}
+                <ArrowLink to="/vendedor/resenas" label="Ver reseñas" />
+              </div>
+            </div>
+
+            {/* Tarjeta anidada ("Mandatory Payments" en la referencia):
+                avatares superpuestos de clientes potenciales, con el detalle
+                completo (teléfono/correo) más abajo en la página. `mt-auto`
+                la deja pegada al fondo de la tarjeta, como en la referencia. */}
+            <div className="mt-auto pt-5">
+              <div className="rounded-xl border border-surface-container-high/70 bg-surface-container-low p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-[13px] font-bold text-on-surface">Clientes potenciales</div>
+                    <p className="text-[11px] text-outline">Últimos 30 días</p>
                   </div>
-                  {potential.length > 4 && (
-                    <div className="-ml-2.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 border-surface-container-low bg-secondary-container text-[12px] font-extrabold text-on-secondary-container">
-                      +{potential.length - 4}
-                    </div>
-                  )}
+                  <ArrowLink hash="#clientes-potenciales" label="Ver detalle de clientes potenciales" />
                 </div>
-              ) : (
-                <p className="mt-2 text-[12px] text-on-surface-variant">Nadie por ahora.</p>
-              )}
+                {potential.length ? (
+                  <div className="mt-3 flex items-center">
+                    <div className="flex -space-x-2.5">
+                      {potential.slice(0, 4).map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 border-surface-container-low bg-tertiary-accent/15 text-[13px] font-bold text-tertiary-accent"
+                        >
+                          {(c.fullName ?? c.email)[0]?.toUpperCase()}
+                        </div>
+                      ))}
+                    </div>
+                    {potential.length > 4 && (
+                      <div className="-ml-2.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 border-surface-container-low bg-secondary-container text-[12px] font-extrabold text-on-secondary-container">
+                        +{potential.length - 4}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[12px] text-on-surface-variant">Nadie por ahora.</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+        </>
+      )}
 
-      {/* Bloque 194: consejos diarios de IA ("consejos diarios para que los
-          vendedores sean más productivos"). */}
-      <div className={`mb-7 rounded-2xl border border-tertiary-accent/20 bg-gradient-to-br from-tertiary-accent/[0.07] to-transparent p-6 ${CARD_SHADOW}`}>
-        <div className="mb-3.5 flex items-center gap-2.5">
-          <IconCircle icon={Sparkles} tone="teal" />
-          <div>
-            <div className="text-[14px] font-bold text-on-surface">Consejos de hoy para tu negocio</div>
-            <p className="text-[11.5px] text-outline">Generados a partir de tus propias ventas, clics y stock — se renuevan una vez al día.</p>
+      {dashTab === "hoy" && (
+        <>
+        {/* Bloque 194: consejos diarios de IA ("consejos diarios para que los
+            vendedores sean más productivos"). */}
+        <div className={`mb-7 rounded-2xl border border-tertiary-accent/20 bg-gradient-to-br from-tertiary-accent/[0.07] to-transparent p-6 ${CARD_SHADOW}`}>
+          <div className="mb-3.5 flex items-center gap-2.5">
+            <IconCircle icon={Sparkles} tone="teal" />
+            <div>
+              <div className="text-[14px] font-bold text-on-surface">Consejos de hoy para tu negocio</div>
+              <p className="text-[11.5px] text-outline">Generados a partir de tus propias ventas, clics y stock — se renuevan una vez al día.</p>
+            </div>
           </div>
+          {tipsLoading ? (
+            <p className="text-body-md text-on-surface-variant">Analizando tu negocio...</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(tipsData?.tips ?? []).map((tip, i) => (
+                <div key={i} className="rounded-xl bg-surface-container-lowest p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                  <p className="mb-1 text-[13px] font-bold text-on-surface">{tip.title}</p>
+                  <p className="text-[12px] leading-[17px] text-on-surface-variant">{tip.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        {tipsLoading ? (
-          <p className="text-body-md text-on-surface-variant">Analizando tu negocio...</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {(tipsData?.tips ?? []).map((tip, i) => (
-              <div key={i} className="rounded-xl bg-surface-container-lowest p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <p className="mb-1 text-[13px] font-bold text-on-surface">{tip.title}</p>
-                <p className="text-[12px] leading-[17px] text-on-surface-variant">{tip.description}</p>
+        </>
+      )}
+
+      {dashTab === "rendimiento" && (
+        <>
+        <InsightsGrid insights={insights} />
+        </>
+      )}
+
+      {dashTab === "productos" && (
+        <>
+        {/* Bloque 194 ("el inventario en tiempo real"): la query de arriba ya
+            se refresca sola (staleTime global de 5min, ver queryClient.js —
+            suficiente para "en tiempo real" en el sentido de inventario, no
+            hace falta un poll agresivo acá). */}
+        {analytics?.inventory && (
+          <div className="mb-7 grid grid-cols-2 gap-3.5 lg:grid-cols-5">
+            {INVENTORY_STATS.map((s) => (
+              <div key={s.key} className={`${CARD} p-4`}>
+                <div className="mb-1.5 flex items-center justify-between gap-1.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Boxes className="h-3.5 w-3.5 flex-shrink-0" style={{ color: s.color }} />
+                    <span className="truncate text-[10.5px] font-bold uppercase tracking-wide text-outline">{s.label}</span>
+                  </div>
+                  {/* Bloque 230 (pedido explícito, con captura — "quiero que
+                      cada uno tenga un botón de ver y al hacer clic... se
+                      levante la ventana con los datos que está mostrando y
+                      detalles"). */}
+                  <button
+                    onClick={() => setOpenInventoryStat(s.key)}
+                    title={`Ver detalle de ${s.label.toLowerCase()}`}
+                    className="flex-shrink-0 rounded-full p-1 text-outline transition-colors hover:bg-surface-container hover:text-on-surface"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="font-display text-xl font-extrabold" style={{ color: s.color }}>{s.value(analytics.inventory)}</div>
               </div>
             ))}
           </div>
         )}
-      </div>
-
-      <InsightsGrid insights={insights} />
-
-      {/* Bloque 194 ("el inventario en tiempo real"): la query de arriba ya
-          se refresca sola (staleTime global de 5min, ver queryClient.js —
-          suficiente para "en tiempo real" en el sentido de inventario, no
-          hace falta un poll agresivo acá). */}
-      {analytics?.inventory && (
-        <div className="mb-7 grid grid-cols-2 gap-3.5 lg:grid-cols-5">
-          {INVENTORY_STATS.map((s) => (
-            <div key={s.key} className={`${CARD} p-4`}>
-              <div className="mb-1.5 flex items-center justify-between gap-1.5">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <Boxes className="h-3.5 w-3.5 flex-shrink-0" style={{ color: s.color }} />
-                  <span className="truncate text-[10.5px] font-bold uppercase tracking-wide text-outline">{s.label}</span>
-                </div>
-                {/* Bloque 230 (pedido explícito, con captura — "quiero que
-                    cada uno tenga un botón de ver y al hacer clic... se
-                    levante la ventana con los datos que está mostrando y
-                    detalles"). */}
-                <button
-                  onClick={() => setOpenInventoryStat(s.key)}
-                  title={`Ver detalle de ${s.label.toLowerCase()}`}
-                  className="flex-shrink-0 rounded-full p-1 text-outline transition-colors hover:bg-surface-container hover:text-on-surface"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <div className="font-display text-xl font-extrabold" style={{ color: s.color }}>{s.value(analytics.inventory)}</div>
-            </div>
-          ))}
-        </div>
+        </>
       )}
 
       {openInventoryStat &&
@@ -729,153 +776,170 @@ export default function VendorDashboard() {
           );
         })()}
 
-      {/* Bloque 194 ("los productos más vendidos por día, por semana y por
-          mes"): 1 sola lista con pestañas, en vez de 3 listas fijas una
-          debajo de otra — menos scroll, mismo dato. */}
-      <div className={`${CARD} p-6`}>
-        <CardHeader icon={TrendingUp} tone="green" title="Productos más vendidos" to="/vendedor/productos" linkLabel="Ver productos" />
-        {/* Bloque 234 (bug real reportado en vivo — "el dashboard... no
-            quedó responsiva, deslizo la página de derecha a izquierda"):
-            mismo bug que Bloque 225/227 ya había resuelto para el selector
-            de la gráfica de Ventas, pero acá nunca se aplicó — este
-            selector viajaba por el `right` de CardHeader, que es
-            `flex-shrink-0` (DashboardCard.jsx), así que en pantallas
-            angostas de verdad (~320-360px) no cabía ni podía encogerse, y
-            en vez de acomodarse se salía del borde de la tarjeta (confirmado
-            en vivo con Playwright: 273px de ancho pedido contra ~241px
-            disponibles en la tarjeta a 320px de viewport). Misma solución:
-            su propia fila debajo del título, en vez de compartir la fila
-            del `right`. */}
-        <div className="mt-3 flex gap-1 rounded-full bg-surface-container p-1 [&>button]:flex-1">
-          {BEST_SELLER_TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setBestSellerTab(t.key)}
-              className={`rounded-full px-3 py-1.5 text-[11.5px] font-bold transition-colors ${
-                bestSellerTab === t.key ? "bg-tertiary-accent text-white shadow-sm" : "text-on-surface-variant hover:text-on-surface"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 flex flex-col">
-          {bestSellers.length ? (
-            bestSellers.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.soldCount} ${p.soldCount === 1 ? "vendido" : "vendidos"}`} badgeColor="#087A38" />)
-          ) : (
-            <p className="py-2 text-body-md text-on-surface-variant">Sin ventas suficientes en este período todavía.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Bloque 194 ("dónde los clientes hacen más clic en su tienda, dónde
-          permanecen más"): mismas señales del algoritmo de Destacados
-          (productRanking.js), mostradas acá tal cual. */}
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      {dashTab === "productos" && (
+        <>
+        {/* Bloque 194 ("los productos más vendidos por día, por semana y por
+            mes"): 1 sola lista con pestañas, en vez de 3 listas fijas una
+            debajo de otra — menos scroll, mismo dato. */}
         <div className={`${CARD} p-6`}>
-          <CardHeader icon={MousePointerClick} tone="teal" title="Más clics de clientes" subtitle="Productos que más abren" />
+          <CardHeader icon={TrendingUp} tone="green" title="Productos más vendidos" to="/vendedor/productos" linkLabel="Ver productos" />
+          {/* Bloque 234 (bug real reportado en vivo — "el dashboard... no
+              quedó responsiva, deslizo la página de derecha a izquierda"):
+              mismo bug que Bloque 225/227 ya había resuelto para el selector
+              de la gráfica de Ventas, pero acá nunca se aplicó — este
+              selector viajaba por el `right` de CardHeader, que es
+              `flex-shrink-0` (DashboardCard.jsx), así que en pantallas
+              angostas de verdad (~320-360px) no cabía ni podía encogerse, y
+              en vez de acomodarse se salía del borde de la tarjeta (confirmado
+              en vivo con Playwright: 273px de ancho pedido contra ~241px
+              disponibles en la tarjeta a 320px de viewport). Misma solución:
+              su propia fila debajo del título, en vez de compartir la fila
+              del `right`. */}
+          <div className="mt-3 flex gap-1 rounded-full bg-surface-container p-1 [&>button]:flex-1">
+            {BEST_SELLER_TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setBestSellerTab(t.key)}
+                className={`rounded-full px-3 py-1.5 text-[11.5px] font-bold transition-colors ${
+                  bestSellerTab === t.key ? "bg-tertiary-accent text-white shadow-sm" : "text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
           <div className="mt-3 flex flex-col">
-            {analytics?.engagement?.topClicks?.length ? (
-              analytics.engagement.topClicks.map((p) => (
-                <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.clickCount} clics`} badgeColor="#337475" />
-              ))
+            {bestSellers.length ? (
+              bestSellers.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.soldCount} ${p.soldCount === 1 ? "vendido" : "vendidos"}`} badgeColor="#087A38" />)
             ) : (
-              <p className="py-2 text-body-md text-on-surface-variant">Todavía no hay suficientes clics registrados.</p>
+              <p className="py-2 text-body-md text-on-surface-variant">Sin ventas suficientes en este período todavía.</p>
             )}
           </div>
         </div>
-
-        <div className={`${CARD} p-6`}>
-          <CardHeader icon={Timer} tone="teal" title="Donde más se detienen" subtitle="Tiempo promedio viendo cada producto" />
-          <div className="mt-3 flex flex-col">
-            {analytics?.engagement?.topDwell?.length ? (
-              analytics.engagement.topDwell.map((p) => (
-                <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.avgDwellSeconds}s`} badgeColor="#7B4FA6" />
-              ))
-            ) : (
-              <p className="py-2 text-body-md text-on-surface-variant">Todavía no hay suficiente actividad registrada.</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Bloque 194 ("resumen de sus meseros que más venden") — solo
-          restaurantes lo van a tener con datos reales (staffLeaderboard sale
-          de ActivityLog de pedidos de mesa), pero se muestra igual con el
-          estado vacío para cualquier tienda sin actividad de mesa todavía. */}
-      {vendor?.isRestaurant && (
-        <div className={`${CARD} mt-5 p-6`}>
-          <CardHeader icon={Award} tone="orange" title="Tus meseros que más venden" subtitle="Últimas 8 semanas — pedidos de mesa que cada uno aceptó o creó" to="/vendedor/usuarios" linkLabel="Ver usuarios" />
-          <div className="mt-3 flex flex-col">
-            {analytics?.staffLeaderboard?.length ? (
-              analytics.staffLeaderboard.map((s, i) => (
-                <div key={s.userId} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/50">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-highest text-[12px] font-extrabold text-on-surface-variant">
-                    {i + 1}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-[13px] font-semibold text-on-surface">{s.fullName}</div>
-                    <div className="text-[11px] text-outline">{s.ordersHandled} {s.ordersHandled === 1 ? "pedido" : "pedidos"}</div>
-                  </div>
-                  <div className="flex-shrink-0 text-[13px] font-bold text-[#087A38]">{fmtCUP(s.totalSales)}</div>
-                </div>
-              ))
-            ) : (
-              <p className="py-2 text-body-md text-on-surface-variant">Todavía no hay pedidos de mesa aceptados por tu equipo.</p>
-            )}
-          </div>
-        </div>
+        </>
       )}
 
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <div className={`${CARD} p-6`}>
-          <CardHeader icon={AlertTriangle} tone="orange" title="Productos por agotarse" to="/vendedor/productos" linkLabel="Ver productos" />
-          <div className="mt-3 flex flex-col">
-            {data?.lowStockProducts?.length ? (
-              data.lowStockProducts.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.stock} ${p.stock === 1 ? "unidad" : "unidades"}`} badgeColor="#8A5100" />)
-            ) : (
-              <p className="py-2 text-body-md text-on-surface-variant">Ningún producto está por agotarse.</p>
-            )}
+      {dashTab === "productos" && (
+        <>
+        {/* Bloque 194 ("dónde los clientes hacen más clic en su tienda, dónde
+            permanecen más"): mismas señales del algoritmo de Destacados
+            (productRanking.js), mostradas acá tal cual. */}
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className={`${CARD} p-6`}>
+            <CardHeader icon={MousePointerClick} tone="teal" title="Más clics de clientes" subtitle="Productos que más abren" />
+            <div className="mt-3 flex flex-col">
+              {analytics?.engagement?.topClicks?.length ? (
+                analytics.engagement.topClicks.map((p) => (
+                  <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.clickCount} clics`} badgeColor="#337475" />
+                ))
+              ) : (
+                <p className="py-2 text-body-md text-on-surface-variant">Todavía no hay suficientes clics registrados.</p>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className={`${CARD} p-6`}>
-          <CardHeader icon={PackageX} title="Productos agotados" to="/vendedor/productos" linkLabel="Ver productos" />
-          <div className="mt-3 flex flex-col">
-            {data?.outOfStockProducts?.length ? (
-              data.outOfStockProducts.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge="Sin stock" badgeColor="#ba1a1a" />)
-            ) : (
-              <p className="py-2 text-body-md text-on-surface-variant">Ningún producto está agotado.</p>
-            )}
+          <div className={`${CARD} p-6`}>
+            <CardHeader icon={Timer} tone="teal" title="Donde más se detienen" subtitle="Tiempo promedio viendo cada producto" />
+            <div className="mt-3 flex flex-col">
+              {analytics?.engagement?.topDwell?.length ? (
+                analytics.engagement.topDwell.map((p) => (
+                  <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.avgDwellSeconds}s`} badgeColor="#7B4FA6" />
+                ))
+              ) : (
+                <p className="py-2 text-body-md text-on-surface-variant">Todavía no hay suficiente actividad registrada.</p>
+              )}
+            </div>
           </div>
         </div>
+        </>
+      )}
 
-        <div id="clientes-potenciales" className={`${CARD} scroll-mt-24 p-6 lg:col-span-2`}>
-          <CardHeader
-            icon={Users}
-            tone="teal"
-            title="Clientes potenciales"
-            subtitle="Visitaron tu tienda o agregaron algo al carrito en los últimos 30 días, sin completar un pedido."
-          />
-          <div className="mt-3 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
-            {potential.length ? (
-              potential.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/50">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/15 text-[12px] font-bold text-tertiary-accent">
-                    {(c.fullName ?? c.email)[0]?.toUpperCase()}
+      {dashTab === "rendimiento" && (
+        <>
+        {/* Bloque 194 ("resumen de sus meseros que más venden") — solo
+            restaurantes lo van a tener con datos reales (staffLeaderboard sale
+            de ActivityLog de pedidos de mesa), pero se muestra igual con el
+            estado vacío para cualquier tienda sin actividad de mesa todavía. */}
+        {vendor?.isRestaurant && (
+          <div className={`${CARD} mt-5 p-6`}>
+            <CardHeader icon={Award} tone="orange" title="Tus meseros que más venden" subtitle="Últimas 8 semanas: pedidos de mesa que cada uno aceptó o creó" to="/vendedor/usuarios" linkLabel="Ver usuarios" />
+            <div className="mt-3 flex flex-col">
+              {analytics?.staffLeaderboard?.length ? (
+                analytics.staffLeaderboard.map((s, i) => (
+                  <div key={s.userId} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/50">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-highest text-[12px] font-extrabold text-on-surface-variant">
+                      {i + 1}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-[13px] font-semibold text-on-surface">{s.fullName}</div>
+                      <div className="text-[11px] text-outline">{s.ordersHandled} {s.ordersHandled === 1 ? "pedido" : "pedidos"}</div>
+                    </div>
+                    <div className="flex-shrink-0 text-[13px] font-bold text-verified-dark">{fmtCUP(s.totalSales)}</div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold text-on-surface">{c.fullName ?? "Cliente"}</div>
-                    <div className="truncate text-[11.5px] text-outline">{c.phone ?? c.email}</div>
+                ))
+              ) : (
+                <p className="py-2 text-body-md text-on-surface-variant">Todavía no hay pedidos de mesa aceptados por tu equipo.</p>
+              )}
+            </div>
+          </div>
+        )}
+        </>
+      )}
+
+      {dashTab === "productos" && (
+        <>
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className={`${CARD} p-6`}>
+            <CardHeader icon={AlertTriangle} tone="orange" title="Productos por agotarse" to="/vendedor/productos" linkLabel="Ver productos" />
+            <div className="mt-3 flex flex-col">
+              {data?.lowStockProducts?.length ? (
+                data.lowStockProducts.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge={`${p.stock} ${p.stock === 1 ? "unidad" : "unidades"}`} badgeColor="#8A5100" />)
+              ) : (
+                <p className="py-2 text-body-md text-on-surface-variant">Ningún producto está por agotarse.</p>
+              )}
+            </div>
+          </div>
+
+          <div className={`${CARD} p-6`}>
+            <CardHeader icon={PackageX} title="Productos agotados" to="/vendedor/productos" linkLabel="Ver productos" />
+            <div className="mt-3 flex flex-col">
+              {data?.outOfStockProducts?.length ? (
+                data.outOfStockProducts.map((p) => <MiniProductRow key={p.id} image={p.images?.[0]} name={p.name} badge="Sin stock" badgeColor="#ba1a1a" />)
+              ) : (
+                <p className="py-2 text-body-md text-on-surface-variant">Ningún producto está agotado.</p>
+              )}
+            </div>
+          </div>
+
+          <div id="clientes-potenciales" className={`${CARD} scroll-mt-24 p-6 lg:col-span-2`}>
+            <CardHeader
+              icon={Users}
+              tone="teal"
+              title="Clientes potenciales"
+              subtitle="Visitaron tu tienda o agregaron algo al carrito en los últimos 30 días, sin completar un pedido."
+            />
+            <div className="mt-3 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+              {potential.length ? (
+                potential.map((c) => (
+                  <div key={c.id} className="flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-surface-container/50">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/15 text-[12px] font-bold text-tertiary-accent">
+                      {(c.fullName ?? c.email)[0]?.toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-on-surface">{c.fullName ?? "Cliente"}</div>
+                      {(c.phone || c.email) && <div className="truncate text-[11.5px] text-outline">{c.phone ?? c.email}</div>}
+                    </div>
                   </div>
-                </div>
-              ))
-            ) : (
-              <p className="py-2 text-body-md text-on-surface-variant">No hay clientes potenciales por ahora.</p>
-            )}
+                ))
+              ) : (
+                <p className="py-2 text-body-md text-on-surface-variant">No hay clientes potenciales por ahora.</p>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+        </>
+      )}
+
     </div>
   );
 }

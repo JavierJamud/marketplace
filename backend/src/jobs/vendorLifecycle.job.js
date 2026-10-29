@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { sendVendorInactivityReminderEmail, sendVendorWinbackEmail } from "../lib/email.js";
 import { notifyVendorSuspended } from "../services/vendorSuspensionNotify.service.js";
+import { unsubscribeUrl, canSendMarketingEmail, markMarketingEmailSent } from "../lib/marketingEmail.js";
 
 // Bloque 62 (pedido explícito): primer cron real de este proyecto — todo lo
 // que antes era "tiempo real" (ver comentarios de offers.controller.js/
@@ -131,12 +132,24 @@ async function sendWinbackEmails() {
       });
       if (already) continue;
 
-      const customer = await prisma.user.findUnique({ where: { id: row.customerId } });
+      const customer = await prisma.user.findUnique({
+        where: { id: row.customerId },
+        select: { id: true, email: true, fullName: true, isSuspended: true, deletedAt: true, marketingEmails: true, lastMarketingEmailAt: true },
+      });
       if (!customer || customer.isSuspended || customer.deletedAt) continue;
+      // Es un correo de promoción: mismas reglas que los recordatorios de carrito y puntos (customerReminders.job.js).
+      // Quien apagó estos correos (desde el perfil o desde el enlace del pie) no lo recibe, y nunca más de uno cada 3 días
+      // sea de la tienda que sea. Se lee de la base en cada vuelta, así que un segundo correo al mismo cliente en esta
+      // misma corrida (otra oferta u otra tienda) ya ve la fecha del primero. Saltado no deja WinbackEmailLog, pero la
+      // oferta sale de la ventana de 24 h al día siguiente, así que no se reintenta.
+      if (!customer.marketingEmails || !canSendMarketingEmail(customer)) continue;
 
-      await sendVendorWinbackEmail({ customer, vendor, offers: [offer] });
+      const result = await sendVendorWinbackEmail({ customer, vendor, offers: [offer], unsubscribeUrl: unsubscribeUrl(customer.id) });
       await prisma.winbackEmailLog.create({ data: { customerId: row.customerId, vendorId: offer.vendorId, offerId: offer.id } });
-      sent++;
+      if (result.ok) {
+        await markMarketingEmailSent(customer.id);
+        sent++;
+      }
     }
   }
   return sent;

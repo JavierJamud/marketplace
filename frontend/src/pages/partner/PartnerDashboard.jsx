@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, AlertTriangle, Clock, Copy, Gauge, Link2, Store } from "lucide-react";
 import toast from "../../lib/toast.jsx";
@@ -61,16 +62,29 @@ export function Bar({ label, used, limit }) {
 
 export default function PartnerDashboard() {
   const { user } = useAuth();
-  const { data: me } = useQuery({ queryKey: ["partner-portal-me", user?.id], queryFn: async () => (await api.get("/partner-portal/me")).data });
-  const { data, isLoading } = useQuery({
+  const { data: me, isError: meFailed } = useQuery({ queryKey: ["partner-portal-me", user?.id], queryFn: async () => (await api.get("/partner-portal/me")).data });
+  const { data, isError, error, refetch } = useQuery({
     queryKey: ["partner-portal-overview", user?.id, 30],
     queryFn: async () => (await api.get("/partner-portal/overview", { params: { days: 30 } })).data,
     refetchInterval: 15000,
   });
   const usage = data?.usage;
   const keys = (data?.keys ?? []).filter((k) => k.status === "ACTIVE");
+  const signupUrl = me?.partner?.signupUrl;
+  // El refresco automático de cada 15 s también pone isFetching en true: atado a eso, Reintentar se desactivaba y decía
+  // "Cargando..." solo, sin que nadie lo pulsara. Ahora refleja solo el reintento que pide la persona.
+  const [retrying, setRetrying] = useState(false);
+  async function retry() {
+    setRetrying(true);
+    try {
+      await refetch();
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function copy(text) {
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
       toast.success("Enlace copiado.");
@@ -85,7 +99,27 @@ export default function PartnerDashboard() {
         <WelcomeHeading name={me?.partner?.name ?? "socio"} />
       </div>
 
-      {isLoading || !usage ? (
+      {/* Con datos (también los guardados de antes) se muestran aunque un refresco falle. Sin datos y con error, el esqueleto
+          se quedaba para siempre (por ejemplo, con una cuenta no vinculada a un socio): ahora sale el error y Reintentar. */}
+      {!usage && isError ? (
+        <div role="alert" className={`${CARD} p-5`}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-error" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-[14px] font-bold text-on-surface">No se pudo cargar tu resumen</p>
+              <p className="mt-1 text-[13px] text-on-surface-variant">{error?.response?.data?.error ?? "Revisa tu conexión e inténtalo de nuevo."}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={retry}
+            disabled={retrying}
+            className="mt-4 flex min-h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {retrying ? "Cargando..." : "Reintentar"}
+          </button>
+        </div>
+      ) : !usage ? (
         <div className="grid gap-5"><TilesSkeleton /><CardListSkeleton cards={2} /></div>
       ) : (
         <>
@@ -94,7 +128,7 @@ export default function PartnerDashboard() {
             <Kpi icon={Gauge} label="Últimos 30 días" value={fmt(usage.requests)} hint="solicitudes" />
             <Kpi icon={AlertTriangle} label="Errores (30 días)" value={fmt(usage.errors)} hint={`${fmt(usage.rejected)} rechazadas por límite o sitio`} />
             <Kpi icon={Clock} label="Tiempo medio" value={`${fmt(usage.avgMs)} ms`} hint="por solicitud" />
-            <Kpi icon={Store} label="Tiendas por tu enlace" value={fmt(me?.partner?.stores)} hint="registradas en Baznova" />
+            <Kpi icon={Store} label="Tiendas por tu enlace" value={meFailed && !me ? "Sin datos" : fmt(me?.partner?.stores)} hint="registradas en Baznova" />
           </div>
 
           <div className={`${CARD} mb-5 p-5`}>
@@ -128,13 +162,13 @@ export default function PartnerDashboard() {
             <div className={`${CARD} p-5`}>
               <CardHeader icon={Link2} tone="teal" title="Registra tiendas desde tu sitio" subtitle="Cada tienda que se registre con este enlace queda ligada a ti" />
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <code className="min-h-11 flex-1 break-all rounded-xl bg-surface-container px-3 py-3 text-[12.5px] text-on-surface">{me?.partner?.signupUrl}</code>
-                <button onClick={() => copy(me?.partner?.signupUrl)} className="flex min-h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-3 text-[13px] font-semibold text-on-surface hover:bg-surface-container">
+                <code className="min-h-11 flex-1 break-all rounded-xl bg-surface-container px-3 py-3 text-[12.5px] text-on-surface">{signupUrl ?? (meFailed ? "No se pudo cargar tu enlace. Recarga la página." : "Cargando...")}</code>
+                <button type="button" disabled={!signupUrl} onClick={() => copy(signupUrl)} className="flex min-h-11 items-center gap-1.5 rounded-xl border border-outline-variant px-3 text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-60">
                   <Copy className="h-4 w-4" aria-hidden="true" /> Copiar
                 </button>
               </div>
               <p className="mt-3 text-[12px] text-outline">
-                Dirección de la API: <code className="break-all text-on-surface">{me?.apiBase}</code>
+                Dirección de la API: <code className="break-all text-on-surface">{me?.apiBase ?? (meFailed ? "No se pudo cargar. Recarga la página." : "Cargando...")}</code>
               </p>
             </div>
           </div>

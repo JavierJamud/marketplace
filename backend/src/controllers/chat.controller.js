@@ -12,7 +12,7 @@ import { buildFewShotBlock } from "../lib/chatTrainingExamples.js";
 import { resolveUnitPrice } from "../lib/pricing.js";
 import { VENDOR_AI_DOC_DIR } from "./vendors.controller.js";
 import { getBrandSettings } from "./settings.controller.js";
-import { assertPlanAllows, isPremiumActive, getPlanConfig } from "../lib/planConfig.js";
+import { assertPlanAllows, planAllows } from "../lib/planConfig.js";
 import { CONVERSATIONAL_FILLERS, toSearchStem } from "../lib/searchStem.js";
 import { UNCLEAR_REPLY, rescueChatSearch } from "../lib/chatSearchRescue.js";
 import { logChatExchange } from "../lib/chatLog.js";
@@ -889,9 +889,9 @@ export async function getChatHistory(req, res) {
   // la tienda dejó de estar verificada entre que se abrió la página y se
   // pidió el historial — simplemente no hay nada que mostrar.
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { verificationStatus: true, isBlocked: true, status: true, planType: true } });
-  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || !isPremiumActive(vendor)) return res.json({ messages: [] });
-  const config = await getPlanConfig(vendor.planType);
-  if (!config?.allowAiChatbot) return res.json({ messages: [] });
+  // Misma regla que postChatMessage (planAllows con la tienda: interruptor del plan y la insignia). Antes miraba
+  // isPremiumActive, que da true en un plan de pago sin insignia con tiempo pagado, donde el chat no funciona.
+  if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE" || !(await planAllows(vendor, "allowAiChatbot"))) return res.json({ messages: [] });
 
   const messages = await prisma.chatMessage.findMany({ where: { vendorId, sessionId }, orderBy: { createdAt: "asc" } });
 

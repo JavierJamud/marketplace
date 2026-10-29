@@ -127,6 +127,9 @@ const VENDOR_NOTIF_URL = {
   VENDOR_STAFF_OUT_OF_STOCK: "/vendedor/usuarios", SUPPORT_CASE: "/vendedor/pedidos",
   ORDER_REMINDER: "/vendedor/pedidos", ORDER_CANCEL_WARNING: "/vendedor/pedidos", ORDER_AUTO_CANCELLED: "/vendedor/pedidos", ORDER_DELAYED: "/vendedor/pedidos",
 };
+// refCode de los avisos de cobro de un plan sin insignia (planBilling.service.js): son ADMIN_NOTICE, pero llevan a
+// Suscripción, donde se paga, y comparten etiqueta para que cada aviso de cobro reemplace al anterior en el teléfono.
+export const PLAN_BILLING_REF = "PLAN_BILLING";
 // Avisos de un pedido que sigue esperando: cada uno con su etiqueta (si usaran la del pedido nuevo, el teléfono los
 // trataría como el mismo aviso) y el enlace que abre ese pedido.
 const ORDER_FOLLOW_UP_TAG = { ORDER_OVERDUE: "overdue", ORDER_REMINDER: "reminder", ORDER_CANCEL_WARNING: "warning", ORDER_AUTO_CANCELLED: "autoclosed", ORDER_DELAYED: "delayed" };
@@ -138,7 +141,8 @@ async function onCreated({ model, args, result }) {
       // Hecho por el admin sin marcar "Avisar a la tienda": queda en el historial de la campana, sin push ni aviso en vivo.
       if (requestContext()?.notifyVendor === false) return;
       const cat = VENDOR_NOTIF_CATEGORY[result.type] ?? "account";
-      const url = VENDOR_NOTIF_URL[result.type] ?? (String(result.type).startsWith("VERIFICATION") || String(result.type).startsWith("TRIAL") ? "/vendedor/verificacion" : "/vendedor");
+      const planBilling = result.type === "ADMIN_NOTICE" && result.refCode === PLAN_BILLING_REF;
+      const url = VENDOR_NOTIF_URL[result.type] ?? (planBilling || String(result.type).startsWith("VERIFICATION") || String(result.type).startsWith("TRIAL") ? "/vendedor/verificacion" : "/vendedor");
       // Los avisos de pedido nuevo ya tienen su propia ventana y sonido en el panel: aquí solo viaja el push y el refresco.
       // Al pedido nuevo se le suma el detalle (productos, quién recibe, dónde) para la tarjeta del aviso y la foto para Android.
       let detail;
@@ -155,7 +159,7 @@ async function onCreated({ model, args, result }) {
       }
       // El de pedido atrasado lleva su propia etiqueta: si usara la del pedido nuevo, el sistema lo trataría como el mismo aviso.
       const followUp = ORDER_FOLLOW_UP_TAG[result.type];
-      const tag = followUp ? `${followUp}-${result.refCode}` : `vn-${result.refCode ?? result.id}`;
+      const tag = followUp ? `${followUp}-${result.refCode}` : planBilling ? `plan-billing-${result.vendorId}` : `vn-${result.refCode ?? result.id}`;
       const link = followUp && result.refCode ? `/vendedor/pedidos?buscar=${encodeURIComponent(result.refCode)}` : url;
       return notifyVendor(result.vendorId, { category: cat, app: "VENDOR", title: result.title, body: result.body, url: link, tag, urgency: cat === "orders" ? "high" : "normal", detail, image, type: result.type });
     }

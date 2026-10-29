@@ -15,10 +15,11 @@ import { slugify } from "../utils/slugify.js";
 import { importRemoteImage } from "../lib/importRemoteImage.js";
 import { isAIAvailable } from "../lib/ai.js";
 import { withComputedVendorFields } from "../services/vendorVerification.service.js";
+import { PUBLIC_REVIEW_SELECT } from "../lib/publicReview.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { logActivity, actorRoleForVendorAction } from "../lib/activityLog.js";
 import { hashToken } from "../utils/hashToken.js";
-import { getPlanLimit, planAllows, swapProductQuota } from "../lib/planConfig.js";
+import { getPlanLimit, planAllows, swapProductQuota, placeProductInQuota, getDefaultPlanKey } from "../lib/planConfig.js";
 import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -214,7 +215,7 @@ function extractRestrictedTableIds(data) {
 // la mesa de OTRO vendedor con solo mandar su id a mano.
 async function assertTablesOwnedByVendor(vendorId, tableIds) {
   if (!tableIds || tableIds.length === 0) return;
-  const count = await prisma.table.count({ where: { id: { in: tableIds }, vendorId } });
+  const count = await prisma.table.count({ where: { id: { in: tableIds }, vendorId, deletedAt: null } });
   if (count !== tableIds.length) throw new AppError("Una o más mesas seleccionadas no existen.", 400);
 }
 
@@ -240,7 +241,7 @@ export function assertValidPriceTiers(basePrice, tiers) {
   let lastPrice = Number(basePrice);
   for (const t of sorted) {
     if (seenQty.has(t.minQty)) {
-      throw new AppError(`Ya hay un precio para ${t.minQty} unidades — no puede repetirse.`, 400);
+      throw new AppError(`Ya hay un precio para ${t.minQty} unidades. No puede repetirse.`, 400);
     }
     seenQty.add(t.minQty);
     if (Number(t.price) >= lastPrice) {
@@ -297,7 +298,7 @@ export function reconcileStock(data) {
 // parcial), no solo lo que trae este request puntual.
 export function assertStockModeConsistent(finalSizes, finalUnlimitedStock) {
   if (finalUnlimitedStock && finalSizes?.length > 0) {
-    throw new AppError("Un producto con tallas no puede marcarse como \"disponible siempre\" — cada talla necesita su propio stock.", 400);
+    throw new AppError("Un producto con tallas no puede marcarse como \"disponible siempre\": cada talla necesita su propio stock.", 400);
   }
 }
 
@@ -473,10 +474,15 @@ export async function getProductBySlug(req, res) {
       // reporte (ver reviews.controller.js), seguía apareciendo en la ficha
       // del producto. `getVendorBySlug` (vendors.controller.js) sí lo filtraba
       // desde el Bloque 22; a este endpoint se le pasó por alto.
-      reviews: { where: { isHidden: false }, orderBy: { createdAt: "desc" }, take: 20 },
+      // Solo los campos públicos: con la fila completa salían reportedById, reportReason y reportResolvedById.
+      reviews: { where: { isHidden: false }, orderBy: { createdAt: "desc" }, take: 20, select: PUBLIC_REVIEW_SELECT },
     },
   });
   if (!product) throw new AppError("Producto no encontrado.", 404);
+  // Bloque 208: con el menú oculto, los platos del menú de mesa solo se ven escaneando el QR (getTableByToken los consulta
+  // por su cuenta). getVendorBySlug ya los quitaba de la tienda y la búsqueda del catálogo, pero la ficha se abría igual con
+  // un enlace directo o compartido.
+  if (product.availableForTableMenu && vendor.menuPublic === false) throw new AppError("Producto no encontrado.", 404);
 
   const ratingAgg = await prisma.review.aggregate({
     where: { productId: product.id, rating: { not: null }, isHidden: false },
@@ -506,11 +512,24 @@ export async function getProductBySlug(req, res) {
       },
     },
   };
+  // Mismos filtros que PUBLIC_PRODUCT_WHERE y PUBLIC_VENDOR_WHERE de search.controller.js (si cambian allí, cambian aquí):
+  // antes solo se miraban isActive, hiddenFromStore y overQuota, y salían como relacionados productos de tiendas bloqueadas
+  // o inactivas, de tiendas privadas, platos de un menú oculto y productos agotados. La tienda de la ficha cuenta aunque sea
+  // privada: quien ya está en su producto llegó con su enlace.
+  const RELATED_WHERE = {
+    isActive: true,
+    hiddenFromStore: false,
+    overQuota: false,
+    OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }],
+    NOT: { availableForTableMenu: true, vendor: { menuPublic: false } },
+    vendor: { isBlocked: false, status: "ACTIVE" },
+    AND: [{ OR: [{ vendorId: vendor.id }, { vendor: { isPrivate: false } }] }],
+  };
   const coPurchasedIds = await findCoPurchasedProductIds(product.id, RELATED_LIMIT);
   let related = [];
   if (coPurchasedIds.length > 0) {
     const coPurchasedProducts = await prisma.product.findMany({
-      where: { id: { in: coPurchasedIds }, isActive: true, hiddenFromStore: false, overQuota: false },
+      where: { ...RELATED_WHERE, id: { in: coPurchasedIds } },
       include: RELATED_INCLUDE,
     });
     // El orden de coPurchasedIds YA es "más comprado junto" primero — findMany
@@ -523,7 +542,7 @@ export async function getProductBySlug(req, res) {
     // para que la sección nunca quede vacía ni a medias.
     const excludeIds = [product.id, ...related.map((p) => p.id)];
     const fallback = await prisma.product.findMany({
-      where: { categoryId: product.categoryId, isActive: true, hiddenFromStore: false, overQuota: false, id: { notIn: excludeIds } },
+      where: { ...RELATED_WHERE, categoryId: product.categoryId, id: { notIn: excludeIds } },
       include: RELATED_INCLUDE,
       take: RELATED_LIMIT - related.length,
     });
@@ -534,7 +553,10 @@ export async function getProductBySlug(req, res) {
   // acá con product.vendor, así que necesita su propio aiAvailable en vez
   // de depender de que el cliente haya pasado antes por Store.jsx.
   // Mismo chequeo de plan que getVendorBySlug.
-  const aiAvailable = product.vendor.verificationStatus === "VERIFIED" && (await planAllows(vendor.planType, "allowAiChatbot")) ? await isAIAvailable() : false;
+  // planAllows con la tienda exige además la insignia (allowAiChatbot es requiresBadge).
+  const aiAvailable = (await planAllows(vendor, "allowAiChatbot")) ? await isAIAvailable() : false;
+  // Misma regla que getVendorBySlug y que reviews.controller.js al publicar una reseña con fotos.
+  const reviewPhotosAllowed = vendor.verificationStatus === "VERIFIED" && (await planAllows(vendor, "allowReviewPhotos"));
 
   // Bloque 254 (pedido explícito — "esa parte de la ficha era estática, pon
   // información real que facilite a los clientes"): datos reales de la tienda
@@ -570,7 +592,7 @@ export async function getProductBySlug(req, res) {
   res.json({
     product: {
       ...product,
-      vendor: withComputedVendorFields({ ...product.vendor, aiAvailable }),
+      vendor: withComputedVendorFields({ ...product.vendor, aiAvailable, reviewPhotosAllowed }),
       rating: ratingAgg._avg.rating ? Math.round(ratingAgg._avg.rating * 10) / 10 : null,
       reviewCount: ratingAgg._count.rating,
       alreadyRequested,
@@ -771,19 +793,25 @@ export async function createProduct(req, res) {
   // ignora cualquier valor que mande el cliente en este campo al crear.
   data.badge = "Nuevo";
 
+  // El tope del plan es de productos PUBLICADOS (activos y dentro del cupo), igual que dice "Hasta N productos publicados"
+  // en buildPlanIncludes. Los excedentes y los pausados no cuentan aquí: el producto nuevo nace en pausa y, al activarse con
+  // su primera foto, placeProductInQuota decide si entra al cupo. Este bloqueo avisa antes de que la tienda lo cargue entero.
   const maxProducts = await getPlanLimit(vendor, "maxProducts");
   if (maxProducts !== null) {
-    const activeCount = await prisma.product.count({ where: { vendorId: vendor.id, isActive: true } });
-    if (activeCount >= maxProducts) {
+    const publishedCount = await prisma.product.count({ where: { vendorId: vendor.id, isActive: true, overQuota: false } });
+    if (publishedCount >= maxProducts) {
       throw new AppError(
-        `Alcanzaste el límite de ${maxProducts} productos de tu plan. Verificate para pasar a Premium y publicar sin límite.`,
+        `Alcanzaste el límite de ${maxProducts} productos publicados de tu plan. Pausa o elimina alguno, o mejora tu plan para publicar más.`,
         403
       );
     }
   }
-  // Plan Regular: solo la forma de pago universal. Premium: las que elija, y la universal siempre incluida.
-  if (vendor.planType !== "REGULAR") await assertPaymentMethodsAllowed(data.paymentMethods);
-  data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal: vendor.planType === "REGULAR" });
+  // Plan por defecto (el gratis de registro, hoy el Básico): solo la forma de pago universal. Los demás planes: las que
+  // elija, y la universal siempre incluida. Se mira la bandera isDefault del plan, no la clave "REGULAR": si el admin
+  // elige otro plan por defecto, la regla lo sigue.
+  const onlyUniversal = vendor.planType === (await getDefaultPlanKey());
+  if (!onlyUniversal) await assertPaymentMethodsAllowed(data.paymentMethods);
+  data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal });
 
   let slug = slugify(data.name);
   const slugTaken = await prisma.product.findUnique({ where: { vendorId_slug: { vendorId: vendor.id, slug } } });
@@ -843,8 +871,9 @@ export async function updateProduct(req, res) {
   if (data.paymentMethods) {
     // Igual que al crear; se aceptan las que el producto ya tenía aunque el admin las haya desactivado después.
     const kept = new Set(existing.paymentMethods ?? []);
-    if (vendor.planType !== "REGULAR") await assertPaymentMethodsAllowed(data.paymentMethods.filter((m) => !kept.has(m)));
-    data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal: vendor.planType === "REGULAR" });
+    const onlyUniversal = vendor.planType === (await getDefaultPlanKey());
+    if (!onlyUniversal) await assertPaymentMethodsAllowed(data.paymentMethods.filter((m) => !kept.has(m)));
+    data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal });
   }
   if (data.badge !== undefined) await assertBadgeAllowed(data.badge);
   await applyProductShipping(data, vendor, existing);
@@ -898,6 +927,8 @@ export async function updateProduct(req, res) {
       include: { ...productPriceTiersInclude, restrictedTables: { select: { id: true } } },
     });
   });
+  // Reactivarlo desde el panel es otro camino para publicar: pasa por el cupo del plan igual que la primera foto.
+  if (data.isActive === true && !existing.isActive) product.overQuota = await placeProductInQuota(vendor.id, id);
   logActivity({ actorId: req.user.id, actorRole: actorRoleForVendorAction(req), vendorId: vendor.id, action: "product_updated", description: `Editó el producto "${existing.name}"`, meta: { productId: id } });
   res.json({ product });
 }
@@ -953,6 +984,9 @@ export async function addProductImages(req, res) {
   // del trial — createProduct/updateProduct NUNCA activan un producto por
   // sí solos (siempre arrancan en pausa hasta tener 1 foto), así que acá,
   // no ahí, es el punto real donde "publicó su primer producto" pasa.
+  // Al salir de la pausa pasa por el cupo del plan: si ya está lleno, queda "Fuera del cupo" en vez de publicarse. Va antes
+  // del trial: si la prueba se activa ahora, su recálculo del cupo ya ve este producto.
+  if (product.isActive && !req.uploadProduct.isActive) product.overQuota = await placeProductInQuota(req.uploadProduct.vendorId, product.id);
   if (wasEmpty) await maybeAutoActivateTrial(req.uploadProduct.vendorId).catch(() => {});
   res.status(201).json({ product });
 }
@@ -1041,6 +1075,8 @@ export async function addProductImageLink(req, res) {
   });
   // Bloque 235: mismo criterio que addProductImages — este es el punto
   // real donde el producto sale de la pausa, no createProduct/updateProduct.
+  // Mismo paso por el cupo del plan que en addProductImages.
+  if (product.isActive && !existing.isActive) product.overQuota = await placeProductInQuota(vendor.id, product.id);
   if (wasEmpty) await maybeAutoActivateTrial(vendor.id).catch(() => {});
   res.status(201).json({
     product,

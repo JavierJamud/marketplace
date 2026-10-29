@@ -20,7 +20,7 @@ export function ConfirmDeleteModal({ title, description, confirmLabel = "Elimina
       className={`fixed inset-0 ${zIndex} flex items-center justify-center bg-black/50 p-4`}
       onClick={(e) => { if (e.target === e.currentTarget && !pending) onCancel?.(); }}
     >
-      <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-xl bg-surface-container-lowest p-6 text-center">
+      <div className="modal-panel-6 w-full max-w-sm rounded-xl bg-surface-container-lowest p-6 text-center">
         <div className="mx-auto mb-3.5 flex h-12 w-12 items-center justify-center rounded-full bg-error/10">
           <AlertTriangle className="h-6 w-6 text-error" />
         </div>

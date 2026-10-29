@@ -249,6 +249,9 @@ export function AuthProvider({ children }) {
     // una vieja de una sesión anterior ya cerrada).
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
     setUser(data.user);
+    // GET /settings depende de quién pide (los planes ocultos con detalle solo van a su tienda y al admin): la copia pedida
+    // como visitante no sirve para la sesión que empieza.
+    queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     return data.user;
   };
 
@@ -262,6 +265,9 @@ export function AuthProvider({ children }) {
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
     setDeviceToken(data.deviceToken);
     setUser(data.user);
+    // GET /settings depende de quién pide (los planes ocultos con detalle solo van a su tienda y al admin): la copia pedida
+    // como visitante no sirve para la sesión que empieza.
+    queryClient.invalidateQueries({ queryKey: ["site-settings"] });
     return data.user;
   };
 
@@ -288,7 +294,10 @@ export function AuthProvider({ children }) {
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
     setDeviceToken(data.deviceToken);
     setUser(data.user);
-    return { user: data.user, linkedOrdersCount: data.linkedOrdersCount ?? 0 };
+    // GET /settings depende de quién pide (los planes ocultos con detalle solo van a su tienda y al admin): la copia pedida
+    // como visitante no sirve para la sesión que empieza.
+    queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+    return { user: data.user, linkedOrdersCount: data.linkedOrdersCount ?? 0, mergedIntoCustomer: !!data.mergedIntoCustomer };
   };
 
   // Bloque 60: ahora async — avisa al backend para revocar la sesión de

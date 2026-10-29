@@ -28,7 +28,7 @@ export function DeleteAccountCard() {
     onSuccess: async () => {
       setStep(0);
       setPassword("");
-      toast.success("Listo — tu cuenta queda suspendida 30 días. Te mandamos un correo con los detalles.");
+      toast.success("Listo: tu cuenta queda suspendida 30 días. Te mandamos un correo con los detalles.");
       // Mismo motivo que en AccountPendingDeletionNotice.jsx: refetch() de
       // useAuth() solo trae de nuevo /auth/me — VendorLayout.jsx también
       // depende de la query "my-vendor" por separado.
@@ -39,11 +39,11 @@ export function DeleteAccountCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <ShieldAlert className="h-5 w-5 text-error" /> Zona de peligro
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        Eliminar tu cuenta la suspende de inmediato por 30 días — puedes reactivarla tú mismo en cualquier momento
+        Eliminar tu cuenta la suspende de inmediato por 30 días. Puedes reactivarla tú mismo en cualquier momento
         durante ese plazo. Pasados los 30 días sin reactivarla, se elimina para siempre y no hay forma de recuperarla.
       </p>
       <Button variant="outline" className="rounded-xl border-error text-error hover:bg-error/5" onClick={() => setStep(1)}>
@@ -53,7 +53,7 @@ export function DeleteAccountCard() {
       <ConfirmModal
         open={step === 1}
         title="¿Eliminar tu cuenta?"
-        message="Tu cuenta y (si tienes tienda) tu tienda quedan suspendidas ya mismo por 30 días — dejan de ser visibles y de poder usarse. Podrás reactivarla tú mismo en cualquier momento durante ese plazo con solo volver a entrar."
+        message="Tu cuenta y (si tienes tienda) tu tienda quedan suspendidas ya mismo por 30 días: dejan de ser visibles y de poder usarse. Podrás reactivarla tú mismo en cualquier momento durante ese plazo con solo volver a entrar."
         confirmLabel="Continuar"
         danger
         onConfirm={() => setStep(2)}

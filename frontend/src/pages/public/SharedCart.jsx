@@ -16,6 +16,31 @@ function imgUrl(path) {
   return /^https?:\/\//.test(path) ? path : `${api.defaults.baseURL}${path}`;
 }
 
+// Enlaces de carrito compartido que este navegador ya importó. Al fusionar con un carrito de la misma tienda se suman
+// las cantidades (es lo de otra persona agregado a lo mío), así que recargar la página o volver a abrir el mismo enlace
+// las duplicaba en cada visita. Con esta lista, la segunda vez solo se asegura que estén las cantidades compartidas.
+// Es solo una comodidad de este navegador: si el almacenamiento no está disponible, se comporta como antes.
+const IMPORTED_KEY = "zeudin_imported_shared_carts";
+const IMPORTED_MAX = 20;
+
+function readImported() {
+  try {
+    const list = JSON.parse(localStorage.getItem(IMPORTED_KEY) ?? "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberImported(id) {
+  try {
+    const next = [id, ...readImported().filter((x) => x !== id)].slice(0, IMPORTED_MAX);
+    localStorage.setItem(IMPORTED_KEY, JSON.stringify(next));
+  } catch {
+    /* sin almacenamiento: no pasa nada, solo no se recuerda */
+  }
+}
+
 function vendorMetaFrom(vendor) {
   return {
     vendorId: vendor.id,
@@ -36,10 +61,14 @@ function vendorMetaFrom(vendor) {
 // solo vendedor por carrito" que rige en todo el sitio).
 export default function SharedCart() {
   const { id } = useParams();
-  const { vendorId: myVendorId, vendorName: myVendorName, items: myItems, replaceCart, mergeItems } = useCart();
-  const [committed, setCommitted] = useState(false);
+  const { vendorId: myVendorId, vendorName: myVendorName, items: myItems, replaceCart, mergeItems, ownerSettled } = useCart();
+  // Por id de enlace y no un sí/no: al pasar de un enlace a otro sin salir de la página, el componente sigue montado y
+  // el segundo enlace nunca se importaba porque "ya estaba hecho".
+  const [committedId, setCommittedId] = useState(null);
+  const committed = committedId === id;
   const [needsConfirm, setNeedsConfirm] = useState(false);
-  const [cancelled, setCancelled] = useState(false);
+  const [cancelledId, setCancelledId] = useState(null);
+  const cancelled = cancelledId === id;
   const [revealCount, setRevealCount] = useState(0);
 
   const { data, isLoading, isError } = useQuery({
@@ -49,18 +78,27 @@ export default function SharedCart() {
   });
 
   function commit() {
-    if (!myVendorId || myVendorId === data.vendor.id) {
-      if (!myVendorId) replaceCart(vendorMetaFrom(data.vendor), data.items);
-      else mergeItems(data.items);
-    } else {
-      replaceCart(vendorMetaFrom(data.vendor), data.items);
+    // Sin nada que agregar no se toca el carrito: reemplazarlo por uno vacío dejaba puesta la tienda sin productos.
+    if (data.items.length > 0) {
+      if (!myVendorId || myVendorId === data.vendor.id) {
+        if (!myVendorId) replaceCart(vendorMetaFrom(data.vendor), data.items);
+        // Ya importado antes: "max" deja al menos lo compartido sin volver a sumarlo.
+        else mergeItems(data.items, readImported().includes(id) ? "max" : "sum");
+      } else {
+        replaceCart(vendorMetaFrom(data.vendor), data.items);
+      }
+      rememberImported(id);
     }
     setNeedsConfirm(false);
-    setCommitted(true);
+    setCommittedId(id);
   }
 
+  // Se importa solo con el carrito ya asentado (ownerSettled): si este navegador guardaba el carrito de una cuenta cuya
+  // sesión venció y el enlace respondía antes que /auth/me, CartContext vaciaba el carrito después de importar y la página
+  // decía que los productos ya estaban en tu carrito, con el carrito vacío.
   useEffect(() => {
-    if (!data || committed) return;
+    if (!data || committed || !ownerSettled) return;
+    if (data.items.length === 0) return;
     const differentVendor = myVendorId && myVendorId !== data.vendor.id && myItems.length > 0;
     if (differentVendor) {
       setNeedsConfirm(true);
@@ -68,7 +106,7 @@ export default function SharedCart() {
     }
     commit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, id, ownerSettled]);
 
   // Animación puramente cosmética — el carrito ya se actualizó de verdad
   // apenas se confirma (arriba); esto solo va revelando las tarjetas una por
@@ -80,7 +118,9 @@ export default function SharedCart() {
     return () => timers.forEach(clearTimeout);
   }, [committed, data]);
 
-  if (isLoading) {
+  // Mientras la sesión se resuelve, el carrito todavía no se importa (ver ownerSettled): se sigue mostrando la carga en
+  // vez de la lista con las tarjetas invisibles.
+  if (isLoading || (!ownerSettled && !isError)) {
     return (
       <SkeletonGroup label="Cargando el carrito compartido" className="container-app max-w-[640px] py-14">
         <Skeleton width={150} height={13} className="mb-2" />
@@ -127,7 +167,7 @@ export default function SharedCart() {
       </p>
 
       {data.droppedCount > 0 && (
-        <div className="mb-5 flex items-start gap-2.5 rounded-lg bg-[#8a5100]/[0.08] p-3.5 text-[12.5px] text-[#8a5100]">
+        <div className="mb-5 flex items-start gap-2.5 rounded-lg bg-secondary/[0.08] p-3.5 text-[12.5px] text-secondary">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           {data.droppedCount === 1
             ? "Un producto de este carrito ya no está disponible y no se incluyó."
@@ -191,13 +231,13 @@ export default function SharedCart() {
       <ConfirmModal
         open={needsConfirm}
         title="¿Reemplazar tu carrito?"
-        message={`Tu carrito actual tiene productos de ${myVendorName} — para agregar los de ${data.vendor.companyName} hay que reemplazarlo (un carrito solo puede tener productos de una tienda a la vez).`}
+        message={`Tu carrito actual tiene productos de ${myVendorName}. Para agregar los de ${data.vendor.companyName} hay que reemplazarlo, porque un carrito solo puede tener productos de una tienda a la vez.`}
         confirmLabel="Sí, reemplazar"
         confirmDisabled={false}
         onConfirm={commit}
         onCancel={() => {
           setNeedsConfirm(false);
-          setCancelled(true);
+          setCancelledId(id);
         }}
       />
     </div>

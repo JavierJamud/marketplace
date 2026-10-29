@@ -116,6 +116,7 @@ function trimSlash(url) {
 // un webfont sin fallback — un stack de fuentes de sistema se ve igual en
 // todos los clientes desde el primer render, sin parpadeo.
 const FONT_STACK = "Helvetica, Arial, sans-serif";
+const BRAND_NAVY = "#0e1a28";
 
 // Bloque 284 (pedido explícito — "asuntos variados y personalizados para que no parezca
 // una campaña ni caiga en spam"): elige un asunto entre varias redacciones según una
@@ -161,8 +162,9 @@ export function paragraph(html, { color = "#44474c", size = "14px", lineHeight =
   return `<mj-text color="${color}" font-size="${size}" line-height="${lineHeight}" padding="${padding}">${html}</mj-text>`;
 }
 
+// #6f7277 y no el #5f6368 de antes: ese gris sobre blanco daba 4,48:1, apenas por debajo del 4,5:1 que pide el texto chico.
 export function smallNote(html) {
-  return paragraph(html, { color: "#75777c", size: "12.5px", lineHeight: "19px" });
+  return paragraph(html, { color: "#6f7277", size: "12.5px", lineHeight: "19px" });
 }
 
 // Botón de acción — un solo estilo en toda la plataforma (mismo naranja que
@@ -171,13 +173,69 @@ export function ctaButton(label, href) {
   return `<mj-button href="${href}" background-color="#fe9800" color="#643900" font-family="${FONT_STACK}" font-size="15px" font-weight="700" line-height="20px" border-radius="10px" inner-padding="14px 30px" padding="18px 0 4px" align="left">${label}</mj-button>`;
 }
 
-// Pastilla de estado (ej. "Preparando", "Verificada") — mismo patrón que
-// Badge.jsx en la app: fondo del color al ~12% de opacidad, texto sólido.
+// Contraste AA (WCAG 2.x) calculado aquí. Los colores de la pastilla y de la cabecera llegan de cada plantilla (estado del
+// pedido, color de la tienda) y varios no llegaban a 4,5:1 como texto: el verde #0CAE53 sobre blanco da 2,9:1. En vez de
+// una tabla fija por color, el texto se oscurece hasta llegar al mínimo, así sirve también para el color que elija una
+// tienda. Todo sale en hex de 6 cifras: Outlook de escritorio y varios clientes no entienden el hex con alfa (#0CAE531f)
+// ni rgba(), y dejaban la pastilla sin fondo.
+const WHITE_RGB = [255, 255, 255];
+
+function parseHexColor(value) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(value ?? "").trim());
+  if (!m) return null;
+  const h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+}
+
+function rgbToHex(rgb) {
+  return `#${rgb.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function relativeLuminance(rgb) {
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(a, b) {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// Mezcla `rgb` con `other`; amount es cuánto de `other` entra (0 = nada, 1 = todo). Redondea para que el contraste se mida
+// sobre el mismo hex que se escribe en el correo.
+function mixRgb(rgb, other, amount) {
+  return rgb.map((v, i) => Math.round(v + (other[i] - v) * amount));
+}
+
+// Oscurece el color de a poco hasta que `isReadable` lo acepte. El negro siempre cumple, así que el tope de vueltas solo
+// es una red de seguridad.
+function darkenUntil(rgb, isReadable) {
+  let c = rgb;
+  for (let i = 0; i < 40 && !isReadable(c); i++) c = mixRgb(c, [0, 0, 0], 0.08);
+  return c;
+}
+
+// Pastilla de estado (ej. "Preparando", "Verificada"): mismo patrón que Badge.jsx en la app, fondo del color al 12% y
+// texto del mismo tono, pero con el fondo ya mezclado con blanco (sólido) y el texto oscurecido hasta 4,5:1 si hace falta.
+// Un color que no es hex cae al gris neutro de la plataforma en vez de escribirse tal cual en el estilo.
 export function statusBadge(label, color) {
+  const base = parseHexColor(color);
+  const bg = base ? mixRgb(base, WHITE_RGB, 0.88) : [240, 237, 238];
+  const fg = base ? darkenUntil(base, (c) => contrastRatio(c, bg) >= 4.5) : [68, 71, 76];
   return paragraph(
-    `<span style="display:inline-block;padding:7px 16px;border-radius:9999px;background:${color}1f;color:${color};font-family:${FONT_STACK};font-weight:800;font-size:13px;">${label}</span>`,
+    `<span style="display:inline-block;padding:7px 16px;border-radius:9999px;background-color:${rgbToHex(bg)};color:${rgbToHex(fg)};font-family:${FONT_STACK};font-weight:800;font-size:13px;">${label}</span>`,
     { padding: "4px 0 16px" }
   );
+}
+
+// Fondo de la cabecera: el color pedido, oscurecido si hace falta para que el texto blanco de la pastilla "vía ..." (11 px,
+// sobre el mismo fondo aclarado un 14%) llegue a 4,5:1. Un color que no es hex vuelve al navy de la marca.
+function readableHeaderRgb(color) {
+  const base = parseHexColor(color) ?? parseHexColor(BRAND_NAVY);
+  return darkenUntil(base, (c) => contrastRatio(WHITE_RGB, mixRgb(c, WHITE_RGB, 0.14)) >= 4.5);
 }
 
 // Código de un solo uso (2FA / reset de contraseña) — bloque grande,
@@ -198,10 +256,9 @@ export function codeBlock(code) {
 // fila lleva la foto real del producto (si tiene, mismo criterio de
 // resolveAssetUrl que el logo) para que se reconozca a simple vista, no
 // solo por el nombre. Sin foto, cae a un cuadrado con el ícono de bolsa de
-// compra (mismo SVG que ya usa socialIconCellHtml de acá abajo para "Sitio
-// web" — un solo set de glyphs en todo el correo, nunca uno nuevo).
-const BAG_ICON_SVG =
-  '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>';
+// compra. Era un SVG en línea y Gmail y Outlook no muestran SVG (quedaba el cuadro gris vacío): ahora es un PNG con el
+// mismo glifo de lucide (shopping-bag) en backend/src/assets/email/bag.png, servido en /brand como los íconos del pie. Está
+// a 36 px y se muestra a 18 px para que se vea nítido en pantallas densas.
 
 function itemThumbHtml(imageUrl) {
   if (imageUrl) {
@@ -209,7 +266,7 @@ function itemThumbHtml(imageUrl) {
   }
   return `<table role="presentation" width="40" height="40" cellpadding="0" cellspacing="0" bgcolor="#f0edee" style="width:40px;height:40px;border-radius:8px;background:#f0edee;">
     <tr><td align="center" valign="middle" style="width:40px;height:40px;border-radius:8px;">
-      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9a9da1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${BAG_ICON_SVG}</svg>
+      <img src="${trimSlash(env.backendUrl)}/brand/email/bag.png" width="18" height="18" alt="" border="0" style="display:block;width:18px;height:18px;border:0;outline:none;margin:0 auto;" />
     </td></tr>
   </table>`;
 }
@@ -220,7 +277,7 @@ export function itemsTable(items) {
       (i) => `<tr>
         <td style="padding:8px 0;border-bottom:1px solid #f0edee;width:48px;">${itemThumbHtml(i.imageUrl)}</td>
         <td style="padding:8px 0 8px 10px;border-bottom:1px solid #f0edee;color:#1b1b1d;font-size:13.5px;">
-          ${i.quantity}× ${esc(i.name)}${i.size ? `<span style="color:#75777c;"> (talla ${esc(i.size)})</span>` : ""}
+          ${i.quantity}× ${esc(i.name)}${i.size ? `<span style="color:#6f7277;"> (talla ${esc(i.size)})</span>` : ""}
         </td>
         <td style="padding:8px 0;border-bottom:1px solid #f0edee;text-align:right;color:#1b1b1d;font-size:13.5px;white-space:nowrap;">${i.currency ? `${(Number(i.price) * i.quantity).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${esc(i.currency)}` : fmtCUP(Number(i.price) * i.quantity)}</td>
       </tr>`
@@ -229,9 +286,11 @@ export function itemsTable(items) {
   return paragraph(`<table role="presentation" width="100%" style="width:100%;border-collapse:collapse;">${rows}</table>`, { padding: "4px 0 8px" });
 }
 
+// El espacio entre las dos celdas no se ve en el correo, pero sin él el texto plano (htmlToText en lib/email.js borra las
+// etiquetas sin dejar separador) sacaba "Total12.000 CUP".
 export function totalRow(label, amount) {
   return paragraph(
-    `<table role="presentation" width="100%" style="width:100%;"><tr><td style="font-weight:800;color:#1b1b1d;font-size:15px;">${label}</td><td style="text-align:right;font-weight:800;color:#1b1b1d;font-size:15px;">${amount}</td></tr></table>`,
+    `<table role="presentation" width="100%" style="width:100%;"><tr><td style="font-weight:800;color:#1b1b1d;font-size:15px;">${label}</td> <td style="text-align:right;font-weight:800;color:#1b1b1d;font-size:15px;">${amount}</td></tr></table>`,
     { padding: "6px 0 4px" }
   );
 }
@@ -243,7 +302,7 @@ export function metaList(rows) {
     .filter(Boolean)
     .map(([k, v]) => `<div style="margin:2px 0;"><strong style="color:#44474c;">${k}:</strong> ${v}</div>`)
     .join("");
-  return paragraph(html, { color: "#75777c", size: "12.5px", lineHeight: "19px", padding: "14px 0 4px" });
+  return paragraph(html, { color: "#6f7277", size: "12.5px", lineHeight: "19px", padding: "14px 0 4px" });
 }
 
 // Bloque 61 (rediseño del shell, pedido explícito): fila de logo/inicial +
@@ -256,13 +315,15 @@ export function metaList(rows) {
 // Outlook de escritorio ignora el CSS y usa los atributos). showInitial:
 // sin imagen, ¿mostrar el cuadrado con la inicial? (tiendas sí; la
 // plataforma sin logo usable queda solo con el nombre como texto).
-function brandRowHtml({ imgSrc, imgAlt, imgWidth = 40, imgHeight = 40, name, subtitle, href, showInitial = true }) {
+// name e imgAlt llegan ya escapados (emailShell); initial es la inicial escapada para el cuadrado sin logo, porque la primera
+// letra de un nombre escapado sería la de una entidad ("&" de "&lt;").
+function brandRowHtml({ imgSrc, imgAlt, imgWidth = 40, imgHeight = 40, name, subtitle, href, showInitial = true, initial }) {
   let avatar = "";
   if (imgSrc) {
     const img = `<img src="${imgSrc}" width="${imgWidth}" height="${imgHeight}" alt="${imgAlt ?? ""}" border="0" style="display:block;width:${imgWidth}px;height:${imgHeight}px;border:0;outline:none;text-decoration:none;border-radius:10px;" />`;
     avatar = href ? `<a href="${href}" style="text-decoration:none;border:0;">${img}</a>` : img;
   } else if (showInitial) {
-    avatar = `<table role="presentation" width="40" height="40" cellpadding="0" cellspacing="0" bgcolor="#fe9800" style="width:40px;height:40px;border-radius:10px;background:#fe9800;"><tr><td align="center" valign="middle" style="width:40px;height:40px;font-family:${FONT_STACK};font-size:18px;font-weight:800;color:#0e1a28;">${(name || "?").charAt(0).toUpperCase()}</td></tr></table>`;
+    avatar = `<table role="presentation" width="40" height="40" cellpadding="0" cellspacing="0" bgcolor="#fe9800" style="width:40px;height:40px;border-radius:10px;background:#fe9800;"><tr><td align="center" valign="middle" style="width:40px;height:40px;font-family:${FONT_STACK};font-size:18px;font-weight:800;color:#0e1a28;">${initial || (name || "?").charAt(0).toUpperCase()}</td></tr></table>`;
   }
   const nameHtml = href
     ? `<a href="${href}" style="color:#ffffff;text-decoration:none;">${name}</a>`
@@ -280,8 +341,9 @@ function brandRowHtml({ imgSrc, imgAlt, imgWidth = 40, imgHeight = 40, name, sub
     </table>`;
 }
 
-function viaPillHtml(siteName) {
-  return `<span style="display:inline-block;padding:5px 12px;border-radius:9999px;background:rgba(255,255,255,0.14);color:#ffffff;font-family:${FONT_STACK};font-size:11px;font-weight:700;white-space:nowrap;">vía ${siteName}</span>`;
+// pillBg: el fondo de la cabecera aclarado un 14%, en hex (antes rgba(255,255,255,0.14), que Outlook de escritorio ignora).
+function viaPillHtml(siteName, pillBg) {
+  return `<span style="display:inline-block;padding:5px 12px;border-radius:9999px;background-color:${pillBg};color:#ffffff;font-family:${FONT_STACK};font-size:11px;font-weight:700;white-space:nowrap;">vía ${siteName}</span>`;
 }
 
 // left = brandRowHtml(...), rightPill = viaPillHtml(...) o null — una sola
@@ -351,21 +413,40 @@ function socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl }) {
 // showSocial: los íconos de redes sociales solo van en correos de promoción (por ejemplo, la reactivación de clientes).
 // En los correos de servicio (pedidos, códigos, contacto, avisos) se omiten: Gmail los cuenta como señal de boletín
 // comercial y manda el correo a Promociones en lugar de la bandeja Principal.
-export async function emailShell({ preview, title, bodyMjml, storeName, storeLogoUrl, accentColor = "#0e1a28", footerNote, badge, showSocial = false }) {
+// accentColor solo pinta la cabecera de una TIENDA (con storeLogoUrl). La de la plataforma va siempre en navy: su subtítulo
+// gris #9aa3ad está pensado para ese fondo, y sobre el verde, el rojo o el ámbar de un estado quedaba entre 1,1:1 y 2,6:1
+// (el nombre en blanco sobre #0CAE53, 2,9:1). El color del estado sigue en la pastilla de arriba del título.
+// footerNote: sin él, el pie depende de quién firma. Si firma una tienda (correo de su pedido al cliente), remite al
+// WhatsApp de la tienda desde el pedido; si firma la plataforma (códigos, avisos a la tienda, moderación, personal...), a
+// la página de contacto. Antes todos decían "responde a la tienda por WhatsApp desde tu pedido", también los que no
+// tienen pedido ni tienda.
+export async function emailShell({ preview, title, bodyMjml, storeName, storeLogoUrl, accentColor = BRAND_NAVY, footerNote, badge, showSocial = false }) {
   // Bloque 49: nombre de la plataforma, editable desde "Marca de la
   // plataforma" en el admin. El logo sale de resolvePlatformLogo() (arriba):
   // siempre una URL https pública a un PNG, o texto si no hay ninguna.
-  const { siteName, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
+  const { siteName: rawSiteName, whatsappUrl, instagramUrl, facebookUrl } = await getBrandSettings();
+  // title y storeName llegan SIN escapar y se escapan solo aquí. Antes cada plantilla debía acordarse, y varias no lo hacían:
+  // el asunto libre que una tienda le escribe a su cliente o un nombre de tienda con HTML (un enlace, una imagen) entraba tal
+  // cual en un correo con la cabecera y el remitente de la plataforma. Quién firma se decide con los valores sin escapar.
+  const showStore = !!storeName && storeName !== rawSiteName;
+  const safeTitle = esc(title);
+  const safeStore = esc(storeName);
+  const siteName = esc(rawSiteName);
   const siteUrl = trimSlash(env.frontendUrl);
   const siteHost = siteUrl.replace(/^https?:\/\//, "");
   const platformLogo = resolvePlatformLogo();
+  const headerRgb = readableHeaderRgb(storeLogoUrl ? accentColor : BRAND_NAVY);
+  const headerBg = rgbToHex(headerRgb);
+  const defaultFooter = showStore
+    ? "Este es un correo automático: si tienes dudas, escríbele a la tienda por WhatsApp desde tu pedido."
+    : `Este es un correo automático de ${siteName}. Si tienes dudas, escríbenos desde la <a href="${siteUrl}/contacto" style="color:#44474c;text-decoration:underline;">página de contacto</a>.`;
 
   let headerHtml;
   if (storeLogoUrl) {
     const storeImg = isEmailSafeImageUrl(storeLogoUrl) ? storeLogoUrl : null;
     headerHtml = headerRowHtml(
-      brandRowHtml({ imgSrc: storeImg, imgAlt: storeName, name: storeName }),
-      viaPillHtml(siteName)
+      brandRowHtml({ imgSrc: storeImg, imgAlt: safeStore, name: safeStore, initial: esc(String(storeName ?? "").charAt(0).toUpperCase()) }),
+      viaPillHtml(siteName, rgbToHex(mixRgb(headerRgb, WHITE_RGB, 0.14)))
     );
   } else if (platformLogo) {
     headerHtml = headerRowHtml(
@@ -390,7 +471,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
   const mjml = `
 <mjml>
   <mj-head>
-    <mj-title>${title}</mj-title>
+    <mj-title>${safeTitle}</mj-title>
     ${preview ? `<mj-preview>${esc(preview)}</mj-preview>` : ""}
     <mj-attributes>
       <mj-all font-family="${FONT_STACK}" />
@@ -402,7 +483,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
   </mj-head>
   <mj-body background-color="#f0edee" width="600px">
     <mj-wrapper border-radius="18px" padding="0" css-class="email-shell">
-      <mj-section background-color="${accentColor}" padding="20px 26px">
+      <mj-section background-color="${headerBg}" padding="20px 26px">
         <mj-column>
           <mj-text padding="0">${headerHtml}</mj-text>
         </mj-column>
@@ -411,7 +492,7 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
       <mj-section background-color="#ffffff" padding="30px 26px 6px">
         <mj-column>
           ${badgeMjml}
-          <mj-text font-size="22px" font-weight="800" color="#1b1b1d" line-height="27px" padding="0 0 16px">${title}</mj-text>
+          <mj-text font-size="22px" font-weight="800" color="#1b1b1d" line-height="27px" padding="0 0 16px">${safeTitle}</mj-text>
           ${bodyMjml}
         </mj-column>
       </mj-section>
@@ -423,22 +504,22 @@ export async function emailShell({ preview, title, bodyMjml, storeName, storeLog
       <mj-section background-color="#f7f5f6" padding="22px 26px 8px">
         <mj-column width="55%" vertical-align="top">
           <mj-text font-size="14px" font-weight="800" color="#1b1b1d" line-height="18px" padding="0 0 4px"><a href="${siteUrl}" style="color:#1b1b1d;text-decoration:none;">${siteName}</a></mj-text>
-          <mj-text font-size="12px" color="#75777c" line-height="18px" padding="0 0 12px">Marketplace multivendedor de Cuba</mj-text>
+          <mj-text font-size="12px" color="#63666b" line-height="18px" padding="0 0 12px">Marketplace multivendedor de Cuba</mj-text>
           ${showSocial ? `<mj-text padding="0 0 14px" align="left">${socialIconsRowHtml({ whatsappUrl, instagramUrl, facebookUrl })}</mj-text>` : ""}
         </mj-column>
         <mj-column width="45%" vertical-align="top">
-          <mj-text font-size="12.5px" color="#75777c" line-height="22px" padding="0 0 14px">
+          <mj-text font-size="12.5px" color="#5b6470" line-height="22px" padding="0 0 14px">
             <a href="${siteUrl}" style="color:#44474c;text-decoration:none;font-weight:700;">${siteHost}</a><br/>
-            <a href="${siteUrl}/terminos" style="color:#75777c;text-decoration:none;">Términos y condiciones</a><br/>
-            <a href="${siteUrl}/privacidad" style="color:#75777c;text-decoration:none;">Política de privacidad</a>
+            <a href="${siteUrl}/terminos" style="color:#5b6470;text-decoration:none;">Términos y condiciones</a><br/>
+            <a href="${siteUrl}/privacidad" style="color:#5b6470;text-decoration:none;">Política de privacidad</a>
           </mj-text>
         </mj-column>
       </mj-section>
       <mj-section background-color="#f7f5f6" padding="0 26px 24px">
         <mj-column>
-          <mj-text font-size="11px" color="#8a8d92" line-height="16px" padding="0">
-            ${storeName && storeName !== siteName ? `Enviado por <strong style="color:#5b6470;">${storeName}</strong> a través de ${siteName}.<br/>` : ""}
-            ${footerNote ?? "Este es un correo automático: si tienes dudas, responde directo a la tienda por WhatsApp desde tu pedido."}<br/>
+          <mj-text font-size="11px" color="#63666b" line-height="16px" padding="0">
+            ${showStore ? `Enviado por <strong style="color:#5b6470;">${safeStore}</strong> a través de ${siteName}.<br/>` : ""}
+            ${footerNote ?? defaultFooter}<br/>
             © ${new Date().getFullYear()} ${siteName}. Todos los derechos reservados.
           </mj-text>
         </mj-column>
@@ -481,7 +562,8 @@ export function orderProgress(status) {
   };
   const step = (s, i) => {
     const on = i <= current;
-    const color = i === current ? "#0e1a28" : on ? "#44474c" : "#9a9ca1";
+    // Pendientes en #6f7277 (4,8:1 sobre blanco); el #9a9ca1 de antes daba 2,8:1.
+    const color = i === current ? "#0e1a28" : on ? "#44474c" : "#6f7277";
     return `<td align="center" valign="top" width="62" style="width:62px;">
       <img src="${base}/${s.icon}-${on ? "on" : "off"}.png" width="48" height="48" alt="" style="display:block;width:48px;height:48px;border:0;margin:0 auto;" />
       <div style="font-size:11px;line-height:14px;color:${color};font-weight:${i === current ? 700 : 500};padding-top:6px;word-break:keep-all;overflow-wrap:normal;">${s.label}</div>

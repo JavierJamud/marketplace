@@ -27,7 +27,7 @@ export default function QuickSaleListings() {
   const [search, setSearch] = useState(() => params.get("q") ?? "");
   const [condition, setCondition] = useState("");
   const { zoneParams, zoneKey, waiting: zoneLoading } = useZone();
-  const { data: listings, isLoading } = useQuery({
+  const { data: listings, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["public-customer-listings", zoneKey],
     queryFn: async () => (await api.get("/customer-listings", { params: zoneParams })).data.listings,
     enabled: !zoneLoading,
@@ -53,7 +53,7 @@ export default function QuickSaleListings() {
       <Breadcrumbs className="mb-2" items={[{ label: "Venta rápida" }]} />
       <h1 className="mb-1 text-headline-lg text-on-surface">Venta rápida</h1>
       <p className="mb-7 text-body-md text-on-surface-variant">
-        Productos publicados directamente por clientes — sin tienda, se coordina todo por WhatsApp.
+        Productos publicados directamente por clientes, sin tienda. Todo se coordina por WhatsApp.
       </p>
 
       <ZoneChip className="mb-5" />
@@ -69,7 +69,16 @@ export default function QuickSaleListings() {
           </div>}
         </div>
       )}
-      {!isLoading && (!listings || listings.length === 0) && (
+      {/* Un fallo de red no es "no hay anuncios": se dice y se puede reintentar. */}
+      {!isLoading && isError && !listings && (
+        <div role="alert" className="flex flex-col items-start gap-3 rounded-2xl border border-outline-variant p-5">
+          <p className="text-body-md text-on-surface">No se pudieron cargar los anuncios.</p>
+          <button type="button" onClick={() => refetch()} disabled={isFetching} className="min-h-11 rounded-lg border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-60">
+            {isFetching ? "Cargando..." : "Reintentar"}
+          </button>
+        </div>
+      )}
+      {!isLoading && !isError && (!listings || listings.length === 0) && (
         <EmptyState icon={Package} title="No hay anuncios de venta rápida por ahora" />
       )}
       {!isLoading && listings?.length > 0 && shown.length === 0 && <p className="text-body-md text-on-surface-variant">Ningún anuncio coincide con tu búsqueda.</p>}

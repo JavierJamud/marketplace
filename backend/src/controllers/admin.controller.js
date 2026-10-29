@@ -1,4 +1,5 @@
-import { addToBlacklist } from "../lib/blacklist.js";
+import { mirrorInitialPayment } from "../lib/initialPayment.js";
+import { addToBlacklist, normEmail } from "../lib/blacklist.js";
 import { assertPhoneFree } from "../lib/phoneUniqueness.js";
 import { normalizeUsername } from "../lib/username.js";
 import { assertVendorUnique } from "../services/vendorUniqueness.service.js";
@@ -8,6 +9,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { emailField } from "../utils/emailField.js";
 import { transitionVendorVerification, syncVerificationArchive, withComputedVendorFields } from "../services/vendorVerification.service.js";
 import { notifyVerificationEvent } from "../services/verificationNotify.service.js";
 import { adminNoticeToVendor } from "../lib/notify.js";
@@ -18,12 +20,30 @@ import { applyPlanDowngrade, scheduleOrCancelDowngrade } from "../services/planD
 import { finalizeUserDeletion } from "../lib/accountDeletion.js";
 import { VENDOR_SECTION_KEYS, pruneSectionPermissions, withStaffTypeSections } from "../constants/vendorSections.js";
 import { computeVendorHealthScore } from "./vendors.controller.js";
-import { rawSalesSeries, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
-import { recalcVendorProductQuota, getAllPlanConfigs, getPlanConfig, paymentPlanOf, quotePlan } from "../lib/planConfig.js";
+import { rawSalesSeries, salesByCurrency, fillSeriesGaps, bucketKey, salesSeriesSchema, resolveSeriesRange } from "../lib/salesSeries.js";
+import {
+  recalcVendorProductQuota,
+  getAllPlanConfigs,
+  getPlanConfig,
+  paymentPlanOf,
+  quotePlan,
+  getDefaultPlanKey,
+  getTrialPlanKey,
+  getPaidPlanKeys,
+  isValidPlanKey,
+  planDisplayName,
+  isPremiumActive,
+  recordPlanChange,
+  planAllows,
+  PLAN_KEY_PATTERN,
+} from "../lib/planConfig.js";
+import { orderCurrency, money } from "../lib/orderSummary.js";
 import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
 import { vendorZoneWhere, describeVendorZones } from "../lib/vendorZone.js";
 import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
 import { adminReactivationBillingData, liftBillingSuspension } from "../services/planBilling.service.js";
+import { startOfDayInTimezone } from "../lib/timezone.js";
+import { getSiteTimezone } from "./settings.controller.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -48,33 +68,200 @@ const SUBSCRIPTION_STATUS_LABEL = {
 // SOLO verificationStatus (sin los includes de verification/locations que
 // esa lista sí necesita) y de todas formas compartir el mismo criterio de
 // conteo/MRR — nunca dos copias del cálculo.
-// Una tienda en su prueba gratis está VERIFIED con Premium, pero todavía no paga: se cuenta aparte ("trial") y
+// Una tienda en su prueba gratis tiene el plan de prueba completo, pero todavía no paga: se cuenta aparte ("trial") y
 // no suma al MRR.
 const inTrial = (v) => !!v.trialEndsAt && new Date(v.trialEndsAt) > new Date();
-// Tiendas que aparecen en Suscripciones: las que tienen Premium (pagado o prueba) y las que lo perdieron por un cobro
-// fallido o una suspensión. Con la regla "Premium activo <=> VERIFIED" estas últimas ya están en plan Regular, así que filtrar
-// solo por planType las escondería justo cuando hay que revisar su cobro.
-// Planes de pago (todos menos el Básico): sus tiendas son las que tienen suscripción.
-const PAID_PLAN_TYPES = ["STANDARD", "BUSINESS", "ENTERPRISE"];
-const SUBSCRIPTION_SCOPE = { deletedAt: null, OR: [{ planType: { in: PAID_PLAN_TYPES } }, { verificationStatus: { in: ["PAYMENT_FAILED", "SUSPENDED"] } }] };
+
+// Tiendas que aparecen en Suscripciones. Los planes ya no son una lista fija: se leen de PlanConfig.
+//  - Las de un plan de pago (getPaidPlanKeys: ni el plan por defecto, ni gratis, ni archivado; incluye los "por WhatsApp").
+//  - Las que cobra planBilling (billingNoticeStage o billingSuspendedAt): un plan sin insignia o el plan por defecto
+//    cuando el admin deja de darlo gratis. Antes quedaban fuera y su cobro no se veía en ningún lado.
+//  - Las que perdieron el plan por un cobro fallido o una suspensión: con la regla "plan con insignia <=> VERIFIED" ya
+//    están en el plan por defecto, así que filtrar solo por planType las escondería justo cuando hay que revisar su cobro.
+async function subscriptionScope() {
+  const paidKeys = await getPaidPlanKeys();
+  return {
+    deletedAt: null,
+    OR: [
+      { planType: { in: paidKeys } },
+      { billingNoticeStage: { not: null } },
+      { billingSuspendedAt: { not: null } },
+      { verificationStatus: { in: ["PAYMENT_FAILED", "SUSPENDED"] } },
+    ],
+  };
+}
+
+// Campos de la tienda que necesitan subscriptionStatusOf y el MRR (getDashboard pide solo estos).
+const SUBSCRIPTION_VENDOR_SELECT = {
+  id: true,
+  planType: true,
+  verificationStatus: true,
+  trialEndsAt: true,
+  nextPaymentDueDate: true,
+  billingNoticeStage: true,
+  billingSuspendedAt: true,
+};
+
+// Estado de cobro de una tienda. El cobro de planBilling va primero porque lo decide la fecha, no la verificación:
+// "billing_suspended" (suspendida por no pagar), "billing_overdue" (pasó su fecha de cobro) y "active" si está al día con
+// un plan cobrado. Después, los estados terminales de la verificación. "active" = el plan está pagado y vigente
+// (isPremiumActive, o en un plan cobrado por planBilling con su fecha de cobro por delante). Llama antes a
+// getDefaultPlanKey() (lo hacen subscriptionScope y computeSubscriptionMetrics) para que isPremiumActive tenga la caché de
+// planes cargada.
 function subscriptionStatusOf(v) {
-  const status = SUBSCRIPTION_STATUS_LABEL[v.verificationStatus] ?? "pending_payment";
-  return status === "active" && inTrial(v) ? "trial" : status;
+  if (v.billingSuspendedAt) return "billing_suspended";
+  const due = v.nextPaymentDueDate ? new Date(v.nextPaymentDueDate) : null;
+  const now = new Date();
+  // Mismo criterio que isBillingOverdue (planBilling.service.js): la etapa sola no basta. Pagar (renovación, pago manual,
+  // activación a mano) mueve la fecha pero no la etapa, que se corrige en la siguiente pasada horaria; mientras tanto la
+  // tienda ya está al día y no puede salir como "Cobro atrasado".
+  if (["due", "after", "suspended"].includes(v.billingNoticeStage) && due && due <= now) return "billing_overdue";
+  // Al día con un plan cobrado por planBilling: va antes que la verificación porque una tienda que perdió un plan con
+  // insignia hace tiempo (SUSPENDED o PAYMENT_FAILED) y hoy paga al día el plan por defecto cobrado está activa en ese plan.
+  if (v.billingNoticeStage && due && due > now) return inTrial(v) ? "trial" : "active";
+  const byVerification = SUBSCRIPTION_STATUS_LABEL[v.verificationStatus];
+  if (byVerification && byVerification !== "active") return byVerification;
+  if (isPremiumActive(v)) return inTrial(v) ? "trial" : "active";
+  return "pending_payment";
+}
+
+const round2 = (n) => Math.round(n * 100) / 100;
+const addMoney = (bucket, currency, amount) => {
+  bucket[currency] = round2((bucket[currency] ?? 0) + amount);
+};
+// Un pago manual de renovación escribe a la vez en VerificationRequest y en SubscriptionPayment (registerManualPayment):
+// si las dos filas son de la misma tienda y se confirmaron a menos de 2 minutos, son el mismo dinero.
+const SAME_PAYMENT_WINDOW_MS = 2 * 60 * 1000;
+
+// Ingreso mensual de las tiendas que pagan, por moneda y por plan, con lo que pagaron de verdad: su último pago confirmado
+// (el más reciente entre SubscriptionPayment y VerificationRequest) dividido entre los meses que cubre. Así entran los
+// descuentos por meses, el plan por defecto cuando se cobra y los planes "por WhatsApp" con el monto que registró el
+// admin. Nunca se convierte CUP a USD: cada moneda va aparte. Un pago sin monto (activación a mano) no suma.
+// Ese último pago solo cuenta si es de su plan actual (un pago sin plan anotado se toma como suyo: las renovaciones viejas
+// lo dejaban vacío) y si no hay una activación a mano hacia ese plan posterior al pago. Sin esto, una tienda que pagó
+// Premium hace un año y hoy tiene un plan activado a mano, o el plan por defecto cobrado todavía sin pagar, sumaba al
+// MRR de su plan actual un dinero que ya no cobra.
+async function monthlyRevenueOf(payingVendors) {
+  const total = {};
+  const byPlan = new Map();
+  if (!payingVendors.length) return { total, byPlan };
+  const ids = payingVendors.map((v) => v.id);
+  const [subs, initials, grants] = await Promise.all([
+    prisma.subscriptionPayment.findMany({
+      where: { vendorId: { in: ids }, confirmedAt: { not: null } },
+      orderBy: { confirmedAt: "desc" },
+      distinct: ["vendorId"],
+      select: { vendorId: true, amount: true, currency: true, months: true, confirmedAt: true, planType: true },
+    }),
+    prisma.verificationRequest.findMany({
+      where: { vendorId: { in: ids }, paymentConfirmedAt: { not: null } },
+      select: { vendorId: true, paymentAmount: true, paymentCurrency: true, paymentMonths: true, paymentConfirmedAt: true, paymentPlanType: true },
+    }),
+    // Activaciones a mano, de la más nueva a la más vieja (abajo se toma la última hacia el plan actual de cada tienda).
+    prisma.vendorPlanChange.findMany({
+      where: { vendorId: { in: ids }, reason: "admin_grant" },
+      orderBy: { createdAt: "desc" },
+      select: { vendorId: true, toPlan: true, createdAt: true },
+    }),
+  ]);
+  const last = new Map(subs.map((p) => [p.vendorId, { at: p.confirmedAt, amount: p.amount, currency: p.currency, months: p.months, planType: p.planType }]));
+  for (const p of initials) {
+    const cur = last.get(p.vendorId);
+    // A igual fecha (el pago manual que escribe en las dos tablas) gana SubscriptionPayment.
+    if (!cur || p.paymentConfirmedAt.getTime() > cur.at.getTime() + SAME_PAYMENT_WINDOW_MS) {
+      last.set(p.vendorId, { at: p.paymentConfirmedAt, amount: p.paymentAmount, currency: p.paymentCurrency, months: p.paymentMonths, planType: p.paymentPlanType });
+    }
+  }
+  const lastGrantAt = new Map();
+  for (const g of grants) {
+    const key = `${g.vendorId}:${g.toPlan}`;
+    if (!lastGrantAt.has(key)) lastGrantAt.set(key, g.createdAt);
+  }
+  for (const v of payingVendors) {
+    const p = last.get(v.id);
+    const amount = Number(p?.amount ?? 0);
+    if (!p || !amount || !p.currency) continue;
+    if (p.planType && p.planType !== v.planType) continue;
+    const grantAt = lastGrantAt.get(`${v.id}:${v.planType}`);
+    if (grantAt && grantAt > p.at) continue;
+    const monthly = amount / Math.max(1, p.months ?? 1);
+    addMoney(total, p.currency, monthly);
+    if (!byPlan.has(v.planType)) byPlan.set(v.planType, {});
+    addMoney(byPlan.get(v.planType), p.currency, monthly);
+  }
+  return { total, byPlan };
 }
 
 async function computeSubscriptionMetrics(vendors) {
+  await getDefaultPlanKey();
   const statuses = vendors.map(subscriptionStatusOf);
-  const active = statuses.filter((s) => s === "active").length;
-  const trial = statuses.filter((s) => s === "trial").length;
-  const pendingPayment = statuses.filter((s) => s === "pending_payment").length;
-  const rejected = statuses.filter((s) => s === "rejected").length;
-  const paymentFailed = statuses.filter((s) => s === "payment_failed").length;
-  const suspended = statuses.filter((s) => s === "suspended").length;
-  // Ingreso mensual estimado: cada tienda activa con el precio en USD de su plan.
-  const priceByPlan = new Map((await getAllPlanConfigs()).map((p) => [p.planType, Number(p.priceUsd) || 0]));
-  const mrrUsd = Math.round(vendors.reduce((sum, v, i) => sum + (statuses[i] === "active" ? priceByPlan.get(v.planType) ?? 0 : 0), 0) * 100) / 100;
-  return { active, trial, pendingPayment, rejected, paymentFailed, suspended, mrrUsd };
+  const count = (s) => statuses.filter((x) => x === s).length;
+  const { total: mrrByCurrency, byPlan } = await monthlyRevenueOf(vendors.filter((_, i) => statuses[i] === "active"));
+  return {
+    active: count("active"),
+    trial: count("trial"),
+    pendingPayment: count("pending_payment"),
+    rejected: count("rejected"),
+    paymentFailed: count("payment_failed"),
+    suspended: count("suspended"),
+    billingOverdue: count("billing_overdue"),
+    billingSuspended: count("billing_suspended"),
+    // Se conserva el nombre de siempre (lo leen el dashboard y Suscripciones), pero ahora es lo cobrado en USD de verdad,
+    // no el precio de lista de cada plan. Lo cobrado en CUP va en mrrByCurrency.CUP.
+    mrrUsd: mrrByCurrency.USD ?? 0,
+    mrrByCurrency,
+    mrrByPlan: Object.fromEntries(byPlan),
+  };
 }
+
+// Pagos confirmados en [from, to), por moneda y por plan, sin contar dos veces el pago manual de renovación (que escribe
+// en VerificationRequest y en SubscriptionPayment): una fila de VerificationRequest se descarta si la misma tienda tiene
+// un SubscriptionPayment confirmado a menos de 2 minutos. SubscriptionPayment trae también el cobro del plan por defecto
+// cuando no es gratis (planBilling), que antes no entraba en ninguna cifra. Mismo criterio que GET /admin/plan-stats.
+async function confirmedRevenueBetween(from, to) {
+  const [initials, subs] = await Promise.all([
+    prisma.verificationRequest.findMany({
+      where: { paymentConfirmedAt: { gte: from, lt: to } },
+      select: { vendorId: true, paymentAmount: true, paymentCurrency: true, paymentPlanType: true, paymentConfirmedAt: true },
+    }),
+    // Con margen de 2 minutos a cada lado: el gemelo de un pago del borde del periodo también tiene que verse.
+    prisma.subscriptionPayment.findMany({
+      where: { confirmedAt: { gte: new Date(from.getTime() - SAME_PAYMENT_WINDOW_MS), lt: new Date(to.getTime() + SAME_PAYMENT_WINDOW_MS) } },
+      select: { vendorId: true, amount: true, currency: true, planType: true, confirmedAt: true },
+    }),
+  ]);
+  const payments = [];
+  for (const p of subs) {
+    if (p.confirmedAt < from || p.confirmedAt >= to) continue;
+    payments.push({ planType: paymentPlanOf(p.planType), amount: Number(p.amount ?? 0), currency: p.currency });
+  }
+  for (const p of initials) {
+    const twin = subs.some((s) => s.vendorId === p.vendorId && Math.abs(s.confirmedAt.getTime() - p.paymentConfirmedAt.getTime()) < SAME_PAYMENT_WINDOW_MS);
+    if (twin) continue;
+    payments.push({ planType: paymentPlanOf(p.paymentPlanType), amount: Number(p.paymentAmount ?? 0), currency: p.paymentCurrency });
+  }
+  const total = {};
+  const byPlan = new Map();
+  let count = 0;
+  for (const p of payments) {
+    if (!p.amount || !p.currency) continue;
+    count++;
+    addMoney(total, p.currency, p.amount);
+    if (!byPlan.has(p.planType)) byPlan.set(p.planType, { revenue: {}, payments: 0 });
+    const row = byPlan.get(p.planType);
+    addMoney(row.revenue, p.currency, p.amount);
+    row.payments++;
+  }
+  return { total, byPlan, count };
+}
+
+// Cuántos días cubre un mes pagado (el mismo PAYMENT_CYCLE_DAYS de arriba), en milisegundos.
+const cycleMs = (months) => months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000;
+
+// Cambios de plan y VendorPlanChange: transitionVendorVerification y applyPlanDowngrade anotan el cambio en su propia
+// transacción (aquí se les pasa `planChangeReason` con el motivo exacto, no se vuelve a llamar recordPlanChange porque
+// saldría duplicado). Los cambios que este controlador escribe directo en Vendor lo anotan con recordPlanChange en la misma
+// transacción que el cambio.
 
 // Bloque 48: embudo de verificación para el dashboard — NOT_STARTED es la
 // única etapa "sin trámite iniciado todavía", nunca se cuenta como problema;
@@ -100,13 +287,84 @@ const VERIFICATION_STATUS_LABEL = {
   PAYMENT_FAILED: "Pago fallido",
   SUSPENDED: "Suspendida",
   REJECTED: "Rechazada",
-  PLAN_ENDED: "Volvió a Regular",
+  // getDashboard lo cambia por "Volvió al plan <nombre del plan por defecto>" (el nombre lo elige el admin).
+  PLAN_ENDED: "Volvió al plan por defecto",
 };
 
+// Inicio y fin del mes calendario del negocio (zona horaria del sitio), no el
+// del servidor: en Cuba el mes empieza a las 00:00 de Cuba, igual que los
+// filtros de fecha de Pedidos (adminOrders.controller.js). Se ancla a las
+// 12:00 UTC del día 1 para que startOfDayInTimezone lea ese mismo día en
+// cualquier zona de América o Europa. Date.UTC(y, 12, 1) pasa solo a enero.
+function monthBoundsInTimezone(now, timezone) {
+  const [year, month] = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now).split("-").map(Number);
+  return {
+    start: startOfDayInTimezone(new Date(Date.UTC(year, month - 1, 1, 12)), timezone),
+    end: startOfDayInTimezone(new Date(Date.UTC(year, month, 1, 12)), timezone),
+  };
+}
+
+// Fila "Ingresos por plan" del dashboard (forma documentada en planes-spec.md, sección "Dashboard"): por cada plan, sus
+// tiendas, las que pagan al día, las que están en prueba, lo cobrado este mes y el ingreso mensual (MRR), las dos cifras
+// por moneda sin convertir. Salen todos los planes no archivados (también los ocultos y el plan por defecto) y los
+// archivados solo si tienen cobros en el mes. Los nombres vienen de PlanConfig, nunca escritos en el código.
+// Las cifras de tiendas (vendors, paying, inTrial) usan el mismo alcance que la lista de Tiendas (listVendors sin filtro de
+// estado): sin bloqueadas, suspendidas ni con eliminación pendiente. Cada fila enlaza a /admin/tiendas?plan=CLAVE y antes
+// contaba todas las no eliminadas, así que al abrirla se veía un número menor. El dinero (revenue, mrr) no cambia: es lo
+// cobrado de verdad, también de las tiendas que después se bloquearon.
+const LISTED_VENDOR_SCOPE = { deletedAt: null, isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null };
+
+async function buildRevenueByPlan({ monthStart, monthEnd, monthRevenue, subscriptionVendors, subscriptionMetrics }) {
+  const activeIds = subscriptionVendors.filter((v) => subscriptionStatusOf(v) === "active").map((v) => v.id);
+  const [configs, vendorsByPlan, trialsByPlan, listedPaying] = await Promise.all([
+    getAllPlanConfigs({ includeArchived: true }),
+    prisma.vendor.groupBy({ by: ["planType"], where: LISTED_VENDOR_SCOPE, _count: { _all: true } }),
+    prisma.vendor.groupBy({ by: ["planType"], where: { ...LISTED_VENDOR_SCOPE, trialEndsAt: { gt: new Date() } }, _count: { _all: true } }),
+    activeIds.length ? prisma.vendor.findMany({ where: { ...LISTED_VENDOR_SCOPE, id: { in: activeIds } }, select: { planType: true } }) : [],
+  ]);
+  const vendorCount = new Map(vendorsByPlan.map((r) => [r.planType, r._count._all]));
+  const trialCount = new Map(trialsByPlan.map((r) => [r.planType, r._count._all]));
+  const payingCount = new Map();
+  for (const v of listedPaying) payingCount.set(v.planType, (payingCount.get(v.planType) ?? 0) + 1);
+  // Siempre CUP y USD (las dos monedas de cobro), más cualquier otra que aparezca en los datos.
+  const currencies = [...new Set(["CUP", "USD", ...Object.keys(monthRevenue.total), ...Object.keys(subscriptionMetrics.mrrByCurrency)])];
+  const money = (bucket = {}) => Object.fromEntries(currencies.map((c) => [c, bucket[c] ?? 0]));
+
+  const plans = configs
+    .filter((c) => !c.archivedAt || monthRevenue.byPlan.has(c.planType))
+    .map((c) => ({
+      planType: c.planType,
+      displayName: c.displayName,
+      archived: !!c.archivedAt,
+      isDefault: !!c.isDefault,
+      isFree: !!c.isFree,
+      contactOnly: !!c.contactOnly,
+      vendors: vendorCount.get(c.planType) ?? 0,
+      paying: payingCount.get(c.planType) ?? 0,
+      inTrial: trialCount.get(c.planType) ?? 0,
+      payments: monthRevenue.byPlan.get(c.planType)?.payments ?? 0,
+      revenue: money(monthRevenue.byPlan.get(c.planType)?.revenue),
+      mrr: money(subscriptionMetrics.mrrByPlan[c.planType]),
+    }));
+  const sum = (key) => plans.reduce((n, p) => n + p[key], 0);
+  return {
+    from: monthStart.toISOString(),
+    to: monthEnd.toISOString(),
+    currencies,
+    plans,
+    totals: {
+      vendors: sum("vendors"),
+      paying: sum("paying"),
+      inTrial: sum("inTrial"),
+      payments: monthRevenue.count,
+      revenue: money(monthRevenue.total),
+      mrr: money(subscriptionMetrics.mrrByCurrency),
+    },
+  };
+}
+
 export async function getDashboard(_req, res) {
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const { start: monthStart, end: monthEnd } = monthBoundsInTimezone(new Date(), await getSiteTimezone());
 
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -115,25 +373,37 @@ export async function getDashboard(_req, res) {
   const [
     activeVendors,
     totalCustomers,
-    ordersThisMonth,
-    tableOrdersThisMonth,
+    monthSalesRows,
     orderSum,
     tableOrderSum,
     pendingVerifications,
     businessVendors,
+    monthSalesByCurrency,
   ] = await Promise.all([
     prisma.vendor.count({ where: { isBlocked: false, status: "ACTIVE", deletedAt: null } }),
     prisma.user.count({ where: { role: "CUSTOMER", deletedAt: null } }),
-    prisma.order.count({ where: { createdAt: { gte: monthStart } } }),
-    prisma.tableOrder.count({ where: { createdAt: { gte: monthStart } } }),
+    // Pedidos y valor del mes con la MISMA consulta de la gráfica de ventas
+    // (rawSalesSeries): sin cancelados (Order CANCELLED ni TableOrder con
+    // cancelledAt), así las tarjetas "(mes)" y la gráfica hablan de lo mismo.
+    // Antes el valor sumaba toda la historia y el ticket promedio la dividía
+    // entre los pedidos del mes, por eso crecía cada mes sin motivo.
+    rawSalesSeries(null, "month", monthStart, monthEnd),
+    // `gmv` sigue siendo el total de toda la historia: el asistente de IA del
+    // admin lo lee con ese nombre (assistantTools.js, "ventasTotalesDeTodaLaHistoria").
     prisma.order.aggregate({ _sum: { total: true } }),
     prisma.tableOrder.aggregate({ _sum: { total: true } }),
     prisma.vendor.count({ where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] }, deletedAt: null } }),
-    prisma.vendor.count({ where: { planType: { in: PAID_PLAN_TYPES }, deletedAt: null } }),
+    // Tiendas en un plan de pago (todos menos el plan por defecto y los gratis), leídos de PlanConfig.
+    getPaidPlanKeys().then((keys) => prisma.vendor.count({ where: { planType: { in: keys }, deletedAt: null } })),
+    // Mismo mes y mismo criterio sin cancelados, separado por moneda (salesByCurrency): gmvMonth y aov suman CUP con USD.
+    salesByCurrency(null, monthStart, monthEnd),
   ]);
 
   const gmv = Number(orderSum._sum.total ?? 0) + Number(tableOrderSum._sum.total ?? 0);
-  const ordersThisMonthTotal = ordersThisMonth + tableOrdersThisMonth;
+  // El mes del negocio puede caer en dos casillas UTC de la consulta (las
+  // últimas horas del mes en Cuba ya son el mes siguiente en UTC): se suman todas.
+  const gmvMonth = monthSalesRows.reduce((sum, r) => sum + r.total, 0);
+  const ordersThisMonthTotal = monthSalesRows.reduce((sum, r) => sum + r.orders, 0);
 
   // Bloque 47 (pedido explícito — "ingresos por suscripción, desglosados
   // por moneda"): reemplaza el viejo estimado (tiendas Business × precio de
@@ -144,24 +414,10 @@ export async function getDashboard(_req, res) {
   // (SubscriptionPayment.confirmedAt, ver confirmSubscriptionRenewal más
   // abajo). Ambas fuentes ya guardan su propio monto Y moneda declarados
   // (CUP por transferencia, USD por Stripe) — nunca se asume una sola.
-  const [initialPayments, renewalPayments] = await Promise.all([
-    prisma.verificationRequest.findMany({
-      where: { paymentConfirmedAt: { gte: monthStart } },
-      select: { paymentAmount: true, paymentCurrency: true },
-    }),
-    prisma.subscriptionPayment.findMany({
-      where: { confirmedAt: { gte: monthStart } },
-      select: { amount: true, currency: true },
-    }),
-  ]);
-  const revenueByCurrency = {};
-  for (const p of [...initialPayments, ...renewalPayments]) {
-    const amount = Number(p.paymentAmount ?? p.amount ?? 0);
-    const currency = p.paymentCurrency ?? p.currency;
-    if (!amount || !currency) continue;
-    revenueByCurrency[currency] = (revenueByCurrency[currency] ?? 0) + amount;
-  }
-  const subscriptionRevenueByCurrency = Object.entries(revenueByCurrency)
+  // Ahora sin la doble cuenta del pago manual de renovación (escribe en las dos tablas) y con el cobro del plan por
+  // defecto cuando no es gratis: ver confirmedRevenueBetween. El mes es el del negocio (monthStart a monthEnd).
+  const monthRevenue = await confirmedRevenueBetween(monthStart, monthEnd);
+  const subscriptionRevenueByCurrency = Object.entries(monthRevenue.total)
     .map(([currency, amount]) => ({ currency, amount }))
     .sort((a, b) => b.amount - a.amount);
 
@@ -244,20 +500,28 @@ export async function getDashboard(_req, res) {
   // verificación + un ranking de "alto potencial" que reusa
   // computeVendorHealthScore (vendors.controller.js) — nunca un cálculo
   // nuevo/paralelo de "qué tan bien va una tienda".
-  const aov = ordersThisMonthTotal > 0 ? gmv / ordersThisMonthTotal : 0;
+  // Valor del mes entre pedidos del mes, los dos sin cancelados.
+  const aov = ordersThisMonthTotal > 0 ? gmvMonth / ordersThisMonthTotal : 0;
+  // Por moneda, sin convertir: CUP y USD siempre presentes. El ticket promedio de una moneda sin pedidos es null (no hay
+  // promedio que mostrar, y 0 se leería como "pedidos de 0"). gmvMonth y aov se conservan para el asistente del admin.
+  const gmvMonthByCurrency = Object.fromEntries(Object.entries(monthSalesByCurrency).map(([c, r]) => [c, r.total]));
+  const ordersMonthByCurrency = Object.fromEntries(Object.entries(monthSalesByCurrency).map(([c, r]) => [c, r.orders]));
+  const aovByCurrency = Object.fromEntries(Object.entries(monthSalesByCurrency).map(([c, r]) => [c, r.orders > 0 ? r.total / r.orders : null]));
 
-  const [subscriptionMetrics, verificationFunnelRaw] = await Promise.all([
-    computeSubscriptionMetrics(
-      await prisma.vendor.findMany({ where: SUBSCRIPTION_SCOPE, select: { verificationStatus: true, trialEndsAt: true, planType: true } })
-    ),
+  const subscriptionVendors = await prisma.vendor.findMany({ where: await subscriptionScope(), select: SUBSCRIPTION_VENDOR_SELECT });
+  const [subscriptionMetrics, verificationFunnelRaw, defaultPlanName] = await Promise.all([
+    computeSubscriptionMetrics(subscriptionVendors),
     prisma.vendor.groupBy({ by: ["verificationStatus"], where: { deletedAt: null }, _count: { _all: true } }),
+    getDefaultPlanKey().then(planDisplayName),
   ]);
   const funnelCountByStatus = Object.fromEntries(verificationFunnelRaw.map((r) => [r.verificationStatus, r._count._all]));
   const verificationFunnel = VERIFICATION_FUNNEL_STAGES.map((status) => ({
     status,
-    label: VERIFICATION_STATUS_LABEL[status],
+    label: status === "PLAN_ENDED" ? `Volvió al plan ${defaultPlanName}` : VERIFICATION_STATUS_LABEL[status],
     count: funnelCountByStatus[status] ?? 0,
   }));
+
+  const revenueByPlan = await buildRevenueByPlan({ monthStart, monthEnd, monthRevenue, subscriptionVendors, subscriptionMetrics });
 
   // "Alto potencial" = salud ≥ 50 (mismo corte verde/amarillo que ya usa el
   // semáforo del propio vendedor, nunca se muestra una tienda "roja") entre
@@ -322,12 +586,21 @@ export async function getDashboard(_req, res) {
       totalCustomers,
       ordersThisMonth: ordersThisMonthTotal,
       gmv,
+      gmvMonth,
       aov,
+      gmvMonthByCurrency,
+      ordersMonthByCurrency,
+      aovByCurrency,
+      // `businessVendors` se conserva por compatibilidad; es lo mismo que `paidPlanVendors` (todas las tiendas en un plan
+      // de pago, no solo las de Premium).
       businessVendors,
+      paidPlanVendors: businessVendors,
       subscriptionRevenueByCurrency,
       mrrUsd: subscriptionMetrics.mrrUsd,
+      mrrByCurrency: subscriptionMetrics.mrrByCurrency,
       activeSubscriptions: subscriptionMetrics.active,
     },
+    revenueByPlan,
     pendingVerifications,
     activity,
     byProvince,
@@ -396,8 +669,11 @@ const DAY_MS_VENDORS = 24 * 60 * 60 * 1000;
 
 const vendorsQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
-  // PAID = cualquier plan de pago (lo usan las campañas para "tiendas con plan de pago").
-  plan: z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE", "PAID"]).optional(),
+  // La clave de un plan (PlanConfig.planType, también uno creado por el admin) o uno de estos dos grupos:
+  // PAID = cualquier plan de pago (lo usan las campañas para "tiendas con plan de pago"); DEFAULT = el plan por defecto.
+  // Que la clave exista se comprueba en listVendors (400 si no). "PAID" y "DEFAULT" no chocan con un plan nuevo: las
+  // claves generadas empiezan por "PLAN_" (planKeyFromName).
+  plan: z.string().trim().regex(PLAN_KEY_PATTERN, "Ese plan no existe.").optional(),
   provinceId: z.string().optional(),
   // Con municipio salen las tiendas de ese municipio y las que atienden toda su provincia (misma regla que los filtros públicos).
   municipalityId: z.string().optional(),
@@ -406,7 +682,8 @@ const vendorsQuerySchema = paginationQuerySchema.extend({
   dir: z.enum(["asc", "desc"]).default("desc"),
 });
 
-function vendorStatusWhere(status) {
+// `paidKeys` = getPaidPlanKeys(), leído una vez por listVendors (esta función es síncrona y se llama por cada contador).
+function vendorStatusWhere(status, paidKeys) {
   const since = new Date(Date.now() - 30 * DAY_MS_VENDORS);
   switch (status) {
     case "verified":
@@ -416,8 +693,8 @@ function vendorStatusWhere(status) {
     case "unverified":
       return { verificationStatus: { in: ["NOT_STARTED", "REJECTED", "PAYMENT_FAILED", "PLAN_ENDED"] } };
     case "business":
-      // Planes de pago (Estándar, Premium y Empresarial), pagados o en prueba.
-      return { planType: { in: PAID_PLAN_TYPES } };
+      // Planes de pago (todos menos el plan por defecto y los gratis), pagados o en prueba.
+      return { planType: { in: paidKeys } };
     case "inactive":
       // Mismo criterio de "último acceso" que vendorLifecycle.job.js: la
       // última sesión del dueño, o su fecha de alta si nunca entró.
@@ -450,16 +727,29 @@ export async function listVendors(req, res) {
   // Bloque 272: las de "eliminación pendiente" (bloqueadas a propósito) solo se ven con
   // el filtro "Eliminación pendiente"; no se mezclan con el resto ni con las suspendidas.
   const pendingView = status === "deletion";
+  // PAID y DEFAULT no son claves de plan: se traducen una sola vez y los usan la
+  // lista y los contadores de los filtros. Si baseScope recibía "PAID" tal cual,
+  // la lista entera respondía 500 (el estimado de destinatarios de Campañas,
+  // "Tiendas con plan de pago"). Una clave que no existe da 400, no una lista vacía.
+  const paidKeys = await getPaidPlanKeys();
+  let planWhere;
+  if (plan === "PAID") planWhere = { in: paidKeys };
+  else if (plan === "DEFAULT") planWhere = await getDefaultPlanKey();
+  else if (plan) {
+    // Archivados también: sus tiendas ya se movieron, pero un enlace viejo no debe dar error.
+    if (!(await isValidPlanKey(plan, { allowArchived: true }))) throw new AppError("Ese plan no existe.", 400);
+    planWhere = plan;
+  }
   const scope = {
     deletedAt: null,
     ...(pendingView ? { adminDeletionRequestedAt: { not: null } } : { isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null }),
-    planType: plan === "PAID" ? { in: PAID_PLAN_TYPES } : plan || undefined,
+    planType: planWhere,
     locations: zone,
   };
   const where = {
     AND: [
       scope,
-      vendorStatusWhere(status),
+      vendorStatusWhere(status, paidKeys),
       q
         ? {
             OR: [
@@ -471,9 +761,9 @@ export async function listVendors(req, res) {
         : {},
     ],
   };
-  const baseScope = { deletedAt: null, isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null, planType: plan || undefined, locations: zone };
+  const baseScope = { deletedAt: null, isBlocked: false, status: { not: "SUSPENDED" }, adminDeletionRequestedAt: null, planType: planWhere, locations: zone };
   const deletionDays = await getVendorDeletionDays();
-  const countFor = (s) => prisma.vendor.count({ where: { AND: [baseScope, vendorStatusWhere(s)] } });
+  const countFor = (s) => prisma.vendor.count({ where: { AND: [baseScope, vendorStatusWhere(s, paidKeys)] } });
   const countPending = () => prisma.vendor.count({ where: { deletedAt: null, adminDeletionRequestedAt: { not: null } } });
 
   const [vendors, total, kAll, kVerified, kInProcess, kUnverified, kBusiness, kInactive, kFlagged, kDeletion] = await Promise.all([
@@ -482,6 +772,8 @@ export async function listVendors(req, res) {
       include: {
         locations: { include: { province: true, municipality: true }, take: 30 },
         category: true,
+        // El rubro que la tienda elige ahora es businessCategory; category queda para las tiendas viejas.
+        businessCategory: { select: { name: true } },
         user: { select: { lastLoginAt: true, email: true } },
         _count: { select: { products: true } },
       },
@@ -569,6 +861,15 @@ export async function listVendors(req, res) {
   });
 }
 
+// Texto opcional de "Editar tienda": vacío o con al menos `min` caracteres (sin contar espacios al principio y al final).
+const optionalAdminText = (min, message) =>
+  z
+    .string()
+    .trim()
+    .refine((v) => v === "" || v.length >= min, message)
+    .optional()
+    .nullable();
+
 const updateVendorSchema = z.object({
   isBlocked: z.boolean().optional(),
   // Bloque 75 (pedido explícito): motivo obligatorio al bloquear — el
@@ -578,8 +879,9 @@ const updateVendorSchema = z.object({
   // Al bloquear: también a la lista negra (lib/blacklist.js). Sus datos no se pueden volver a usar en ningún registro.
   addToBlacklist: z.boolean().optional(),
   username: z.string().trim().max(40).optional(),
-  // planType ya no se edita acá: cambiarlo solo dejaba una tienda Business sin insignia ni funciones, o Regular con insignia.
-  // El plan se cambia con "Dar Premium" (grant-business) o "Pasar a Regular" (downgrade), que mueven plan e insignia juntos.
+  // planType ya no se edita acá: cambiarlo solo dejaba una tienda en un plan con insignia sin la insignia, o en el plan por
+  // defecto con insignia. El plan se cambia con "Activar plan" (grant-business) o la bajada al plan por defecto
+  // (downgrade), que mueven plan e insignia juntos y lo anotan en VendorPlanChange.
   // Edición básica desde el admin (Bloque 12) — mismas reglas de forma que
   // el registro del vendedor.
   companyName: z.string().min(2).optional(),
@@ -599,9 +901,11 @@ const updateVendorSchema = z.object({
   // decideVendorChangeRequest). Nullable — un admin corrigiendo un dato
   // vacío de una tienda vieja (ver Bloque 165 en verification.controller.js)
   // necesita poder mandar el valor real sin que null rompa nada.
-  ownerName: z.string().trim().min(2).optional().nullable(),
-  ownerIdNumber: z.string().trim().min(1).optional().nullable(),
-  companyAddress: z.string().trim().min(1).optional().nullable(),
+  // También "" (como el email de arriba): EditVendorModal manda el formulario entero y precarga "" en los datos que la
+  // tienda vieja no tiene, así que sin esto no se podía guardar ni un cambio de color. updateVendor lo guarda como null.
+  ownerName: optionalAdminText(2, "El nombre del responsable debe tener al menos 2 caracteres."),
+  ownerIdNumber: optionalAdminText(1),
+  companyAddress: optionalAdminText(1),
   description: z.string().trim().optional().nullable(),
   // Bloque 222 (pedido explícito — "elimina que los vendedores puedan
   // cambiar el color de su tienda... solo el admin puede cambiar el color"):
@@ -622,6 +926,15 @@ export async function updateVendor(req, res) {
   if (data.businessCategoryId === "") delete data.businessCategoryId;
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  // Datos de identidad vacíos: si la tienda ya no los tenía, no se toca nada (el formulario precarga "" en una tienda
+  // vieja). Si los tenía, vaciar el campo los borraría en silencio, y en una tienda verificada son los datos que se
+  // revisaron con sus documentos: ahí se rechaza. En una sin verificar el admin sí puede borrar un dato equivocado.
+  for (const key of ["ownerName", "ownerIdNumber", "companyAddress"]) {
+    if (data[key] !== "" && data[key] !== null) continue;
+    if (vendor[key] == null || String(vendor[key]).trim() === "") delete data[key];
+    else if (vendor.verificationStatus === "VERIFIED") throw new AppError("No puedes dejar vacío un dato de una tienda verificada.", 400);
+    else data[key] = null;
+  }
   if (data.businessCategoryId && !(await prisma.businessCategory.findUnique({ where: { id: data.businessCategoryId }, select: { id: true } }))) {
     throw new AppError("Ese tipo de negocio no existe.", 400);
   }
@@ -638,6 +951,11 @@ export async function updateVendor(req, res) {
   // obligatorio al bloquear, se limpia solo al desbloquear.
   if (data.isBlocked === true && !data.blockReason && !vendor.blockReason) {
     throw new AppError("Escribe el motivo del bloqueo.", 400);
+  }
+  // En eliminación pendiente el bloqueo es parte de la eliminación: desbloquearla aquí la dejaba visible y el cron
+  // (jobs/vendorDeletion.job.js) la eliminaba igual al cumplirse el plazo. Para conservarla está Restaurar.
+  if (data.isBlocked === false && vendor.adminDeletionRequestedAt) {
+    throw new AppError("Esta tienda está en eliminación pendiente: usa Restaurar para conservarla.", 409);
   }
   const changed = (key) => data[key] != null && String(data[key]).trim() !== String(vendor[key] ?? "").trim();
   const newUsername = data.username !== undefined && normalizeUsername(data.username) !== vendor.slug ? normalizeUsername(data.username) : undefined;
@@ -724,6 +1042,19 @@ const resetVendorPasswordSchema = z.object({
   newPassword: z.string().min(8, "La contraseña debe tener al menos 8 caracteres."),
 });
 
+// Cierra todas las sesiones abiertas de una cuenta. authenticate (middleware/auth.js) mira la sesión en cada petición, así
+// que el token de acceso deja de servir al momento; sin esto seguía sirviendo hasta su hora de vida aunque el admin hubiera
+// cambiado la contraseña o el correo, o suspendido al cliente. `forgetDevices` también borra el dispositivo de confianza,
+// para que el próximo inicio de sesión vuelva a pedir la verificación (igual que el cambio de contraseña propio en
+// auth.controller.js).
+async function revokeUserSessions(userId, { forgetDevices = false } = {}) {
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } }),
+    ...(forgetDevices ? [prisma.trustedDevice.deleteMany({ where: { userId } })] : []),
+  ]);
+}
+
 export async function resetVendorPassword(req, res) {
   const { id } = req.params;
   const { newPassword } = resetVendorPasswordSchema.parse(req.body);
@@ -733,6 +1064,7 @@ export async function resetVendorPassword(req, res) {
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: vendor.userId }, data: { passwordHash } });
+  await revokeUserSessions(vendor.userId, { forgetDevices: true });
 
   logActivity({
     actorId: req.user.id,
@@ -745,25 +1077,48 @@ export async function resetVendorPassword(req, res) {
   res.json({ ok: true });
 }
 
+// ¿El correo está en la lista negra por otra persona? La propia cuenta sí puede conservar el suyo. Consulta propia en vez de
+// findBlacklisted(datos, self): su NOT sobre userId/vendorId deja fuera las filas con esas columnas en null (en SQL,
+// NOT (x = a OR NULL) no es verdadero), así que una entrada de cliente (vendorId null) no frenaba el correo de una tienda.
+async function emailBlacklistedForOthers(email, userId) {
+  return prisma.blacklistEntry.findFirst({
+    where: { removedAt: null, email: normEmail(email), OR: [{ userId: null }, { userId: { not: userId } }] },
+    select: { id: true },
+  });
+}
+
 // Bloque 165: correo de LOGIN (User.email, único en toda la plataforma) —
 // distinto de Vendor.email (contacto público de la tienda, ya editable
 // desde updateVendor de arriba). Nunca se puede repetir un correo ya en uso
-// por otra cuenta.
+// por otra cuenta. emailField ya lo deja sin espacios y en minúsculas.
 const updateVendorLoginEmailSchema = z.object({
-  email: z.string().email("Ingresa un correo válido."),
+  email: emailField("Ingresa un correo válido."),
 });
 
 export async function updateVendorLoginEmail(req, res) {
   const { id } = req.params;
   const { email } = updateVendorLoginEmailSchema.parse(req.body);
 
-  const vendor = await prisma.vendor.findUnique({ where: { id } });
+  const vendor = await prisma.vendor.findUnique({ where: { id }, include: { user: { select: { email: true } } } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  // El mismo correo: nada que cambiar (y no se cierran sus sesiones por nada).
+  const previousEmail = vendor.user?.email ?? null;
+  if (previousEmail === email) return res.json({ ok: true });
+  const sameAddress = previousEmail?.toLowerCase() === email;
 
-  const taken = await prisma.user.findFirst({ where: { email, id: { not: vendor.userId } } });
+  // Sin distinguir mayúsculas: una cuenta vieja guardada como "Juan@x.com" también cuenta como ocupada.
+  const taken = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" }, id: { not: vendor.userId } } });
   if (taken) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+  // Mismo control que al cambiar el correo uno mismo (auth.controller.js): un correo de la lista negra no vuelve a usarse
+  // en otra cuenta. La propia tienda sí puede conservar el suyo.
+  if (await emailBlacklistedForOthers(email, vendor.userId)) {
+    throw new AppError("Ese correo está en la lista negra. Para usarlo, primero quítalo de la lista negra.", 409);
+  }
 
   await prisma.user.update({ where: { id: vendor.userId }, data: { email } });
+  // Quien tenía la sesión abierta con el correo anterior tiene que volver a entrar con el nuevo (pasar a minúsculas el
+  // mismo correo no cuenta como cambio).
+  if (!sameAddress) await revokeUserSessions(vendor.userId, { forgetDevices: true });
 
   logActivity({
     actorId: req.user.id,
@@ -771,7 +1126,7 @@ export async function updateVendorLoginEmail(req, res) {
     vendorId: vendor.id,
     action: "admin_changed_vendor_login_email",
     description: `Un admin cambió el correo de acceso de "${vendor.companyName}"`,
-    meta: { vendorId: vendor.id, newEmail: email },
+    meta: { vendorId: vendor.id, previousEmail, newEmail: email },
   });
   res.json({ ok: true });
 }
@@ -787,7 +1142,24 @@ export async function updateVendorLoginEmail(req, res) {
 export async function listSuspendedVendors(_req, res) {
   const vendors = await prisma.vendor.findMany({
     where: { OR: [{ status: "SUSPENDED" }, { isBlocked: true }], adminDeletionRequestedAt: null, deletedAt: null },
-    include: { locations: { include: { province: true }, take: 1 }, category: true, user: { select: { lastLoginAt: true } } },
+    // select explícito: antes iba la fila completa, con los ids de Stripe de la tienda, a una pantalla que no los usa.
+    select: {
+      id: true,
+      companyName: true,
+      slug: true,
+      color: true,
+      status: true,
+      isBlocked: true,
+      blockReason: true,
+      blockedAt: true,
+      suspendedAt: true,
+      suspensionReason: true,
+      billingSuspendedAt: true,
+      nextPaymentDueDate: true,
+      locations: { select: { province: { select: { id: true, name: true } } }, take: 1 },
+      category: { select: { id: true, name: true } },
+      user: { select: { fullName: true, email: true, lastLoginAt: true } },
+    },
     orderBy: [{ blockedAt: "desc" }, { suspendedAt: "desc" }],
   });
   res.json({ vendors });
@@ -831,8 +1203,12 @@ export async function reactivateVendor(req, res) {
 // vendorId intacto). Se fuerza isBlocked:true para que los ~8 puntos del
 // código que ya filtran "vendor.isBlocked:false" la oculten automáticamente
 // (público, búsqueda, reseñas, pedidos nuevos) sin tocar cada uno de nuevo.
-// El dueño de la tienda también queda suspendido: no puede volver a entrar
-// ni a su panel de vendedor ni a ninguna otra parte del sitio con esa cuenta.
+// La cuenta del dueño no se suspende: puede iniciar sesión, pero VendorLayout.jsx le muestra la pantalla de tienda
+// bloqueada con el motivo (el mismo mecanismo que el bloqueo manual, ver updateVendor).
+// El bloqueo que la tienda ya tuviera se guarda en preDeletionBlockReason/preDeletionBlockedAt para que Restaurar lo
+// devuelva: si no, restaurar desbloqueaba a una tienda bloqueada por normas.
+const PENDING_DELETION_BLOCK_PREFIX = "La tienda está en eliminación pendiente";
+
 export async function deleteVendor(req, res) {
   const { id } = req.params;
   const vendor = await prisma.vendor.findUnique({ where: { id } });
@@ -851,10 +1227,20 @@ export async function deleteVendor(req, res) {
       adminDeletionRequestedAt: now,
       adminDeletionRequestedById: req.user.id,
       adminDeletionReminderSentAt: null,
+      preDeletionBlockReason: vendor.isBlocked ? vendor.blockReason : null,
+      preDeletionBlockedAt: vendor.isBlocked ? (vendor.blockedAt ?? now) : null,
       isBlocked: true,
       blockedAt: now,
-      blockReason: `La tienda está en eliminación pendiente: se eliminará definitivamente en ${days} días si no se restaura.`,
+      blockReason: `${PENDING_DELETION_BLOCK_PREFIX}: se eliminará definitivamente en ${days} días si no se restaura.`,
     },
+  });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: vendor.id,
+    action: "admin_delete_vendor",
+    description: `Un admin pasó "${vendor.companyName}" a eliminación pendiente (${days} días)`,
+    meta: { vendorId: vendor.id, days, wasBlocked: vendor.isBlocked, previousBlockReason: vendor.isBlocked ? vendor.blockReason : null },
   });
   res.json({ ok: true, scheduledFor: new Date(now.getTime() + days * 24 * 60 * 60 * 1000) });
 }
@@ -864,16 +1250,44 @@ export async function getVendorDeletionDays() {
   return settings?.vendorDeletionDays ?? 30;
 }
 
-// Cancela la eliminación pendiente: la tienda vuelve a estar visible y activa.
+// Cancela la eliminación pendiente y devuelve la tienda al estado de antes: visible si no estaba bloqueada, o bloqueada
+// con su motivo y fecha de entonces. Si mientras tanto la bloquearon con otro motivo (avisos de fraude en lib/moderation.js
+// o el admin), ese bloqueo nuevo se conserva: el motivo ya no es el de la eliminación.
 export async function restoreVendorDeletion(req, res) {
   const { id } = req.params;
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt || !vendor.adminDeletionRequestedAt) throw new AppError("Esta tienda no está en eliminación pendiente.", 404);
+  const reblocked = vendor.isBlocked && !!vendor.blockReason && !vendor.blockReason.startsWith(PENDING_DELETION_BLOCK_PREFIX);
+  // Ya no está bloqueada: alguien levantó el bloqueo durante la eliminación pendiente (por ejemplo, Reactivar una tienda
+  // suspendida por avisos de fraude, que pone isBlocked en false). Ese bloqueo de antes ya se revisó y se quitó, así que
+  // reponerlo con preDeletionBlockReason la volvía a bloquear por un motivo que ya no vale.
+  const block = !vendor.isBlocked
+    ? { isBlocked: false, blockReason: null, blockedAt: null }
+    : reblocked
+      ? { isBlocked: true, blockReason: vendor.blockReason, blockedAt: vendor.blockedAt }
+      : { isBlocked: !!vendor.preDeletionBlockedAt, blockReason: vendor.preDeletionBlockReason, blockedAt: vendor.preDeletionBlockedAt };
   await prisma.vendor.update({
     where: { id },
-    data: { adminDeletionRequestedAt: null, adminDeletionRequestedById: null, adminDeletionReminderSentAt: null, isBlocked: false, blockedAt: null, blockReason: null },
+    data: {
+      adminDeletionRequestedAt: null,
+      adminDeletionRequestedById: null,
+      adminDeletionReminderSentAt: null,
+      preDeletionBlockReason: null,
+      preDeletionBlockedAt: null,
+      ...block,
+    },
   });
-  res.json({ ok: true });
+  logActivity({
+    actorId: req.user.id,
+    actorRole: "ADMIN",
+    vendorId: vendor.id,
+    action: "admin_restore_vendor",
+    description: block.isBlocked
+      ? `Un admin restauró "${vendor.companyName}" de la eliminación pendiente; sigue bloqueada: ${block.blockReason ?? "sin motivo"}`
+      : `Un admin restauró "${vendor.companyName}" de la eliminación pendiente`,
+    meta: { vendorId: vendor.id, stillBlocked: block.isBlocked },
+  });
+  res.json({ ok: true, isBlocked: block.isBlocked });
 }
 
 // Eliminación DEFINITIVA, sin esperar el plazo. Solo para tiendas que ya están en
@@ -1006,7 +1420,7 @@ async function findVendorStaffOr404(staffId) {
 // vendedor").
 const updateVendorStaffByAdminSchema = z.object({
   fullName: z.string().trim().min(2).optional(),
-  email: z.string().email().optional(),
+  email: emailField().optional(),
   // Bloque 200: ya NO exige mínimo 1 — mismo criterio que
   // vendorStaff.controller.js (un usuario sin ninguna sección es válido,
   // solo ve "Mi perfil").
@@ -1021,7 +1435,7 @@ export async function updateVendorStaffByAdmin(req, res) {
   const data = updateVendorStaffByAdminSchema.parse(req.body);
 
   if (data.email) {
-    const existing = await prisma.user.findUnique({ where: { email: data.email.trim().toLowerCase() } });
+    const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
     if (existing && existing.id !== staff.userId) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
   }
 
@@ -1296,7 +1710,7 @@ export async function updateVerification(req, res) {
   }
   if (decision === "reject" && !notes?.trim()) throw new AppError("Indica el motivo del rechazo.", 400);
   if (decision === "approve" && !(verification.selfieUrl && verification.idPhotoFrontUrl)) {
-    throw new AppError("Faltan documentos — no se puede aprobar una solicitud incompleta.", 409);
+    throw new AppError("Faltan documentos: no se puede aprobar una solicitud incompleta.", 409);
   }
 
   await prisma.verificationRequest.update({
@@ -1345,6 +1759,8 @@ export async function confirmSubscriptionPayment(req, res) {
     data: { paymentConfirmedAt: new Date(), paymentConfirmedById: req.user.id },
   });
   await syncVerificationArchive(verification.vendorId, { paymentConfirmedAt: new Date(), paymentConfirmedById: req.user.id });
+  // El primer pago también queda en el historial de pagos (SubscriptionPayment), igual que las renovaciones.
+  await mirrorInitialPayment(verification.vendorId);
 
   // Bloque 150: el ciclo dura tantos días como meses eligió el vendedor
   // (1..24), ya no un mes fijo siempre — mismo criterio para CARD y CUP.
@@ -1361,6 +1777,7 @@ export async function confirmSubscriptionPayment(req, res) {
     source: "ADMIN_ACTION",
     extraData,
     notify: { type: "VERIFICATION_VERIFIED" },
+    planChangeReason: "payment_confirmed",
   });
   await recalcVendorProductQuota(verification.vendorId);
 
@@ -1369,56 +1786,89 @@ export async function confirmSubscriptionPayment(req, res) {
 
 // Pago registrado a mano por el admin. Cubre la tienda que pagó por fuera de la plataforma (efectivo, transferencia a otra
 // cuenta) o la que el equipo decide activar: el admin elige cuántos meses quedan pagados y el motivo, y la tienda pasa a
-// verificada con Premium hasta esa fecha, sin esperar a que elija un método ni a que pulse "Ya pagué". Queda registrado
+// verificada con ese plan hasta esa fecha, sin esperar a que elija un método ni a que pulse "Ya pagué". Queda registrado
 // como cualquier pago confirmado: en la solicitud y su archivo (método MANUAL, meses, monto, quién y cuándo), en el
 // historial de estados, en la actividad de la tienda y, si era una renovación, en su historial de pagos. La tienda recibe
 // el aviso de verificada.
-const ADMIN_PLAN = z.enum(["REGULAR", "STANDARD", "BUSINESS", "ENTERPRISE"]);
+// También sirve para EXTENDER una tienda ya verificada (auditoría, hallazgo 7): un plan "por WhatsApp" no se puede renovar
+// en línea (quotePlan lo rechaza), así que el admin registra aquí cada pago. En ese caso la solicitud y su archivo no se
+// tocan (guardan el pago inicial) y el pago queda solo en el historial de pagos (SubscriptionPayment).
 const manualPaymentSchema = z.object({
   months: z.number().int().min(1).max(24),
-  planType: ADMIN_PLAN.optional(),
+  // Cualquier plan de PlanConfig (también uno creado por el admin); que exista y no esté archivado se comprueba abajo.
+  planType: z.string().trim().regex(PLAN_KEY_PATTERN, "Ese plan no existe.").optional(),
   reason: z.string().trim().min(5, "Escribe el motivo (por ejemplo: pagó en efectivo en la oficina).").max(500),
   amount: z.number().min(0).max(10_000_000).optional(),
   currency: z.enum(["USD", "CUP"]).optional(),
   reference: z.string().trim().max(120).optional(),
-});
+})
+  // Un monto sin moneda se anotaba como USD en SubscriptionPayment (y sin moneda en la solicitud): 2500 CUP pasaban a ser
+  // 2500 USD en los ingresos y el MRR. Con monto, la moneda es obligatoria.
+  .refine((d) => d.amount == null || !!d.currency, { message: "Elige la moneda del monto.", path: ["currency"] });
 
 export async function registerManualPayment(req, res) {
   const { id } = req.params;
   const data = manualPaymentSchema.parse(req.body);
-  const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: true } });
+  // Con el correo del dueño: sin él, notifyVerificationEvent (al extender) solo deja la campanita y no manda el correo.
+  const verification = await prisma.verificationRequest.findUnique({ where: { id }, include: { vendor: { include: { user: { select: { email: true } } } } } });
   if (!verification) throw new AppError("Solicitud no encontrada.", 404);
-  const status = verification.vendor.verificationStatus;
-  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED"].includes(status)) {
-    throw new AppError("Solo se puede registrar un pago a una tienda en pago pendiente, vencida o suspendida.", 409);
+  const vendor = verification.vendor;
+  const status = vendor.verificationStatus;
+  const extending = status === "VERIFIED";
+  if (!["PENDING_PAYMENT", "PAYMENT_FAILED", "SUSPENDED", "PLAN_ENDED", "VERIFIED"].includes(status)) {
+    throw new AppError("Solo se puede registrar un pago a una tienda verificada, en pago pendiente, vencida o suspendida.", 409);
+  }
+
+  // Al extender, el plan por omisión es el que la tienda ya tiene; si no, el que eligió al pagar.
+  const planType = data.planType ?? (extending ? vendor.planType : paymentPlanOf(verification.paymentPlanType));
+  if (!(await isValidPlanKey(planType))) throw new AppError("Ese plan no existe o está archivado.", 400);
+  const plan = await getPlanConfig(planType);
+  if (extending && plan.isDefault) {
+    throw new AppError(`El plan ${plan.displayName} es el plan por defecto: para pasar la tienda a ese plan usa la bajada de plan.`, 400);
+  }
+  // Este pago pasa (o deja) la tienda en VERIFIED, que es la insignia. Un plan sin insignia no va por la verificación: se
+  // cobra desde la renovación de Suscripción (planBilling), y por aquí la tienda se quedaba con la insignia sin tenerla.
+  if (!plan.grantsBadge) {
+    throw new AppError(`El plan ${plan.displayName} no da la insignia: su pago se confirma desde la renovación en Suscripción o con "Activar plan".`, 400);
   }
 
   const now = new Date();
   const renewal = status !== "PENDING_PAYMENT";
-  const planType = data.planType ?? paymentPlanOf(verification.paymentPlanType);
+  // Una tienda activada a mano "sin vencimiento" (grantBusinessPlan) no tiene fecha: el pago se anota (historial e
+  // ingresos), pero no le pone una fecha que la haría vencer sola. Para darle fecha está "Activar plan" con meses.
+  const keepNoExpiry = extending && !vendor.nextPaymentDueDate && !inTrial(vendor);
   // Si todavía le quedaba tiempo pagado, los meses se suman desde ese vencimiento (no se pierden días); si no, desde hoy.
-  const due = verification.vendor.nextPaymentDueDate;
+  const due = vendor.nextPaymentDueDate;
   const periodStart = due && due > now ? due : now;
-  const periodEnd = new Date(periodStart.getTime() + data.months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  const periodEnd = new Date(periodStart.getTime() + cycleMs(data.months));
   const note = `${data.reason}${data.reference ? ` · Referencia: ${data.reference}` : ""}`;
-  const paymentData = {
-    paymentMethod: "MANUAL",
-    paymentMonths: data.months,
-    paymentPlanType: planType,
-    paymentAmount: data.amount ?? null,
-    paymentCurrency: data.currency ?? null,
-    paymentClaimedAt: now,
-    paymentConfirmedAt: now,
-    paymentConfirmedById: req.user.id,
-    paymentNote: note,
-  };
+  // Al extender con otro plan, Stripe seguiría cobrando el plan viejo con tarjeta y su siguiente cobro pisaría la fecha
+  // con su periodo: se cancela, igual que en grantBusinessPlan. Con el mismo plan la tarjeta sigue.
+  const dropCard = extending && !!vendor.stripeSubscriptionId && planType !== vendor.planType;
+  if (dropCard) await cancelStripeSubscription(vendor.stripeSubscriptionId);
 
-  await prisma.verificationRequest.update({
-    where: { id },
-    // Un link de pago con tarjeta que hubiera quedado abierto ya no sirve: se cierra.
-    data: { ...paymentData, stripeCheckoutSessionId: null, stripeCheckoutUrl: null, stripeCheckoutExpiresAt: null },
-  });
-  await syncVerificationArchive(verification.vendorId, paymentData);
+  if (!extending) {
+    const paymentData = {
+      paymentMethod: "MANUAL",
+      paymentMonths: data.months,
+      paymentPlanType: planType,
+      paymentAmount: data.amount ?? null,
+      paymentCurrency: data.currency ?? null,
+      paymentClaimedAt: now,
+      paymentConfirmedAt: now,
+      paymentConfirmedById: req.user.id,
+      paymentNote: note,
+    };
+    await prisma.verificationRequest.update({
+      where: { id },
+      // Un link de pago con tarjeta que hubiera quedado abierto ya no sirve: se cierra.
+      data: { ...paymentData, stripeCheckoutSessionId: null, stripeCheckoutUrl: null, stripeCheckoutExpiresAt: null },
+    });
+    await syncVerificationArchive(verification.vendorId, paymentData);
+  }
+  // Primer pago registrado a mano: también al historial. En una renovación lo escribe el bloque de abajo, y si ya hay un pago
+  // a menos de 2 minutos mirrorInitialPayment no lo repite.
+  if (!extending && !renewal) await mirrorInitialPayment(verification.vendorId);
   if (renewal) {
     await prisma.subscriptionPayment.create({
       data: {
@@ -1427,6 +1877,7 @@ export async function registerManualPayment(req, res) {
         months: data.months,
         planType,
         amount: data.amount ?? null,
+        // La columna no admite null; sin monto no cuenta en ingresos (el schema exige moneda cuando hay monto).
         currency: data.currency ?? "USD",
         payerName: "Registrado por el equipo",
         claimedAt: now,
@@ -1439,27 +1890,45 @@ export async function registerManualPayment(req, res) {
     });
   }
 
-  const extraData = { planType, nextPaymentDueDate: periodEnd };
+  const extraData = { planType, nextPaymentDueDate: keepNoExpiry ? null : periodEnd };
   // Mismo cuidado que confirmSubscriptionPayment: si venía de la prueba gratis, ya no la debe bajar el cron de la prueba.
-  if (verification.vendor.trialEndsAt) extraData.trialEndsAt = null;
+  if (vendor.trialEndsAt) extraData.trialEndsAt = null;
+  if (dropCard) Object.assign(extraData, { stripeSubscriptionId: null, cancelAtPeriodEnd: false });
   const months = `${data.months} ${data.months === 1 ? "mes" : "meses"}`;
-  const updated = await transitionVendorVerification(verification.vendorId, "VERIFIED", {
-    reason: `Pago registrado a mano por el admin: ${months}, hasta el ${periodEnd.toLocaleDateString("es-CU")}. ${note}`,
-    actorId: req.user.id,
-    source: "ADMIN_ACTION",
-    extraData,
-    notify: { type: "VERIFICATION_VERIFIED" },
-  });
+  const until = periodEnd.toLocaleDateString("es-CU");
+  let updated;
+  if (extending) {
+    // Ya está verificada: no hace falta otra transición (ni otro aviso de "verificada"); se mueve la fecha y, si cambió,
+    // el plan. Mismo camino que confirmSubscriptionRenewal.
+    updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.vendor.update({ where: { id: verification.vendorId }, data: extraData });
+      await recordPlanChange(tx, { vendorId: verification.vendorId, fromPlan: vendor.planType, toPlan: planType, reason: "payment_confirmed", actorId: req.user.id });
+      return row;
+    });
+    await notifyVerificationEvent({ ...vendor, ...updated }, "SUBSCRIPTION_RENEWAL_CONFIRMED", { notes: keepNoExpiry ? "sin fecha de vencimiento" : `hasta el ${until}` }).catch(() => {});
+  } else {
+    updated = await transitionVendorVerification(verification.vendorId, "VERIFIED", {
+      reason: `Pago registrado a mano por el admin: ${months}, hasta el ${until}. ${note}`,
+      actorId: req.user.id,
+      source: "ADMIN_ACTION",
+      extraData,
+      notify: { type: "VERIFICATION_VERIFIED" },
+      planChangeReason: "payment_confirmed",
+    });
+  }
   await recalcVendorProductQuota(verification.vendorId);
+  // Si estaba suspendida por no pagar su plan, vuelve a verse y a recibir pedidos al momento.
+  await liftBillingSuspension(verification.vendorId, "Pagó su plan");
   logActivity({
     actorId: req.user.id,
     actorRole: "ADMIN",
     vendorId: verification.vendorId,
     action: "subscription_manual_payment",
-    description: `Registró un pago manual de ${months}${data.amount != null ? ` (${data.amount} ${data.currency ?? ""})`.trimEnd() : ""}, Premium hasta el ${periodEnd.toLocaleDateString("es-CU")}. Motivo: ${note}`,
+    description: `Registró un pago manual de ${months}${data.amount != null ? ` (${data.amount} ${data.currency ?? ""})`.trimEnd() : ""}, plan ${plan.displayName} ${keepNoExpiry ? "sin vencimiento (se mantiene)" : `hasta el ${until}`}. Motivo: ${note}`,
   });
 
-  res.json({ verification: updated, periodEnd });
+  // periodEnd es el fin del periodo pagado; con noExpiry la tienda sigue sin fecha de vencimiento.
+  res.json({ verification: updated, periodEnd, planName: plan.displayName, noExpiry: keepNoExpiry });
 }
 
 // Bloque 151 (pedido explícito — "también se podrá cambiar desde el panel
@@ -1534,10 +2003,14 @@ export async function resetVerificationPaymentMethod(req, res) {
 export async function listPendingSubscriptionPayments(_req, res) {
   const payments = await prisma.subscriptionPayment.findMany({
     where: { confirmedAt: null, claimedAt: { not: null } },
-    include: { vendor: { select: { id: true, companyName: true, color: true, logoUrl: true, email: true, whatsapp: true } } },
+    include: {
+      vendor: { select: { id: true, companyName: true, color: true, logoUrl: true, email: true, whatsapp: true } },
+      plan: { select: { displayName: true } },
+    },
     orderBy: { claimedAt: "asc" },
   });
-  res.json({ payments });
+  // planName: el nombre del plan que paga, desde PlanConfig (null si el pago no trae plan, el caso de los pagos viejos).
+  res.json({ payments: payments.map(({ plan, ...p }) => ({ ...p, planName: plan?.displayName ?? null })) });
 }
 
 // Bloque 153 (pedido explícito — "quiero que esas cuentas sean bien
@@ -1549,21 +2022,32 @@ export async function listPendingSubscriptionPayments(_req, res) {
 // vencimiento y el resto del ciclo) — nunca un campo aparte.
 export async function confirmSubscriptionRenewal(req, res) {
   const { id } = req.params;
-  const payment = await prisma.subscriptionPayment.findUnique({ where: { id }, include: { vendor: true } });
+  // Con el correo del dueño: sin él, notifyVerificationEvent solo deja la campanita y no manda el correo de la renovación.
+  const payment = await prisma.subscriptionPayment.findUnique({ where: { id }, include: { vendor: { include: { user: { select: { email: true } } } } } });
   if (!payment) throw new AppError("Pago no encontrado.", 404);
   if (payment.confirmedAt) throw new AppError("Este pago ya fue confirmado.", 409);
   if (!payment.claimedAt) throw new AppError('El vendedor todavía no reclamó este pago ("Ya pagué").', 409);
 
   const now = new Date();
-  const periodStart = payment.vendor.nextPaymentDueDate && payment.vendor.nextPaymentDueDate > now ? payment.vendor.nextPaymentDueDate : now;
+  // Lo pagado empieza cuando se acaba lo que ya tiene: su fecha de pago o, si paga durante la prueba gratis, el final de la
+  // prueba (si no, los meses pagados se solapaban con la prueba y se acortaban).
+  const periodStart = [payment.vendor.nextPaymentDueDate, payment.vendor.trialEndsAt].filter((d) => d && d > now).sort((a, b) => b - a)[0] ?? now;
   const periodEnd = new Date(periodStart.getTime() + payment.months * PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
+  // Pagó durante la prueba (sin tarjeta): sale de la prueba ahora y sigue con lo pagado, que ya empieza al final de ella. Así
+  // trialExpiry.job.js no la trata como una prueba sin pagar. Con tarjeta, la prueba la sigue gobernando Stripe.
+  const endsTrial = !!payment.vendor.trialEndsAt && !payment.vendor.stripeSubscriptionId;
 
   const updated = await prisma.subscriptionPayment.update({
     where: { id },
     data: { confirmedAt: now, confirmedById: req.user.id, periodStart, periodEnd },
   });
   const planChanged = !!payment.planType && payment.planType !== payment.vendor.planType;
-  await prisma.vendor.update({ where: { id: payment.vendorId }, data: { nextPaymentDueDate: periodEnd, ...(planChanged ? { planType: payment.planType } : {}) } });
+  await prisma.$transaction(async (tx) => {
+    await tx.vendor.update({ where: { id: payment.vendorId }, data: { nextPaymentDueDate: periodEnd, ...(endsTrial ? { trialEndsAt: null } : {}), ...(planChanged ? { planType: payment.planType } : {}) } });
+    if (planChanged) {
+      await recordPlanChange(tx, { vendorId: payment.vendorId, fromPlan: payment.vendor.planType, toPlan: payment.planType, reason: "payment_confirmed", actorId: req.user.id });
+    }
+  });
   if (planChanged) await recalcVendorProductQuota(payment.vendorId);
   // Si estaba suspendida por no pagar su plan, vuelve a verse y a recibir pedidos al momento.
   await liftBillingSuspension(payment.vendorId, "Pagó su plan");
@@ -1644,29 +2128,43 @@ export async function decideVendorChangeRequest(req, res) {
   res.json({ changeRequest: updated });
 }
 
-// --- Suscripciones Business (Bloque 46, recurrente desde Bloque 64) --------
+// --- Suscripciones (Bloque 46, recurrente desde Bloque 64) -----------------
 export async function listSubscriptions(_req, res) {
-  const vendors = await prisma.vendor.findMany({
-    where: SUBSCRIPTION_SCOPE,
-    include: {
-      verification: true,
-      locations: { include: { province: true }, take: 1 },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [vendors, configs] = await Promise.all([
+    subscriptionScope().then((where) =>
+      prisma.vendor.findMany({
+        where,
+        include: {
+          verification: true,
+          locations: { include: { province: true }, take: 1 },
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    ),
+    getAllPlanConfigs({ includeArchived: true }),
+  ]);
+  const planName = new Map(configs.map((c) => [c.planType, c.displayName]));
 
   const subscriptions = vendors.map((v) => {
     const ver = v.verification;
+    const status = subscriptionStatusOf(v);
     return {
       vendorId: v.id,
       companyName: v.companyName,
       slug: v.slug,
       color: v.color,
       province: v.locations?.[0]?.province?.name ?? null,
-      status: subscriptionStatusOf(v),
+      planType: v.planType,
+      planName: planName.get(v.planType) ?? v.planType,
+      status,
       trialEndsAt: inTrial(v) ? v.trialEndsAt : null,
       trialDaysLeft: inTrial(v) ? Math.ceil((new Date(v.trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) : null,
       nextPaymentDueDate: v.nextPaymentDueDate,
+      // Activado a mano "sin vencimiento" (grantBusinessPlan): pagando, sin fecha de cobro ni prueba.
+      noExpiry: status === "active" && !v.nextPaymentDueDate,
+      // Cobro de planBilling (planes sin insignia y el plan por defecto cuando no es gratis).
+      billingNoticeStage: v.billingNoticeStage ?? null,
+      billingSuspendedAt: v.billingSuspendedAt ?? null,
       hasStripeSubscription: !!v.stripeSubscriptionId,
       paymentMethod: ver?.paymentMethod ?? null,
       paymentConfirmedAt: ver?.paymentConfirmedAt ?? null,
@@ -1700,7 +2198,19 @@ export async function revokeBusinessPlan(req, res) {
   const { reason } = planReasonSchema.parse(req.body);
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
-  if (vendor.planType === "REGULAR") throw new AppError("Esta tienda no tiene un plan de pago activo.", 409);
+  // La tienda vuelve al plan por defecto (isDefault), sea cual sea su clave.
+  const defaultKey = await getDefaultPlanKey();
+  if (vendor.planType === defaultKey) throw new AppError("Esta tienda no tiene un plan de pago activo.", 409);
+
+  // Sin la insignia (un plan cobrado sin verificación, con el cobro atrasado o suspendida por no pagar): no hay verificación
+  // que suspender. Pasar por transitionVendorVerification la dejaba en verificationStatus SUSPENDED aunque nunca se hubiera
+  // verificado, y después no podía empezar la verificación. applyPlanDowngrade la baja al plan por defecto, cancela Stripe,
+  // limpia fechas, recalcula cupo y ofertas, anota el cambio y le avisa. También la saca del ciclo de cobro y levanta la
+  // suspensión por falta de pago en el momento (si el plan por defecto se cobra, arranca su propio ciclo).
+  if (vendor.verificationStatus !== "VERIFIED") {
+    const downgraded = await applyPlanDowngrade(id, { actorId: req.user.id, source: "ADMIN_ACTION", reason, planChangeReason: "admin_revoke" });
+    return res.json({ vendor: downgraded });
+  }
 
   if (vendor.stripeSubscriptionId) await cancelStripeSubscription(vendor.stripeSubscriptionId);
 
@@ -1708,15 +2218,16 @@ export async function revokeBusinessPlan(req, res) {
     reason,
     actorId: req.user.id,
     source: "ADMIN_ACTION",
-    extraData: { planType: "REGULAR", stripeSubscriptionId: null },
+    extraData: { planType: defaultKey, stripeSubscriptionId: null },
     notify: { type: "VERIFICATION_BUSINESS_REVOKED" },
+    planChangeReason: "admin_revoke",
   });
   await recalcVendorProductQuota(id);
   res.json({ vendor: updated });
 }
 
-// Pasar una tienda de Premium (pagado o prueba gratis) a Regular: ahora mismo, o al terminar lo que ya tiene. También anula un
-// cambio programado. Ver services/planDowngrade.service.js.
+// Pasar una tienda de un plan de pago (pagado o prueba gratis) al plan por defecto: ahora mismo, o al terminar lo que ya
+// tiene. También anula un cambio programado. Ver services/planDowngrade.service.js.
 const downgradeSchema = z.object({
   when: z.enum(["now", "period_end", "cancel"]),
   reason: z.string().trim().max(300).optional(),
@@ -1727,15 +2238,19 @@ export async function downgradeVendorPlan(req, res) {
   const { when, reason } = downgradeSchema.parse(req.body);
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  const defaultKey = await getDefaultPlanKey();
+  const defaultName = await planDisplayName(defaultKey);
   if (when !== "cancel") {
-    if (vendor.planType === "REGULAR") throw new AppError("Esta tienda ya está en el plan Básico.", 409);
+    if (vendor.planType === defaultKey) throw new AppError(`Esta tienda ya está en el plan ${defaultName}.`, 409);
     if (!reason || reason.length < 5) throw new AppError("Escribe un motivo de al menos 5 caracteres (lo verá la tienda).", 400);
   }
   if (when === "now") {
+    // applyPlanDowngrade anota el cambio en VendorPlanChange ("admin_change").
     const updated = await applyPlanDowngrade(id, { actorId: req.user.id, source: "ADMIN_ACTION", reason });
-    logActivity({ actorId: req.user.id, actorRole: "ADMIN", vendorId: id, action: "plan_downgraded_now", description: `Pasó la tienda al plan Regular de inmediato: ${reason}` });
+    logActivity({ actorId: req.user.id, actorRole: "ADMIN", vendorId: id, action: "plan_downgraded_now", description: `Pasó la tienda al plan ${defaultName} de inmediato: ${reason}` });
     return res.json({ vendor: updated });
   }
+  // Programado: el cambio lo aplica después la tarea diaria o el aviso de Stripe (applyPlanDowngrade), que lo anota.
   const updated = await scheduleOrCancelDowngrade(vendor, { when, reason });
   if (!updated) throw new AppError("La tienda no tiene una prueba ni un periodo pagado en curso: usa \"Ahora mismo\".", 409);
   logActivity({
@@ -1743,53 +2258,136 @@ export async function downgradeVendorPlan(req, res) {
     actorRole: "ADMIN",
     vendorId: id,
     action: when === "cancel" ? "plan_downgrade_cancelled" : "plan_downgrade_scheduled",
-    description: when === "cancel" ? "Anuló el paso programado al plan Regular" : `Programó el paso al plan Regular para el ${new Date(updated.planDowngradeAt).toLocaleDateString("es-CU")}: ${reason}`,
+    description:
+      when === "cancel"
+        ? `Anuló el paso programado al plan ${defaultName}`
+        : `Programó el paso al plan ${defaultName} para el ${new Date(updated.planDowngradeAt).toLocaleDateString("es-CU")}: ${reason}`,
   });
   res.json({ vendor: updated });
 }
 
 // Bloque 52 (pedido explícito — "podemos activar la suscripción
 // manualmente desde el panel de administrador para algunas tiendas... se
-// debe justificar y poner el motivo"): única vía para otorgar Premium SIN
-// pasar por el ciclo real de documentos/pago. A propósito transiciona a
-// VERIFIED igual que confirmSubscriptionPayment — el badge y las funciones
-// Premium (decisión confirmada: plan Y verificación) dependen de ese mismo
-// estado, nunca de un campo paralelo.
+// debe justificar y poner el motivo"): única vía para dar un plan de pago SIN
+// pasar por el ciclo real de documentos/pago.
+// Cuánto dura (auditoría, hallazgo 7: antes vencía siempre a los 30 días, también el Empresarial, que no se puede renovar
+// en línea, así que la tienda caía sola al plan por defecto):
+//  - `months` (1 a 24): activo hasta esa fecha. Si la tienda ya tenía ese mismo plan con tiempo por delante, se suma
+//    desde su vencimiento (igual que un pago); si es otro plan, desde hoy.
+//  - `noExpiry: true`: sin fecha de vencimiento (nextPaymentDueDate = null). Los avisos y el vencimiento de
+//    verificationPayment.job.js solo miran tiendas con fecha, así que nunca cae sola; se quita con "Quitar plan" o la bajada.
+//    Solo en planes con insignia: en uno sin insignia las funciones duran mientras haya tiempo pagado (isPremiumActive).
+//  - Un plan "por WhatsApp" (contactOnly) exige elegir una de las dos: se negocia con el equipo y no hay duración obvia.
+//    En los demás, sin nada se toma 1 mes (lo de siempre).
+// Plan con insignia: pasa a VERIFIED igual que confirmSubscriptionPayment (insignia y funciones dependen de ese estado).
+// Plan sin insignia: solo cambia plan y fecha, como el cobro de planBilling (no hay verificación de por medio); si ese plan
+// se cobra, la fecha queda como su próxima fecha de cobro para que la pasada de planBilling no la reemplace. Solo se
+// activa a mano si se cobra (si no, nada lo haría vencer) y si la tienda no está VERIFIED (se quedaría con la insignia).
+// La marca de "activación a mano" es la fila de VendorPlanChange con reason "admin_grant" (la lee /admin/plan-stats).
+const grantPlanSchema = z.object({
+  reason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres."),
+  planType: z.string().trim().regex(PLAN_KEY_PATTERN, "Ese plan no existe.").optional(),
+  months: z.number().int().min(1, "Elige de 1 a 24 meses.").max(24, "Elige de 1 a 24 meses.").optional(),
+  noExpiry: z.boolean().optional(),
+});
+
 export async function grantBusinessPlan(req, res) {
   const { id } = req.params;
-  const { reason } = planReasonSchema.parse(req.body);
-  // Plan a activar (Premium si no se indica). Empresarial solo se activa así: se contrata hablando con el equipo.
-  const planType = z.enum(["STANDARD", "BUSINESS", "ENTERPRISE"]).default("BUSINESS").parse(req.body?.planType);
+  const data = grantPlanSchema.parse(req.body ?? {});
+  // Sin plan indicado: el plan de prueba (isTrialPlan), el que se daba siempre antes.
+  const planType = data.planType ?? (await getTrialPlanKey());
+  if (!(await isValidPlanKey(planType))) throw new AppError("Ese plan no existe o está archivado.", 400);
   const plan = await getPlanConfig(planType);
+  const name = plan.displayName;
+  if (plan.isDefault) {
+    throw new AppError(`El plan ${name} es el plan por defecto: para pasar la tienda a ese plan usa la bajada de plan.`, 400);
+  }
+  const noExpiry = data.noExpiry === true;
+  if (noExpiry && data.months) throw new AppError('Elige cuántos meses o "Sin vencimiento", no las dos cosas.', 400);
+  if (plan.contactOnly && !noExpiry && !data.months) {
+    throw new AppError(`El plan ${name} se contrata con el equipo: elige cuántos meses dura o "Sin vencimiento".`, 400);
+  }
+  if (noExpiry && !plan.grantsBadge) {
+    throw new AppError(`El plan ${name} no da la insignia: sus funciones duran mientras tenga tiempo pagado. Elige cuántos meses.`, 400);
+  }
+  const billed = !plan.isFree && !plan.contactOnly && !plan.grantsBadge;
+  // Un plan sin insignia que tampoco se cobra (por WhatsApp sin insignia, o uno gratis que no es el por defecto) no tiene
+  // quién lo haga vencer: verificationPayment.job solo mira tiendas VERIFIED y planBilling solo los planes cobrados, y
+  // assertPlanAllows mira el plan, no la fecha. La tienda se quedaría con sus funciones para siempre.
+  if (!plan.grantsBadge && !billed) {
+    throw new AppError(`El plan ${name} no se puede activar a mano: no da la insignia ni se cobra, así que no vencería nunca.`, 400);
+  }
+  const months = data.months ?? 1;
+
   const vendor = await prisma.vendor.findUnique({ where: { id } });
   if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
-  if (vendor.planType === planType && vendor.verificationStatus === "VERIFIED") {
-    throw new AppError(`Esta tienda ya tiene el plan ${plan?.displayName ?? planType} activo.`, 409);
+  // La insignia es VERIFIED. Un plan sin insignia no pasa por la verificación, así que la tienda se quedaría con la insignia
+  // del plan anterior. No se cambia el estado aquí: transitionVendorVerification, al salir de VERIFIED, pone el plan por
+  // defecto, y saltarse esa función dejaría sin historial ni aviso el cambio. Primero se quita el plan actual.
+  if (!plan.grantsBadge && vendor.verificationStatus === "VERIFIED") {
+    throw new AppError(`Esta tienda tiene la insignia de su plan actual y el plan ${name} no la da. Quítale antes el plan actual y luego activa ${name}.`, 409);
+  }
+  await getDefaultPlanKey(); // carga la caché que usa isPremiumActive
+  const samePlanActive = vendor.planType === planType && isPremiumActive(vendor);
+  if (samePlanActive && noExpiry && !vendor.nextPaymentDueDate && !inTrial(vendor)) {
+    throw new AppError(`Esta tienda ya tiene el plan ${name} activo, sin vencimiento.`, 409);
   }
 
   const now = new Date();
-  const periodEnd = new Date(now.getTime() + PAYMENT_CYCLE_DAYS * 24 * 60 * 60 * 1000);
-  const grantExtraData = { planType, nextPaymentDueDate: periodEnd };
-  // Bloque 235: mismo guardrail que confirmSubscriptionPayment — si venía
-  // de un trial gratuito, esto ya lo reemplaza por Premium real, no debe
-  // quedar un trialEndsAt viejo que el cron de vencimiento procese después.
-  if (vendor.trialEndsAt) grantExtraData.trialEndsAt = null;
-  const updated = await transitionVendorVerification(id, "VERIFIED", {
-    reason,
-    actorId: req.user.id,
-    source: "ADMIN_ACTION",
-    extraData: grantExtraData,
-    notify: { type: "VERIFICATION_BUSINESS_GRANTED" },
-  });
+  const due = vendor.nextPaymentDueDate;
+  const periodStart = samePlanActive && due && due > now ? due : now;
+  const periodEnd = noExpiry ? null : new Date(periodStart.getTime() + cycleMs(months));
+  // Si la tienda pagaba otro plan con tarjeta (o si ya no va a tener fecha), Stripe seguiría cobrándole: se cancela, igual
+  // que al quitar el plan. Con el mismo plan y fecha, la tarjeta sigue (la activación solo le suma tiempo).
+  const dropCard = !!vendor.stripeSubscriptionId && (vendor.planType !== planType || noExpiry);
+  if (dropCard) await cancelStripeSubscription(vendor.stripeSubscriptionId);
+
+  const grantData = {
+    planType,
+    nextPaymentDueDate: periodEnd,
+    // Bloque 235: mismo guardrail que confirmSubscriptionPayment. Si venía de un trial gratuito, esto ya lo reemplaza
+    // por un plan real, no debe quedar un trialEndsAt viejo que el cron de vencimiento procese después.
+    ...(vendor.trialEndsAt ? { trialEndsAt: null } : {}),
+    // Un paso al plan por defecto programado deja de tener sentido.
+    planDowngradeAt: null,
+    planDowngradeReason: null,
+    ...(dropCard ? { stripeSubscriptionId: null, cancelAtPeriodEnd: false } : {}),
+    // Cobro de planBilling: en un plan cobrado, la fecha elegida es su próxima fecha de cobro (con "start" la pasada
+    // horaria no la reemplaza por la del día de registro); en cualquier otro, la tienda sale del cobro.
+    ...(billed ? { billingNoticeStage: "start", billingNoticeDue: periodEnd } : { billingNoticeStage: null, billingNoticeDue: null }),
+  };
+
+  let updated;
+  if (plan.grantsBadge) {
+    updated = await transitionVendorVerification(id, "VERIFIED", {
+      reason: data.reason,
+      actorId: req.user.id,
+      source: "ADMIN_ACTION",
+      extraData: grantData,
+      notify: { type: "VERIFICATION_BUSINESS_GRANTED" },
+      planChangeReason: "admin_grant",
+    });
+  } else {
+    updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.vendor.update({ where: { id }, data: grantData });
+      await recordPlanChange(tx, { vendorId: id, fromPlan: vendor.planType, toPlan: planType, reason: "admin_grant", actorId: req.user.id });
+      return row;
+    });
+    const until = periodEnd.toLocaleDateString("es-CU", { day: "numeric", month: "long", year: "numeric" });
+    await adminNoticeToVendor(id, `Tu tienda tiene el plan ${name}`, `El equipo activó el plan ${name} en tu tienda hasta el ${until}. Motivo: ${data.reason}.`).catch(() => {});
+  }
   await recalcVendorProductQuota(id);
+  // Si estaba suspendida por no pagar el plan anterior, la activación lo resuelve.
+  await liftBillingSuspension(id, `El equipo activó el plan ${name}`);
+  const length = noExpiry ? "sin vencimiento" : `por ${months} ${months === 1 ? "mes" : "meses"}, hasta el ${periodEnd.toLocaleDateString("es-CU")}`;
   logActivity({
     actorId: req.user.id,
     actorRole: "ADMIN",
     vendorId: id,
     action: "business_plan_granted_manually",
-    description: `Activó el plan ${plan?.displayName ?? planType} a mano. Motivo: ${reason}`,
+    description: `Activó el plan ${name} a mano, ${length}. Motivo: ${data.reason}`,
   });
-  res.json({ vendor: updated });
+  res.json({ vendor: updated, planName: name, periodEnd, noExpiry });
 }
 
 // --- Clientes ------------------------------------------------------------
@@ -1927,7 +2525,8 @@ const updateCustomerSchema = z.object({
   addToBlacklist: z.boolean().optional(),
   blacklistReason: z.string().trim().min(5, "Escribe un motivo de al menos 5 caracteres.").max(500).optional(),
   fullName: z.string().min(2).optional(),
-  email: z.string().email().optional(),
+  // Normalizado: lo que se guarde acá es el correo con el que el cliente inicia sesión.
+  email: emailField().optional(),
   phone: z.string().min(8).optional(),
 });
 
@@ -1941,17 +2540,37 @@ export async function updateCustomer(req, res) {
   if (blacklist && !blacklistReason) throw new AppError("Escribe el motivo para la lista negra.", 400);
   if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id });
 
-  if (data.email) {
-    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+  const emailChanged = !!data.email && data.email !== user.email?.toLowerCase();
+  if (emailChanged) {
+    const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
     if (existing && existing.id !== id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+    // Igual que el correo de acceso de una tienda (updateVendorLoginEmail): uno de la lista negra no pasa a otra cuenta.
+    if (await emailBlacklistedForOthers(data.email, id)) {
+      throw new AppError("Ese correo está en la lista negra. Para usarlo, primero quítalo de la lista negra.", 409);
+    }
   }
 
   // Reactivar a un cliente bloqueado por avisos de fraude: se detiene el plazo y lo anterior deja de contar.
   const fraudReset = data.isSuspended === false && user.fraudBlockedAt ? { fraudBlockedAt: null, fraudClaimDueAt: null, fraudStrikesResetAt: new Date() } : {};
   const updated = await prisma.user.update({ where: { id }, data: { ...data, ...fraudReset } });
+  const suspending = data.isSuspended === true;
+  // isSuspended solo se mira al renovar la sesión: sin cerrarlas, el cliente suspendido seguía usando la API con su token
+  // de acceso hasta una hora (lo mismo que hace lib/moderation.js al bloquear por avisos). Con el correo cambiado, quien
+  // tenía la sesión abierta con el anterior vuelve a entrar con el nuevo.
+  if (suspending || emailChanged) await revokeUserSessions(id, { forgetDevices: emailChanged });
   if (blacklist) {
     const already = await prisma.blacklistEntry.findFirst({ where: { userId: id, removedAt: null }, select: { id: true } });
     if (!already) await addToBlacklist({ kind: "CUSTOMER", user: updated, reason: blacklistReason, addedById: req.user.id });
+  }
+  if (data.isSuspended !== undefined && data.isSuspended !== user.isSuspended) {
+    const who = user.fullName ?? user.email;
+    logActivity({
+      actorId: req.user.id,
+      actorRole: "ADMIN",
+      action: data.isSuspended ? "admin_suspend_customer" : "admin_reactivate_customer",
+      description: data.isSuspended ? `Un admin suspendió al cliente "${who}"${blacklist ? " y lo agregó a la lista negra" : ""}` : `Un admin reactivó al cliente "${who}"`,
+      meta: { customerId: id, blacklist: !!blacklist, reason: blacklistReason ?? null },
+    });
   }
   res.json({ customer: { id: updated.id, fullName: updated.fullName, email: updated.email, phone: updated.phone, isSuspended: updated.isSuspended } });
 }
@@ -1973,16 +2592,43 @@ export async function deleteCustomer(req, res) {
 // en schema.prisma. Esta lista sirve tanto para responder hilos iniciados
 // por el vendedor como para que el admin le escriba primero a cualquiera —
 // mismo camino de UI para ambos casos, sin duplicar un sistema aparte.
-export async function listConversations(_req, res) {
+//
+// canRead: si la tienda puede ver el chat. Del lado de la tienda (requireApprovedVendor, vendors.controller.js) hace falta
+// estar VERIFIED y un plan con allowAdminChat; sin eso el mensaje del admin se guardaba y nadie lo leía. Los planes que lo
+// traen se leen de PlanConfig (planAllows solo con la clave mira el interruptor y la insignia del plan), nunca una lista fija.
+async function adminChatPlanKeys() {
+  const configs = await getAllPlanConfigs({ includeArchived: true });
+  const allowed = await Promise.all(configs.map((c) => planAllows(c.planType, "allowAdminChat")));
+  return configs.filter((_, i) => allowed[i]).map((c) => c.planType);
+}
+const canReadAdminChat = (vendor, chatKeys) => vendor.verificationStatus === "VERIFIED" && chatKeys.includes(vendor.planType);
+
+// La lista se pide cada 5 segundos: antes traía todas las tiendas de la plataforma. Ahora solo las que tienen conversación
+// y las que pueden leer el chat (a las demás no tiene sentido escribirles primero). Con ?q= (2 letras o más) busca por
+// nombre entre todas, para abrir el hilo de cualquier tienda.
+export async function listConversations(req, res) {
+  const q = String(req.query?.q ?? "").trim();
+  const chatKeys = await adminChatPlanKeys();
+  const where =
+    q.length >= 2
+      ? { deletedAt: null, companyName: { contains: q, mode: "insensitive" } }
+      : {
+          deletedAt: null,
+          OR: [{ messages: { some: {} } }, { verificationStatus: "VERIFIED", planType: { in: chatKeys } }],
+        };
   const vendors = await prisma.vendor.findMany({
-    where: { deletedAt: null },
+    where,
     select: {
       id: true,
       companyName: true,
       verificationStatus: true,
+      planType: true,
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
       _count: { select: { messages: { where: { senderRole: "VENDOR", readAt: null } } } },
     },
+    // Con orden fijo: sin él, con más de 30 coincidencias cada sondeo de 5 s podía traer un grupo distinto y la tienda
+    // buscada aparecía y desaparecía de la lista.
+    ...(q.length >= 2 ? { take: 30, orderBy: [{ companyName: "asc" }, { id: "asc" }] } : {}),
   });
 
   const conversations = vendors
@@ -1990,6 +2636,7 @@ export async function listConversations(_req, res) {
       vendorId: v.id,
       companyName: v.companyName,
       isVerified: v.verificationStatus === "VERIFIED",
+      canRead: canReadAdminChat(v, chatKeys),
       lastMessage: v.messages[0] ?? null,
       unreadCount: v._count.messages,
     }))
@@ -2007,11 +2654,14 @@ export async function listConversations(_req, res) {
 
 export async function getConversation(req, res) {
   const { vendorId } = req.params;
-  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true, companyName: true, verificationStatus: true } });
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true, companyName: true, verificationStatus: true, planType: true } });
   if (!vendor) throw new AppError("Tienda no encontrada.", 404);
 
-  const messages = await prisma.vendorMessage.findMany({ where: { vendorId }, orderBy: { createdAt: "asc" } });
-  res.json({ vendor: { ...vendor, isVerified: vendor.verificationStatus === "VERIFIED" }, messages });
+  const [messages, chatKeys] = await Promise.all([
+    prisma.vendorMessage.findMany({ where: { vendorId }, orderBy: { createdAt: "asc" } }),
+    adminChatPlanKeys(),
+  ]);
+  res.json({ vendor: { ...vendor, isVerified: vendor.verificationStatus === "VERIFIED", canRead: canReadAdminChat(vendor, chatKeys) }, messages });
 }
 
 const adminSendMessageSchema = z.object({ body: z.string().trim().min(1).max(2000) });
@@ -2020,8 +2670,12 @@ export async function sendConversationMessage(req, res) {
   const { vendorId } = req.params;
   const { body } = adminSendMessageSchema.parse(req.body);
 
-  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } });
-  if (!vendor) throw new AppError("Tienda no encontrada.", 404);
+  const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true, deletedAt: true, verificationStatus: true, planType: true } });
+  if (!vendor || vendor.deletedAt) throw new AppError("Tienda no encontrada.", 404);
+  // Un mensaje que la tienda no puede abrir no le llega a nadie: mejor decirlo que guardarlo en silencio.
+  if (!canReadAdminChat(vendor, await adminChatPlanKeys())) {
+    throw new AppError("Esta tienda no puede ver el chat con su plan actual. Escríbele por correo.", 409);
+  }
 
   const message = await prisma.vendorMessage.create({
     data: { vendorId, senderRole: "ADMIN", senderId: req.user.id, body },
@@ -2048,8 +2702,9 @@ export async function markConversationRead(req, res) {
 const sendEmailSchema = z.object({
   recipientType: z.enum(["customer", "vendor"]),
   recipientId: z.string().min(1),
-  subject: z.string().trim().min(2),
-  message: z.string().trim().min(2),
+  // Mismos topes que el correo de una tienda a su cliente (manualEmailSchema en orders.controller.js).
+  subject: z.string().trim().min(2).max(150, "El asunto puede tener hasta 150 caracteres."),
+  message: z.string().trim().min(2).max(5000, "El mensaje puede tener hasta 5000 caracteres."),
 });
 
 export async function sendAdminEmail(req, res) {
@@ -2154,6 +2809,8 @@ const NOTICE_WHERE = [
   ["verification-", "Verificaciones › Documentos pendientes", "/admin/verificaciones?tab=docs"],
   ["message-", "Mensajes"],
   ["payment-", "Verificaciones › Pago pendiente", "/admin/verificaciones?tab=pago"],
+  ["renewal-", "Verificaciones › Renovaciones", "/admin/verificaciones?tab=renovaciones"],
+  ["change-", "Verificaciones › Cambios de datos", "/admin/verificaciones?tab=cambios"],
   ["report-", "Comentarios › Reportados"],
   ["fraud-", "Reportes de fraude › Pendientes"],
   ["ticket-", "Errores › Tickets de las tiendas"],
@@ -2189,7 +2846,7 @@ export async function getSectionCounts(_req, res) {
 
 export async function listAdminNotifications(_req, res) {
   const DAY = 24 * 60 * 60 * 1000;
-  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases, newVendors, newTrials, acceptedTrials, newTickets] = await Promise.all([
+  const [pendingVerifications, newSuggestions, unresolvedErrors, vendorsWithUnread, paymentClaims, reportedReviews, pendingFraudReports, recentOrders, openSupportCases, newVendors, newTrials, acceptedTrials, newTickets, renewalClaims, changeRequests] = await Promise.all([
     prisma.vendor.findMany({
       where: { verificationStatus: { in: ["PENDING_DOCS", "IN_REVIEW"] }, deletedAt: null },
       select: { id: true, companyName: true, createdAt: true },
@@ -2234,7 +2891,16 @@ export async function listAdminNotifications(_req, res) {
     }),
     prisma.order.findMany({
       where: { createdAt: { gte: new Date(Date.now() - RECENT_ORDERS_WINDOW_MS) } },
-      select: { id: true, code: true, total: true, customerName: true, createdAt: true, vendor: { select: { companyName: true } } },
+      // items y vendor.currency: para mostrar el total en la moneda del pedido (orderCurrency), no siempre en CUP.
+      select: {
+        id: true,
+        code: true,
+        total: true,
+        vendorId: true,
+        createdAt: true,
+        items: { select: { currency: true }, take: 1 },
+        vendor: { select: { companyName: true, currency: true } },
+      },
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
@@ -2248,6 +2914,21 @@ export async function listAdminNotifications(_req, res) {
     prisma.vendor.findMany({ where: { trialStartedAt: { gte: new Date(Date.now() - 2 * DAY) }, trialEndsAt: null, deletedAt: null, verificationStatus: { not: "VERIFIED" } }, select: { id: true, companyName: true, trialStartedAt: true }, orderBy: { trialStartedAt: "desc" }, take: 5 }),
     // Reportes de problemas (tickets) que el admin todavía no abrió.
     prisma.supportTicket.findMany({ where: { status: "NEW" }, select: { id: true, number: true, section: true, pagePath: true, reporterName: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 5 }),
+    // Renovaciones que la tienda marcó como pagadas ("Ya pagué") y esperan confirmación: el mismo criterio que la pestaña
+    // Renovaciones (getSectionCounts y listPendingSubscriptionPayments). Antes la campanita no las avisaba.
+    prisma.subscriptionPayment.findMany({
+      where: { confirmedAt: null, claimedAt: { not: null } },
+      select: { id: true, claimedAt: true, vendor: { select: { companyName: true } } },
+      orderBy: { claimedAt: "desc" },
+      take: 5,
+    }),
+    // Cambios de datos que pidió una tienda (nombre, responsable, dirección) esperando la decisión del admin.
+    prisma.vendorChangeRequest.findMany({
+      where: { status: "PENDING" },
+      select: { id: true, createdAt: true, vendor: { select: { companyName: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
   ]);
 
   const items = [
@@ -2293,9 +2974,21 @@ export async function listAdminNotifications(_req, res) {
       to: "/admin/verificaciones",
       createdAt: v.verification?.paymentClaimedAt ?? null,
     })),
+    ...renewalClaims.map((p) => ({
+      id: `renewal-${p.id}`,
+      text: `Renovación pagada sin confirmar: ${p.vendor.companyName}`,
+      to: "/admin/verificaciones?tab=renovaciones",
+      createdAt: p.claimedAt,
+    })),
+    ...changeRequests.map((r) => ({
+      id: `change-${r.id}`,
+      text: `Cambio de datos por revisar: ${r.vendor.companyName}`,
+      to: "/admin/verificaciones?tab=cambios",
+      createdAt: r.createdAt,
+    })),
     ...reportedReviews.map((r) => ({
       id: `report-${r.id}`,
-      text: `Comentario reportado${r.vendor ? ` — ${r.vendor.companyName}` : ""}`,
+      text: `Comentario reportado${r.vendor ? ` · ${r.vendor.companyName}` : ""}`,
       to: `/admin/comentarios?review=${r.id}`,
       createdAt: r.reportedAt,
     })),
@@ -2311,15 +3004,12 @@ export async function listAdminNotifications(_req, res) {
       to: `/admin/errores?tab=tickets&ticket=${t.id}`,
       createdAt: t.createdAt,
     })),
-    // Bloque 231 (pedido explícito): visibilidad en tiempo real de pedidos
-    // nuevos — no hay una vista de detalle de pedido del lado admin, así
-    // que el destino es la tienda que lo recibió (mismo criterio que
-    // paymentClaims/pendingVerifications de arriba, que tampoco enlazan a
-    // un registro puntual).
+    // Bloque 231 (pedido explícito): visibilidad en tiempo real de pedidos nuevos. Lleva al pedido abierto dentro de su
+    // tienda, igual que el buscador (adminSearch). El total va en la moneda del pedido: una tienda en USD salía en "CUP".
     ...recentOrders.map((o) => ({
       id: `order-${o.id}`,
-      text: `Pedido nuevo ${o.code} — ${o.vendor.companyName} (${Number(o.total).toLocaleString("es-CU")} CUP)`,
-      to: "/admin/tiendas",
+      text: `Pedido nuevo ${o.code} · ${o.vendor.companyName} (${money(o.total, orderCurrency({ items: o.items, currency: o.vendor.currency }))})`,
+      to: `/admin/tiendas/${o.vendorId}?tab=pedidos&pedido=${o.id}`,
       createdAt: o.createdAt,
     })),
   ].sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
@@ -2347,6 +3037,9 @@ export async function listAdminNotifications(_req, res) {
     paymentClaims.length +
     reportedReviews.length +
     pendingFraudReports.length +
+    openSupportCases.length +
+    renewalClaims.length +
+    changeRequests.length +
     newTickets.length +
     recentOrders.length +
     newVendors.length +

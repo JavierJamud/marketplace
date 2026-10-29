@@ -22,12 +22,20 @@ const versionJson = () => ({
   },
 });
 
+// index.html lee %VITE_API_URL% (preloader). En local esa variable no existe (el sitio usa el mismo host, puerto 4000) y
+// Vite avisaba en la terminal "%VITE_API_URL% is not defined" en cada carga. Se reemplaza aquí antes que Vite ("pre"):
+// con la variable definida queda su valor (producción), y sin ella queda vacía y el script usa su respaldo de siempre.
+const apiUrlHtml = (env) => ({
+  name: "api-url-html",
+  transformIndexHtml: { order: "pre", handler: (html) => html.replaceAll("%VITE_API_URL%", env.VITE_API_URL ?? "") },
+});
+
 export default defineConfig(({ mode }) => {
   // Prefijo "" (no solo "VITE_") — ogMeta.js también quiere leer
   // FRONTEND_URL si algún día se define, que no lleva ese prefijo.
   const env = loadEnv(mode, process.cwd(), "");
   return {
-    plugins: [react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets(), appVersionHtml(), versionJson()],
+    plugins: [apiUrlHtml(env), react(), ogMetaPlugin(env), stripDevNotes(), mediapipeAssets(), appVersionHtml(), versionJson()],
     // __APP_BUILD__ cambia en cada compilación: invalida la caché guardada en el navegador (ver main.jsx) para que una respuesta con forma vieja nunca rompa una pantalla nueva.
     define: { __APP_VERSION__: JSON.stringify(version), __APP_BUILD__: JSON.stringify(build) },
     // Sin mapas de código ni comentarios en lo que se publica.

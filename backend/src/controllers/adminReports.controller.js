@@ -32,9 +32,29 @@ const REPORT_INCLUDE = {
   resolvedBy: { select: { id: true, fullName: true } },
 };
 
+// Abiertos = el admin todavía puede decidir. Toda decisión exige que el reporte siga en uno de estos estados AL GUARDARLA
+// (ver claimReport), no solo al leerlo.
+const OPEN_STATUSES = ["PENDING", "EVIDENCE_REQUESTED"];
+// "Se mantuvo" son dos estados en la base: DISMISSED (sin pedir evidencia) y RESOLVED_NO_ACTION (después de pedirla, o
+// apelación aceptada). El filtro los junta; DISMISSED también, porque es lo que manda el botón "Se mantuvieron" del panel.
+const KEPT_STATUSES = ["DISMISSED", "RESOLVED_NO_ACTION"];
+const listQuerySchema = z.object({
+  status: z
+    .enum(["APPEALS", "KEPT", "PENDING", "EVIDENCE_REQUESTED", "RESOLVED_SUSPENDED", "RESOLVED_NO_ACTION", "DISMISSED"], { errorMap: () => ({ message: "Filtro de estado no válido." }) })
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+});
+
 export async function listFraudReports(req, res) {
-  const { status } = req.query;
-  const where = status === "APPEALS" ? { appealStatus: "PENDING" } : status ? { status: String(status) } : undefined;
+  const { status } = listQuerySchema.parse(req.query);
+  const where =
+    status === "APPEALS"
+      ? { appealStatus: "PENDING" }
+      : status === "KEPT" || status === "DISMISSED"
+        ? { status: { in: KEPT_STATUSES } }
+        : status
+          ? { status }
+          : undefined;
   const reports = await prisma.report.findMany({ where, include: REPORT_INCLUDE, orderBy: { createdAt: "desc" }, take: 300 });
   res.json({ reports });
 }
@@ -95,6 +115,14 @@ export async function getFraudReportDetail(req, res) {
   });
 }
 
+// Guarda la decisión solo si el reporte sigue como se leyó (`expected`): dos admins, dos pestañas o la tarea diaria
+// pueden leer el mismo reporte abierto a la vez, y sin esta condición los dos aplicaban la suspensión, el aviso
+// acumulado y los correos. updateMany con la condición es atómico en la base: solo uno obtiene count 1.
+async function claimReport(id, expected, data) {
+  const { count } = await prisma.report.updateMany({ where: { id, ...expected }, data });
+  return count === 1;
+}
+
 export async function requestEvidence(req, res) {
   const { id } = req.params;
   const report = await prisma.report.findUnique({ where: { id } });
@@ -103,10 +131,9 @@ export async function requestEvidence(req, res) {
 
   const { evidenceDays } = await getModerationSettings();
   const now = new Date();
-  const updated = await prisma.report.update({
-    where: { id },
-    data: { status: "EVIDENCE_REQUESTED", evidenceRequestedAt: now, evidenceDueAt: new Date(now.getTime() + evidenceDays * 86400000) },
-  });
+  const claimed = await claimReport(id, { status: "PENDING" }, { status: "EVIDENCE_REQUESTED", evidenceRequestedAt: now, evidenceDueAt: new Date(now.getTime() + evidenceDays * 86400000) });
+  if (!claimed) throw new AppError("Otra persona ya actuó sobre este reporte. Recarga para ver cómo quedó.", 409);
+  const updated = await prisma.report.findUnique({ where: { id } });
   await notifyEvidenceRequested(updated, evidenceDays);
   res.json({ report: updated });
 }
@@ -118,23 +145,47 @@ export async function dismissFraudReport(req, res) {
   const { resolutionNote } = decisionSchema.parse(req.body ?? {});
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report) throw new AppError("Reporte no encontrado.", 404);
-  if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) throw new AppError("Este reporte ya fue resuelto.", 400);
+  if (!OPEN_STATUSES.includes(report.status)) throw new AppError("Este reporte ya fue resuelto.", 400);
 
-  const updated = await prisma.report.update({
-    where: { id: report.id },
-    data: { status: report.status === "EVIDENCE_REQUESTED" ? "RESOLVED_NO_ACTION" : "DISMISSED", resolvedById: req.user.id, resolvedAt: new Date(), resolutionNote },
+  // El estado final depende del leído (con evidencia pedida queda RESOLVED_NO_ACTION), así que se exige ese mismo estado.
+  const claimed = await claimReport(report.id, { status: report.status }, {
+    status: report.status === "EVIDENCE_REQUESTED" ? "RESOLVED_NO_ACTION" : "DISMISSED",
+    resolvedById: req.user.id,
+    resolvedAt: new Date(),
+    resolutionNote,
   });
+  if (!claimed) throw new AppError("Este reporte ya fue resuelto. Recarga para ver cómo quedó.", 409);
+  const updated = await prisma.report.findUnique({ where: { id: report.id } });
   await notifyReportOutcome(updated, { suspended: false, reason: resolutionNote });
   res.json({ report: updated });
 }
 
 // Confirmar y suspender. Lo usa también la tarea diaria cuando vence el plazo de evidencia sin respuesta.
+// Primero se reclama el reporte (sigue abierto y, si es la tarea diaria, el dueño no mandó evidencia mientras tanto);
+// recién después se suspende y se cuentan los avisos, así una decisión doble no los aplica dos veces. Si otra decisión
+// ganó: al admin se le responde 409 y la tarea diaria lo salta (devuelve null) sin cortar el resto de su lista.
 export async function confirmAndSuspend(report, { reason, adminId = null, autoResolved = false }) {
-  const deleteAt = await suspendReportTarget(report, reason);
-  const updated = await prisma.report.update({
-    where: { id: report.id },
-    data: { status: "RESOLVED_SUSPENDED", resolvedById: adminId, resolvedAt: new Date(), resolutionNote: reason, autoResolved, itemDeleteAt: deleteAt },
-  });
+  const claimed = await claimReport(
+    report.id,
+    { status: { in: OPEN_STATUSES }, ...(autoResolved ? { evidenceSentAt: null } : {}) },
+    { status: "RESOLVED_SUSPENDED", resolvedById: adminId, resolvedAt: new Date(), resolutionNote: reason, autoResolved }
+  );
+  if (!claimed) {
+    if (autoResolved) return null;
+    throw new AppError("Este reporte ya fue resuelto. Recarga para ver cómo quedó.", 409);
+  }
+  let deleteAt;
+  try {
+    deleteAt = await suspendReportTarget(report, reason);
+  } catch (err) {
+    // No se pudo suspender (p. ej. el producto se borró justo antes): el reporte vuelve a quedar abierto como estaba,
+    // para que la decisión se pueda repetir.
+    await prisma.report
+      .update({ where: { id: report.id }, data: { status: report.status, resolvedById: report.resolvedById, resolvedAt: report.resolvedAt, resolutionNote: report.resolutionNote, autoResolved: report.autoResolved } })
+      .catch(() => {});
+    throw err;
+  }
+  const updated = await prisma.report.update({ where: { id: report.id }, data: { itemDeleteAt: deleteAt } });
   await notifyReportOutcome(updated, { suspended: true, reason, deleteAt });
   const strikes = await applyStrikes(updated);
   return { report: updated, strikes };
@@ -144,7 +195,7 @@ export async function resolveFraudReport(req, res) {
   const { resolutionNote } = decisionSchema.parse(req.body);
   const report = await prisma.report.findUnique({ where: { id: req.params.id } });
   if (!report) throw new AppError("Reporte no encontrado.", 404);
-  if (!["PENDING", "EVIDENCE_REQUESTED"].includes(report.status)) throw new AppError("Este reporte ya fue resuelto.", 400);
+  if (!OPEN_STATUSES.includes(report.status)) throw new AppError("Este reporte ya fue resuelto.", 400);
   res.json(await confirmAndSuspend(report, { reason: resolutionNote, adminId: req.user.id }));
 }
 
@@ -177,10 +228,26 @@ async function emailAppealResult(report, accepted, note) {
   }).catch(() => {});
 }
 
+// Misma idea que claimReport: la apelación se marca decidida solo si sigue PENDING al guardar, así aceptar y rechazar
+// (o dos admins) no pueden correr los dos. Si lo que sigue falla, vuelve a PENDING para poder decidir de nuevo.
+async function claimAppeal(report, decision, note) {
+  const claimed = await claimReport(report.id, { appealStatus: "PENDING" }, { appealStatus: decision, appealResolvedAt: new Date(), appealNote: note });
+  if (!claimed) throw new AppError("Esta apelación ya fue decidida. Recarga para ver cómo quedó.", 409);
+}
+const reopenAppeal = (report) =>
+  prisma.report.update({ where: { id: report.id }, data: { appealStatus: "PENDING", appealResolvedAt: report.appealResolvedAt, appealNote: report.appealNote } }).catch(() => {});
+
 export async function acceptAppeal(req, res) {
   const { note } = appealDecisionSchema.parse(req.body);
   const report = await appealReport(req.params.id);
-  const updated = await restoreAfterAppeal(report, note);
+  await claimAppeal(report, "ACCEPTED", note);
+  let updated;
+  try {
+    updated = await restoreAfterAppeal(report, note);
+  } catch (err) {
+    await reopenAppeal(report);
+    throw err;
+  }
   await emailAppealResult(report, true, note);
   res.json({ report: updated });
 }
@@ -188,8 +255,13 @@ export async function acceptAppeal(req, res) {
 export async function rejectAppeal(req, res) {
   const { note } = appealDecisionSchema.parse(req.body);
   const report = await appealReport(req.params.id);
-  await prisma.report.update({ where: { id: report.id }, data: { appealStatus: "REJECTED", appealResolvedAt: new Date(), appealNote: note } });
-  await deleteSuspendedItem(report);
+  await claimAppeal(report, "REJECTED", note);
+  try {
+    await deleteSuspendedItem(report);
+  } catch (err) {
+    await reopenAppeal(report);
+    throw err;
+  }
   await emailAppealResult(report, false, note);
   res.json({ ok: true });
 }

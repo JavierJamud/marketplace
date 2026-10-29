@@ -7,7 +7,7 @@ import { emailShell, paragraph, smallNote, resolveAssetUrl, esc } from "./_share
 // garantía) ya que comparten toda la estructura, solo cambia el texto del
 // cuerpo y el asunto.
 export async function invoiceEmail({ vendor, order, customerName }) {
-  const subject = `Factura de tu compra en ${vendor.companyName} — pedido ${order.code}`;
+  const subject = `Factura de tu compra en ${vendor.companyName} · pedido ${order.code}`;
   const html = await emailShell({
     preview: `Adjuntamos la factura de tu pedido ${order.code} en ${vendor.companyName}`,
     title: "Tu factura de compra",
@@ -24,7 +24,7 @@ export async function invoiceEmail({ vendor, order, customerName }) {
 }
 
 export async function warrantyEmail({ vendor, order, customerName, warrantyDays }) {
-  const subject = `Certificado de garantía — ${vendor.companyName} — pedido ${order.code}`;
+  const subject = `Certificado de garantía · ${vendor.companyName} · pedido ${order.code}`;
   const html = await emailShell({
     preview: `Tu certificado de garantía de ${vendor.companyName}, válido por ${warrantyDays} día(s)`,
     title: "Tu certificado de garantía",

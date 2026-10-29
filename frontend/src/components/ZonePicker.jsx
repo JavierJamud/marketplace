@@ -74,7 +74,7 @@ export function ZoneDialog({ onClose, welcome = false }) {
         aria-modal="true"
         aria-labelledby={`${uid}-t`}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[90dvh] w-full max-w-[380px] animate-fade-up overflow-y-auto overscroll-contain rounded-3xl bg-surface-container-lowest p-5 shadow-[0_24px_60px_-12px_rgba(14,26,40,0.45)] sm:p-6"
+        className="modal-panel-5 w-full max-w-[380px] animate-fade-up rounded-3xl bg-surface-container-lowest p-5 shadow-[0_24px_60px_-12px_rgba(14,26,40,0.45)] sm:p-6"
       >
         <div className="mb-1 flex items-start gap-3">
           <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-secondary-container/25 text-on-secondary-container" aria-hidden="true">

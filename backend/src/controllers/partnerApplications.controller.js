@@ -10,6 +10,8 @@ import { normalizeDomain, normalizeIp, hostFromOrigin } from "../lib/partnerKeys
 import { DEFAULT_PARTNER_SCOPES, PARTNER_SCOPE_IDS, DEFAULT_RATE_PER_MINUTE, DEFAULT_DAILY_LIMIT } from "../lib/partnerScopes.js";
 import { paginationQuerySchema, pageArgs, pageMeta } from "../lib/pagination.js";
 import { codeFromName, issueKey, emailPartnerKey } from "./partners.controller.js";
+import { assertNotBlacklisted, findBlacklisted } from "../lib/blacklist.js";
+import { assertPhoneFree, findPhoneOwner } from "../lib/phoneUniqueness.js";
 
 // Solicitudes para usar la API de socios. Cualquiera puede enviar una (sin cuenta); solo el administrador la
 // aprueba o la rechaza. Al aprobarla se crean, juntos, el socio, su usuario del panel (rol PARTNER, con la
@@ -53,9 +55,24 @@ const applicationBody = z
   })
   .strict();
 
+// Del lado del admin (editar o aprobar) se le dice qué dato choca: él ve la lista negra y las cuentas. A quien envía la
+// solicitud no se le revela (assertNotBlacklisted da el mismo mensaje genérico que el registro).
+async function assertApplicationDataUsable({ email, phone }) {
+  if (await findBlacklisted({ email, phone })) {
+    throw new AppError("El correo o el teléfono de esta solicitud está en la lista negra. Sácalo de la lista negra o rechaza la solicitud.", 409);
+  }
+  if (await findPhoneOwner(phone)) {
+    throw new AppError(`El teléfono ${phone} ya lo usa otra cuenta. Corrígelo en la solicitud o recházala.`, 409);
+  }
+}
+
 // POST /partner-applications (público)
 export async function submitApplication(req, res) {
   const data = applicationBody.parse(req.body);
+  // Las mismas reglas que el registro (auth.controller.js): nada de la lista negra y un teléfono por persona. El usuario
+  // PARTNER que se crea al aprobar es una cuenta más; antes este flujo quedaba fuera de las dos comprobaciones.
+  await assertNotBlacklisted({ email: data.email, phone: data.phone });
+  await assertPhoneFree(data.phone);
   if (await prisma.user.findUnique({ where: { email: data.email }, select: { id: true } })) {
     throw new AppError("Ya existe una cuenta con ese correo. Usa otro correo o entra a tu cuenta.", 409);
   }
@@ -140,6 +157,9 @@ export async function approveApplication(req, res) {
   if (await prisma.user.findUnique({ where: { email: app.email }, select: { id: true } })) {
     throw new AppError(`Ya existe una cuenta con el correo ${app.email}. Pídele que use otro.`, 409);
   }
+  // Se repite al aprobar: mientras la solicitud esperaba, el correo o el teléfono pudo entrar a la lista negra o el teléfono
+  // pudo pasar a otra cuenta (por ejemplo, otra solicitud aprobada antes con el mismo número).
+  await assertApplicationDataUsable({ email: app.email, phone: app.phone });
   const code = await uniqueCode(app.companyName);
 
   const { partner, key, raw } = await prisma.$transaction(async (tx) => {
@@ -195,6 +215,15 @@ export async function editApplication(req, res) {
   if (data.email && data.email !== app.email) {
     if (await prisma.user.findUnique({ where: { email: data.email }, select: { id: true } })) throw new AppError("Ya existe una cuenta con ese correo.", 409);
     if (await prisma.partnerApplication.findFirst({ where: { email: data.email, status: "PENDING", id: { not: app.id } }, select: { id: true } })) throw new AppError("Ya hay otra solicitud en revisión con ese correo.", 409);
+  }
+  // Un correo o teléfono nuevo pasa por la lista negra y la regla de teléfono único, igual que al enviar la solicitud.
+  const emailChanged = data.email && data.email !== app.email;
+  const phoneChanged = data.phone && data.phone !== app.phone;
+  if (emailChanged || phoneChanged) {
+    if (await findBlacklisted({ email: emailChanged ? data.email : null, phone: phoneChanged ? data.phone : null })) {
+      throw new AppError(`${emailChanged && phoneChanged ? "El correo o el teléfono nuevo" : emailChanged ? "El correo nuevo" : "El teléfono nuevo"} está en la lista negra.`, 409);
+    }
+    if (phoneChanged && (await findPhoneOwner(data.phone))) throw new AppError("Ese teléfono ya lo usa otra cuenta.", 409);
   }
   const updated = await prisma.partnerApplication.update({ where: { id: app.id }, data: { ...data, ...(data.websites ? { website: data.websites[0] } : {}) } });
   logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "partner_application_edited", description: `Editó la solicitud de "${updated.companyName}"`, meta: { applicationId: app.id, fields: Object.keys(data) } });

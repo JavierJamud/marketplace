@@ -1,29 +1,32 @@
 import { z } from "zod";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { Resend } from "resend";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
-import { getIntegrationConfig } from "./integrations.controller.js";
 import { getBrandSettings, SITE_UPLOAD_DIR } from "./settings.controller.js";
-import { emailShell, ctaButton, resolveAssetUrl } from "../templates/_shared.js";
+import { emailShell, ctaButton, resolveAssetUrl, esc } from "../templates/_shared.js";
+import { unsubscribeFooter } from "../templates/customerReminders.js";
+import { sendToEach, UNSUBSCRIBE_URL_MARK } from "../lib/massEmail.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
+import { logActivity } from "../lib/activityLog.js";
+import { parseAudienceSegment, planFilterForSegment, planSegmentsOf, planSegmentLabel } from "../lib/planSegments.js";
 
 // Bloque 194 (pedido explícito — "ofertas autodirigidas... para clientes o
 // para vendedores... por email o mostrarse en el panel o en la cuenta...
 // como popup, o ambas. También lanzar ofertas a vendedores en específico,
 // como los registrados en el plan Business, o los no registrados, y a uno
 // en específico"): mismo patrón de armado de correo que
-// campaigns.controller.js (emailShell/ctaButton/Resend, chequeo manual de
-// result.error porque el SDK nunca lanza excepción) — no se reinventa acá.
+// campaigns.controller.js (emailShell/ctaButton y envío uno por persona con
+// lib/massEmail.js) — no se reinventa acá.
 // A diferencia de Campaign (audiencia fija: todos los clientes o todos los
 // vendedores por plan/provincia), TargetedOffer también apunta a UN
 // vendedor o UN cliente puntual, y puede mostrarse como popup en vez de (o
 // además de) mandarse por correo — ver TargetedOfferDelivery en el schema.
 
-const RESEND_SANDBOX_FROM = "onboarding@resend.dev";
-
+// Además de estos valores, `audience` puede ser una clave de plan concreta (ej. "STANDARD"): tiendas de ese plan. Los dos
+// públicos por plan de siempre (regular_vendors = plan por defecto, business_vendors = planes de pago) y la clave concreta
+// se calculan con lib/planSegments.js, sin lista fija de planes.
 const AUDIENCES = [
   "all_customers",
   "all_vendors",
@@ -79,76 +82,98 @@ function resolveCtaHref(ctaUrl) {
   return ctaUrl.startsWith("/") ? `${env.frontendUrl}${ctaUrl}` : ctaUrl;
 }
 
-// Bloque 194: resuelve los emails destinatarios según la audiencia elegida.
+// Bloque 194: resuelve los destinatarios según la audiencia elegida, como
+// [{ id, email, marketingEmails }] (el id firma el enlace de baja).
 // "unverified_vendors" es NUEVO respecto a Campaign (que no lo tiene) —
 // cualquier tienda activa cuyo verificationStatus no sea VERIFIED, sin
-// importar en qué paso del flujo de verificación esté.
+// importar en qué paso del flujo de verificación esté. Fuera las cuentas
+// borradas o en proceso de borrarse (su dirección ya no es de esa persona).
+const RECIPIENT_FIELDS = { id: true, email: true, marketingEmails: true, deletedAt: true, deletionRequestedAt: true };
+
 async function resolveTargetedOfferRecipients(offer) {
   if (offer.audience === "all_customers") {
-    const users = await prisma.user.findMany({ where: { role: "CUSTOMER", isSuspended: false }, select: { email: true } });
-    return users.map((u) => u.email);
+    return prisma.user.findMany({ where: { role: "CUSTOMER", isSuspended: false, deletedAt: null, deletionRequestedAt: null }, select: RECIPIENT_FIELDS });
   }
   if (offer.audience === "specific_customer") {
-    const user = await prisma.user.findUnique({ where: { id: offer.targetUserId } });
-    return user ? [user.email] : [];
+    const user = await prisma.user.findUnique({ where: { id: offer.targetUserId }, select: RECIPIENT_FIELDS });
+    return user && !user.deletedAt && !user.deletionRequestedAt ? [user] : [];
   }
   if (offer.audience === "specific_vendor") {
-    const vendor = await prisma.vendor.findUnique({ where: { id: offer.targetVendorId }, include: { user: { select: { email: true } } } });
-    return vendor ? [vendor.user.email] : [];
+    const vendor = await prisma.vendor.findUnique({ where: { id: offer.targetVendorId }, select: { deletedAt: true, deletionRequestedAt: true, adminDeletionRequestedAt: true, user: { select: RECIPIENT_FIELDS } } });
+    const leaving = !vendor || vendor.deletedAt || vendor.deletionRequestedAt || vendor.adminDeletionRequestedAt;
+    return !leaving && !vendor.user.deletedAt && !vendor.user.deletionRequestedAt ? [vendor.user] : [];
   }
 
   // Resto: variantes de "vendedores" — all_vendors (sin filtro de plan/
-  // verificación), regular_vendors/business_vendors (por plan),
+  // verificación), regular_vendors/business_vendors o una clave de plan (por plan),
   // unverified_vendors (por verificationStatus).
-  const planFilter = offer.audience === "regular_vendors" ? "REGULAR" : offer.audience === "business_vendors" ? { in: ["STANDARD", "BUSINESS", "ENTERPRISE"] } : undefined;
+  const planFilter = await planFilterForSegment(offer.audience);
   const vendors = await prisma.vendor.findMany({
     where: {
       isBlocked: false,
       status: "ACTIVE",
+      deletedAt: null,
+      // Mismo criterio que resolveRecipients de campaigns.controller.js: fuera las tiendas y cuentas que se están borrando.
+      deletionRequestedAt: null,
+      adminDeletionRequestedAt: null,
+      user: { deletedAt: null, deletionRequestedAt: null },
       planType: planFilter,
       verificationStatus: offer.audience === "unverified_vendors" ? { not: "VERIFIED" } : undefined,
     },
-    include: { user: { select: { email: true } } },
+    select: { user: { select: RECIPIENT_FIELDS } },
   });
-  return vendors.map((v) => v.user.email);
+  return vendors.map((v) => v.user);
 }
 
 // Único punto de envío real — reusado por createTargetedOffer (primer
 // envío) y resendTargetedOfferEmail (reenvío manual). Nunca simula un envío
-// exitoso: si Resend rechaza, tira y el llamador decide qué hacer con eso
-// (ver el comentario largo en createTargetedOffer sobre por qué acá, a
+// exitoso: si no salió ningún correo, tira y el llamador decide qué hacer con
+// eso (ver el comentario largo en createTargetedOffer sobre por qué acá, a
 // diferencia de Campaign, un fallo de envío NO revierte la oferta creada).
+// Cada persona recibe su propio correo con su enlace de baja; quien se dio de
+// baja de los correos de promoción (User.marketingEmails) queda fuera, también
+// si la oferta va solo a ella: lo pidió y el enlace se lo prometió. El popup no
+// cambia, se sigue mostrando dentro de la web.
 async function dispatchTargetedOfferEmail(offer) {
-  const config = await getIntegrationConfig("resend");
-  if (!config) {
-    throw new AppError("No hay una integración de Resend activa. Configúrala en Integraciones antes de enviar.", 400);
-  }
-
-  const recipients = await resolveTargetedOfferRecipients(offer);
-  if (recipients.length === 0) {
+  const all = await resolveTargetedOfferRecipients(offer);
+  if (all.length === 0) {
     throw new AppError("No hay destinatarios para esa audiencia.", 400);
+  }
+  const recipients = all.filter((r) => r.marketingEmails);
+  const optedOut = all.length - recipients.length;
+  if (recipients.length === 0) {
+    const single = offer.audience === "specific_customer" || offer.audience === "specific_vendor";
+    throw new AppError(
+      single ? "Esa persona se dio de baja de los correos de promoción." : "Todos los destinatarios de esa audiencia se dieron de baja de los correos de promoción.",
+      400
+    );
   }
 
   const { siteName } = await getBrandSettings();
-  const resend = new Resend(config.apiKey);
   const imgSrc = resolveAssetUrl(offer.imageUrl);
+  const toCustomers = offer.audience === "all_customers" || offer.audience === "specific_customer";
   const html = await emailShell({
     title: offer.title,
     storeName: siteName,
+    footerNote: unsubscribeFooter(UNSUBSCRIBE_URL_MARK, {
+      reason: toCustomers ? `Te escribimos porque tienes cuenta en ${esc(siteName)}.` : `Te escribimos porque tienes una tienda en ${esc(siteName)}.`,
+      label: "No quiero recibir más correos de promoción",
+    }),
     bodyMjml: `
-      ${imgSrc ? `<mj-image src="${imgSrc}" alt="${offer.title}" border-radius="12px" padding="0 0 16px" />` : ""}
+      ${imgSrc ? `<mj-image src="${imgSrc}" alt="${esc(offer.title)}" border-radius="12px" padding="0 0 16px" />` : ""}
       <mj-text color="#44474c" font-size="14px" line-height="22px">${offer.message.replace(/\n/g, "<br/>")}</mj-text>
       ${offer.ctaLabel && offer.ctaUrl ? ctaButton(offer.ctaLabel, resolveCtaHref(offer.ctaUrl)) : ""}
     `,
   });
-  const result = await resend.emails.send({
-    from: `${siteName} <${config.fromEmail || RESEND_SANDBOX_FROM}>`,
-    to: recipients,
-    subject: offer.title,
-    html,
-  });
-  if (result.error) throw new Error(result.error.message ?? "Resend rechazó el envío.");
-  return recipients.length;
+  const result = await sendToEach({ recipients, subject: offer.title, html, source: "oferta dirigida" });
+  if (result.sent === 0) throw new Error(result.firstError ?? "Resend rechazó el envío.");
+  return { sentCount: result.sent, failedCount: result.failed, optedOut };
+}
+
+// Envío a medias (algún lote rechazado): cuenta como enviado con los que sí
+// salieron y el admin recibe el aviso de cuántos faltaron.
+function partialWarning({ failedCount }) {
+  return failedCount > 0 ? `No se pudieron enviar ${failedCount.toLocaleString("es-CU")} correos. El motivo está en Errores.` : null;
 }
 
 // ---------------------------------------------------------------------
@@ -171,11 +196,15 @@ export async function listAdminTargetedOffers(_req, res) {
   const userMap = new Map(users.map((u) => [u.id, u]));
 
   res.json({
-    offers: offers.map((o) => ({
-      ...o,
-      targetVendor: o.targetVendorId ? vendorMap.get(o.targetVendorId) ?? null : null,
-      targetUser: o.targetUserId ? userMap.get(o.targetUserId) ?? null : null,
-    })),
+    offers: await Promise.all(
+      offers.map(async (o) => ({
+        ...o,
+        targetVendor: o.targetVendorId ? vendorMap.get(o.targetVendorId) ?? null : null,
+        targetUser: o.targetUserId ? userMap.get(o.targetUserId) ?? null : null,
+        // El público por plan con el nombre del plan de la base; null en los demás públicos.
+        audienceLabel: await planSegmentLabel(o.audience),
+      }))
+    ),
   });
 }
 
@@ -191,7 +220,8 @@ const targetedOfferContentSchema = z.object({
   imageUrl: z.string().trim().optional(),
   ctaLabel: z.string().trim().max(40).optional(),
   ctaUrl: ctaUrlSchema.optional(),
-  audience: z.enum(AUDIENCES),
+  // Se valida después con parseAudienceSegment (acepta además una clave de plan).
+  audience: z.string().trim().min(1).max(40),
   targetVendorId: z.string().optional(),
   targetUserId: z.string().optional(),
   sendEmail: boolish.optional().default(false),
@@ -202,6 +232,7 @@ const targetedOfferContentSchema = z.object({
 export async function createTargetedOffer(req, res) {
   try {
     const data = targetedOfferContentSchema.parse(req.body);
+    data.audience = await parseAudienceSegment(data.audience, AUDIENCES);
     const ctaLabel = data.ctaLabel || null;
     const ctaUrl = data.ctaUrl || null;
     assertCtaComplete(ctaLabel, ctaUrl);
@@ -259,8 +290,11 @@ export async function createTargetedOffer(req, res) {
     let emailWarning = null;
     if (delivery === "EMAIL" || delivery === "BOTH") {
       try {
-        const sentCount = await dispatchTargetedOfferEmail(offer);
-        await prisma.targetedOffer.update({ where: { id: offer.id }, data: { emailSentCount: sentCount, emailSentAt: new Date() } });
+        const outcome = await dispatchTargetedOfferEmail(offer);
+        await prisma.targetedOffer.update({ where: { id: offer.id }, data: { emailSentCount: outcome.sentCount, emailSentAt: new Date() } });
+        // Queda en el historial quién mandó el correo masivo y a cuántos (pide código, pero no se puede deshacer).
+        logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "targeted_offer_email_sent", description: `Envió por correo la oferta dirigida "${offer.title ?? offer.id}"`, meta: { targetedOfferId: offer.id, sentCount: outcome.sentCount, failedCount: outcome.failedCount } });
+        emailWarning = partialWarning(outcome);
       } catch (err) {
         console.error("[targeted-offers] no se pudo enviar el correo al crear:", err.message);
         emailWarning = `La oferta se creó, pero el correo no se pudo enviar: ${err.message}`;
@@ -289,7 +323,7 @@ const updateTargetedOfferSchema = z.object({
   removeImage: z.coerce.boolean().optional().default(false),
   ctaLabel: z.string().trim().max(40).optional().nullable(),
   ctaUrl: z.union([ctaUrlSchema, z.literal("")]).optional().nullable(),
-  audience: z.enum(AUDIENCES).optional(),
+  audience: z.string().trim().min(1).max(40).optional(),
   targetVendorId: z.string().optional(),
   targetUserId: z.string().optional(),
   sendEmail: boolish.optional(),
@@ -306,6 +340,8 @@ export async function updateTargetedOffer(req, res) {
     if (!existing) throw new AppError("Oferta dirigida no encontrada.", 404);
 
     const data = updateTargetedOfferSchema.parse(req.body);
+    // Igual que en las campañas: si el público no cambia se conserva aunque su plan se haya archivado después.
+    if (data.audience !== undefined && data.audience !== existing.audience) data.audience = await parseAudienceSegment(data.audience, AUDIENCES);
     const patch = {};
 
     if (data.title !== undefined) patch.title = data.title;
@@ -398,14 +434,15 @@ export async function resendTargetedOfferEmail(req, res) {
   if (!offer) throw new AppError("Oferta dirigida no encontrada.", 404);
 
   try {
-    const sentCount = await dispatchTargetedOfferEmail(offer);
+    const outcome = await dispatchTargetedOfferEmail(offer);
     const updated = await prisma.targetedOffer.update({
       where: { id },
-      data: { emailSentCount: sentCount, emailSentAt: new Date() },
+      data: { emailSentCount: outcome.sentCount, emailSentAt: new Date() },
     });
-    res.json({ offer: updated });
+    logActivity({ actorId: req.user.id, actorRole: "ADMIN", action: "targeted_offer_email_sent", description: `Reenvió por correo la oferta dirigida "${offer.title ?? offer.id}"`, meta: { targetedOfferId: offer.id, sentCount: outcome.sentCount, failedCount: outcome.failedCount } });
+    res.json({ offer: updated, emailWarning: partialWarning(outcome) });
   } catch (err) {
-    throw new AppError(`No se pudo reenviar el correo: ${err.message}`, 502);
+    throw new AppError(`No se pudo reenviar el correo: ${err.message}`, err instanceof AppError ? err.statusCode ?? 502 : 502);
   }
 }
 
@@ -443,9 +480,9 @@ export async function listMyTargetedOffers(req, res) {
     // empleador — resolveMyVendor ya resuelve su tienda real igual que en
     // cualquier otra sección del panel de vendedor (tables/orders/products/...).
     const vendor = await resolveMyVendor(userId);
-    const vendorAudiences = ["all_vendors"];
-    if (vendor.planType === "REGULAR") vendorAudiences.push("regular_vendors");
-    if (vendor.planType !== "REGULAR") vendorAudiences.push("business_vendors");
+    // Por plan: su clave, "regular_vendors" si está en el plan por defecto y "business_vendors" si está en un plan de pago
+    // (las mismas reglas con las que se calcula a quién le llega el correo, ver planFilterForSegment).
+    const vendorAudiences = ["all_vendors", ...(await planSegmentsOf(vendor))];
     if (vendor.verificationStatus !== "VERIFIED") vendorAudiences.push("unverified_vendors");
     audienceWhere = { OR: [{ audience: { in: vendorAudiences } }, { audience: "specific_vendor", targetVendorId: vendor.id }] };
   } else {

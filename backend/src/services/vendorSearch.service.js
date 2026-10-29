@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma.js";
 import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
+import { planFeaturesOf, getPlanConfig } from "../lib/planConfig.js";
 
 // Buscador del panel de la tienda. Encuentra lo que la persona puede ver en su panel: productos (por nombre, descripción,
 // etiquetas de búsqueda, código de barras o estado de stock), pedidos, pedidos de mesa, ventas de caja, clientes, códigos de
@@ -168,6 +169,11 @@ const shapeProduct = (p, q) => ({
 
 export async function searchVendorPanel(vendor, rawQ, sections) {
   const q = String(rawQ ?? "").trim().slice(0, 80);
+  // Secciones que dependen del plan (caja, códigos, ofertas de tienda): sin el interruptor no se busca en ellas, aunque la
+  // tienda guarde datos de cuando su plan las traía. Es el mismo criterio del menú del panel (planFeaturesOf),
+  // así el buscador nunca lleva a una pantalla que el plan bloquea.
+  const features = planFeaturesOf(await getPlanConfig(vendor.planType));
+  const planHas = (flag) => !!features[flag];
   const can = (key) => !sections || sections.includes(key);
   const empty = { orders: [], tableOrders: [], products: [], productTotal: 0, statusFilter: null, posSales: [], customers: [], discountCodes: [], storeOffers: [], reviews: [] };
   if (q.length < 2) return empty;
@@ -225,7 +231,7 @@ export async function searchVendorPanel(vendor, rawQ, sections) {
     });
   }
 
-  if (can("caja")) {
+  if (can("caja") && planHas("allowPos")) {
     tasks.posSales = prisma.posSale.findMany({
       where: { vendorId, OR: [{ code: { equals: q.toUpperCase() } }, { customerName: like }] },
       select: { id: true, code: true, customerName: true, total: true, currency: true, status: true, createdAt: true },
@@ -243,11 +249,11 @@ export async function searchVendorPanel(vendor, rawQ, sections) {
     });
   }
 
-  if (can("codigos-descuento")) {
+  if (can("codigos-descuento") && planHas("allowDiscountCodes")) {
     tasks.discountCodes = prisma.discountCode.findMany({ where: { vendorId, code: like }, select: { id: true, code: true, active: true, type: true, value: true }, take: LIMIT });
   }
 
-  if (can("ofertas-tienda")) {
+  if (can("ofertas-tienda") && planHas("allowStoreOffers")) {
     tasks.storeOffers = prisma.storeOffer.findMany({ where: { vendorId, OR: [{ title: like }, { description: like }] }, select: { id: true, title: true, active: true }, take: LIMIT });
   }
 

@@ -1,13 +1,29 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { planAllows } from "../lib/planConfig.js";
+import { planAllows, getPlanConfig } from "../lib/planConfig.js";
 
 // Usuarios del equipo: son del plan de pago. Si la tienda bajó de plan, las cuentas se conservan pero no entran hasta que vuelva.
+// Lo mismo con el tope de usuarios (maxStaffUsers): si la tienda pasa a un plan con menos usuarios que los activos, entran
+// solo los más antiguos hasta llegar al tope y el resto queda en pausa (sus cuentas no se tocan). Antes solo se miraba el
+// interruptor, así que bajar de plan dejaba entrar a todos aunque el plan nuevo permitiera menos.
 async function assertStaffPlan(staff) {
   if (!staff) return;
   const vendor = await prisma.vendor.findUnique({ where: { id: staff.vendorId }, select: { planType: true } });
-  if (vendor && !(await planAllows(vendor.planType, "allowStaffUsers"))) {
+  if (!vendor) return;
+  if (!(await planAllows(vendor.planType, "allowStaffUsers"))) {
     throw new AppError("El plan actual de la tienda no incluye usuarios del equipo. Pide al dueño que cambie de plan.", 403, { planRequired: "allowStaffUsers" });
+  }
+  const max = (await getPlanConfig(vendor.planType))?.maxStaffUsers ?? null;
+  if (max === null) return;
+  // Mismo orden en cada petición (fecha de alta y, si empatan, el id) para que el mismo grupo quede dentro siempre.
+  const allowed = await prisma.vendorStaff.findMany({
+    where: { vendorId: staff.vendorId, isActive: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: max,
+    select: { id: true },
+  });
+  if (!allowed.some((s) => s.id === staff.id)) {
+    throw new AppError("El plan actual de la tienda tiene menos usuarios del equipo que los activos. Pide al dueño que desactive a alguien o cambie de plan.", 403, { planRequired: "maxStaffUsers" });
   }
 }
 
@@ -19,7 +35,13 @@ async function assertVendorUsable(req, staff, { strict }) {
   const vendor = await prisma.vendor.findUnique({ where, select: { deletedAt: true, isBlocked: true, status: true, billingSuspendedAt: true } });
   if (!vendor) return; // el controlador responde "no tienes tienda"
   if (vendor.deletedAt) throw new AppError("Esta tienda fue eliminada.", 403, { vendorState: "deleted" });
-  // Suspendida por falta de pago del plan: no se ve en público, pero el dueño sigue usando su panel para pagar.
+  // Suspendida por falta de pago del plan: no se ve en público, pero el dueño sigue usando su panel completo para pagar y
+  // dejarlo todo listo para volver (decisión de planBilling.service.js: la suspensión corta la tienda pública, no el
+  // panel). El personal no puede pagar, así que con la tienda suspendida no entra ni a las rutas sin sección: antes seguía
+  // vendiendo y editando como si nada, saltándose el "impago, limitado, suspendida" del plan.
+  if (staff && vendor.billingSuspendedAt) {
+    throw new AppError("La tienda está suspendida por falta de pago. Avisa al dueño.", 403, { vendorState: "billing" });
+  }
   if (strict && (vendor.isBlocked || (vendor.status === "SUSPENDED" && !vendor.billingSuspendedAt))) {
     throw new AppError("Tu tienda está bloqueada. Revisa el aviso en tu panel.", 403, { vendorState: "blocked" });
   }
@@ -110,6 +132,6 @@ export function requireVendorWrite(...sections) {
       }
     }
 
-    throw new AppError("Tienes acceso de solo lectura a esta sección — no puedes modificarla.", 403);
+    throw new AppError("Tienes acceso de solo lectura a esta sección: no puedes modificarla.", 403);
   };
 }

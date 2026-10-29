@@ -61,7 +61,7 @@ export default function AdminFraudReports() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ShieldAlert} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Reportes y moderación</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Reportes y moderación</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Revisa cada reporte y decide si se mantiene o se suspende: el dueño y quien reportó reciben un correo con tu decisión y el motivo.
@@ -102,7 +102,7 @@ function ReportsList({ appeals = false }) {
             ["PENDING", "Pendientes"],
             ["EVIDENCE_REQUESTED", "Esperando evidencia"],
             ["RESOLVED_SUSPENDED", "Suspendidos"],
-            ["DISMISSED", "Se mantuvieron"],
+            ["KEPT", "Se mantuvieron"],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -277,8 +277,8 @@ function ReportDetail({ id, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 sm:items-center sm:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Detalle del reporte" className="relative max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-surface-container-lowest p-5 shadow-2xl sm:rounded-2xl sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 sm:items-center sm:p-4 p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label="Detalle del reporte" className="modal-panel-5 relative w-full max-w-3xl rounded-t-2xl bg-surface-container-lowest p-5 shadow-2xl sm:rounded-2xl sm:p-6">
         <button onClick={onClose} aria-label="Cerrar" className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full text-outline hover:bg-surface-variant">
           <X className="h-5 w-5" />
         </button>

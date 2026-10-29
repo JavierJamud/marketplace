@@ -19,6 +19,7 @@ import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { startPlanBillingJob } from "./jobs/planBilling.job.js";
 import { reconcilePlanVerification } from "./services/vendorVerification.service.js";
+import { checkFeatureCatalog } from "./lib/planFeatures.js";
 import { tidyVendorSlugs } from "./lib/vendorSlug.js";
 import { reconcileRatings } from "./lib/ratings.js";
 import { warmCatalog } from "./lib/catalog.js";
@@ -130,6 +131,9 @@ startTrialExpiryJob();
 startPlanBillingJob();
 // Plan Pro activo <=> insignia: corrige al arrancar cualquier tienda que haya quedado a medias.
 reconcilePlanVerification().catch((err) => console.error("[planes] no se pudo revisar:", err));
+// Catálogo de funciones de los planes (tabla PlanFeature) contra FEATURE_REGISTRY: avisa por consola si falta una fila, si
+// sobra una clave que el código no conoce o si una columna no coincide. Solo avisa: nunca frena el arranque.
+void checkFeatureCatalog().catch(() => {});
 // Enlaces de tienda con un código al final y enlaces de tiendas eliminadas (ver lib/vendorSlug.js).
 tidyVendorSlugs().catch((err) => console.error("[enlaces] no se pudo revisar:", err));
 // Promedio y cantidad de reseñas de tiendas y productos según sus reseñas reales (ver lib/ratings.js).

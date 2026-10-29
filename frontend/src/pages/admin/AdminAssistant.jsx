@@ -54,7 +54,7 @@ export default function AdminAssistant() {
     <div className="max-w-[900px]">
       <div className="mb-1 flex items-center gap-2.5">
         <Bot className="h-6 w-6 text-tertiary-accent" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Asistente del marketplace</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Asistente del marketplace</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
         El bot general de {siteName} (botón flotante en el Home) usa estos documentos como fuente de verdad para preguntas institucionales —

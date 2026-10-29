@@ -10,6 +10,7 @@ import { resolveUnitPrice } from "../lib/pricing.js";
 import { isVendorOpenNow } from "../services/schedule.service.js";
 import { liveCounters } from "../lib/partnerUsage.js";
 import { PARTNER_SCOPES } from "../lib/partnerScopes.js";
+import { filterVisibleStoreOffers, publicStoreOfferWhere } from "../lib/storeOfferVisibility.js";
 import {
   absUrl,
   siteUrl,
@@ -72,6 +73,9 @@ async function buildProductWhere(partnerId, f, opts = {}) {
     if (ids.length === 0) ids = await findProductIdsByTrigram(f.q, 100);
     and.push({ id: { in: ids } });
   }
+  // Solo con existencias: el catálogo general ya los excluye, pero los productos de una tienda (GET /stores/:slug/products)
+  // traen también los agotados, y ahí este filtro era el único modo de quitarlos. Antes se aceptaba y no se aplicaba.
+  if (f.inStock) and.push({ OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] });
   if (f.provinceId) {
     and.push({
       // Mismo criterio que el sitio: con un municipio o ciudad elegido también salen las tiendas que cubren toda la provincia o el
@@ -93,7 +97,7 @@ async function buildProductWhere(partnerId, f, opts = {}) {
 }
 
 // El ranking de un mismo filtro cambia despacio (ventas, clics y reseñas se acumulan de a poco):
-// se guarda 30 s en memoria, y las solicitudes simultáneas iguales comparten un solo cálculo.
+// se guarda 5 s en memoria (POOL_TTL_MS), y las solicitudes simultáneas iguales comparten un solo cálculo.
 const POOL_TTL_MS = 5_000;
 const POOL_MAX_ENTRIES = 200;
 const poolCache = new Map();
@@ -169,7 +173,8 @@ export async function getProduct(req, res) {
 
 export async function listProductReviews(req, res) {
   const p = pageSchema.parse(req.query);
-  const product = await prisma.product.findFirst({ where: { ...visibleProductWhere(req.partner.id), id: req.params.id }, select: { id: true } });
+  // Igual que getProduct: un producto agotado sigue teniendo ficha y reseñas (antes sus reseñas daban 404).
+  const product = await prisma.product.findFirst({ where: { ...visibleProductWhere(req.partner.id, { includeOutOfStock: true }), id: req.params.id }, select: { id: true } });
   if (!product) throw new AppError("Producto no encontrado.", 404);
   const where = { productId: product.id, rating: { not: null }, isHidden: false };
   const [total, rows] = await Promise.all([
@@ -277,21 +282,15 @@ export async function listStoreReviews(req, res) {
 
 export async function listStoreOffers(req, res) {
   const v = await findStore(req.partner.id, req.params.slug);
-  const now = new Date();
+  // Las mismas reglas que la tienda pública (lib/storeOfferVisibility.js): sin lo suspendido por el admin y recortado al plan.
   const offers = await prisma.storeOffer.findMany({
-    where: {
-      vendorId: v.id,
-      active: true,
-      AND: [
-        { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
-        { OR: [{ isLimitedTime: false }, { expiresAt: { gt: now } }] },
-      ],
-    },
+    where: { vendorId: v.id, ...publicStoreOfferWhere() },
     orderBy: { createdAt: "desc" },
     include: { discountCode: true },
   });
+  const visible = await filterVisibleStoreOffers(v, offers);
   res.json({
-    data: offers.map((o) => ({
+    data: visible.map((o) => ({
       id: o.id,
       title: o.title,
       description: o.description,

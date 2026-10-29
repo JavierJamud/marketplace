@@ -280,15 +280,15 @@ export default function VendorSetupGuide() {
     <div className="max-w-[760px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ListChecks} tone="teal" />
-        <h1 className="font-display text-[24px] font-extrabold tracking-tight text-on-surface sm:text-[26px]">Completa tu tienda</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Completa tu tienda</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-on-surface-variant">
         {verificationStatus === "VERIFIED"
           ? "Tu tienda ya está verificada. Puedes revisar aquí cualquier dato."
           : trialAccepted
             ? trial?.trialBilling === "CARD"
-              ? "Cuando termines los 5 pasos, registra tu tarjeta (hoy no se cobra nada) y tu prueba gratis de Premium empieza."
-              : "Cuando termines los 5 pasos, tu prueba gratis de Premium se activa sola y tu tienda recibe la insignia de verificada."
+              ? "Cuando termines los 5 pasos, registra tu tarjeta (hoy no se cobra nada) y tu prueba gratis empieza."
+              : "Cuando termines los 5 pasos, tu prueba gratis se activa sola y tu tienda recibe la insignia de verificada."
             : "Estos 5 pasos son obligatorios para obtener la insignia de tienda verificada. Hazlos en orden: el último es enviar tus documentos."}
       </p>
 

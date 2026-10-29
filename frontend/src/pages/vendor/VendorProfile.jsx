@@ -30,29 +30,38 @@ function PasswordCard() {
 
   const save = useMutation({
     mutationFn: async () => (await api.patch("/auth/me/password", { currentPassword, newPassword, confirmPassword })).data,
-    onSuccess: () => {
-      toast.success("Contraseña actualizada.");
+    onSuccess: (data) => {
+      // El servidor cierra las sesiones de los otros dispositivos al cambiar la contraseña: se avisa cuántas había.
+      toast.success(data?.closedSessions > 0 ? "Contraseña actualizada. Cerramos tu sesión en los demás dispositivos." : "Contraseña actualizada.");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo cambiar la contraseña."),
   });
+  // Mismo control que StaffProfile.jsx: antes el botón se activaba aunque la confirmación no coincidiera y el error llegaba
+  // recién del servidor. El aviso sale solo cuando ya se escribió algo en la confirmación.
+  const confirmMismatch = confirmPassword !== "" && newPassword !== confirmPassword;
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <KeyRound className="h-5 w-5 text-tertiary-accent" /> Cambiar contraseña
       </div>
       <p className="mb-4 text-[12.5px] text-outline">Necesitas tu contraseña actual para cambiarla.</p>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <PasswordInput label="Contraseña actual" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
         <PasswordInput label="Contraseña nueva" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-        <PasswordInput label="Confirmar nueva" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+        <PasswordInput
+          label="Confirmar nueva"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          error={confirmMismatch ? "No coincide con la contraseña nueva." : undefined}
+        />
       </div>
       <Button
         className="mt-4 rounded-xl"
-        disabled={!currentPassword || newPassword.length < 8 || save.isPending}
+        disabled={!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword || save.isPending}
         onClick={() => save.mutate()}
       >
         {save.isPending ? "Guardando..." : "Actualizar contraseña"}
@@ -93,7 +102,7 @@ export function SecurityCard() {
         <TwoFactorCard />
       </div>
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <ShieldCheck className="h-5 w-5 text-tertiary-accent" /> Seguridad de la cuenta
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
@@ -108,7 +117,7 @@ export function SecurityCard() {
       <ConfirmModal
         open={confirming}
         title="¿Cerrar sesión en todos los dispositivos?"
-        message="Esto revoca todas tus sesiones activas y todos los dispositivos recordados — vas a tener que volver a iniciar sesión (con el código de verificación) en cualquier lado, incluida esta pestaña."
+        message="Esto revoca todas tus sesiones activas y todos los dispositivos recordados. Vas a tener que volver a iniciar sesión (con el código de verificación) en cualquier lado, incluida esta pestaña."
         confirmLabel={logoutAll.isPending ? "Cerrando..." : "Sí, cerrar todas"}
         danger
         confirmDisabled={logoutAll.isPending}
@@ -159,13 +168,13 @@ function OwnerNameCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <UserRound className="h-5 w-5 text-tertiary-accent" /> Responsable del negocio
       </div>
-      <p className="mb-4 text-[12.5px] text-outline">Privado — solo lo ven admin y tú. Nunca se muestra en tu tienda pública.</p>
+      <p className="mb-4 text-[12.5px] text-outline">Privado: solo lo ven admin y tú. Nunca se muestra en tu tienda pública.</p>
       {locked && (
         <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
-          Tienda verificada — este dato ya no se edita aquí. Para cambiarlo, usa "Solicitar cambio de datos" más abajo.
+          Tienda verificada: este dato ya no se edita aquí. Para cambiarlo, usa "Solicitar cambio de datos" más abajo.
         </p>
       )}
       <Input data-guard="name" label="Nombre del responsable" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} disabled={locked} />
@@ -216,7 +225,7 @@ function ChangeRequestCard() {
       return (await api.post("/vendors/me/change-request", form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: () => {
-      toast.success("Solicitud enviada — el equipo la revisa pronto.");
+      toast.success("Solicitud enviada. El equipo la revisa pronto.");
       setOpen(false);
       setCompanyName("");
       setOwnerName("");
@@ -238,17 +247,17 @@ function ChangeRequestCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <Send className="h-5 w-5 text-tertiary-accent" /> Solicitar cambio de datos
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
-        El nombre de la tienda, el responsable, su ID y la dirección están bloqueados por seguridad — un admin revisa y aplica
+        El nombre de la tienda, el responsable, su ID y la dirección están bloqueados por seguridad: un admin revisa y aplica
         cualquier cambio, para prevenir fraudes.
       </p>
 
       {changeRequest?.status === "PENDING" ? (
         <p className="flex items-center gap-2 text-[13px] font-semibold text-tertiary-accent">
-          <Clock className="h-4 w-4" /> Tienes una solicitud en revisión — el equipo la resuelve pronto.
+          <Clock className="h-4 w-4" /> Tienes una solicitud en revisión. El equipo la resuelve pronto.
         </p>
       ) : !open ? (
         <>
@@ -318,7 +327,7 @@ function KycDocumentsCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <FileText className="h-5 w-5 text-tertiary-accent" /> Documentos de verificación
       </div>
       <p className="mb-4 text-[12.5px] text-outline">Las fotos que enviaste para verificar tu tienda.</p>
@@ -390,7 +399,7 @@ function StoreInfoCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <StoreIcon className="h-5 w-5 text-tertiary-accent" /> Datos de la tienda
       </div>
       <p className="mb-4 text-[12.5px] text-outline">Nombre, descripción, WhatsApp y rubro visibles en tu tienda pública.</p>
@@ -400,7 +409,7 @@ function StoreInfoCard() {
           identidad. */}
       {vendor?.verificationStatus === "VERIFIED" && (
         <p className="mb-3 rounded-md bg-tertiary-accent/[0.08] px-3 py-2 text-[12px] text-tertiary-accent">
-          Tienda verificada — el nombre ya no se edita aquí. Para cambiarlo, solicita un cambio desde la tarjeta de abajo.
+          Tienda verificada: el nombre ya no se edita aquí. Para cambiarlo, solicita un cambio desde la tarjeta de abajo.
         </p>
       )}
       <div className="flex flex-col gap-4">
@@ -494,7 +503,7 @@ function SocialLinksCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <Link2 className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Redes de tu tienda
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
@@ -611,7 +620,7 @@ export function StoreBrandingCard() {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <ImagePlus className="h-5 w-5 text-tertiary-accent" /> Logo de tu tienda
       </div>
       <p className="mb-5 text-[12.5px] text-outline">
@@ -685,12 +694,12 @@ export default function VendorProfile() {
     <div className="max-w-[640px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={UserCog} tone="teal" />
-        <h1 className="text-display-sm font-extrabold text-on-surface">Mi perfil</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Mi perfil</h1>
       </div>
       <p className="mb-6 text-body-md text-on-surface-variant">Correo, contraseña y datos de tu cuenta.</p>
 
       <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-        <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
           <Mail className="h-5 w-5 text-tertiary-accent" /> Correo de la cuenta
         </div>
         <p className="mb-4 text-[13.5px] text-on-surface-variant">{user?.email}</p>

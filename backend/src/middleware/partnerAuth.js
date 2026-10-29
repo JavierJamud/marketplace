@@ -35,7 +35,8 @@ export function partnerCors(req, res, next) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Headers", "Authorization, X-Api-Key, Content-Type");
+  // Idempotency-Key: POST /orders la exige, y sin ella en la lista el navegador bloquea el preflight del pedido.
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, X-Api-Key, Content-Type, Idempotency-Key");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Expose-Headers", "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-DailyLimit-Limit, X-DailyLimit-Remaining, Retry-After");
   res.setHeader("Access-Control-Max-Age", "86400");

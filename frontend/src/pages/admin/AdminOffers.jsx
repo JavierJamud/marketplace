@@ -19,6 +19,13 @@ function imgUrl(path) {
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
 }
+
+// Documento de la vista previa del HTML de una oferta (va en un iframe con sandbox=""). Lleva lo que la tarjeta del Home
+// le da al HTML por herencia (fuente, color de texto, sin márgenes, alto completo), para que se vea igual. La fuente
+// Inter del sitio no llega a un iframe aislado: si el equipo no la tiene, se ve con la del sistema.
+function offerPreviewDoc(html) {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;overflow:hidden;font-family:Inter,system-ui,sans-serif;color:#1b1b1d;}</style></head><body>${html}</body></html>`;
+}
 function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
@@ -54,7 +61,7 @@ function ProductPickerModal({ onSelect, onClose }) {
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 flex w-full max-w-md flex-col rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">Elige un producto</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -227,7 +234,7 @@ function OfferModal({ offer, onClose }) {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-title-lg font-bold text-on-surface">{isEdit ? "Editar oferta" : "Nueva oferta"}</h2>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -350,7 +357,17 @@ function OfferModal({ offer, onClose }) {
               <div className="mt-2 overflow-hidden rounded-lg border border-outline-variant p-2">
                 <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-outline">Vista previa (así se ve dentro de la tarjeta del Home)</div>
                 <div className="aspect-[12/5] w-full max-w-[420px]">
-                  <div className="relative h-full w-full overflow-hidden rounded-3xl shadow-lg" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                  {/* El HTML se sanea en el servidor al guardar, pero aquí es lo que el admin acaba de escribir o pegar: con
+                      dangerouslySetInnerHTML un <img onerror> corría en la sesión del admin. sandbox="" (sin allow-scripts ni
+                      allow-same-origin) no ejecuta nada ni toca esta página; srcDoc pone el mismo marco que la tarjeta. */}
+                  <div className="relative h-full w-full overflow-hidden rounded-3xl shadow-lg">
+                    <iframe
+                      title="Vista previa del HTML de la oferta"
+                      sandbox=""
+                      srcDoc={offerPreviewDoc(htmlContent)}
+                      className="block h-full w-full border-0"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -621,13 +638,22 @@ export function ListingPolicyCard() {
 const AUDIENCE_LABEL = {
   all_customers: "Todos los clientes",
   all_vendors: "Todos los vendedores",
-  regular_vendors: "Tiendas del plan Básico",
+  regular_vendors: "Tiendas del plan por defecto",
   business_vendors: "Tiendas con plan de pago",
   unverified_vendors: "Vendedores no verificados",
   specific_vendor: "Un vendedor específico",
   specific_customer: "Un cliente específico",
 };
 const AUDIENCE_OPTIONS = Object.keys(AUDIENCE_LABEL);
+// El plan por defecto lo elige el admin (bandera isDefault): su nombre sale de /settings, no de un texto fijo. Mismo texto
+// que planSegmentLabel del servidor ("Tiendas del plan X").
+function audienceLabel(audience, siteSettings) {
+  if (audience === "regular_vendors") {
+    const name = siteSettings?.plans?.find((p) => p.isDefault)?.displayName;
+    if (name) return `Tiendas del plan ${name}`;
+  }
+  return AUDIENCE_LABEL[audience] ?? audience;
+}
 const DELIVERY_LABEL = { EMAIL: "Solo correo", POPUP: "Solo popup", BOTH: "Correo + popup" };
 const TARGETED_STATUS_LABEL = { ACTIVE: "Activa", ARCHIVED: "Archivada" };
 const TARGETED_STATUS_STYLE = {
@@ -655,7 +681,7 @@ function TargetPickerModal({ kind, onSelect, onClose }) {
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 flex w-full max-w-md flex-col rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-title-lg font-bold text-on-surface">{kind === "vendor" ? "Elige una tienda" : "Elige un cliente"}</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -801,7 +827,7 @@ function TargetedOfferModal({ offer, siteSettings, onClose }) {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-xl bg-surface-container-lowest p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-title-lg font-bold text-on-surface">{isEdit ? "Editar oferta dirigida" : "Nueva oferta dirigida"}</h2>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -884,7 +910,7 @@ function TargetedOfferModal({ offer, siteSettings, onClose }) {
               className="h-11 w-full rounded border border-outline-variant bg-surface-container-lowest px-2.5 text-[14px] outline-none"
             >
               {AUDIENCE_OPTIONS.map((a) => (
-                <option key={a} value={a}>{AUDIENCE_LABEL[a]}</option>
+                <option key={a} value={a}>{audienceLabel(a, siteSettings)}</option>
               ))}
             </select>
             {audience === "specific_vendor" &&
@@ -1028,8 +1054,9 @@ function TargetedOffersSection() {
 
   const resendEmail = useMutation({
     mutationFn: async (id) => (await api.post(`/admin/targeted-offers/${id}/resend-email`)).data,
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success("Correo reenviado.");
+      if (data?.emailWarning) toast.error(data.emailWarning);
       queryClient.invalidateQueries({ queryKey: ["admin-targeted-offers"] });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo reenviar el correo."),
@@ -1072,7 +1099,7 @@ function TargetedOffersSection() {
               <div className="truncate text-[13.5px] font-semibold text-on-surface">{o.title}</div>
               <div className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-outline">
                 <span>
-                  {AUDIENCE_LABEL[o.audience] ?? o.audience}
+                  {o.audienceLabel ?? audienceLabel(o.audience, siteSettings)}
                   {o.audience === "specific_vendor" && o.targetVendor ? `: ${o.targetVendor.companyName}` : ""}
                   {o.audience === "specific_customer" && o.targetUser ? `: ${o.targetUser.fullName ?? o.targetUser.email}` : ""}
                 </span>
@@ -1088,11 +1115,11 @@ function TargetedOffersSection() {
               {TARGETED_STATUS_LABEL[o.status]}
             </span>
             {o.status === "ARCHIVED" ? (
-              <button title="Reactivar" onClick={() => toggleStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-[#087A38]">
+              <button title="Reactivar" onClick={() => toggleStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-verified-dark">
                 <CheckCircle2 className="h-4 w-4" />
               </button>
             ) : (
-              <button title="Archivar" onClick={() => toggleStatus.mutate({ id: o.id, status: "ARCHIVED" })} className="text-[#8A5100]">
+              <button title="Archivar" onClick={() => toggleStatus.mutate({ id: o.id, status: "ARCHIVED" })} className="text-secondary">
                 <Ban className="h-4 w-4" />
               </button>
             )}
@@ -1178,7 +1205,7 @@ export default function AdminOffers() {
     <div className="max-w-[980px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Tag} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Ofertas</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Ofertas</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Las ofertas de la página principal las crea solo el administrador (producto, imagen personalizada o HTML insertado).
@@ -1261,12 +1288,12 @@ export default function AdminOffers() {
                 {STATUS_LABEL[o.status]}
               </span>
               {o.status === "SUSPENDED" ? (
-                <button title="Reactivar" onClick={() => quickStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-[#087A38]">
+                <button title="Reactivar" onClick={() => quickStatus.mutate({ id: o.id, status: "ACTIVE" })} className="text-verified-dark">
                   <CheckCircle2 className="h-4 w-4" />
                 </button>
               ) : (
                 o.status === "ACTIVE" && (
-                  <button title="Suspender" onClick={() => quickStatus.mutate({ id: o.id, status: "SUSPENDED" })} className="text-[#8A5100]">
+                  <button title="Suspender" onClick={() => quickStatus.mutate({ id: o.id, status: "SUSPENDED" })} className="text-secondary">
                     <Ban className="h-4 w-4" />
                   </button>
                 )

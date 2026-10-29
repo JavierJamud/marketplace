@@ -71,8 +71,8 @@ function PayModal({ sale, onClose, onPaid }) {
   const canPay = method !== "CASH" || cash >= total;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={`Cobrar venta ${sale.code}`} onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={`Cobrar venta ${sale.code}`} onClick={(e) => e.stopPropagation()} className="modal-panel-5 w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl">
         <div className="mb-3 flex items-start justify-between">
           <div>
             <p className="text-[12.5px] text-on-surface-variant">Venta {sale.code}</p>
@@ -132,6 +132,8 @@ function SaleCard({ sale, canWrite, isRestaurant, onPay, refresh }) {
   const saveName = useMutation({
     mutationFn: async () => (await api.patch(`/pos/sales/${sale.id}`, { customerName: name.trim() || null })).data,
     onSuccess: refresh,
+    // Se guarda al salir del campo: sin aviso, un fallo dejaba el nombre escrito en pantalla pero no en la venta.
+    onError: (err) => toast.error(errText(err, "No se pudo guardar el nombre.")),
   });
   const toTable = useMutation({
     mutationFn: async () => (await api.post(`/pos/sales/${sale.id}/table`)).data,
@@ -147,6 +149,10 @@ function SaleCard({ sale, canWrite, isRestaurant, onPay, refresh }) {
       setConfirmCancel(false);
       toast.success(`Venta ${sale.code} anulada`);
       refresh();
+    },
+    onError: (err) => {
+      setConfirmCancel(false);
+      toast.error(errText(err, "No se pudo anular la venta."));
     },
   });
 
@@ -218,9 +224,9 @@ function SaleCard({ sale, canWrite, isRestaurant, onPay, refresh }) {
         open={confirmCancel}
         title={`¿Anular la venta ${sale.code}?`}
         message="Se descartan los productos escaneados. No se cobra nada ni se toca el stock."
-        confirmLabel="Sí, anular"
+        confirmLabel={cancel.isPending ? "Anulando..." : "Sí, anular"}
         danger
-        onConfirm={() => cancel.mutate()}
+        onConfirm={() => !cancel.isPending && cancel.mutate()}
         onCancel={() => setConfirmCancel(false)}
       />
     </section>
@@ -310,6 +316,7 @@ function SellTab({ state, canWrite, refresh }) {
   const newSale = useMutation({
     mutationFn: async () => (await api.post("/pos/sales", {})).data,
     onSuccess: (r) => setSaleInCache(r.sale),
+    onError: (err) => toast.error(errText(err, "No se pudo abrir otra venta.")),
   });
   const attach = useMutation({
     mutationFn: async ({ id, qr }) => (await api.post(`/pos/sales/${id}/attach-table`, { qr })).data,
@@ -397,7 +404,7 @@ function SellTab({ state, canWrite, refresh }) {
                 </button>
               ))}
               {canWrite && (
-                <button type="button" onClick={() => newSale.mutate()} className="flex min-h-11 items-center gap-1 rounded-xl border border-dashed border-outline-variant px-3 text-[13px] font-bold text-tertiary-accent">
+                <button type="button" disabled={newSale.isPending} onClick={() => newSale.mutate()} className="flex min-h-11 items-center gap-1 rounded-xl border border-dashed border-outline-variant px-3 text-[13px] font-bold text-tertiary-accent">
                   <Plus className="h-4 w-4" /> Otra venta
                 </button>
               )}
@@ -471,7 +478,7 @@ function SellTab({ state, canWrite, refresh }) {
 }
 
 const FUL_LABEL = { PREPARING: "Preparando", READY: "Listo para recoger", PICKED_UP: "Recogido" };
-const FUL_CLS = { PREPARING: "bg-secondary/15 text-[#8A5100]", READY: "bg-verified/15 text-verified-dark", PICKED_UP: "bg-surface-container-high text-on-surface-variant" };
+const FUL_CLS = { PREPARING: "bg-secondary/15 text-secondary", READY: "bg-verified/15 text-verified-dark", PICKED_UP: "bg-surface-container-high text-on-surface-variant" };
 
 function Thumb({ src, name, size = "h-10 w-10" }) {
   return src ? (
@@ -606,10 +613,10 @@ function TodayTab({ state, canWrite, refresh }) {
                 </span>
               </button>
               {canWrite && s.status === "PAID" && s.fulfillment === "PREPARING" && (
-                <Button size="sm" onClick={() => set.mutate({ id: s.id, fulfillment: "READY" })}>Marcar listo</Button>
+                <Button size="sm" disabled={set.isPending} onClick={() => set.mutate({ id: s.id, fulfillment: "READY" })}>Marcar listo</Button>
               )}
               {canWrite && s.status === "PAID" && s.fulfillment === "READY" && (
-                <Button size="sm" variant="outline" onClick={() => set.mutate({ id: s.id, fulfillment: "PICKED_UP" })}>
+                <Button size="sm" variant="outline" disabled={set.isPending} onClick={() => set.mutate({ id: s.id, fulfillment: "PICKED_UP" })}>
                   <CheckCircle2 className="h-4 w-4" /> Recogido
                 </Button>
               )}
@@ -618,6 +625,8 @@ function TodayTab({ state, canWrite, refresh }) {
           </li>
         );
       })}
+      {/* La lista trae las últimas ventas del día; el total de arriba las cuenta todas. */}
+      {state.todayMore > 0 && <li className="px-4 py-2 text-[12px] text-outline">Y {state.todayMore} {state.todayMore === 1 ? "venta más" : "ventas más"} de hoy.</li>}
     </ul>
   );
 }
@@ -691,6 +700,11 @@ function MoneyTab({ state, canWrite, refresh }) {
             ))}
           </ul>
         )}
+        {cash.entriesMore > 0 && (
+          <p className="pt-2 text-[12px] text-outline">
+            Y {cash.entriesMore} {cash.entriesMore === 1 ? "movimiento más" : "movimientos más"} de hoy (el total de arriba los incluye).
+          </p>
+        )}
       </div>
     </div>
   );
@@ -711,6 +725,11 @@ function ScreensTab({ state, canWrite, refresh }) {
       toast.success("Enlace nuevo creado", "El anterior dejó de funcionar.");
       refresh();
     },
+    // Sin aviso, el modal se quedaba abierto sin decir que el enlace viejo sigue funcionando.
+    onError: (err) => {
+      setConfirm(null);
+      toast.error(errText(err, "No se pudo cambiar el enlace. El anterior sigue funcionando."));
+    },
   });
   const upload = useMutation({
     mutationFn: async (file) => {
@@ -724,7 +743,11 @@ function ScreensTab({ state, canWrite, refresh }) {
     },
     onError: (err) => toast.error(errText(err, "No se pudo subir la imagen.")),
   });
-  const remove = useMutation({ mutationFn: async () => (await api.delete("/pos/idle-image")).data, onSuccess: refresh });
+  const remove = useMutation({
+    mutationFn: async () => (await api.delete("/pos/idle-image")).data,
+    onSuccess: refresh,
+    onError: (err) => toast.error(errText(err, "No se pudo quitar la imagen.")),
+  });
   const setMode = useMutation({
     mutationFn: async (idleMode) => (await api.patch("/pos/settings", { idleMode })).data,
     onSuccess: (_d, idleMode) => {
@@ -833,7 +856,7 @@ function ScreensTab({ state, canWrite, refresh }) {
               <Button size="sm" variant="outline" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
                 <ImagePlus className="h-4 w-4" /> {upload.isPending ? "Subiendo..." : state.settings.idleImageUrl ? "Cambiar imagen" : "Subir imagen"}
               </Button>
-              {state.settings.idleImageUrl && <Button size="sm" variant="ghost" onClick={() => remove.mutate()}>Quitar</Button>}
+              {state.settings.idleImageUrl && <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "Quitando..." : "Quitar"}</Button>}
             </div>
           )}
         </div>
@@ -855,7 +878,7 @@ export default function VendorPos() {
   const canWrite = canWriteSection(staffSectionPermissions, "caja");
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("vender");
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["pos-state"],
     queryFn: async () => (await api.get("/pos/state")).data,
     // Sin la caja en el plan no tiene sentido reintentar ni consultar cada 15 s.
@@ -869,18 +892,26 @@ export default function VendorPos() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ScanBarcode} tone="teal" />
-        <h1 className="font-display text-[24px] font-extrabold tracking-tight text-on-surface sm:text-[26px]">Caja</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Caja</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Vende escaneando el código de barras de cada producto. Cobra en el mostrador y el stock se descuenta solo.</p>
-      <Tabs tabs={TABS} value={tab} onChange={setTab} className="mb-4" />
+      {/* Sin la caja en el plan las pestañas no llevan a nada: solo queda el aviso de abajo. */}
+      {!planLocked && <Tabs tabs={TABS} value={tab} onChange={setTab} className="mb-4" />}
       {isLoading && <ListSkeleton />}
       {planLocked && (
         <PlanUpsell
-          title="La caja es del Plan Premium"
+          title="La caja no está en tu plan"
           text="Con la caja vendes en el mostrador escaneando códigos de barras, cobras con cálculo del vuelto, muestras el pedido en una pantalla para el cliente y llevas el dinero del día. Tus productos y su stock no cambian."
         />
       )}
-      {isError && !planLocked && <p className="text-body-md text-error">No se pudo cargar la caja. Recarga la página.</p>}
+      {isError && !planLocked && !data && (
+        <div role="alert" className="flex flex-col items-start gap-3 rounded-2xl border border-error/30 bg-error/[0.06] p-4">
+          <p className="text-body-md text-on-surface">No se pudo cargar la caja. Revisa tu conexión y vuelve a intentarlo.</p>
+          <Button variant="outline" disabled={isFetching} onClick={() => refetch()}>
+            {isFetching ? "Cargando..." : "Reintentar"}
+          </Button>
+        </div>
+      )}
       {data && tab === "vender" && <SellTab state={data} canWrite={canWrite} refresh={refresh} />}
       {data && tab === "hoy" && <TodayTab state={data} canWrite={canWrite} refresh={refresh} />}
       {data && tab === "dinero" && <MoneyTab state={data} canWrite={canWrite} refresh={refresh} />}

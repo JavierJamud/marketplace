@@ -64,7 +64,8 @@ export default function Cart() {
   });
 
   const location = vendor?.locations?.[0];
-  const locationLabel = location ? `${location.municipality?.name ?? ""}, ${location.province?.name}` : "";
+  // Sin municipio o sin provincia salía ", La Habana" o "x, undefined": solo las partes que existen.
+  const locationLabel = location ? [location.municipality?.name, location.province?.name].filter(Boolean).join(", ") : "";
   const color = vendor?.color ?? vendorColor ?? "#232F3E";
   const isVerified = vendor?.isVerified ?? vendorVerified;
   // Bloque 68 (pedido explícito): el destino elegido por la tienda decide
@@ -191,12 +192,12 @@ export default function Cart() {
                           setItemToRemove/ConfirmDeleteModal más abajo); con
                           2+ vuelve a ser el "-" de siempre. */}
                       {it.quantity <= 1 ? (
-                        <button onClick={() => setItemToRemove(it)} title="Eliminar del carrito" className="flex h-9 w-8 items-center justify-center text-error">
-                          <Trash2 className="h-3.5 w-3.5" />
+                        <button type="button" onClick={() => setItemToRemove(it)} aria-label={`Eliminar ${it.name} del carrito`} className="flex h-11 w-11 items-center justify-center text-error">
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       ) : (
-                        <button onClick={() => updateQuantity(it.productId, it.quantity - 1, it.size)} className="flex h-9 w-8 items-center justify-center text-on-surface">
-                          <Minus className="h-3.5 w-3.5" />
+                        <button type="button" onClick={() => updateQuantity(it.productId, it.quantity - 1, it.size)} aria-label={`Restar una unidad de ${it.name}`} className="flex h-11 w-11 items-center justify-center text-on-surface">
+                          <Minus className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       )}
                       {/* min-w en vez de w fijo (Bloque 143): un producto
@@ -204,14 +205,15 @@ export default function Cart() {
                           un número de varios dígitos no debe romper el
                           layout (mismo criterio ya aplicado en
                           CartDrawer.jsx). */}
-                      <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-9 w-12 px-1 text-body-md" />
+                      <CartQtyInput item={it} updateQuantity={updateQuantity} className="h-11 w-12 px-1 text-body-md" />
                       <button
                         onClick={() => updateQuantity(it.productId, it.quantity + 1, it.size)}
                         disabled={it.stock != null && it.quantity >= it.stock}
                         aria-label={it.stock != null && it.quantity >= it.stock ? `No hay más unidades de ${it.name}` : `Sumar una unidad de ${it.name}`}
-                        className="flex h-9 w-8 items-center justify-center text-on-surface disabled:opacity-30"
+                        type="button"
+                        className="flex h-11 w-11 items-center justify-center text-on-surface disabled:opacity-30"
                       >
-                        <Plus className="h-3.5 w-3.5" />
+                        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
                     </div>
                     <div className="flex items-center gap-1">
@@ -237,8 +239,8 @@ export default function Cart() {
                 <span className="flex items-center gap-1.5">
                   <Tag className="h-3.5 w-3.5" /> {discount.code} aplicado (-{formatPrice(discount.amount, discount.currency)})
                 </span>
-                <button onClick={clearDiscount} className="rounded-full p-1 hover:bg-verified/15" title="Quitar código">
-                  <X className="h-3.5 w-3.5" />
+                <button type="button" onClick={clearDiscount} aria-label="Quitar código" className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-verified/15">
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
             ) : (

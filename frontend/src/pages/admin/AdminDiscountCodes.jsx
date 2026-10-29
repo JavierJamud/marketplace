@@ -13,29 +13,52 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// El monto fijo va en la moneda del código (DiscountCode.currency): un código en USD solo descuenta productos en USD, así
+// que mostrarlo en CUP era un dato falso. Mismo criterio que AdminStoreOffers.jsx.
 function valueLabel(c) {
-  return c.type === "PERCENTAGE" ? `${Number(c.value)}%` : `${Number(c.value).toLocaleString("es-CU")} CUP`;
+  return c.type === "PERCENTAGE" ? `${Number(c.value)}%` : `${Number(c.value).toLocaleString("es-CU")} ${c.currency ?? "CUP"}`;
+}
+
+// Vigencia en una línea: un código que todavía no empieza no se aplica en el carrito aunque esté activo, así que la fecha
+// de inicio se ve cuando es futura. Uno vencido dice "Venció" (no "Vence", que se leía como vigente).
+function validityLabel(c, now = Date.now()) {
+  const parts = [];
+  if (c.startsAt && new Date(c.startsAt).getTime() > now) parts.push(`Empieza el ${fmtDate(c.startsAt)}`);
+  if (c.expiresAt) parts.push(`${new Date(c.expiresAt).getTime() <= now ? "Venció" : "Vence"} el ${fmtDate(c.expiresAt)}`);
+  return parts.length ? parts.join(" · ") : "Sin vencimiento";
 }
 
 // Auditoría de seguridad: antes NO había ninguna supervisión de admin sobre
 // los códigos de descuento de los vendedores (Bloque 52) — la única forma de
-// desactivar uno abusivo era entrar a Prisma Studio a mano. Mismas reglas que
-// VendorDiscountCodes.jsx (activar/desactivar siempre permitido; eliminar
-// solo si nunca se usó), acá sobre CUALQUIER vendedor.
+// desactivar uno abusivo era entrar a Prisma Studio a mano. Eliminar sigue la
+// regla de la tienda (solo si nunca se usó). Para apagar, el admin suspende:
+// antes solo desactivaba y la tienda lo volvía a activar al minuto. Quitar la
+// suspensión lo deja desactivado y la tienda decide si lo activa otra vez.
 export default function AdminDiscountCodes() {
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [suspending, setSuspending] = useState(null);
+  const [reason, setReason] = useState("");
 
-  const { data: discountCodes, isLoading } = useQuery({
+  const { data: discountCodes, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["admin-discount-codes"],
     queryFn: async () => (await api.get("/admin/discount-codes")).data.discountCodes,
   });
 
-  const toggleActive = useMutation({
-    mutationFn: async ({ id, active }) => (await api.patch(`/admin/discount-codes/${id}/active`, { active })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-discount-codes"] }),
+  const setSuspended = useMutation({
+    mutationFn: async ({ id, active, reason }) => (await api.patch(`/admin/discount-codes/${id}/active`, { active, reason })).data,
+    onSuccess: (_data, vars) => {
+      toast.success(vars.active ? "Suspensión quitada. La tienda puede volver a activarlo." : "Código suspendido. La tienda no puede reactivarlo.");
+      closeSuspend();
+      queryClient.invalidateQueries({ queryKey: ["admin-discount-codes"] });
+    },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo actualizar el código."),
   });
+
+  function closeSuspend() {
+    setSuspending(null);
+    setReason("");
+  }
 
   const remove = useMutation({
     mutationFn: async (id) => (await api.delete(`/admin/discount-codes/${id}`)).data,
@@ -54,15 +77,29 @@ export default function AdminDiscountCodes() {
     <div className="max-w-[900px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Percent} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Códigos de descuento</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Códigos de descuento</h1>
       </div>
       <p className="mb-[22px] text-[13.5px] text-outline">
-        Códigos de descuento de todos los vendedores. Puedes desactivar uno abusivo, o eliminarlo si nunca se usó.
+        Códigos de descuento de todos los vendedores. Puedes suspender uno abusivo (la tienda no puede reactivarlo hasta que
+        quites la suspensión), o eliminarlo si nunca se usó.
       </p>
 
       {isLoading && <ListSkeleton />}
 
-      {!isLoading && !discountCodes?.length && (
+      {isError && !discountCodes && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+          <p className="text-[13px] text-error">No se pudieron cargar los códigos de descuento.</p>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="min-h-11 rounded-lg border border-outline-variant px-4 text-[13px] font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
+          >
+            {isFetching ? "Reintentando..." : "Reintentar"}
+          </button>
+        </div>
+      )}
+
+      {!isLoading && !isError && !discountCodes?.length && (
         <EmptyState icon={Percent} title="Todavía no hay códigos de descuento" description="Los códigos que creen los vendedores van a aparecer aquí." />
       )}
 
@@ -86,33 +123,34 @@ export default function AdminDiscountCodes() {
                   <td className="px-4 py-3 font-mono font-bold text-on-surface">{c.code}</td>
                   <td className="px-4 py-3 text-on-surface-variant">{c.vendor?.companyName}</td>
                   <td className="px-4 py-3 text-on-surface-variant">{valueLabel(c)}</td>
-                  <td className="px-4 py-3 text-on-surface-variant">{c.expiresAt ? `Vence el ${fmtDate(c.expiresAt)}` : "Sin vencimiento"}</td>
+                  <td className="px-4 py-3 text-on-surface-variant">{validityLabel(c)}</td>
                   <td className="px-4 py-3 text-on-surface-variant">
                     {c.usesCount}
                     {c.maxUses != null ? ` / ${c.maxUses}` : " / ∞"}
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${
-                        c.active ? "bg-verified/10 text-verified-dark" : "bg-surface-container-high text-outline"
+                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10.5px] font-bold ${
+                        c.suspendedAt ? "bg-error/10 text-error" : c.active ? "bg-verified/10 text-verified-dark" : "bg-surface-container-high text-outline"
                       }`}
                     >
-                      {c.active ? "Activo" : "Inactivo"}
+                      {c.suspendedAt ? "Suspendido" : c.active ? "Activo" : "Inactivo"}
                     </span>
+                    {c.suspendedAt && c.suspendedReason && <p className="mt-1.5 max-w-[220px] text-[11.5px] text-error">Motivo: {c.suspendedReason}</p>}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={() => toggleActive.mutate({ id: c.id, active: !c.active })}
-                        disabled={toggleActive.isPending}
-                        className="flex items-center gap-1 text-[12px] font-semibold text-tertiary-accent hover:underline disabled:opacity-50"
+                        onClick={() => (c.suspendedAt ? setSuspended.mutate({ id: c.id, active: true }) : setSuspending(c))}
+                        disabled={setSuspended.isPending}
+                        className="flex min-h-11 items-center gap-1 whitespace-nowrap text-[12px] font-semibold text-tertiary-accent hover:underline disabled:opacity-50"
                       >
-                        <Power className="h-3.5 w-3.5" /> {c.active ? "Desactivar" : "Activar"}
+                        <Power className="h-3.5 w-3.5" /> {c.suspendedAt ? "Quitar suspensión" : "Suspender"}
                       </button>
                       {c.usesCount === 0 && (
                         <button
                           onClick={() => setDeleteTarget(c)}
-                          className="flex items-center gap-1 text-[12px] font-semibold text-error hover:underline"
+                          className="flex min-h-11 items-center gap-1 text-[12px] font-semibold text-error hover:underline"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Eliminar
                         </button>
@@ -125,6 +163,30 @@ export default function AdminDiscountCodes() {
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!suspending}
+        title={`¿Suspender el código ${suspending?.code ?? ""}?`}
+        message="Deja de aplicarse en el carrito y la tienda no puede reactivarlo hasta que quites la suspensión."
+        confirmLabel={setSuspended.isPending ? "Suspendiendo..." : "Sí, suspender"}
+        danger
+        confirmDisabled={setSuspended.isPending}
+        onConfirm={() => setSuspended.mutate({ id: suspending.id, active: false, reason: reason.trim() || null })}
+        onCancel={closeSuspend}
+      >
+        <label htmlFor="dc-reason" className="mb-1.5 block text-label-md text-on-surface-variant">
+          Motivo para la tienda (opcional)
+        </label>
+        <textarea
+          id="dc-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          maxLength={300}
+          rows={3}
+          placeholder="Ej.: el código se está compartiendo en otras webs."
+          className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest p-3 text-[13.5px] outline-none focus:border-tertiary-accent"
+        />
+      </ConfirmModal>
 
       <ConfirmModal
         open={!!deleteTarget}

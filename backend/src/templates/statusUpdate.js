@@ -16,13 +16,13 @@ const STATUS_COLOR = { NEW: "#337475", PREPARING: "#8A5100", READY: "#0A8F42", D
 // order: { code, vendor: {companyName}, status, items?: [{..., product?: {images}}], total? }
 export async function statusUpdateEmail(order) {
   const label = STATUS_LABEL[order.status] ?? order.status;
-  const color = STATUS_COLOR[order.status] ?? "#75777c";
+  const color = STATUS_COLOR[order.status] ?? "#5f6368";
   const subject = pickVariant(order.code, [`Tu pedido ${order.code} ahora está: ${label}`, `${order.vendor.companyName}: tu pedido ${order.code} está ${label.toLowerCase()}`, `Novedades de tu pedido ${order.code}`]);
   const itemsWithImages = (order.items ?? []).map((i) => ({ ...i, imageUrl: resolveAssetUrl(i.product?.images?.[0]) }));
   const html = await emailShell({
     preview: `${order.vendor.companyName} actualizó tu pedido ${order.code} a "${label}"`,
     title: "Actualización de tu pedido",
-    storeName: esc(order.vendor.companyName),
+    storeName: order.vendor.companyName,
     storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     accentColor: color,
     badge: { label, color },

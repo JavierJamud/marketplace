@@ -19,9 +19,9 @@ export async function registrationCodeEmail({ fullName, code }) {
     badge: { label: "Nueva cuenta", color: "#0CAE53" },
     storeName: siteName,
     bodyMjml: `
-      ${paragraph(`Hola ${esc(fullName)}, usa este código para confirmar tu correo y terminar de crear tu cuenta — vence en <strong>${CODE_TTL_MINUTES} minutos</strong>.`)}
+      ${paragraph(`Hola ${esc(fullName)}, usa este código para confirmar tu correo y terminar de crear tu cuenta: vence en <strong>${CODE_TTL_MINUTES} minutos</strong>.`)}
       ${codeBlock(code)}
-      ${smallNote("Si no intentaste crear una cuenta, ignora este correo — no se creó nada todavía.")}
+      ${smallNote("Si no intentaste crear una cuenta, ignora este correo: no se creó nada todavía.")}
       ${ctaButton(`Ir a ${siteName}`, `${env.frontendUrl}/cuenta`)}
     `,
   });

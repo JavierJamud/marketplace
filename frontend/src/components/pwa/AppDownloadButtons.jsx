@@ -42,8 +42,8 @@ function HowToModal({ kind, onClose, onInstall, canInstall, busy }) {
   const onPhone = devicePlatform() !== "desktop";
   const pageUrl = `${window.location.origin}/?instalar=1`;
   return (
-    <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="app-howto-title" onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:pb-5">
+    <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="app-howto-title" onClick={(e) => e.stopPropagation()} className="modal-panel-5 w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:pb-5">
         <div className="mb-3 flex items-start justify-between gap-3">
           <h2 id="app-howto-title" className="font-display text-[19px] font-extrabold text-on-surface">
             {kind === "installed" ? "Ya tienes la app" : kind === "link" ? `Instala ${APP.name}` : kind === "ios" ? "Instalar en iPhone o iPad" : "Instalar en Android"}

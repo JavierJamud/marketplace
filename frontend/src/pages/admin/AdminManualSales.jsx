@@ -36,7 +36,8 @@ function SaleEditModal({ sale, onClose }) {
         await api.patch(`/admin/vendor-staff-sales/${sale.id}`, {
           quantity: Number(form.quantity),
           unitPrice: Number(form.unitPrice),
-          note: form.note || null,
+          // "" vacía la nota: el back la guarda como null.
+          note: form.note,
         })
       ).data,
     onSuccess: () => {
@@ -52,7 +53,7 @@ function SaleEditModal({ sale, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={(e) => { if (e.target === e.currentTarget && !save.isPending) onClose(); }}
     >
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-md rounded-lg bg-surface-container-lowest p-6">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-title-lg text-on-surface">Editar venta manual</h3>
           <button onClick={onClose} className="rounded-full p-1.5 text-outline hover:bg-surface-variant">
@@ -150,7 +151,7 @@ export default function AdminManualSales() {
     <div className="max-w-[1080px]">
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Wallet} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Agentes de Ventas</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Agentes de Ventas</h1>
       </div>
       <p className="mb-[18px] text-[13.5px] text-outline">
         Supervisión de todas las ventas registradas por el personal de tiendas contra su cupo de stock — verifica, corrige o

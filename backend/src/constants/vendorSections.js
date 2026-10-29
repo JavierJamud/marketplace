@@ -15,8 +15,12 @@
 // delegable — solo el dueño/admin puede crear o gestionar otros usuarios,
 // nunca un usuario de sistema entre sí (evita que alguien con acceso cree
 // una puerta trasera para sí mismo).
+//
+// Las etiquetas son las mismas que en frontend/src/lib/vendorSections.js y
+// el NAV de VendorLayout.jsx, para que el dueño vea el mismo nombre en el
+// panel, en el selector de personal y en lo que devuelve GET /vendor-staff.
 export const VENDOR_SECTIONS = [
-  { key: "resumen", label: "Resumen" },
+  { key: "resumen", label: "Dashboard" },
   { key: "productos", label: "Productos" },
   { key: "codigos-descuento", label: "Códigos de descuento" },
   { key: "ofertas-tienda", label: "Ofertas de tienda" },
@@ -27,13 +31,13 @@ export const VENDOR_SECTIONS = [
   { key: "mesas", label: "Mesas / QR" },
   { key: "mensajes", label: "Mensajes" },
   { key: "resenas", label: "Reseñas" },
-  { key: "reportes", label: "Reportes de fraude" },
+  { key: "reportes", label: "Reportes" },
   // Bloque 198 (pedido explícito — "una nueva sección... con el objetivo
   // para darle acceso a los usuarios a ella... podrán controlar su stock
   // por usuario... registrar sus ventas diarias manualmente"): a
   // diferencia de "Usuarios" (nunca delegable), esta SÍ es una sección
   // normal — el dueño decide a quién se la da, igual que cualquier otra.
-  { key: "ventas-manuales", label: "Agentes de Ventas" },
+  { key: "ventas-manuales", label: "Productos Asignados" },
 ];
 
 export const VENDOR_SECTION_KEYS = VENDOR_SECTIONS.map((s) => s.key);

@@ -15,7 +15,7 @@ import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 const STATUS_LABEL = {
   NOT_STARTED: "Sin iniciar", PENDING_DOCS: "Documentos subidos", IN_REVIEW: "En revisión", PENDING_PAYMENT: "Falta el pago", VERIFIED: "Verificada",
-  PAYMENT_FAILED: "Pago fallido", SUSPENDED: "Suspendida", REJECTED: "Rechazada", PLAN_ENDED: "Volvió a Básico", ACTIVE: "Activa",
+  PAYMENT_FAILED: "Pago fallido", SUSPENDED: "Suspendida", REJECTED: "Rechazada", PLAN_ENDED: "Terminó su plan de pago", ACTIVE: "Activa",
   PENDING: "Pendiente", EVIDENCE_REQUESTED: "Evidencia solicitada", RESOLVED: "Resuelto", DISMISSED: "Descartado", APPROVED: "Aprobada",
 };
 const label = (s) => STATUS_LABEL[s] ?? s ?? "";
@@ -75,10 +75,10 @@ export function RepresentativeFileModal({ vendor, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="rep-file-title" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="max-h-[88vh] w-full max-w-[760px] overflow-y-auto rounded-2xl bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-[760px] rounded-2xl bg-surface-container-lowest p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 id="rep-file-title" className="flex items-center gap-2 text-title-lg font-bold text-on-surface">
+            <h2 id="rep-file-title" className="flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
               <UserRound className="h-5 w-5 flex-shrink-0 text-tertiary-accent" aria-hidden="true" />
               <span className="truncate">Responsable de {vendor.companyName || data?.vendor.companyName || "la tienda"}</span>
             </h2>
@@ -101,7 +101,7 @@ export function RepresentativeFileModal({ vendor, onClose }) {
             <div className="mt-4 flex flex-wrap gap-2 text-[12px] font-semibold">
               <span className="rounded-full bg-surface-container px-2.5 py-1 text-on-surface">Verificación: {label(v.verificationStatus)}</span>
               <span className="rounded-full bg-surface-container px-2.5 py-1 text-on-surface">Plan: {planNames[v.planType] ?? v.planType}</span>
-              <span className={`rounded-full px-2.5 py-1 ${v.isBlocked || v.status === "SUSPENDED" ? "bg-error/10 text-error" : "bg-[#0CAE53]/15 text-[#087A38]"}`}>
+              <span className={`rounded-full px-2.5 py-1 ${v.isBlocked || v.status === "SUSPENDED" ? "bg-error/10 text-error" : "bg-verified/15 text-verified-dark"}`}>
                 {v.adminDeletionRequestedAt ? "Eliminación pendiente" : v.isBlocked ? "Bloqueada" : v.status === "SUSPENDED" ? "Suspendida" : "Activa"}
               </span>
               <span className="rounded-full bg-surface-container px-2.5 py-1 text-on-surface">Tienda creada el {fmt(v.createdAt)}</span>

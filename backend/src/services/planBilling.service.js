@@ -1,8 +1,10 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
-import { getAllPlanConfigs } from "../lib/planConfig.js";
-import { notifyVendor } from "../lib/notify.js";
+import { getAllPlanConfigs, getDefaultPlanKey } from "../lib/planConfig.js";
+import { notifyVendor, PLAN_BILLING_REF } from "../lib/notify.js";
+import { requestContext } from "../lib/requestContext.js";
 import { sendPlanBillingEmail } from "../lib/email.js";
+import { applyPlanDowngrade } from "./planDowngrade.service.js";
 
 // Cobro de los planes de pago que no dan la insignia (hoy, el Básico cuando el admin deja de darlo gratis). Estos planes
 // no pasan por la verificación: la tienda paga desde Suscripción (renovación, ver renewalPlanFor) y su fecha de cobro es
@@ -76,9 +78,16 @@ async function notice(vendor, config, stage) {
     suspended: [`Tu tienda fue suspendida por falta de pago`, `Pasó el plazo sin pagar el plan ${plan}: tu tienda ya no se ve y su enlace está cerrado para los clientes. Entra a tu panel y paga desde Suscripción para reactivarla al momento.`],
   };
   const [title, body] = texts[stage];
-  await prisma.vendorNotification.create({ data: { vendorId: vendor.id, type: "ADMIN_NOTICE", title, body } }).catch(() => {});
-  void notifyVendor(vendor.id, { category: "account", title, body, url: "/vendedor/verificacion", tag: `plan-billing-${vendor.id}` }).catch(() => {});
-  if (vendor.user?.email) await sendPlanBillingEmail(vendor, { title, message: body }).catch(() => {});
+  // refCode PLAN_BILLING: el gancho de VendorNotification y la campana llevan este aviso a Suscripción, donde se paga (un
+  // ADMIN_NOTICE sin él lleva al inicio del panel).
+  await prisma.vendorNotification.create({ data: { vendorId: vendor.id, type: "ADMIN_NOTICE", refCode: PLAN_BILLING_REF, title, body } }).catch(() => {});
+  // El gancho de VendorNotification (installNotifyHooks, lib/notify.js) ya manda el push de la campana: mandarlo también
+  // aquí llegaba dos veces. Solo falta cuando la acción del admin que arrancó el cobro dijo "no avisar a la tienda"
+  // (X-Notify-Vendor), y este aviso de cobro es obligatorio: entonces se manda aquí.
+  if (requestContext()?.notifyVendor === false) {
+    void notifyVendor(vendor.id, { category: "account", title, body, url: "/vendedor/verificacion", tag: `plan-billing-${vendor.id}` }).catch(() => {});
+  }
+  if (vendor.user?.email) await sendPlanBillingEmail(vendor, { title, message: body, stage }).catch(() => {});
 }
 
 // Suspender por falta de pago: la tienda deja de verse (status SUSPENDED, igual que cualquier suspensión), pero
@@ -126,7 +135,7 @@ export async function runPlanBilling({ onlyPlanType } = {}) {
   const billed = await billedPlanConfigs();
   const configBy = new Map(billed.map((c) => [c.planType, c]));
   const billedTypes = billed.map((c) => c.planType).filter((t) => !onlyPlanType || t === onlyPlanType);
-  const stats = { started: 0, notices: 0, suspended: 0, lifted: 0, cleared: 0 };
+  const stats = { started: 0, notices: 0, suspended: 0, lifted: 0, cleared: 0, downgraded: 0 };
 
   // 1. Fuera del cobro: tiendas que cambiaron de plan o cuyo plan volvió a ser gratis.
   if (!onlyPlanType) {
@@ -150,11 +159,32 @@ export async function runPlanBilling({ onlyPlanType } = {}) {
 
   // 3. Avisos y suspensión según la fecha de cobro.
   const graceDays = await unpaidSuspendDays();
+  const defaultKey = await getDefaultPlanKey();
   const now = Date.now();
   const active = await prisma.vendor.findMany({ where: { deletedAt: null, planType: { in: billedTypes }, billingNoticeStage: { not: null }, nextPaymentDueDate: { not: null } }, include: { user: { select: { email: true } } } });
   for (const v of active) {
     const config = configBy.get(v.planType);
     const due = new Date(v.nextPaymentDueDate).getTime();
+    // Canceló su plan (cancelAtPeriodEnd): no se le pide pagar algo que decidió dejar. Al llegar la fecha baja al plan por
+    // defecto aquí mismo, igual que processDeferredCancellationsWithoutBadge (verificationPayment.job.js). Ese job corre una
+    // vez al día y este cada hora: sin esto, en la ventana entre los dos recibía el aviso "Hoy vence el pago" y su tienda
+    // dejaba de recibir pedidos (isBillingOverdue). Con tarjeta la baja la hace el webhook de Stripe al final del periodo, y
+    // durante una prueba en curso, trialExpiry.job.js.
+    // El plan por defecto queda fuera (igual que en processDeferredCancellationsWithoutBadge): bajarlo es dejarlo en el mismo
+    // plan sin fecha de cobro, y la tienda lo usaba gratis para siempre. cancelMySubscription ya no deja cancelarlo; esto
+    // cubre una marca vieja: esa tienda sigue el cobro normal.
+    if (v.cancelAtPeriodEnd && v.planType !== defaultKey) {
+      const inTrial = v.trialEndsAt && new Date(v.trialEndsAt).getTime() > now;
+      if (due <= now && !v.stripeSubscriptionId && !v.planDowngradeAt && !inTrial) {
+        await applyPlanDowngrade(v.id, {
+          source: "CRON_EXPIRATION",
+          reason: "Cancelaste tu plan y llegó el final de lo que pagaste.",
+          planChangeReason: "downgrade_cancelled",
+        });
+        stats.downgraded++;
+      }
+      continue;
+    }
     // Pagó (la fecha de cobro avanzó): si estaba suspendida por falta de pago, vuelve.
     if (due > now && v.billingSuspendedAt && (await liftBillingSuspension(v.id, "Pagó su plan"))) stats.lifted++;
     const sameCycle = v.billingNoticeDue && new Date(v.billingNoticeDue).getTime() === due;

@@ -79,7 +79,7 @@ export function EditTableOrderModal({ order, onClose, onSaved }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 p-4"
       onClick={dirtyModal.handleBackdropClick}
     >
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg bg-surface-container-lowest p-6">
+      <div className="modal-panel-6 w-full max-w-lg rounded-lg bg-surface-container-lowest p-6">
         <h3 className="mb-1 text-title-lg text-on-surface">Modificar pedido de mesa</h3>
         <p className="mb-4 text-[12.5px] text-outline">Pedido #{order.orderNumber} · todavía Recibido, sin aceptar</p>
 

@@ -104,8 +104,8 @@ function EditListingModal({ listing, onClose, onSaved }) {
   const invalid = Object.values(errors).some(Boolean);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-inverse-surface/40 sm:items-center sm:p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby="edit-listing-title" className="flex max-h-[92vh] w-full max-w-lg flex-col rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-inverse-surface/40 sm:items-center sm:p-4 p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-labelledby="edit-listing-title" className="modal-panel flex w-full max-w-lg flex-col rounded-t-2xl bg-surface-container-lowest sm:rounded-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-surface-container-high px-5 py-3">
           <h2 id="edit-listing-title" className="text-[16px] font-extrabold text-on-surface">Editar anuncio</h2>
           <button type="button" onClick={onClose} aria-label="Cerrar" className="flex h-11 w-11 items-center justify-center rounded-full text-outline hover:bg-surface-container">
@@ -197,7 +197,7 @@ export default function AdminCustomerListings() {
   const [historyUserId, setHistoryUserId] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-customer-listings"],
     queryFn: async () => (await api.get("/admin/customer-listings")).data.owners,
   });
@@ -238,7 +238,7 @@ export default function AdminCustomerListings() {
     <div>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={Zap} tone="orange" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Venta rápida</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Venta rápida</h1>
       </div>
       <p className="mb-4 text-[13.5px] text-outline">
         Clientes sin tienda con anuncios de venta rápida, agrupados por dueño.
@@ -251,7 +251,16 @@ export default function AdminCustomerListings() {
       )}
 
       {isLoading && <ListSkeleton />}
-      {!isLoading && owners.length === 0 && (
+      {/* Sin esto, un fallo del servidor se leía como "ningún cliente tiene anuncios" y el admin no sabía que faltaban datos. */}
+      {isError && !data && (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-6 text-center">
+          <p className="text-body-md text-error">No se pudieron cargar los anuncios de venta rápida.</p>
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? "Reintentando..." : "Reintentar"}
+          </Button>
+        </div>
+      )}
+      {!isLoading && data && owners.length === 0 && (
         <p className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-10px_rgba(15,23,42,0.12)] p-5 text-body-md text-on-surface-variant">
           Ningún cliente tiene anuncios de venta rápida por ahora.
         </p>

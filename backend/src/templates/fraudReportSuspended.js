@@ -15,8 +15,8 @@ export async function fraudReportSuspendedEmail({ fullName, targetLabel, reason 
     storeName: siteName,
     bodyMjml: `
       ${paragraph(`Hola ${esc(fullName)}, tu <strong>${targetLabel}</strong> fue suspendido: <strong>${esc(reason)}</strong>.`)}
-      ${smallNote("Si crees que esto es un error, contáctanos — un admin puede revisar el caso de nuevo.")}
-      ${paragraph("Nada se borra — tus datos siguen intactos, solo dejó de estar visible públicamente.")}
+      ${smallNote("Si crees que esto es un error, contáctanos: un admin puede revisar el caso de nuevo.")}
+      ${paragraph("Nada se borra: tus datos siguen intactos, solo dejó de estar visible públicamente.")}
       ${ctaButton("Contactar soporte", `${env.frontendUrl}/contacto`)}
     `,
   });

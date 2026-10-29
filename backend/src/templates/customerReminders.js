@@ -5,8 +5,11 @@ import { emailShell, ctaButton, paragraph, smallNote, resolveAssetUrl, pickVaria
 // Recordatorios automáticos al cliente (jobs/customerReminders.job.js). Los dos llevan al pie el enlace para no recibir más.
 const fmt = (n, currency) => `${Number(n).toLocaleString("es-CU", { maximumFractionDigits: 2 })} ${currencyLabel(currency ?? "CUP")}`;
 
-function unsubscribeFooter(url) {
-  return `Te escribimos porque tienes cuenta y miraste esta tienda. <a href="${url}" style="color:#75777c;text-decoration:underline;">No quiero recibir estos recordatorios</a>.`;
+// Pie con el enlace de baja, compartido con el re-enganche de clientes (vendorWinback.js) y los envíos masivos del admin
+// (campañas y ofertas dirigidas): todos apagan el mismo User.marketingEmails, así que todos tienen que ofrecer la baja.
+// `reason` dice por qué le llega el correo, que cambia según quién escribe.
+export function unsubscribeFooter(url, { reason = "Te escribimos porque tienes cuenta y miraste esta tienda.", label = "No quiero recibir estos recordatorios" } = {}) {
+  return `${reason} <a href="${url}" style="color:#5f6368;text-decoration:underline;">${label}</a>.`;
 }
 
 function pointsLine(points) {

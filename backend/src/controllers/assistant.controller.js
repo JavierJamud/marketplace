@@ -969,7 +969,7 @@ async function lookupOrderContext(message, sessionEmail) {
 // en el momento de la pregunta (lib/platformFacts.js), nunca de un texto escrito a mano.
 const buildPlatformReference = async (siteName) => `${siteName.toUpperCase()} (datos reales vigentes, cítalos tal cual, nunca inventes otros):
 - Comprar: eliges productos de una tienda y coordinas el pedido con ella. Cada pedido es de UNA sola tienda.
-- Vender: te registras como vendedor (/vendedor/ingresar?tab=registro) y empiezas en el plan gratis.
+- Vender: te registras como vendedor (/vendedor/ingresar?tab=registro) y eliges uno de estos planes (/planes).
 - Planes y precios vigentes:
 ${await planFactsForPrompt()}
 - Verificación: panel de vendedor > Verificación; el equipo revisa los documentos y, si se aprueba, se paga la suscripción.
@@ -1130,7 +1130,21 @@ async function describeChatZone({ countryId, provinceId, municipalityId }) {
   return [municipality?.name, province?.name, country?.name].filter(Boolean).join(", ");
 }
 
+// Interruptor "Mostrar el chat" del admin (SiteSettings.showChatWidget). Antes solo lo miraba el sitio (MarketplaceChatGate)
+// para no montar la burbuja, y el servidor seguía respondiendo a quien llamara a /assistant/chat directo, gastando el cupo de
+// los proveedores de IA. Caché corta, como getMaintenanceState: cada mensaje no vuelve a leer la configuración, y al apagarlo
+// deja de responder en pocos segundos. Sin fila de configuración cuenta como encendido (el valor por defecto del sitio).
+let chatWidgetCache = null;
+async function isMarketplaceChatOn() {
+  if (chatWidgetCache && chatWidgetCache.expires > Date.now()) return chatWidgetCache.value;
+  const s = await prisma.siteSettings.findFirst({ select: { showChatWidget: true } });
+  const value = s?.showChatWidget ?? true;
+  chatWidgetCache = { value, expires: Date.now() + 3000 };
+  return value;
+}
+
 export async function postMarketplaceChatMessage(req, res) {
+  if (!(await isMarketplaceChatOn())) throw new AppError("El asistente no está disponible ahora.", 403);
   const { sessionId, message, countryId, provinceId, municipalityId, zoneFlow } = postMessageSchema.parse(req.body);
   const chatZone = provinceId || countryId ? { countryId, provinceId, municipalityId } : null;
   const userId = await resolveOptionalUserId(req);

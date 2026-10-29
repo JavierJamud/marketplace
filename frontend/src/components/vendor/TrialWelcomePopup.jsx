@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { ShieldCheck, PartyPopper } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
 
 // Bloque 235 (pedido explícito — "se le da una bienvenida al panel de
 // vendedor de tienda verificada con un popup de bienvenida para el
@@ -14,6 +15,10 @@ import { api } from "../../lib/api.js";
 // no de una librería de confetti aparte.
 export function TrialWelcomePopup({ vendor }) {
   const queryClient = useQueryClient();
+  // El plan de la prueba lo elige el admin (isTrialPlan): durante la prueba la tienda está en él, así que se nombra por su
+  // plan real y, si /settings aún no respondió, por la bandera.
+  const { planNames, trialPlanName } = usePlatformSettings();
+  const trialName = planNames[vendor?.planType] ?? trialPlanName;
   // Bloque 235: mismo staleTime corto que TrialOfferPopup.jsx — ver el
   // comentario ahí.
   const { data } = useQuery({
@@ -59,13 +64,13 @@ export function TrialWelcomePopup({ vendor }) {
           exit={{ opacity: 0 }}
         >
           <motion.div
-            className="relative w-full max-w-[440px] overflow-hidden rounded-3xl bg-surface-container-lowest text-center shadow-2xl"
+            className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[440px] flex-col overflow-hidden rounded-3xl bg-surface-container-lowest text-center shadow-2xl"
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
             transition={{ type: "spring", stiffness: 240, damping: 20 }}
           >
-            <div className="relative h-[150px] overflow-hidden bg-gradient-to-br from-verified to-primary">
+            <div className="relative h-[110px] flex-shrink-0 overflow-hidden bg-gradient-to-br from-verified to-primary sm:h-[150px]">
               <motion.div className="flex h-full items-center justify-center gap-6" variants={container} initial="hidden" animate="show">
                 <motion.div variants={decorItem} className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm">
                   <PartyPopper className="h-8 w-8 text-white" />
@@ -76,17 +81,20 @@ export function TrialWelcomePopup({ vendor }) {
               </motion.div>
             </div>
 
-            <div className="p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6">
               <h2 className="mb-2 font-display text-[21px] font-bold text-on-surface">¡Tu tienda ya está verificada!</h2>
               <p className="mb-5 text-[13.5px] leading-relaxed text-on-surface-variant">
-                Activaste tu prueba gratis del Plan Premium: ya tienes la insignia de verificación y todas las funciones Premium
-                activas, sin costo.
+                Activaste tu prueba gratis{trialName ? <> del plan {trialName}</> : null}: ya tienes la insignia de verificación y
+                todas las funciones de tu plan activas, sin costo.
                 {trialEndsLabel && <> Vence el <strong>{trialEndsLabel}</strong>, te avisamos antes de que termine.</>}
               </p>
+            </div>
+            {/* El botón va en un pie que no se desliza: siempre a la vista. */}
+            <div className="flex-shrink-0 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-1">
               <button
                 onClick={() => markSeen.mutate()}
                 disabled={markSeen.isPending}
-                className="w-full rounded-xl bg-primary px-4 py-3 text-[13.5px] font-bold text-white hover:bg-primary/90 disabled:opacity-60"
+                className="min-h-11 w-full rounded-xl bg-primary px-4 py-3 text-[13.5px] font-bold text-white hover:bg-primary/90 disabled:opacity-60"
               >
                 ¡Vamos!
               </button>

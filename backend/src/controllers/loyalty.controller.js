@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { resolveMyVendor } from "../utils/resolveVendor.js";
 import { getPlanConfig } from "../lib/planConfig.js";
+import { assertPlanAllowsWithUpsell } from "../lib/planUpsell.js";
 import { verifyUnsubscribe } from "../lib/marketingEmail.js";
 import { activeProgramFor, serializeProgram, suggestionsFor, adjustPoints, touchStoreVisit, pointsWorth, programCost, programCostError, LOYALTY_LIMITS } from "../services/loyalty.service.js";
 import { notifyPointsAdjusted } from "../services/loyaltyNotify.service.js";
@@ -92,7 +93,10 @@ export async function unsubscribe(req, res) {
   const { u, t } = z.object({ u: z.string().min(1).max(40), t: z.string().min(1).max(64) }).parse(req.body);
   if (!verifyUnsubscribe(u, t)) throw new AppError("El enlace no es válido. Puedes apagar estos correos desde tu perfil.", 400);
   await prisma.user.updateMany({ where: { id: u }, data: { marketingEmails: false } });
-  res.json({ ok: true });
+  // El rol solo decide a qué pantalla mandar para volver a activarlos (las tiendas los tienen en Configuración, no en el
+  // perfil del cliente). No expone nada más de la cuenta.
+  const user = await prisma.user.findUnique({ where: { id: u }, select: { role: true } });
+  res.json({ ok: true, role: user?.role ?? null });
 }
 
 // --- Tienda -----------------------------------------------------------------
@@ -204,6 +208,13 @@ export async function getMemberHistory(req, res) {
 // cualquier usuario de la plataforma.
 export async function adjustMemberPoints(req, res) {
   const vendor = await resolveMyVendor(req.user.id);
+  // Regalar o quitar puntos es parte del programa de fidelidad: con un plan que no lo trae, la tienda creaba saldos y le
+  // mandaba al cliente un aviso de unos puntos que no podía usar (saveMyProgram ya miraba el plan; esto no). Mismo 403 con
+  // `planRequired` que el resto de las funciones de pago, para que el panel muestre el camino a Suscripción.
+  await assertPlanAllowsWithUpsell(vendor, "allowLoyalty", {
+    lead: "Ajustar los puntos de tus clientes no está en tu plan.",
+    action: "Mientras tanto, tus clientes conservan los puntos que ya tienen.",
+  });
   const { userId, points, note } = z
     .object({
       userId: z.string().min(1).max(40),
@@ -215,6 +226,11 @@ export async function adjustMemberPoints(req, res) {
       note: z.string().trim().min(3, "Escribe el motivo del ajuste.").max(200),
     })
     .parse(req.body);
+  // Un regalo con el programa apagado le llega al cliente como "te regalamos puntos" cuando no los puede ganar ni usar
+  // ("Nadie gana ni usa puntos" en el panel). Quitar puntos sí se deja: es para corregir un saldo, no promete nada.
+  if (points > 0 && !(await activeProgramFor(vendor))) {
+    throw new AppError("Enciende tu programa de fidelidad para regalar puntos. Con el programa apagado, tus clientes no pueden usarlos.", 400);
+  }
   const bought = await prisma.order.findFirst({ where: { vendorId: vendor.id, customerId: userId, customer: { role: "CUSTOMER" } }, select: { id: true } });
   if (!bought) throw new AppError("Solo puedes ajustar puntos a clientes que ya te compraron con su cuenta.", 400);
   const balance = await adjustPoints({ vendorId: vendor.id, userId, points, note });

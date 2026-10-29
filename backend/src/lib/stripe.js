@@ -4,17 +4,24 @@ import { env } from "../config/env.js";
 import { getStripeConfig } from "../controllers/integrations.controller.js";
 import { getBrandSettings } from "../controllers/settings.controller.js";
 import { prisma } from "./prisma.js";
-import { getPlanConfig, buildPlanIncludes } from "./planConfig.js";
+import { getPlanConfig, getTrialPlanKey, buildPlanIncludes } from "./planConfig.js";
 
 // Bloque 25: reemplaza el checkout simulado (PaymentLink.jsx) por un
 // Checkout Session real de Stripe. CUP no es una moneda soportada por
 // Stripe (no es convertible internacionalmente) — el cobro real es en USD.
-// Bloque 150: el precio ya NO es una constante — es editable desde el admin
-// (SiteSettings.cardSubscriptionPriceUsd, ver getSubscriptionPricing en
-// settings.controller.js). Este valor queda solo como FALLBACK de último
-// recurso (si por lo que sea la consulta a settings fallara en algún punto
-// que todavía no se migró a leerlo de ahí).
-export const SUBSCRIPTION_PRICE_USD = 25;
+// El precio de cada plan sale de PlanConfig (quotePlan en planConfig.js); ya no hay un precio de respaldo fijo aquí.
+
+// Plan de un cobro con tarjeta: la clave que manda quien llama (cualquier plan, ya validado y cotizado con quotePlan) o, si
+// no manda ninguna, el plan de prueba (isTrialPlan): antes de los planes configurables todo cobro era de Premium, que es el
+// de prueba. Antes cada función tenía "BUSINESS" fijo como valor por defecto y "Premium" como nombre de reserva. Una clave
+// que no existe corta aquí con un 400, antes de abrir nada en Stripe: un cobro con un plan que no existe no se podría
+// registrar después (la clave foránea de SubscriptionPayment lo rechazaría).
+async function checkoutPlan(planType) {
+  const key = planType ?? (await getTrialPlanKey());
+  const plan = await getPlanConfig(key);
+  if (!plan) throw new AppError("Ese plan no existe.", 400);
+  return { key, plan };
+}
 
 export async function getStripeClient() {
   const config = await getStripeConfig();
@@ -46,10 +53,10 @@ export async function isStripeConfigured() {
 // (subscriptionPaymentId en metadata, ver SubscriptionPayment) arman un
 // Checkout Session idéntico salvo la metadata/redirect, así que comparten
 // esta función en vez de duplicar la llamada al SDK dos veces.
-async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam, planType = "BUSINESS" }) {
+async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam, planType }) {
   const stripe = await getStripeClient();
-  const [{ siteName }, plan] = await Promise.all([getBrandSettings(), getPlanConfig(planType)]);
-  if (!stripe) throw new AppError(`El pago con tarjeta no está disponible en este momento — contacta al equipo de ${siteName}.`, 503);
+  const [{ siteName }, { key, plan }] = await Promise.all([getBrandSettings(), checkoutPlan(planType)]);
+  if (!stripe) throw new AppError(`El pago con tarjeta no está disponible en este momento. Contacta al equipo de ${siteName}.`, 503);
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -60,7 +67,7 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
           price_data: {
             currency: "usd",
             product_data: {
-              name: `Suscripción ${siteName}: plan ${plan?.displayName ?? "Premium"} (${months} ${months === 1 ? "mes" : "meses"})`,
+              name: `Suscripción ${siteName}: plan ${plan.displayName} (${months} ${months === 1 ? "mes" : "meses"})`,
               description,
             },
             unit_amount: Math.round(amountUsd * 100),
@@ -68,7 +75,7 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
           quantity: 1,
         },
       ],
-      metadata: { ...metadata, vendorId: vendor.id, months: String(months), planType },
+      metadata: { ...metadata, vendorId: vendor.id, months: String(months), planType: key },
       success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=${successParam}`,
       cancel_url: `${env.frontendUrl}/vendedor/verificacion?stripe=cancel`,
     });
@@ -99,7 +106,7 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
 // (checkout.session.completed) ya NO activa la verificación por sí solo —
 // deja la marca `stripePaidAt` y el vendedor sube su comprobante igual que
 // con CUP, un admin finaliza a mano (ver confirmSubscriptionPayment).
-export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd, planType = "BUSINESS" }) {
+export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd, planType }) {
   return createSubscriptionCheckoutSession({
     vendor,
     months,
@@ -117,7 +124,7 @@ export async function createVerificationCheckoutSession({ verification, vendor, 
 // tienda YA está VERIFIED — metadata.subscriptionPaymentId (no
 // verificationId) es lo que el webhook usa para saber qué fila de
 // SubscriptionPayment marcar como pagada (ver handleCheckoutCompleted).
-export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd, planType = "BUSINESS" }) {
+export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd, planType }) {
   return createSubscriptionCheckoutSession({
     vendor,
     months,
@@ -214,9 +221,10 @@ export async function ensureStripeCustomer(vendor, stripe) {
 }
 
 // Lo que ve la tienda en la página de pago de Stripe: nombre del plan, qué incluye, cada cuánto se cobra y cómo cancelar.
-async function planProductData(months, { trialDays = 0, planType = "BUSINESS" } = {}) {
-  const [{ siteName, logoUrl }, plan] = await Promise.all([getBrandSettings(), getPlanConfig(planType)]);
-  const planName = plan?.displayName ?? "Premium";
+// `planKey` es la clave ya resuelta (checkoutPlan): es la que va en la metadata de la suscripción.
+async function planProductData(months, { trialDays = 0, planType } = {}) {
+  const [{ siteName, logoUrl }, { key, plan }] = await Promise.all([getBrandSettings(), checkoutPlan(planType)]);
+  const planName = plan.displayName;
   const every = months === 1 ? "cada mes" : `cada ${months} meses`;
   const features = buildPlanIncludes(plan).slice(0, 6).join(" · ");
   const description = [
@@ -233,6 +241,7 @@ async function planProductData(months, { trialDays = 0, planType = "BUSINESS" } 
     images: /^https:/.test(logoUrl ?? "") ? [logoUrl] : undefined,
     siteName,
     every,
+    planKey: key,
   };
 }
 
@@ -240,14 +249,14 @@ async function planProductData(months, { trialDays = 0, planType = "BUSINESS" } 
 // la tarjeta, 0 USD hoy, prueba de trialDays). trialEnd: si la tienda ya tiene tiempo pagado (por ejemplo, venía pagando en
 // CUP), el primer cobro se corre hasta esa fecha para no cobrarle dos veces el mismo periodo.
 // `totalUsd`: lo que se cobra cada `months` meses, ya con el descuento del plan (planPrice en lib/planConfig.js).
-export async function createCardSubscriptionCheckout({ vendor, months, priceUsd, totalUsd, planType = "BUSINESS", purpose, trialDays = 0, trialEnd = null }) {
+export async function createCardSubscriptionCheckout({ vendor, months, priceUsd, totalUsd, planType, purpose, trialDays = 0, trialEnd = null }) {
   if (!CARD_INTERVAL_MONTHS.includes(months)) throw new AppError("Elige 1, 3, 6 o 12 meses.", 400);
   const stripe = await stripeOrThrow();
   try {
     const customer = await ensureStripeCustomer(vendor, stripe);
     const product = await planProductData(months, { trialDays, planType });
     const total = totalUsd ?? priceUsd * months;
-    const metadata = { vendorId: vendor.id, months: String(months), purpose, planType };
+    const metadata = { vendorId: vendor.id, months: String(months), purpose, planType: product.planKey };
     // Stripe exige que un fin de prueba fijo esté al menos 2 días en el futuro.
     const useTrialEnd = trialEnd && trialEnd.getTime() - Date.now() > 2 * 24 * 60 * 60 * 1000;
     const firstCharge = trialDays ? new Date(Date.now() + trialDays * 86400000) : useTrialEnd ? trialEnd : null;
@@ -382,7 +391,7 @@ export async function setCardSubscriptionCancelAtPeriodEnd(subscriptionId, cance
 
 // Reactivar una suscripción que ya terminó: se crea otra con la tarjeta guardada y se cobra en el momento. Si Stripe rechaza
 // la tarjeta (o no hay ninguna), devuelve { declined: true } y la tienda va a Stripe a poner otra y pagar.
-export async function chargeSavedCardSubscription({ vendor, months, priceUsd, totalUsd, planType = "BUSINESS" }) {
+export async function chargeSavedCardSubscription({ vendor, months, priceUsd, totalUsd, planType }) {
   const stripe = await stripeOrThrow();
   const customerId = await ensureStripeCustomer(vendor, stripe);
   const customer = await stripe.customers.retrieve(customerId);
@@ -406,7 +415,7 @@ export async function chargeSavedCardSubscription({ vendor, months, priceUsd, to
       default_payment_method: typeof paymentMethod === "string" ? paymentMethod : paymentMethod.id,
       off_session: true,
       payment_behavior: "error_if_incomplete",
-      metadata: { vendorId: vendor.id, months: String(months), purpose: "reactivate", planType },
+      metadata: { vendorId: vendor.id, months: String(months), purpose: "reactivate", planType: product.planKey },
       description: `${product.name} · ${vendor.companyName}`,
     });
     return { subscription: sub };

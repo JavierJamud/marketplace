@@ -16,8 +16,8 @@ export async function orderConfirmationEmail(order) {
   const whatsapp = order.vendor.whatsapp ? String(order.vendor.whatsapp).replace(/\D/g, "") : null;
   const html = await emailShell({
     preview: `Recibimos tu pedido ${order.code}: ${orderGrandTotal(order)} en ${order.vendor.companyName}`,
-    title: `¡Gracias por tu pedido en ${esc(order.vendor.companyName)}!`,
-    storeName: esc(order.vendor.companyName),
+    title: `¡Gracias por tu pedido en ${order.vendor.companyName}!`,
+    storeName: order.vendor.companyName,
     storeLogoUrl: resolveAssetUrl(order.vendor.logoUrl),
     badge: { label: "Pedido recibido", color: "#0CAE53" },
     bodyMjml: `

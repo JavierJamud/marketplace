@@ -22,7 +22,10 @@ router.post("/stock", cartStockRateLimit, productsController.getCartStock);
 // del catálogo — por eso esta ruta acepta cualquiera de las 2 secciones,
 // mientras que crear/editar/borrar productos de verdad (de acá para abajo)
 // sigue exigiendo "productos" en modo escritura.
-router.get("/me/list", authenticate, requireVendorAccess("productos", "mesas"), productsController.listMyProducts);
+// Mismo caso con "pedidos": modificar un pedido (EditOrderModal, EditTableOrderModal) o crear uno manual
+// (CreateManualOrderModal) piden esta lista, y quien tenía solo "Pedidos" veía el selector vacío. Caja no la usa (el punto
+// de venta trae sus productos por /pos).
+router.get("/me/list", authenticate, requireVendorAccess("productos", "mesas", "pedidos"), productsController.listMyProducts);
 router.get("/me/:id/sales", authenticate, requireVendorAccess("productos"), productsController.getMyProductSales);
 router.post("/", authenticate, requireVendorWrite("productos"), productsController.createProduct);
 router.patch("/:id", authenticate, requireVendorWrite("productos"), productsController.updateProduct);

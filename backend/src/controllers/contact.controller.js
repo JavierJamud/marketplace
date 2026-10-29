@@ -4,9 +4,10 @@ import { AppError } from "../utils/AppError.js";
 import { sendContactMessageEmail } from "../lib/email.js";
 
 const contactSchema = z.object({
-  name: z.string().trim().min(2, "Cuéntanos tu nombre."),
+  // Mismos topes que el formulario de Contacto.jsx: sin ellos se podía mandar un mensaje de megas al correo del equipo.
+  name: z.string().trim().min(2, "Cuéntanos tu nombre.").max(100, "El nombre admite hasta 100 caracteres."),
   email: z.string().trim().email("Correo inválido."),
-  message: z.string().trim().min(5, "Cuéntanos un poco más."),
+  message: z.string().trim().min(5, "Cuéntanos un poco más.").max(2000, "El mensaje admite hasta 2000 caracteres."),
 });
 
 // Bloque 48: sin tabla de mensajes propia (ver decisión del bloque) — el

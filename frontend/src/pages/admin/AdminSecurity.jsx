@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import TwoFactorCard from "../../components/TwoFactorCard.jsx";
+import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 
 // Bloque 272 (pedido explícito): configuración de seguridad del administrador. Aquí vive el
 // plazo de la eliminación pendiente de tiendas ("esta configuración de 30 días se podrá
@@ -13,10 +14,20 @@ import TwoFactorCard from "../../components/TwoFactorCard.jsx";
 // el resto de las acciones sensibles (el modal lo gestiona ActionCodeProvider).
 export default function AdminSecurity({ embedded = false }) {
   const queryClient = useQueryClient();
-  const { data } = useQuery({
+  // Antes de que llegaran los datos los campos mostraban 30 y 5 y se podían guardar (unchanged era undefined), pisando
+  // el valor real con el de ejemplo. Ahora los formularios esperan a los datos y, si fallan, se ofrece reintentar.
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-security-settings"],
     queryFn: async () => (await api.get("/admin/security/settings")).data.settings,
   });
+  // Nombre del plan por defecto para el texto del asistente (planes dinámicos: nunca un nombre fijo). Mismo queryKey
+  // ["site-settings"] que el resto del panel.
+  const { data: siteSettings } = useQuery({
+    queryKey: ["site-settings"],
+    queryFn: async () => (await api.get("/settings")).data.settings,
+    staleTime: 5 * 60 * 1000,
+  });
+  const defaultPlan = siteSettings?.plans?.find((p) => p.isDefault) ?? null;
   const [days, setDays] = useState("30");
   useEffect(() => {
     if (data) setDays(String(data.vendorDeletionDays));
@@ -50,11 +61,11 @@ export default function AdminSecurity({ embedded = false }) {
   });
   const limitValue = Number(freeLimit);
   const limitValid = freeLimit !== "" && Number.isInteger(limitValue) && limitValue >= 0 && limitValue <= 500;
-  const limitUnchanged = data && limitValue === (data.freeAssistantDailyLimit ?? 5);
+  const limitUnchanged = !data || limitValue === (data.freeAssistantDailyLimit ?? 5);
 
   const value = Number(days);
   const valid = Number.isInteger(value) && value >= 1 && value <= 365;
-  const unchanged = data && value === data.vendorDeletionDays;
+  const unchanged = !data || value === data.vendorDeletionDays;
 
   return (
     <div className="max-w-[760px]">
@@ -62,13 +73,26 @@ export default function AdminSecurity({ embedded = false }) {
         <>
       <div className="mb-1 flex items-center gap-3">
         <IconCircle icon={ShieldCheck} tone="teal" />
-        <h1 className="font-display text-[26px] font-extrabold tracking-tight text-on-surface">Seguridad</h1>
+        <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Seguridad</h1>
       </div>
       <p className="mb-5 text-[13.5px] text-outline">Ajustes que protegen la plataforma. Cambiarlos o hacer acciones sensibles pide un código enviado a tu correo.</p>
 
         </>
       )}
 
+      {isLoading ? (
+        <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5">
+          <ListSkeleton rows={2} avatar={false} label="Cargando ajustes de seguridad" />
+        </div>
+      ) : isError && !data ? (
+        <div className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5 text-center">
+          <p className="mb-3 text-[13.5px] text-error">No se pudieron cargar los ajustes de seguridad.</p>
+          <Button variant="outline" disabled={isFetching} onClick={() => refetch()}>
+            {isFetching ? "Reintentando..." : "Reintentar"}
+          </Button>
+        </div>
+      ) : (
+      <>
       <section className="rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5">
         <div className="mb-3 flex items-center gap-2.5">
           <Trash2 className="h-[18px] w-[18px] text-error" aria-hidden="true" />
@@ -106,11 +130,19 @@ export default function AdminSecurity({ embedded = false }) {
       <section className="mt-5 rounded-2xl border border-surface-container-high/70 bg-surface-container-lowest p-5">
         <div className="mb-3 flex items-center gap-2.5">
           <MessageSquareText className="h-[18px] w-[18px] text-tertiary-accent" aria-hidden="true" />
-          <h2 className="text-[15px] font-bold text-on-surface">Asistente de negocio en el plan gratis</h2>
+          <h2 className="text-[15px] font-bold text-on-surface">Tope diario del asistente de negocio</h2>
         </div>
+        {/* El texto dice a quién se aplica de verdad (businessAssistant.controller, freeQuota con isPremiumActive): el plan
+            por defecto cuenta siempre, aunque se cobre y esté al día. Fuera de él, lo que exime es la tienda (verificada o
+            con tiempo pagado por delante), no que su plan dé insignia: una tienda de un plan con insignia que aún no está
+            verificada sí tiene tope. El paréntesis del cobro solo sale si el plan por defecto se cobra, para no hablar de un
+            pago que no existe. */}
         <p className="mb-4 text-[13px] leading-5 text-on-surface-variant">
-          Cuántos mensajes por día puede enviar al asistente una tienda sin plan de pago activo. Al agotarlos, el asistente le avisa que puede suscribirse para seguir o esperar al día siguiente, cuando su cuota se
-          restablece. Las tiendas con plan activo no tienen tope. Con 0 las tiendas gratis no pueden usarlo.
+          Cuántos mensajes por día puede enviar al asistente una tienda en el plan {defaultPlan ? <strong>{defaultPlan.displayName}</strong> : "por defecto"}
+          {defaultPlan && !defaultPlan.isFree ? " (también si lo paga y está al día)" : ""} o una tienda de otro plan que no esté verificada ni tenga
+          tiempo pagado por delante. Al agotarlos, el asistente le avisa que puede suscribirse o esperar al día siguiente, cuando su cuota se
+          restablece. Las tiendas de los demás planes que estén verificadas o tengan tiempo pagado por delante no tienen tope. Con 0, las tiendas
+          con tope no pueden usarlo.
         </p>
         <form
           onSubmit={(e) => {
@@ -136,6 +168,8 @@ export default function AdminSecurity({ embedded = false }) {
         </form>
         {!limitValid && <p className="mt-2 text-[12.5px] text-error">Escribe un número entero entre 0 y 500.</p>}
       </section>
+      </>
+      )}
 
       <div className="mt-5">
         <TwoFactorCard />

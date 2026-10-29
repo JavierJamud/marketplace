@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { cancelOrderForCustomer, editOrderItemsForCustomer, storeContactFor, CUSTOMER_CAN_CANCEL, CUSTOMER_CAN_EDIT } from "./orders.controller.js";
-import { sendOrderCancelHelpEmail } from "../lib/email.js";
+import { sendOrderCancelHelpEmail, storeEmailsAllowed } from "../lib/email.js";
 import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 
@@ -69,8 +69,12 @@ export async function updateMe(req, res) {
     data.country = country.toUpperCase();
   }
 
+  const fullLocation = !!(registrationCountryId || registrationCountryOther);
+  const currentProvinceId =
+    !fullLocation && basic.provinceId ? (await prisma.user.findUnique({ where: { id: req.user.id }, select: { provinceId: true } }))?.provinceId ?? null : null;
+
   let suggestions = [];
-  if (registrationCountryId || registrationCountryOther) {
+  if (fullLocation) {
     const location = await resolvePersonRegistrationLocation({
       countryId: registrationCountryId,
       countryOther: registrationCountryOther,
@@ -83,8 +87,10 @@ export async function updateMe(req, res) {
     const { suggestions: found, ...columns } = location;
     Object.assign(data, columns);
     suggestions = found;
-  } else if (basic.provinceId) {
-    // Solo la provincia (pestaña de direcciones): el país sale de la provincia y el municipio anterior ya no vale.
+  } else if (basic.provinceId && basic.provinceId !== currentProvinceId) {
+    // Solo la provincia (pestaña de direcciones) y distinta de la que ya tenía: el país sale de la provincia y el municipio
+    // anterior ya no vale. La pestaña manda la provincia en cada guardado, así que con la misma provincia (quien solo corrige la
+    // calle) no se toca nada más: borrar el municipio dejaba el perfil incompleto y las ventas rápidas sin ese dato.
     const province = await prisma.province.findUnique({ where: { id: basic.provinceId }, select: { countryId: true } });
     if (!province) throw new AppError("Provincia no válida.", 400);
     if (province.countryId) data.registrationCountryId = province.countryId;
@@ -135,6 +141,25 @@ async function loadOwnOrder(userId, orderId) {
 const cancelSchema = z.object({ reason: z.string().trim().max(500).optional() });
 const STATUS_TEXT = { PREPARING: "en preparación", READY: "en camino", DELIVERED: "entregado" };
 
+// Cada cuánto puede salir de nuevo el correo de "cómo cancelar" de un mismo pedido.
+const CANCEL_HELP_EMAIL_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+// Se busca en el registro de correos (EmailLog, lo escribe sendOrderCancelHelpEmail) y no en el historial del pedido: un
+// movimiento nuevo saldría sin etiqueta en el panel de la tienda, en los PDF y en el rastreo. El asunto es el que arma
+// templates/orderCancelHelp.js; si cambia allí, hay que cambiarlo aquí (en el peor caso el correo se vuelve a mandar).
+async function cancelHelpEmailSentRecently(order) {
+  const recent = await prisma.emailLog.findFirst({
+    where: {
+      orderId: order.id,
+      status: "SENT",
+      subject: `Cómo cancelar tu pedido ${order.code}`,
+      createdAt: { gte: new Date(Date.now() - CANCEL_HELP_EMAIL_COOLDOWN_MS) },
+    },
+    select: { id: true },
+  });
+  return !!recent;
+}
+
 export async function cancelMyOrder(req, res) {
   const { reason } = cancelSchema.parse(req.body ?? {});
   const order = await loadOwnOrder(req.user.id, req.params.id);
@@ -142,14 +167,27 @@ export async function cancelMyOrder(req, res) {
   // La plataforma solo cancela pedidos que la tienda todavía no confirmó. Si ya está en preparación, en camino o entregado, no se
   // cancela: se le manda al cliente un correo con el pedido y cómo contactar a la tienda, y la pantalla se lo avisa.
   if (order.status !== "NEW" && order.status !== "CANCELLED") {
-    const full = await prisma.order.findUnique({
-      where: { id: order.id },
-      include: {
-        items: { include: { product: { select: { images: true } } } },
-        vendor: { select: { companyName: true, slug: true, whatsapp: true, email: true, companyAddress: true, logoUrl: true } },
-      },
-    });
-    const emailSent = await sendOrderCancelHelpEmail(full).catch(() => false);
+    // El modal pide esto cada vez que se abre: si ya salió el correo de este pedido hace poco, no se repite.
+    // emailSkipped dice por qué no salió uno nuevo, para que la pantalla no lo presente como un fallo pasajero.
+    let emailSent = false;
+    let emailSkipped = null;
+    if (!order.customerEmail) {
+      emailSkipped = "no-email";
+    } else if (await cancelHelpEmailSentRecently(order)) {
+      emailSent = true;
+      emailSkipped = "recent";
+    } else if (!(await storeEmailsAllowed(order.vendorId))) {
+      emailSkipped = "plan";
+    } else {
+      const full = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          items: { include: { product: { select: { images: true } } } },
+          vendor: { select: { companyName: true, slug: true, whatsapp: true, email: true, companyAddress: true, logoUrl: true } },
+        },
+      });
+      emailSent = await sendOrderCancelHelpEmail(full).catch(() => false);
+    }
     const store = await storeContactFor(order.vendorId);
     return res.status(409).json({
       error: `Tu pedido ${order.code} ya está ${STATUS_TEXT[order.status] ?? "en proceso"}, así que no se puede cancelar desde aquí.`,
@@ -157,6 +195,7 @@ export async function cancelMyOrder(req, res) {
       orderCode: order.code,
       status: order.status,
       emailSent,
+      emailSkipped,
       email: order.customerEmail,
       store,
     });

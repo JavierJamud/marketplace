@@ -1,8 +1,20 @@
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getPlanConfig } from "../lib/planConfig.js";
+import { plansOffering, plansSentence } from "../lib/planUpsell.js";
 
 export const ZONE_INCLUDE = { province: { include: { country: true } }, municipality: true };
+
+// Provincias distintas de una lista de ubicaciones, para el tope maxProvinces: una sola cuenta para la tienda, el registro
+// y el admin. Una ubicación sin provincia del catálogo (país fuera de Cuba o estado escrito a mano) cuenta por su país y su
+// estado escrito. Antes aquí se contaba new Set(provinceId), así que todas las de provincia null valían como una, y el
+// admin usaba otra clave: uno veía "excede" donde el otro no.
+export function vendorProvinceKey(loc) {
+  return loc.provinceId ?? `${loc.countryId ?? loc.countryOther ?? ""}:${(loc.stateOther ?? "").trim().toLowerCase()}`;
+}
+export function countVendorProvinces(locations) {
+  return new Set(locations.map(vendorProvinceKey)).size;
+}
 
 // Zona de servicio de UNA provincia o estado de la tienda. municipalityIds null = toda la provincia; [] = quitar la provincia;
 // lista = solo esos municipios. La usan la propia tienda (Configuración) y el admin (Editar tienda), con las mismas reglas.
@@ -16,17 +28,17 @@ export async function syncVendorProvinceZone(vendor, { provinceId, municipalityI
   }
 
   const existingLocations = await prisma.vendorLocation.findMany({ where: { vendorId: vendor.id } });
-  const distinctProvinceCount = new Set(existingLocations.map((l) => l.provinceId)).size;
+  const distinctProvinceCount = countVendorProvinces(existingLocations);
   const isNewProvince = !existingLocations.some((l) => l.provinceId === provinceId);
 
   if (enforcePlan && isNewProvince && (municipalityIds === null || municipalityIds.length > 0)) {
     const planConfig = await getPlanConfig(vendor.planType);
     const max = planConfig?.maxProvinces ?? null;
     if (max !== null && distinctProvinceCount >= max) {
-      throw new AppError(
-        `Tu Plan ${planConfig.displayName} permite vender en hasta ${max} provincia(s). Verifica tu tienda para ampliar el límite.`,
-        403
-      );
+      // Mismo aviso que addMyLocation (vendors.controller.js): los planes con más provincias salen de la base. Antes decía
+      // "verifica tu tienda", como si verificarse subiera el tope; lo sube el plan.
+      const more = plansSentence(await plansOffering(null, { limitKey: "maxProvinces", above: max }), { one: "Para vender en más provincias, cámbiate al plan", many: "Para vender en más provincias, cámbiate a uno de estos planes:" });
+      throw new AppError([`Tu plan ${planConfig.displayName} permite vender en hasta ${max} ${max === 1 ? "provincia" : "provincias"}.`, more].filter(Boolean).join(" "), 403);
     }
   }
 

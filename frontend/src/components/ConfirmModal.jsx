@@ -49,13 +49,11 @@ export function ConfirmModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel?.(); }}
     >
       <div
-        className="relative max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface-container-lowest p-6 shadow-2xl"
-        style={{ animation: "modal-pop 0.18s ease-out" }}
+        className="modal-panel-6 relative w-full max-w-sm rounded-2xl bg-surface-container-lowest p-6 shadow-2xl motion-safe:animate-modal-pop"
       >
         <button
           onClick={onCancel}
@@ -99,12 +97,6 @@ export function ConfirmModal({
         </div>
       </div>
 
-      <style>{`
-        @keyframes modal-pop {
-          from { opacity: 0; transform: scale(0.94) translateY(8px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }

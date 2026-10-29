@@ -188,7 +188,9 @@ export default function AdminBranding({ mode = "brand" }) {
   });
 
   // Aviso al salir con cambios sin guardar: se comparan los campos con lo guardado y, si la persona elige "Guardar y salir",
-  // se guardan solo las tarjetas modificadas.
+  // se guardan solo las tarjetas modificadas, de a una. En paralelo, dos tarjetas que piden el mismo código de
+  // confirmación abrían dos pedidos de código a la vez y el primero quedaba colgado; en serie, la segunda ya entra en
+  // los 30 minutos que abre la primera confirmación.
   const dirtyName = !!settings && name.trim() !== (settings.siteName ?? "").trim();
   const dirtySocial = !!settings && ["whatsappUrl", "instagramUrl", "facebookUrl"].some((k) => social[k].trim() !== (settings[k] ?? "").trim());
   const dirtySupport = !!settings && supportWhatsapp.trim() !== (settings.supportWhatsapp ?? "").trim();
@@ -196,12 +198,12 @@ export default function AdminBranding({ mode = "brand" }) {
   const dirtyBadges = !!settings && (JSON.stringify(productBadges) !== JSON.stringify(settings.availableProductBadges ?? []) || Number(newBadgeDurationDays) !== (settings.newBadgeDurationDays ?? 14));
   useUnsavedGuard(dirtyName || dirtySocial || dirtySupport || dirtyTimezone || dirtyBadges, async () => {
     const jobs = [];
-    if (dirtyName) jobs.push(saveName.mutateAsync());
-    if (dirtySocial) jobs.push(saveSocial.mutateAsync());
-    if (dirtySupport) jobs.push(saveSupportWhatsapp.mutateAsync());
-    if (dirtyTimezone) jobs.push(saveTimezone.mutateAsync());
-    if (dirtyBadges) jobs.push(saveProductBadges.mutateAsync());
-    await Promise.all(jobs);
+    if (dirtyName) jobs.push(() => saveName.mutateAsync());
+    if (dirtySocial) jobs.push(() => saveSocial.mutateAsync());
+    if (dirtySupport) jobs.push(() => saveSupportWhatsapp.mutateAsync());
+    if (dirtyTimezone) jobs.push(() => saveTimezone.mutateAsync());
+    if (dirtyBadges) jobs.push(() => saveProductBadges.mutateAsync());
+    for (const run of jobs) await run();
   });
 
   function addProductBadge() {
@@ -218,7 +220,7 @@ export default function AdminBranding({ mode = "brand" }) {
     <div className={mode === "brand" ? "max-w-[720px]" : undefined}>
       {mode === "brand" && (
         <>
-      <h1 className="mb-1 font-display text-[26px] font-extrabold tracking-tight text-on-surface">Marca de la plataforma</h1>
+      <h1 className="mb-1 font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Marca de la plataforma</h1>
       <p className="mb-[22px] text-[13.5px] text-outline">
         El nombre se usa en todo el sitio — header, footer, títulos de página, correos, PDFs y mensajes de WhatsApp —
         sin necesidad de un redespliegue. El logo es fijo, parte del código de la plataforma.
@@ -314,17 +316,20 @@ export default function AdminBranding({ mode = "brand" }) {
         </Button>
       </div>
 
-      {/* Bloque 85 (pedido explícito): la usa aiHealthCheck.job.js para
-          saber cuándo son las 3:00am de verdad para este negocio — el reloj
-          en vivo de abajo es la confirmación visual de que la zona elegida
-          es la correcta antes de guardarla. */}
+      {/* Bloque 85 (pedido explícito): la usan aiHealthCheck.job.js (las 3:00 de
+          esta zona), los rangos de días del panel (getSiteTimezone en
+          admin/adminOrders/adminPlans) y el tope diario de venta rápida. Las
+          demás tareas programadas tienen la hora de La Habana fija en su
+          cron, por eso el texto no promete más que eso. El reloj en vivo de
+          abajo confirma que la zona elegida es la correcta antes de guardarla. */}
       <div className="mt-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
         <div className="mb-1 flex items-center gap-2 text-[15px] font-bold text-on-surface">
           <Clock className="h-4 w-4 text-tertiary-accent" /> Zona horaria
         </div>
         <p className="mb-4 text-[12.5px] text-outline">
-          Usada para la verificación automática diaria de los proveedores de IA (corre a las 3:00am de esta zona, el
-          horario de menos tráfico) y para cualquier otro proceso programado de la plataforma.
+          Marca cuándo empieza cada día en los informes del panel (pedidos, ventas del mes y estadísticas de planes), el
+          tope diario de anuncios de venta rápida y la revisión diaria de los proveedores de IA (a las 3:00 de esta zona).
+          Las demás tareas automáticas diarias siguen la hora de Cuba.
         </p>
         <div className="flex gap-2">
           <select

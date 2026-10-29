@@ -31,13 +31,13 @@ export function UserHistoryModal({ userId, onClose }) {
 
   const u = data?.user;
   return (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4 p-4" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Historial de la cuenta"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-lg flex-col rounded-t-2xl bg-surface-container-lowest shadow-2xl sm:rounded-2xl"
+        className="modal-panel flex w-full max-w-lg flex-col rounded-t-2xl bg-surface-container-lowest shadow-2xl sm:rounded-2xl"
       >
         <div className="flex items-start gap-3 border-b border-surface-container-high p-4">
           <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-tertiary-accent/10 text-tertiary-accent">

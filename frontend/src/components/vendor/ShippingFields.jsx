@@ -74,7 +74,7 @@ export function StoreShippingCard({ form, setForm, vendor, currencies }) {
 
   return (
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
-      <div className="mb-1 flex items-center gap-2 text-title-lg font-bold text-on-surface">
+      <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <Truck className="h-5 w-5 text-tertiary-accent" aria-hidden="true" /> Envío
       </div>
       <p className="mb-4 text-[12.5px] text-outline">
