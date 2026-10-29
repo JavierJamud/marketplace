@@ -475,6 +475,20 @@ export default function Account({ mode = "customer" }) {
   // Ya eligió cómo crear su cuenta (AccountTypePicker): por los botones "Crear mi tienda" / "Abrir tienda" del sitio (llegan
   // a /vendedor/ingresar?tab=registro, la intención ya es clara) o por ?como= al pasar de una pantalla a la otra.
   const [typeChosen, setTypeChosen] = useState(() => !!searchParams.get("como") || (mode === "vendor" && searchParams.get("tab") === "registro"));
+  // /cuenta y /vendedor/ingresar montan este mismo componente, así que React lo reutiliza al pasar de una a otra y el
+  // estado inicial no se vuelve a leer. La elección se sigue desde ?como=: al llegar con ella se muestra el formulario
+  // al primer clic, y al volver atrás a una dirección sin ella se vuelven a mostrar las dos opciones.
+  const comoParam = searchParams.get("como");
+  const prevComoRef = useRef(comoParam);
+  useEffect(() => {
+    if (comoParam) {
+      setTypeChosen(true);
+    } else if (prevComoRef.current) {
+      setTypeChosen(false);
+      setStep(1);
+    }
+    prevComoRef.current = comoParam;
+  }, [comoParam]);
   const [twoFactorEmail, setTwoFactorEmail] = useState(pending2fa?.email ?? "");
   const [twoFactorCode, setTwoFactorCode] = useState("");
   // Bloque 46 (pedido explícito — "vamos a corregir que en el inicio de
@@ -583,13 +597,9 @@ export default function Account({ mode = "customer" }) {
     setCodeError("");
   }
 
-  // Respuesta de "¿Cómo quieres crear tu cuenta?". La opción de esta pantalla sigue aquí; la otra lleva a su registro con
-  // ?como= para no volver a preguntar (y conserva ?plan= y ?socio= si llegaron).
+  // Respuesta de "¿Cómo quieres crear tu cuenta?". Las dos opciones dejan la elección en la dirección (?como=), también la
+  // de esta misma pantalla, para que el botón Atrás vuelva a las opciones. Conserva ?plan= y ?socio= si llegaron.
   function pickAccountType(type) {
-    if (type === accountType) {
-      setTypeChosen(true);
-      return;
-    }
     const next = new URLSearchParams();
     next.set("tab", "registro");
     next.set("como", type === "vendor" ? "vendedor" : "cliente");
