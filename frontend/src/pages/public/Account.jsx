@@ -627,8 +627,11 @@ export default function Account({ mode = "customer" }) {
   // Bloque 183: un usuario de sistema (VENDOR_STAFF) entra por la MISMA
   // puerta que el dueño — mismo destino /vendedor (VendorLayout.jsx decide
   // qué ve adentro según su rol/secciones, nunca esto de acá).
+  // Cliente y tienda son la misma cuenta: la puerta elegida decide a qué parte entra. Un vendedor que inicia sesión como
+  // cliente (/cuenta) va a sus compras, no al panel de su tienda.
+  const entersAsCustomer = (role) => role === "CUSTOMER" || (mode === "customer" && role === "VENDOR");
   function destinationAfterLogin(role) {
-    if (role === "CUSTOMER" && isSafeNextPath) return nextPath;
+    if (entersAsCustomer(role)) return isSafeNextPath ? nextPath : "/cuenta/panel";
     return role === "ADMIN" ? "/admin" : role === "PARTNER" ? "/socio" : role === "VENDOR" || role === "VENDOR_STAFF" ? "/vendedor" : "/cuenta/panel";
   }
 
@@ -647,7 +650,7 @@ export default function Account({ mode = "customer" }) {
   async function enterPanel(role) {
     enteringRef.current = true;
     setEntering(true);
-    if (!(role === "CUSTOMER" && isSafeNextPath)) await preloadPanel(role);
+    if (!(entersAsCustomer(role) && isSafeNextPath)) await preloadPanel(entersAsCustomer(role) ? "CUSTOMER" : role);
     navigate(destinationAfterLogin(role));
     requestAnimationFrame(() => requestAnimationFrame(() => toast.success("¡Bienvenido de vuelta!")));
   }
@@ -1428,7 +1431,7 @@ export default function Account({ mode = "customer" }) {
                 ? "Ingresa con tu cuenta de socio para ver el uso de tu API."
                 : mode === "vendor"
                 ? "Ingresa con tu cuenta de vendedor para gestionar tu tienda."
-                : "Ingresa para comprar o gestionar tu tienda."}
+                : "Ingresa con tu cuenta para comprar, guardar favoritos y seguir tus pedidos."}
             </p>
             <form onSubmit={handleLogin} aria-busy={loading}>
               {/* Mientras se revisa la cuenta y se abre el panel no se puede escribir ni volver a enviar. */}
@@ -1458,6 +1461,19 @@ export default function Account({ mode = "customer" }) {
               <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                 {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Entrar"}
               </Button>
+              {/* La otra puerta de la misma cuenta, en el mismo lugar en las dos pantallas. Es la misma pantalla con otro modo:
+                  el correo escrito se conserva al cambiar. */}
+              {(mode === "customer" || mode === "vendor") && (
+                <div className="border-t border-surface-container pt-4">
+                  <Link
+                    to={mode === "customer" ? "/vendedor/ingresar" : "/cuenta"}
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-outline-variant px-4 py-2.5 text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+                  >
+                    {mode === "customer" ? <Store className="h-4 w-4 text-tertiary-accent" aria-hidden="true" /> : <ShoppingBag className="h-4 w-4 text-tertiary-accent" aria-hidden="true" />}
+                    {mode === "customer" ? "Iniciar sesión como vendedor" : "Iniciar sesión como cliente"}
+                  </Link>
+                </div>
+              )}
               {mode === "partner" && (
                 <p className="text-center text-label-sm text-outline">
                   ¿Aún no tienes cuenta de socio? <Link to="/socios/solicitar" className="font-semibold text-tertiary-accent hover:underline">Solicita acceso a la API</Link>

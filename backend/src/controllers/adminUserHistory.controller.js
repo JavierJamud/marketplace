@@ -11,6 +11,7 @@ const SOURCE_LABEL = {
   ADMIN: "La eliminó un administrador",
   ADMIN_PENDING: "Venció la eliminación pendiente que puso un administrador",
   MODERATION: "Por reportes confirmados (moderación)",
+  ADMIN_MERGE: "Un administrador la unió con la cuenta de su tienda",
 };
 const REPORT_STATUS = {
   PENDING: "pendiente",

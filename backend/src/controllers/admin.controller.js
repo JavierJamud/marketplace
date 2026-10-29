@@ -44,6 +44,7 @@ import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
 import { adminReactivationBillingData, liftBillingSuspension } from "../services/planBilling.service.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
 import { getSiteTimezone } from "./settings.controller.js";
+import { findMergeCandidates, mergeCustomerIntoVendorAccount, mergeSummary } from "../lib/accountMerge.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -2585,6 +2586,39 @@ export async function deleteCustomer(req, res) {
 
   await finalizeUserDeletion(id, { source: "ADMIN", byId: req.user.id });
   res.status(204).end();
+}
+
+// "Unir con su tienda": un cliente que antes abrió su tienda con otra cuenta. Primero se muestran las cuentas de tienda que
+// parecen suyas (mismo teléfono, nombre o correo parecido) o las que el admin busque, y lo que se va a mover.
+export async function getCustomerMergeInfo(req, res) {
+  const { id } = req.params;
+  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, deletedAt: true } });
+  if (!user || user.role !== "CUSTOMER" || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
+  const q = z.string().trim().max(120).optional().parse(req.query.q);
+  const select = { id: true, fullName: true, email: true, phone: true, vendor: { select: { id: true, companyName: true, slug: true, whatsapp: true } } };
+  const [suggested, found, summary] = await Promise.all([
+    findMergeCandidates(id),
+    q && q.length >= 2
+      ? prisma.user.findMany({
+          where: {
+            role: "VENDOR",
+            deletedAt: null,
+            vendor: { is: { deletedAt: null } },
+            OR: [{ email: { contains: q, mode: "insensitive" } }, { fullName: { contains: q, mode: "insensitive" } }, { vendor: { is: { companyName: { contains: q, mode: "insensitive" } } } }],
+          },
+          select,
+          take: 8,
+        })
+      : [],
+    mergeSummary(id),
+  ]);
+  res.json({ suggested, found, summary });
+}
+
+export async function mergeCustomer(req, res) {
+  const { targetUserId } = z.object({ targetUserId: z.string().min(1) }).parse(req.body);
+  const result = await mergeCustomerIntoVendorAccount(req.params.id, targetUserId, { byId: req.user.id });
+  res.json(result);
 }
 
 // --- Chat vendedor <-> admin (Bloque 15) ------------------------------------

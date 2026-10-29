@@ -14,6 +14,7 @@ import { ConfirmDeleteModal } from "../../components/ConfirmDeleteModal.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
+import { MergeCustomerModal } from "../../components/admin/MergeCustomerModal.jsx";
 
 const PALETTE = ["#337475", "#8A5100", "#003435", "#643900", "#232F3E", "#2c5b2e"];
 function colorFor(id) {
@@ -84,7 +85,7 @@ const SORT_OPTIONS = [
 
 const ROW_GRID = "md:grid md:grid-cols-[minmax(0,2.6fr)_minmax(0,1.2fr)_72px_104px_104px_96px_44px] md:items-center md:gap-3";
 
-function CustomerRow({ c, onEdit, onSuspend, onReactivate, onDelete }) {
+function CustomerRow({ c, onEdit, onSuspend, onReactivate, onMerge, onDelete }) {
   const place = c.province ?? c.country ?? null;
   const menu = (
     <ActionMenu
@@ -92,6 +93,7 @@ function CustomerRow({ c, onEdit, onSuspend, onReactivate, onDelete }) {
       items={[
         { label: "Editar", onClick: onEdit },
         { label: c.isSuspended ? "Reactivar" : "Suspender", onClick: c.isSuspended ? onReactivate : onSuspend },
+        { label: "Unir con su tienda", onClick: onMerge },
         { label: "Eliminar", onClick: onDelete, danger: true },
       ]}
     />
@@ -163,6 +165,7 @@ export default function AdminCustomers() {
   const [params, setParams] = useListParams(LIST_DEFAULTS);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [merging, setMerging] = useState(null);
   const [suspending, setSuspending] = useState(null); // cliente a suspender, para el modal de confirmación
   // Lista negra al suspender (opcional): casilla y motivo, ver BlacklistCheckbox.
   const [blacklist, setBlacklist] = useState(false);
@@ -255,7 +258,7 @@ export default function AdminCustomers() {
         <IconCircle icon={Users} tone="teal" />
         <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight text-on-surface sm:text-[26px]">Clientes</h1>
       </div>
-      <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Usa los contadores para filtrar; en cada fila puedes editar, suspender o eliminar la cuenta.</p>
+      <p className="mb-4 text-[13.5px] text-outline">Compradores registrados. Usa los contadores para filtrar; en cada fila puedes editar, suspender, unir con su tienda o eliminar la cuenta.</p>
 
       <StatStrip>
         {tiles.map((t) => (
@@ -333,6 +336,7 @@ export default function AdminCustomers() {
             onEdit={() => setEditing(c)}
             onSuspend={() => setSuspending(c)}
             onReactivate={() => toggle.mutate({ id: c.id, isSuspended: false })}
+            onMerge={() => setMerging(c)}
             onDelete={() => setDeleting(c)}
           />
         ))}
@@ -374,6 +378,8 @@ export default function AdminCustomers() {
           onSave={(form) => update.mutateAsync({ id: editing.id, payload: form })}
         />
       )}
+
+      {merging && <MergeCustomerModal customer={merging} onClose={() => setMerging(null)} />}
 
       {deleting && (
         <ConfirmDeleteModal
