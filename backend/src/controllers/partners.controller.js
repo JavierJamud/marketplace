@@ -204,12 +204,13 @@ export async function grantPortalAccess(req, res) {
   const passwordHash = await bcrypt.hash(password, 10);
   let user;
   if (partner.userId) {
-    if (email && (await prisma.user.findFirst({ where: { email, id: { not: partner.userId } }, select: { id: true } }))) throw new AppError(`Ya existe una cuenta con el correo ${email}.`, 409);
+    // El socio es una cuenta de negocio: el correo solo choca con otras cuentas de negocio (lib/accountRealm.js).
+    if (email && (await emailTakenInRealm(email, "business", partner.userId))) throw new AppError(`Ya existe una cuenta con el correo ${email}.`, 409);
     user = await prisma.user.update({ where: { id: partner.userId }, data: { passwordHash, mustSetPassword: false, ...(email ? { email } : {}) } });
     await prisma.session.deleteMany({ where: { userId: user.id } });
   } else {
     const loginEmail = email ?? partner.contactEmail;
-    if (await prisma.user.findUnique({ where: { email: loginEmail } })) throw new AppError(`Ya existe una cuenta con el correo ${loginEmail}. Usa otro correo para el panel del socio.`, 409);
+    if (await emailTakenInRealm(loginEmail, "business")) throw new AppError(`Ya existe una cuenta con el correo ${loginEmail}. Usa otro correo para el panel del socio.`, 409);
     user = await prisma.user.create({ data: { email: loginEmail, passwordHash, role: "PARTNER", fullName: partner.contactName || partner.name, mustSetPassword: false } });
     await prisma.partner.update({ where: { id: partner.id }, data: { userId: user.id } });
   }

@@ -9,6 +9,13 @@ import { encryptSecret } from "../src/lib/crypto.js";
 
 const prisma = new PrismaClient();
 
+// Cliente y vendedor son cuentas separadas (src/lib/accountRealm.js): el correo es único dentro de cada lado (clientes, o
+// cuentas de negocio) y no hay upsert por correo. Busca en su lado y actualiza, o crea.
+async function upsertAccount({ where, update, create }) {
+  const found = await prisma.user.findFirst({ where });
+  return found ? prisma.user.update({ where: { id: found.id }, data: update }) : prisma.user.create({ data: create });
+}
+
 // Password de prueba compartida por TODAS las cuentas sembradas (dueños de
 // tienda y clientes). Solo para desarrollo — nunca usar en producción.
 const DEV_PASSWORD = "Zeudin2026!";
@@ -134,8 +141,8 @@ async function main() {
   console.log("Sembrando vendedores y sus dueños...");
   const vendorIdBySlug = {};
   for (const v of seedData.vendors) {
-    const owner = await prisma.user.upsert({
-      where: { email: v.owner.email },
+    const owner = await upsertAccount({
+      where: { email: v.owner.email, role: { not: "CUSTOMER" } },
       update: { fullName: v.owner.fullName, phone: v.owner.phone, role: "VENDOR", country: v.owner.country ?? "CU" },
       create: {
         email: v.owner.email,
@@ -314,8 +321,8 @@ async function main() {
   const userIdByEmail = {};
   for (const c of seedData.customers) {
     const provinceId = provinceIdByCode[c.province] ?? null;
-    const user = await prisma.user.upsert({
-      where: { email: c.email },
+    const user = await upsertAccount({
+      where: { email: c.email, role: "CUSTOMER" },
       update: { fullName: c.fullName, phone: c.phone, provinceId, country: c.country ?? "CU" },
       create: { email: c.email, passwordHash: devPasswordHash, fullName: c.fullName, phone: c.phone, role: "CUSTOMER", provinceId, country: c.country ?? "CU" },
     });
@@ -325,8 +332,8 @@ async function main() {
   // --- Admin ------------------------------------------------------------
   console.log("Sembrando usuario admin...");
   if (seedData.adminUser) {
-    await prisma.user.upsert({
-      where: { email: seedData.adminUser.email },
+    await upsertAccount({
+      where: { email: seedData.adminUser.email, role: { not: "CUSTOMER" } },
       update: { fullName: seedData.adminUser.fullName, phone: seedData.adminUser.phone, role: "ADMIN" },
       create: {
         email: seedData.adminUser.email,
@@ -464,7 +471,7 @@ async function main() {
     // authorEmail puede ser un cliente (userIdByEmail) o el dueño de una
     // tienda (no está en ese mapa, que solo cubre clientes) — se resuelve
     // directo contra User por si acaso.
-    const author = userIdByEmail[s.authorEmail] ? { id: userIdByEmail[s.authorEmail] } : await prisma.user.findUnique({ where: { email: s.authorEmail } });
+    const author = userIdByEmail[s.authorEmail] ? { id: userIdByEmail[s.authorEmail] } : await prisma.user.findFirst({ where: { email: s.authorEmail } });
     if (!author) continue;
     const existing = await prisma.suggestion.findFirst({ where: { authorId: author.id, message: s.message } });
     if (existing) continue;

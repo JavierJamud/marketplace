@@ -23,6 +23,7 @@ import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { capturePartnerRef, getPartnerCode, clearPartnerRef } from "../../lib/partnerRef.js";
 import { preloadPanel } from "../../lib/panelPreload.js";
 import { UsernameField } from "../../components/UsernameField.jsx";
+import { accountKindLabel, panelForRole } from "../../lib/accountPanel.js";
 import { ShoppingBag, Store, ChevronRight } from "lucide-react";
 
 // "¿Cómo quieres crear tu cuenta?": lo primero que ve quien toca "Crear cuenta". Muchos dueños de negocio entraban por
@@ -47,7 +48,7 @@ function AccountTypePicker({ onPick }) {
   return (
     <>
       <h1 className="mb-1 text-headline-md text-on-surface">¿Cómo quieres crear tu cuenta?</h1>
-      <p className="mb-6 text-body-md text-on-surface-variant">Elige una opción. Si después quieres abrir tu tienda, puedes hacerlo con esta misma cuenta.</p>
+      <p className="mb-6 text-body-md text-on-surface-variant">Elige una opción. Tu cuenta de cliente y tu cuenta de vendedor son distintas, aunque uses el mismo correo.</p>
       <div className="grid gap-3">
         {OPTIONS.map((o) => {
           const Icon = o.icon;
@@ -138,11 +139,12 @@ const SHELL_COPY = {
   },
 };
 
-// Botones grandes de esta pantalla. Button size="lg" tiene alto fijo (h-12) y letra de 20px: un texto largo como
-// "Reintentar crear mi tienda", o el botón de enviar al lado de "Atrás", pasa a dos líneas a 390px y se salía del botón.
-// Con esto crece en vez de desbordar; min-h-12 conserva el alto de siempre cuando cabe en una línea. h-auto le gana a
-// h-12 porque Tailwind genera h-auto después en el CSS.
-const LG_FIT = "h-auto min-h-12 py-2 leading-tight";
+// Botones principales de esta pantalla: tamaño normal (Button size="md": 44px de alto y letra de 14px), como en las
+// plataformas de alto nivel. Antes eran size="md" con letra de 20px y se veían demasiado grandes (pedido del dueño). Un texto
+// largo como "Reintentar crear mi tienda", o el botón de enviar al lado de "Atrás", puede pasar a dos líneas a 390px: con
+// esto el botón crece en vez de desbordar; min-h-11 conserva el alto cuando cabe en una línea (h-auto le gana a h-11
+// porque Tailwind genera h-auto después en el CSS).
+const LG_FIT = "h-auto min-h-11 py-2.5 leading-tight";
 // Botones de solo texto (reenviar código, volver, olvidé mi contraseña): medían unos 20px de alto, poco para tocarlos con
 // el dedo. min-h-11 les da los 44px y text-left alinea el texto si se parte en dos líneas.
 const TEXT_BTN = "flex min-h-11 items-center text-left text-label-md font-semibold";
@@ -199,10 +201,10 @@ function RegisterAppStep({ onDone }) {
             Por defecto, al iniciar sesión te enviamos un código a tu correo. Si quieres, puedes usar además una aplicación de autenticación (Google Authenticator, Microsoft Authenticator o Authy) que genera el código en tu teléfono.
           </p>
           <div className="space-y-3">
-            <Button type="button" size="lg" className={`w-full rounded-xl ${LG_FIT}`} onClick={start} disabled={starting}>
+            <Button type="button" size="md" className={`w-full rounded-xl ${LG_FIT}`} onClick={start} disabled={starting}>
               {starting ? "Preparando..." : "Activar también con aplicación"}
             </Button>
-            <Button type="button" variant="outline" size="lg" className={`w-full rounded-xl ${LG_FIT}`} onClick={onDone}>
+            <Button type="button" variant="outline" size="md" className={`w-full rounded-xl ${LG_FIT}`} onClick={onDone}>
               Solo por correo, omitir
             </Button>
           </div>
@@ -225,7 +227,7 @@ function RegisterAppStep({ onDone }) {
             {showSecret && <p className="select-all break-all rounded-lg bg-surface-container px-3 py-2 font-mono text-[13px] tracking-wider text-on-surface">{setup.secret}</p>}
           </div>
           <OtpInput label="Código de la aplicación" autoFocus value={code} onChange={(v) => { setCode(v); setCodeError(""); }} error={codeError || undefined} />
-          <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={code.length !== 6 || checking}>
+          <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={code.length !== 6 || checking}>
             {checking ? "Verificando..." : "Verificar y activar"}
           </Button>
           <button type="button" onClick={onDone} className="block min-h-11 text-label-md font-semibold text-outline">
@@ -233,6 +235,37 @@ function RegisterAppStep({ onDone }) {
           </button>
         </form>
       )}
+    </div>
+  );
+}
+
+// En este navegador ya hay una sesión abierta de otro tipo de cuenta (por ejemplo, de cliente en la pantalla del vendedor).
+// Nunca se muestra el formulario de ingreso con una sesión abierta (una sola sesión por navegador): se dice qué cuenta está
+// abierta y se ofrece ir a su panel o cerrarla para entrar con la otra. Cliente y vendedor son cuentas separadas.
+function ActiveSessionNotice({ user, mode, onLogout }) {
+  const wanted = mode === "vendor" ? "vendedor" : mode === "admin" ? "administrador" : mode === "partner" ? "socio" : "cliente";
+  return (
+    <div className="animate-step-in">
+      <h1 className="mb-2 text-headline-md text-on-surface">Ya tienes una sesión abierta</h1>
+      <p className="mb-6 text-body-md text-on-surface-variant">
+        Estás dentro con tu cuenta de {accountKindLabel(user.role)} <strong className="break-all text-on-surface">{user.email}</strong>. En este navegador
+        solo puede haber una sesión abierta. Para entrar con tu cuenta de {wanted}, primero cierra esta.
+      </p>
+      <div className="space-y-3">
+        <Link
+          to={panelForRole(user.role).href}
+          className="flex min-h-11 w-full items-center justify-center rounded-xl bg-secondary-container px-4 py-2.5 text-label-md font-semibold text-on-secondary-container hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+        >
+          Ir a mi cuenta de {accountKindLabel(user.role)}
+        </Link>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="flex min-h-11 w-full items-center justify-center rounded-xl border border-outline px-4 py-2.5 text-label-md font-semibold text-on-surface hover:bg-surface-container focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+        >
+          Cerrar sesión
+        </button>
+      </div>
     </div>
   );
 }
@@ -440,7 +473,7 @@ function clearPending2fa(mode) {
 export default function Account({ mode = "customer" }) {
   // Enlace de socio que llegó directo a esta pantalla (…/vendedor/ingresar?socio=CODIGO).
   useEffect(() => capturePartnerRef(), []);
-  const { user: sessionUser, login, verifyTwoFactor, register, verifyRegistration, refreshRole, logout } = useAuth();
+  const { user: sessionUser, loading: authLoading, login, verifyTwoFactor, register, verifyRegistration, refetch, logout } = useAuth();
   const { siteName } = usePlatformSettings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -537,6 +570,8 @@ export default function Account({ mode = "customer" }) {
   // Sesión ya aceptada y bajando el panel: el formulario sigue bloqueado hasta que el panel aparece.
   const [entering, setEntering] = useState(false);
   const enteringRef = useRef(false);
+  // La sesión abierta la inició esta misma pantalla (ingreso, código o registro): no se trata como "ya había una sesión".
+  const ownSessionRef = useRef(false);
   // Pestañas "Iniciar sesión" y "Crear cuenta": al cambiar con las flechas, el foco pasa a la pestaña nueva.
   const loginTabRef = useRef(null);
   const registerTabRef = useRef(null);
@@ -627,30 +662,38 @@ export default function Account({ mode = "customer" }) {
   // Bloque 183: un usuario de sistema (VENDOR_STAFF) entra por la MISMA
   // puerta que el dueño — mismo destino /vendedor (VendorLayout.jsx decide
   // qué ve adentro según su rol/secciones, nunca esto de acá).
-  // Cliente y tienda son la misma cuenta: la puerta elegida decide a qué parte entra. Un vendedor que inicia sesión como
-  // cliente (/cuenta) va a sus compras, no al panel de su tienda.
-  const entersAsCustomer = (role) => role === "CUSTOMER" || (mode === "customer" && role === "VENDOR");
+  // Cliente y vendedor son cuentas separadas (backend/src/lib/accountRealm.js): cada pantalla entra solo a su tipo de cuenta.
   function destinationAfterLogin(role) {
-    if (entersAsCustomer(role)) return isSafeNextPath ? nextPath : "/cuenta/panel";
-    return role === "ADMIN" ? "/admin" : role === "PARTNER" ? "/socio" : role === "VENDOR" || role === "VENDOR_STAFF" ? "/vendedor" : "/cuenta/panel";
+    if (role === "CUSTOMER" && isSafeNextPath) return nextPath;
+    return panelForRole(role).href;
   }
 
-  // /cuenta (mode="customer") acepta cualquier rol (comportamiento de
-  // siempre) — /vendedor/ingresar y /admin/ingresar exigen que el rol
-  // devuelto coincida con la URL usada.
   function roleAllowedForMode(role) {
     if (mode === "admin") return role === "ADMIN";
     if (mode === "partner") return role === "PARTNER";
-    // Una cuenta de cliente sin tienda también entra por aquí: se le lleva a terminar de crearla (ver startStoreCompletion).
-    if (mode === "vendor") return role === "VENDOR" || role === "VENDOR_STAFF" || role === "CUSTOMER";
-    return true;
+    if (mode === "vendor") return role === "VENDOR" || role === "VENDOR_STAFF";
+    return role === "CUSTOMER";
   }
+
+  // Con una sesión abierta en este navegador no se muestra el ingreso (pedido del dueño): si es del tipo de esta pantalla,
+  // se va directo a su panel; una cuenta de vendedor sin tienda termina de crearla aquí; si es de otro tipo, se muestra
+  // ActiveSessionNotice (abajo, en el render).
+  useEffect(() => {
+    if (authLoading || !sessionUser || ownSessionRef.current) return;
+    if (mode === "vendor" && sessionUser.role === "VENDOR" && sessionUser.needsStore) {
+      ownSessionRef.current = true;
+      startStoreCompletion(sessionUser);
+      return;
+    }
+    if (roleAllowedForMode(sessionUser.role)) navigate(destinationAfterLogin(sessionUser.role), { replace: true });
+    // Solo cuando cambia la sesión: las funciones de arriba se recrean en cada render.
+  }, [authLoading, sessionUser]);
 
   // El panel se pide antes de cambiar de página y el aviso de bienvenida sale cuando ya está en pantalla, no antes.
   async function enterPanel(role) {
     enteringRef.current = true;
     setEntering(true);
-    if (!(entersAsCustomer(role) && isSafeNextPath)) await preloadPanel(entersAsCustomer(role) ? "CUSTOMER" : role);
+    if (!(role === "CUSTOMER" && isSafeNextPath)) await preloadPanel(role);
     navigate(destinationAfterLogin(role));
     requestAnimationFrame(() => requestAnimationFrame(() => toast.success("¡Bienvenido de vuelta!")));
   }
@@ -667,7 +710,8 @@ export default function Account({ mode = "customer" }) {
     preloadPanel(panelRoleForMode());
     try {
       await withMinDelay(async () => {
-        const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
+        ownSessionRef.current = true;
+        const result = await login(loginForm.email, loginForm.password, mode);
         // Bloque 47: 2FA opt-in — en vez de navegar, muestra el paso de
         // "ingresa el código" (mismo patrón visual que forgot-code).
         if (result?.requiresTwoFactor) {
@@ -706,14 +750,15 @@ export default function Account({ mode = "customer" }) {
           toast.error("Credenciales inválidas.");
           return;
         }
-        if (mode === "vendor" && result.role === "CUSTOMER") {
-          toast.success("Tu cuenta todavía no tiene tienda. Termina de crearla aquí.");
+        if (mode === "vendor" && result.needsStore) {
+          toast.success("Tu cuenta de vendedor todavía no tiene tienda. Termina de crearla aquí.");
           startStoreCompletion(result);
           return;
         }
         await enterPanel(result.role);
       });
     } catch (err) {
+      ownSessionRef.current = false;
       toast.error(err.response?.data?.error ?? "Algo salió mal. Intenta de nuevo.");
     } finally {
       if (!enteringRef.current) setLoading(false);
@@ -727,7 +772,8 @@ export default function Account({ mode = "customer" }) {
     preloadPanel(panelRoleForMode());
     try {
       await withMinDelay(async () => {
-        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined, challengeToken);
+        ownSessionRef.current = true;
+        const user = await verifyTwoFactor(twoFactorEmail, twoFactorCode, mode, challengeToken);
         clearPending2fa(mode);
         if (!roleAllowedForMode(user.role)) {
           logout();
@@ -735,14 +781,15 @@ export default function Account({ mode = "customer" }) {
           setView("login");
           return;
         }
-        if (mode === "vendor" && user.role === "CUSTOMER") {
-          toast.success("Tu cuenta todavía no tiene tienda. Termina de crearla aquí.");
+        if (mode === "vendor" && user.needsStore) {
+          toast.success("Tu cuenta de vendedor todavía no tiene tienda. Termina de crearla aquí.");
           startStoreCompletion(user);
           return;
         }
         await enterPanel(user.role);
       });
     } catch (err) {
+      ownSessionRef.current = false;
       // El código se borra para volver a escribirlo y se explica debajo de las casillas.
       setTwoFactorCode("");
       setCodeError(err.response?.data?.error ?? "Código incorrecto o vencido.");
@@ -776,7 +823,7 @@ export default function Account({ mode = "customer" }) {
     if (accountType === "vendor") {
       return {
         ...base,
-        // Con el correo de su cuenta de cliente, la tienda se une a esa cuenta al verificar el código.
+        // Cuenta de vendedor: aparte de la de cliente aunque use el mismo correo.
         forStore: true,
         registrationCountryId: storeForm.countryId || undefined,
         registrationCountryOther: storeForm.countryOther.trim() || undefined,
@@ -835,9 +882,8 @@ export default function Account({ mode = "customer" }) {
       // Antes de crear la cuenta: si el nombre, el WhatsApp o el correo ya son de otra tienda, se avisa aquí y no se sigue.
       try {
         const { data } = await api.post("/vendors/check-availability", { companyName: storeForm.companyName, whatsapp: form.phone, email: form.email, username: storeForm.username || undefined });
-        // Correo de una cuenta que ya existe: no se le pide iniciar sesión. El registro sigue y, si es una cuenta de cliente,
-        // al verificar el código la tienda queda en esa misma cuenta (forStore en register). Si es de otro tipo, el servidor
-        // responde "duplicate" y se lleva a iniciar sesión (catch de abajo).
+        // Si el correo ya es de una cuenta de vendedor, el servidor responde "duplicate" al registrar y se lleva a iniciar
+        // sesión (catch de abajo). Una cuenta de cliente con el mismo correo no cuenta: es otra cuenta, separada.
         const first = Object.values(data.conflicts ?? {})[0];
         if (first) {
           toast.error(first);
@@ -924,10 +970,8 @@ export default function Account({ mode = "customer" }) {
         },
       ],
     });
-    // El accessToken recién emitido por verifyRegistration() todavía
-    // dice role CUSTOMER — sin refrescarlo, /vendedor/* devolvería 403
-    // apenas se cierre el modal y se navegue al panel.
-    await refreshRole();
+    // La cuenta ya tiene tienda: se vuelve a leer para que el panel no la mande de nuevo a crearla (needsStore).
+    await refetch();
     clearPartnerRef();
     // La tienda ya existe: lo que sigue depende del plan elegido en /planes. La lista de planes casi siempre ya está en
     // caché; si no, se pide aquí. Si tampoco llega, con un plan elegido se va a la verificación (esa pantalla ignora una
@@ -965,10 +1009,9 @@ export default function Account({ mode = "customer" }) {
     try {
       await withMinDelay(async () => {
         let linkedOrdersCount = 0;
-        let mergedIntoCustomer = false;
         if (!accountCreated) {
-          ({ linkedOrdersCount, mergedIntoCustomer } = await verifyRegistration(form.email, registerCode));
-          if (mergedIntoCustomer) toast.success("Unimos tu tienda a tu cuenta de cliente", "Tus compras, favoritos y anuncios siguen ahí. Desde ahora entras con la contraseña que acabas de elegir.");
+          ownSessionRef.current = true;
+          ({ linkedOrdersCount } = await verifyRegistration(form.email, registerCode, accountType === "vendor"));
           setAccountCreated(true);
         }
 
@@ -1054,7 +1097,7 @@ export default function Account({ mode = "customer" }) {
     }
     setResendingCode(true);
     try {
-      const result = await login(loginForm.email, loginForm.password, mode === "admin" || mode === "vendor" || mode === "partner" ? mode : undefined);
+      const result = await login(loginForm.email, loginForm.password, mode);
       if (result?.requiresTwoFactor) {
         setTwoFactorExpiresAt(result.twoFactorExpiresAt);
         setTwoFactorCode("");
@@ -1073,7 +1116,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        const { data } = await api.post("/auth/forgot-password", { email: resetEmail });
+        const { data } = await api.post("/auth/forgot-password", { email: resetEmail, context: mode });
         setResetExpiresAt(data.codeExpiresAt);
         setResetCode("");
         setCodeError("");
@@ -1090,7 +1133,7 @@ export default function Account({ mode = "customer" }) {
   async function handleResendResetCode() {
     setResendingCode(true);
     try {
-      const { data } = await api.post("/auth/forgot-password", { email: resetEmail });
+      const { data } = await api.post("/auth/forgot-password", { email: resetEmail, context: mode });
       setResetExpiresAt(data.codeExpiresAt);
       setResetCode("");
       setCodeError("");
@@ -1107,7 +1150,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        await api.post("/auth/verify-reset-code", { email: resetEmail, code: resetCode });
+        await api.post("/auth/verify-reset-code", { email: resetEmail, code: resetCode, context: mode });
         setView("forgot-newpass");
       });
     } catch (err) {
@@ -1127,7 +1170,7 @@ export default function Account({ mode = "customer" }) {
     setLoading(true);
     try {
       await withMinDelay(async () => {
-        await api.post("/auth/reset-password", { email: resetEmail, code: resetCode, newPassword, confirmPassword });
+        await api.post("/auth/reset-password", { email: resetEmail, code: resetCode, newPassword, confirmPassword, context: mode });
         toast.success("Contraseña actualizada. Ya puedes entrar.");
         setLoginForm({ email: resetEmail, password: "" });
         setResetEmail("");
@@ -1146,6 +1189,25 @@ export default function Account({ mode = "customer" }) {
   function closePlanModal() {
     setPlanModalOffer(null);
     navigate("/vendedor");
+  }
+
+  // Primero se carga la sesión de este navegador: mientras tanto no se muestra el formulario. Con una sesión abierta que no
+  // inició esta pantalla, el efecto de arriba ya va a su panel; si es de otro tipo de cuenta, se avisa (ActiveSessionNotice).
+  if (authLoading || (sessionUser && !ownSessionRef.current && roleAllowedForMode(sessionUser.role))) {
+    return (
+      <AccountShell mode={mode}>
+        <div className="flex justify-center py-16" role="status" aria-label="Cargando tu sesión">
+          <Spinner />
+        </div>
+      </AccountShell>
+    );
+  }
+  if (sessionUser && !ownSessionRef.current) {
+    return (
+      <AccountShell mode={mode}>
+        <ActiveSessionNotice user={sessionUser} mode={mode} onLogout={() => logout()} />
+      </AccountShell>
+    );
   }
 
   if (planModalOffer) {
@@ -1185,7 +1247,7 @@ export default function Account({ mode = "customer" }) {
           )}
           <form onSubmit={handleVerifyTwoFactor} className="space-y-4">
             <OtpInput label="Código de verificación" required autoFocus value={twoFactorCode} onChange={(v) => { setTwoFactorCode(v); setCodeError(""); }} error={codeError || undefined} />
-            <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || twoFactorCode.length !== 6}>
+            <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || twoFactorCode.length !== 6}>
               {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Verificar e ingresar"}
             </Button>
           </form>
@@ -1258,7 +1320,7 @@ export default function Account({ mode = "customer" }) {
             {!accountCreated && (
               <OtpInput label="Código de verificación" required autoFocus value={registerCode} onChange={(v) => { setRegisterCode(v); setCodeError(""); }} error={codeError || undefined} />
             )}
-            <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || (!accountCreated && registerCode.length !== 6)}>
+            <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || (!accountCreated && registerCode.length !== 6)}>
               {loading ? (
                 <>
                   <Spinner className="text-white" /> {accountType === "vendor" ? "Creando tu tienda..." : "Creando tu cuenta..."}
@@ -1300,7 +1362,7 @@ export default function Account({ mode = "customer" }) {
               <p className="mb-6 text-body-md text-on-surface-variant">Ingresa tu correo y te mandamos un código de verificación.</p>
               <form onSubmit={handleForgotEmail} className="space-y-4">
                 <Input label="Correo" type="email" autoComplete="email" required value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} />
-                <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
+                <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                   {loading ? (<><Spinner className="text-white" /> Enviando...</>) : "Enviar código"}
                 </Button>
               </form>
@@ -1329,7 +1391,7 @@ export default function Account({ mode = "customer" }) {
               </p>
               <form onSubmit={handleVerifyCode} className="space-y-4">
                 <OtpInput label="Código de verificación" required autoFocus value={resetCode} onChange={(v) => { setResetCode(v); setCodeError(""); }} error={codeError || undefined} />
-                <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || resetCode.length !== 6}>
+                <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading || resetCode.length !== 6}>
                   {loading ? (<><Spinner className="text-white" /> Verificando...</>) : "Verificar código"}
                 </Button>
               </form>
@@ -1349,7 +1411,7 @@ export default function Account({ mode = "customer" }) {
               <form onSubmit={handleResetPassword} className="space-y-4">
                 <PasswordInput label="Nueva contraseña" autoComplete="new-password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
                 <PasswordInput label="Confirmar contraseña" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
-                <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
+                <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                   {loading ? (<><Spinner className="text-white" /> Guardando...</>) : "Restablecer contraseña"}
                 </Button>
               </form>
@@ -1458,11 +1520,12 @@ export default function Account({ mode = "customer" }) {
               <button type="button" onClick={() => setView("forgot-email")} className="flex min-h-11 items-center text-left text-label-sm font-semibold text-tertiary-accent">
                 ¿Olvidaste tu contraseña?
               </button>
-              <Button type="submit" size="lg" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
+              <Button type="submit" size="md" className={`w-full rounded-xl ${LG_FIT}`} disabled={loading}>
                 {loading ? (<><Spinner className="text-white" /> {entering ? "Abriendo tu panel..." : "Verificando..."}</>) : "Entrar"}
               </Button>
-              {/* La otra puerta de la misma cuenta, en el mismo lugar en las dos pantallas. Es la misma pantalla con otro modo:
-                  el correo escrito se conserva al cambiar. */}
+              {/* Cliente y vendedor son cuentas separadas con su propia pantalla de ingreso (pedido del dueño): aquí se
+                  cambia a la pantalla del otro tipo de cuenta. Es la misma pantalla con otro modo: el correo escrito se
+                  conserva, y cada pantalla solo entra a su tipo de cuenta. */}
               {(mode === "customer" || mode === "vendor") && (
                 <div className="border-t border-surface-container pt-4">
                   <Link
@@ -1498,18 +1561,6 @@ export default function Account({ mode = "customer" }) {
                 style={{ width: `${completingStore ? ((step - 2) / 2) * 100 : (step / totalSteps) * 100}%` }}
               />
             </div>
-            {/* Quien ya tiene sesión de cliente puede abrir su tienda con esa misma cuenta, sin registrarse otra vez. */}
-            {mode === "vendor" && !completingStore && step === 1 && sessionUser?.role === "CUSTOMER" && (
-              <div className="mb-5 rounded-xl border border-tertiary-accent/40 bg-tertiary-accent/5 p-3.5">
-                <p className="text-label-md text-on-surface">
-                  Ya iniciaste sesión como <strong>{sessionUser.fullName}</strong>. Puedes crear tu tienda con esta misma cuenta.
-                </p>
-                <Button type="button" size="md" className="mt-2.5 w-full rounded-xl" onClick={() => startStoreCompletion(sessionUser)}>
-                  Crear mi tienda con esta cuenta
-                </Button>
-              </div>
-            )}
-
             <form onSubmit={goNext} className="space-y-4">
               {step === 1 && (
                 <div key="step-1" className="animate-step-in space-y-4">
@@ -1714,11 +1765,11 @@ export default function Account({ mode = "customer" }) {
 
               <div className="flex gap-2.5">
                 {step > (completingStore ? 3 : 1) && (
-                  <Button type="button" variant="outline" size="lg" onClick={() => setStep((s) => s - 1)} disabled={loading} className={`rounded-xl ${LG_FIT}`}>
+                  <Button type="button" variant="outline" size="md" onClick={() => setStep((s) => s - 1)} disabled={loading} className={`rounded-xl ${LG_FIT}`}>
                     Atrás
                   </Button>
                 )}
-                <Button type="submit" size="lg" className={`flex-1 rounded-xl ${LG_FIT}`} disabled={loading}>
+                <Button type="submit" size="md" className={`flex-1 rounded-xl ${LG_FIT}`} disabled={loading}>
                   {loading ? (
                     <>
                       <Spinner className="text-white" />

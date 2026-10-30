@@ -221,11 +221,11 @@ export default function App() {
         <Route path="/carrito" element={<Cart />} />
         <Route path="/carrito-compartido/:id" element={<SharedCart />} />
         <Route path="/checkout" element={<Checkout />} />
-        {/* El dueño de una tienda conserva su cuenta de cliente: sus compras, favoritos y venta rápida. */}
+        {/* Solo cuentas de cliente: la de vendedor es otra cuenta, separada aunque comparta correo. */}
         <Route
           path="/cuenta/panel"
           element={
-            <ProtectedRoute roles={["CUSTOMER", "VENDOR"]} redirectTo="/cuenta">
+            <ProtectedRoute roles={["CUSTOMER"]} redirectTo="/cuenta">
               <CustomerPanel />
             </ProtectedRoute>
           }

@@ -146,8 +146,9 @@ export async function createMyStaff(req, res) {
   const data = createStaffSchema.parse(req.body);
   const email = data.email.trim().toLowerCase();
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) throw new AppError("Ya existe una cuenta con ese correo.", 409);
+  // El personal es una cuenta de negocio: su correo no se repite entre cuentas de negocio. Una cuenta de cliente con el
+  // mismo correo es otra cuenta, separada (lib/accountRealm.js).
+  if (await emailTakenInRealm(email, "business")) throw new AppError("Ya existe una cuenta de negocio con ese correo.", 409);
   await assertNotBlacklisted({ email, phone: data.phone });
   if (data.phone?.trim()) await assertPhoneFree(data.phone, {}, "Ese teléfono ya lo usa otra cuenta.");
 
@@ -251,8 +252,7 @@ export async function updateMyStaff(req, res) {
   let emailChanged = false;
   if (data.email) {
     const email = data.email.trim().toLowerCase();
-    const existing = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
-    if (existing && existing.id !== staff.userId) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+    if (await emailTakenInRealm(email, "business", staff.userId)) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
     await assertNotBlacklisted({ email }, { userId: staff.userId });
     const current = await prisma.user.findUnique({ where: { id: staff.userId }, select: { email: true } });
     emailChanged = current?.email.toLowerCase() !== email;

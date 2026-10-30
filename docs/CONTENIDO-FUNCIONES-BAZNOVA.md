@@ -37,7 +37,7 @@ Baznova no se queda con un porcentaje de lo que vendes. Pagas tu plan, si eliges
 ### Abre tu tienda en minutos
 **A quién favorece:** Todos
 
-Registro en cuatro pasos: tus datos, tu contraseña, tu tienda (nombre, enlace propio y tipo de negocio) y dónde estás. Si eres restaurante, cafetería o bar lo indicas ahí mismo con tus mesas. Si ya compras en Baznova, tu tienda se abre en tu misma cuenta, con tus compras y favoritos.
+Registro en cuatro pasos: tus datos, tu contraseña, tu tienda (nombre, enlace propio y tipo de negocio) y dónde estás. Si eres restaurante, cafetería o bar lo indicas ahí mismo con tus mesas. Tu cuenta de vendedor es aparte de tu cuenta de cliente, aunque uses el mismo correo y teléfono: cada una entra por su propio acceso y nunca se mezclan.
 
 ### Un asistente que te guía paso a paso
 **A quién favorece:** Todos

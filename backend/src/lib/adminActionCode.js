@@ -33,7 +33,6 @@ export const ACTION_LABELS = {
   // Clientes
   CUSTOMER_CHANGE: "modificar un cliente",
   DELETE_CUSTOMER: "eliminar un cliente",
-  MERGE_CUSTOMER: "unir la cuenta de un cliente con la cuenta de su tienda",
   // Reglas y configuración de la plataforma
   PLAN_CONFIG_CHANGE: "cambiar la configuración de los planes",
   // Archivar un plan mueve todas sus tiendas a otro plan en bloque: va aparte para no heredar la gracia de una edición de precio.

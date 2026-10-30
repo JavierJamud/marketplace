@@ -124,16 +124,10 @@ router.get("/me/reviews", authenticate, requireVendorAccess("resenas"), reviewsC
 router.patch("/me/reviews/:id/reply", authenticate, requireVendorWrite("resenas"), reviewsController.replyToReview);
 router.post("/me/ai-document", authenticate, ownerWrite, vendorAiDocUpload.single("document"), vendorsController.uploadAiDocument);
 router.delete("/me/ai-document", authenticate, ownerWrite, vendorsController.removeAiDocument);
-// Bloque 184 (auditoría de seguridad): ÚNICO endpoint del sistema donde un
-// usuario escribe su propio `role` (createVendor termina con
-// `user.update({ data: { role: "VENDOR" } })`). Es el alta de tienda del
-// flujo de registro, así que el que llama siempre es un CUSTOMER recién
-// verificado — Account.jsx y VendorOnboarding.jsx. Sin este requireRole, un
-// usuario de sistema (VENDOR_STAFF) podía llamarlo y ascenderse solo a
-// VENDOR: el 409 de "ya tenés una tienda" no lo frena porque un staff nunca
-// tiene fila propia en Vendor (ver resolveVendor.js). Se escapaba así del
-// modelo de permisos por secciones y del botón de desactivar del dueño.
-router.post("/", authenticate, requireRole("CUSTOMER"), vendorsController.createVendor);
+// Alta de la tienda del registro de vendedor (Account.jsx): la cuenta ya nace como VENDOR al verificar el correo y aquí
+// solo se crea su tienda (409 si ya tiene una). Cliente y vendedor son cuentas separadas: una cuenta de cliente no puede
+// abrir una tienda, ni el personal de tienda (VENDOR_STAFF) crearse una propia.
+router.post("/", authenticate, requireRole("VENDOR"), vendorsController.createVendor);
 router.post("/:id/engagement", authenticate, requireRole("CUSTOMER"), vendorsController.trackEngagement);
 // Bloque 21: sin login (el widget de chat es público) — rutas literales
 // antes de "/:slug" para que Express no matchee ":vendorId" como si fuera

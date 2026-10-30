@@ -103,6 +103,13 @@ export const channelFor = (code) => code.toUpperCase();
 // entre cliente y vendedor (contra entrega, en línea con la tienda, o
 // efectivo). Esta ruta solo registra el pedido, nunca cobra nada.
 export async function createOrder(req, res) {
+  // Cliente y vendedor son cuentas separadas (lib/accountRealm.js): con la sesión de una cuenta de negocio (vendedor,
+  // personal, socio o admin) no se compra. Va antes de revisar el formulario para que el aviso sea este y no "faltan datos".
+  // Así un pedido nunca queda a nombre de una cuenta que no es de cliente.
+  const sessionUser = await resolveSessionUser(req);
+  if (sessionUser && sessionUser.role !== "CUSTOMER") {
+    throw new AppError("Estás con una cuenta de vendedor o de administración. Para comprar, cierra sesión y entra con tu cuenta de cliente.", 403, { notCustomer: true });
+  }
   const data = createOrderSchema.parse(req.body);
   // Si recibe otra persona: nombre, teléfono y un documento de identidad válido a su nombre, los tres juntos.
   if (data.recipientName || data.recipientPhone || data.recipientIdNumber) {
@@ -119,7 +126,7 @@ export async function createOrder(req, res) {
 
   // Autenticación opcional: si viene una sesión viva, asocia el pedido al cliente (ver resolveSessionUser: el token
   // de reto 2FA o el de una sesión cerrada no cuentan, así nadie gasta puntos ajenos sin el segundo factor).
-  const customerId = (await resolveSessionUser(req))?.id;
+  const customerId = sessionUser?.id;
 
   const order = await placeOrder(data, { customerId, requestInfo: captureOrderRequest(req, data.clientInfo, "WEB") });
   res.status(201).json({ order });

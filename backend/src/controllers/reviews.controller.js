@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isStoreOwnerPerson } from "../lib/accountRealm.js";
 import { recalcVendorRating, recalcProductRating } from "../lib/ratings.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +68,9 @@ export async function createReview(req, res) {
 
     const vendor = await prisma.vendor.findUnique({ where: { id: data.vendorId } });
     if (!vendor || vendor.isBlocked || vendor.status !== "ACTIVE") throw new AppError("Tienda no encontrada.", 404);
+    // Nadie reseña su propia tienda ni sus productos, tampoco el dueño desde su cuenta de cliente (cuentas separadas: mismo
+    // correo o teléfono, lib/accountRealm.js).
+    if (await isStoreOwnerPerson(req.user.id, vendor.userId)) throw new AppError("No puedes reseñar tu propia tienda ni sus productos.", 403);
 
     if (req.files?.length) {
       if (vendor.verificationStatus !== "VERIFIED") {

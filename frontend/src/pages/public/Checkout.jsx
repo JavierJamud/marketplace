@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useShippingQuote } from "../../lib/useShippingQuote.js";
 import { itemsTotalsByCurrency, combineTotalsLabel, shippingRowText, lineShippingText } from "../../lib/shipping.js";
 import { ShippingSummary } from "../../components/checkout/ShippingSummary.jsx";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
 import { CheckCircle2, MessageCircle, Globe2, MapPin, Store, Tag, X } from "lucide-react";
@@ -13,6 +13,7 @@ import { waLink } from "../../lib/whatsapp.js";
 import { resolveUnitPrice } from "../../lib/pricing.js";
 import { useCart } from "../../context/CartContext.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { accountKindLabel } from "../../lib/accountPanel.js";
 import { checkoutChoices, useCatalog } from "../../lib/catalog.js";
 import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
 import { ID_TYPES, ID_TYPE_LABEL, idError, isValidId } from "../../lib/idDocument.js";
@@ -80,7 +81,8 @@ function buildOrderWhatsAppText(info) {
 export default function Checkout() {
   const { siteName } = usePlatformSettings();
   const { items, vendorId, vendorName, vendorSlug, vendorColor, clearCart, updateQuantity, removeItem, discount, setDiscount, clearDiscount } = useCart();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [done, setDone] = useState(false);
   const [confirmedInfo, setConfirmedInfo] = useState(null);
   const [pay, setPay] = useState("cod");
@@ -597,6 +599,30 @@ export default function Checkout() {
             Ver tiendas disponibles
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  // Cliente y vendedor son cuentas separadas: con la sesión de un vendedor (o del admin, el personal o un socio) no se
+  // compra; el servidor también lo rechaza (orders.controller.js). El carrito se queda: no es de ninguna cuenta.
+  if (user && user.role !== "CUSTOMER") {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="text-display-sm font-extrabold text-on-surface">Para comprar, entra como cliente</h1>
+        <p className="mt-2 text-body-md text-on-surface-variant">
+          Estás dentro con tu cuenta de {accountKindLabel(user.role)}. Las compras se hacen con una cuenta de cliente, que es otra cuenta aunque uses el
+          mismo correo. Tu carrito se queda guardado en este navegador.
+        </p>
+        <button
+          type="button"
+          onClick={async () => {
+            await logout();
+            navigate("/cuenta?next=/checkout");
+          }}
+          className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl bg-secondary-container px-5 py-2.5 text-label-lg font-bold text-on-secondary-container hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent"
+        >
+          Cerrar sesión y entrar como cliente
+        </button>
       </div>
     );
   }

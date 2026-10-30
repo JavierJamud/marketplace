@@ -24,16 +24,11 @@ import {
 import { resolvePersonRegistrationLocation } from "../services/registrationLocation.service.js";
 import { recordLocationSuggestions } from "../services/locationSuggestions.service.js";
 import { TRUSTED_DEVICE_TTL_MS, isSessionIdle, revokeSession, IDLE_MESSAGE } from "../lib/sessionPolicy.js";
+import { emailTakenInRealm, findAccountByEmail, realmForContext, realmForRole } from "../lib/accountRealm.js";
 
-// El correo ya llega en minúsculas (emailField). La búsqueda exacta usa el índice único; si no encuentra, se reintenta sin
-// distinguir mayúsculas para las cuentas viejas que la migración 20261128050000 no pudo pasar a minúsculas (pares que solo
-// difieren en mayúsculas): así ninguna cuenta queda sin poder entrar mientras el dueño decide qué hacer con esos pares.
-async function findUserByEmail(email) {
-  return (
-    (await prisma.user.findUnique({ where: { email } })) ??
-    (await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } }, orderBy: { createdAt: "asc" } }))
-  );
-}
+// Formulario de ingreso que se usó. Cliente y vendedor son cuentas separadas (lib/accountRealm.js): cada formulario busca
+// solo en su lado, aunque la misma persona tenga las dos cuentas con el mismo correo. Sin valor = /cuenta (cliente).
+const contextField = z.enum(["customer", "admin", "vendor", "partner"]).nullish();
 
 // Códigos de un solo uso que van por correo (registro, restablecer la contraseña, segundo paso del login, cambio de correo).
 // Con crypto.randomInt y no Math.random: Math.random no es un generador criptográfico y su secuencia se puede deducir a
@@ -146,6 +141,13 @@ function publicUser(user) {
   return { ...rest, totpEnabled: !!user.totpEnabledAt };
 }
 
+// Cuenta de vendedor que todavía no creó su tienda (se cortó el registro después de verificar el correo): la pantalla de
+// ingreso del vendedor la lleva a terminarla en vez de abrir un panel vacío.
+async function accountPayload(user) {
+  const needsStore = user.role === "VENDOR" ? !(await prisma.vendor.findUnique({ where: { userId: user.id }, select: { id: true } })) : false;
+  return { ...publicUser(user), needsStore };
+}
+
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
 const E164_REGEX = /^\+\d{7,15}$/;
@@ -174,21 +176,13 @@ const registerSchema = z.object({
   // Bloque 114: fuera de Cuba, en vez de provinceId/municipalityId reales.
   stateOther: z.string().trim().min(1).max(80).optional(),
   address: z.string().trim().min(1).max(300).optional(),
-  // El registro viene del formulario de tienda (/vendedor/ingresar). Con el correo de una cuenta de cliente sin tienda, no se
-  // corta: la tienda se une a esa cuenta al verificar el código (pedido del dueño: menos pasos para el cliente).
+  // Registro de una cuenta de vendedor (formulario de tienda, /vendedor/ingresar). Es una cuenta aparte de la de cliente
+  // aunque use el mismo correo y teléfono: nunca se unen.
   forStore: z.boolean().optional(),
 });
 
-// Una cuenta de cliente a la que se puede unir una tienda nueva: cliente, sin tienda, sin eliminar, sin eliminación pendiente
-// y sin app autenticadora (con ella el código del correo no basta: tendría que iniciar sesión con su segundo factor).
-async function mergeableCustomer(email) {
-  const user = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    select: { id: true, role: true, deletedAt: true, deletionRequestedAt: true, totpEnabledAt: true, phone: true, vendor: { select: { id: true } } },
-  });
-  if (!user) return { user: null, mergeable: false };
-  const mergeable = user.role === "CUSTOMER" && !user.vendor && !user.deletedAt && !user.deletionRequestedAt && !user.totpEnabledAt;
-  return { user, mergeable };
+function duplicateMessage(forStore) {
+  return forStore ? "Ya existe una cuenta de vendedor con ese correo. Inicia sesión como vendedor." : "Ya existe una cuenta de cliente con ese correo. Inicia sesión.";
 }
 
 // Bloque 59 (pedido explícito): antes de crear la cuenta de verdad (cliente
@@ -204,27 +198,19 @@ const REGISTER_CODE_TTL_MINUTES = CODE_TTL_MINUTES;
 export async function register(req, res) {
   const data = registerSchema.parse(req.body);
 
-  // Sin distinguir mayúsculas, igual que checkVendorAvailability: si quedara alguna cuenta vieja guardada con mayúsculas
-  // (de antes de normalizar los correos), "juan@x.com" no puede abrir una segunda cuenta al lado de "Juan@x.com".
-  const { user: existing, mergeable } = await mergeableCustomer(data.email);
-  // Nunca se puede registrar dos veces el mismo correo — en vez de un error
-  // seco, `duplicate: true` en `details` le avisa al frontend que mande
-  // directo al flujo de "olvidé mi contraseña" (ver Account.jsx).
-  // Excepción: quien abre su tienda con el correo de su cuenta de cliente. Cliente y tienda son roles de la misma persona:
-  // sigue el registro y, al verificar el código, la tienda queda en esa misma cuenta.
-  const mergeIntoCustomer = !!existing && mergeable && data.forStore === true;
-  if (existing && !mergeIntoCustomer) {
-    if (data.forStore && existing.totpEnabledAt) {
-      throw new AppError("Esta cuenta tiene la app autenticadora activada. Inicia sesión con ella para crear tu tienda.", 409, { duplicate: true });
-    }
-    throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
+  const forStore = data.forStore === true;
+  // El correo no se repite dentro del mismo lado: dos clientes, o dos cuentas de negocio (vendedor, personal, socio, admin),
+  // nunca. Un cliente y un vendedor sí pueden usar el mismo (lib/accountRealm.js). En vez de un error seco, `duplicate: true`
+  // le avisa al frontend que lleve a iniciar sesión (ver Account.jsx).
+  if (await emailTakenInRealm(data.email, forStore ? "business" : "customer")) {
+    throw new AppError(duplicateMessage(forStore), 409, { duplicate: true });
   }
   // Lista negra (personas eliminadas por reportes de fraude confirmados): no pueden volver a registrarse.
   await assertNotBlacklisted({ email: data.email, phone: data.phone });
   // El teléfono no se repite dentro del mismo rol: quien se registra como cliente no puede usar el de otro cliente, y quien
   // abre una tienda no puede usar el de otro vendedor ni el WhatsApp de la tienda de otro. Entre cliente y vendedor sí se
-  // puede (lib/phoneUniqueness.js). El de su propia cuenta de cliente siempre vale.
-  await assertPhoneFree(data.phone, { ...(mergeIntoCustomer ? { userId: existing.id } : {}), scope: data.forStore ? "vendor" : "customer" });
+  // puede (lib/phoneUniqueness.js).
+  await assertPhoneFree(data.phone, { scope: forStore ? "vendor" : "customer" });
 
   // El país del teléfono tiene que estar habilitado en el panel del admin (la pantalla solo ofrece esos; esto cubre llamadas directas).
   const phoneCountry = await prisma.country.findFirst({ where: { code: data.country.toUpperCase(), isActive: true }, select: { id: true } });
@@ -250,10 +236,8 @@ export async function register(req, res) {
   const codeHash = await bcrypt.hash(code, 10);
   const codeExpiresAt = new Date(Date.now() + REGISTER_CODE_TTL_MINUTES * 60 * 1000);
 
-  // upsert por email: si el cliente no recibió el código o se equivocó en
-  // algún campo, reenviar el formulario simplemente pisa el intento anterior
-  // con datos y código frescos — nunca queda "ya hay un registro pendiente"
-  // como error que trabe un segundo intento.
+  // upsert por correo y tipo: si no recibió el código o se equivocó en algún campo, reenviar el formulario pisa el intento
+  // anterior del mismo tipo con datos y código frescos. Un registro de cliente y uno de tienda con el mismo correo no se pisan.
   const pendingLocation = {
     registrationCountryId: location.registrationCountryId,
     registrationCountryOther: location.registrationCountryOther,
@@ -264,9 +248,9 @@ export async function register(req, res) {
     address: location.address,
   };
   await prisma.pendingRegistration.upsert({
-    where: { email: data.email },
-    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, codeAttempts: 0, forStore: data.forStore === true },
-    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, forStore: data.forStore === true },
+    where: { email_forStore: { email: data.email, forStore } },
+    update: { passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, codeAttempts: 0 },
+    create: { email: data.email, passwordHash, fullName: data.fullName, phone: data.phone, country: data.country, ...pendingLocation, codeHash, codeExpiresAt, forStore },
   });
 
   await sendRegistrationCodeEmail({ fullName: data.fullName, email: data.email }, code);
@@ -277,70 +261,40 @@ const verifyRegistrationSchema = z.object({
   email: emailField(),
   code: z.string().length(REGISTER_CODE_LENGTH, `El código debe tener ${REGISTER_CODE_LENGTH} dígitos.`),
   browserId: z.string().nullish(),
+  // true = el registro de una cuenta de vendedor (el mismo correo puede tener uno de cliente pendiente a la vez).
+  forStore: z.boolean().optional(),
 });
 
 // Segundo paso del registro: recién ACÁ se crea el User real, a partir de lo
 // guardado en PendingRegistration.
 export async function verifyRegistration(req, res) {
-  const { email, code, browserId } = verifyRegistrationSchema.parse(req.body);
+  const { email, code, browserId, forStore: forStoreInput } = verifyRegistrationSchema.parse(req.body);
+  const forStore = forStoreInput === true;
 
-  const pending = await prisma.pendingRegistration.findUnique({ where: { email } });
+  const pending = await prisma.pendingRegistration.findUnique({ where: { email_forStore: { email, forStore } } });
   const live = !!pending && pending.codeExpiresAt.getTime() > Date.now();
   if (live) await takeCodeAttempt("pendingRegistration", pending.id, "codeAttempts");
   const valid = live ? await bcrypt.compare(code, pending.codeHash) : false;
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
-  // Carrera improbable pero barata de chequear: la cuenta se creó por otro
-  // medio mientras este código estaba pendiente.
-  const { user: existing, mergeable } = await mergeableCustomer(email);
+  // Carrera improbable pero barata de chequear: la cuenta del mismo lado se creó por otro medio mientras este código estaba
+  // pendiente.
+  if (await emailTakenInRealm(email, forStore ? "business" : "customer")) throw new AppError(duplicateMessage(forStore), 409, { duplicate: true });
   // Por si entró en la lista negra mientras el código estaba pendiente.
   await assertNotBlacklisted({ email, phone: pending.phone });
-
-  // Tienda nueva sobre la cuenta de cliente de la misma persona. El código que acaba de escribir llegó a ese correo: prueba que
-  // la cuenta es suya, igual que "¿Olvidaste tu contraseña?". Se vuelve a comprobar que siga siendo unible (pudo abrir una
-  // tienda o activar la app autenticadora mientras tanto). Sus pedidos, favoritos, puntos y venta rápida siguen en la misma
-  // cuenta. La contraseña pasa a ser la que eligió en este registro (es la que tiene en la cabeza ahora), y los datos de
-  // contacto y ubicación se completan con los nuevos solo donde la cuenta no tenía nada.
-  if (existing && pending.forStore && mergeable) {
-    await assertPhoneFree(pending.phone, { userId: existing.id, scope: "vendor" });
-    const current = await prisma.user.findUnique({ where: { id: existing.id } });
-    const fill = (field) => (current[field] ? {} : pending[field] ? { [field]: pending[field] } : {});
-    const user = await prisma.$transaction(async (tx) => {
-      const updated = await tx.user.update({
-        where: { id: existing.id },
-        data: {
-          passwordHash: pending.passwordHash,
-          lastLoginAt: new Date(),
-          ...fill("phone"),
-          ...fill("registrationCountryId"),
-          ...fill("registrationCountryOther"),
-          ...fill("provinceId"),
-          ...fill("municipalityId"),
-          ...fill("municipalityOther"),
-          ...fill("stateOther"),
-          ...fill("address"),
-        },
-      });
-      await tx.pendingRegistration.delete({ where: { email } });
-      return updated;
-    });
-    // La contraseña cambió: las sesiones abiertas en otros dispositivos se cierran, como en resetPassword.
-    await prisma.session.deleteMany({ where: { userId: user.id } });
-    const deviceToken = await issueTrustedDevice(user.id);
-    const tokens = await createSession(user, browserId, req.get("user-agent"));
-    return res.status(200).json({ user: publicUser(user), ...tokens, deviceToken, linkedOrdersCount: 0, mergedIntoCustomer: true });
-  }
-  if (existing) throw new AppError("Ya existe una cuenta con ese correo. Te ayudamos a restablecer tu contraseña.", 409, { duplicate: true });
-  await assertPhoneFree(pending.phone, { scope: pending.forStore ? "vendor" : "customer" });
+  await assertPhoneFree(pending.phone, { scope: forStore ? "vendor" : "customer" });
 
   const { user, linkedOrdersCount } = await prisma.$transaction(async (tx) => {
     // Bloque 62: completar el registro ya es un "login" real (se emite
     // sesión de una) — cuenta como el primer acceso para el cron de
-    // inactividad de vendedor si esta cuenta llega a crear una tienda.
+    // inactividad de vendedor.
+    // El registro de tienda crea directamente una cuenta de vendedor, todavía sin tienda (la crea POST /vendors justo
+    // después). Una cuenta de cliente nunca se convierte en vendedor.
     const created = await tx.user.create({
       data: {
         email: pending.email,
         passwordHash: pending.passwordHash,
+        role: forStore ? "VENDOR" : "CUSTOMER",
         fullName: pending.fullName,
         phone: pending.phone,
         country: pending.country,
@@ -356,16 +310,19 @@ export async function verifyRegistration(req, res) {
         lastLoginAt: new Date(),
       },
     });
-    await tx.pendingRegistration.delete({ where: { email } });
+    await tx.pendingRegistration.delete({ where: { id: pending.id } });
 
-    // Bloque 59 (pedido explícito): si ya había comprado como invitado con
-    // este mismo correo (sin cuenta), esos pedidos se vinculan a la cuenta
+    // Bloque 59 (pedido explícito): si ya había comprado como
+    // invitado con este mismo correo (sin cuenta), esos pedidos se vinculan a la cuenta
     // recién creada. getMyOrders ya los mostraba igual por correo (OR de
     // customerId/customerEmail), pero el customerId real es lo que de
     // verdad cuenta para las estadísticas del vendedor ("clientes
     // potenciales", "ya compró", etc. filtran por customerId, no por email).
     // Sin distinguir mayúsculas: el pedido de invitado guarda el correo tal como lo escribieron en el checkout.
-    const linked = await tx.order.updateMany({ where: { customerEmail: { equals: email, mode: "insensitive" }, customerId: null }, data: { customerId: created.id } });
+    // Solo en cuentas de cliente: las compras nunca pasan a una cuenta de vendedor.
+    const linked = forStore
+      ? { count: 0 }
+      : await tx.order.updateMany({ where: { customerEmail: { equals: email, mode: "insensitive" }, customerId: null }, data: { customerId: created.id } });
 
     return { user: created, linkedOrdersCount: linked.count };
   });
@@ -388,7 +345,7 @@ export async function verifyRegistration(req, res) {
   // de login inmediatamente después de haber completado el primero.
   const deviceToken = await issueTrustedDevice(user.id);
   const tokens = await createSession(user, browserId, req.get("user-agent"));
-  res.status(201).json({ user: publicUser(user), ...tokens, deviceToken, linkedOrdersCount });
+  res.status(201).json({ user: await accountPayload(user), ...tokens, deviceToken, linkedOrdersCount });
 }
 
 const loginSchema = z.object({
@@ -420,7 +377,7 @@ const loginSchema = z.object({
   // "Credenciales inválidas" — mandaba un código innecesario y emitía
   // tokens reales por un instante para una cuenta que nunca debía poder
   // entrar por ahí. Ahora se corta acá, antes de mandar ningún código.
-  context: z.enum(["admin", "vendor", "partner"]).nullish(),
+  context: contextField,
 });
 
 // Bloque 88 (pedido explícito, con el trade-off de seguridad ya explicado
@@ -432,19 +389,20 @@ const loginSchema = z.object({
 // Bloque 183: un usuario de sistema (VENDOR_STAFF) entra por la MISMA
 // puerta que el dueño — /vendedor/ingresar, context "vendor" — nunca un
 // login separado. Ambos roles son "de vendedor" a los ojos de este check.
-async function assertRoleMatchesContext(user, context) {
+// Cada formulario ya busca solo en su lado (findAccountByEmail); esto separa los roles dentro del lado de negocio.
+function assertRoleMatchesContext(user, context) {
   if (context === "admin" && user.role !== "ADMIN") throw new AppError("Esta cuenta no tiene permisos de administrador.", 401);
   if (context === "partner" && user.role !== "PARTNER") throw new AppError("Esta cuenta no es de un socio de la API.", 401);
-  if (context === "vendor" && user.role !== "VENDOR" && user.role !== "VENDOR_STAFF") {
-    // Quien se registró para abrir una tienda pero no llegó a terminarla (por ejemplo, se cortó la conexión al crearla) tiene una
-    // cuenta de cliente sin tienda. Se le deja entrar por la puerta del vendedor para que termine de crearla; si la cuenta es de
-    // cliente y ya tiene una tienda, o es de otro tipo, se rechaza como siempre.
-    if (user.role === "CUSTOMER") {
-      const store = await prisma.vendor.findUnique({ where: { userId: user.id }, select: { id: true } });
-      if (!store) return;
-    }
-    throw new AppError("Esta cuenta no es de vendedor. Si eres cliente, ingresa desde “Mi cuenta”.", 401);
-  }
+  if (context === "vendor" && user.role !== "VENDOR" && user.role !== "VENDOR_STAFF") throw new AppError("Esta cuenta no es de vendedor.", 401);
+  if (realmForContext(context) === "customer" && user.role !== "CUSTOMER") throw new AppError("Esta cuenta no es de cliente.", 401);
+}
+
+// Mensaje cuando el correo no tiene cuenta del lado que se usó.
+function noAccountMessage(context) {
+  if (context === "admin") return "No existe ninguna cuenta de administrador con ese correo.";
+  if (context === "partner") return "No existe ninguna cuenta de socio con ese correo.";
+  if (context === "vendor") return "No existe ninguna cuenta de vendedor con ese correo.";
+  return "No existe ninguna cuenta de cliente con ese correo.";
 }
 
 // Bloque 47/60: mismo largo/TTL que el reset de contraseña, pero en campos
@@ -472,10 +430,10 @@ function generateResetCode() {
 export async function login(req, res) {
   const data = loginSchema.parse(req.body);
 
-  const user = await findUserByEmail(data.email);
-  if (!user) throw new AppError("No existe ninguna cuenta con ese correo.", 401);
+  const user = await findAccountByEmail(data.email, realmForContext(data.context));
+  if (!user) throw new AppError(noAccountMessage(data.context), 401);
 
-  await assertRoleMatchesContext(user, data.context);
+  assertRoleMatchesContext(user, data.context);
 
   // Bloque 183 (pedido explícito — "el sistema automáticamente detecte que
   // ese usuario no tiene una contraseña válida aún, y se le enviará un
@@ -567,7 +525,7 @@ export async function login(req, res) {
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
   const tokens = await createSession(user, data.browserId, req.get("user-agent"));
-  res.json({ user: publicUser(user), ...tokens });
+  res.json({ user: await accountPayload(user), ...tokens });
 }
 
 const emailCodeSchema = z.object({ challengeToken: z.string().min(10) });
@@ -612,10 +570,9 @@ const verifyTwoFactorSchema = z.object({
   email: emailField(),
   code: z.string().length(TWO_FACTOR_CODE_LENGTH),
   browserId: z.string().nullish(),
-  // Bloque 76: defensa en profundidad — login() ya corta antes de mandar el
-  // código si el contexto no coincide, así que en la práctica esto nunca
-  // debería dispararse, pero no cuesta nada repetir el chequeo acá también.
-  context: z.enum(["admin", "vendor", "partner"]).nullish(),
+  // Formulario que se usó: decide en qué lado se busca la cuenta (la misma persona puede tener una de cliente y otra de
+  // vendedor con este correo, y cada una tiene su propio código).
+  context: contextField,
   // Prueba de que la contraseña ya se validó (la entrega login()). Sin ella la app autenticadora no
   // se acepta: antes bastaban el correo y el código de la app para entrar sin contraseña.
   challengeToken: z.string().nullish(),
@@ -634,7 +591,7 @@ function isChallengeFor(user, challengeToken) {
 
 export async function verifyTwoFactorLogin(req, res) {
   const { email, code, browserId, context, challengeToken } = verifyTwoFactorSchema.parse(req.body);
-  const user = await findUserByEmail(email);
+  const user = await findAccountByEmail(email, realmForContext(context));
 
   // Bloque 273: el código puede ser el de la app autenticadora (predeterminado, si la tiene
   // activada) o el enviado al correo (siempre disponible como respaldo).
@@ -649,7 +606,7 @@ export async function verifyTwoFactorLogin(req, res) {
   // Misma regla que login(): una cuenta suspendida o eliminada no abre sesión aunque el código sea válido.
   if (user.isSuspended || user.deletedAt) throw new AppError("Esta cuenta no está disponible.", 403);
 
-  await assertRoleMatchesContext(user, context);
+  assertRoleMatchesContext(user, context);
 
   // El código se invalida al usarlo — no se puede reutilizar para un segundo
   // login. Bloque 62: mismo update ya de paso registra el login exitoso.
@@ -664,13 +621,13 @@ export async function verifyTwoFactorLogin(req, res) {
   // navegador/dispositivo).
   const deviceToken = await issueTrustedDevice(user.id);
   const tokens = await createSession(user, browserId, req.get("user-agent"));
-  res.json({ user: publicUser(user), ...tokens, deviceToken });
+  res.json({ user: await accountPayload(user), ...tokens, deviceToken });
 }
 
 export async function me(req, res) {
   const user = await prisma.user.findUnique({ where: { id: req.user.id } });
   if (!user) throw new AppError("Usuario no encontrado.", 404);
-  res.json({ user: publicUser(user) });
+  res.json({ user: await accountPayload(user) });
 }
 
 const refreshSchema = z.object({ refreshToken: z.string() });
@@ -859,7 +816,8 @@ async function isResetCodeValid(user, code) {
   return bcrypt.compare(code, user.resetCodeHash);
 }
 
-const forgotPasswordSchema = z.object({ email: emailField() });
+// `context`: formulario desde el que se pide (cada cuenta tiene su propia contraseña aunque compartan correo).
+const forgotPasswordSchema = z.object({ email: emailField(), context: contextField });
 
 // Bloque 279 (pedido explícito — "cualquier persona pone un correo y el sistema dice que envió el
 // código aunque ese correo no esté registrado: debe avisar que no está registrado y no enviar el
@@ -868,9 +826,9 @@ const forgotPasswordSchema = z.object({ email: emailField() });
 // conocida: quien consulta puede saber si un correo está registrado, por eso la ruta sigue detrás
 // de passwordResetRateLimit.
 export async function forgotPassword(req, res) {
-  const { email } = forgotPasswordSchema.parse(req.body);
-  const user = await findUserByEmail(email);
-  if (!user || user.deletedAt) throw new AppError("Ese correo no está registrado en ninguna cuenta. Revisa que esté bien escrito o crea una cuenta.", 404);
+  const { email, context } = forgotPasswordSchema.parse(req.body);
+  const user = await findAccountByEmail(email, realmForContext(context));
+  if (!user || user.deletedAt) throw new AppError(`${noAccountMessage(context)} Revisa que esté bien escrito o crea una cuenta.`, 404);
 
   const code = generateResetCode();
   const resetCodeHash = await bcrypt.hash(code, 10);
@@ -881,14 +839,14 @@ export async function forgotPassword(req, res) {
   res.json({ ok: true, message: "Te enviamos un código de verificación a tu correo.", codeExpiresAt: resetCodeExpiresAt });
 }
 
-const verifyResetCodeSchema = z.object({ email: emailField(), code: z.string().length(RESET_CODE_LENGTH) });
+const verifyResetCodeSchema = z.object({ email: emailField(), code: z.string().length(RESET_CODE_LENGTH), context: contextField });
 
 // Chequeo previo (no consume el código) para dar feedback inmediato en el
 // paso 2 del flujo antes de mostrarle al usuario los campos de contraseña
 // nueva — la validación real y definitiva se repite en resetPassword.
 export async function verifyResetCode(req, res) {
-  const { email, code } = verifyResetCodeSchema.parse(req.body);
-  const user = await findUserByEmail(email);
+  const { email, code, context } = verifyResetCodeSchema.parse(req.body);
+  const user = await findAccountByEmail(email, realmForContext(context));
   const valid = await isResetCodeValid(user, code);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
   // El código correcto devuelve los intentos: resetPassword lo vuelve a comprobar y quien acertó al quinto intento no puede
@@ -903,13 +861,14 @@ const resetPasswordSchema = z
     code: z.string().length(RESET_CODE_LENGTH),
     newPassword: z.string().min(8),
     confirmPassword: z.string().min(8),
+    context: contextField,
   })
   .refine((d) => d.newPassword === d.confirmPassword, { message: "Las contraseñas no coinciden.", path: ["confirmPassword"] });
 
 export async function resetPassword(req, res) {
   const data = resetPasswordSchema.parse(req.body);
 
-  const user = await findUserByEmail(data.email);
+  const user = await findAccountByEmail(data.email, realmForContext(data.context));
   const valid = await isResetCodeValid(user, data.code);
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
@@ -971,12 +930,9 @@ export async function requestMyEmailChange(req, res) {
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) throw new AppError("La contraseña actual no es correcta.", 401);
 
-  // Mismo criterio que admin.controller.js updateCustomer: nunca dejar dos
-  // cuentas con el mismo correo.
-  // Sin distinguir mayúsculas: la propiedad de pedidos compara correos así (customers.controller.js), y una
-  // variante en mayúsculas de un correo ajeno no puede pasar como libre.
-  const existing = await prisma.user.findFirst({ where: { email: { equals: newEmail, mode: "insensitive" } } });
-  if (existing && existing.id !== user.id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+  // Nunca dos cuentas del mismo lado con el mismo correo (lib/accountRealm.js); una de cliente y otra de vendedor sí.
+  // Sin distinguir mayúsculas: una variante en mayúsculas de un correo ajeno no puede pasar como libre.
+  if (await emailTakenInRealm(newEmail, realmForRole(user.role), user.id)) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
   // Tampoco un correo que está en la lista negra (de otra persona).
   await assertNotBlacklisted({ email: newEmail }, { userId: user.id });
 
@@ -1011,6 +967,8 @@ export async function confirmMyEmailChange(req, res) {
       : false;
   if (!valid) throw new AppError("Código inválido o vencido.", 400);
 
+  // Otra cuenta del mismo lado pudo tomar ese correo mientras el código estaba pendiente.
+  if (await emailTakenInRealm(user.pendingEmail, realmForRole(user.role), user.id)) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
   const updated = await prisma.user.update({
     where: { id: user.id },
     data: { email: user.pendingEmail, pendingEmail: null, emailChangeCodeHash: null, emailChangeCodeExpiresAt: null },

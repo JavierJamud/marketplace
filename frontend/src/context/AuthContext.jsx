@@ -150,25 +150,26 @@ export function AuthProvider({ children }) {
       }
     }
     function onStorage(e) {
-      if (e.key !== ACCESS_TOKEN_KEY || !userRef.current) return;
+      if (e.key !== ACCESS_TOKEN_KEY) return;
       if (!e.newValue) {
+        if (!userRef.current) return;
         clearLocalSession();
         navigate(loginPathFor(locationRef.current.pathname), { replace: true });
         return;
       }
-      // Otra pestaña inició sesión con OTRA cuenta: aquí solo puede haber una sesión a la vez, así que esta pestaña se
-      // cierra (sin tocar las llaves nuevas, que son de la otra pestaña).
+      // Otra pestaña inició sesión. En este navegador hay una sola sesión y todas las pestañas muestran esa cuenta (pedido
+      // del dueño): esta pestaña la carga también, aunque estuviera sin sesión o con otra cuenta. Un token renovado de la
+      // misma cuenta no cambia nada. Si la cuenta nueva no puede ver la página actual, ProtectedRoute lleva a su ingreso, y
+      // el ingreso, con sesión abierta, lleva a su panel (Account.jsx).
       const owner = tokenOwner(e.newValue);
-      if (owner && owner !== userRef.current.id) {
-        queryClient.clear();
-        setUser(null);
-        setIdleWarningActive(false);
-        navigate(loginPathFor(locationRef.current.pathname), { replace: true });
-      }
+      if (owner && owner === userRef.current?.id) return;
+      queryClient.clear();
+      setIdleWarningActive(false);
+      loadMe();
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [clearLocalSession, navigate]);
+  }, [clearLocalSession, navigate, loadMe]);
 
   // --- Expiración por inactividad (30 min, con aviso a los 25) para todos los roles ---
   useEffect(() => {
@@ -287,8 +288,9 @@ export function AuthProvider({ children }) {
   // falta pedirle un segundo código de login apenas después). `linkedOrdersCount`
   // le avisa a Account.jsx si había pedidos de invitado con este mismo
   // correo que ya quedaron vinculados a la cuenta recién creada.
-  const verifyRegistration = async (email, code) => {
-    const { data } = await api.post("/auth/verify-registration", { email, code, browserId: getBrowserId() });
+  // forStore: registro de una cuenta de vendedor (separada de la de cliente aunque use el mismo correo).
+  const verifyRegistration = async (email, code, forStore = false) => {
+    const { data } = await api.post("/auth/verify-registration", { email, code, browserId: getBrowserId(), forStore });
     localStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
     localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
@@ -297,7 +299,7 @@ export function AuthProvider({ children }) {
     // GET /settings depende de quién pide (los planes ocultos con detalle solo van a su tienda y al admin): la copia pedida
     // como visitante no sirve para la sesión que empieza.
     queryClient.invalidateQueries({ queryKey: ["site-settings"] });
-    return { user: data.user, linkedOrdersCount: data.linkedOrdersCount ?? 0, mergedIntoCustomer: !!data.mergedIntoCustomer };
+    return { user: data.user, linkedOrdersCount: data.linkedOrdersCount ?? 0 };
   };
 
   // Bloque 60: ahora async — avisa al backend para revocar la sesión de
@@ -326,19 +328,6 @@ export function AuthProvider({ children }) {
     clearLocalSession();
   };
 
-  // El JWT lleva el role "horneado" al firmarlo (ver middleware/auth.js:
-  // requireRole nunca vuelve a mirar la DB) — un usuario que se acaba de
-  // convertir en vendedor (createVendor sube su role a VENDOR en la DB)
-  // sigue teniendo un accessToken viejo con role CUSTOMER hasta que se
-  // reemite. Sin este paso, /vendedor/* devuelve 403 hasta el próximo login.
-  const refreshRole = async () => {
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    if (!refreshToken) return;
-    const { data } = await api.post("/auth/refresh", { refreshToken });
-    localStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken);
-    await loadMe();
-  };
-
   return (
     <AuthContext.Provider
       value={{
@@ -358,7 +347,6 @@ export function AuthProvider({ children }) {
         // `authenticate` con una sesión que ya quedó revocada, 401 antes de
         // poder limpiar nada).
         clearLocalSession,
-        refreshRole,
         refetch: loadMe,
       }}
     >

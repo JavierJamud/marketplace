@@ -1,4 +1,5 @@
 import { currencyLabel } from "../lib/catalog.js";
+import { isStoreOwnerPerson } from "../lib/accountRealm.js";
 import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { sendCartReminderEmail, sendStoreReminderEmail } from "../lib/email.js";
@@ -70,7 +71,8 @@ async function sendCartReminders(now) {
     const vendorId = cart.vendorMeta?.id;
     if (!items.length || typeof vendorId !== "string" || !canEmail(cart.user, now)) continue;
     const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: VENDOR_FIELDS });
-    if (!vendorUsable(vendor) || vendor.userId === cart.userId) continue;
+    // Ni al dueño de la tienda con su cuenta de cliente (cuentas separadas: mismo correo o teléfono, lib/accountRealm.js).
+    if (!vendorUsable(vendor) || (await isStoreOwnerPerson(cart.userId, vendor.userId))) continue;
     const ordered = await prisma.order.findFirst({ where: { customerId: cart.userId, vendorId, createdAt: { gte: cart.updatedAt } }, select: { id: true } });
     if (ordered) continue;
 
@@ -108,6 +110,7 @@ async function sendStoreReminders(now) {
   let sent = 0;
   for (const visit of visits) {
     if (emailedNow.has(visit.userId) || !canEmail(visit.user, now) || !vendorUsable(visit.vendor)) continue;
+    if (await isStoreOwnerPerson(visit.userId, visit.vendor.userId)) continue;
     const ordered = await prisma.order.findFirst({ where: { customerId: visit.userId, vendorId: visit.vendorId, createdAt: { gte: visit.lastAt } }, select: { id: true } });
     if (ordered) continue;
     const [points, offer] = await Promise.all([pointsInfo(visit.vendor, visit.userId), activeOffer(visit.vendorId, new Date(now))]);

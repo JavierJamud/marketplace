@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as productsController from "../controllers/products.controller.js";
 import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 import { productUpload } from "../middleware/productUpload.js";
 import { cartStockRateLimit } from "../middleware/rateLimit.js";
@@ -49,7 +50,8 @@ router.patch("/:id/images/reorder", authenticate, requireVendorWrite("productos"
 // Bloque 109 (pedido explícito): antes era pública para visitantes
 // anónimos (guestId) — ahora exige sesión real, así el vendedor siempre
 // recibe un cliente identificable al que puede contactar cuando reponga.
-router.post("/:id/request", authenticate, productsController.requestProductRestock);
+// Pedir que vuelva un producto agotado es de clientes (cuentas separadas, lib/accountRealm.js).
+router.post("/:id/request", authenticate, requireRole("CUSTOMER"), productsController.requestProductRestock);
 router.get("/:vendorSlug/:productSlug", productsController.getProductBySlug);
 // Bloque 98: señales de "Destacados" (ver lib/productRanking.js) — públicas
 // a propósito, cualquier visitante (sin sesión) las genera con solo mirar.

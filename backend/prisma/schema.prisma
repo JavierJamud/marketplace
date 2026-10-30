@@ -769,7 +769,10 @@ model User {
   // Bloque 299: si es una cuenta PARTNER, el socio al que pertenece.
   partnerAccount Partner? @relation("PartnerPortalUser")
   id           String   @id @default(cuid())
-  email        String   @unique
+  // Cliente y vendedor son cuentas separadas (lib/accountRealm.js): el correo es único dentro de cada lado (clientes por un
+  // lado; vendedor, personal, socio y admin por otro) con índices parciales que viven solo en la migración
+  // 20261201000000_separate_customer_and_business_accounts. Nunca se busca con findUnique por correo.
+  email        String
   passwordHash String
   role         Role     @default(CUSTOMER)
   fullName     String?
@@ -1034,7 +1037,7 @@ model TrustedDevice {
 // (upsert por email).
 model PendingRegistration {
   id            String   @id @default(cuid())
-  email         String   @unique
+  email         String
   passwordHash  String
   fullName      String
   phone         String
@@ -1056,11 +1059,12 @@ model PendingRegistration {
   codeExpiresAt DateTime
   // Pruebas del código de registro (tope en auth.controller.js); vuelve a 0 al reenviar el formulario.
   codeAttempts  Int      @default(0)
-  // Registro para abrir una tienda. Si el correo es el de una cuenta de cliente que ya existe, el código que llega a ese
-  // correo prueba que es suyo, y al verificarlo se usa esa misma cuenta (ver verifyRegistration) en vez de pedirle iniciar
-  // sesión. También decide con qué rol se compara el teléfono (lib/phoneUniqueness.js).
+  // Registro de una cuenta de vendedor (para abrir una tienda). Cliente y vendedor son cuentas separadas: el mismo correo
+  // puede tener un registro pendiente de cada tipo. También decide con qué rol se compara el teléfono (lib/phoneUniqueness.js).
   forStore      Boolean  @default(false)
   createdAt     DateTime @default(now())
+
+  @@unique([email, forStore])
 }
 
 // Bloque 52 (pedido explícito — "que todo esté bien agrupado en la sección

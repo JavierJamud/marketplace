@@ -64,7 +64,8 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
   const { data: favorites } = useQuery({
     queryKey: ["my-favorites"],
     queryFn: async () => (await api.get("/customers/me/favorites")).data.favorites,
-    enabled: !!user && !minimal,
+    // Favoritos: solo cuentas de cliente (el botón también se muestra solo a ellas).
+    enabled: user?.role === "CUSTOMER" && !minimal,
   });
   const myFavorite = favorites?.find((f) => f.vendorId === v?.id);
 

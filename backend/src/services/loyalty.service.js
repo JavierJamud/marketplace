@@ -1,4 +1,5 @@
 import { currencyLabel } from "../lib/catalog.js";
+import { isStoreOwnerPerson } from "../lib/accountRealm.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { getPlanConfig } from "../lib/planConfig.js";
@@ -173,8 +174,9 @@ export async function awardOrderPoints(orderId) {
   });
   if (!order?.customerId || order.status !== "DELIVERED") return 0;
   const vendor = await prisma.vendor.findUnique({ where: { id: order.vendorId }, select: { id: true, userId: true, planType: true, currency: true } });
-  // El dueño comprando en su propia tienda no suma puntos.
-  if (vendor.userId === order.customerId) return 0;
+  // El dueño comprando en su propia tienda no suma puntos, tampoco desde su cuenta de cliente (cuentas separadas: mismo
+  // correo o teléfono, lib/accountRealm.js).
+  if (await isStoreOwnerPerson(order.customerId, vendor.userId)) return 0;
   const program = await activeProgramFor(vendor);
   if (!program || !allInStoreCurrency(order.items, vendor.currency)) return 0;
   const points = pointsForAmount(program, Number(order.total));

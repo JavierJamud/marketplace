@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { panelForRole } from "../../lib/accountPanel.js";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ShoppingCart, User, LogOut } from "lucide-react";
 import { useCart } from "../../context/CartContext.jsx";
@@ -99,16 +100,6 @@ function AccountMenu({ user, accountHref, panelLabel }) {
           >
             {panelLabel}
           </Link>
-          {/* Quien tiene tienda sigue siendo cliente con la misma cuenta. */}
-          {user.role === "VENDOR" && (
-            <Link
-              to="/cuenta/panel"
-              onClick={() => setOpen(false)}
-              className="flex min-h-11 items-center px-3.5 py-2.5 text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container"
-            >
-              Mis compras y venta rápida
-            </Link>
-          )}
           <button
             onClick={handleLogout}
             className="flex min-h-11 w-full items-center gap-2 px-3.5 py-2.5 text-left text-[13px] font-semibold text-error hover:bg-error/5"
@@ -134,16 +125,6 @@ function AccountMenu({ user, accountHref, panelLabel }) {
 // (scroll en el Home, o cualquier otra página) pasa a bg-primary/75: texto
 // blanco sobre esa mezcla mide más de 6:1 aun sobre blanco puro (R-25).
 const HEADER_SCROLL_THRESHOLD = 8;
-
-// Panel al que lleva "Mi cuenta" según el rol, con las mismas rutas protegidas de App.jsx: /vendedor admite VENDOR y
-// VENDOR_STAFF, /socio solo PARTNER y /cuenta/panel CUSTOMER y VENDOR (el
-// dueño de una tienda conserva su cuenta de cliente). Un rol desconocido va a la cuenta de cliente.
-function panelForRole(role) {
-  if (role === "ADMIN") return { href: "/admin", label: "Panel de administración" };
-  if (role === "VENDOR" || role === "VENDOR_STAFF") return { href: "/vendedor", label: "Panel de vendedor" };
-  if (role === "PARTNER") return { href: "/socio", label: "Panel de socio" };
-  return { href: "/cuenta/panel", label: "Mi cuenta" };
-}
 
 export function Header() {
   const { items, bump, openCart } = useCart();

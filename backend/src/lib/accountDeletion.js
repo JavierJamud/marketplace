@@ -15,7 +15,7 @@ import { releaseVendorSlugData } from "./vendorSlug.js";
 // reescribe para liberar la columna @unique para un futuro registro nuevo.
 // `record`: cómo se eliminó, para el admin. source: CUSTOMER_REQUEST (lo pidió el cliente), ADMIN (un admin, al momento),
 // ADMIN_PENDING (eliminación pendiente de una tienda que venció), MODERATION (reportes confirmados), ADMIN_MERGE (unida con
-// la cuenta de su tienda, lib/accountMerge.js). byId: el admin, si hubo.
+// la cuenta de su tienda; herramienta retirada el 2026-10-30, quedan los registros viejos). byId: el admin, si hubo.
 export async function finalizeUserDeletion(userId, record = {}) {
   const user = await prisma.user.findUnique({
     where: { id: userId },

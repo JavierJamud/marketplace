@@ -89,7 +89,8 @@ async function main() {
 
   if (!phone) phone = (await promptVisible("Teléfono (opcional, Enter para omitir): ")) || null;
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // El admin es una cuenta de negocio: solo choca con otra cuenta de negocio con ese correo (src/lib/accountRealm.js).
+  const existing = await prisma.user.findFirst({ where: { email, role: { not: "CUSTOMER" } } });
   if (existing) {
     throw new Error(
       `Ya existe una cuenta con ese correo (rol actual: ${existing.role}). ` +

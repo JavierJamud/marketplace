@@ -1,4 +1,5 @@
 import { logVendorLifecycle, LIFECYCLE_ACTIONS } from "../lib/vendorLifecycle.js";
+import { emailTakenInRealm } from "../lib/accountRealm.js";
 import { assertVendorUnique, findVendorConflicts } from "../services/vendorUniqueness.service.js";
 import { assertNotBlacklisted, findBlacklisted } from "../lib/blacklist.js";
 import { Prisma } from "@prisma/client";
@@ -320,7 +321,8 @@ export async function createVendor(req, res) {
     return created;
   });
 
-  await prisma.user.update({ where: { id: req.user.id }, data: { role: "VENDOR" } });
+  // La cuenta ya es de vendedor desde el registro (verifyRegistration con forStore): cliente y vendedor son cuentas
+  // separadas y aquí nunca se cambia el rol.
 
   // Historial para el admin (Tiendas > Eliminadas y la ficha de la tienda): quién la creó, con qué datos y desde dónde. Queda
   // aunque la tienda se elimine después.
@@ -2087,9 +2089,10 @@ export async function checkVendorAvailability(req, res) {
   const data = z
     .object({ companyName: z.string().trim().max(120).optional(), whatsapp: z.string().trim().max(30).optional(), email: z.string().trim().max(200).optional(), username: z.string().trim().max(40).optional() })
     .parse(req.body ?? {});
-  // Si el correo ya es de una cuenta, se avisa antes que nada: no se crea otra cuenta ni se toca la de antes (la pantalla
+  // Si el correo ya es de una cuenta de vendedor, se avisa antes que nada: no se crea otra cuenta ni se toca la de antes (la pantalla
   // lleva a iniciar sesión). Es el mismo dato que ya revela el registro al intentarlo.
-  const accountExists = data.email?.trim() ? !!(await prisma.user.findFirst({ where: { email: { equals: data.email.trim(), mode: "insensitive" } }, select: { id: true } })) : false;
+  // Solo cuentas de negocio: una cuenta de cliente con el mismo correo no impide abrir la cuenta de vendedor (son separadas).
+  const accountExists = data.email?.trim() ? await emailTakenInRealm(data.email.trim(), "business") : false;
   // Lista negra: se avisa sin decir qué dato coincidió. Y una propuesta de usuario a partir del nombre.
   const conflicts = await findVendorConflicts({ ...data, username: data.username || undefined, ownerUserId: req.user?.id ?? null });
   if (await findBlacklisted({ email: data.email, phone: data.whatsapp, storeName: data.companyName, username: data.username })) {

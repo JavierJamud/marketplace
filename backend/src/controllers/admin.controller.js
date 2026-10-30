@@ -44,7 +44,6 @@ import { syncVendorProvinceZone } from "../services/vendorZoneSync.service.js";
 import { adminReactivationBillingData, liftBillingSuspension } from "../services/planBilling.service.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
 import { getSiteTimezone } from "./settings.controller.js";
-import { findMergeCandidates, mergeCustomerIntoVendorAccount, mergeSummary } from "../lib/accountMerge.js";
 
 // --- Dashboard --------------------------------------------------------------
 
@@ -1107,9 +1106,9 @@ export async function updateVendorLoginEmail(req, res) {
   if (previousEmail === email) return res.json({ ok: true });
   const sameAddress = previousEmail?.toLowerCase() === email;
 
-  // Sin distinguir mayúsculas: una cuenta vieja guardada como "Juan@x.com" también cuenta como ocupada.
-  const taken = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" }, id: { not: vendor.userId } } });
-  if (taken) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+  // Sin distinguir mayúsculas: una cuenta vieja guardada como "Juan@x.com" también cuenta como ocupada. Solo entre cuentas de
+  // negocio: una cuenta de cliente con el mismo correo es otra cuenta, separada (lib/accountRealm.js).
+  if (await emailTakenInRealm(email, "business", vendor.userId)) throw new AppError("Ese correo ya está en uso por otra cuenta de vendedor.", 409);
   // Mismo control que al cambiar el correo uno mismo (auth.controller.js): un correo de la lista negra no vuelve a usarse
   // en otra cuenta. La propia tienda sí puede conservar el suyo.
   if (await emailBlacklistedForOthers(email, vendor.userId)) {
@@ -1435,10 +1434,8 @@ export async function updateVendorStaffByAdmin(req, res) {
   const staff = await findVendorStaffOr404(req.params.id);
   const data = updateVendorStaffByAdminSchema.parse(req.body);
 
-  if (data.email) {
-    const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
-    if (existing && existing.id !== staff.userId) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
-  }
+  // El personal de tienda es una cuenta de negocio: su correo no se repite entre cuentas de negocio (lib/accountRealm.js).
+  if (data.email && (await emailTakenInRealm(data.email, "business", staff.userId))) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
 
   // Bloque 187/200: mismo criterio que updateMyStaff (vendorStaff.controller.js)
   // — si esta llamada cambia allowedSections, sectionPermissions se
@@ -2423,7 +2420,7 @@ const DAY_MS_CUSTOMERS = 24 * 60 * 60 * 1000;
 const customersQuerySchema = paginationQuerySchema.extend({
   q: z.string().trim().max(100).optional(),
   provinceId: z.string().optional(),
-  status: z.enum(["all", "active", "suspended", "new", "recent", "buyers", "nobuyers", "reporters", "store"]).default("all"),
+  status: z.enum(["all", "active", "suspended", "new", "recent", "buyers", "nobuyers", "reporters"]).default("all"),
   sort: z.enum(["recent", "orders", "lastLogin", "name"]).default("recent"),
   dir: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -2445,8 +2442,6 @@ function customerStatusWhere(status) {
       return { orders: { none: {} } };
     case "reporters":
       return { reportsMade: { some: {} } };
-    case "store":
-      return { role: "VENDOR" };
     default:
       return {};
   }
@@ -2469,9 +2464,8 @@ export async function listCustomers(req, res) {
   const query = customersQuerySchema.parse(req.query);
   const { q, provinceId, status, sort, dir } = query;
 
-  // Toda cuenta que puede comprar es cliente: también la de quien tiene tienda (cliente y tienda son la misma cuenta).
-  // Esas filas llevan su tienda; se suspenden y eliminan desde Tiendas.
-  const scope = { role: { in: ["CUSTOMER", "VENDOR"] }, deletedAt: null, provinceId: provinceId || undefined };
+  // Solo cuentas de cliente: la cuenta de vendedor es otra, separada aunque tenga el mismo correo (lib/accountRealm.js).
+  const scope = { role: "CUSTOMER", deletedAt: null, provinceId: provinceId || undefined };
   const where = {
     ...scope,
     ...customerStatusWhere(status),
@@ -2491,14 +2485,13 @@ export async function listCustomers(req, res) {
   // nuevo que pueda desincronizarse. No filtra por status del reporte
   // (un reporte descartado también cuenta para el patrón de uso, es
   // información para el admin, no una acusación).
-  const [customers, total, kAll, kRecent, kNew, kBuyers, kNoBuyers, kReporters, kSuspended, kStore] = await Promise.all([
+  const [customers, total, kAll, kRecent, kNew, kBuyers, kNoBuyers, kReporters, kSuspended] = await Promise.all([
     prisma.user.findMany({
       where,
       include: {
         province: true,
         registrationCountry: { select: { name: true } },
         _count: { select: { orders: true, reportsMade: true } },
-        vendor: { select: { id: true, companyName: true, slug: true, deletedAt: true } },
       },
       orderBy: customersOrderBy(sort, dir),
       ...pageArgs(query),
@@ -2511,7 +2504,6 @@ export async function listCustomers(req, res) {
     prisma.user.count({ where: { ...scope, ...customerStatusWhere("nobuyers") } }),
     prisma.user.count({ where: { ...scope, ...customerStatusWhere("reporters") } }),
     prisma.user.count({ where: { ...scope, ...customerStatusWhere("suspended") } }),
-    prisma.user.count({ where: { ...scope, ...customerStatusWhere("store") } }),
   ]);
 
   // Fecha del último pedido de cada cliente de ESTA página, en una sola
@@ -2540,9 +2532,8 @@ export async function listCustomers(req, res) {
       createdAt: c.createdAt,
       lastLoginAt: c.lastLoginAt,
       role: c.role,
-      store: c.vendor && !c.vendor.deletedAt ? { id: c.vendor.id, companyName: c.vendor.companyName, slug: c.vendor.slug } : null,
     })),
-    kpis: { all: kAll, recent: kRecent, new: kNew, buyers: kBuyers, nobuyers: kNoBuyers, reporters: kReporters, suspended: kSuspended, store: kStore },
+    kpis: { all: kAll, recent: kRecent, new: kNew, buyers: kBuyers, nobuyers: kNoBuyers, reporters: kReporters, suspended: kSuspended },
     ...pageMeta(query, total),
   });
 }
@@ -2563,18 +2554,15 @@ export async function updateCustomer(req, res) {
   const { addToBlacklist: blacklist, blacklistReason, ...data } = updateCustomerSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { id } });
-  // La cuenta de quien tiene tienda también es cliente: aquí se le pueden corregir nombre, correo y teléfono. Suspenderla
-  // corta también su tienda, así que eso se hace desde Tiendas, con su propio registro.
-  if (!user || !["CUSTOMER", "VENDOR"].includes(user.role) || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
-  if (user.role === "VENDOR" && data.isSuspended !== undefined) throw new AppError("Esta cuenta tiene tienda: suspéndela desde Tiendas.", 409);
+  // Solo cuentas de cliente: la cuenta de vendedor es otra, separada (lib/accountRealm.js), y se edita desde Tiendas.
+  if (!user || user.role !== "CUSTOMER" || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
   if (blacklist && data.isSuspended !== true) throw new AppError("La lista negra se aplica al suspender al cliente.", 400);
   if (blacklist && !blacklistReason) throw new AppError("Escribe el motivo para la lista negra.", 400);
-  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id, scope: user.role === "VENDOR" ? "vendor" : "customer" });
+  if (data.phone && data.phone !== user.phone) await assertPhoneFree(data.phone, { userId: id, scope: "customer" });
 
   const emailChanged = !!data.email && data.email !== user.email?.toLowerCase();
   if (emailChanged) {
-    const existing = await prisma.user.findFirst({ where: { email: { equals: data.email, mode: "insensitive" } } });
-    if (existing && existing.id !== id) throw new AppError("Ese correo ya está en uso por otra cuenta.", 409);
+    if (await emailTakenInRealm(data.email, "customer", id)) throw new AppError("Ese correo ya está en uso por otra cuenta de cliente.", 409);
     // Igual que el correo de acceso de una tienda (updateVendorLoginEmail): uno de la lista negra no pasa a otra cuenta.
     if (await emailBlacklistedForOthers(data.email, id)) {
       throw new AppError("Ese correo está en la lista negra. Para usarlo, primero quítalo de la lista negra.", 409);
@@ -2616,39 +2604,6 @@ export async function deleteCustomer(req, res) {
 
   await finalizeUserDeletion(id, { source: "ADMIN", byId: req.user.id });
   res.status(204).end();
-}
-
-// "Unir con su tienda": un cliente que antes abrió su tienda con otra cuenta. Primero se muestran las cuentas de tienda que
-// parecen suyas (mismo teléfono, nombre o correo parecido) o las que el admin busque, y lo que se va a mover.
-export async function getCustomerMergeInfo(req, res) {
-  const { id } = req.params;
-  const user = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, deletedAt: true } });
-  if (!user || user.role !== "CUSTOMER" || user.deletedAt) throw new AppError("Cliente no encontrado.", 404);
-  const q = z.string().trim().max(120).optional().parse(req.query.q);
-  const select = { id: true, fullName: true, email: true, phone: true, vendor: { select: { id: true, companyName: true, slug: true, whatsapp: true } } };
-  const [suggested, found, summary] = await Promise.all([
-    findMergeCandidates(id),
-    q && q.length >= 2
-      ? prisma.user.findMany({
-          where: {
-            role: "VENDOR",
-            deletedAt: null,
-            vendor: { is: { deletedAt: null } },
-            OR: [{ email: { contains: q, mode: "insensitive" } }, { fullName: { contains: q, mode: "insensitive" } }, { vendor: { is: { companyName: { contains: q, mode: "insensitive" } } } }],
-          },
-          select,
-          take: 8,
-        })
-      : [],
-    mergeSummary(id),
-  ]);
-  res.json({ suggested, found, summary });
-}
-
-export async function mergeCustomer(req, res) {
-  const { targetUserId } = z.object({ targetUserId: z.string().min(1) }).parse(req.body);
-  const result = await mergeCustomerIntoVendorAccount(req.params.id, targetUserId, { byId: req.user.id });
-  res.json(result);
 }
 
 // --- Chat vendedor <-> admin (Bloque 15) ------------------------------------

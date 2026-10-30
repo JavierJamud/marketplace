@@ -105,7 +105,11 @@ export function CartProvider({ children }) {
   // cambio se guarda (debounced) en el servidor (CartSnapshot), y al iniciar
   // sesión en OTRO dispositivo se restaura desde ahí. `useAuth()` funciona
   // acá porque CartProvider está anidado DENTRO de AuthProvider (ver main.jsx).
-  const { user, loading: authLoading } = useAuth();
+  const { user: sessionUser, loading: authLoading } = useAuth();
+  // Solo una cuenta de cliente guarda carrito en el servidor (cliente y vendedor son cuentas separadas, /cart/me es solo de
+  // clientes). Con la sesión de un vendedor o del admin el carrito se comporta como el de un visitante: no se mezcla con
+  // ninguna cuenta, y el pago avisa que para comprar hay que entrar como cliente (Checkout.jsx).
+  const user = sessionUser?.role === "CUSTOMER" ? sessionUser : null;
   // Id de la cuenta cuyo carrito ya se pidió al servidor (null = ninguna). Es un id y no un sí/no para que entrar con
   // otra cuenta sin pasar por "sin sesión" también la sincronice.
   const hasSyncedRef = useRef(null);

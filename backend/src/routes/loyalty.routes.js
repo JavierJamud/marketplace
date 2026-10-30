@@ -1,16 +1,19 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/requireRole.js";
 import { requireVendorAccess, requireVendorWrite } from "../middleware/requireVendorAccess.js";
 import * as loyalty from "../controllers/loyalty.controller.js";
 
 const router = Router();
+// Cliente y vendedor son cuentas separadas (lib/accountRealm.js): esto es solo de cuentas de cliente.
+const customer = [authenticate, requireRole("CUSTOMER")];
 
 // Cliente
 router.get("/vendors/:vendorId/program", loyalty.getPublicProgram);
-router.get("/vendors/:vendorId/me", authenticate, loyalty.getMyBalanceAtVendor);
-router.get("/me", authenticate, loyalty.listMyAccounts);
-router.get("/me/:vendorId/history", authenticate, loyalty.getMyHistory);
-router.post("/visits", authenticate, loyalty.recordStoreVisit);
+router.get("/vendors/:vendorId/me", ...customer, loyalty.getMyBalanceAtVendor);
+router.get("/me", ...customer, loyalty.listMyAccounts);
+router.get("/me/:vendorId/history", ...customer, loyalty.getMyHistory);
+router.post("/visits", ...customer, loyalty.recordStoreVisit);
 router.get("/email-preferences", authenticate, loyalty.getEmailPreferences);
 router.patch("/email-preferences", authenticate, loyalty.updateEmailPreferences);
 router.post("/unsubscribe", loyalty.unsubscribe);

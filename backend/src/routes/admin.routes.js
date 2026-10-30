@@ -230,8 +230,6 @@ router.patch("/change-requests/:id", requireActionCode("VENDOR_CHANGE"), adminCo
 router.get("/customers", adminController.listCustomers);
 router.patch("/customers/:id", requireActionCode("CUSTOMER_CHANGE"), adminController.updateCustomer);
 router.delete("/customers/:id", requireActionCode("DELETE_CUSTOMER"), adminController.deleteCustomer);
-router.get("/customers/:id/merge", adminController.getCustomerMergeInfo);
-router.post("/customers/:id/merge", requireActionCode("MERGE_CUSTOMER"), adminController.mergeCustomer);
 
 // Bloque 47: barra de búsqueda + campana del panel admin, y correo directo
 // puntual (distinto del envío masivo de /campaigns).

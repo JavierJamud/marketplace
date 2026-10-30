@@ -73,7 +73,8 @@ export async function submitApplication(req, res) {
   // PARTNER que se crea al aprobar es una cuenta más; antes este flujo quedaba fuera de las dos comprobaciones.
   await assertNotBlacklisted({ email: data.email, phone: data.phone });
   await assertPhoneFree(data.phone);
-  if (await prisma.user.findUnique({ where: { email: data.email }, select: { id: true } })) {
+  // La cuenta del socio será de negocio: solo choca con otras cuentas de negocio (lib/accountRealm.js).
+  if (await emailTakenInRealm(data.email, "business")) {
     throw new AppError("Ya existe una cuenta con ese correo. Usa otro correo o entra a tu cuenta.", 409);
   }
   if (await prisma.partnerApplication.findFirst({ where: { email: data.email, status: "PENDING" }, select: { id: true } })) {
@@ -154,7 +155,7 @@ export async function approveApplication(req, res) {
   if (domains.length === 0 && ips.length === 0) {
     throw new AppError("Indica al menos un dominio o una dirección IP autorizados para la credencial.", 400);
   }
-  if (await prisma.user.findUnique({ where: { email: app.email }, select: { id: true } })) {
+  if (await emailTakenInRealm(app.email, "business")) {
     throw new AppError(`Ya existe una cuenta con el correo ${app.email}. Pídele que use otro.`, 409);
   }
   // Se repite al aprobar: mientras la solicitud esperaba, el correo o el teléfono pudo entrar a la lista negra o el teléfono
@@ -213,7 +214,7 @@ export async function editApplication(req, res) {
   if (app.status !== "PENDING") throw new AppError("Solo se puede editar una solicitud en revisión.", 409);
   const data = editBody.parse(req.body ?? {});
   if (data.email && data.email !== app.email) {
-    if (await prisma.user.findUnique({ where: { email: data.email }, select: { id: true } })) throw new AppError("Ya existe una cuenta con ese correo.", 409);
+    if (await emailTakenInRealm(data.email, "business")) throw new AppError("Ya existe una cuenta con ese correo.", 409);
     if (await prisma.partnerApplication.findFirst({ where: { email: data.email, status: "PENDING", id: { not: app.id } }, select: { id: true } })) throw new AppError("Ya hay otra solicitud en revisión con ese correo.", 409);
   }
   // Un correo o teléfono nuevo pasa por la lista negra y la regla de teléfono único, igual que al enviar la solicitud.
