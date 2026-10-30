@@ -766,9 +766,47 @@ export async function activateQuotaProduct(req, res) {
   res.status(204).end();
 }
 
-export async function createProduct(req, res) {
+// Regla del dueño (2026-10-29): un producto no se crea ni se guarda sin al menos una foto. Las fotos llegan en la misma
+// solicitud que los datos (multipart: el campo "data" con el JSON del producto, "images" con los archivos e "imageLinks" con
+// enlaces de imágenes). Antes el producto se creaba primero, en pausa, y las fotos se subían después: si la tienda no las
+// subía, quedaba un producto creado y oculto. Si algo falla después de recibir las fotos, se borran del disco.
+export async function prepareProductCreateUpload(req, res, next) {
   const vendor = await resolveMyVendor(req.user.id);
-  const parsed = createProductSchema.parse(req.body);
+  req.uploadVendorSlug = vendor.slug;
+  next();
+}
+
+const imageLinksSchema = z.array(z.string().url()).max(6);
+
+export async function createProduct(req, res) {
+  const uploaded = (req.files ?? []).map((f) => `/uploads/products/${req.uploadVendorSlug}/${f.filename}`);
+  try {
+    await createProductWithPhotos(req, res, uploaded);
+  } catch (err) {
+    void deleteUploadedImages(uploaded);
+    throw err;
+  }
+}
+
+async function createProductWithPhotos(req, res, uploaded) {
+  const vendor = await resolveMyVendor(req.user.id);
+  let body = req.body;
+  let imageLinks = [];
+  if (typeof req.body?.data === "string") {
+    try {
+      body = JSON.parse(req.body.data);
+      imageLinks = imageLinksSchema.parse(req.body.imageLinks ? JSON.parse(req.body.imageLinks) : []);
+    } catch (err) {
+      if (err instanceof z.ZodError) throw new AppError("Alguno de los enlaces de imagen no es válido.", 400);
+      throw new AppError("Los datos del producto llegaron incompletos. Vuelve a intentarlo.", 400);
+    }
+  }
+  if (uploaded.length + imageLinks.length === 0) throw new AppError("Agrega al menos una foto para crear el producto.", 400);
+  if (imageLinks.length) {
+    const settings = await prisma.siteSettings.findFirst();
+    if (settings && settings.allowProductImageLinks === false) throw new AppError("El administrador desactivó agregar imágenes por link. Sube un archivo en su lugar.", 403);
+  }
+  const parsed = createProductSchema.parse(body);
   const rawTiers = extractPriceTiers(parsed);
   const restrictedTableIds = extractRestrictedTableIds(parsed);
   const data = reconcileStock(parsed);
@@ -788,7 +826,8 @@ export async function createProduct(req, res) {
   // resolveProductForUpload) — se crea siempre en pausa, sin importar lo que
   // haya mandado el cliente en `isActive`. addProductImages/addProductImageLink
   // lo reactivan automáticamente en cuanto tiene al menos 1 foto.
-  data.isActive = false;
+  // Con la regla de la foto obligatoria ya no nace en pausa: nace con sus fotos y publicado (el cupo del plan se revisa abajo).
+  data.isActive = true;
   // Moneda: la elige el vendedor por producto, validada contra las
   // monedas habilitadas por el admin en SiteSettings.
   const requestedCurrency = data.currency ?? vendor.currency ?? (await activeCodes("CURRENCY"))[0];
@@ -827,9 +866,27 @@ export async function createProduct(req, res) {
   // el precio base de ESTE mismo producto antes de crearlo.
   const validTiers = assertValidPriceTiers(data.price, rawTiers);
 
+  // Fotos por enlace: se descargan y se guardan en la tienda; si el otro sitio no deja, se usa el enlace tal cual.
+  const linked = [];
+  for (const url of imageLinks) {
+    try {
+      const filename = await importRemoteImage(url, join(PRODUCT_UPLOAD_DIR, vendor.slug));
+      const stored = `/uploads/products/${vendor.slug}/${filename}`;
+      uploaded.push(stored);
+      linked.push(stored);
+    } catch (err) {
+      if (/no permitid|Solo se permiten|no válido/i.test(err.message)) throw new AppError(err.message, 400);
+      if (/no es una imagen/i.test(err.message)) throw new AppError("Ese enlace no lleva a una imagen. Pega el enlace directo de la foto.", 400);
+      linked.push(url);
+    }
+  }
+  const images = [...(req.files ?? []).map((f) => `/uploads/products/${req.uploadVendorSlug}/${f.filename}`), ...linked];
+
   const product = await prisma.product.create({
     data: {
       ...data,
+      images,
+      activatedAt: new Date(),
       vendorId: vendor.id,
       slug,
       priceTiers: validTiers.length > 0 ? { create: validTiers } : undefined,
@@ -845,6 +902,9 @@ export async function createProduct(req, res) {
     description: `Creó el producto "${product.name}"`,
     meta: { productId: product.id },
   });
+  // Mismo paso que al activar con la primera foto: el cupo del plan y la prueba gratis (si este era su primer producto).
+  product.overQuota = await placeProductInQuota(vendor.id, product.id);
+  await maybeAutoActivateTrial(vendor.id).catch(() => {});
   res.status(201).json({ product });
 }
 
@@ -854,6 +914,8 @@ export async function updateProduct(req, res) {
 
   const existing = await prisma.product.findUnique({ where: { id }, include: { restrictedTables: { select: { id: true } } } });
   if (!existing || existing.vendorId !== vendor.id) throw new AppError("Producto no encontrado.", 404);
+  // Productos creados antes de la regla de la foto obligatoria: se pueden completar, pero no guardar sin foto.
+  if (!existing.images.length) throw new AppError("Sube al menos una foto del producto antes de guardar los cambios.", 400);
 
   const parsed = productSchema.partial().parse(req.body);
   const hasTiersInPayload = parsed.priceTiers !== undefined;
@@ -1008,9 +1070,9 @@ export async function removeProductImage(req, res) {
   if (!existing || existing.vendorId !== vendor.id) throw new AppError("Producto no encontrado.", 404);
   if (!existing.images.includes(url)) throw new AppError("Esa imagen no pertenece a este producto.", 404);
 
-  // Bloque 56: si esta era la última foto, el producto vuelve a pausarse —
-  // nunca se vende sin al menos 1 foto.
+  // Un producto no puede quedarse sin fotos (antes volvía a pausarse en silencio): primero se sube otra y luego se quita esta.
   const nextImages = existing.images.filter((u) => u !== url);
+  if (nextImages.length === 0) throw new AppError("Un producto necesita al menos una foto. Sube otra antes de quitar esta.", 409);
   const product = await prisma.product.update({
     where: { id },
     data: { images: nextImages, ...(nextImages.length === 0 ? { isActive: false } : {}) },

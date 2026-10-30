@@ -27,7 +27,8 @@ router.post("/stock", cartStockRateLimit, productsController.getCartStock);
 // de venta trae sus productos por /pos).
 router.get("/me/list", authenticate, requireVendorAccess("productos", "mesas", "pedidos"), productsController.listMyProducts);
 router.get("/me/:id/sales", authenticate, requireVendorAccess("productos"), productsController.getMyProductSales);
-router.post("/", authenticate, requireVendorWrite("productos"), productsController.createProduct);
+// Crear exige al menos una foto, que llega en la misma solicitud (multipart): ver createProduct.
+router.post("/", authenticate, requireVendorWrite("productos"), productsController.prepareProductCreateUpload, productUpload.array("images", 6), productsController.createProduct);
 router.patch("/:id", authenticate, requireVendorWrite("productos"), productsController.updateProduct);
 router.delete("/:id", authenticate, requireVendorWrite("productos"), productsController.deleteProduct);
 // Bloque 52: intercambio manual de cupo (ver swapProductQuota, lib/planConfig.js).

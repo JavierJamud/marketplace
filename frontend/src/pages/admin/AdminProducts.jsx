@@ -379,7 +379,7 @@ function ProductRow({ p, open, onToggleOpen, onTogglePause, onEdit, onDelete }) 
               !p.isActive ? "bg-surface-container-high text-on-surface-variant" : p.visibility?.visible === false ? "bg-error/10 text-error" : "bg-verified/10 text-verified-dark"
             }`}
           >
-            {!p.isActive ? "Pausado" : p.visibility?.visible === false ? "Oculto" : "Activo"}
+            {!p.isActive ? (p.images?.length ? "Pausado" : "Sin foto") : p.visibility?.visible === false ? "Oculto" : "Activo"}
           </span>
           <ChevronDown className={`h-4 w-4 flex-shrink-0 text-outline transition-transform md:hidden ${open ? "rotate-180" : ""}`} />
         </button>
@@ -427,8 +427,10 @@ function ProductRow({ p, open, onToggleOpen, onTogglePause, onEdit, onDelete }) 
             className="h-8 rounded-full px-3 text-[11px] font-bold"
             style={p.isActive ? { background: "rgba(12,174,83,0.12)", color: "#087A38" } : { background: "rgba(117,119,124,0.12)", color: "#5c5e63" }}
             aria-label={p.isActive ? "Pausar producto" : "Activar producto"}
+            // Sin ninguna foto el servidor lo deja pausado (createProduct/removeProductImage): se activa solo al subir una.
+            title={!p.isActive && !p.images?.length ? "Pausado porque no tiene foto: se activa solo cuando la tienda sube una." : undefined}
           >
-            {p.isActive ? "Activo" : "Pausado"}
+            {p.isActive ? "Activo" : p.images?.length ? "Pausado" : "Sin foto"}
           </button>
         </div>
         <div className="hidden items-center justify-end gap-0.5 md:flex">

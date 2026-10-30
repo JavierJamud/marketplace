@@ -41,6 +41,11 @@
       overflow-x: clip;
     }
   }
+  /* Al abrir una ventana se bloquea el scroll de la página (lib/scrollLock.js) y en computadora la barra de desplazamiento
+     desaparecía: todo el contenido saltaba unos 15 px hacia la derecha. Con el espacio de la barra reservado no se mueve. */
+  html {
+    scrollbar-gutter: stable;
+  }
   /* El recorte de arriba no le basta a iPhone: si algo queda más ancho que la pantalla, Safari aleja la vista para mostrarlo
      y la página se desliza de lado. Los textos solo para lectores de pantalla (sr-only) son position:absolute y, dentro de
      una tabla que se desliza por dentro, quedaban en su lugar original (hasta 800 px a la derecha) fuera de esa caja. Anclados

@@ -170,6 +170,20 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
   // que el tile "Subir" vuelva a mostrarse vacío en vez de quedarse pegado
   // mostrando la última foto recortada.
   const [cropResetKey, setCropResetKey] = useState(0);
+  // Producto nuevo: un producto no se crea sin al menos una foto (regla del dueño). Las fotos se eligen y recortan antes de
+  // guardar y viajan junto con los datos en la misma solicitud (createProduct en el backend).
+  const [pendingPhotos, setPendingPhotos] = useState([]); // [{ key, file?, url, link? }]
+  const pendingCount = pendingPhotos.length;
+  // Las vistas previas se liberan al quitar cada foto y al cerrar la ventana (nunca al agregar otra: se borraría la anterior).
+  const pendingRef = useRef(pendingPhotos);
+  pendingRef.current = pendingPhotos;
+  useEffect(() => () => pendingRef.current.forEach((p) => p.file && URL.revokeObjectURL(p.url)), []);
+  const removePending = (key) =>
+    setPendingPhotos((list) => {
+      const gone = list.find((x) => x.key === key);
+      if (gone?.file) URL.revokeObjectURL(gone.url);
+      return list.filter((x) => x.key !== key);
+    });
   // Envío de la tienda: si tiene uno propio activo, el del producto queda bloqueado (ver ProductShippingSection).
   const { data: myVendor } = useQuery({ queryKey: ["my-vendor"], queryFn: async () => (await api.get("/vendors/me")).data.vendor });
   const [form, setForm] = useState(
@@ -217,7 +231,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
   // cambia solo con guardados exitosos y con subidas de fotos, que no son
   // parte de este borrador).
   const initialFormSnapshot = useRef(JSON.stringify({ form, sizesEnabled, priceTiersEnabled }));
-  const isDirty = JSON.stringify({ form, sizesEnabled, priceTiersEnabled }) !== initialFormSnapshot.current;
+  const isDirty = JSON.stringify({ form, sizesEnabled, priceTiersEnabled }) !== initialFormSnapshot.current || pendingPhotos.length > 0;
 
   function addTag() {
     const clean = tagInput.trim().toLowerCase();
@@ -361,14 +375,21 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             }),
       };
       if (savedProduct) return (await api.patch(`/products/${savedProduct.id}`, payload)).data;
-      return (await api.post("/products", payload)).data;
+      const body = new FormData();
+      body.append("data", JSON.stringify(payload));
+      for (const p of pendingPhotos) if (p.file) body.append("images", p.file);
+      const links = pendingPhotos.filter((p) => p.link).map((p) => p.link);
+      if (links.length) body.append("imageLinks", JSON.stringify(links));
+      return (await api.post("/products", body, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: (data) => {
       // Bloque 56: un producto recién creado se guarda en pausa hasta que
       // tenga al menos 1 foto (ver createProduct en el backend) — el toast
       // deja claro por qué, así el vendedor no piensa que algo falló.
-      toast.success(savedProduct ? "Producto actualizado." : "Producto creado. Sube al menos 1 foto para que salga a la venta.");
+      toast.success(savedProduct ? "Producto actualizado." : data.product.overQuota ? "Producto creado. Tu plan está lleno: queda fuera del cupo hasta que liberes un lugar." : "Producto creado y publicado.");
+      if (!savedProduct) setPendingPhotos([]);
       setSavedProduct(data.product);
+      queryClient.invalidateQueries({ queryKey: ["vendor-trial"] });
       queryClient.invalidateQueries({ queryKey: ["my-products"] });
       // Bloque 66 (bug real reportado en vivo): el modal se quedaba abierto
       // para siempre tras editar — nunca se cerraba solo. Ahora sí, apenas
@@ -386,7 +407,8 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
   // la misma condición que ya deshabilita el botón "Guardar" normal más
   // abajo — reusada acá para no ofrecer "Guardar y salir" cuando el
   // formulario ni siquiera pasaría esa validación.
-  const canSaveNow = form.description.trim().length >= 10;
+  const hasPhoto = savedProduct ? savedProduct.images?.length > 0 : pendingCount > 0;
+  const canSaveNow = form.description.trim().length >= 10 && hasPhoto;
   const dirtyModal = useDirtyModal({
     isDirty,
     onClose,
@@ -481,13 +503,25 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
   // un File con extensión real antes de reusar la misma mutación de siempre.
   function handleCroppedUpload(blob) {
     const file = new File([blob], `product-${Date.now()}.jpg`, { type: blob.type });
-    uploadImages.mutate([file]);
     setCropResetKey((k) => k + 1);
+    if (!savedProduct) {
+      if (pendingCount >= 6) return toast.warning("Puedes agregar hasta 6 fotos.");
+      setPendingPhotos((list) => [...list, { key: `${Date.now()}`, file, url: URL.createObjectURL(file) }]);
+      return;
+    }
+    uploadImages.mutate([file]);
   }
 
   function submitImageLink() {
     const url = linkInput.trim();
     if (!url) return;
+    if (!savedProduct) {
+      if (!/^https?:\/\/\S+$/i.test(url)) return toast.error("Pega el enlace completo de la imagen (https://...).");
+      if (pendingCount >= 6) return toast.warning("Puedes agregar hasta 6 fotos.");
+      setPendingPhotos((list) => [...list, { key: url, url, link: url }]);
+      setLinkInput("");
+      return;
+    }
     addImageLink.mutate(url);
   }
 
@@ -857,7 +891,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             </span>
             {savedProduct && !savedProduct.images?.length && (
               <p className="mb-2.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
-                ⚠️ Este producto está en pausa y no se muestra a la venta hasta que subas al menos 1 foto.
+                Este producto no tiene foto: está en pausa y no se puede guardar hasta que subas al menos una.
               </p>
             )}
             {savedProduct ? (
@@ -935,7 +969,53 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
                 )}
               </>
             ) : (
-              <p className="text-label-sm text-outline">Guarda el producto primero para poder subirle fotos.</p>
+              <>
+                <div className="mb-2.5 flex flex-wrap gap-2">
+                  {pendingPhotos.map((p, index) => (
+                    <div key={p.key} className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md border border-surface-container-high">
+                      <img src={p.url} alt="" className="h-full w-full object-cover" />
+                      {index === 0 && (
+                        <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">Portada</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removePending(p.key)}
+                        aria-label="Quitar esta foto"
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {pendingCount < 6 && (
+                    <ImageCropUploader key={cropResetKey} aspect={7 / 4} accept="image/jpeg,image/webp" boxClassName="h-16 w-16 flex-shrink-0" compact onFileReady={handleCroppedUpload} />
+                  )}
+                </div>
+                <p className={`text-label-sm ${pendingCount ? "text-outline" : "font-semibold text-error"}`}>
+                  {pendingCount
+                    ? "La primera foto es la portada. Tamaño recomendado: 1400×800px (7:4). Solo JPG o WebP."
+                    : "Agrega al menos una foto: sin foto el producto no se puede crear."}
+                </p>
+                {siteSettings?.allowProductImageLinks && pendingCount < 6 && (
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitImageLink(); } }}
+                      placeholder="O pega el link de una imagen (https://...)"
+                      className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
+                    />
+                    <button
+                      type="button"
+                      onClick={submitImageLink}
+                      disabled={!linkInput.trim()}
+                      className="min-h-11 flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                    >
+                      Agregar link
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -957,7 +1037,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             >
               {savedProduct ? "Listo" : "Cancelar"}
             </Button>
-            <Button type="submit" className="flex-1" disabled={save.isPending || form.description.trim().length < 10}>
+            <Button type="submit" className="flex-1" disabled={save.isPending || !canSaveNow} title={!hasPhoto ? "Agrega al menos una foto" : undefined}>
               {save.isPending ? "Guardando..." : savedProduct ? "Guardar cambios" : "Crear producto"}
             </Button>
           </div>
