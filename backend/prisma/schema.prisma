@@ -1857,17 +1857,21 @@ model VendorStatusLog {
 // cubrir StoreOffer también queda como posible extensión, no se hizo acá
 // para no duplicar la lógica de armado del correo con dos formas distintas.
 model WinbackEmailLog {
-  id         String   @id @default(cuid())
-  customerId String
-  vendorId   String
-  offerId    String
-  sentAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  customerId   String
+  vendorId     String
+  // Registros viejos: la oferta (Offer) que los disparó. Los nuevos los dispara una oferta de tienda (StoreOffer).
+  offerId      String?
+  storeOfferId String?
+  sentAt       DateTime @default(now())
 
-  customer User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  offer    Offer  @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  customer   User        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vendor     Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  offer      Offer?      @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  storeOffer StoreOffer? @relation(fields: [storeOfferId], references: [id], onDelete: Cascade)
 
   @@unique([customerId, vendorId, offerId])
+  @@unique([customerId, vendorId, storeOfferId])
 }
 
 enum VendorStatus {
@@ -3924,6 +3928,7 @@ model StoreOffer {
 
   vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   discountCode DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Restrict)
+  winbackEmailLogs WinbackEmailLog[]
 
   @@index([vendorId, active])
 }

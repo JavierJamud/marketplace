@@ -17,7 +17,7 @@ const TOOLS = [
   { key: "mesas", label: "Mesas con código QR (restaurantes)", section: "mesas" },
   { key: "puntos", label: "Programa de puntos para clientes", section: "puntos" },
   { key: "ofertas", label: "Ofertas y códigos de descuento", section: "ofertas" },
-  { key: "ofertas-tienda", label: "Ofertas de tienda en la portada", section: "ofertas-tienda" },
+  { key: "ofertas-tienda", label: "Ofertas en tu propia tienda", section: "ofertas-tienda" },
   { key: "clientes", label: "Seguimiento de clientes y recordatorios", section: "clientes" },
   { key: "usuarios", label: "Usuarios del equipo con permisos", section: "usuarios" },
   { key: "ventas-manuales", label: "Productos asignados a vendedores", section: "ventas-manuales" },

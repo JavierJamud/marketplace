@@ -807,6 +807,9 @@ async function createProductWithPhotos(req, res, uploaded) {
     if (settings && settings.allowProductImageLinks === false) throw new AppError("El administrador desactivó agregar imágenes por link. Sube un archivo en su lugar.", 403);
   }
   const parsed = createProductSchema.parse(body);
+  // "Destacado" (isFeatured) es la palanca manual del admin: lo pone primero en el ranking (+1, lib/productRanking.js). Una
+  // tienda no puede ponérselo a sí misma, aunque lo mande en una solicitud hecha a mano (el formulario nunca lo envía).
+  delete parsed.isFeatured;
   const rawTiers = extractPriceTiers(parsed);
   const restrictedTableIds = extractRestrictedTableIds(parsed);
   const data = reconcileStock(parsed);
@@ -918,6 +921,8 @@ export async function updateProduct(req, res) {
   if (!existing.images.length) throw new AppError("Sube al menos una foto del producto antes de guardar los cambios.", 400);
 
   const parsed = productSchema.partial().parse(req.body);
+  // Igual que al crear: "Destacado" solo lo cambia el admin (adminProducts.controller.js).
+  delete parsed.isFeatured;
   const hasTiersInPayload = parsed.priceTiers !== undefined;
   const rawTiers = extractPriceTiers(parsed);
   const restrictedTableIds = extractRestrictedTableIds(parsed);

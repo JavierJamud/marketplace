@@ -2,12 +2,9 @@ import { env } from "../config/env.js";
 import { emailShell, ctaButton, statusBadge, paragraph, resolveAssetUrl, pickVariant, esc } from "./_shared.js";
 import { unsubscribeFooter } from "./customerReminders.js";
 
-// Bloque 62: re-enganche — cliente que compró UNA sola vez en esta tienda
-// hace 30+ días, y la tienda publicó una oferta activa nueva desde
-// entonces (ver vendorLifecycle.job.js). `offers`: Offer[] (título,
-// imageUrl, discountLabel) — un correo puede traer más de una si el job
-// las agrupó, aunque hoy siempre se llama con una sola oferta (la que
-// disparó el envío).
+// Bloque 62: re-enganche: cliente que compró UNA sola vez en esta tienda hace 30+ días, y la tienda publicó una oferta de
+// tienda nueva (ver vendorLifecycle.job.js). `offers`: [{ title, discountLabel, code, expiresAt, imageUrl? }]. Hoy siempre
+// se llama con una sola oferta (la que disparó el envío).
 // Título y etiqueta de descuento los escribe la tienda y el correo va a su cliente: se escapan (statusBadge no escapa).
 function offerCardMjml(offer) {
   const imgSrc = resolveAssetUrl(offer.imageUrl);
@@ -15,6 +12,7 @@ function offerCardMjml(offer) {
     ${imgSrc ? `<mj-image src="${imgSrc}" alt="${esc(offer.title)}" border-radius="12px" padding="0 0 10px" />` : ""}
     <mj-text font-size="15px" font-weight="800" color="#1b1b1d" padding="0 0 4px">${esc(offer.title)}</mj-text>
     ${offer.discountLabel ? statusBadge(esc(offer.discountLabel), "#0CAE53") : ""}
+    ${offer.code ? paragraph(`Usa el código <strong>${esc(offer.code)}</strong> al pagar${offer.expiresAt ? `, antes del ${new Date(offer.expiresAt).toLocaleDateString("es-CU", { day: "numeric", month: "long", timeZone: "America/Havana" })}` : ""}.`, { padding: "8px 0 4px" }) : ""}
   `;
 }
 

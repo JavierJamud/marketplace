@@ -9,6 +9,7 @@ import { fetchRankingPool, loadRankingSignals } from "../services/productRanking
 import { getAllPlanConfigs } from "../lib/planConfig.js";
 import { recordSearchTerm, getTrendingSearches, getTrendingSearchesForZone } from "../lib/trendingSearches.js";
 import { vendorZoneWhere } from "../lib/vendorZone.js";
+import { ratingScore } from "../lib/ratings.js";
 
 // Bloque 52 (bug real reportado en vivo): "CAFE"/"cafe" no encontraba
 // "Café" — Prisma "contains" + mode:"insensitive" compila a ILIKE de
@@ -334,13 +335,17 @@ export async function structuredSearch(req, res) {
   if (sort === "sales") products = [...products].sort((a, b) => (b.salesCount ?? 0) - (a.salesCount ?? 0));
   if (sort === "newest") products = [...products].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   if (sort === "rating") {
+    // Mismas reglas que el resto de la plataforma (lib/ratings.js): solo reseñas visibles (una oculta por un reporte no
+    // cuenta) y el puntaje ponderado, para que un producto con una sola reseña de 5 no pase delante de uno con muchas de 4,8.
     const agg = await prisma.review.groupBy({
       by: ["productId"],
-      where: { productId: { in: products.map((p) => p.id) }, rating: { not: null } },
+      where: { productId: { in: products.map((p) => p.id) }, rating: { not: null }, isHidden: false },
       _avg: { rating: true },
+      _count: { rating: true },
     });
-    const ratingByProduct = Object.fromEntries(agg.map((a) => [a.productId, a._avg.rating ?? 0]));
-    products = [...products].sort((a, b) => (ratingByProduct[b.id] ?? 0) - (ratingByProduct[a.id] ?? 0));
+    const scoreByProduct = Object.fromEntries(agg.map((a) => [a.productId, ratingScore(a._avg.rating ?? 0, a._count.rating)]));
+    const scoreOf = (p) => scoreByProduct[p.id] ?? ratingScore(0, 0);
+    products = [...products].sort((a, b) => scoreOf(b) - scoreOf(a));
   }
   // Bloque 98 (pedido explícito): "relevancia" (default, y lo que alimenta
   // "Destacados" de la Home cuando no hay texto de búsqueda) deja de ser

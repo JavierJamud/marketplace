@@ -149,7 +149,8 @@ export async function accountActivity(vendorId, limit = 15) {
 export function algorithmRules() {
   return {
     destacadosYBusqueda: {
-      queEs: "El orden de 'Destacados' del Home y de la búsqueda/catálogo cuando no se elige otro orden. Cada producto recibe un puntaje de 0 a 1 que mezcla seis señales reales, cada una comparada contra el máximo del catálogo.",
+      // El número de señales sale de los pesos reales (lib/productRanking.js), para que el texto no vuelva a quedar viejo.
+      queEs: `El orden de 'Destacados' del Home, de la búsqueda/catálogo cuando no se elige otro orden y de la página de la tienda. Cada producto recibe un puntaje que mezcla ${Object.keys(RANKING_RULES.pesos).length} señales reales (ventas confirmadas, pedidos y carritos de los últimos ${RANKING_RULES.ventanaDeCarritosYPedidosEnDias} días, favoritos, clics, clics desde búsquedas, tiempo en la ficha, completitud y reseñas), cada una comparada contra el máximo del grupo. Los favoritos, pedidos y carritos del propio dueño no cuentan.`,
       pesosDeLasSenales: RANKING_RULES.pesos,
       pisoDeCalidad: `Un producto NUNCA se destaca si su ficha está por debajo del ${RANKING_RULES.pisoDeCompletitudTiendaVerificada}% de completitud (tienda verificada) o del ${RANKING_RULES.pisoDeCompletitudTiendaSinVerificar}% (tienda sin verificar), ni si tiene reseñas con promedio menor a ${RANKING_RULES.calificacionMinimaSiTieneResenas}. No se oculta del catálogo: solo cae al final.`,
       empujonProductoNuevo: `Un producto recién activado suma +${RANKING_RULES.empujonProductoNuevo} al puntaje durante sus primeros ${RANKING_RULES.diasDeEmpujonProductoNuevo} días.`,
@@ -158,15 +159,18 @@ export function algorithmRules() {
       destacadaPorElPlan: `Si el plan de la tienda incluye "Destacada en la portada" y la tienda está verificada, sus productos suman +${RANKING_RULES.empujonPorPlanDestacado} al puntaje (siempre que pasen el piso de calidad).`,
       completitudDeLaFicha: "Suma hasta 100: hasta 30 por 3 fotos, 25 por una descripción de más de 60 caracteres (12 si es más corta), 15 por etiquetas, 10 por categoría, 10 por precios por cantidad, 10 por una insignia.",
       reseñas: "Se usa un promedio que desconfía de pocas reseñas: con 2 reseñas de 5 estrellas todavía pesa poco.",
+      productosNuevos: "Una parte de los lugares se reserva para productos recién publicados, que todavía no tienen actividad.",
+      rotacion: RANKING_RULES.rotacion,
+      rapidezAlResponder: "La rapidez al responder pedidos no suma al puntaje, pero un pedido sin respuesta recibe recordatorios y se cierra solo a los pocos días: cuenta como cancelación y baja la salud de la tienda.",
     },
     visibilidadDeLaTienda: [
       "La tienda solo aparece en el catálogo, el Home y el buscador si está activa, no bloqueada, no es privada y tiene al menos un producto activo, visible y dentro del cupo de su plan.",
       "Un producto agotado (sin stock y sin 'siempre disponible') no sale en el Home ni en el catálogo, solo dentro de su propia tienda.",
       "En el listado de tiendas las verificadas salen primero.",
-      "Las tiendas verificadas con plan de pago salen en la publicidad de la plataforma durante toda la semana en los grupos de compra y venta de Cuba.",
     ],
     insigniaMasVendido: "El producto más vendido de cada tienda en los últimos 30 días recibe la insignia 'Más vendido'.",
-    ofertas: "Una tienda solo puede tener una oferta del Home activa a la vez, con un tiempo de espera entre ofertas que define el admin.",
+    // Desde el Bloque 297 las tiendas no publican ofertas en el Home: tienen ofertas de tienda (con un código de descuento).
+    ofertas: "Las ofertas que publica la tienda se ven dentro de su propia tienda (con cuenta regresiva si son por tiempo limitado), en la pantalla de su caja y en los correos a sus clientes. Necesitan tienda verificada y un plan con ofertas y códigos de descuento. Las ofertas de la portada del sitio solo las publica el equipo de la plataforma.",
   };
 }
 

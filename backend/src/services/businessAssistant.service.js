@@ -160,7 +160,9 @@ function buildPrompt({ scope, siteName, who, history, message, observations, mus
       lines.push(
         `PLAN DE ESTA TIENDA: NO tiene el plan "${planContext.planName}" activo (${reason}).`,
         "Da consejos útiles igual, con los datos reales de su negocio. Además, cuando encaje de forma natural (por ejemplo si pregunta cómo vender más, llegar a más clientes o qué le falta), recomiéndale con honestidad obtener la verificación y la suscripción, y dile el beneficio concreto:",
-        "- Las tiendas verificadas con plan de pago salen en la publicidad de la plataforma durante TODA la semana, en los grupos de compra y venta de toda Cuba. Eso les trae clientes de todo el país.",
+        // Solo beneficios que la plataforma cumple de verdad (antes prometía publicidad semanal en grupos de compra y venta,
+        // que no hace ningún proceso).
+        "- Las tiendas verificadas tienen la insignia de confianza, salen primero en el listado de tiendas y en el carrusel \"Tiendas verificadas\" de la portada, y sus productos se destacan con una ficha menos exigente que las tiendas sin verificar.",
         planContext.planFeatures.length > 0 ? `- Beneficios del plan: ${planContext.planFeatures.join("; ")}.` : "",
         "Reglas: no lo repitas en cada mensaje ni lo pongas primero si preguntó otra cosa; no presiones; no prometas ventas ni cifras que no estén en los datos. Para activarlo, envíalo con un enlace a /vendedor/verificacion.",
         ""

@@ -3,6 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { sendVendorInactivityReminderEmail, sendVendorWinbackEmail } from "../lib/email.js";
 import { notifyVendorSuspended } from "../services/vendorSuspensionNotify.service.js";
 import { unsubscribeUrl, canSendMarketingEmail, markMarketingEmailSent } from "../lib/marketingEmail.js";
+import { filterVisibleStoreOffers, publicStoreOfferWhere } from "../lib/storeOfferVisibility.js";
+import { currencyLabel } from "../lib/catalog.js";
 
 // Bloque 62 (pedido explícito): primer cron real de este proyecto — todo lo
 // que antes era "tiempo real" (ver comentarios de offers.controller.js/
@@ -95,24 +97,40 @@ async function suspendInactiveVendors() {
 }
 
 // --- 3.3: re-enganche de clientes con 1 sola compra -------------------------
-// Regla confirmada con el usuario: cliente con EXACTAMENTE 1 pedido no
-// cancelado en la tienda, con 30+ días de antigüedad (nunca volvió a
-// comprar ahí desde entonces), y la tienda publicó una oferta ACTIVE nueva
-// desde esa compra. Acotado a `Offer` (no StoreOffer) — ver nota en
-// schema.prisma sobre por qué. Recorre solo ofertas creadas en las últimas
-// 24h (el job corre a diario, no reprocesa el historial entero cada vez).
-async function sendWinbackEmails() {
+// Regla confirmada con el usuario: cliente con EXACTAMENTE 1 pedido no cancelado en la tienda, con 30+ días de antigüedad
+// (nunca volvió a comprar ahí desde entonces), y la tienda publicó una oferta nueva. La oferta es una oferta de tienda
+// (StoreOffer): antes era una Offer con vendorId, que las tiendas ya no pueden crear, y el correo no salía nunca. Cuenta la
+// que se publicó en las últimas 24 h o la programada que empezó en ese tiempo, y solo si el cliente la puede usar: encendida,
+// sin suspender, dentro de sus fechas, con su código activo y permitida por el plan (mismas reglas que la tienda pública).
+// Exportada para probarla sola (sin correr los recordatorios ni las pausas de inactividad de este mismo job).
+export async function sendWinbackEmails() {
+  const now = new Date();
   const oneDayAgo = new Date(Date.now() - WINBACK_OFFER_LOOKBACK_HOURS * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(Date.now() - WINBACK_MIN_ORDER_AGE_DAYS * DAY_MS);
 
-  const recentOffers = await prisma.offer.findMany({
-    where: { status: "ACTIVE", vendorId: { not: null }, createdAt: { gte: oneDayAgo } },
+  const candidates = await prisma.storeOffer.findMany({
+    where: {
+      ...publicStoreOfferWhere(now),
+      OR: [{ createdAt: { gte: oneDayAgo }, startsAt: null }, { startsAt: { gte: oneDayAgo, lte: now } }],
+    },
+    include: { discountCode: { select: { code: true, type: true, value: true, currency: true } } },
   });
 
   let sent = 0;
-  for (const offer of recentOffers) {
-    const vendor = await prisma.vendor.findUnique({ where: { id: offer.vendorId } });
+  for (const found of candidates) {
+    const vendor = await prisma.vendor.findUnique({ where: { id: found.vendorId } });
     if (!vendor || vendor.status !== "ACTIVE" || vendor.isBlocked || vendor.deletedAt) continue;
+    const [visible] = await filterVisibleStoreOffers(vendor, [found]);
+    if (!visible) continue;
+    const dc = visible.discountCode;
+    const offer = {
+      id: visible.id,
+      vendorId: visible.vendorId,
+      title: visible.title,
+      code: dc.code,
+      discountLabel: dc.type === "PERCENTAGE" ? `${Number(dc.value)} % de descuento` : `${Number(dc.value).toLocaleString("es-CU")} ${currencyLabel(dc.currency)} de descuento`,
+      expiresAt: visible.isLimitedTime ? visible.expiresAt : null,
+    };
 
     // Un solo pedido no cancelado por cliente en esta tienda — _count===1
     // ya garantiza que _max.createdAt es la fecha de ESE único pedido.
@@ -128,7 +146,7 @@ async function sendWinbackEmails() {
       if (!row._max.createdAt || row._max.createdAt > thirtyDaysAgo) continue;
 
       const already = await prisma.winbackEmailLog.findUnique({
-        where: { customerId_vendorId_offerId: { customerId: row.customerId, vendorId: offer.vendorId, offerId: offer.id } },
+        where: { customerId_vendorId_storeOfferId: { customerId: row.customerId, vendorId: offer.vendorId, storeOfferId: offer.id } },
       });
       if (already) continue;
 
@@ -145,7 +163,7 @@ async function sendWinbackEmails() {
       if (!customer.marketingEmails || !canSendMarketingEmail(customer)) continue;
 
       const result = await sendVendorWinbackEmail({ customer, vendor, offers: [offer], unsubscribeUrl: unsubscribeUrl(customer.id) });
-      await prisma.winbackEmailLog.create({ data: { customerId: row.customerId, vendorId: offer.vendorId, offerId: offer.id } });
+      await prisma.winbackEmailLog.create({ data: { customerId: row.customerId, vendorId: offer.vendorId, storeOfferId: offer.id } });
       if (result.ok) {
         await markMarketingEmailSent(customer.id);
         sent++;
