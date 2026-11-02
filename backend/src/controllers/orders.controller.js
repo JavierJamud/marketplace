@@ -871,7 +871,7 @@ export async function updateOrderStatus(req, res) {
       actorRole: actorRoleForVendorAction(req),
       vendorId: vendor.id,
       action: "order_cancelled",
-      description: `Anuló el pedido ${order.code} — ${reason.trim()}`,
+      description: `Anuló el pedido ${order.code}. Motivo: ${reason.trim()}`,
       meta: { orderId: id, reason: reason.trim() },
     });
   }

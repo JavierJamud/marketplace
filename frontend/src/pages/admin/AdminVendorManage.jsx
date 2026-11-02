@@ -34,7 +34,7 @@ import { VendorHistorySections } from "./AdminDeletedVendors.jsx";
 // actividad y errores, con todas las acciones que antes estaban en el menú de tres puntos de la lista. La pestaña Pedidos
 // (?tab=pedidos) busca, abre y gestiona los pedidos de la tienda, y Productos (?tab=productos) sus productos, para darle
 // soporte sin ir a otra sección.
-const TAB_IDS = ["resumen", "pedidos", "productos"];
+const TAB_IDS = ["resumen", "pedidos", "productos", "equipo", "soporte", "historial"];
 const VERIFICATION_LABEL = {
   NOT_STARTED: "Sin verificar",
   PENDING_DOCS: "Faltan documentos",

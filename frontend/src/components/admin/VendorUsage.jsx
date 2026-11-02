@@ -270,11 +270,15 @@ export function VendorUsageSection({ vendorId }) {
             {timeline.length === 0 ? (
               <p className="text-[13px] text-on-surface-variant">Sin pasos registrados{who === "all" ? "" : " de este tipo"}.</p>
             ) : (
-              <ol className="max-h-[520px] space-y-0 overflow-y-auto border-l-2 border-surface-container-high pl-4">
+              // La línea y los puntos van dentro del relleno de la lista: con el desplazamiento (overflow) lo que sobresale del
+              // borde se recortaba y los puntos se veían cortados por la mitad.
+              <ol className="max-h-[520px] space-y-0 overflow-y-auto pl-5">
                 {timeline.map((t) => (
                   <li key={t.id} className="relative py-2">
-                    <span className="absolute -left-[21px] top-3 h-2.5 w-2.5 rounded-full bg-tertiary-accent" aria-hidden="true" />
-                    <p className="text-[13px] text-on-surface">{t.description}</p>
+                    <span className="absolute -left-[15px] bottom-0 top-0 w-0.5 bg-surface-container-high" aria-hidden="true" />
+                    <span className="absolute -left-[19px] top-3 h-2.5 w-2.5 rounded-full bg-tertiary-accent" aria-hidden="true" />
+                    {/* Los pasos viejos de "Anuló el pedido" se guardaron con raya larga: se muestran con "Motivo:" como los nuevos. */}
+                    <p className="text-[13px] text-on-surface">{t.description.replace(/^(Anuló el pedido \S+) — /, "$1. Motivo: ")}</p>
                     <p className="text-[11.5px] text-outline" title={exactDateTime(t.createdAt)}>
                       {t.actor?.fullName ?? ROLE_LABEL[t.actorRole] ?? ""} · {ROLE_LABEL[t.actorRole] ?? ""} · {timeAgo(t.createdAt)}
                     </p>
