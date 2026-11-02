@@ -246,6 +246,7 @@ router.post("/vendors/:id/weekly-summary", usageController.adminSendWeeklySummar
 router.get("/support-cases", adminController.listSupportCases);
 router.patch("/support-cases/:id/resolve", adminController.resolveSupportCase);
 router.post("/emails", adminController.sendAdminEmail);
+router.post("/emails/draft", adminController.draftVendorEmail);
 
 // Bloque 70 (pedido explícito): historial de acciones de vendedores/clientes
 // + estadísticas de uso (top vendedores/clientes por día/semana/mes).
