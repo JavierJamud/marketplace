@@ -225,6 +225,20 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
   // "apagar" el checkbox solo si el vendedor borra momentáneamente todos los
   // tramos mientras edita.
   const [priceTiersEnabled, setPriceTiersEnabled] = useState((product?.priceTiers ?? []).length > 0);
+  // "Más opciones" (pedido del dueño: el vendedor veía demasiadas opciones que la mayoría de productos no usa): cerrado al
+  // crear; al editar se abre solo si el producto ya usa alguna, para que nada configurado quede escondido.
+  const [moreOpen, setMoreOpen] = useState(
+    !!product &&
+      Boolean(
+        product.oldPrice ||
+          product.barcode ||
+          product.unlimitedStock ||
+          (product.priceTiers ?? []).length ||
+          (product.tags ?? []).length ||
+          (product.badge && product.badge !== "Nuevo") ||
+          product.availableForTableMenu
+      )
+  );
   // Bloque 196: snapshot del borrador con el que se abrió el modal — se
   // compara contra `form`/sizesEnabled/priceTiersEnabled en cada render
   // para saber si hay algo sin guardar (nunca contra `savedProduct`, que sí
@@ -546,6 +560,141 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
           </button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-3.5">
+          {/* La foto es obligatoria: va primero para que nadie llegue al final y descubra que falta. */}
+          <div className={SECTION_BOX}>
+            <span className="mb-3 block text-[13px] font-bold text-on-surface">
+              Fotos del producto <span className="text-error">*</span>
+            </span>
+            {savedProduct && !savedProduct.images?.length && (
+              <p className="mb-2.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
+                Este producto no tiene foto: está en pausa y no se puede guardar hasta que subas al menos una.
+              </p>
+            )}
+            {savedProduct ? (
+              <>
+                <div className="mb-2.5 flex flex-wrap gap-2">
+                  {savedProduct.images?.map((url, index) => (
+                    <div
+                      key={url}
+                      draggable
+                      onDragStart={() => { dragIndexRef.current = index; }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleImageDrop(index)}
+                      title="Arrastra para reordenar"
+                      className="group relative h-16 w-16 flex-shrink-0 cursor-grab overflow-hidden rounded-md border border-surface-container-high active:cursor-grabbing"
+                    >
+                      <img src={imgUrl(url)} alt="" className="h-full w-full object-cover" />
+                      {index === 0 ? (
+                        <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+                          Portada
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => makeCover(index)}
+                          title="Hacer portada"
+                          className="absolute bottom-0.5 left-0.5 rounded bg-black/60 p-0.5 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100"
+                        >
+                          <Star className="h-3 w-3" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setRemoveImageTarget(url)}
+                        disabled={removeImage.isPending}
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <ImageCropUploader
+                    key={cropResetKey}
+                    aspect={7 / 4}
+                    accept="image/jpeg,image/webp"
+                    boxClassName="h-16 w-16 flex-shrink-0"
+                    compact
+                    onFileReady={handleCroppedUpload}
+                  />
+                </div>
+                <p className="text-label-sm text-outline">
+                  {uploadImages.isPending
+                    ? "Subiendo foto..."
+                    : "Tamaño recomendado: 1400×800px (relación 7:4). Al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP."}
+                  {savedProduct.images?.length > 1 && " Arrastra una foto (o usa la estrella) para elegir la portada."}
+                </p>
+
+                {siteSettings?.allowProductImageLinks && (
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitImageLink(); } }}
+                      placeholder="O pega el link de una imagen (https://...)"
+                      className="h-9 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
+                    />
+                    <button
+                      type="button"
+                      onClick={submitImageLink}
+                      disabled={addImageLink.isPending || !linkInput.trim()}
+                      className="flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                    >
+                      {addImageLink.isPending ? "..." : "Agregar link"}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="mb-2.5 flex flex-wrap gap-2">
+                  {pendingPhotos.map((p, index) => (
+                    <div key={p.key} className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md border border-surface-container-high">
+                      <img src={p.url} alt="" className="h-full w-full object-cover" />
+                      {index === 0 && (
+                        <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">Portada</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removePending(p.key)}
+                        aria-label="Quitar esta foto"
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {pendingCount < 6 && (
+                    <ImageCropUploader key={cropResetKey} aspect={7 / 4} accept="image/jpeg,image/webp" boxClassName="h-16 w-16 flex-shrink-0" compact onFileReady={handleCroppedUpload} />
+                  )}
+                </div>
+                <p className={`text-label-sm ${pendingCount ? "text-outline" : "font-semibold text-error"}`}>
+                  {pendingCount
+                    ? "La primera foto es la portada. Tamaño recomendado: 1400×800px (7:4). Solo JPG o WebP."
+                    : "Agrega al menos una foto: sin foto el producto no se puede crear."}
+                </p>
+                {siteSettings?.allowProductImageLinks && pendingCount < 6 && (
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitImageLink(); } }}
+                      placeholder="O pega el link de una imagen (https://...)"
+                      className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
+                    />
+                    <button
+                      type="button"
+                      onClick={submitImageLink}
+                      disabled={!linkInput.trim()}
+                      className="min-h-11 flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                    >
+                      Agregar link
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           <Input label="Nombre" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
 
           <div>
@@ -576,9 +725,8 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
 
           <CategoryPicker label="Categoría" required value={form.categoryId} onChange={(id) => setForm((f) => ({ ...f, categoryId: id }))} categories={categories} />
 
-          <div className="grid grid-cols-[1fr_1fr_120px] gap-3">
+          <div className="grid grid-cols-[1fr_120px] gap-3">
             <Input label="Precio" type="number" min={1} required value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
-            <Input label="Precio anterior (opcional)" type="number" min={1} value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })} />
             <Select label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
               {currencyCodesFor(form.currency).map((c) => (
                 <option key={c} value={c}>{currencyLabel(c)}</option>
@@ -606,31 +754,10 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
               {!sizesEnabled && !form.unlimitedStock && (
                 <Input label="Stock" type="number" min={0} required value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
               )}
-              {/* Para venderlo escaneando en la Caja. Con un lector USB se puede escanear aquí mismo. */}
-              {!sizesEnabled && (
-                <Input
-                  label="Código de barras"
-                  value={form.barcode}
-                  maxLength={40}
-                  placeholder="Opcional"
-                  onChange={(e) => setForm({ ...form, barcode: e.target.value.replace(/[^A-Za-z0-9.-]/g, "") })}
-                  onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
-                />
+              {!sizesEnabled && form.unlimitedStock && (
+                <p className="col-span-2 text-label-sm text-on-surface-variant">Disponible siempre, sin stock definido (lo cambias en «Más opciones»).</p>
               )}
             </div>
-
-            {!sizesEnabled && (
-              <label className="mt-3 flex items-start gap-2 border-t border-surface-container-high/70 pt-3 text-body-md font-semibold text-on-surface">
-                <input type="checkbox" className="mt-0.5" checked={form.unlimitedStock} onChange={(e) => toggleUnlimitedStock(e.target.checked)} />
-                <span>
-                  Disponible siempre (sin stock definido)
-                  <span className="mt-1 block text-label-sm font-normal text-outline">
-                    Para productos que no se agotan o que siempre repones al momento: el stock deja de ser obligatorio. Ojo: no vas a tener ningún
-                    seguimiento de este producto (no aparece en "stock bajo" ni "sin stock" aunque en algún momento se te termine de verdad).
-                  </span>
-                </span>
-              </label>
-            )}
 
             <label className="mt-3 flex items-center gap-2 border-t border-surface-container-high/70 pt-3 text-body-md font-semibold text-on-surface">
               <input type="checkbox" checked={sizesEnabled} onChange={(e) => toggleHasSizes(e.target.checked)} />
@@ -698,6 +825,52 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             )}
           </div>
 
+          {/* Opciones que la mayoría de productos no necesita: se abren solo si el vendedor las busca. */}
+          <div className="rounded-xl border border-surface-container-high">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((o) => !o)}
+              aria-expanded={moreOpen}
+              className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            >
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-bold text-on-surface">Más opciones</span>
+                <span className="block text-label-sm text-outline">
+                  Precio anterior, código de barras, precios por cantidad, etiqueta y tags{isRestaurant ? ", menú QR" : ""}
+                </span>
+              </span>
+              <ChevronDown className={`h-4 w-4 flex-shrink-0 text-outline transition-transform ${moreOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {moreOpen && (
+              <div className="space-y-3.5 border-t border-surface-container-high p-3">
+                <div className={SECTION_BOX}>
+                  <Input label="Precio anterior (opcional)" type="number" min={1} value={form.oldPrice} onChange={(e) => setForm({ ...form, oldPrice: e.target.value })} />
+                  <p className="mt-1 text-label-sm text-outline">Si lo pones, el precio de antes sale tachado junto al actual, como oferta.</p>
+                </div>
+                {/* Con tallas, el código de barras y el stock van por talla: estas dos opciones no aplican. */}
+                {!sizesEnabled && (
+                  <div className={SECTION_BOX}>
+                    {/* Para venderlo escaneando en la Caja. Con un lector USB se puede escanear aquí mismo. */}
+                    <Input
+                      label="Código de barras"
+                      value={form.barcode}
+                      maxLength={40}
+                      placeholder="Opcional"
+                      onChange={(e) => setForm({ ...form, barcode: e.target.value.replace(/[^A-Za-z0-9.-]/g, "") })}
+                      onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                    />
+                    <label className="mt-3 flex items-start gap-2 text-body-md font-semibold text-on-surface">
+                      <input type="checkbox" className="mt-0.5" checked={form.unlimitedStock} onChange={(e) => toggleUnlimitedStock(e.target.checked)} />
+                      <span>
+                        Disponible siempre (sin stock definido)
+                        <span className="mt-1 block text-label-sm font-normal text-outline">
+                          Para productos que no se agotan o que siempre repones al momento: el stock deja de ser obligatorio. Ojo: no vas a tener ningún
+                          seguimiento de este producto (no aparece en "stock bajo" ni "sin stock" aunque en algún momento se te termine de verdad).
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )}
           <div className={SECTION_BOX}>
             <label className="flex items-center gap-2 text-body-md font-semibold text-on-surface">
               <input type="checkbox" checked={priceTiersEnabled} onChange={(e) => togglePriceTiers(e.target.checked)} />
@@ -885,137 +1058,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
             </div>
           )}
 
-          <div className={SECTION_BOX}>
-            <span className="mb-3 block text-[13px] font-bold text-on-surface">
-              Fotos del producto <span className="text-error">*</span>
-            </span>
-            {savedProduct && !savedProduct.images?.length && (
-              <p className="mb-2.5 rounded-md bg-error/10 px-3 py-2 text-label-sm font-semibold text-error">
-                Este producto no tiene foto: está en pausa y no se puede guardar hasta que subas al menos una.
-              </p>
-            )}
-            {savedProduct ? (
-              <>
-                <div className="mb-2.5 flex flex-wrap gap-2">
-                  {savedProduct.images?.map((url, index) => (
-                    <div
-                      key={url}
-                      draggable
-                      onDragStart={() => { dragIndexRef.current = index; }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => handleImageDrop(index)}
-                      title="Arrastra para reordenar"
-                      className="group relative h-16 w-16 flex-shrink-0 cursor-grab overflow-hidden rounded-md border border-surface-container-high active:cursor-grabbing"
-                    >
-                      <img src={imgUrl(url)} alt="" className="h-full w-full object-cover" />
-                      {index === 0 ? (
-                        <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
-                          Portada
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => makeCover(index)}
-                          title="Hacer portada"
-                          className="absolute bottom-0.5 left-0.5 rounded bg-black/60 p-0.5 text-white opacity-0 hover:bg-black/80 group-hover:opacity-100"
-                        >
-                          <Star className="h-3 w-3" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setRemoveImageTarget(url)}
-                        disabled={removeImage.isPending}
-                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                  <ImageCropUploader
-                    key={cropResetKey}
-                    aspect={7 / 4}
-                    accept="image/jpeg,image/webp"
-                    boxClassName="h-16 w-16 flex-shrink-0"
-                    compact
-                    onFileReady={handleCroppedUpload}
-                  />
-                </div>
-                <p className="text-label-sm text-outline">
-                  {uploadImages.isPending
-                    ? "Subiendo foto..."
-                    : "Tamaño recomendado: 1400×800px (relación 7:4). Al subir una foto podrás recortarla para ajustarla. Solo JPG o WebP."}
-                  {savedProduct.images?.length > 1 && " Arrastra una foto (o usa la estrella) para elegir la portada."}
-                </p>
-
-                {siteSettings?.allowProductImageLinks && (
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      value={linkInput}
-                      onChange={(e) => setLinkInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitImageLink(); } }}
-                      placeholder="O pega el link de una imagen (https://...)"
-                      className="h-9 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
-                    />
-                    <button
-                      type="button"
-                      onClick={submitImageLink}
-                      disabled={addImageLink.isPending || !linkInput.trim()}
-                      className="flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
-                    >
-                      {addImageLink.isPending ? "..." : "Agregar link"}
-                    </button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="mb-2.5 flex flex-wrap gap-2">
-                  {pendingPhotos.map((p, index) => (
-                    <div key={p.key} className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md border border-surface-container-high">
-                      <img src={p.url} alt="" className="h-full w-full object-cover" />
-                      {index === 0 && (
-                        <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">Portada</span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => removePending(p.key)}
-                        aria-label="Quitar esta foto"
-                        className="absolute right-0.5 top-0.5 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {pendingCount < 6 && (
-                    <ImageCropUploader key={cropResetKey} aspect={7 / 4} accept="image/jpeg,image/webp" boxClassName="h-16 w-16 flex-shrink-0" compact onFileReady={handleCroppedUpload} />
-                  )}
-                </div>
-                <p className={`text-label-sm ${pendingCount ? "text-outline" : "font-semibold text-error"}`}>
-                  {pendingCount
-                    ? "La primera foto es la portada. Tamaño recomendado: 1400×800px (7:4). Solo JPG o WebP."
-                    : "Agrega al menos una foto: sin foto el producto no se puede crear."}
-                </p>
-                {siteSettings?.allowProductImageLinks && pendingCount < 6 && (
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      value={linkInput}
-                      onChange={(e) => setLinkInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitImageLink(); } }}
-                      placeholder="O pega el link de una imagen (https://...)"
-                      className="h-11 flex-1 rounded border border-outline-variant bg-surface-container-lowest px-3 text-[13px] outline-none focus:border-primary-container"
-                    />
-                    <button
-                      type="button"
-                      onClick={submitImageLink}
-                      disabled={!linkInput.trim()}
-                      className="min-h-11 flex-shrink-0 rounded-full border border-outline-variant px-3.5 text-[13px] font-bold text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
-                    >
-                      Agregar link
-                    </button>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </div>
 

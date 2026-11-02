@@ -50,11 +50,11 @@ export function WelcomeHeading({ name, subtitle, className = "" }) {
         {greetingFor(now, timeZone)}, <span className="font-medium text-on-surface-variant">{name}</span>
       </h1>
       <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-outline sm:text-[13.5px]">
-        <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <CalendarDays className="h-4 w-4" aria-hidden="true" />
           {formatDate(now, timeZone)}
         </span>
-        <span className="inline-flex items-center gap-1.5 tabular-nums">
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
           <Clock className="h-4 w-4" aria-hidden="true" />
           {formatTime(now, timeZone)}
         </span>

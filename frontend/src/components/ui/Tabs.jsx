@@ -32,7 +32,7 @@ export function Tabs({ tabs, value, onChange, className }) {
             onClick={() => onChange(t.id)}
             aria-pressed={active}
             className={clsx(
-              "flex min-h-10 flex-shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-[13px] font-semibold transition-colors",
+              "flex min-h-10 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2 text-[13px] font-semibold transition-colors",
               "sm:min-h-0 sm:rounded-none sm:border-0 sm:border-b-2 sm:px-4 sm:py-2.5 sm:text-label-lg",
               active
                 ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent sm:bg-transparent"
@@ -40,7 +40,15 @@ export function Tabs({ tabs, value, onChange, className }) {
             )}
           >
             {Icon && <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />}
-            {t.label}
+            {/* `short` (opcional): nombre corto en el celular, para que la pestaña no se parta en dos renglones. */}
+            {t.short ? (
+              <>
+                <span className="sm:hidden">{t.short}</span>
+                <span className="hidden sm:inline">{t.label}</span>
+              </>
+            ) : (
+              t.label
+            )}
             {/* `count` (opcional): lo pendiente en esa pestaña; en rojo si hay algo por atender. */}
             {t.count > 0 && (
               <span className="rounded-full bg-error px-1.5 py-0.5 text-[11px] font-extrabold leading-none text-white" aria-label={`${t.count} por atender`}>

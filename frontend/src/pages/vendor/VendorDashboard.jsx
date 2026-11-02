@@ -402,7 +402,7 @@ const BEST_SELLER_TABS = [
 const DASH_TABS = [
   { id: "hoy", label: "Hoy", icon: ClipboardList },
   { id: "productos", label: "Productos", icon: Boxes },
-  { id: "rendimiento", label: "Rendimiento y clientes", icon: Gauge },
+  { id: "rendimiento", label: "Rendimiento y clientes", short: "Rendimiento", icon: Gauge },
 ];
 
 export default function VendorDashboard() {
@@ -450,15 +450,17 @@ export default function VendorDashboard() {
     <div>
       <div className="mb-7 flex flex-wrap items-end justify-between gap-3">
         <WelcomeHeading name={vendor?.companyName} />
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="inline-flex items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-4 py-2.5 text-[13px] font-semibold text-on-surface-variant">
-            <CalendarDays className="h-4 w-4 text-outline" />
+        {/* En el celular, dos columnas iguales a todo el ancho y sin partir el texto (antes se encogían y "Nuevo producto"
+            o "25 oct – 1 nov" bajaban a dos renglones). Desde sm vuelven a ser dos píldoras a la derecha. */}
+        <div className="grid w-full grid-cols-2 gap-2.5 sm:flex sm:w-auto sm:items-center">
+          <span className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-surface-container-high bg-surface-container-lowest px-3 py-2.5 text-[13px] font-semibold text-on-surface-variant sm:px-4">
+            <CalendarDays className="h-4 w-4 flex-shrink-0 text-outline" aria-hidden="true" />
             {weekRange}
           </span>
           {/* Abre directo el formulario (?nuevo=1, VendorProducts.jsx), no la lista: el botón hace lo que dice. */}
           <Link
             to="/vendedor/productos?nuevo=1"
-            className="flex items-center gap-1.5 rounded-full bg-secondary-container px-5 py-2.5 text-[13.5px] font-bold text-on-secondary-container shadow-[0_8px_20px_-8px_rgba(254,152,0,0.6)] transition-transform hover:-translate-y-0.5"
+            className="flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-secondary-container px-3 py-2.5 text-[13.5px] font-bold text-on-secondary-container shadow-[0_8px_20px_-8px_rgba(254,152,0,0.6)] transition-transform hover:-translate-y-0.5 sm:px-5"
           >
             <Plus className="h-4 w-4" /> Nuevo producto
           </Link>

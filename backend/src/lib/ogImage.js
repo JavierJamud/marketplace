@@ -238,11 +238,36 @@ export async function renderStoreOgImage(vendor) {
   const tw = W - tx - PX;
   const parts = [];
 
-  // Nombre en una línea (si no cabe se achica y, si aún no, termina en "...") con el sello al lado.
-  const seal = vendor.verified ? 48 : 0;
+  // Botones del banner, arriba a la derecha como en la página de la tienda en computadora (StoreHeaderBanner.jsx), tal como
+  // los ve un cliente sin sesión: Compartir y Favorito en círculos blancos al 10 % y "Contactar" verde de WhatsApp.
+  // "Reportar estafa" solo sale con sesión de cliente, así que no va. "Abierto ahora" y el punto verde del logo tampoco:
+  // WhatsApp guarda esta imagen días y a otra hora dirían algo falso.
+  const BR = 26;
+  const contactW = 30 + 24 + 12 + advance(bold, "Contactar", 22) + 30;
+  const actionsW = 2 * (BR * 2 + 12) + contactW;
+  const drawActions = (bx0, by) => {
+    ["Share2", "Heart"].forEach((icon, i) => {
+      const cx = bx0 + BR + i * (BR * 2 + 12);
+      parts.push(`<circle cx="${cx.toFixed(1)}" cy="${by + BR}" r="${BR}" fill="#fff" fill-opacity="0.1"/>`);
+      parts.push(iconSvg(icon, cx - 12, by + BR - 12, 24, { stroke: "#fff", opacity: 0.8, strokeWidth: 2 }));
+    });
+    const bx = bx0 + 2 * (BR * 2 + 12);
+    parts.push(`<rect x="${bx.toFixed(1)}" y="${by}" width="${contactW.toFixed(1)}" height="${BR * 2}" rx="16" fill="#25D366"/>`);
+    parts.push(iconSvg("MessageCircle", bx + 30, by + BR - 12, 24, { stroke: "#0e1a28", strokeWidth: 2.2 }));
+    parts.push(textPath(bold, "Contactar", bx + 30 + 24 + 12, by + BR + 8, 22, "#0e1a28"));
+  };
+  // Si el nombre entra a 42 px junto a los botones, van arriba a la derecha (como en computadora); si no, bajan debajo
+  // de las redes (como en el celular) y el nombre usa todo el ancho: así un nombre largo nunca se corta con "...".
+  const sealW = vendor.verified ? 48 : 0;
+  const actionsTop = advance(bold, vendor.companyName, 42) <= tw - actionsW - 24 - sealW;
+  if (actionsTop) drawActions(W - PX - actionsW, ay + 14);
+
+  // Nombre en una línea (si no cabe se achica y, si aún no, termina en "...") con el sello al lado, sin tocar los botones.
+  const seal = sealW;
+  const nameRoom = actionsTop ? tw - actionsW - 24 - seal : tw - seal;
   let nameSize = 54;
-  while (nameSize > 38 && advance(bold, vendor.companyName, nameSize) > tw - seal) nameSize -= 4;
-  const name = fit(bold, vendor.companyName, nameSize, tw - seal);
+  while (nameSize > 34 && advance(bold, vendor.companyName, nameSize) > nameRoom) nameSize -= 4;
+  const name = fit(bold, vendor.companyName, nameSize, nameRoom);
   parts.push(textPath(bold, name, tx, ay + 58, nameSize, "#fff"));
   if (vendor.verified) {
     const sx = tx + advance(bold, name, nameSize) + 14;
@@ -282,7 +307,9 @@ export async function renderStoreOgImage(vendor) {
       if (icon) parts.push(iconSvg(icon, cx - 13, y + 13, 26, { stroke, strokeWidth: 2 }));
       else parts.push(`<g transform="translate(${cx - 13} ${y + 13}) scale(1.0833)" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${TIKTOK}</g>`);
     });
+    y += 52;
   }
+  if (!actionsTop) drawActions(tx, y + 18);
 
   // Franja oscura de abajo: los datos de la tienda, igual que en su página. Lo que no cabe en una línea pasa a la siguiente
   // y la franja crece; se dibuja en coordenadas propias y después se baja a su lugar.

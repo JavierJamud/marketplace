@@ -188,7 +188,8 @@ export async function renderStorePage(req, res) {
     `${vendor.companyName}${place ? ` en ${place}, Cuba` : " en Cuba"}: ${category.toLowerCase()} en ${siteName}. Mira sus productos y precios y haz tu pedido por WhatsApp o pago contra entrega.`;
   // `v`: cambia cuando cambia algo de lo que se ve en la imagen, para que WhatsApp y Facebook (que guardan la vista previa
   // mucho tiempo) pidan la nueva. Se calcula con esos mismos datos (la tienda no guarda una fecha de última edición).
-  const visible = [vendor.companyName, vendor.description, vendor.logoUrl, vendor.color, vendor.verificationStatus, vendor.businessCategory?.name, JSON.stringify(vendor.socialLinks), String(vendor.rating), vendor.reviewCount, (vendor.acceptedPaymentMethods ?? []).join(","), vendor.storeShippingMode, String(vendor.storeShippingLocal), String(vendor.storeShippingOther), vendor.storeShippingCurrency, vendor.products.length];
+  // "diseño-2": la imagen ganó la fila de botones del banner; cambiarlo cuando cambie el dibujo, para que la pidan de nuevo.
+  const visible = ["diseño-2", vendor.companyName, vendor.description, vendor.logoUrl, vendor.color, vendor.verificationStatus, vendor.businessCategory?.name, JSON.stringify(vendor.socialLinks), String(vendor.rating), vendor.reviewCount, (vendor.acceptedPaymentMethods ?? []).join(","), vendor.storeShippingMode, String(vendor.storeShippingLocal), String(vendor.storeShippingOther), vendor.storeShippingCurrency, vendor.products.length];
   const version = crypto.createHash("sha1").update(visible.join("|")).digest("hex").slice(0, 10);
   const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.jpg?v=${version}`;
 
