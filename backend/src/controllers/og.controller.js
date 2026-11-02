@@ -33,7 +33,7 @@ function storeShippingText(v) {
   return local === other ? `Envío ${money(local)} por pedido` : `Envío desde ${money(Math.min(local, other))} por pedido`;
 }
 
-export async function renderStoreOgImagePng(req, res) {
+export async function renderStoreOgImageJpg(req, res) {
   const slug = await resolveVendorSlug(req.params.slug);
   const cached = imageCache.get(slug);
   let png = cached && cached.expires > Date.now() ? cached.png : null;
@@ -79,7 +79,9 @@ export async function renderStoreOgImagePng(req, res) {
     imageCache.set(slug, { png, expires: Date.now() + IMAGE_TTL_MS });
   }
 
-  res.set({ "Content-Type": "image/png", "Cache-Control": "public, max-age=600" });
+  // JPEG como la del producto: sin canal transparente y más liviana, que es lo que WhatsApp lee mejor para la vista
+  // previa grande. La dirección vieja (imagen.png) sigue respondiendo con esta misma imagen para los enlaces ya compartidos.
+  res.set({ "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=600" });
   res.send(png);
 }
 

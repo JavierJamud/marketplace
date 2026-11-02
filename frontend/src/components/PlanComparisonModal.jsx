@@ -88,19 +88,25 @@ export function PlanComparisonModal({ onContinueRegular, planType, businessHref 
       aria-modal="true"
       aria-labelledby="plan-compare-title"
     >
-      <div className="modal-panel-6 w-full max-w-lg rounded-xl bg-surface-container-lowest p-6 sm:p-8">
-        <div className="mb-1 text-center font-display text-[13px] font-bold uppercase tracking-wide text-secondary">
-          ¡Tu tienda ya existe!
+      {/* Encajada en la pantalla (pedido del dueño): con la tabla completa la ventana medía casi el doble que un teléfono y
+          se deslizaba entera, título incluido, con los botones al final. Ahora el título queda fijo arriba, solo la tabla
+          se desliza por dentro y los botones quedan fijos abajo, siempre a la vista. */}
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-surface-container-lowest">
+        <div className="flex-shrink-0 px-6 pb-3 pt-6 sm:px-8 sm:pt-8">
+          <div className="mb-1 text-center font-display text-[13px] font-bold uppercase tracking-wide text-secondary">
+            ¡Tu tienda ya existe!
+          </div>
+          <h2 id="plan-compare-title" ref={titleRef} tabIndex={-1} className="mb-2 text-center outline-none font-display text-headline-md text-on-surface">
+            Elige cómo empezar
+          </h2>
+          <p className="text-center text-[13px] text-on-surface-variant">
+            {startPlan ? `Arrancas en el plan ${planName(startPlan)}${startPlan.isFree ? ", gratis" : ""}. ` : ""}
+            {target ? `Puedes pasar a ${planName(target)} cuando quieras desde tu panel.` : "Puedes cambiar de plan cuando quieras desde tu panel."}
+          </p>
         </div>
-        <h2 id="plan-compare-title" ref={titleRef} tabIndex={-1} className="mb-2 text-center outline-none font-display text-headline-md text-on-surface">
-          Elige cómo empezar
-        </h2>
-        <p className="mb-6 text-center text-[13px] text-on-surface-variant">
-          {startPlan ? `Arrancas en el plan ${planName(startPlan)}${startPlan.isFree ? ", gratis" : ""}. ` : ""}
-          {target ? `Puedes pasar a ${planName(target)} cuando quieras desde tu panel.` : "Puedes cambiar de plan cuando quieras desde tu panel."}
-        </p>
 
-        <div className="mb-6 overflow-hidden rounded-lg border border-surface-container-high">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-4 sm:px-8">
+        <div className="overflow-clip rounded-lg border border-surface-container-high">
           {isLoading ? (
             <div className="px-3 py-4">
               <Skeleton count={4} height={14} className="mb-2" />
@@ -116,7 +122,8 @@ export function PlanComparisonModal({ onContinueRegular, planType, businessHref 
             <p className="px-3 py-4 text-center text-[13px] text-on-surface-variant">Todavía no hay planes para comparar.</p>
           ) : (
             <>
-              <div className="grid bg-surface-container text-center text-[11.5px] font-bold text-on-surface-variant" style={gridStyle}>
+              {/* La fila de nombres de plan queda pegada arriba mientras se desliza la tabla. */}
+              <div className="sticky top-0 z-[1] grid bg-surface-container text-center text-[11.5px] font-bold text-on-surface-variant" style={gridStyle}>
                 <div className="px-3 py-2.5 text-left">Incluye</div>
                 {columns.map((p) => (
                   <div key={p.planType} className={`break-words px-2 py-2.5 ${p === target ? "text-secondary" : ""}`}>
@@ -137,7 +144,9 @@ export function PlanComparisonModal({ onContinueRegular, planType, businessHref 
             </>
           )}
         </div>
+        </div>
 
+        <div className="flex-shrink-0 border-t border-surface-container-high px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-4 sm:px-8">
         <div className="flex flex-col gap-2.5 sm:flex-row">
           <button
             type="button"
@@ -155,9 +164,10 @@ export function PlanComparisonModal({ onContinueRegular, planType, businessHref 
             </Link>
           )}
         </div>
-        <Link to="/planes" className="mt-3 flex min-h-11 items-center justify-center text-[12.5px] font-semibold text-tertiary-accent hover:underline">
+        <Link to="/planes" className="mt-1 flex min-h-11 items-center justify-center text-[12.5px] font-semibold text-tertiary-accent hover:underline">
           Ver todos los planes y precios
         </Link>
+        </div>
       </div>
     </div>
   );

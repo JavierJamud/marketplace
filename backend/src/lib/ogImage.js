@@ -362,7 +362,8 @@ export async function renderStoreOgImage(vendor) {
   const logo = vendor.logoUrl ? await logoBuffer(vendor.logoUrl, avatar) : null;
   return sharp(Buffer.from(svg))
     .composite(logo ? [{ input: logo, left: ax, top: ay }] : [])
-    .png({ compressionLevel: 9 })
+    .flatten({ background: "#0e1a28" })
+    .jpeg({ quality: 86, mozjpeg: true })
     .toBuffer();
 }
 

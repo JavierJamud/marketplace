@@ -455,8 +455,9 @@ export default function VendorDashboard() {
             <CalendarDays className="h-4 w-4 text-outline" />
             {weekRange}
           </span>
+          {/* Abre directo el formulario (?nuevo=1, VendorProducts.jsx), no la lista: el botón hace lo que dice. */}
           <Link
-            to="/vendedor/productos"
+            to="/vendedor/productos?nuevo=1"
             className="flex items-center gap-1.5 rounded-full bg-secondary-container px-5 py-2.5 text-[13.5px] font-bold text-on-secondary-container shadow-[0_8px_20px_-8px_rgba(254,152,0,0.6)] transition-transform hover:-translate-y-0.5"
           >
             <Plus className="h-4 w-4" /> Nuevo producto

@@ -1133,11 +1133,15 @@ export default function VendorProducts() {
     setSearchParams(next, { replace: true });
   }, [editId, isLoading, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ?nuevo=1 (desde los pasos para activar el Premium): abre el formulario de producto nuevo.
+  // ?nuevo=1 (desde el botón "Nuevo producto" del inicio del panel y los pasos para activar el Premium): abre el
+  // formulario de producto nuevo. Si el plan ya llegó a su tope, avisa lo mismo que el botón de esta página.
   const wantsNew = searchParams.get("nuevo");
   useEffect(() => {
     if (!wantsNew || isLoading) return;
-    if (!(data?.limit != null && countPublished(data?.products ?? []) >= data.limit)) setModalState({ mode: "new" });
+    const max = data?.limit;
+    if (max != null && countPublished(data?.products ?? []) >= max) {
+      toast.error(max === 0 ? "Tu plan no permite publicar productos." : `Alcanzaste el límite de ${max} ${max === 1 ? "producto publicado" : "productos publicados"} de tu plan.`);
+    } else setModalState({ mode: "new" });
     const next = new URLSearchParams(searchParams);
     next.delete("nuevo");
     setSearchParams(next, { replace: true });

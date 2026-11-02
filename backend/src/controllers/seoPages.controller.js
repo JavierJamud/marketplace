@@ -190,7 +190,7 @@ export async function renderStorePage(req, res) {
   // mucho tiempo) pidan la nueva. Se calcula con esos mismos datos (la tienda no guarda una fecha de última edición).
   const visible = [vendor.companyName, vendor.description, vendor.logoUrl, vendor.color, vendor.verificationStatus, vendor.businessCategory?.name, JSON.stringify(vendor.socialLinks), String(vendor.rating), vendor.reviewCount, (vendor.acceptedPaymentMethods ?? []).join(","), vendor.storeShippingMode, String(vendor.storeShippingLocal), String(vendor.storeShippingOther), vendor.storeShippingCurrency, vendor.products.length];
   const version = crypto.createHash("sha1").update(visible.join("|")).digest("hex").slice(0, 10);
-  const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.png?v=${version}`;
+  const image = `${env.backendUrl}/og/tienda/${encodeURIComponent(slug)}/imagen.jpg?v=${version}`;
 
   const jsonLd = {
     "@context": "https://schema.org",

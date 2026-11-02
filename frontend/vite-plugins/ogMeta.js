@@ -125,7 +125,7 @@ export function ogMetaPlugin(env = {}) {
             // Bloque 207: el banner de la tienda es color + patrón de
             // íconos, nunca una foto real — el logo es lo más cercano a una
             // imagen de marca real que tiene cada tienda.
-            image: `${apiUrl}/og/tienda/${encodeURIComponent(storeMatch[1])}/imagen.png`,
+            image: `${apiUrl}/og/tienda/${encodeURIComponent(storeMatch[1])}/imagen.jpg`,
             url: `${siteUrl}${path}`,
             type: "website",
             siteName,
