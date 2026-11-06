@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { detectConditionsInText, conditionLabel } from "../constants/productCondition.js";
 import { resolveSessionUser } from "../middleware/auth.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -72,8 +73,10 @@ const STOPWORDS = new Set([
 ]);
 
 // Singular de cada palabra (ver lib/searchStem.js): "paneles" tiene que encontrar "Panel solar".
+// Las palabras del estado ("de uso", "usado", "como nuevo") no son parte del nombre de ningún producto: se quitan aquí y
+// filtran aparte (ver loadVendorForChat).
 function extractSearchTerms(rawText) {
-  const words = rawText.toLowerCase().replace(/[¿?¡!.,;:]/g, "").split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !CONVERSATIONAL_FILLERS.has(w));
+  const words = detectConditionsInText(rawText, { includeNew: true }).rest.replace(/[¿?¡!.,;:]/g, "").split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !CONVERSATIONAL_FILLERS.has(w));
   return [...new Set(words.map(toSearchStem))];
 }
 
@@ -103,6 +106,7 @@ const PRODUCT_SELECT_FIELDS = {
   priceTiers: { orderBy: { minQty: "asc" }, select: { minQty: true, price: true } },
   stock: true,
   unlimitedStock: true,
+  condition: true,
   images: true,
   tags: true,
   options: { select: { name: true, values: true } },
@@ -213,6 +217,9 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
   await assertPlanAllows(vendor, "allowAiChatbot", "Tu plan actual no incluye el chat con IA.");
 
   const totalActive = vendor._count.products;
+  // Estado pedido en el mensaje ("¿tienen algo de uso?"). Con catálogo chico el modelo ya ve el estado de cada producto.
+  const askedConditions = detectConditionsInText(message, { includeNew: true }).conditions;
+  const conditionWhere = askedConditions.length ? { condition: { in: askedConditions } } : {};
   let products;
   let searchNote = "";
   let unclearQuery = false;
@@ -231,7 +238,7 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
     const terms = resolveCatalogSearchTerms(message, history);
     if (terms.length) {
       const ids = await searchVendorProductIdsByTerms(vendorId, terms);
-      products = ids.length ? await prisma.product.findMany({ where: { id: { in: ids }, vendorId, isActive: true }, select: PRODUCT_SELECT_FIELDS }) : [];
+      products = ids.length ? await prisma.product.findMany({ where: { id: { in: ids }, vendorId, isActive: true, ...conditionWhere }, select: PRODUCT_SELECT_FIELDS }) : [];
       // Nada con las palabras tal cual: parecido de escritura y, si no alcanza, lo que quiso decir según el catálogo de esta
       // tienda (lib/chatSearchRescue.js). Con 30 productos o menos no hace falta: el modelo ve el catálogo completo.
       if (!products.length) {
@@ -252,7 +259,7 @@ async function loadVendorForChat(vendorId, message, history, cartQuantities) {
       // tabla del vendor cuando hay término real, nunca contra un
       // subconjunto truncado por fecha.
       products = await prisma.product.findMany({
-        where: { vendorId, isActive: true },
+        where: { vendorId, isActive: true, ...conditionWhere },
         select: PRODUCT_SELECT_FIELDS,
         take: CATALOG_SEARCH_POOL,
         orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
@@ -552,7 +559,7 @@ function catalogText(products, cartQuantities, vendor) {
       // completa, sin cambios.
       const descText = p.description?.length > 150 ? `${p.description.slice(0, 150)}…` : p.description;
       const desc = descText ? ` — ${descText}` : "";
-      return `[${i + 1}] ${p.name} · ${price} · ${stock}${productShippingText(p, vendor)}${tags}${options}${desc}`;
+      return `[${i + 1}] ${p.name} · ${price} · estado: ${conditionLabel(p.condition) ?? "Nuevo"} · ${stock}${productShippingText(p, vendor)}${tags}${options}${desc}`;
     })
     .join("\n");
 }
@@ -607,6 +614,7 @@ REGLAS (en orden de importancia):
    - Dice AGOTADO: "Sí lo vendemos, pero ahora está agotado"; ofrece solicitarlo o avisar cuando reponga. Nunca "tenemos"/"disponible", nunca el precio sin aclararlo antes, nunca agregarlo.
    - No está en el catálogo: esta tienda no lo vende; dilo claro, nunca lo confundas con agotado.
    - Antes de citar un número de catálogo, comprueba que es exactamente ese producto.
+   - Estado: cada producto del catálogo dice su "estado" (Nuevo, Caja abierta, Como nuevo, De uso, Reacondicionado). Dilo si no es Nuevo o si lo preguntan; nunca llames nuevo a uno que no lo es. "Usado" y "de uso" son lo mismo.
 6. Variantes: si falta talla, color u otra variante real del producto, pregunta UNA por vez y solo con las opciones reales ("¿en qué talla, S, M o L?"). Si ya queda una sola opción clara, responde directo.
 7. Precios por cantidad: si el producto los tiene, úsalos para mayoreo (precio por unidad del tramo que alcanza y el total), en la moneda del catálogo.
 8. Venta: sugiere lo relacionado o con descuento (oldPrice = precio anterior) cuando aplique, sin forzar y nunca un agotado.
@@ -671,6 +679,7 @@ function toCardProduct(p) {
     images: p.images,
     stock: p.stock,
     unlimitedStock: p.unlimitedStock ?? false,
+    condition: p.condition ?? "NEW",
   };
 }
 
@@ -913,7 +922,7 @@ export async function getChatHistory(req, res) {
   const products = allProductIds.length
     ? await prisma.product.findMany({
         where: { id: { in: allProductIds } },
-        select: { id: true, name: true, slug: true, price: true, oldPrice: true, currency: true, description: true, images: true, stock: true, unlimitedStock: true },
+        select: { id: true, name: true, slug: true, price: true, oldPrice: true, currency: true, description: true, images: true, stock: true, unlimitedStock: true, condition: true },
       })
     : [];
   const productById = new Map(products.map((p) => [p.id, p]));

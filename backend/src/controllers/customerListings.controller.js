@@ -6,6 +6,7 @@ import { deleteUploadedImages } from "../lib/uploadFiles.js";
 import { activeCodes, assertActiveCurrency } from "../lib/catalog.js";
 import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
+import { CONDITION_IDS } from "../constants/productCondition.js";
 import { getListingPolicy, getSiteTimezone } from "./settings.controller.js";
 import { startOfDayInTimezone } from "../lib/timezone.js";
 import { listingZoneWhere } from "../lib/vendorZone.js";
@@ -49,7 +50,7 @@ export const customerListingSchema = z.object({
     .max(LISTING_TAGS_MAX, `Máximo ${LISTING_TAGS_MAX} palabras clave.`)
     .optional()
     .transform((arr) => (arr ? [...new Set(arr.map((x) => x.toLowerCase()))] : undefined)),
-  condition: z.enum(["NEW", "USED", "REFURBISHED"]).nullish(),
+  condition: z.enum(CONDITION_IDS).nullish(),
   quantity: z.number().int().min(1).max(9999).nullish(),
   priceTiers: z.array(tierSchema).max(3, "Máximo 3 precios por cantidad.").nullish(),
   showOwnerName: z.boolean().optional(),

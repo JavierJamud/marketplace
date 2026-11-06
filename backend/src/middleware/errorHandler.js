@@ -24,7 +24,7 @@ const FIELD_LABELS = {
   title: "Título", newEmail: "Correo nuevo", currentPassword: "Contraseña actual",
   resolutionNote: "Nota", evidenceMessage: "Mensaje de evidencia", screenshotUrl: "Captura",
   productId: "Producto", vendorId: "Tienda", customerListingId: "Anuncio de venta rápida",
-  companyName: "Nombre de la empresa", whatsapp: "WhatsApp", slug: "Enlace", stock: "Stock",
+  companyName: "Nombre de la empresa", whatsapp: "WhatsApp", slug: "Enlace", stock: "Stock", condition: "Estado del producto",
   images: "Imágenes", tags: "Etiquetas", oldPrice: "Precio anterior", categoryId: "Categoría",
   provinceId: "Provincia", municipalityId: "Municipio", browserId: "Dispositivo",
 };

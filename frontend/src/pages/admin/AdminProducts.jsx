@@ -1,3 +1,4 @@
+import { ConditionPicker } from "../../components/customer/ListingFormFields.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
@@ -40,6 +41,7 @@ function ProductEditModal({ product, categories, onClose }) {
     oldPrice: product.oldPrice ? String(product.oldPrice) : "",
     stock: String(product.stock),
     badge: product.badge ?? "",
+    condition: product.condition ?? "NEW",
     isActive: product.isActive,
     isFeatured: product.isFeatured,
   });
@@ -66,6 +68,7 @@ function ProductEditModal({ product, categories, onClose }) {
       if (changed("oldPrice")) payload.oldPrice = form.oldPrice ? Number(form.oldPrice) : null;
       if (changed("stock") && !(product.sizes?.length > 0)) payload.stock = Number(form.stock);
       if (changed("badge")) payload.badge = form.badge || null;
+      if (changed("condition")) payload.condition = form.condition;
       if (changed("isActive")) payload.isActive = form.isActive;
       if (changed("isFeatured")) payload.isFeatured = form.isFeatured;
       return (await api.patch(`/admin/products/${product.id}`, payload)).data;
@@ -145,9 +148,16 @@ function ProductEditModal({ product, categories, onClose }) {
           {!(product.sizes?.length > 0) && (
             <Input label="Stock" type="number" min={0} value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} />
           )}
+          {/* El admin corrige el estado si una tienda publicó como nuevo algo que no lo es (mismas reglas que la tienda). */}
+          <ConditionPicker
+            label="Estado del producto"
+            required
+            value={form.condition}
+            onChange={(condition) => setForm((f) => ({ ...f, condition, badge: condition !== "NEW" && f.badge === "Nuevo" ? "" : f.badge }))}
+          />
           <Select label="Etiqueta" value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })}>
             <option value="">Sin etiqueta</option>
-            <option value="Nuevo">Nuevo</option>
+            {form.condition === "NEW" && <option value="Nuevo">Nuevo</option>}
             {(siteSettings?.availableProductBadges ?? []).map((b) => (
               <option key={b} value={b}>{b}</option>
             ))}

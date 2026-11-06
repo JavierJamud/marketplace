@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { Package } from "lucide-react";
 import { api } from "../../lib/api.js";
+import { PRODUCT_CONDITIONS, conditionLabel } from "../../lib/productCondition.js";
 import { QuickSaleCard, QuickSaleCardSkeleton } from "../../components/QuickSaleCard.jsx";
 import { SkeletonGroup } from "../../components/ui/Skeleton.jsx";
 import { useZone } from "../../context/LocationContext.jsx";
@@ -15,12 +16,7 @@ import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 // Deliberadamente separado de Shop.jsx (esa query ya es compleja — plan/
 // ubicación/verificación de Vendor — y CustomerListing no tiene nada de
 // eso: es un anuncio clasificado simple, con dueño = User).
-const CONDITION_FILTERS = [
-  { id: "", label: "Todos" },
-  { id: "NEW", label: "Nuevo" },
-  { id: "USED", label: "Usado" },
-  { id: "REFURBISHED", label: "Reacondicionado" },
-];
+const CONDITION_FILTERS = [{ id: "", label: "Todos" }, ...PRODUCT_CONDITIONS];
 
 export default function QuickSaleListings() {
   const [params] = useSearchParams();
@@ -38,7 +34,16 @@ export default function QuickSaleListings() {
     const q = search.trim().toLowerCase();
     return (listings ?? [])
       .filter((l) => !condition || l.condition === condition)
-      .filter((l) => !q || q.split(/\s+/).every((p) => [l.name, l.description, (l.tags ?? []).join(" "), l.locationNote, l.owner?.province?.name].join(" ").toLowerCase().includes(p)));
+      // El estado también cuenta como texto, y "usado" encuentra los "De uso" (así se dice en Cuba).
+      .filter((l) =>
+        !q ||
+        q.split(/\s+/).every((p) =>
+          [l.name, l.description, (l.tags ?? []).join(" "), l.locationNote, l.owner?.province?.name, conditionLabel(l.condition), l.condition === "USED" ? "usado usada usados usadas" : ""]
+            .join(" ")
+            .toLowerCase()
+            .includes(p)
+        )
+      );
   }, [listings, search, condition]);
 
   // Solo los estados que tiene algún anuncio publicado ("Todos" siempre va primero); sin ninguno, el filtro no se muestra.

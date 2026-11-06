@@ -1,4 +1,5 @@
 import { productPaymentLabel } from "../lib/catalog.js";
+import { detectConditionsInText, conditionLabel } from "../constants/productCondition.js";
 import { routeZoneChange, routeZoneFlow } from "../lib/assistantZone.js";
 import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { effectiveShipping } from "../lib/shipping.js";
@@ -221,9 +222,11 @@ const STOPWORDS = new Set([
 ]);
 
 // Singular de cada palabra (ver lib/searchStem.js): "paneles solares" tiene que encontrar "Panel solar".
+// Las palabras del estado ("de uso", "usado", "como nuevo", "nuevo") no son nombres de producto: se quitan aquí y
+// filtran aparte (conditionsFor y searchCandidateProducts).
 function extractSearchTerms(rawText) {
-  const words = rawText
-    .toLowerCase()
+  const words = detectConditionsInText(rawText, { includeNew: true })
+    .rest
     .replace(/[¿?¡!.,;:]/g, "")
     .split(/\s+/)
     .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !CONVERSATIONAL_FILLERS.has(w));
@@ -317,7 +320,7 @@ function extractPriceRange(text) {
 const IN_STOCK_WHERE = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
 
 // `onlyIds`: candidatos ya elegidos por el rescate de búsqueda (parecido de escritura, ver lib/chatSearchRescue.js).
-async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification, zone, onlyIds } = {}) {
+async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing, payment, verification, zone, onlyIds, conditions } = {}) {
   const zoneWhere = zone ? vendorZoneWhere(zone) : undefined;
   const vendorWhere = {
     isBlocked: false,
@@ -327,7 +330,8 @@ async function searchCandidateProducts(terms, { priceMin, priceMax, broadListing
     ...(zoneWhere ? { locations: zoneWhere } : {}),
     ...(verification === "VERIFIED" ? { verificationStatus: "VERIFIED" } : verification === "UNVERIFIED" ? { verificationStatus: { not: "VERIFIED" } } : {}),
   };
-  const paymentWhere = payment ? { paymentMethods: { has: payment } } : {};
+  // El estado pedido ("de uso", "como nuevo") va junto al filtro de pago: los dos se suman a cada consulta de abajo.
+  const paymentWhere = { ...(payment ? { paymentMethods: { has: payment } } : {}), ...(conditions?.length ? { condition: { in: conditions } } : {}) };
   const priceFilter = priceMin != null || priceMax != null ? { gte: priceMin ?? undefined, lte: priceMax ?? undefined } : undefined;
 
   if (!terms?.length) {
@@ -438,9 +442,10 @@ function buildStoresHref({ verification, province, municipality, message }) {
   const qs = p.toString();
   return `/tiendas${qs ? `?${qs}` : ""}`;
 }
-function buildProductsHref({ terms, verification, payment, priceMax, province, municipality }) {
+function buildProductsHref({ terms, verification, payment, priceMax, province, municipality, conditions }) {
   const p = new URLSearchParams();
   if (terms?.length) p.set("q", terms.join(" "));
+  if (conditions?.length) p.set("condition", conditions.join(","));
   if (verification === "VERIFIED") p.set("onlyVerified", "true");
   if (payment) p.set("payment", payment);
   if (priceMax != null) p.set("maxPrice", String(priceMax));
@@ -815,7 +820,7 @@ function candidatesText(products) {
       const zone = loc?.province ? ` · zona: ${loc.municipality?.name ? `${loc.municipality.name}, ` : ""}${loc.province.name}` : "";
       const options = p.options?.length ? ` · variantes: ${p.options.map((o) => `${o.name}(${o.values.join("/")})`).join("; ")}` : "";
       const tags = p.tags?.length ? ` · tags: ${p.tags.join(", ")}` : "";
-      return `[${i + 1}] ${p.name} · ${price} · ${stock} · ${candidateShippingText(p)} · tienda: ${p.vendor.companyName}${verified}${zone}${options}${tags}`;
+      return `[${i + 1}] ${p.name} · ${price} · estado: ${conditionLabel(p.condition) ?? "Nuevo"} · ${stock} · ${candidateShippingText(p)} · tienda: ${p.vendor.companyName}${verified}${zone}${options}${tags}`;
     })
     .join("\n");
 }
@@ -836,6 +841,7 @@ function toCardProduct(p) {
     images: p.images,
     stock: p.stock,
     unlimitedStock: p.unlimitedStock ?? false,
+    condition: p.condition ?? "NEW",
     vendor: withComputedVendorFields({ companyName: p.vendor.companyName, slug: p.vendor.slug, color: p.vendor.color, verificationStatus: p.vendor.verificationStatus }),
   };
 }
@@ -1067,6 +1073,7 @@ ${liveSnapshot ? `${liveSnapshot}
 - Sin stock en la zona pedida pero sí en otro municipio de la provincia o en una provincia VECINA: nombra dónde sí hay y la tienda, y sugiere contactarla; nunca prometas envíos por ella. Si no hay en ninguna zona, dilo claro.
 - No tocas el carrito: solo recomiendas y muestras tarjetas ("puedes verlo" o "agregarlo desde la tienda"). El carrito admite productos de UNA sola tienda por pedido: si mezcla tiendas, explícalo y que complete una primero.
 - Si "text" menciona productos encontrados, cita SIEMPRE sus números en productIds; si no muestras ninguno, productIds vacío.
+- Estado del producto: cada candidato dice su "estado" (Nuevo, Caja abierta, Como nuevo, De uso, Reacondicionado). Dilo cuando no sea Nuevo o cuando lo pregunten, y nunca llames nuevo a uno que no lo es. "Usado" y "de uso" son lo mismo.
 - Precios por cantidad (mayoreo): si el cliente los pide, copia los "precios por cantidad" del candidato, uno por línea, aunque pase de 2 oraciones; si el candidato no los tiene, di que cuesta lo mismo por unidad. Nunca sugieras "ver precios por cantidad" de un producto que no los tiene.
 - Pedidos: si arriba aparece "CONSULTA DE PEDIDO", es el resultado real: úsalo tal cual. Si no aparece, pide el email o el número de confirmación antes de mandarlo a "Mis pedidos".
 
@@ -1232,15 +1239,18 @@ export async function postMarketplaceChatMessage(req, res) {
     const verification = verificationFilter(message);
     const payment = paymentFilter(message);
     const searchTerms = (terms ?? []).filter((t) => !FILTER_WORDS.test(t));
-    const filterListing = !searchTerms.length && (!!payment || (!!verification && /producto|art[ií]culo/i.test(message)));
-    let pool = await searchCandidateProducts(searchTerms, { priceMin, priceMax, broadListing: broadListing || filterListing, payment, verification, zone: chatZone });
+    // Estado pedido ("¿hay laptops de uso?"). Si los términos salieron de un mensaje anterior, el estado también se toma de ahí.
+    let conditions = detectConditionsInText(message, { includeNew: true }).conditions;
+    if (!conditions.length && source && source !== message) conditions = detectConditionsInText(source, { includeNew: true }).conditions;
+    const filterListing = !searchTerms.length && (!!payment || conditions.length > 0 || (!!verification && /producto|art[ií]culo/i.test(message)));
+    let pool = await searchCandidateProducts(searchTerms, { priceMin, priceMax, broadListing: broadListing || filterListing, payment, verification, zone: chatZone, conditions });
     // Respaldo: las demás palabras ("muéstrame", "pagan") no eran un producto: si no hubo
     // resultados pero sí hay un filtro claro (pago o verificación) y piden productos, se
     // lista el catálogo según ese filtro.
     if (!pool.length && (payment || (verification && /producto|art[ií]culo/i.test(message)))) {
-      pool = await searchCandidateProducts([], { priceMin, priceMax, broadListing: true, payment, verification, zone: chatZone });
+      pool = await searchCandidateProducts([], { priceMin, priceMax, broadListing: true, payment, verification, zone: chatZone, conditions });
     }
-    searchMeta = { terms: searchTerms, priceMax, requestedProvince, requestedMunicipality, verification, payment, poolSize: pool.length, poolStores: [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean), poolStoreName: pool[0]?.vendor?.companyName, poolStoreSlug: pool[0]?.vendor?.slug };
+    searchMeta = { terms: searchTerms, conditions, priceMax, requestedProvince, requestedMunicipality, verification, payment, poolSize: pool.length, poolStores: [...new Set(pool.map((p) => p.vendor?.slug))].filter(Boolean), poolStoreName: pool[0]?.vendor?.companyName, poolStoreSlug: pool[0]?.vendor?.slug };
     const adjacentIds = requestedProvince ? await getAdjacentProvinceIds(requestedProvince.id) : [];
     // Con un lugar elegido en el sitio no se le pregunta dónde está: todo lo que se lista cubre ese lugar (los productos se
     // agrupan por la sede de la tienda, que puede ser otra aunque la tienda entregue allí).
@@ -1439,7 +1449,7 @@ export async function getMarketplaceChatHistory(req, res) {
   const products = allProductIds.length
     ? await prisma.product.findMany({
         where: { id: { in: allProductIds } },
-        select: { id: true, name: true, slug: true, price: true, oldPrice: true, currency: true, description: true, images: true, stock: true, unlimitedStock: true, vendor: { select: CANDIDATE_VENDOR_SELECT } },
+        select: { id: true, name: true, slug: true, price: true, oldPrice: true, currency: true, description: true, images: true, stock: true, unlimitedStock: true, condition: true, vendor: { select: CANDIDATE_VENDOR_SELECT } },
       })
     : [];
   const productById = new Map(products.map((p) => [p.id, p]));

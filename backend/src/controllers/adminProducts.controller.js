@@ -9,6 +9,7 @@ import {
   reconcileStock,
   assertPaymentMethodsAllowed,
   assertBadgeAllowed,
+  applyConditionToBadge,
   expireNewBadges,
   extractPriceTiers,
   replacePriceTiers,
@@ -249,6 +250,7 @@ export async function updateAdminProduct(req, res) {
   assertStockModeConsistent(data.sizes ?? existing.sizes, data.unlimitedStock ?? existing.unlimitedStock);
   await assertPaymentMethodsAllowed(data.paymentMethods);
   if (data.badge !== undefined) await assertBadgeAllowed(data.badge);
+  applyConditionToBadge(data, existing);
   // Bloque 65: mismo criterio que updateProduct del propio vendedor — la
   // moneda del producto siempre sigue a la de su tienda, nunca un valor
   // aparte (acá de paso re-normaliza cualquier producto viejo que haya

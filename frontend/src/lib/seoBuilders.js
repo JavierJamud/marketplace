@@ -1,3 +1,4 @@
+import { conditionSchemaUrl } from "./productCondition.js";
 import { api } from "./api.js";
 import { SITE_ORIGIN, DEFAULT_OG_IMAGE, seoClip } from "./seo.js";
 
@@ -76,7 +77,7 @@ export function productSeo(product, siteName) {
       price: Number(product.price),
       priceCurrency: product.currency || "CUP",
       availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-      itemCondition: "https://schema.org/NewCondition",
+      itemCondition: conditionSchemaUrl(product.condition),
       seller: vendor?.companyName ? { "@type": "Organization", name: vendor.companyName } : undefined,
     },
     ...(product.reviewCount > 0 && product.rating ? { aggregateRating: { "@type": "AggregateRating", ratingValue: Number(product.rating), reviewCount: product.reviewCount } } : {}),

@@ -1,3 +1,4 @@
+import { conditionLabel, isNotNew } from "../../lib/productCondition.js";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Store, BadgeCheck } from "lucide-react";
@@ -251,6 +252,8 @@ export function SearchBar() {
                         <div className="flex min-w-0 items-center gap-1 text-[11.5px] text-outline">
                           <span className="min-w-0 truncate">{p.vendor.companyName}</span>
                           <span className="flex-shrink-0 font-bold text-on-surface">· {fmtCUP(p.price)}</span>
+                          {/* Un producto de uso se dice ya en la sugerencia, antes de abrirlo. */}
+                          {isNotNew(p.condition) && <span className="flex-shrink-0 font-semibold text-on-surface-variant">· {conditionLabel(p.condition)}</span>}
                         </div>
                       </div>
                     </Link>

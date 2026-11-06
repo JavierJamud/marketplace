@@ -1,3 +1,4 @@
+import { conditionSchemaUrl } from "../constants/productCondition.js";
 import { currencyLabel } from "../lib/catalog.js";
 import crypto from "node:crypto";
 import { prisma } from "../lib/prisma.js";
@@ -249,6 +250,7 @@ export async function renderProductPage(req, res) {
       stock: true,
       unlimitedStock: true,
       sizeStock: true,
+      condition: true,
       // Lo que se dibuja en la imagen de vista previa: sirve para su versión (ver `image` más abajo).
       rating: true,
       reviewCount: true,
@@ -297,7 +299,8 @@ export async function renderProductPage(req, res) {
       price: Number(product.price),
       priceCurrency: product.currency,
       availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-      itemCondition: "https://schema.org/NewCondition",
+      // El estado real del producto (antes siempre "nuevo", aunque fuera de uso).
+      itemCondition: conditionSchemaUrl(product.condition),
       seller: { "@type": "Organization", name: product.vendor.companyName },
     },
     ...(agg._count.rating > 0 ? { aggregateRating: { "@type": "AggregateRating", ratingValue: Math.round(agg._avg.rating * 10) / 10, reviewCount: agg._count.rating } } : {}),

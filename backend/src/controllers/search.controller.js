@@ -1,4 +1,5 @@
 import { allCodes } from "../lib/catalog.js";
+import { parseConditionList, detectConditionsInText, CONDITION_IDS } from "../constants/productCondition.js";
 import { prisma } from "../lib/prisma.js";
 import { VENDOR_SHIPPING_SELECT } from "../lib/shippingSelect.js";
 import { correctSearchQuery } from "../lib/ai.js";
@@ -209,8 +210,21 @@ function publicVendor(vendor) {
 // sidebar de filtros de Shop, buscador de texto): la que consume el catálogo
 // y la Home.
 export async function structuredSearch(req, res) {
-  const { q, categoryId, countryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment, accepts, currency, discount, wholesale, badge, minRating } = req.query;
+  const { q, categoryId, countryId, provinceId, municipalityId, minPrice, maxPrice, sort, onlyVerified, payment, accepts, currency, discount, wholesale, badge, minRating, condition } = req.query;
   await expireNewBadges();
+
+  // Estado del producto: el filtro "Estado" (?condition=USED,LIKE_NEW) o, si no viene, las palabras del buscador ("laptop de
+  // uso", "celular usado"). Esas palabras se quitan del texto: ningún producto se llama "usado", y sin quitarlas la búsqueda
+  // por nombre no encontraría nada.
+  let conditionFilter = parseConditionList(condition);
+  let searchText = q ? String(q).trim() : "";
+  if (!conditionFilter.length && searchText) {
+    const detected = detectConditionsInText(searchText);
+    if (detected.conditions.length) {
+      conditionFilter = detected.conditions;
+      searchText = detected.rest;
+    }
+  }
 
   // Filtrar por categoría incluye sus subcategorías (ej. "Restaurantes" trae
   // también los productos cargados bajo "Platos fuertes"/"Entrantes"/etc.):
@@ -253,6 +267,7 @@ export async function structuredSearch(req, res) {
     priceTiers: wholesale === "true" ? { some: {} } : undefined,
     badge: badge ? String(badge) : undefined,
     rating: ratingMin ? { gte: ratingMin } : undefined,
+    condition: conditionFilter.length ? { in: conditionFilter } : undefined,
     // Bloque 82 (pedido explícito, bug real reportado en vivo): un producto
     // agotado (sin `unlimitedStock`, `stock` 0) no debe aparecer en Home ni
     // en el catálogo — solo se muestra en su propia tienda, en la sección
@@ -296,7 +311,7 @@ export async function structuredSearch(req, res) {
   }
 
   let products;
-  const cleanQ = q ? String(q).trim() : "";
+  const cleanQ = searchText;
   if (!cleanQ) {
     // Bloque 98: el pool candidato sube de 60 a 300 — el orden real ya no lo
     // decide este orderBy (queda solo como criterio de qué candidatos
@@ -436,8 +451,12 @@ function vendorMatchTier(vendor, lowerQ) {
 const AUTOCOMPLETE_VENDOR_LIMIT = 4;
 
 export async function autocompleteSearch(req, res) {
-  const q = String(req.query.q ?? "").trim();
+  let q = String(req.query.q ?? "").trim();
   const onlyVerified = req.query.onlyVerified === "true";
+  // "celular de uso": mismo criterio que structuredSearch, el estado filtra y se busca solo "celular".
+  const detected = detectConditionsInText(q);
+  const conditionWhere = detected.conditions.length ? { condition: { in: detected.conditions } } : {};
+  if (detected.conditions.length) q = detected.rest;
   if (q.length < AUTOCOMPLETE_MIN_CHARS) return res.json({ products: [], vendors: [], categories: [], hasMore: false });
   const lowerQ = q.toLowerCase();
 
@@ -464,7 +483,7 @@ export async function autocompleteSearch(req, res) {
   // Bloque 82: mismo criterio que structuredSearch — un producto agotado no
   // debe aparecer en el dropdown de búsqueda en vivo (solo en su tienda, ver
   // "Próximamente disponibles").
-  const inStockWhere = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }] };
+  const inStockWhere = { OR: [{ unlimitedStock: true }, { stock: { gt: 0 } }], ...conditionWhere };
 
   const nameOrDescIds = await findProductIdsByNameOrDescription(q, 40);
   const nameOrDescMatches = nameOrDescIds.length
@@ -517,6 +536,7 @@ export async function autocompleteSearch(req, res) {
     slug: p.slug,
     price: p.price,
     image: p.images?.[0] ?? null,
+    condition: p.condition,
     vendor: { companyName: p.vendor.companyName, slug: p.vendor.slug },
   }));
 
@@ -596,13 +616,14 @@ export async function filterFacets(req, res) {
 
   // Catálogo: mismo universo que structuredSearch sin filtros (productos a la venta de tiendas visibles del lugar).
   const productWhere = { ...PUBLIC_PRODUCT_WHERE, vendor: vendorWhere };
-  const [vendors, currencies, badges, discounts, wholesale, ratings] = await Promise.all([
+  const [vendors, currencies, badges, discounts, wholesale, ratings, conditions] = await Promise.all([
     prisma.vendor.findMany({ where: { ...vendorWhere, products: { some: PUBLIC_PRODUCT_WHERE } }, select: vendorFields }),
     prisma.product.groupBy({ by: ["currency"], where: productWhere }),
     prisma.product.groupBy({ by: ["badge"], where: { ...productWhere, badge: { not: null } } }),
     prisma.product.count({ where: { ...productWhere, oldPrice: { not: null } } }),
     prisma.product.count({ where: { ...productWhere, priceTiers: { some: {} } } }),
     Promise.all(FACET_RATINGS.map((r) => prisma.product.count({ where: { ...productWhere, rating: { gte: r } } }))),
+    prisma.product.groupBy({ by: ["condition"], where: productWhere }),
   ]);
   res.json({
     currencies: FACET_CURRENCIES.filter((c) => currencies.some((r) => r.currency === c)),
@@ -613,5 +634,7 @@ export async function filterFacets(req, res) {
     hasWholesale: wholesale > 0,
     badges: badges.map((b) => b.badge).filter(Boolean).sort((a, b) => a.localeCompare(b, "es")),
     ratings: FACET_RATINGS.filter((_, i) => ratings[i] > 0),
+    // Estados que de verdad hay a la venta, en el orden de la lista. Si todo es nuevo, el filtro no aparece.
+    conditions: CONDITION_IDS.filter((id) => conditions.some((r) => r.condition === id)),
   });
 }

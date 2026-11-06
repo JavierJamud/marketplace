@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Search, Star, X } from "lucide-react";
 import clsx from "clsx";
 import { matchesQuery } from "../ui/SearchBox.jsx";
 import { checkoutChoices, storePaymentMethods, resolvePaymentMethod, currencyLabel } from "../../lib/catalog.js";
+import { PRODUCT_CONDITIONS } from "../../lib/productCondition.js";
 
 // Panel de filtros del catálogo. Todo lo que filtra es un dato real del producto o de su tienda: categoría, precio (por moneda),
 // tienda verificada, forma de coordinar el pago y métodos que acepta la tienda, descuento, precio por mayor, etiqueta, valoración y
@@ -164,6 +165,8 @@ export function ShopFilters({ filters, setFilter, setMany, toggleInList, categor
   const showVerified = facets.hasVerified || filters.onlyVerified;
   const showDiscount = facets.hasDiscount || filters.discount;
   const showWholesale = facets.hasWholesale || filters.wholesale;
+  // Solo los estados que hay a la venta; si todo es nuevo, el filtro no aparece (no lleva a una pantalla vacía).
+  const conditions = PRODUCT_CONDITIONS.filter((c) => (facets.conditions ?? []).includes(c.id) || filters.condition?.includes(c.id));
   return (
     <div>
       {categories.length > 0 && (
@@ -184,6 +187,16 @@ export function ShopFilters({ filters, setFilter, setMany, toggleInList, categor
         <PriceRange minPrice={filters.minPrice} maxPrice={filters.maxPrice} currency={filters.currency} onApply={setMany} />
         {!filters.currency && (filters.minPrice || filters.maxPrice) && <p className="mt-1.5 text-[11.5px] text-outline">Elige una moneda para comparar precios con exactitud.</p>}
       </Section>
+
+      {conditions.length > 1 && (
+        <Section title="Estado del producto" count={filters.condition?.length ?? 0}>
+          <div className="flex flex-wrap gap-2">
+            {conditions.map((c) => (
+              <Chip key={c.id} active={filters.condition?.includes(c.id)} onClick={() => toggleInList("condition", c.id)}>{c.label}</Chip>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {showVerified && (
         <Section title="Tienda" count={filters.onlyVerified ? 1 : 0}>

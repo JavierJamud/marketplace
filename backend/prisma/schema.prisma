@@ -494,6 +494,9 @@ model Product {
   quotaPinnedAt DateTime?
   images      String[] @default([])
   badge       String?
+  // Estado del producto: NEW, OPEN_BOX, LIKE_NEW, USED ("De uso") o REFURBISHED (ver constants/productCondition.js). Un
+  // producto que no es nuevo nunca lleva la etiqueta automática "Nuevo": la tarjeta muestra su estado en ese lugar.
+  condition   String   @default("NEW")
   // Bloque 52: tallas (pedido explícito) — letras (XS/S/M/L...) o números
   // (calzado), tag libre igual que `tags`. sizeStock mapea cada talla a su
   // stock individual ({"S": 5, "M": 10}); cuando sizes no está vacío, `stock`
@@ -644,6 +647,8 @@ model Product {
   @@index([vendorId, createdAt])
   @@index([salesCount])
   @@index([isActive])
+  // Filtro "Estado" del catálogo y del chatbot.
+  @@index([condition])
 }
 
 // Bloque 228 (pedido explícito — Fase 1 del blindaje del ranking: "sin esto,
@@ -3412,7 +3417,7 @@ model CustomerListing {
   contactClickCount Int @default(0)
   // Palabras clave para que lo encuentren (hasta 8).
   tags        String[]        @default([])
-  // Estado del artículo: NEW (nuevo), USED (usado) o REFURBISHED (reacondicionado). Opcional.
+  // Estado del artículo, misma lista que Product.condition (constants/productCondition.js). Opcional.
   condition   String?
   // Unidades disponibles (opcional; vacío = una sola o no se especifica).
   quantity    Int?

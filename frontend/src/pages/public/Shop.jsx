@@ -14,6 +14,7 @@ import { lockPageScroll } from "../../lib/scrollLock.js";
 import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 import toast from "../../lib/toast.jsx";
 import { VISIT_SEED } from "../../lib/visitSeed.js";
+import { PRODUCT_CONDITIONS, conditionLabel } from "../../lib/productCondition.js";
 
 const SORT_OPTIONS = [
   { value: "relevance", label: "Más relevantes" },
@@ -46,6 +47,8 @@ export default function Shop() {
     wholesale: searchParams.get("wholesale") === "true",
     badge: searchParams.get("badge") ?? "",
     minRating: searchParams.get("minRating") ?? "",
+    // Estado del producto (Nuevo, De uso...). El chatbot también abre el catálogo con este filtro puesto.
+    condition: list(searchParams.get("condition")).filter((id) => PRODUCT_CONDITIONS.some((c) => c.id === id)),
   };
   const setFilter = (key, value) =>
     setSearchParams((p) => {
@@ -122,6 +125,7 @@ export default function Shop() {
             wholesale: filters.wholesale || undefined,
             badge: filters.badge || undefined,
             minRating: filters.minRating || undefined,
+            condition: filters.condition.join(",") || undefined,
             sort,
             seed: VISIT_SEED,
           },
@@ -140,7 +144,7 @@ export default function Shop() {
     setSort("relevance");
     if (hasZoneFilter) clearZone();
     setSearchParams((p) => {
-      ["categoryId", "q", "minPrice", "maxPrice", "currency", "payment", "accepts", "onlyVerified", "discount", "wholesale", "badge", "minRating"].forEach((k) => p.delete(k));
+      ["categoryId", "q", "minPrice", "maxPrice", "currency", "payment", "accepts", "onlyVerified", "discount", "wholesale", "badge", "minRating", "condition"].forEach((k) => p.delete(k));
       return p;
     });
     // Aviso de que se limpió: sin él parecía que el botón no hacía nada (pedido del dueño).
@@ -172,6 +176,7 @@ export default function Shop() {
     filters.discount && { key: "disc", label: "Con descuento", remove: () => setFilter("discount", "") },
     filters.wholesale && { key: "whole", label: "Precio por cantidad", remove: () => setFilter("wholesale", "") },
     filters.badge && { key: "badge", label: filters.badge, remove: () => setFilter("badge", "") },
+    ...filters.condition.map((id) => ({ key: `cond-${id}`, label: conditionLabel(id), remove: () => toggleInList("condition", id) })),
     filters.minRating && { key: "rate", label: `${filters.minRating}★ o más`, remove: () => setFilter("minRating", "") },
     hasZoneFilter && { key: "zone", label: zoneName, remove: clearZone },
   ].filter(Boolean);

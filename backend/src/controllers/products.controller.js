@@ -22,6 +22,7 @@ import { hashToken } from "../utils/hashToken.js";
 import { getPlanLimit, planAllows, swapProductQuota, placeProductInQuota, getDefaultPlanKey } from "../lib/planConfig.js";
 import { maybeAutoActivateTrial } from "../services/trialEligibility.service.js";
 import { bumpVendorStat, isBotRequest } from "../lib/vendorDailyStats.js";
+import { CONDITION_IDS } from "../constants/productCondition.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // A diferencia de uploads/kyc (privado), las fotos de producto son públicas
@@ -56,6 +57,8 @@ export const productSchema = z.object({
   // assertStockModeConsistent más abajo y los bypass en orders.controller.js).
   unlimitedStock: z.boolean().optional().default(false),
   badge: z.string().optional().nullable(),
+  // Estado del producto (constants/productCondition.js). Sin elegir, nuevo.
+  condition: z.enum(CONDITION_IDS).optional(),
   // "table" no es seleccionable desde el form (VendorProducts.jsx no lo
   // ofrece como checkbox) — lo trae únicamente el menú de restaurante
   // sembrado. Sin esto en el enum, guardar CUALQUIER edición de un ítem de
@@ -329,6 +332,15 @@ export async function assertBadgeAllowed(badge) {
 // vendorId acota la vencida a una sola tienda cuando quien llama ya sabe
 // cuál es (listMyProducts/getVendorBySlug); sin vendorId vence global
 // (structuredSearch/listAllProducts, que abarcan varias tiendas a la vez).
+// Al pasar un producto a "de uso", "como nuevo", etc., se le quita la etiqueta "Nuevo" (la tenga guardada o la mande el
+// formulario): esa etiqueta dice "recién llegado y nuevo", y el estado ya se ve en la tarjeta. Lo usan la tienda y el admin.
+export function applyConditionToBadge(data, existing) {
+  const condition = data.condition ?? existing?.condition ?? "NEW";
+  if (condition === "NEW") return;
+  const badge = data.badge !== undefined ? data.badge : existing?.badge;
+  if (badge === "Nuevo") data.badge = null;
+}
+
 export async function expireNewBadges(vendorId) {
   const settings = await prisma.siteSettings.findFirst();
   const durationDays = settings?.newBadgeDurationDays ?? 14;
@@ -839,7 +851,9 @@ async function createProductWithPhotos(req, res, uploaded) {
   await applyProductShipping(data, vendor);
   // Bloque 66 (pedido explícito): todo producto nuevo sale con "Nuevo" —
   // ignora cualquier valor que mande el cliente en este campo al crear.
-  data.badge = "Nuevo";
+  // Un producto que no es nuevo (de uso, como nuevo, caja abierta...) no puede salir marcado "Nuevo": engañaría al
+  // cliente. Su tarjeta muestra el estado en ese lugar (ProductCard.jsx).
+  data.badge = !data.condition || data.condition === "NEW" ? "Nuevo" : null;
 
   // El tope del plan es de productos PUBLICADOS (activos y dentro del cupo), igual que dice "Hasta N productos publicados"
   // en buildPlanIncludes. Los excedentes y los pausados no cuentan aquí: el producto nuevo nace en pausa y, al activarse con
@@ -949,6 +963,7 @@ export async function updateProduct(req, res) {
     data.paymentMethods = await withUniversalPayment(data.paymentMethods, { onlyUniversal });
   }
   if (data.badge !== undefined) await assertBadgeAllowed(data.badge);
+  applyConditionToBadge(data, existing);
   await applyProductShipping(data, vendor, existing);
   // Suspendido por un reporte confirmado: la tienda no lo puede volver a publicar (solo apelando, ver lib/moderation.js).
   if (existing.suspendedAt && data.isActive === true) {

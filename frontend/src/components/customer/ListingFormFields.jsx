@@ -1,29 +1,40 @@
 import { useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
+import { PRODUCT_CONDITIONS, conditionLabel } from "../../lib/productCondition.js";
 
-// Piezas del formulario de venta rápida: estado del artículo, palabras clave y precios por cantidad.
+// Piezas del formulario de venta rápida: estado del artículo, palabras clave y precios por cantidad. El selector de estado
+// también lo usa el formulario de productos de las tiendas (VendorProducts.jsx): misma lista en los dos lados.
 
-export const CONDITIONS = [
-  { id: "NEW", label: "Nuevo" },
-  { id: "USED", label: "Usado" },
-  { id: "REFURBISHED", label: "Reacondicionado" },
-];
-export const conditionLabel = (id) => CONDITIONS.find((c) => c.id === id)?.label ?? null;
+export const CONDITIONS = PRODUCT_CONDITIONS;
+export { conditionLabel };
 
 const chip = (active) =>
-  `min-h-10 rounded-full border px-3.5 text-[13px] font-semibold ${active ? "border-primary-container bg-primary-container text-white" : "border-outline-variant text-on-surface-variant"}`;
+  `min-h-11 rounded-full border px-3.5 text-[13px] font-semibold ${active ? "border-primary-container bg-primary-container text-white" : "border-outline-variant text-on-surface-variant"}`;
 
-export function ConditionPicker({ value, onChange }) {
+// `required`: un producto de tienda siempre tiene estado (se toca otro para cambiarlo); en la venta rápida es opcional y
+// tocar el elegido lo quita. Debajo va qué significa el elegido, para que nadie publique "como nuevo" algo con marcas.
+export function ConditionPicker({ value, onChange, required = false, label = "Estado del artículo" }) {
+  const selected = CONDITIONS.find((c) => c.id === value);
   return (
     <div>
-      <span className="mb-1.5 block text-label-md text-on-surface-variant">Estado del artículo</span>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Estado del artículo">
+      <span className="mb-1.5 block text-label-md text-on-surface-variant">
+        {label}
+        {required && <span className="text-error"> *</span>}
+      </span>
+      <div className="flex flex-wrap gap-2" role="group" aria-label={label}>
         {CONDITIONS.map((c) => (
-          <button key={c.id} type="button" aria-pressed={value === c.id} onClick={() => onChange(value === c.id ? "" : c.id)} className={chip(value === c.id)}>
+          <button
+            key={c.id}
+            type="button"
+            aria-pressed={value === c.id}
+            onClick={() => onChange(value === c.id && !required ? "" : c.id)}
+            className={chip(value === c.id)}
+          >
             {c.label}
           </button>
         ))}
       </div>
+      {selected && <p className="mt-1.5 text-label-sm text-outline">{selected.hint}</p>}
     </div>
   );
 }

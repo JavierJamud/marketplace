@@ -8,6 +8,7 @@ import { StarRating } from "./ui/StarRating.jsx";
 import { AddToCartControl } from "./AddToCartControl.jsx";
 import { Skeleton, SkeletonGroup } from "./ui/Skeleton.jsx";
 import { shippingLabel } from "../lib/shipping.js";
+import { conditionLabel, isNotNew } from "../lib/productCondition.js";
 
 // Mismo umbral que LOW_STOCK_THRESHOLD en VendorProducts.jsx/vendors.controller.js.
 const LOW_STOCK_THRESHOLD = 3;
@@ -134,6 +135,12 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
           {isOutOfStock ? (
             <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-error px-2 py-0.5 text-[9.5px] font-bold text-white shadow sm:left-2 sm:top-2 sm:text-[10.5px]">
               Sin stock
+            </span>
+          ) : isNotNew(product.condition) ? (
+            // Un producto que no es nuevo muestra su estado ("De uso", "Como nuevo"...) en el lugar de la etiqueta: es lo primero
+            // que tiene que saber quien compra. Color propio (azul oscuro) para no confundirlo con una oferta ni con "Nuevo".
+            <span className="absolute left-1.5 top-1.5 z-10 max-w-[45%] truncate rounded-full bg-primary px-1.5 py-0.5 text-[9.5px] font-bold text-white sm:left-2 sm:top-2 sm:px-2 sm:text-[10.5px]">
+              {conditionLabel(product.condition)}
             </span>
           ) : (
             (product.badge || discount) && (

@@ -22,6 +22,8 @@ import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { SearchBox } from "../../components/ui/SearchBox.jsx";
 import { productMatches } from "../../lib/textMatch.js";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { ConditionPicker } from "../../components/customer/ListingFormFields.jsx";
+import { conditionLabel } from "../../lib/productCondition.js";
 
 // Bloque 52: presets rápidos de tallas de ropa — un click para agregar/quitar,
 // además del input libre (numéricas de calzado, "Talla única", etc.).
@@ -124,6 +126,7 @@ const EMPTY_FORM = {
   stock: "0",
   unlimitedStock: false,
   badge: "Nuevo",
+  condition: "NEW",
   currency: "USD",
   paymentMethods: ["whatsapp"],
   availableForTableMenu: false,
@@ -197,6 +200,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
           stock: String(product.stock),
           unlimitedStock: product.unlimitedStock ?? false,
           badge: product.badge ?? "",
+          condition: product.condition ?? "NEW",
           currency: product.currency ?? "USD",
           paymentMethods: product.paymentMethods,
           availableForTableMenu: product.availableForTableMenu ?? false,
@@ -356,6 +360,7 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
         stock: Number(form.stock),
         unlimitedStock: form.unlimitedStock,
         badge: form.badge || null,
+        condition: form.condition,
         paymentMethods: form.paymentMethods,
         availableForTableMenu: form.availableForTableMenu,
         // Bloque 157: solo tienen efecto real con availableForTableMenu — se
@@ -725,6 +730,15 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
 
           <CategoryPicker label="Categoría" required value={form.categoryId} onChange={(id) => setForm((f) => ({ ...f, categoryId: id }))} categories={categories} />
 
+          {/* Estado del producto, junto a lo esencial: el cliente lo ve en la tarjeta y lo filtra en el catálogo. Si no es nuevo,
+              se quita la etiqueta "Nuevo" (diría que está sin estrenar); el servidor aplica la misma regla. */}
+          <ConditionPicker
+            label="Estado del producto"
+            required
+            value={form.condition}
+            onChange={(condition) => setForm((f) => ({ ...f, condition, badge: condition !== "NEW" && f.badge === "Nuevo" ? "" : f.badge }))}
+          />
+
           <div className="grid grid-cols-[1fr_120px] gap-3">
             <Input label="Precio" type="number" min={1} required value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
             <Select label="Moneda" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
@@ -934,12 +948,17 @@ export function ProductModal({ product, planType, isRestaurant, categories, onCl
 
             <Select label="Etiqueta" value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })}>
               <option value="">Sin etiqueta</option>
-              <option value="Nuevo">Nuevo</option>
+              {form.condition === "NEW" && <option value="Nuevo">Nuevo</option>}
               {(siteSettings?.availableProductBadges ?? []).map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </Select>
-            {!savedProduct && (
+            {form.condition !== "NEW" && (
+              <p className="mt-1 text-label-sm text-outline">
+                Como no es nuevo, en la tarjeta se ve su estado ({conditionLabel(form.condition)}) en lugar de la etiqueta "Nuevo".
+              </p>
+            )}
+            {!savedProduct && form.condition === "NEW" && (
               <p className="mt-1 text-label-sm text-outline">
                 Todo producto nuevo sale con la etiqueta "Nuevo", que se quita sola a los {siteSettings?.newBadgeDurationDays ?? 14} días, o puedes
                 cambiarla ahora.

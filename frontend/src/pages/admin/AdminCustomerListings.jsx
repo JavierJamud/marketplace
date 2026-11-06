@@ -1,3 +1,4 @@
+import { PRODUCT_CONDITIONS } from "../../lib/productCondition.js";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,12 +20,7 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString("es-CU", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-const CONDITION = [
-  { value: "", label: "Sin indicar" },
-  { value: "NEW", label: "Nuevo" },
-  { value: "USED", label: "Usado" },
-  { value: "REFURBISHED", label: "Reacondicionado" },
-];
+const CONDITION = [{ value: "", label: "Sin indicar" }, ...PRODUCT_CONDITIONS.map((c) => ({ value: c.id, label: c.label }))];
 const field = "h-11 w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 text-[13.5px] outline-none focus:border-tertiary-accent";
 const label = "mb-1 block text-[12.5px] font-bold text-on-surface";
 

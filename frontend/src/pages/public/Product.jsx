@@ -3,7 +3,8 @@ import { shippingLabel } from "../../lib/shipping.js";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, Truck, Share2, X as XIcon } from "lucide-react";
+import { Minus, Plus, ShoppingCart, MapPin, ShieldAlert, CheckCircle2, Star, Camera, Clock, Globe2, MessageCircle, Tag, TrendingUp, Truck, Share2, X as XIcon, BadgeCheck } from "lucide-react";
+import { PRODUCT_CONDITIONS, isNotNew } from "../../lib/productCondition.js";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -349,7 +350,10 @@ export default function Product() {
       : "Pides desde esta página y llega directo a la tienda. Si quieres, también se lo envías por WhatsApp";
   const areas = store?.serviceAreas ?? [];
   const areasText = areas.length > 3 ? `${areas.slice(0, 3).join(", ")} y ${areas.length - 3} más` : areas.join(", ");
+  const condition = PRODUCT_CONDITIONS.find((c) => c.id === (product.condition ?? "NEW"));
   const infoRows = [
+    // El estado va primero: con un producto de uso, es lo que decide la compra.
+    condition && { key: "condition", Icon: BadgeCheck, text: `Estado: ${condition.label}. ${condition.hint}` },
     { key: "stock", Icon: CheckCircle2, text: stockText },
     // Envío vigente: el de la tienda manda sobre el del producto (ver lib/shipping.js).
     { key: "shipping", Icon: Truck, text: shippingLabel(product, v).text },
@@ -549,6 +553,9 @@ export default function Product() {
               </button>
             </div>
           </div>
+          {isNotNew(product.condition) && (
+            <span className="mb-2 inline-flex rounded-full bg-primary px-3 py-1 text-[12.5px] font-bold text-white">{condition?.label}</span>
+          )}
           <h1 className="mb-2.5 font-display text-headline-lg-mobile text-on-surface md:text-headline-lg">{product.name}</h1>
           <div className="mb-5 flex flex-wrap items-center gap-2.5">
             <StarRating value={product.rating ?? 0} size="h-3.5 w-3.5" showValue />
