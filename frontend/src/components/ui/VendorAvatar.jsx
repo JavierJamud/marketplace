@@ -1,8 +1,10 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { imgUrl } from "../../lib/imgUrl.js";
+import { isWaitingImage } from "../../lib/imageStates.js";
 
-// Foto de la tienda junto a su nombre: el logo si lo tiene; si no (o si no carga), la inicial sobre el color de la tienda.
+// Foto de la tienda junto a su nombre: el logo si lo tiene; si no (o si no existe), la inicial sobre el color de la tienda.
+// Sin conexión el logo se queda con la animación de carga hasta que llega (lib/imageStates.js).
 // Siempre cuadrada y `shrink-0`: dentro de una fila flex se aplastaba en el celular cuando el texto de al lado era largo.
 // `className` define tamaño y forma (p. ej. "h-10 w-10 rounded-full text-sm").
 export function VendorAvatar({ vendor, className = "h-11 w-11 rounded-[11px] text-base" }) {
@@ -13,7 +15,7 @@ export function VendorAvatar({ vendor, className = "h-11 w-11 rounded-[11px] tex
       <img
         src={imgUrl(vendor.logoUrl)}
         alt={`Logo de ${vendor.companyName}`}
-        onError={() => setBroken(true)}
+        onError={(e) => !isWaitingImage(e.currentTarget) && setBroken(true)}
         className={clsx("aspect-square shrink-0 border border-surface-container-high bg-white object-cover", className)}
       />
     );

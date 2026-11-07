@@ -4,6 +4,7 @@
  *  - Avisos push: muestra la notificación y, al tocarla, abre la pantalla correspondiente.
  *  - Arranque sin conexión: guarda la aplicación (index.html y los archivos del build, que llevan hash en el nombre) para que el
  *    panel abra aunque no haya internet. Los datos y las ventas sin conexión los maneja la propia aplicación (cola local).
+ *  - Fotos sin conexión: guarda una copia de las fotos públicas que ya se vieron (máximo 120, 7 días) y la usa solo si la red falla.
  *
  * Qué NO hace nunca:
  *  - Guardar respuestas de la API (/api): pedidos, precios, stock y datos privados siempre vienen del servidor.
@@ -15,7 +16,13 @@ const VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
 const STATIC = `baznova-static-${VERSION}`;
 const SHELL = "baznova-shell";
 const MEDIA = "baznova-media";
-const MEDIA_MAX = 150;
+// Copias de fotos para cuando no hay conexión: pocas y por poco tiempo, para no llenar el teléfono del cliente.
+const MEDIA_MAX = 120;
+const MEDIA_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const SAVED_AT = "x-baznova-saved";
+// Fotos públicas del catálogo. En producción llegan por /api/uploads/... (Nginx pasa /api al backend); en local, por
+// /uploads/.... Las capturas de reportes y los documentos privados no se guardan nunca.
+const PUBLIC_MEDIA = /^\/(?:api\/)?uploads\/(?:products|vendor-branding|offers|reviews|customer-listings|site)\//;
 
 // Primera instalación: se activa enseguida (no hay otro service worker al que reemplazar). Al publicar una versión nueva, en
 // cambio, espera: si tomaba el control mientras una página cargaba sus archivos, cortaba esas descargas y la pantalla fallaba
@@ -47,10 +54,30 @@ self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
+// Borra las copias de más de 7 días y, si siguen siendo muchas, las más viejas. Guardar de nuevo una foto la pone al final
+// de la lista, así que las que se ven seguido son las últimas en irse.
 async function trimMedia() {
   const cache = await caches.open(MEDIA);
   const keys = await cache.keys();
-  for (let i = 0; i < keys.length - MEDIA_MAX; i++) await cache.delete(keys[i]);
+  const now = Date.now();
+  let left = keys.length;
+  for (const key of keys) {
+    const res = await cache.match(key);
+    const savedAt = Number(res?.headers.get(SAVED_AT)) || 0;
+    if (left > MEDIA_MAX || now - savedAt > MEDIA_MAX_AGE) {
+      await cache.delete(key);
+      left--;
+    }
+  }
+}
+
+async function saveMedia(req, res) {
+  const headers = new Headers(res.headers);
+  headers.set(SAVED_AT, String(Date.now()));
+  const copy = new Response(await res.blob(), { status: res.status, statusText: res.statusText, headers });
+  const cache = await caches.open(MEDIA);
+  await cache.put(req, copy);
+  await trimMedia();
 }
 
 self.addEventListener("fetch", (event) => {
@@ -58,6 +85,29 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+
+  // Fotos públicas: siempre se piden a la red, así cada vez que hay conexión se ve la foto actual. La copia se guarda solo
+  // cuando la foto llegó completa y se usa solo si la red falla. Va antes de la regla de /api porque en producción las fotos
+  // llegan por /api/uploads; el resto de /api (pedidos, precios, stock) nunca se guarda.
+  if (PUBLIC_MEDIA.test(url.pathname) && req.destination === "image") {
+    event.respondWith(
+      (async () => {
+        try {
+          const res = await fetch(req);
+          if (res.ok && res.type === "basic" && res.headers.get("content-type")?.startsWith("image/")) {
+            // La copia se saca antes de entregar la respuesta (ver la nota de los archivos del build más abajo).
+            const copy = res.clone();
+            event.waitUntil(saveMedia(req, copy).catch(() => {}));
+          }
+          return res;
+        } catch {
+          return (await caches.match(req, { cacheName: MEDIA })) || Response.error();
+        }
+      })()
+    );
+    return;
+  }
+
   if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js" || url.pathname.endsWith(".webmanifest")) return;
 
   // Navegación: siempre de la red; sin conexión, la última copia de la aplicación.
@@ -103,21 +153,6 @@ self.addEventListener("fetch", (event) => {
       })()
     );
     return;
-  }
-
-  // Fotos de productos y tiendas: se muestran de la red; sin conexión, la última copia (máximo 150).
-  if (url.pathname.startsWith("/uploads/") && req.destination === "image") {
-    event.respondWith(
-      (async () => {
-        try {
-          const res = await fetch(req);
-          if (res.ok) caches.open(MEDIA).then((c) => c.put(req, res.clone()).then(trimMedia)).catch(() => {});
-          return res;
-        } catch {
-          return (await caches.match(req, { cacheName: MEDIA })) || Response.error();
-        }
-      })()
-    );
   }
 });
 

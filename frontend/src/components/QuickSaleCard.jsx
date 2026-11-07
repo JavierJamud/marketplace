@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Eye, MapPin, Package } from "lucide-react";
 import { imgUrl, thumbUrl } from "../lib/imgUrl.js";
+import { isWaitingImage } from "../lib/imageStates.js";
 import { formatPrice } from "../lib/format.js";
 import { conditionLabel } from "./customer/ListingFormFields.jsx";
 import { Skeleton } from "./ui/Skeleton.jsx";
@@ -44,6 +45,7 @@ export function QuickSaleCard({ listing: l, eager = false }) {
             loading={eager ? "eager" : "lazy"}
             className="h-full w-full object-cover"
             onError={(e) => {
+              if (isWaitingImage(e.currentTarget)) return;
               if (e.currentTarget.src !== image) {
                 e.currentTarget.onerror = null;
                 e.currentTarget.src = image;

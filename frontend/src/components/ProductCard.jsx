@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { MapPin, Flame, Truck } from "lucide-react";
 import { api } from "../lib/api.js";
 import { imgUrl, thumbUrl } from "../lib/imgUrl.js";
+import { isWaitingImage } from "../lib/imageStates.js";
 import { formatPrice } from "../lib/format.js";
 import { VerifiedBadge } from "./ui/VerifiedBadge.jsx";
 import { StarRating } from "./ui/StarRating.jsx";
@@ -177,7 +178,9 @@ export function ProductCard({ product, trackSource = "catalog", vendor, hideVend
               onError={(e) => {
                 // La miniatura no existe (foto vieja): se cae a la grande en
                 // vez de dejar el hueco. `onerror = null` evita un bucle si
-                // la grande también falla.
+                // la grande también falla. Si la foto solo espera la conexión
+                // (lib/imageStates.js), se queda la carga y no se cambia.
+                if (isWaitingImage(e.currentTarget)) return;
                 if (e.currentTarget.src !== image) {
                   e.currentTarget.onerror = null;
                   e.currentTarget.src = image;

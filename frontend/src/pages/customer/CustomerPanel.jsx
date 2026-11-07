@@ -23,6 +23,7 @@ import { ImageCropUploader } from "../../components/ImageCropUploader.jsx";
 import { compressImage } from "../../utils/compressImage.js";
 import { formatPrice } from "../../lib/format.js";
 import { imgUrl, thumbUrl } from "../../lib/imgUrl.js";
+import { isWaitingImage } from "../../lib/imageStates.js";
 import { AccountPendingDeletionNotice, deletionScheduledFor } from "../../components/AccountPendingDeletionNotice.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
 import { CancelOrderModal, CancelBlockedModal, EditOrderModal } from "../../components/customer/CustomerOrderActions.jsx";
@@ -722,6 +723,7 @@ export default function CustomerPanel() {
                         loading="lazy"
                         className="h-full w-full object-cover"
                         onError={(e) => {
+                          if (isWaitingImage(e.currentTarget)) return;
                           const full = imgUrl(l.images[0]);
                           if (e.currentTarget.src !== full) {
                             e.currentTarget.onerror = null;

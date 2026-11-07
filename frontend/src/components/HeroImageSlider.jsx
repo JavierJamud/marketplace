@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePrefersReducedMotion } from "../lib/useMediaQuery.js";
+import { isWaitingImage } from "../lib/imageStates.js";
 
 // Imágenes del Hero que sube el admin. Se muestran de a una durante 8 segundos. El cambio es un deslizamiento corto con
 // fundido y un leve zoom (la que sale se aleja hacia la izquierda, la que entra llega desde la derecha), solo con
@@ -54,6 +55,7 @@ export function HeroImageSlider({ images, alt, heightClass = "h-[320px] lg:h-[34
               srcSet={`${smallVariant(url)} 720w, ${url} 1200w`}
               sizes="(min-width: 1024px) 600px, 92vw"
               onError={(e) => {
+                if (isWaitingImage(e.currentTarget)) return;
                 if (e.currentTarget.hasAttribute("srcset")) e.currentTarget.removeAttribute("srcset");
               }}
               alt={i === 0 ? alt : ""}

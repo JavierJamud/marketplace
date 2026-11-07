@@ -7,14 +7,20 @@
     @apply scroll-smooth;
   }
   /* Imágenes (ver lib/imageStates.js): el texto alternativo no se pinta (aparecía el nombre de la foto en la esquina mientras
-     cargaba); mientras carga se ve el mismo gris con brillo de los esqueletos, y si falla, un ícono neutro de imagen. Van en
+     cargaba); mientras carga o espera la conexión se ve el mismo gris con brillo de los esqueletos, y si la foto no existe,
+     un ícono neutro de imagen. Van en
      la capa base para que un fondo puesto a propósito en la imagen (bg-white en un logo, por ejemplo) siga mandando. */
   img {
     color: transparent;
   }
-  img:not([data-img]) {
+  img:not([data-img]),
+  img[data-img="wait"] {
     background-color: #eae7e9;
     animation: imgLoading 1.3s ease-in-out infinite;
+  }
+  /* "wait": la foto no llegó por falta de conexión y se volverá a pedir sola. Se ve la carga, nunca el ícono de imagen rota. */
+  img[data-img="wait"] {
+    content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E");
   }
   img[data-img="error"] {
     background: #eae7e9
@@ -24,7 +30,8 @@
     content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E");
   }
   @media (prefers-reduced-motion: reduce) {
-    img:not([data-img]) {
+    img:not([data-img]),
+    img[data-img="wait"] {
       animation: none;
     }
   }

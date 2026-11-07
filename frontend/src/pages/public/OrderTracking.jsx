@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Search, MessageCircle, Store, MapPin, CreditCard, Package, XCircle, Check, RefreshCw } from "lucide-react";
 import { api } from "../../lib/api.js";
 import { imgUrl, thumbUrl } from "../../lib/imgUrl.js";
+import { isWaitingImage } from "../../lib/imageStates.js";
 import { waLink } from "../../lib/whatsapp.js";
 import { formatElapsed } from "../../lib/duration.js";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -233,7 +234,7 @@ function OrderResult({ order, updatedAt, refreshing }) {
               <li key={`${it.name}-${idx}`} className="flex items-center gap-3 py-3 first:pt-0">
                 <span className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl bg-surface-container">
                   {it.image ? (
-                    <img src={thumbUrl(it.image)} onError={(ev) => { ev.currentTarget.onerror = null; ev.currentTarget.src = imgUrl(it.image); }} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={thumbUrl(it.image)} onError={(ev) => { if (isWaitingImage(ev.currentTarget)) return; ev.currentTarget.onerror = null; ev.currentTarget.src = imgUrl(it.image); }} alt="" className="h-full w-full object-cover" loading="lazy" />
                   ) : (
                     <Package className="m-auto mt-4 h-6 w-6 text-outline" aria-hidden="true" />
                   )}
