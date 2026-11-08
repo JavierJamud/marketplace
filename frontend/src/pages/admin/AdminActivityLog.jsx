@@ -9,6 +9,7 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { UsageOverview } from "../../components/admin/VendorUsage.jsx";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 const PERIODS = [
   { value: "day", label: "Hoy" },
@@ -185,19 +186,13 @@ export default function AdminActivityLog() {
 
       <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-[14px] font-bold text-on-surface">Historial</div>
-        <div className="flex flex-wrap gap-2">
+        <ChipRow>
           {ROLE_FILTERS.map((r) => (
-            <button
-              key={r.value}
-              onClick={() => setRole(r.value)}
-              className={`min-h-9 rounded-full px-3 py-1 text-[12px] font-semibold ${
-                role === r.value ? "bg-tertiary-accent-light text-tertiary" : "border border-outline-variant text-on-surface-variant"
-              }`}
-            >
+            <Chip key={r.value} size="sm" active={role === r.value} onClick={() => setRole(r.value)}>
               {r.label}
-            </button>
+            </Chip>
           ))}
-        </div>
+        </ChipRow>
       </div>
 
       <SearchField value={searchText} onChange={setSearchText} placeholder="Buscar por acción, persona o tienda" className="mb-3" />

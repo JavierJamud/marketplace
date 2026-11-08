@@ -6,6 +6,7 @@ import { api } from "../../lib/api.js";
 import { CARD } from "../../components/dashboard/DashboardCard.jsx";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 import { Button } from "../../components/ui/Button.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 // Tiendas > Eliminadas (pedido del dueño): las tiendas eliminadas o con la eliminación pendiente, que antes desaparecían de
 // todas las listas sin dejar rastro a la vista. La lista lleva a una ficha con quién la creó, desde qué dispositivo e IP, qué
@@ -55,19 +56,13 @@ function DeletedVendorList() {
       </p>
 
       <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por estado">
+        <ChipRow className="gap-1.5">
           {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={status === f.id}
-              onClick={() => setStatus(f.id)}
-              className={`min-h-11 rounded-full border px-3.5 text-[12.5px] font-bold ${status === f.id ? "border-primary bg-primary text-on-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"}`}
-            >
+            <Chip key={f.id} active={status === f.id} onClick={() => setStatus(f.id)}>
               {f.label}
-            </button>
+            </Chip>
           ))}
-        </div>
+        </ChipRow>
         <input
           type="search"
           value={q}

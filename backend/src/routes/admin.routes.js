@@ -44,6 +44,7 @@ import { requireRole } from "../middleware/requireRole.js";
 import { notifyVendorChoice } from "../middleware/notifyVendorChoice.js";
 import { siteUpload } from "../middleware/siteUpload.js";
 import { offerUpload } from "../middleware/offerUpload.js";
+import { sendAdminWeeklySummary } from "../services/adminReports.service.js";
 
 const router = Router();
 
@@ -239,6 +240,12 @@ router.get("/section-counts", adminController.getSectionCounts);
 // Uso del panel de las tiendas y su análisis con IA.
 router.get("/usage/overview", usageController.adminUsageOverview);
 router.post("/usage/insights", usageController.adminUsageInsights);
+// Resumen semanal de la plataforma (el de los sábados): el admin lo puede pedir ahora mismo.
+router.post("/weekly-summary/send", async (req, res) => {
+  const r = await sendAdminWeeklySummary({ force: true });
+  if (r.error) return res.status(502).json({ error: r.error });
+  res.json(r);
+});
 router.get("/vendors/:id/usage", usageController.adminVendorUsage);
 router.post("/vendors/:id/usage/insights", usageController.adminVendorUsageInsights);
 router.get("/vendors/:id/weekly-summary", usageController.adminGetWeeklySummary);

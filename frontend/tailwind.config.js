@@ -111,16 +111,18 @@ export default {
         display: ["Montserrat", "sans-serif"],
         body: ["Inter", "sans-serif"],
       },
+      // Alturas de línea en proporción, no en píxeles: dan el mismo resultado a tamaño normal y crecen junto con la letra
+      // cuando el teléfono la agranda (si no, los renglones se montaban).
       fontSize: {
-        "display-lg": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700" }],
-        "headline-lg": ["32px", { lineHeight: "40px", fontWeight: "700" }],
-        "headline-lg-mobile": ["24px", { lineHeight: "32px", fontWeight: "700" }],
-        "headline-md": ["24px", { lineHeight: "32px", fontWeight: "600" }],
-        "title-lg": ["20px", { lineHeight: "28px", fontWeight: "600" }],
-        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "400" }],
-        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
-        "label-md": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }],
-        "label-sm": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+        "display-lg": ["48px", { lineHeight: "1.1667", letterSpacing: "-0.02em", fontWeight: "700" }],
+        "headline-lg": ["32px", { lineHeight: "1.25", fontWeight: "700" }],
+        "headline-lg-mobile": ["24px", { lineHeight: "1.3333", fontWeight: "700" }],
+        "headline-md": ["24px", { lineHeight: "1.3333", fontWeight: "600" }],
+        "title-lg": ["20px", { lineHeight: "1.4", fontWeight: "600" }],
+        "body-lg": ["18px", { lineHeight: "1.5556", fontWeight: "400" }],
+        "body-md": ["16px", { lineHeight: "1.5", fontWeight: "400" }],
+        "label-md": ["14px", { lineHeight: "1.4286", letterSpacing: "0.01em", fontWeight: "600" }],
+        "label-sm": ["12px", { lineHeight: "1.3333", fontWeight: "500" }],
       },
       borderRadius: {
         sm: "0.25rem",

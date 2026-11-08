@@ -491,6 +491,13 @@ export async function sendAdminDirectEmail({ to, subject, message, recipientName
   return result;
 }
 
+// Correos al admin ya armados (services/adminReports.service.js): aviso de tienda nueva y resumen semanal de la plataforma.
+export async function sendAdminReportEmail({ to, subject, html, type, vendorId = null }) {
+  const result = await sendViaResend({ to, subject, html });
+  await logEmail({ vendorId, orderId: null, type, to, subject, result });
+  return result;
+}
+
 // --- Tickets de errores visuales -------------------------------------------------------------------------------------------
 // Al admin: con la captura adjunta (la ve aunque no abra el panel). "Responder" le escribe directo a quien reportó.
 export async function sendSupportTicketAdminEmail({ ticket, code, vendorName, screenshot }) {

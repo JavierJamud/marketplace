@@ -176,7 +176,7 @@ function customerNarrative(s) {
   return paragraphs;
 }
 
-async function adminSummary() {
+export async function adminSummary() {
   const w = windows();
   const [orders, newVendors, newVendorsPrev, newCustomers, newCustomersPrev, pendingVerifications, openReports, errors] = await Promise.all([
     ordersAndSales({}, { includeTables: true }),

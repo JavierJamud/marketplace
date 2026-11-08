@@ -5,6 +5,7 @@ import { Store, User, Check, MessageSquare } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 const FILTERS = [
   { id: "all", label: "Todas" },
@@ -46,19 +47,13 @@ export default function AdminSuggestions() {
       </div>
       <p className="mb-4 text-[13.5px] text-outline">Buzón de mejoras enviadas por vendedores y clientes.</p>
 
-      <div className="mb-[22px] flex gap-2">
+      <ChipRow className="mb-[22px]">
         {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
-              filter === f.id ? "border-tertiary bg-tertiary text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-            }`}
-          >
+          <Chip key={f.id} active={filter === f.id} onClick={() => setFilter(f.id)}>
             {f.label}
-          </button>
+          </Chip>
         ))}
-      </div>
+      </ChipRow>
 
       {isLoading && <ListSkeleton />}
       {!isLoading && data?.length === 0 && <p className="text-body-md text-on-surface-variant">No hay sugerencias para este filtro.</p>}

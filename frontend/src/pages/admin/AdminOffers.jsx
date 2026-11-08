@@ -11,6 +11,7 @@ import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
 import { UnsavedChangesModal } from "../../components/UnsavedChangesModal.jsx";
 import { useDirtyModal } from "../../lib/useDirtyModal.js";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -1243,19 +1244,13 @@ export default function AdminOffers() {
           </div>
 
           <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-1.5">
+            <ChipRow className="gap-1.5">
               {STATUS_TABS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatusTab(s)}
-                  className={`rounded-full px-3.5 py-1.5 text-[12px] font-bold ${
-                    statusTab === s ? "bg-tertiary-accent text-white" : "bg-surface-container text-on-surface-variant"
-                  }`}
-                >
+                <Chip key={s} active={statusTab === s} onClick={() => setStatusTab(s)}>
                   {STATUS_TAB_LABEL[s]}
-                </button>
+                </Chip>
               ))}
-            </div>
+            </ChipRow>
             <button
               onClick={() => setModalState({})}
               className="flex items-center gap-1.5 rounded-full bg-secondary-container px-3.5 py-2 text-[12.5px] font-bold text-on-secondary-container"

@@ -10,10 +10,12 @@ const ERROR_TABS = [
 ];
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Check, AlertTriangle } from "lucide-react";
+import { Check, AlertTriangle, Copy, Search, X } from "lucide-react";
+import { copyToClipboard } from "../../lib/clipboard.js";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 // Bloque 33: el backend solo conoce los 6 valores reales de ErrorOrigin —
 // estos grupos son puramente de la UI (mapean a 1+ origin real cada uno),
@@ -46,6 +48,25 @@ const ORIGIN_LABELS = {
   OTRO: "Otro",
 };
 
+// Número corto de cada error, el mismo que va en el texto copiado.
+const errorCode = (e) => (e.code != null ? `E-${String(e.code).padStart(5, "0")}` : null);
+
+// Todo el registro en texto plano para pegarlo en un chat o un correo: número, origen, estado, fecha y hora, mensaje y datos.
+function errorAsText(e) {
+  const d = new Date(e.createdAt);
+  return [
+    `Error ${errorCode(e) ?? e.id}`,
+    `Origen: ${ORIGIN_LABELS[e.origin] ?? e.origin} (${e.origin})`,
+    `Estado: ${e.resolved ? "Resuelto" : "Sin resolver"}`,
+    `Registrado: ${d.toLocaleString("es-CU", { dateStyle: "full", timeStyle: "medium" })} (${d.toISOString()})`,
+    `ID interno: ${e.id}`,
+    "",
+    "Mensaje:",
+    e.message,
+    ...(e.context ? ["", "Datos:", JSON.stringify(e.context, null, 2)] : []),
+  ].join("\n");
+}
+
 export default function AdminErrors() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -60,16 +81,20 @@ export default function AdminErrors() {
   const tabsWithCounts = ERROR_TABS.map((t) => ({ ...t, count: sectionCounts?.errores?.tabs?.[t.id === "system" ? "sistema" : "tickets"] ?? 0 }));
   const [originFilter, setOriginFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("unresolved");
+  const [codeQuery, setCodeQuery] = useState("");
+  const code = codeQuery.trim();
 
   const originGroup = ORIGIN_FILTERS.find((f) => f.id === originFilter);
   const resolvedParam = statusFilter === "all" ? undefined : statusFilter === "resolved" ? "true" : "false";
 
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-errors", originFilter, statusFilter],
+    queryKey: ["admin-errors", originFilter, statusFilter, code],
     queryFn: async () =>
       (
         await api.get("/admin/errors", {
-          params: { origin: originGroup?.origins ? originGroup.origins.join(",") : undefined, resolved: resolvedParam },
+          params: code
+            ? { code }
+            : { origin: originGroup?.origins ? originGroup.origins.join(",") : undefined, resolved: resolvedParam },
         })
       ).data.errors,
   });
@@ -83,6 +108,15 @@ export default function AdminErrors() {
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo marcar como resuelto."),
   });
+
+  const copyError = async (e) => {
+    try {
+      await copyToClipboard(errorAsText(e));
+      toast.success(`Copiaste el error ${errorCode(e) ?? ""} completo.`);
+    } catch {
+      toast.error("No se pudo copiar. Mantén presionado el texto para copiarlo a mano.");
+    }
+  };
 
   return (
     <div className="max-w-[900px]">
@@ -100,35 +134,43 @@ export default function AdminErrors() {
         <AdminSupportTickets />
       ) : (
         <>
-      <div className="mb-2.5 flex flex-wrap gap-2">
+      <label className="mb-3 flex min-h-11 max-w-xs items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-lowest px-3.5 focus-within:border-primary-container">
+        <Search className="h-4 w-4 flex-shrink-0 text-outline" aria-hidden="true" />
+        <span className="sr-only">Buscar un error por su número</span>
+        <input
+          value={codeQuery}
+          onChange={(ev) => setCodeQuery(ev.target.value)}
+          placeholder="Buscar por número, ej. E-00123"
+          inputMode="text"
+          className="min-w-0 flex-1 bg-transparent py-2 text-[13.5px] text-on-surface outline-none placeholder:text-outline"
+        />
+        {codeQuery && (
+          <button type="button" onClick={() => setCodeQuery("")} aria-label="Borrar la búsqueda" className="-mr-2 flex h-9 w-9 items-center justify-center rounded-full text-outline hover:bg-surface-container">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </label>
+      {!code && (
+        <>
+      <ChipRow className="mb-2.5">
         {ORIGIN_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setOriginFilter(f.id)}
-            className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
-              originFilter === f.id ? "border-tertiary bg-tertiary text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-            }`}
-          >
+          <Chip key={f.id} active={originFilter === f.id} onClick={() => setOriginFilter(f.id)}>
             {f.label}
-          </button>
+          </Chip>
         ))}
-      </div>
-      <div className="mb-[22px] flex flex-wrap gap-2">
+      </ChipRow>
+      <ChipRow className="mb-[22px]">
         {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setStatusFilter(f.id)}
-            className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
-              statusFilter === f.id ? "border-error bg-error text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-            }`}
-          >
+          <Chip key={f.id} active={statusFilter === f.id} onClick={() => setStatusFilter(f.id)}>
             {f.label}
-          </button>
+          </Chip>
         ))}
-      </div>
+      </ChipRow>
+        </>
+      )}
 
       {isLoading && <ListSkeleton />}
-      {!isLoading && data?.length === 0 && <p className="text-body-md text-on-surface-variant">No hay errores para este filtro.</p>}
+      {!isLoading && data?.length === 0 && <p className="text-body-md text-on-surface-variant">{code ? `No hay ningún error con el número ${code}.` : "No hay errores para este filtro."}</p>}
 
       <div className="flex flex-col gap-3.5">
         {data?.map((e) => (
@@ -139,6 +181,9 @@ export default function AdminErrors() {
           >
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
+                {errorCode(e) && (
+                  <span className="rounded-full bg-surface-container px-2.5 py-1 font-mono text-[11px] font-bold text-on-surface select-all">{errorCode(e)}</span>
+                )}
                 <span className="rounded-full bg-tertiary-accent/10 px-2.5 py-1 text-[11px] font-bold text-tertiary-accent">
                   {ORIGIN_LABELS[e.origin] ?? e.origin}
                 </span>
@@ -177,15 +222,25 @@ export default function AdminErrors() {
               </pre>
             )}
 
-            {!e.resolved && (
+            <div className="mt-3.5 flex flex-wrap gap-2">
               <button
-                onClick={() => resolve.mutate(e.id)}
-                disabled={resolve.isPending}
-                className="mt-3.5 rounded-md bg-surface-container px-3.5 py-2 text-[12px] font-bold text-on-surface-variant disabled:opacity-50"
+                type="button"
+                onClick={() => copyError(e)}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-surface-container px-3.5 py-2 text-[12.5px] font-bold text-on-surface hover:bg-surface-container-high"
               >
-                Marcar como resuelto
+                <Copy className="h-4 w-4" aria-hidden="true" /> Copiar error completo
               </button>
-            )}
+              {!e.resolved && (
+                <button
+                  type="button"
+                  onClick={() => resolve.mutate(e.id)}
+                  disabled={resolve.isPending}
+                  className="min-h-11 rounded-md bg-surface-container px-3.5 py-2 text-[12.5px] font-bold text-on-surface-variant hover:bg-surface-container-high disabled:opacity-50"
+                >
+                  Marcar como resuelto
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

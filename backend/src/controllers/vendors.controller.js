@@ -48,6 +48,7 @@ import { LOW_STOCK_THRESHOLD } from "../constants/inventory.js";
 import { completenessScore, rankFeaturedProducts, rotationSeed } from "../lib/productRanking.js";
 import { loadRankingSignals } from "../services/productRankingSignals.service.js";
 import { bumpVendorStat, isBotRequest } from "../lib/vendorDailyStats.js";
+import { notifyAdminsNewVendor } from "../services/adminReports.service.js";
 
 // E.164 laxo (+5355512345) — el frontend siempre arma el string completo con
 // PhoneInput/toE164(), esto es solo una validación de forma del lado servidor.
@@ -342,6 +343,8 @@ export async function createVendor(req, res) {
 
   // Bloque 244: país/provincia escritos a mano -> solicitud para el admin.
   void recordLocationSuggestions(locationSuggestions);
+  // Correo al admin con el resumen de la tienda nueva (además del aviso en el panel).
+  void notifyAdminsNewVendor(vendor.id);
 
   res.status(201).json({ vendor });
 }

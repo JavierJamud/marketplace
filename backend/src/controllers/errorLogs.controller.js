@@ -9,12 +9,16 @@ import { prisma } from "../lib/prisma.js";
 export async function listErrorLogs(req, res) {
   const origins = typeof req.query.origin === "string" && req.query.origin.length ? req.query.origin.split(",") : undefined;
   const resolvedParam = req.query.resolved;
+  // Búsqueda por número ("E-00123", "123"): trae ese error sin importar los filtros.
+  const codeMatch = typeof req.query.code === "string" ? req.query.code.match(/^\s*(?:e-?)?0*(\d{1,9})\s*$/i) : null;
 
   const errors = await prisma.errorLog.findMany({
-    where: {
-      origin: origins ? { in: origins } : undefined,
-      resolved: resolvedParam === "true" ? true : resolvedParam === "false" ? false : undefined,
-    },
+    where: codeMatch
+      ? { code: Number(codeMatch[1]) }
+      : {
+          origin: origins ? { in: origins } : undefined,
+          resolved: resolvedParam === "true" ? true : resolvedParam === "false" ? false : undefined,
+        },
     orderBy: { createdAt: "desc" },
     take: 300,
   });

@@ -172,6 +172,9 @@ enum EmailType {
   VENDOR_INACTIVITY_REMINDER
   // Resumen semanal con IA que recibe cada tienda los viernes (jobs/weeklyVendorSummary.job.js).
   VENDOR_WEEKLY_SUMMARY
+  // Al admin: aviso de cada tienda nueva con su resumen, y el resumen semanal de la plataforma (sábados a las 12:00).
+  ADMIN_NEW_VENDOR
+  ADMIN_WEEKLY_SUMMARY
   VENDOR_SUSPENDED
   VENDOR_WINBACK
   VENDOR_REACTIVATED
@@ -2147,6 +2150,8 @@ model SupportTicketMessage {
 
 model ErrorLog {
   id     String      @id @default(cuid())
+  // Número corto para nombrar un error al reportarlo ("E-00123"); se ve en Admin > Errores y va en el texto copiado.
+  code   Int         @unique @default(autoincrement())
   origin ErrorOrigin
   message String
   // Datos de diagnóstico flexibles según el origen (ej. vendorId,
@@ -4529,6 +4534,19 @@ model VendorSectionUsage {
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@unique([vendorId, section, day])
+  @@index([day])
+}
+
+// Visitas al sitio público por día (de Cuba) y zona del sitio (inicio, catálogo, tiendas, producto...). Sin datos de quién
+// visitó: solo cuántas páginas se vieron (views) y cuántas visitas empezaron en esa zona (sessions, la primera página de cada
+// pestaña). Una fila por día y zona: no crece con cada visita. Lo lee el resumen semanal del admin.
+model SiteTrafficDay {
+  day      DateTime @db.Date
+  area     String
+  views    Int      @default(0)
+  sessions Int      @default(0)
+
+  @@id([day, area])
   @@index([day])
 }
 

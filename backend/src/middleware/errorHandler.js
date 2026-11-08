@@ -150,7 +150,7 @@ export function errorHandler(err, req, res, _next) {
   logError({
     origin: inferOrigin(req),
     message: err instanceof Error ? err.message : String(err),
-    context: { method: req.method, path: req.originalUrl, stack: err?.stack?.slice(0, 2000), userId: req.user?.id },
+    context: { method: req.method, path: req.originalUrl, stack: err?.stack?.slice(0, 8000), userId: req.user?.id },
   });
   res.status(500).json({ error: "Error interno del servidor." });
 }

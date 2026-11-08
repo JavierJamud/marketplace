@@ -14,7 +14,7 @@ export async function logError({ origin, message, context, notify = true }) {
     await prisma.errorLog.create({
       data: {
         origin,
-        message: String(message ?? "Error desconocido").slice(0, 4000),
+        message: String(message ?? "Error desconocido").slice(0, 10000),
         context: context ?? undefined,
       },
     });

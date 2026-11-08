@@ -11,6 +11,7 @@ import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { formatPrice } from "../../lib/format.js";
 import { Button } from "../../components/ui/Button.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 import { Input } from "../../components/ui/Input.jsx";
 import { Select } from "../../components/ui/Select.jsx";
 import { AiGenerateButton } from "../../components/AiGenerateButton.jsx";
@@ -1307,12 +1308,9 @@ export default function VendorProducts() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2.5">
-          <button
-            onClick={() => (atLimit ? toast.error(limitText) : setModalState({ mode: "new" }))}
-            className="rounded-full bg-secondary-container px-[18px] py-2.5 text-[13.5px] font-bold text-on-secondary-container"
-          >
+          <Button onClick={() => (atLimit ? toast.error(limitText) : setModalState({ mode: "new" }))} className="rounded-full">
             + Nuevo producto
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1352,21 +1350,13 @@ export default function VendorProducts() {
         resultText={search.trim() ? `${filteredProducts.length} de ${products.length} productos` : undefined}
       />
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <ChipRow className="mb-4">
         {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setStockFilter(t.id)}
-            className={`rounded-full px-4 py-2 text-[12.5px] font-bold transition-colors ${
-              stockFilter === t.id
-                ? "bg-primary-container text-white"
-                : "bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container"
-            }`}
-          >
-            {t.label} ({t.count})
-          </button>
+          <Chip key={t.id} active={stockFilter === t.id} count={t.count} onClick={() => setStockFilter(t.id)}>
+            {t.label}
+          </Chip>
         ))}
-      </div>
+      </ChipRow>
 
       {/* Bloque 195 (bug real encontrado en auditoría — responsividad: el
           contenedor tenía overflow-hidden con columnas de ancho fijo

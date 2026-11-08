@@ -100,6 +100,12 @@
   h1, h2, h3, h4 {
     @apply font-display;
   }
+  /* Botones con forma de píldora: el texto no se parte en dos renglones (con la letra agrandada en el teléfono se salía
+     del botón). Si no cabe, el botón entero baja de línea en su fila. Los que ocupan todo el ancho o apilan contenido
+     pueden seguir partiendo el texto. */
+  :is(button, a).rounded-full:not(.w-full):not(.flex-col):not(.whitespace-normal) {
+    white-space: nowrap;
+  }
   :focus-visible {
     outline: 2px solid theme("colors.secondary.container");
     outline-offset: 2px;

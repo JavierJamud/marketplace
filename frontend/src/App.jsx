@@ -106,6 +106,7 @@ const ApiSocios = lazyRetry(() => import("./pages/public/ApiSocios.jsx"));
 const Plans = lazyRetry(() => import("./pages/public/Plans.jsx"));
 const SolicitudSocio = lazyRetry(() => import("./pages/public/SolicitudSocio.jsx"));
 import { capturePartnerRef } from "./lib/partnerRef.js";
+import { useSiteTraffic } from "./lib/siteTraffic.js";
 const AdminDiscountCodes = lazyRetry(() => import("./pages/admin/AdminDiscountCodes.jsx"));
 const AdminStoreOffers = lazyRetry(() => import("./pages/admin/AdminStoreOffers.jsx"));
 const AdminProducts = lazyRetry(() => import("./pages/admin/AdminProducts.jsx"));
@@ -181,6 +182,8 @@ function AdminMaintenanceBar({ mode }) {
 
 export default function App() {
   useRouteSeo();
+  // Visitas al sitio público por zona, para el resumen semanal del admin (lib/siteTraffic.js).
+  useSiteTraffic();
   // Nombres de monedas y formas de pago (lib/catalog.js). Al cambiar en el admin, App se vuelve a pintar y con ella todas las
   // pantallas, así los precios y formas de pago muestran el nombre nuevo sin recargar.
   useCatalog();

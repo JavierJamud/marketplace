@@ -24,6 +24,7 @@ import { OrderDetailModal } from "../../components/vendor/OrderDetailModal.jsx";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
 import { channelLabel } from "../../lib/catalog.js";
 import { canWriteSection } from "../../lib/vendorSections.js";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -509,32 +510,20 @@ export default function VendorOrders() {
         resultText={search.trim() ? `${filtered.length} de ${merged.length} pedidos` : undefined}
       />
 
-      <div className="mb-2.5 flex flex-wrap gap-2">
+      <ChipRow className="mb-2.5">
         {CHANNEL_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setChannelFilter(f.id)}
-            className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
-              channelFilter === f.id ? "border-primary-container bg-primary-container text-white" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-            }`}
-          >
+          <Chip key={f.id} active={channelFilter === f.id} onClick={() => setChannelFilter(f.id)}>
             {f.label}
-          </button>
+          </Chip>
         ))}
-      </div>
-      <div className="mb-5 flex flex-wrap gap-2">
+      </ChipRow>
+      <ChipRow className="mb-5">
         {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setStatusFilter(f.id)}
-            className={`rounded-full border px-4 py-2 text-[13px] font-semibold ${
-              statusFilter === f.id ? "border-tertiary-accent bg-tertiary-accent/10 text-tertiary-accent" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant"
-            }`}
-          >
+          <Chip key={f.id} active={statusFilter === f.id} onClick={() => setStatusFilter(f.id)}>
             {f.label}
-          </button>
+          </Chip>
         ))}
-      </div>
+      </ChipRow>
 
       <div className="flex flex-col gap-3">
         {filtered.length === 0 && <p className="text-body-md text-on-surface-variant">{search.trim() ? `No hay pedidos que coincidan con “${search.trim()}”.` : "No hay pedidos en este filtro."}</p>}

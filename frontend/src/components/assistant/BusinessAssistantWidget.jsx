@@ -94,7 +94,7 @@ export function BusinessAssistantWidget({ endpoint, quickPrompts, quickPromptsFr
     return (
       <Link
         to="/admin/configuracion?tab=integraciones"
-        className="fixed bottom-4 right-4 z-40 flex min-h-11 items-center gap-2 rounded-full border border-error/40 bg-surface-container-lowest px-4 py-2 text-[13px] font-bold text-error shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6"
+        className="fixed bottom-4 left-4 right-4 z-40 flex min-h-11 items-center gap-2 whitespace-normal rounded-full sm:left-auto sm:max-w-md border border-error/40 bg-surface-container-lowest px-4 py-2 text-[13px] font-bold text-error shadow-[0_10px_28px_-8px_rgba(14,26,40,0.38)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tertiary-accent sm:bottom-6 sm:right-6"
       >
         <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
         La IA no tiene ningún modelo disponible. Revisar integraciones

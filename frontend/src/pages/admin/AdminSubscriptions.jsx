@@ -14,6 +14,7 @@ import { NotifyVendorCheckbox } from "../../components/admin/NotifyVendorCheckbo
 import { notifyVendorConfig } from "../../lib/notifyVendor.js";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
 import { PlansSection } from "../../components/admin/plans/PlansSection.jsx";
+import { Chip, ChipRow } from "../../components/ui/Chip.jsx";
 
 const PAYMENT_METHOD_ICON = { CARD: CreditCard, CUP_TRANSFER: Landmark, MANUAL: HandCoins };
 const PAYMENT_METHOD_LABEL = { CARD: "Tarjeta (Stripe)", CUP_TRANSFER: "Transferencia CUP", MANUAL: "Registrado por el equipo" };
@@ -528,21 +529,14 @@ function SubscriptionsTab() {
       </div>
 
       <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filtrar suscripciones">
+        <ChipRow className="gap-1.5">
           {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.id}
-              onClick={() => setFilter(f.id)}
-              className={`min-h-11 flex-shrink-0 rounded-full border px-3.5 text-[12.5px] font-bold ${filter === f.id ? "border-primary bg-primary text-on-primary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container"}`}
-            >
-              {/* Sin datos (cargando o con error) no hay conteo que dar: "Todas 0" junto al aviso de error sería falso. */}
-              {f.label} {data && <span className="opacity-70">{countFor(f)}</span>}
-            </button>
+            // Sin datos (cargando o con error) no hay conteo que dar: "Todas (0)" junto al aviso de error sería falso.
+            <Chip key={f.id} active={filter === f.id} count={data ? countFor(f) : undefined} onClick={() => setFilter(f.id)}>
+              {f.label}
+            </Chip>
           ))}
-        </div>
+        </ChipRow>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <select
             value={planFilter}
