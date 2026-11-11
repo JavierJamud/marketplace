@@ -53,7 +53,7 @@ export async function isStripeConfigured() {
 // (subscriptionPaymentId en metadata, ver SubscriptionPayment) arman un
 // Checkout Session idéntico salvo la metadata/redirect, así que comparten
 // esta función en vez de duplicar la llamada al SDK dos veces.
-async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam, planType }) {
+async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, metadata, description, successParam, planType, siteUrl = env.frontendUrl }) {
   const stripe = await getStripeClient();
   const [{ siteName }, { key, plan }] = await Promise.all([getBrandSettings(), checkoutPlan(planType)]);
   if (!stripe) throw new AppError(`El pago con tarjeta no está disponible en este momento. Contacta al equipo de ${siteName}.`, 503);
@@ -76,8 +76,8 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
         },
       ],
       metadata: { ...metadata, vendorId: vendor.id, months: String(months), planType: key },
-      success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=${successParam}`,
-      cancel_url: `${env.frontendUrl}/vendedor/verificacion?stripe=cancel`,
+      success_url: `${siteUrl}/vendedor/verificacion?stripe=${successParam}`,
+      cancel_url: `${siteUrl}/vendedor/verificacion?stripe=cancel`,
     });
 
     return { url: session.url, sessionId: session.id, expiresAt: new Date(session.expires_at * 1000) };
@@ -106,8 +106,9 @@ async function createSubscriptionCheckoutSession({ vendor, months, amountUsd, me
 // (checkout.session.completed) ya NO activa la verificación por sí solo —
 // deja la marca `stripePaidAt` y el vendedor sube su comprobante igual que
 // con CUP, un admin finaliza a mano (ver confirmSubscriptionPayment).
-export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd, planType }) {
+export async function createVerificationCheckoutSession({ verification, vendor, months, amountUsd, planType, siteUrl }) {
   return createSubscriptionCheckoutSession({
+    siteUrl,
     vendor,
     months,
     amountUsd,
@@ -124,8 +125,9 @@ export async function createVerificationCheckoutSession({ verification, vendor, 
 // tienda YA está VERIFIED — metadata.subscriptionPaymentId (no
 // verificationId) es lo que el webhook usa para saber qué fila de
 // SubscriptionPayment marcar como pagada (ver handleCheckoutCompleted).
-export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd, planType }) {
+export async function createRenewalCheckoutSession({ subscriptionPayment, vendor, months, amountUsd, planType, siteUrl }) {
   return createSubscriptionCheckoutSession({
+    siteUrl,
     vendor,
     months,
     amountUsd,
@@ -249,7 +251,7 @@ async function planProductData(months, { trialDays = 0, planType } = {}) {
 // la tarjeta, 0 USD hoy, prueba de trialDays). trialEnd: si la tienda ya tiene tiempo pagado (por ejemplo, venía pagando en
 // CUP), el primer cobro se corre hasta esa fecha para no cobrarle dos veces el mismo periodo.
 // `totalUsd`: lo que se cobra cada `months` meses, ya con el descuento del plan (planPrice en lib/planConfig.js).
-export async function createCardSubscriptionCheckout({ vendor, months, priceUsd, totalUsd, planType, purpose, trialDays = 0, trialEnd = null }) {
+export async function createCardSubscriptionCheckout({ vendor, months, priceUsd, totalUsd, planType, purpose, trialDays = 0, trialEnd = null, siteUrl = env.frontendUrl }) {
   if (!CARD_INTERVAL_MONTHS.includes(months)) throw new AppError("Elige 1, 3, 6 o 12 meses.", 400);
   const stripe = await stripeOrThrow();
   try {
@@ -290,8 +292,8 @@ export async function createCardSubscriptionCheckout({ vendor, months, priceUsd,
             : `Se cobran ${total} USD ahora y ${product.every} hasta que canceles. Puedes cancelar cuando quieras desde tu panel de ${product.siteName}.`,
         },
       },
-      success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=${purpose === "trial" ? "trial-success" : "success"}`,
-      cancel_url: `${env.frontendUrl}/vendedor/verificacion?stripe=cancel`,
+      success_url: `${siteUrl}/vendedor/verificacion?stripe=${purpose === "trial" ? "trial-success" : "success"}`,
+      cancel_url: `${siteUrl}/vendedor/verificacion?stripe=cancel`,
     });
     return { url: session.url, sessionId: session.id };
   } catch (err) {
@@ -302,7 +304,7 @@ export async function createCardSubscriptionCheckout({ vendor, months, priceUsd,
 
 // Página de Stripe para poner otra tarjeta (la anterior fue rechazada o venció). Al guardarla, el webhook la deja como
 // tarjeta de la suscripción y cobra la factura pendiente si la había.
-export async function createCardUpdateCheckout({ vendor }) {
+export async function createCardUpdateCheckout({ vendor, siteUrl = env.frontendUrl }) {
   const stripe = await stripeOrThrow();
   try {
     const customer = await ensureStripeCustomer(vendor, stripe);
@@ -313,8 +315,8 @@ export async function createCardUpdateCheckout({ vendor }) {
       locale: "es",
       metadata: { vendorId: vendor.id, purpose: "update_card" },
       setup_intent_data: { metadata: { vendorId: vendor.id, purpose: "update_card" } },
-      success_url: `${env.frontendUrl}/vendedor/verificacion?stripe=card-updated`,
-      cancel_url: `${env.frontendUrl}/vendedor/verificacion?stripe=cancel`,
+      success_url: `${siteUrl}/vendedor/verificacion?stripe=card-updated`,
+      cancel_url: `${siteUrl}/vendedor/verificacion?stripe=cancel`,
     });
     return { url: session.url };
   } catch (err) {

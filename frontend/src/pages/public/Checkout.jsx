@@ -20,6 +20,7 @@ import { ID_TYPES, ID_TYPE_LABEL, idError, isValidId } from "../../lib/idDocumen
 import { ComboSelect } from "../../components/ui/ComboSelect.jsx";
 import { LoyaltyBox, useCheckoutLoyalty } from "../../components/checkout/LoyaltyBox.jsx";
 import { clientInfo } from "../../lib/clientInfo.js";
+import { shareOrigin } from "../../lib/seo.js";
 
 // Bloque 231: "Fecha y hora" del ticket de confirmación — mismo formato
 // corto que ya usa fmtDate en VendorOffers.jsx, con hora agregada.
@@ -383,7 +384,7 @@ export default function Checkout() {
         // antes de limpiar el carrito.
         vendorSlug,
         provinceName: selectedProvince?.name ?? "",
-        panelUrl: `${window.location.origin}/vendedor/pedidos?ver=${order.id}&tipo=orden`,
+        panelUrl: `${shareOrigin()}/vendedor/pedidos?ver=${order.id}&tipo=orden`,
         orderDestination,
         vendorWhatsapp: vendor?.whatsapp,
         orderCode: order.code,

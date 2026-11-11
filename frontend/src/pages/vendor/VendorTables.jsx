@@ -12,6 +12,7 @@ import { TableOrderDetailModal } from "../../components/vendor/TableOrderDetailM
 import { CreateManualOrderModal } from "../../components/vendor/CreateManualOrderModal.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
 import { PanelSkeleton } from "../../components/ui/Skeleton.jsx";
+import { shareOrigin } from "../../lib/seo.js";
 
 function fmtCUP(n) {
   return `${Number(n).toLocaleString("es-CU")} CUP`;
@@ -644,7 +645,7 @@ export default function VendorTables() {
             // archivo) fuerza una IP de la red local en vez de
             // window.location.origin — únicamente para poder escanear el QR
             // de verdad desde un celular en el mismo WiFi durante pruebas.
-            tableUrl={`${import.meta.env.VITE_LAN_ORIGIN || window.location.origin}/mesa/${t.qrToken}`}
+            tableUrl={`${import.meta.env.VITE_LAN_ORIGIN || shareOrigin()}/mesa/${t.qrToken}`}
             canManageTable={canManageTable}
             canManageOrders={canManageOrders}
           />

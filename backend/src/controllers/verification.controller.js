@@ -24,6 +24,7 @@ import {
   invoiceSubscriptionMetadata,
   cancelStripeSubscription,
 } from "../lib/stripe.js";
+import { siteUrlFor } from "../lib/siteUrl.js";
 import { getBrandSettings, getTrialDays } from "./settings.controller.js";
 // Bloque 69: extraído a un lib compartido — reviews.controller.js es el
 // segundo consumidor real de este mismo "avisar al admin ya" (ver lib/adminNotify.js).
@@ -440,8 +441,8 @@ const paymentMethodSchema = z.object({
 // reusa tanto desde chooseMyPaymentMethod (primera vez que elige CARD) como
 // desde retryMyStripeCheckout (el link anterior venció o el vendedor
 // abandonó el pago) — cada llamada genera una sesión NUEVA.
-async function createAndSaveCheckoutSession(vendor, verification, amountUsd) {
-  const session = await createVerificationCheckoutSession({ verification, vendor, amountUsd, months: verification.paymentMonths, planType: paymentPlanOf(verification.paymentPlanType) });
+async function createAndSaveCheckoutSession(vendor, verification, amountUsd, siteUrl) {
+  const session = await createVerificationCheckoutSession({ siteUrl, verification, vendor, amountUsd, months: verification.paymentMonths, planType: paymentPlanOf(verification.paymentPlanType) });
   const updated = await prisma.verificationRequest.update({
     where: { id: verification.id },
     data: {
@@ -519,7 +520,7 @@ export async function chooseMyPaymentMethod(req, res) {
   }
 
   if (method === "CARD") {
-    verification = await createAndSaveCheckoutSession(vendor, verification, quote.total);
+    verification = await createAndSaveCheckoutSession(vendor, verification, quote.total, siteUrlFor(req));
   }
 
   res.json({
@@ -555,7 +556,7 @@ export async function retryMyStripeCheckout(req, res) {
   await assertOfferedPlan(planType, vendor);
   const quote = await quotePlan(planType, v.paymentMonths, "CARD");
   if (!quote.config.grantsBadge || planType === (await getDefaultPlanKey())) throw new AppError(`El plan ${quote.config.displayName} ya no se paga con la verificación. Elige otro plan.`, 409);
-  const verification = await createAndSaveCheckoutSession(vendor, v, quote.total);
+  const verification = await createAndSaveCheckoutSession(vendor, v, quote.total, siteUrlFor(req));
   res.json({
     verification: {
       stripeCheckoutUrl: verification.stripeCheckoutUrl,
@@ -876,7 +877,7 @@ export async function chooseMyRenewalPayment(req, res) {
   });
 
   if (method === "CARD") {
-    const session = await createRenewalCheckoutSession({ subscriptionPayment: payment, vendor, months, amountUsd: quote.total, planType });
+    const session = await createRenewalCheckoutSession({ siteUrl: siteUrlFor(req), subscriptionPayment: payment, vendor, months, amountUsd: quote.total, planType });
     payment = await prisma.subscriptionPayment.update({
       where: { id: payment.id },
       data: { stripeCheckoutSessionId: session.sessionId, stripeCheckoutUrl: session.url, stripeCheckoutExpiresAt: session.expiresAt },
@@ -913,7 +914,7 @@ export async function retryRenewalStripeCheckout(req, res) {
   // no se vende (la tienda elige otro plan).
   const planType = await renewalPlanFor(vendor, payment.planType ?? undefined);
   const quote = await quotePlan(planType, payment.months, "CARD");
-  const session = await createRenewalCheckoutSession({
+  const session = await createRenewalCheckoutSession({ siteUrl: siteUrlFor(req),
     subscriptionPayment: payment,
     vendor,
     months: payment.months,
@@ -1245,7 +1246,7 @@ export async function startMyCardSubscription(req, res) {
     });
     await syncVerificationArchive(vendor.id, { paymentMethod: "CARD", paymentMonths: months, paymentCurrency: "USD" });
   }
-  const session = await createCardSubscriptionCheckout({
+  const session = await createCardSubscriptionCheckout({ siteUrl: siteUrlFor(req),
     vendor,
     months,
     totalUsd: quote.total,
@@ -1266,7 +1267,7 @@ export async function startMyTrialCard(req, res) {
   // El plan de la prueba sale de su bandera (isTrialPlan): el admin puede cambiar cuál es.
   const trialKey = await getTrialPlanKey();
   const quote = await quotePlan(trialKey, 1, "CARD");
-  const session = await createCardSubscriptionCheckout({ vendor, months: 1, totalUsd: quote.total, planType: trialKey, purpose: "trial", trialDays: await getTrialDays() });
+  const session = await createCardSubscriptionCheckout({ siteUrl: siteUrlFor(req), vendor, months: 1, totalUsd: quote.total, planType: trialKey, purpose: "trial", trialDays: await getTrialDays() });
   res.json({ url: session.url });
 }
 
@@ -1314,7 +1315,7 @@ export async function reactivateMySubscription(req, res) {
   }
   const result = await chargeSavedCardSubscription({ vendor, months, totalUsd: quote.total, planType });
   if (result.declined) {
-    const session = await createCardSubscriptionCheckout({ vendor, months, totalUsd: quote.total, planType, purpose: "subscribe" });
+    const session = await createCardSubscriptionCheckout({ siteUrl: siteUrlFor(req), vendor, months, totalUsd: quote.total, planType, purpose: "subscribe" });
     return res.json({ status: "needs_card", url: session.url });
   }
   await activateFromCardSubscription(vendor.id, result.subscription, { purpose: "reactivate", months, amountUsd: quote.total, planType });
@@ -1325,7 +1326,7 @@ export async function reactivateMySubscription(req, res) {
 export async function updateMyCard(req, res) {
   const vendor = await loadMyVendor(req);
   if (!vendor.stripeCustomerId) throw new AppError("Todavía no tienes una tarjeta registrada.", 409);
-  const session = await createCardUpdateCheckout({ vendor });
+  const session = await createCardUpdateCheckout({ vendor, siteUrl: siteUrlFor(req) });
   res.json({ url: session.url });
 }
 

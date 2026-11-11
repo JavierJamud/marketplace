@@ -17,6 +17,7 @@ import { StarRating } from "./ui/StarRating.jsx";
 import { ReportFraudModal } from "./ReportFraudModal.jsx";
 import { BannerIcons } from "./BannerIcons.jsx";
 import { Breadcrumbs } from "./Breadcrumbs.jsx";
+import { shareOrigin } from "../lib/seo.js";
 
 function imgUrl(path) {
   if (!path) return null;
@@ -84,7 +85,7 @@ export function StoreHeaderBanner({ vendor: v, tableLabel, minimal = false, unde
   function handleShare() {
     // El enlace público de la tienda. La vista previa (imagen, título) para WhatsApp o Facebook la pone el servidor: Nginx
     // les entrega /api/og/tienda/... a esos bots cuando abren esta misma dirección, así que no hace falta compartir aquella.
-    copyToClipboard(`${window.location.origin}/tienda/${encodeURIComponent(v.slug)}`)
+    copyToClipboard(`${shareOrigin()}/tienda/${encodeURIComponent(v.slug)}`)
       .then(showLinkCopiedToast)
       .catch(() => toast.error("No se pudo copiar el enlace."));
   }

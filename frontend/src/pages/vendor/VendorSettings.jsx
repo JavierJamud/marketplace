@@ -22,6 +22,7 @@ import { StoreShippingCard } from "../../components/vendor/ShippingFields.jsx";
 import { PlanUpsell } from "../../components/vendor/PlanUpsell.jsx";
 import { EmailPreferencesCard } from "../../components/customer/EmailPreferencesCard.jsx";
 import { ManageVendorMunicipalitiesModal, zoneUnit } from "../../components/ZoneMunicipalitiesModal.jsx";
+import { shareOrigin } from "../../lib/seo.js";
 
 // Vendor.orderDestination: todo pedido entra siempre a "Mis pedidos" (con aviso en vivo, push y correo). La tienda solo
 // elige si al cliente, después de enviarlo, se le ofrece además mandárselo por WhatsApp. "Solo WhatsApp" se quitó porque
@@ -56,7 +57,7 @@ const DAY_ROWS = [
 // decorativo, no un QR de verdad) hacia la propia tienda pública
 // (/tienda/:slug, la misma ruta de siempre, no una URL secreta aparte).
 function VendorShareLink({ slug, isPrivate }) {
-  const url = `${window.location.origin}/tienda/${slug}`;
+  const url = `${shareOrigin()}/tienda/${slug}`;
 
   function copyLink() {
     copyToClipboard(url)

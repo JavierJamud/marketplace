@@ -4,6 +4,7 @@ import { Download, Share, SquarePlus, MoreVertical, X } from "lucide-react";
 import toast from "../../lib/toast.jsx";
 import { APPS, detectInstalled, devicePlatform, isIos, onInstallAvailability, promptInstall, waitForInstallPrompt } from "../../lib/pwa.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { shareOrigin } from "../../lib/seo.js";
 
 // Botones "Android" y "iPhone" del footer para instalar la app de compras (Baznova Marketplace).
 //  - Android: si Chrome ya ofrece instalar, un toque abre su ventana y la app queda en el menú de aplicaciones. Si no la
@@ -40,7 +41,7 @@ function Step({ n, children }) {
 
 function HowToModal({ kind, onClose, onInstall, canInstall, busy }) {
   const onPhone = devicePlatform() !== "desktop";
-  const pageUrl = `${window.location.origin}/?instalar=1`;
+  const pageUrl = `${shareOrigin()}/?instalar=1`;
   return (
     <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-inverse-surface/50 sm:items-center sm:p-4 p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="app-howto-title" onClick={(e) => e.stopPropagation()} className="modal-panel-5 w-full max-w-md rounded-t-2xl bg-surface-container-lowest p-5 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:rounded-2xl sm:pb-5">

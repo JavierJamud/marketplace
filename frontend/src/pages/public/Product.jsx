@@ -25,7 +25,7 @@ import { ReviewsList } from "../../components/ReviewsList.jsx";
 import { ConfirmModal } from "../../components/ConfirmModal.jsx";
 import { ReportFraudModal } from "../../components/ReportFraudModal.jsx";
 import { Lightbox } from "../../components/ui/Lightbox.jsx";
-import { useSeo } from "../../lib/seo.js";
+import { useSeo, shareOrigin } from "../../lib/seo.js";
 import { productSeo } from "../../lib/seoBuilders.js";
 import { Breadcrumbs } from "../../components/Breadcrumbs.jsx";
 import { shareLink } from "../../lib/shareLink.js";
@@ -417,7 +417,7 @@ export default function Product() {
   // Enlace directo a este producto en esta tienda. La vista previa que se ve en WhatsApp o Facebook (foto, nombre, precio,
   // tienda) la arma el servidor: Nginx les entrega /api/og/producto/... cuando abren esta misma dirección.
   function handleShare() {
-    const url = `${window.location.origin}/producto/${encodeURIComponent(v.slug)}/${encodeURIComponent(product.slug ?? productSlug)}`;
+    const url = `${shareOrigin()}/producto/${encodeURIComponent(v.slug)}/${encodeURIComponent(product.slug ?? productSlug)}`;
     shareLink({ url, title: product.name, text: `${product.name} en ${v.companyName}` })
       .then((result) => {
         if (result === "copied") toast.success("¡Enlace copiado!", "Pégalo en WhatsApp, en tus redes o en un mensaje para compartir este producto.", { icon: "link" });

@@ -13,6 +13,7 @@ import { CameraScanner } from "../../components/pos/CameraScanner.jsx";
 import { canWriteSection } from "../../lib/vendorSections.js";
 import { PlanUpsell, isPlanError } from "../../components/vendor/PlanUpsell.jsx";
 import { ListSkeleton } from "../../components/ui/Skeleton.jsx";
+import { shareOrigin } from "../../lib/seo.js";
 
 // Caja con código de barras. Se escanea con la cámara o con un lector USB/Bluetooth (que escribe el código y Enter en el
 // campo de arriba): el primer producto crea la venta con su número de 4 caracteres y cada escaneo repetido suma una unidad.
@@ -713,7 +714,7 @@ function MoneyTab({ state, canWrite, refresh }) {
 function ScreensTab({ state, canWrite, refresh }) {
   const [confirm, setConfirm] = useState(null);
   const fileRef = useRef(null);
-  const origin = window.location.origin;
+  const origin = shareOrigin();
   const links = [
     { which: "display", title: "Pantalla para el cliente", text: "Ábrela en una tablet o monitor frente al cliente: ve cada producto que escaneas con su foto, el total y su número al cobrar. Sin venta en curso pasa tus productos más vistos y vendidos, y tu imagen si subiste una.", url: `${origin}/caja/pantalla/${state.settings.displayToken}` },
     { which: "board", title: "Tablero de pedidos", text: "Muestra los pedidos cobrados hoy en preparación y listos para recoger, con número, nombre y qué lleva. Los recogidos salen solos.", url: `${origin}/caja/tablero/${state.settings.boardToken}` },

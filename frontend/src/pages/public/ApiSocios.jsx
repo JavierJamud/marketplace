@@ -5,6 +5,7 @@ import { api } from "../../lib/api.js";
 import { copyToClipboard } from "../../lib/clipboard.js";
 import { generateId } from "../../lib/uuid.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
+import { shareOrigin } from "../../lib/seo.js";
 
 // Documentación pública de la API de socios, con una consola para probar las llamadas con la
 // propia credencial. La credencial solo vive en memoria de esta pestaña.
@@ -310,7 +311,7 @@ export default function ApiSocios() {
       </Section>
 
       <Section id="registro" title="Registrar tiendas con tu enlace">
-        <p>La API no crea tiendas. Para traer tiendas, comparte tu enlace de socio: <code>{window.location.origin}/vender?socio=TU_CODIGO</code>. Las tiendas que se registren desde ese enlace quedan asociadas a ti para siempre. Tu código y enlace salen en <code>GET /me</code>.</p>
+        <p>La API no crea tiendas. Para traer tiendas, comparte tu enlace de socio: <code>{shareOrigin()}/vender?socio=TU_CODIGO</code>. Las tiendas que se registren desde ese enlace quedan asociadas a ti para siempre. Tu código y enlace salen en <code>GET /me</code>.</p>
       </Section>
 
       <Section id="recursos" title="Recursos">

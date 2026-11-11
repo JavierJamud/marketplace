@@ -3,6 +3,7 @@
 # Uso:  sudo bash 02-instalar-app.sh /ruta/zeudin-app.tar.gz
 #       RAIZ=/opt/zeudin/organizacion/baznova (por defecto) es la carpeta del proyecto; su ficha es proyecto.env.
 #       DOMINIO_OVERRIDE=otro.com cambia el dominio guardado en la ficha.
+#       DOMINIOS_EXTRA_OVERRIDE="otro.cu" guarda en la ficha los dominios extra (separados por espacio; "" los quita).
 # Es seguro correrlo varias veces: nunca borra la base de datos ni los archivos subidos.
 set -euo pipefail
 ARCHIVO="${1:?Falta la ruta del .tar.gz del código}"
@@ -22,6 +23,21 @@ DOMINIO="${DOMINIO:-$IP_PUBLICA}"
 if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then ESQUEMA=http; else ESQUEMA=https; fi
 URL_PUBLICA="$ESQUEMA://$DOMINIO"
 if [ "$ESQUEMA" = https ]; then URLS_FRONT="$URL_PUBLICA,https://www.$DOMINIO"; else URLS_FRONT="$URL_PUBLICA"; fi
+# Dominios extra (ej. baznova.cu): muestran el mismo sitio con su propia dirección, con y sin www, sin redirigir. El
+# principal sigue siendo DOMINIO (Google, correos, enlaces que se comparten, pagos que no vienen de una pantalla).
+if [ -n "${DOMINIOS_EXTRA_OVERRIDE+x}" ]; then
+  DOMINIOS_EXTRA="$DOMINIOS_EXTRA_OVERRIDE"
+  [[ "$DOMINIOS_EXTRA" =~ ^[a-z0-9.\ -]*$ ]] || { echo "Dominios extra no válidos: $DOMINIOS_EXTRA"; exit 1; }
+  if grep -q "^DOMINIOS_EXTRA=" "$RAIZ/proyecto.env"; then sed -i "s#^DOMINIOS_EXTRA=.*#DOMINIOS_EXTRA=\"$DOMINIOS_EXTRA\"#" "$RAIZ/proyecto.env"
+  else echo "DOMINIOS_EXTRA=\"$DOMINIOS_EXTRA\"" >> "$RAIZ/proyecto.env"; fi
+fi
+DOMINIOS_EXTRA="${DOMINIOS_EXTRA:-}"
+NOMBRES_EXTRA=""
+for D in $DOMINIOS_EXTRA; do
+  [[ "$D" =~ ^[a-z0-9.-]+$ ]] || { echo "Dominio extra no válido: $D"; exit 1; }
+  URLS_FRONT="$URLS_FRONT,https://$D,https://www.$D"
+  NOMBRES_EXTRA="$NOMBRES_EXTRA $D www.$D"
+done
 
 command -v rsync >/dev/null || apt-get install -y rsync
 pm2 kill >/dev/null 2>&1 || true   # por si quedó un PM2 de root de la instalación
@@ -155,7 +171,7 @@ sudo -u zeudin pm2 set pm2-logrotate:max_size 20M >/dev/null 2>&1 || true
 sudo -u zeudin pm2 set pm2-logrotate:retain 10 >/dev/null 2>&1 || true
 
 echo ">> Nginx (sitio + API en /api + vista previa de tiendas para WhatsApp/Facebook)"
-if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then NOMBRES="$DOMINIO _"; else NOMBRES="$DOMINIO www.$DOMINIO"; fi
+if [[ "$DOMINIO" =~ ^[0-9.]+$ ]]; then NOMBRES="$DOMINIO _"; else NOMBRES="$DOMINIO www.$DOMINIO$NOMBRES_EXTRA"; fi
 # El detector de bots (variable zeudin_es_bot) es común a todos los proyectos: lo crea crear-estructura.sh.
 [ -f /etc/nginx/conf.d/00-zeudin-bots.conf ] || { echo "Falta 00-zeudin-bots.conf: corre /opt/zeudin/plataforma/scripts/crear-estructura.sh"; exit 1; }
 cat > $RAIZ/cabeceras-seguridad.conf <<'CABECERAS'

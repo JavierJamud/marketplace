@@ -5,6 +5,12 @@ import { useEffect } from "react";
 // (cuenta, paneles, carrito, pago) se marcan "noindex" para que no aparezcan en Google.
 
 export const SITE_ORIGIN = (import.meta.env.VITE_SITE_URL || "https://baznova.com").replace(/\/$/, "");
+// Dirección para los enlaces que se comparten, se copian o van en un QR (tiendas, productos, mesas, carritos): siempre la
+// principal, aunque el visitante haya entrado por baznova.cu. En local (localhost o una IP) se usa la de la pestaña.
+export function shareOrigin() {
+  const h = window.location.hostname;
+  return h === "localhost" || /^[\d.]+$/.test(h) || h.endsWith(".loca.lt") ? window.location.origin : SITE_ORIGIN;
+}
 export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/og-baznova-3.png`;
 
 function upsertMeta(attr, key, content) {

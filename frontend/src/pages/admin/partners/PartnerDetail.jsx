@@ -9,6 +9,7 @@ import { EmptyState } from "../../../components/ui/EmptyState.jsx";
 import { ConfirmModal } from "../../../components/ConfirmModal.jsx";
 import { BTN, BTN_PRIMARY, BTN_GHOST, BTN_DANGER, INPUT, LABEL, fmt, fmtDate, linesToList, errMsg, Modal, StatusPill } from "./ui.jsx";
 import { PanelSkeleton } from "../../../components/ui/Skeleton.jsx";
+import { shareOrigin } from "../../../lib/seo.js";
 
 function KeyForm({ partnerId, scopes, defaults, existing, onDone }) {
   const qc = useQueryClient();
@@ -163,7 +164,7 @@ function PortalAccessCard({ partner }) {
       <p className={LABEL}>Acceso del socio a su panel</p>
       {has && !access && (
         <p className="mb-2 text-[13px] text-on-surface-variant">
-          Entra en <code>{window.location.origin}/socio/ingresar</code> con <b>{partner.portal.email}</b>
+          Entra en <code>{shareOrigin()}/socio/ingresar</code> con <b>{partner.portal.email}</b>
           {partner.portal.lastLoginAt ? ` · último ingreso ${new Date(partner.portal.lastLoginAt).toLocaleString("es-CU")}` : " · todavía no ha entrado"}.
         </p>
       )}
