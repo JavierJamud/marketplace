@@ -6,6 +6,7 @@ import { USAGE_SECTIONS, usageSectionLabel } from "../lib/vendorUsage.js";
 import { adminSummary } from "../controllers/summary.controller.js";
 import { sendAdminReportEmail } from "../lib/email.js";
 import { newVendorAdminEmail, adminWeeklySummaryEmail } from "../templates/adminReports.js";
+import { enqueueAdminNewVendor, enqueueAdminWeekly } from "../whatsapp/outbox.js";
 
 // Correos al admin (pedido del dueño, 2026-11-08):
 //  1. Cada tienda nueva: en cuanto se crea, un correo con sus datos y cómo quedó cada paso del registro.
@@ -84,6 +85,8 @@ export async function notifyAdminsNewVendor(vendorId) {
   try {
     const summary = await buildNewVendorSummary(vendorId);
     if (!summary) return;
+    // WhatsApp del admin: los datos clave, al momento. El correo lleva el detalle completo.
+    void enqueueAdminNewVendor(summary).catch((err) => console.error("[whatsapp] tienda nueva al admin:", err.message));
     await sendToAdmins("ADMIN_NEW_VENDOR", await newVendorAdminEmail(summary), vendorId);
   } catch (err) {
     console.error("[adminReports] aviso de tienda nueva:", err?.message ?? err);
@@ -237,10 +240,15 @@ export async function sendAdminWeeklySummary({ force = false } = {}) {
   }
   const report = await buildAdminWeeklySummary();
   const { to, ok } = await sendToAdmins("ADMIN_WEEKLY_SUMMARY", await adminWeeklySummaryEmail(report));
-  if (!ok) return { error: "No se pudo enviar el correo.", to };
-  const data = { insight: report.insight, stats: report.stats, scan: report.scan, to, sentAt: new Date().toISOString() };
+  // WhatsApp: la versión corta, a los admins que confirmaron su número. Sale aunque el correo falle.
+  const whatsapp = await enqueueAdminWeekly(report).catch((err) => {
+    console.error("[whatsapp] resumen semanal al admin:", err.message);
+    return 0;
+  });
+  if (!ok && !whatsapp) return { error: "No se pudo enviar el correo.", to };
+  const data = { insight: report.insight, stats: report.stats, scan: report.scan, to, whatsapp, sentAt: new Date().toISOString() };
   await prisma.usageInsight.upsert({ where: { scope: WEEKLY_SCOPE }, create: { scope: WEEKLY_SCOPE, data }, update: { data } });
-  return { sent: true, to };
+  return { sent: true, to, whatsapp, emailOk: ok };
 }
 
 // Sábados a las 12:00, hora de Cuba.

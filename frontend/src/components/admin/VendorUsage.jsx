@@ -143,7 +143,8 @@ function WeeklySummaryCard({ vendorId }) {
   const send = useMutation({
     mutationFn: async () => (await api.post(`/admin/vendors/${vendorId}/weekly-summary`)).data,
     onSuccess: (d) => {
-      toast.success("Resumen enviado", `Le llegó a ${d.to}.`);
+      const where = [d.to && `al correo ${d.to}`, d.whatsapp && "por WhatsApp"].filter(Boolean).join(" y ");
+      toast.success("Resumen enviado", `Sale ${where}.`);
       queryClient.invalidateQueries({ queryKey });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo enviar el resumen."),
@@ -164,11 +165,11 @@ function WeeklySummaryCard({ vendorId }) {
         </button>
       </div>
       <p className="text-[12.5px] text-on-surface-variant">
-        La tienda lo recibe sola cada viernes a las 00:00, hora de Cuba: los números de su semana y qué puede mejorar, escrito por la IA para el vendedor.
+        La tienda lo recibe sola cada viernes a las 00:00, hora de Cuba: los números de su semana y qué puede mejorar, escrito por la IA para el vendedor. Si tiene los avisos por WhatsApp activos, también le llega ahí, ordenado en una plantilla.
       </p>
       {data && (
         <p className="mt-2 text-[12px] text-outline" title={exactDateTime(data.updatedAt)}>
-          Último envío {timeAgo(data.updatedAt).toLowerCase()} a {data.to}
+          Último envío {timeAgo(data.updatedAt).toLowerCase()} {[data.to && `a ${data.to}`, data.whatsapp && "por WhatsApp"].filter(Boolean).join(" y ")}
           {data.stats ? ` · ${data.stats.orders} ${data.stats.orders === 1 ? "pedido" : "pedidos"} en esa semana` : ""}
         </p>
       )}

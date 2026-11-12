@@ -3,9 +3,11 @@ import { prisma } from "../lib/prisma.js";
 import { sendVendorWeeklySummaryEmail } from "../lib/email.js";
 import { buildVendorWeeklySummary, vendorPanelPath } from "../controllers/usage.controller.js";
 import { logActivity } from "../lib/activityLog.js";
+import { enqueueVendorWeekly } from "../whatsapp/outbox.js";
 
 // Resumen semanal de cada tienda (pedido del dueño, 2026-10-29): todos los viernes a las 00:00, hora de Cuba, cada tienda
-// registrada recibe en su correo el resumen de su semana hecho con IA (controllers/usage.controller.js). Uno por tienda,
+// registrada recibe en su correo el resumen de su semana hecho con IA (controllers/usage.controller.js) y, si tiene los avisos
+// por WhatsApp activos, el mismo resumen ordenado en una plantilla fija (whatsapp/templates.js). Uno por tienda,
 // nunca una campaña. Se manda de a una, con una pausa entre cada una para no saturar a los proveedores de IA ni al correo.
 //
 // El último resumen enviado se guarda en UsageInsight con la clave "weekly:<tienda>": así un reinicio del servidor el mismo
@@ -21,16 +23,29 @@ export async function sendWeeklySummaryToVendor(vendorId, { force = false, byAdm
     const last = await prisma.usageInsight.findUnique({ where: { scope: scopeOf(vendorId) }, select: { updatedAt: true } });
     if (last && Date.now() - last.updatedAt.getTime() < 6 * DAY_MS) return { skipped: "ya_enviado" };
   }
-  const summary = await buildVendorWeeklySummary(vendorId);
-  if (!summary.to) return { skipped: "sin_correo" };
-  const result = await sendVendorWeeklySummaryEmail({ ...summary, panelPath: vendorPanelPath });
-  if (!result?.ok) return { error: result?.error ?? "No se pudo enviar el correo." };
-  const data = { ...summary.insight, stats: summary.stats, pending: summary.pending, to: summary.to, sentAt: new Date().toISOString(), byAdminId };
+  // Si la IA falla, el WhatsApp sale igual con los números; el correo sí necesita el texto de la IA.
+  const summary = await buildVendorWeeklySummary(vendorId, { allowNoInsight: true });
+  // Por WhatsApp solo si la tienda tiene los avisos activos (número confirmado); si no, no hace nada.
+  const whatsapp = Boolean(await enqueueVendorWeekly(vendorId, summary));
+  let emailed = false;
+  let emailError = null;
+  if (summary.to && summary.insight) {
+    const result = await sendVendorWeeklySummaryEmail({ ...summary, panelPath: vendorPanelPath });
+    emailed = Boolean(result?.ok);
+    if (!emailed) emailError = result?.error ?? "No se pudo enviar el correo.";
+  } else if (summary.to) {
+    emailError = "La IA no pudo escribir el resumen de esta semana.";
+  }
+  if (!emailed && !whatsapp) return summary.to ? { error: emailError } : { skipped: "sin_canal" };
+
+  const to = emailed ? summary.to : null;
+  const data = { ...(summary.insight ?? {}), stats: summary.stats, pending: summary.pending, to, whatsapp, sentAt: new Date().toISOString(), byAdminId };
   await prisma.usageInsight.upsert({ where: { scope: scopeOf(vendorId) }, create: { scope: scopeOf(vendorId), data }, update: { data } });
   if (byAdminId) {
-    await logActivity({ actorId: byAdminId, actorRole: "ADMIN", vendorId, action: "weekly_summary_sent", description: `Envió a la tienda su resumen semanal a ${summary.to}.` });
+    const where = [to && `al correo ${to}`, whatsapp && "por WhatsApp"].filter(Boolean).join(" y ");
+    await logActivity({ actorId: byAdminId, actorRole: "ADMIN", vendorId, action: "weekly_summary_sent", description: `Envió a la tienda su resumen semanal ${where}.` });
   }
-  return { sent: true, to: summary.to, summary };
+  return { sent: true, to, whatsapp, emailError, summary };
 }
 
 export async function runWeeklyVendorSummaryJob() {

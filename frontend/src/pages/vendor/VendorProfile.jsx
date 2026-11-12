@@ -22,6 +22,7 @@ import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import { DeleteAccountCard } from "../../components/DeleteAccountCard.jsx";
 import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
 import { APPS } from "../../lib/pwa.js";
+import { WhatsappVerifyCard, whatsappStatusKey } from "../../components/WhatsappVerifyCard.jsx";
 
 function PasswordCard() {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -347,6 +348,7 @@ function KycDocumentsCard() {
 
 function StoreInfoCard() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { vendor } = useOutletContext();
   const [form, setForm] = useState({ companyName: "", username: "", description: "", whatsapp: "", businessCategoryId: "" });
 
@@ -383,6 +385,7 @@ function StoreInfoCard() {
       toast.success("Datos de la tienda actualizados.");
       queryClient.invalidateQueries({ queryKey: ["my-vendor"] });
       queryClient.invalidateQueries({ queryKey: ["my-vendor-settings"] });
+      queryClient.invalidateQueries({ queryKey: whatsappStatusKey("vendor") });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudieron guardar los cambios."),
   });
@@ -398,6 +401,7 @@ function StoreInfoCard() {
   useUnsavedGuard(dirty, () => save.mutateAsync());
 
   return (
+    <>
     <div className="mb-5 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
       <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
         <StoreIcon className="h-5 w-5 text-tertiary-accent" /> Datos de la tienda
@@ -462,6 +466,13 @@ function StoreInfoCard() {
         {save.isPending ? "Guardando..." : "Guardar datos de la tienda"}
       </Button>
     </div>
+    {/* Solo el dueño confirma el WhatsApp de la tienda: el código llega a ese número. */}
+    {user?.role === "VENDOR" && (
+      <div id="avisos-whatsapp" className="mb-5 scroll-mt-24">
+        <WhatsappVerifyCard target="vendor" phoneDirty={!!vendor && form.whatsapp !== vendor.whatsapp} />
+      </div>
+    )}
+    </>
   );
 }
 
@@ -689,6 +700,14 @@ export function StoreBrandingCard() {
 export default function VendorProfile() {
   const { user } = useAuth();
   const [changingEmail, setChangingEmail] = useState(false);
+  const location = useLocation();
+
+  // /vendedor/perfil#avisos-whatsapp (el botón del aviso de WhatsApp) lleva directo a esa tarjeta.
+  useEffect(() => {
+    if (location.hash !== "#avisos-whatsapp") return undefined;
+    const id = setTimeout(() => document.getElementById("avisos-whatsapp")?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
+    return () => clearTimeout(id);
+  }, [location.hash]);
 
   return (
     <div className="max-w-[640px]">

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Trash2, LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar } from "lucide-react";
+import { Trash2, LayoutDashboard, Store, ShieldCheck, ShieldAlert, Users, Megaphone, Plug, MessageSquare, MessageCircle, Globe2, Tags, Menu, Settings, Star, Bot, AlertTriangle, CreditCard, Image, UserCog, Search, Bell, X, FileText, Tag, Package, HelpCircle, Mail, LifeBuoy, Percent, Gift, Activity, LogOut, Zap, Wallet, Radar, Smartphone } from "lucide-react";
 import { useAuth, loginPathFor } from "../../context/AuthContext.jsx";
 import { api } from "../../lib/api.js";
 import { usePlatformSettings } from "../../lib/usePlatformSettings.js";
@@ -36,12 +36,14 @@ const NAV = [
   { to: "/admin/ofertas-tienda", label: "Ofertas de tienda", icon: Gift, group: "marketing" },
   { to: "/admin/codigos-descuento", label: "Códigos de descuento", icon: Percent, group: "marketing" },
   { to: "/admin/anuncios", label: "Anuncios", icon: Image, group: "marketing" },
+  { to: "/admin/avisos-tiendas", label: "Avisos a tiendas", icon: Megaphone, group: "marketing" },
   { to: "/admin/paginas", label: "Términos y privacidad", icon: FileText, group: "contenido" },
   { to: "/admin/preguntas-frecuentes", label: "Preguntas frecuentes", icon: HelpCircle, group: "contenido" },
   { to: "/admin/centro-ayuda", label: "Centro de ayuda", icon: LifeBuoy, group: "contenido" },
   { to: "/admin/contacto", label: "Contacto", icon: Mail, group: "contenido" },
   { to: "/admin/configuracion", label: "Configuración", icon: Settings, group: "sistema" },
   { to: "/admin/asistente", label: "Asistente del marketplace", icon: Bot, group: "sistema" },
+  { to: "/admin/whatsapp", label: "WhatsApp", icon: Smartphone, group: "sistema" },
   { to: "/admin/ubicaciones", label: "Países y provincias", icon: Globe2, badge: "locationSuggestionsCount", group: "sistema" },
   { to: "/admin/socios-api", label: "Socios de la API", icon: Plug, group: "sistema" },
   { to: "/admin/errores", label: "Errores", icon: AlertTriangle, badge: "errorCount", group: "sistema" },
@@ -78,6 +80,11 @@ const ADMIN_EXTRA_SECTIONS = [
   { label: "Verificación en dos pasos (mi cuenta)", to: `${CONFIG}?tab=seguridad`, keywords: "autenticador app qr codigo 2fa" },
   { label: "Mi perfil: contraseña y correo", to: "/admin/perfil", keywords: "cambiar contrasena correo cuenta" },
   { label: "Modelos de IA y claves", to: `${CONFIG}?tab=integraciones`, keywords: "groq nvidia gemini api" },
+  { label: "WhatsApp de la plataforma", to: "/admin/whatsapp", keywords: "qr vincular numero avisos codigos mensajes baja historial referencia" },
+  { label: "Tiendas con avisos por WhatsApp", to: "/admin/whatsapp#tiendas", keywords: "activar whatsapp tienda manual notificaciones vendedores" },
+  { label: "Avisos a tiendas (pop-up del panel)", to: "/admin/avisos-tiendas", keywords: "popup ventana aviso vendedores panel html novedades whatsapp" },
+  { label: "Mensaje a tiendas por WhatsApp", to: "/admin/whatsapp#mensaje", keywords: "masivo difusion enviar whatsapp todas las tiendas vendedores comunicado" },
+  { label: "Mi WhatsApp para avisos", to: "/admin/perfil", keywords: "telefono numero admin notificaciones whatsapp verificar codigo" },
 ];
 
 // Todas las secciones que se pueden buscar: el menú lateral y las subsecciones de arriba.

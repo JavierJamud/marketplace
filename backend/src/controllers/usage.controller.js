@@ -233,9 +233,9 @@ ${FORMAT}`;
 export async function adminSendWeeklySummary(req, res) {
   const { sendWeeklySummaryToVendor } = await import("../jobs/weeklyVendorSummary.job.js");
   const r = await sendWeeklySummaryToVendor(req.params.id, { force: true, byAdminId: req.user.id });
-  if (r.skipped === "sin_correo") throw new AppError("Esta tienda no tiene un correo cargado.", 400);
+  if (r.skipped === "sin_canal") throw new AppError("Esta tienda no tiene correo cargado ni avisos por WhatsApp activos.", 400);
   if (r.error) throw new AppError(r.error, 502);
-  res.json({ sent: true, to: r.to });
+  res.json({ sent: true, to: r.to, whatsapp: r.whatsapp });
 }
 
 // GET /admin/vendors/:id/weekly-summary — el último resumen semanal que se le envió.
@@ -345,7 +345,8 @@ async function weeklyNumbers(vendorId, since) {
 }
 
 // `generate`: la llamada a la IA (se puede reemplazar en pruebas).
-export async function buildVendorWeeklySummary(vendorId, { generate = generateRawText } = {}) {
+// `allowNoInsight`: si la IA falla, devuelve igual los números con insight null (el WhatsApp sale sin el consejo).
+export async function buildVendorWeeklySummary(vendorId, { generate = generateRawText, allowNoInsight = false } = {}) {
   const d = await vendorUsageData(vendorId, 7);
   const v = d.vendor;
   const since = new Date(Date.now() - 7 * DAY);
@@ -361,8 +362,14 @@ Pendiente ahora: ${JSON.stringify(pending.map((p) => p.label))}
 Uso de su panel por sección (visitas, minutos activos, acciones): ${JSON.stringify(d.sections.map((s) => ({ seccion: s.section, visitas: s.views, minutos: s.minutes, acciones: s.actions })))}
 Secciones que no usó y le servirían: ${JSON.stringify(d.unused.map((u) => u.section))}
 ${WEEK_FORMAT}`;
-  const insight = parseInsight(await generate(prompt));
-  // Cada herramienta lleva a su sección del panel.
-  insight.ofrecer = insight.ofrecer.map((o) => ({ ...o, section: TOOLS.find((t) => t.key === o.tool)?.section ?? null }));
+  let insight = null;
+  try {
+    insight = parseInsight(await generate(prompt));
+    // Cada herramienta lleva a su sección del panel.
+    insight.ofrecer = insight.ofrecer.map((o) => ({ ...o, section: TOOLS.find((t) => t.key === o.tool)?.section ?? null }));
+  } catch (err) {
+    if (!allowNoInsight) throw err;
+    console.error(`[weeklyVendorSummary] ${v.companyName}: sin consejo de la IA:`, err?.message ?? err);
+  }
   return { vendor: v, to: store?.email || store?.user?.email || null, stats, pending, insight };
 }

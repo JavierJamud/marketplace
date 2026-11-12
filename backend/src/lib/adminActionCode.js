@@ -50,6 +50,10 @@ export const ACTION_LABELS = {
   MASS_EMAIL: "enviar un correo masivo (campaña u oferta dirigida)",
   // Bloque 303: credenciales y acceso de los socios de la API (aprobar solicitudes, regenerar o revocar llaves).
   PARTNER_MANAGE: "gestionar la credencial o el acceso de un socio de la API",
+  // El WhatsApp de la plataforma escribe a clientes y tiendas en nombre de Baznova: vincularlo o soltarlo pide código.
+  WHATSAPP_LINK: "vincular o desvincular el WhatsApp de la plataforma",
+  // Un mensaje por WhatsApp a muchas tiendas no se puede deshacer, igual que un correo masivo.
+  MASS_WHATSAPP: "enviar un mensaje masivo por WhatsApp a las tiendas",
 };
 
 const CODE_LENGTH = 6;

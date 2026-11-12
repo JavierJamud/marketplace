@@ -1,4 +1,5 @@
 import * as adminDeletedVendors from "../controllers/adminDeletedVendors.controller.js";
+import * as vendorPanelNotices from "../controllers/vendorPanelNotices.controller.js";
 import * as usageController from "../controllers/usage.controller.js";
 import * as vendorManage from "../controllers/adminVendorManage.controller.js";
 import * as adminOrders from "../controllers/adminOrders.controller.js";
@@ -39,6 +40,7 @@ import * as adminVendorStaffSalesController from "../controllers/adminVendorStaf
 import * as adminRankingAnomaliesController from "../controllers/adminRankingAnomalies.controller.js";
 import * as partnersController from "../controllers/partners.controller.js";
 import * as partnerApps from "../controllers/partnerApplications.controller.js";
+import * as adminWhatsapp from "../controllers/adminWhatsapp.controller.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { notifyVendorChoice } from "../middleware/notifyVendorChoice.js";
@@ -482,5 +484,30 @@ router.get("/chat-review/examples", chatTrainingController.listTrainingExamples)
 router.post("/chat-review/examples", chatTrainingController.createTrainingExample);
 router.patch("/chat-review/examples/:id", chatTrainingController.toggleTrainingExample);
 router.delete("/chat-review/examples/:id", chatTrainingController.deleteTrainingExample);
+
+// WhatsApp de la plataforma: vincular con QR, ajustes e historial. Vincular, desvincular y la prueba piden el código
+// de acción: son las que abren o cierran la sesión del número, o le escriben a un número cualquiera.
+router.get("/whatsapp", adminWhatsapp.getWhatsappStatus);
+router.get("/whatsapp/messages", adminWhatsapp.listWhatsappMessages);
+router.post("/whatsapp/link", requireActionCode("WHATSAPP_LINK"), adminWhatsapp.linkWhatsapp);
+router.post("/whatsapp/cancel", adminWhatsapp.cancelWhatsappLink);
+router.post("/whatsapp/unlink", requireActionCode("WHATSAPP_LINK"), adminWhatsapp.unlinkWhatsapp);
+router.post("/whatsapp/test", requireActionCode("WHATSAPP_LINK"), adminWhatsapp.sendWhatsappTest);
+router.patch("/whatsapp/settings", adminWhatsapp.updateWhatsappSettings);
+// Tiendas con avisos por WhatsApp: lista y activar o apagar a mano.
+router.get("/whatsapp/vendors", adminWhatsapp.listWhatsappVendors);
+router.post("/whatsapp/vendors/:id/activate", adminWhatsapp.activateVendorWhatsapp);
+router.post("/whatsapp/vendors/:id/deactivate", adminWhatsapp.deactivateVendorWhatsapp);
+// Mensaje a tiendas por WhatsApp (masivo): vista previa sin enviar, envío con código, historial y detener lo pendiente.
+router.post("/whatsapp/broadcast/preview", adminWhatsapp.previewBroadcast);
+router.post("/whatsapp/broadcast", requireActionCode("MASS_WHATSAPP"), adminWhatsapp.sendBroadcast);
+router.get("/whatsapp/broadcasts", adminWhatsapp.listBroadcasts);
+router.post("/whatsapp/broadcasts/:batch/cancel", adminWhatsapp.cancelBroadcast);
+
+// Avisos dentro del panel de las tiendas (pop-up con HTML, fechas y máximo de veces por tienda).
+router.get("/vendor-notices", vendorPanelNotices.listNotices);
+router.post("/vendor-notices", vendorPanelNotices.createNotice);
+router.patch("/vendor-notices/:id", vendorPanelNotices.updateNotice);
+router.delete("/vendor-notices/:id", vendorPanelNotices.deleteNotice);
 
 export default router;

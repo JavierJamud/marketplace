@@ -19,6 +19,7 @@ import { startClickAnomalyJob } from "./jobs/clickAnomaly.job.js";
 import { startTrialExpiryJob } from "./jobs/trialExpiry.job.js";
 import { startPlanBillingJob } from "./jobs/planBilling.job.js";
 import { startWeeklyVendorSummaryJob } from "./jobs/weeklyVendorSummary.job.js";
+import { startWhatsappWatchJob } from "./jobs/whatsappWatch.job.js";
 import { startAdminWeeklySummaryJob } from "./services/adminReports.service.js";
 import { reconcilePlanVerification } from "./services/vendorVerification.service.js";
 import { pauseVerifiedWithoutDocuments } from "./services/pendingActivation.service.js";
@@ -132,6 +133,8 @@ startClickAnomalyJob();
 startTrialExpiryJob();
 // Resumen semanal con IA para cada tienda: viernes a las 00:00, hora de Cuba (jobs/weeklyVendorSummary.job.js).
 startWeeklyVendorSummaryJob();
+// WhatsApp de la plataforma: avisa al admin si se cae o se desvincula, y limpia el historial viejo.
+startWhatsappWatchJob();
 // Resumen semanal de la plataforma para el admin: sábados a las 12:00, hora de Cuba (services/adminReports.service.js).
 startAdminWeeklySummaryJob();
 // Cobro de los planes sin insignia (el Básico cuando deja de ser gratis): avisos, pedidos en pausa y suspensión por falta de pago.

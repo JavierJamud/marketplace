@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "../../lib/toast.jsx";
-import { Mail, KeyRound, UserCog, IdCard } from "lucide-react";
+import { Mail, KeyRound, UserCog, IdCard, Smartphone } from "lucide-react";
 import { IconCircle } from "../../components/dashboard/DashboardCard.jsx";
 import { api } from "../../lib/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -12,6 +12,8 @@ import { ChangeEmailModal } from "../../components/ChangeEmailModal.jsx";
 import AdminBranding from "./AdminBranding.jsx";
 import { NotificationSettings } from "../../components/pwa/NotificationSettings.jsx";
 import { APPS } from "../../lib/pwa.js";
+import { PhoneInput } from "../../components/ui/PhoneInput.jsx";
+import { WhatsappVerifyCard, whatsappStatusKey } from "../../components/WhatsappVerifyCard.jsx";
 
 // Bloque 76 (pedido explícito): "Marca de la plataforma" pasa de ser una
 // entrada propia del menú a vivir acá, como subsección — un admin solo
@@ -103,6 +105,54 @@ function PasswordCard() {
   );
 }
 
+// Teléfono del admin: a ese número le llegan por WhatsApp los mismos avisos que a su campanita y a su correo (tiendas nuevas,
+// verificaciones, reportes, errores, revisión de la IA, resumen semanal). Es distinto del número de la plataforma, que es
+// el que envía. Si lo cambia, tiene que confirmarlo otra vez con un código.
+function AdminPhoneCard() {
+  const { user, refetch } = useAuth();
+  const queryClient = useQueryClient();
+  const [phone, setPhone] = useState(user?.phone ?? "");
+
+  useEffect(() => {
+    setPhone(user?.phone ?? "");
+  }, [user?.phone]);
+
+  const dirty = (phone || "") !== (user?.phone || "");
+
+  const save = useMutation({
+    mutationFn: async () => (await api.patch("/auth/me/admin-phone", { phone: phone || "" })).data,
+    onSuccess: async () => {
+      await refetch();
+      await queryClient.invalidateQueries({ queryKey: whatsappStatusKey("user") });
+      toast.success(phone ? "Teléfono guardado. Confírmalo abajo para recibir los avisos." : "Teléfono quitado.");
+    },
+    onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar el teléfono."),
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2 text-[17px] font-bold leading-snug text-on-surface sm:text-title-lg">
+          <Smartphone className="h-5 w-5 text-tertiary-accent" /> Tu teléfono
+        </div>
+        <p className="mb-4 text-[12.5px] text-outline">
+          Pon tu número personal, no el de la plataforma: desde el de la plataforma salen los mensajes y a este llegan tus avisos.
+        </p>
+        <PhoneInput label="Teléfono con WhatsApp" value={phone} onChange={setPhone} anyCountry />
+        <Button className="mt-4" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? "Guardando..." : "Guardar teléfono"}
+        </Button>
+      </div>
+      <WhatsappVerifyCard
+        target="user"
+        phoneDirty={dirty}
+        title="Tus avisos por WhatsApp"
+        about="Tiendas nuevas, verificaciones y pagos por revisar, reportes, mensajes de tiendas, errores, revisión de la IA y el resumen de cada sábado. Lo mismo que te llega al correo, en corto."
+      />
+    </div>
+  );
+}
+
 export default function AdminProfile() {
   const { user } = useAuth();
   const [changingEmail, setChangingEmail] = useState(false);
@@ -146,6 +196,10 @@ export default function AdminProfile() {
 
           <div className="mb-5">
             <PasswordCard />
+          </div>
+
+          <div className="mb-5">
+            <AdminPhoneCard />
           </div>
 
           <div className="mb-5">

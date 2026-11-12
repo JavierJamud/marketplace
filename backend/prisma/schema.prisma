@@ -771,6 +771,10 @@ model ProductOption {
 // ---------------------------------------------------------------------------
 
 model User {
+  // Avisos por WhatsApp: el número que esta persona confirmó con un código. Solo cuenta mientras sea igual a `phone`; si
+  // cambia el teléfono hay que confirmarlo otra vez (se compara al enviar, ver whatsapp/outbox.js).
+  whatsappVerifiedPhone String?
+  whatsappVerifiedAt    DateTime?
   // Categorías de aviso push que esta persona silenció.
   pushMuted String[] @default([])
   pushSubscriptions PushSubscription[]
@@ -1242,6 +1246,11 @@ model Vendor {
   previousSlugs String[] @default([])
   description String?
   whatsapp    String
+  // Avisos por WhatsApp de la tienda: el número que el dueño confirmó con un código. Solo cuenta mientras sea igual a
+  // `whatsapp`; si la tienda cambia de número hay que confirmarlo otra vez.
+  whatsappVerifiedPhone String?
+  whatsappVerifiedAt    DateTime?
+  panelNoticeViews      VendorPanelNoticeView[]
   email       String?
   // Bloque 29: datos de facturación — distinto del idNumber de
   // VerificationRequest (ese es KYC de la persona física para el badge
@@ -4597,4 +4606,144 @@ model VendorDailyStat {
 
   @@id([vendorId, day])
   @@index([day])
+}
+
+// --- Avisos por WhatsApp ------------------------------------------------------------------------------------------------
+// La API nunca habla con WhatsApp: deja cada mensaje en WhatsappMessage y un proceso aparte (src/whatsapp/worker.js) los
+// envía con calma desde el número de la plataforma. Los dos procesos solo se comunican por estas tablas.
+
+enum WhatsappMessageStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  EXPIRED
+  SKIPPED
+}
+
+model WhatsappMessage {
+  id          String   @id @default(cuid())
+  // Mismo teléfono + mismo texto dentro de la misma ventana de tiempo = un solo mensaje (ver whatsapp/outbox.js).
+  dedupeKey   String   @unique
+  // "verify", "test" o audiencia:categoría ("VENDOR:orders", "CLIENT:order_status").
+  kind        String
+  audience    String
+  phone       String
+  userId      String?
+  vendorId    String?
+  refCode     String?
+  body        String   @db.Text
+  // Solo en los códigos de confirmación: el texto cifrado. Se borra al enviarlo, así el código nunca queda legible.
+  secret      Json?
+  status      WhatsappMessageStatus @default(PENDING)
+  // 1 = código de confirmación (sale primero); 5 = aviso.
+  priority    Int      @default(5)
+  attempts    Int      @default(0)
+  lastError   String?
+  waMessageId String?
+  expiresAt   DateTime
+  nextAttemptAt DateTime @default(now())
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, priority, nextAttemptAt])
+  @@index([createdAt])
+  @@index([phone, createdAt])
+}
+
+// Una sola fila (id "main"): el estado de la sesión, la orden del admin al proceso y los ajustes de envío.
+model WhatsappSession {
+  id          String   @id
+  // DISCONNECTED | QR | CONNECTING | CONNECTED | LOGGED_OUT
+  status      String   @default("DISCONNECTED")
+  // Lo que el admin pidió: OFF | ON | LOGOUT. El proceso lo lee cada pocos segundos.
+  desired     String   @default("OFF")
+  qr          String?  @db.Text
+  qrAt        DateTime?
+  phone       String?
+  pushName    String?
+  connectedAt DateTime?
+  // Latido del proceso: si pasa más de un minuto sin moverse, el proceso está caído.
+  lastSeenAt  DateTime?
+  lastError   String?
+  paused      Boolean  @default(false)
+  // Interruptores por tipo de aviso ({"VENDOR:orders": false}). Lo que no aparece está encendido.
+  enabledKinds Json?
+  hourlyLimit Int      @default(60)
+  dailyLimit  Int      @default(400)
+  minDelaySec Int      @default(4)
+  maxDelaySec Int      @default(11)
+  downAlertAt     DateTime?
+  phoneReminderAt DateTime?
+  updatedAt   DateTime @default(now()) @updatedAt
+}
+
+// Llaves de la sesión de WhatsApp (lo que en WhatsApp Web vive en el navegador), cifradas con la clave del servidor.
+model WhatsappAuthKey {
+  id        String   @id
+  value     String   @db.Text
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// Código de 6 dígitos que confirma que un número tiene WhatsApp y es de quien dice.
+model WhatsappVerification {
+  id         String   @id @default(cuid())
+  // USER (el teléfono de la cuenta) | VENDOR (el WhatsApp de la tienda)
+  target     String
+  userId     String
+  vendorId   String?
+  phone      String
+  codeHash   String
+  attempts   Int      @default(0)
+  expiresAt  DateTime
+  messageId  String?
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, target])
+  @@index([phone, createdAt])
+}
+
+// Números que respondieron BAJA: no reciben avisos hasta que vuelvan a confirmar el número.
+model WhatsappOptOut {
+  phone     String   @id
+  createdAt DateTime @default(now())
+}
+
+// Avisos que el admin publica dentro del panel de las tiendas (pop-up al entrar). Cada aviso tiene fechas, un máximo de
+// veces por tienda y a quién va: a todas o solo a las que aún no tienen los avisos por WhatsApp activos.
+model VendorPanelNotice {
+  id          String   @id @default(cuid())
+  title       String
+  // HTML ya limpio (DOMPurify al guardar).
+  html        String   @db.Text
+  ctaLabel    String?
+  ctaUrl      String?
+  // ALL | WHATSAPP_OFF | SELECTED (solo las tiendas de vendorIds)
+  audience    String   @default("ALL")
+  vendorIds   String[] @default([])
+  startAt     DateTime
+  endAt       DateTime
+  maxViews    Int      @default(3)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  views       VendorPanelNoticeView[]
+
+  @@index([isActive, startAt, endAt])
+}
+
+// Cuántas veces vio cada tienda cada aviso. `doneAt`: tocó el botón del aviso o pidió no verlo más.
+model VendorPanelNoticeView {
+  id          String   @id @default(cuid())
+  noticeId    String
+  vendorId    String
+  views       Int      @default(0)
+  lastShownAt DateTime?
+  doneAt      DateTime?
+  notice      VendorPanelNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  vendor      Vendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, vendorId])
+  @@index([vendorId])
 }

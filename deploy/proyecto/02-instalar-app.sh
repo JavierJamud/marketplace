@@ -156,6 +156,21 @@ module.exports = {
     out_file: "$RAIZ/logs/api.out.log",
     error_file: "$RAIZ/logs/api.err.log",
     time: true,
+  }, {
+    // WhatsApp de la plataforma (backend/src/whatsapp/worker.js): mantiene la sesión vinculada y envía la cola de avisos.
+    // Va aparte de la API para que un reinicio de la API no corte la conexión con WhatsApp. UNA sola instancia: dos
+    // procesos con la misma sesión se tumban entre sí.
+    name: "$PM2_NOMBRE-whatsapp",
+    cwd: "$APP/backend",
+    script: "src/whatsapp/worker.js",
+    exec_mode: "fork",
+    instances: 1,
+    max_memory_restart: "600M",
+    kill_timeout: 10000,
+    env: { NODE_ENV: "production", TZ: "America/Havana" },
+    out_file: "$RAIZ/logs/whatsapp.out.log",
+    error_file: "$RAIZ/logs/whatsapp.err.log",
+    time: true,
   }],
 };
 EOF

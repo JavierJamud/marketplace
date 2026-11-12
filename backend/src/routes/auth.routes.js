@@ -52,6 +52,7 @@ router.post("/me/email/confirm", authenticate, passwordResetRateLimit, authContr
 router.patch("/me/password", authenticate, authController.updateMyPassword);
 // Nombre y apellidos privados del admin (AdminProfile.jsx). Para otros roles no cambia nada.
 router.patch("/me/personal", authenticate, authController.updateMyPersonalData);
+router.patch("/me/admin-phone", authenticate, authController.updateMyAdminPhone);
 
 // Bloque 211 (pedido explícito — auto-eliminación de cuenta, cliente/
 // vendedor/personal, 30 días de gracia): pedir la baja re-verifica la

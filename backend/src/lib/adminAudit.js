@@ -45,6 +45,8 @@ const SECTIONS = {
   partners: "Socios API",
   "partner-applications": "Socios API · solicitudes",
   integrations: "Integraciones",
+  whatsapp: "WhatsApp",
+  "vendor-notices": "Avisos del panel de tiendas",
   "ai-models": "Integraciones · modelos de IA",
   "business-assistant": "Asistente de negocio",
   "chat-review": "Asistente · entrenamiento",

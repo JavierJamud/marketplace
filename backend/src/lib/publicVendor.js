@@ -64,6 +64,9 @@ export const PRIVATE_VENDOR_FIELDS = [
   "trialWelcomeSeenAt",
   // Enlaces viejos de la tienda: el servidor los resuelve solo (redirige al actual), el visitante no los necesita.
   "previousSlugs",
+  // Confirmación del WhatsApp de la tienda para sus avisos: solo le sirve al dueño (GET /whatsapp/status).
+  "whatsappVerifiedPhone",
+  "whatsappVerifiedAt",
 ];
 
 // Columnas de Vendor revisadas que sí ve el público (la ficha de la tienda, el listado, el carrito y el checkout). Una

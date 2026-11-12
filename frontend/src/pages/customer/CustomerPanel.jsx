@@ -35,6 +35,7 @@ import { ReportsCenter } from "../../components/reports/ReportsCenter.jsx";
 import { CardListSkeleton, FormSkeleton } from "../../components/ui/Skeleton.jsx";
 import { channelLabel, currencyCodesFor, currencyLabel } from "../../lib/catalog.js";
 import { AutoClosedOrderHelp } from "../../components/AutoClosedOrderHelp.jsx";
+import { WhatsappVerifyCard, whatsappStatusKey } from "../../components/WhatsappVerifyCard.jsx";
 
 // Mismos labels/colores que VendorOrders.jsx para consistencia visual, sin
 // los controles de gestión (ese panel es del vendedor, este es de lectura).
@@ -432,6 +433,8 @@ export default function CustomerPanel() {
     onSuccess: () => {
       toast.success("Perfil actualizado.");
       queryClient.invalidateQueries({ queryKey: ["my-customer-profile"] });
+      // Si cambió el teléfono, la confirmación de WhatsApp deja de valer: la tarjeta lo vuelve a leer.
+      queryClient.invalidateQueries({ queryKey: whatsappStatusKey("user") });
     },
     onError: (err) => toast.error(err.response?.data?.error ?? "No se pudo guardar."),
   });
@@ -1172,6 +1175,10 @@ export default function CustomerPanel() {
                   </Button>
                 </div>
               )}
+            </div>
+
+            <div className="mt-5 max-w-[480px]">
+              <WhatsappVerifyCard target="user" phoneDirty={Boolean(customer && (profileForm.phone || "") !== (customer.phone || ""))} />
             </div>
 
             {changingEmail && <ChangeEmailModal currentEmail={customer?.email} onClose={() => setChangingEmail(false)} />}

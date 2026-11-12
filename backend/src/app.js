@@ -45,6 +45,8 @@ import reportsRoutes from "./routes/reports.routes.js";
 import vendorStaffRoutes from "./routes/vendorStaff.routes.js";
 import vendorStaffSalesRoutes from "./routes/vendorStaffSales.routes.js";
 import targetedOffersRoutes from "./routes/targetedOffers.routes.js";
+import whatsappRoutes from "./routes/whatsapp.routes.js";
+import vendorPanelNoticesRoutes from "./routes/vendorPanelNotices.routes.js";
 import partnerApiRoutes from "./routes/partnerApi.routes.js";
 import partnerPortalRoutes from "./routes/partnerPortal.routes.js";
 import partnerApplicationRoutes from "./routes/partnerApplications.routes.js";
@@ -249,6 +251,9 @@ app.use("/vendor-staff-sales", vendorStaffSalesRoutes);
 // mismo criterio que vendor-staff de arriba (router propio, no colgado de
 // /admin porque lo consume el usuario final, no el admin).
 app.use("/targeted-offers", targetedOffersRoutes);
+// Confirmar por código el WhatsApp de una cuenta o de una tienda.
+app.use("/whatsapp", whatsappRoutes);
+app.use("/vendor-notices", vendorPanelNoticesRoutes);
 
 app.use((req, res) => res.status(404).json({ error: `Ruta no encontrada: ${req.method} ${req.path}` }));
 

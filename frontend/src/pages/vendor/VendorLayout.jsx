@@ -15,6 +15,7 @@ import { NewOrderPopup } from "../../components/vendor/NewOrderPopup.jsx";
 import { NewRegularOrderPopup } from "../../components/vendor/NewRegularOrderPopup.jsx";
 import { StaleOrderAlert } from "../../components/vendor/StaleOrderAlert.jsx";
 import { TargetedOfferPopup } from "../../components/TargetedOfferPopup.jsx";
+import { VendorPanelNoticePopup } from "../../components/vendor/VendorPanelNoticePopup.jsx";
 import { VendorSearchBar } from "../../components/vendor/VendorSearchBar.jsx";
 import { AudioUnlockBanner } from "../../components/vendor/AudioUnlockBanner.jsx";
 import { PlanBillingBanner } from "../../components/vendor/PlanBillingBanner.jsx";
@@ -1066,6 +1067,8 @@ export default function VendorLayout() {
           hayan cargado (mismo criterio que NewOrderPopup/StaleOrderAlert,
           que ya vienen recibiendo `vendor` solo cuando existe). */}
       <TargetedOfferPopup enabled={!!vendor && !!user} />
+      {/* Avisos del admin para las tiendas (Admin > Avisos a tiendas): solo al dueño. */}
+      <VendorPanelNoticePopup enabled={!!vendor && user?.role === "VENDOR"} />
     </div>
   );
 }

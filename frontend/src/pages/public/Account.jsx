@@ -23,6 +23,8 @@ import { CategoryIcon } from "../../components/ui/CategoryIcon.jsx";
 import { capturePartnerRef, getPartnerCode, clearPartnerRef } from "../../lib/partnerRef.js";
 import { preloadPanel } from "../../lib/panelPreload.js";
 import { UsernameField } from "../../components/UsernameField.jsx";
+import { WhatsappVerifyCard } from "../../components/WhatsappVerifyCard.jsx";
+import ToggleSwitch from "../../components/admin/ToggleSwitch.jsx";
 import { accountKindLabel, panelForRole } from "../../lib/accountPanel.js";
 import { ShoppingBag, Store, ChevronRight } from "lucide-react";
 
@@ -587,6 +589,16 @@ export default function Account({ mode = "customer" }) {
   const [storeForm, setStoreForm] = useState(emptyStoreForm);
   // Plan que se ofrece en la comparación de bienvenida al crear la tienda (null = sin comparación). Ver afterSignupStep.
   const [planModalOffer, setPlanModalOffer] = useState(null);
+  // "Este número tiene WhatsApp": solo se ofrece si la plataforma puede enviar códigos ahora. Sin marcarlo, el número no
+  // recibe avisos por WhatsApp hasta que la persona lo confirme desde su perfil.
+  const { data: whatsappAvailability } = useQuery({
+    queryKey: ["whatsapp-availability"],
+    queryFn: async () => (await api.get("/whatsapp/availability")).data,
+    staleTime: 60 * 1000,
+  });
+  const whatsappAvailable = Boolean(whatsappAvailability?.available);
+  const [wantsWhatsappRaw, setWantsWhatsapp] = useState(false);
+  const wantsWhatsapp = wantsWhatsappRaw && whatsappAvailable;
 
   const [resetEmail, setResetEmail] = useState("");
   const [resetCode, setResetCode] = useState("");
@@ -973,6 +985,15 @@ export default function Account({ mode = "customer" }) {
     // La cuenta ya tiene tienda: se vuelve a leer para que el panel no la mande de nuevo a crearla (needsStore).
     await refetch();
     clearPartnerRef();
+    // Marcó que su número tiene WhatsApp: antes del plan, confirma ese número con un código.
+    if (wantsWhatsapp) {
+      setView("register-whatsapp");
+      return;
+    }
+    await finishVendorSignup();
+  }
+
+  async function finishVendorSignup() {
     // La tienda ya existe: lo que sigue depende del plan elegido en /planes. La lista de planes casi siempre ya está en
     // caché; si no, se pide aquí. Si tampoco llega, con un plan elegido se va a la verificación (esa pantalla ignora una
     // clave que no sea de pago) y sin plan, al panel. Nada de esto debe hacer fallar el alta: la tienda ya se creó.
@@ -1031,8 +1052,8 @@ export default function Account({ mode = "customer" }) {
               ? `¡Cuenta creada! Vinculamos ${linkedOrdersCount} ${linkedOrdersCount === 1 ? "pedido anterior" : "pedidos anteriores"} a tu cuenta.`
               : "¡Cuenta creada!"
           );
-          // Paso opcional: elegir si además se activa la app autenticadora.
-          setView("register-app");
+          // Pasos opcionales: confirmar el WhatsApp (si marcó que lo tiene) y elegir si además se activa la app autenticadora.
+          setView(wantsWhatsapp ? "register-whatsapp" : "register-app");
         }
       });
     } catch (err) {
@@ -1282,6 +1303,31 @@ export default function Account({ mode = "customer" }) {
 
   // Bloque 59: segundo paso del registro (verificación de correo) — mismo
   // patrón visual que "two-factor"/"forgot-code" de arriba/abajo.
+  if (view === "register-whatsapp") {
+    const vendorSignup = accountType === "vendor";
+    const next = () => {
+      if (!vendorSignup) {
+        setView("register-app");
+        return;
+      }
+      finishVendorSignup().catch(() => navigate("/vendedor"));
+    };
+    return (
+      <AccountShell mode={mode}>
+        <div className="animate-step-in">
+          <h1 className="mb-2 text-headline-md text-on-surface">Confirma tu WhatsApp</h1>
+          <p className="mb-5 text-body-md text-on-surface-variant">
+            {vendorSignup
+              ? "Confírmalo con un código y los avisos de tu tienda te llegan también ahí."
+              : "Confírmalo con un código y los avisos de tus pedidos te llegan también ahí."}
+          </p>
+          <WhatsappVerifyCard target={vendorSignup ? "vendor" : "user"} variant="step" onVerified={next} onSkip={next} />
+          <p className="mt-4 text-label-md text-outline">Puedes activarlo o quitarlo cuando quieras desde tu perfil.</p>
+        </div>
+      </AccountShell>
+    );
+  }
+
   if (view === "register-app") {
     return (
       <AccountShell mode={mode}>
@@ -1588,6 +1634,12 @@ export default function Account({ mode = "customer" }) {
                         ? "Este es el número por el que los clientes te contactarán para comprar productos o hacer preguntas."
                         : "Lo usan las tiendas para coordinar tus pedidos contigo."}
                     </p>
+                    {whatsappAvailable && (
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <span className="text-label-md text-on-surface">Este número tiene WhatsApp</span>
+                        <ToggleSwitch isActive={wantsWhatsapp} label="Este número tiene WhatsApp" onToggle={() => setWantsWhatsapp((v) => !v)} />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

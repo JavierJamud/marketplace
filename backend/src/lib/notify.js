@@ -3,6 +3,7 @@ import { requestContext } from "./requestContext.js";
 import { refreshUsers, sendToUser, connectedCount } from "./realtime.js";
 import { pushToUsers } from "./push.js";
 import { orderNoticeDetail } from "./orderSummary.js";
+import { enqueueAdminNotice, enqueueCustomerNotice, enqueueVendorNotice } from "../whatsapp/outbox.js";
 
 // Un solo lugar para avisar a las personas. Cada aviso llega por tres vías según lo que tengan abierto:
 //  1. En vivo (canal SSE): las pantallas abiertas se actualizan y, si hay una abierta, muestra el aviso.
@@ -55,16 +56,27 @@ export async function notifyUsers(userIds, { category, title, body, url = "/", t
   if (!ids.length) return;
   for (const id of ids) sendToUser(id, "notify", { category, title, body, url, tag, detail, type, at: Date.now() });
   refreshUsers(ids);
+  // WhatsApp: los avisos de cliente van también al número que cada persona confirmó. No espera ni depende de si tiene
+  // la página abierta, y un fallo ahí no toca los demás canales.
+  if (PUSH_CATEGORIES[category]?.audience === "CLIENT") {
+    void enqueueCustomerNotice(ids, { category, title, body, url, detail, type }).catch((err) => console.error("[whatsapp] aviso a cliente:", err.message));
+  }
   await pushToUsers(ids, { category, title, body, url, tag, ttl, urgency, app: app ?? APP_FOR_AUDIENCE[PUSH_CATEGORIES[category]?.audience], image });
 }
 
 const APP_FOR_AUDIENCE = { CLIENT: "CLIENT", VENDOR: "VENDOR", ADMIN: "ADMIN" };
 
-export async function notifyAdmins(payload) {
+// `whatsapp: false`: el aviso no va al WhatsApp del admin (porque sale por otro lado con más datos, o porque habla de que
+// WhatsApp mismo no funciona).
+export async function notifyAdmins({ whatsapp = true, ...payload }) {
+  // WhatsApp: al número que cada admin confirmó en Mi perfil. Un fallo ahí no toca los demás canales.
+  if (whatsapp) void enqueueAdminNotice(payload).catch((err) => console.error("[whatsapp] aviso al admin:", err.message));
   await notifyUsers(await adminUserIds(), { app: "ADMIN", ...payload });
 }
 
 export async function notifyVendor(vendorId, payload) {
+  // WhatsApp: un mensaje al número confirmado de la tienda, tenga o no el panel abierto.
+  void enqueueVendorNotice(vendorId, payload).catch((err) => console.error("[whatsapp] aviso a tienda:", err.message));
   await notifyUsers(await vendorUserIds(vendorId), payload);
 }
 
@@ -164,7 +176,8 @@ async function onCreated({ model, args, result }) {
       return notifyVendor(result.vendorId, { category: cat, app: "VENDOR", title: result.title, body: result.body, url: link, tag, urgency: cat === "orders" ? "high" : "normal", detail, image, type: result.type });
     }
     case "Vendor": {
-      return notifyAdmins({ category: "vendors", title: "Nueva tienda registrada", body: result.companyName ?? "Una tienda nueva se registró.", url: "/admin/tiendas", tag: `vendor-${result.id}` });
+      // Por WhatsApp sale aparte, con los datos de la tienda (notifyAdminsNewVendor).
+      return notifyAdmins({ category: "vendors", title: "Nueva tienda registrada", body: result.companyName ?? "Una tienda nueva se registró.", url: "/admin/tiendas", tag: `vendor-${result.id}`, whatsapp: false });
     }
     case "VendorMessage": {
       if (result.senderRole === "ADMIN") return notifyVendor(result.vendorId, { category: "messages", title: "Mensaje de la plataforma", body: result.body ?? "Tienes un mensaje nuevo.", url: "/vendedor/mensajes", tag: `msg-${result.vendorId}` });

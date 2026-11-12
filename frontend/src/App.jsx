@@ -76,6 +76,8 @@ const AdminDeletedVendors = lazyRetry(() => import("./pages/admin/AdminDeletedVe
 const AdminVerifications = lazyRetry(() => import("./pages/admin/AdminVerifications.jsx"));
 const AdminCustomers = lazyRetry(() => import("./pages/admin/AdminCustomers.jsx"));
 const AdminActivityLog = lazyRetry(() => import("./pages/admin/AdminActivityLog.jsx"));
+const AdminWhatsapp = lazyRetry(() => import("./pages/admin/AdminWhatsapp.jsx"));
+const AdminVendorNotices = lazyRetry(() => import("./pages/admin/AdminVendorNotices.jsx"));
 const AdminSuggestions = lazyRetry(() => import("./pages/admin/AdminSuggestions.jsx"));
 const AdminReviews = lazyRetry(() => import("./pages/admin/AdminReviews.jsx"));
 const AdminCampaigns = lazyRetry(() => import("./pages/admin/AdminCampaigns.jsx"));
@@ -359,6 +361,8 @@ export default function App() {
         <Route path="verificaciones" element={<AdminVerifications />} />
         <Route path="clientes" element={<AdminCustomers />} />
         <Route path="actividad" element={<AdminActivityLog />} />
+        <Route path="whatsapp" element={<AdminWhatsapp />} />
+        <Route path="avisos-tiendas" element={<AdminVendorNotices />} />
         <Route path="sugerencias" element={<AdminSuggestions />} />
         <Route path="comentarios" element={<AdminReviews />} />
         <Route path="mensajes" element={<AdminChat />} />

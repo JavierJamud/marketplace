@@ -176,6 +176,17 @@ export const appInstallRateLimit = rateLimit({
   message: { error: "Demasiadas solicitudes." },
 });
 
+// Códigos de confirmación por WhatsApp: el tope fino (por cuenta y por número) está en whatsapp.controller.js; este
+// frena a la cuenta que insiste. Va por cuenta y no por IP: en Cuba mucha gente sale por la misma IP del operador.
+export const whatsappVerifyRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  keyGenerator: (req) => `wa:${req.user.id}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados intentos. Prueba de nuevo en unos minutos." },
+});
+
 export const posDisplayRateLimit = rateLimit({
   windowMs: 60 * 1000,
   limit: 120,

@@ -1039,6 +1039,20 @@ const updatePersonalSchema = z.object({
   lastName: personalNameField,
 });
 
+// Teléfono del admin: a ese número le llegan sus avisos por WhatsApp después de confirmarlo con un código (Mi perfil).
+// Si lo cambia, la confirmación anterior deja de valer sola (se compara con el número confirmado) y debe confirmar el nuevo.
+const adminPhoneSchema = z.object({
+  phone: z.union([z.string().trim().regex(E164_REGEX, "El teléfono debe incluir el código del país."), z.literal("")]),
+});
+
+export async function updateMyAdminPhone(req, res) {
+  const { phone } = adminPhoneSchema.parse(req.body ?? {});
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user || user.role !== "ADMIN") throw new AppError("Solo para administradores.", 403);
+  const updated = await prisma.user.update({ where: { id: user.id }, data: { phone: phone || null } });
+  res.json({ user: publicUser(updated) });
+}
+
 export async function updateMyPersonalData(req, res) {
   const { firstName, lastName } = updatePersonalSchema.parse(req.body ?? {});
 
