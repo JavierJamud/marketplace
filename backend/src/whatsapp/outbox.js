@@ -156,14 +156,45 @@ export async function enqueueCustomerNotice(userIds, payload) {
   }
 }
 
+// Por qué un admin no recibe sus avisos por WhatsApp, o null si los recibe. Vincular el número de la plataforma no basta:
+// cada admin confirma el suyo en Mi perfil. `platformPhone` es el número vinculado, el que envía.
+export async function adminNoticeBlock(admin, platformPhone) {
+  if (!normalizePhone(admin.phone)) return "NO_PHONE";
+  if (!admin.whatsappVerifiedPhone) return "NOT_CONFIRMED";
+  if (!samePhone(admin.whatsappVerifiedPhone, admin.phone)) return "PHONE_CHANGED";
+  // Un mensaje del número a sí mismo cae en el chat propio y el teléfono no avisa.
+  if (samePhone(admin.phone, platformPhone)) return "SAME_AS_PLATFORM";
+  if (await isOptedOut(normalizePhone(admin.phone))) return "OPT_OUT";
+  return null;
+}
+
+// ¿Hay algún admin que reciba avisos por WhatsApp? Lo usa el vigilante (jobs/whatsappWatch.job.js).
+export async function anyAdminReceivesNotices(platformPhone) {
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", deletedAt: null },
+    select: { phone: true, whatsappVerifiedPhone: true },
+  });
+  for (const admin of admins) {
+    if (!(await adminNoticeBlock(admin, platformPhone))) return true;
+  }
+  return false;
+}
+
 // Admins que confirmaron su número (Mi perfil → WhatsApp para avisos). El número es el de la cuenta del admin, distinto
 // del número de la plataforma que envía los mensajes.
+let warnedNoAdminAt = 0;
 async function verifiedAdmins() {
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", deletedAt: null, whatsappVerifiedPhone: { not: null } },
     select: { id: true, phone: true, whatsappVerifiedPhone: true },
   });
-  return admins.filter((a) => samePhone(a.whatsappVerifiedPhone, a.phone));
+  const ready = admins.filter((a) => samePhone(a.whatsappVerifiedPhone, a.phone));
+  // El aviso no sale y no queda fila en el historial: al menos queda una línea en el registro, una por hora como mucho.
+  if (!ready.length && Date.now() - warnedNoAdminAt > 60 * 60 * 1000 && (await cachedSession()).desired === "ON") {
+    warnedNoAdminAt = Date.now();
+    console.warn("[whatsapp] aviso al admin sin destinatario: ningún admin tiene su número confirmado en Mi perfil.");
+  }
+  return ready;
 }
 
 // Aviso al admin: lo mismo que llega a su campanita y a su correo (lib/notify.js → notifyAdmins).

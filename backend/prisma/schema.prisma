@@ -4675,6 +4675,8 @@ model WhatsappSession {
   maxDelaySec Int      @default(11)
   downAlertAt     DateTime?
   phoneReminderAt DateTime?
+  // Cuándo se avisó de que el número está vinculado y ningún admin puede recibir sus avisos. Se vacía cuando alguno ya puede.
+  adminNoticeReminderAt DateTime?
   updatedAt   DateTime @default(now()) @updatedAt
 }
 

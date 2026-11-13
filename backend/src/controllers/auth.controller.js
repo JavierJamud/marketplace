@@ -7,6 +7,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
+import { getSession } from "../whatsapp/outbox.js";
+import { samePhone } from "../whatsapp/phone.js";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { emailField } from "../utils/emailField.js";
@@ -1049,6 +1051,10 @@ export async function updateMyAdminPhone(req, res) {
   const { phone } = adminPhoneSchema.parse(req.body ?? {});
   const user = await prisma.user.findUnique({ where: { id: req.user.id } });
   if (!user || user.role !== "ADMIN") throw new AppError("Solo para administradores.", 403);
+  // El número vinculado como emisor no sirve para recibir: se rechaza aquí para no llegar hasta el paso del código.
+  if (phone && samePhone(phone, (await getSession()).phone)) {
+    throw new AppError("Ese es el número de la plataforma, el que envía los mensajes. Pon aquí tu número personal.", 400);
+  }
   const updated = await prisma.user.update({ where: { id: user.id }, data: { phone: phone || null } });
   res.json({ user: publicUser(updated) });
 }

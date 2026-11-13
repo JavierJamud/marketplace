@@ -76,7 +76,12 @@ export async function startVerification(req, res) {
   const { target } = targetSchema.parse(req.body);
   const subject = await subjectOf(req, target);
   if (!subject.phone) throw new AppError("Primero guarda un número de teléfono.", 400);
-  if (!codesAvailable(await getSession())) {
+  const session = await getSession();
+  // El número vinculado es el que envía: un mensaje a sí mismo cae en su chat propio y el teléfono no avisa.
+  if (samePhone(subject.phone, session.phone)) {
+    throw new AppError("Ese es el número desde el que Baznova envía los mensajes. Para recibir avisos usa otro número.", 400, { reason: "PLATFORM_NUMBER" });
+  }
+  if (!codesAvailable(session)) {
     throw new AppError("Ahora mismo no podemos enviar códigos por WhatsApp. Prueba más tarde.", 409);
   }
 

@@ -4,8 +4,8 @@ import { prisma } from "../lib/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { logActivity } from "../lib/activityLog.js";
 import {
-  PRIORITY_NOTICE, SESSION_ID, WHATSAPP_KINDS, canSendNow, enqueueBroadcast, enqueueDirect, enqueueVendorNotice, forgetSessionCache,
-  getSession, isOptedOut, kindEnabled, refOf, workerAlive,
+  PRIORITY_NOTICE, SESSION_ID, WHATSAPP_KINDS, adminNoticeBlock, canSendNow, enqueueBroadcast, enqueueDirect, enqueueVendorNotice,
+  forgetSessionCache, getSession, isOptedOut, kindEnabled, refOf, workerAlive,
 } from "../whatsapp/outbox.js";
 import { digitsOf, normalizePhone, samePhone } from "../whatsapp/phone.js";
 import { BROADCAST_MAX, broadcastText, testText } from "../whatsapp/templates.js";
@@ -26,7 +26,7 @@ export async function getWhatsappStatus(req, res) {
   const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const notice = { priority: { gte: PRIORITY_NOTICE } };
-  const [sentHour, sentDay, pending, failedDay, users, vendors, optOuts] = await Promise.all([
+  const [sentHour, sentDay, pending, failedDay, users, vendors, optOuts, me] = await Promise.all([
     prisma.whatsappMessage.count({ where: { ...notice, status: "SENT", sentAt: { gt: hourAgo } } }),
     prisma.whatsappMessage.count({ where: { ...notice, status: "SENT", sentAt: { gt: dayAgo } } }),
     prisma.whatsappMessage.count({ where: { status: { in: ["PENDING", "SENDING"] } } }),
@@ -34,7 +34,10 @@ export async function getWhatsappStatus(req, res) {
     prisma.user.count({ where: { deletedAt: null, whatsappVerifiedPhone: { not: null } } }),
     prisma.vendor.count({ where: { deletedAt: null, whatsappVerifiedPhone: { not: null } } }),
     prisma.whatsappOptOut.count(),
+    prisma.user.findUnique({ where: { id: req.user.id }, select: { phone: true, whatsappVerifiedPhone: true } }),
   ]);
+  // Los avisos de quien mira la página: si no le llegan, la página dice por qué (el número se confirma en Mi perfil).
+  const block = me ? await adminNoticeBlock(me, session.phone) : "NO_PHONE";
   res.json({
     status: session.status,
     desired: session.desired,
@@ -54,6 +57,7 @@ export async function getWhatsappStatus(req, res) {
     kinds: WHATSAPP_KINDS.map((kind) => ({ ...kind, enabled: kindEnabled(session, kind.key) })),
     counts: { sentHour, sentDay, pending, failedDay },
     confirmed: { users, vendors, optOuts },
+    adminNotices: { ready: !block, reason: block, phone: normalizePhone(me?.phone) },
   });
 }
 

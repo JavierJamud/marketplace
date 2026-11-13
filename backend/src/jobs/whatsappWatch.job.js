@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { prisma } from "../lib/prisma.js";
 import { notifyAdmins } from "../lib/notify.js";
-import { SESSION_ID, getSession, workerAlive } from "../whatsapp/outbox.js";
+import { SESSION_ID, anyAdminReceivesNotices, getSession, workerAlive } from "../whatsapp/outbox.js";
 
 // Vigila el WhatsApp de la plataforma y le avisa al admin (campana, push) cuando necesita que haga algo.
 
@@ -12,6 +12,8 @@ const DOWN_AFTER_MS = 10 * MIN;
 const DOWN_REPEAT_MS = 6 * 60 * MIN;
 // WhatsApp cierra los dispositivos vinculados si el teléfono principal pasa unos 14 días sin abrir la app.
 const PHONE_REMINDER_MS = 10 * DAY;
+// Recién vinculado, el admin todavía está confirmando su propio número: se le da este margen antes de recordárselo.
+const OWN_NUMBER_GRACE_MS = 15 * MIN;
 const KEEP_MESSAGES_MS = 30 * DAY;
 const KEEP_VERIFICATIONS_MS = 2 * DAY;
 const PANEL_URL = "/admin/whatsapp";
@@ -83,6 +85,27 @@ export async function runWhatsappWatchJob() {
     }
   } else if (session.desired !== "ON" && session.phoneReminderAt) {
     await setSession({ phoneReminderAt: null });
+  }
+
+  // Vincular el número de la plataforma no activa los avisos del admin: cada admin confirma el suyo en Mi perfil. Si el
+  // número ya envía y ningún admin puede recibir, se avisa una vez por cada vinculación (campana y push).
+  if (session.desired === "ON" && session.status === "CONNECTED") {
+    const linkedFor = session.connectedAt ? Date.now() - new Date(session.connectedAt).getTime() : 0;
+    if (await anyAdminReceivesNotices(session.phone)) {
+      if (session.adminNoticeReminderAt) await setSession({ adminNoticeReminderAt: null });
+    } else if (!session.adminNoticeReminderAt && linkedFor > OWN_NUMBER_GRACE_MS) {
+      await setSession({ adminNoticeReminderAt: now });
+      await notifyAdmins({
+        category: "errors",
+        title: "Tus avisos por WhatsApp no están activos",
+        body: "El número de la plataforma está vinculado, pero ningún administrador confirmó su número personal. Confírmalo en Mi perfil para recibir por WhatsApp las tiendas nuevas, las verificaciones y los pagos.",
+        url: "/admin/perfil", tag: "whatsapp-admin-number",
+        // Por WhatsApp no: no hay número de admin al que mandarlo.
+        whatsapp: false,
+      });
+    }
+  } else if (session.desired !== "ON" && session.adminNoticeReminderAt) {
+    await setSession({ adminNoticeReminderAt: null });
   }
 
   await prisma.whatsappMessage.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - KEEP_MESSAGES_MS) } } });

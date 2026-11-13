@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Smartphone } from "lucide-react";
 import { api, getErrorMessage } from "../../lib/api.js";
 import toast from "../../lib/toast.jsx";
@@ -178,6 +178,50 @@ function ConnectionCard({ data }) {
           unlink.mutate();
         }}
       />
+    </section>
+  );
+}
+
+// Por qué no le llegan los avisos a quien mira la página. El motivo lo calcula el servidor (adminNoticeBlock en outbox.js).
+const OWN_BLOCK = {
+  NO_PHONE: () => "Falta tu número. El de arriba es el que envía; el tuyo, el que recibe, se pone y se confirma en Mi perfil.",
+  NOT_CONFIRMED: (phone) => `Tu número ${phone} está guardado pero sin confirmar. Pide el código en Mi perfil y escríbelo ahí.`,
+  PHONE_CHANGED: (phone) => `Cambiaste tu número a ${phone} y el nuevo está sin confirmar. Confírmalo en Mi perfil.`,
+  SAME_AS_PLATFORM: () => "Tu número es el mismo que el de la plataforma. Un mensaje del número a sí mismo no hace sonar el teléfono: pon tu número personal en Mi perfil.",
+  OPT_OUT: (phone) => `Tu número ${phone} respondió BAJA y dejó de recibir avisos. Confírmalo de nuevo en Mi perfil para volver a recibirlos.`,
+};
+
+// Vincular el número de la plataforma no activa los avisos del admin: son dos pasos distintos y este cuadro dice cómo va el segundo.
+function OwnNoticesCard({ data }) {
+  const navigate = useNavigate();
+  const { ready, reason, phone } = data.adminNotices;
+  const off = data.kinds.filter((kind) => kind.key.startsWith("ADMIN:") && !kind.enabled).map((kind) => kind.label.replace("Admin: ", ""));
+  return (
+    <section className={CARD}>
+      <h2 className={H2}>Tus avisos</h2>
+      {ready ? (
+        <p className="mt-3 flex items-start gap-2 text-[14px] text-on-surface">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-verified-dark" aria-hidden="true" />
+          <span>Te llegan al <span className="font-semibold">{phone}</span>.</span>
+        </p>
+      ) : (
+        <>
+          <p className="mt-3 flex items-start gap-2 rounded-lg bg-error/10 px-3 py-2 text-[13.5px] text-error">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <span><span className="font-semibold">No te llega ningún aviso por WhatsApp.</span> {(OWN_BLOCK[reason] ?? OWN_BLOCK.NO_PHONE)(phone)}</span>
+          </p>
+          <p className="mt-3 text-[13px] text-on-surface-variant">
+            Los avisos te siguen llegando a la campana del panel, y las tiendas nuevas también al correo.
+          </p>
+          <Button className="mt-4" onClick={() => navigate("/admin/perfil")}>Ir a Mi perfil</Button>
+        </>
+      )}
+      {ready && data.paused && (
+        <p className="mt-3 text-[13px] text-on-surface-variant">Los avisos están en pausa: no sale ninguno hasta que quites la pausa en Qué se envía.</p>
+      )}
+      {ready && off.length > 0 && (
+        <p className="mt-3 text-[13px] text-on-surface-variant">Apagados en Qué se envía: {off.join("; ")}.</p>
+      )}
     </section>
   );
 }
@@ -713,6 +757,7 @@ export default function AdminWhatsapp() {
       ) : (
         <div className="flex flex-col gap-5">
           <ConnectionCard data={data} />
+          {data.status === "CONNECTED" && <OwnNoticesCard data={data} />}
           <Numbers data={data} />
           <VendorsCard />
           <BroadcastCard />
